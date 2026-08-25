@@ -1,8 +1,7 @@
 //! `datetime::formatDuration` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str = r#"Render a `Duration` as a human-readable `[-][Nd ]HH:MM:SS.mmm` span."#;
 const DESC: &str = r#"`datetime::formatDuration` renders the signed span `d` as a fixed-shape string of

@@ -17,7 +17,7 @@
 //! `EOVERFLOW`) when the year does not fit `tm_year`'s `int`, leaving `tm`
 //! untouched, so that member branches on the return and raises `ErrInvalidArgument`
 //! rather than reading an uninitialized stack qword (bug-42). The portable
-//! calendar math that consumes these lives in `datetime_package.mfb`.
+//! calendar math that consumes these lives in the injected `__datetime_*` bodies.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;

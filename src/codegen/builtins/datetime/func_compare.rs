@@ -1,8 +1,7 @@
 //! `datetime::compare` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str = r#"Order two instants on the UTC timeline as a three-way sign."#;
 const DESC: &str = r#"`datetime::compare` returns the sign of `a - b` as a three-way ordering: `-1`

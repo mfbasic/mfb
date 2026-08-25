@@ -1,8 +1,37 @@
 //! `datetime::duration` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
+
+#[rustfmt::skip]
+const BODY_1: &str =
+r#"FUNC __datetime_duration1(seconds AS Integer) AS Duration
+  RETURN Duration[seconds, 0]
+END FUNC"#;
+
+#[rustfmt::skip]
+const BODY_2: &str =
+r#"FUNC __datetime_duration2(seconds AS Integer, nanos AS Integer) AS Duration
+  RETURN __datetime_normDuration(seconds, nanos)
+END FUNC"#;
+
+#[rustfmt::skip]
+const BODY_3: &str =
+r#"FUNC __datetime_duration3(mins AS Integer, seconds AS Integer, nanos AS Integer) AS Duration
+  RETURN __datetime_normDuration(mins * 60 + seconds, nanos)
+END FUNC"#;
+
+#[rustfmt::skip]
+const BODY_4: &str =
+r#"FUNC __datetime_duration4(hours AS Integer, mins AS Integer, seconds AS Integer, nanos AS Integer) AS Duration
+  RETURN __datetime_normDuration(hours * 3600 + mins * 60 + seconds, nanos)
+END FUNC"#;
+
+#[rustfmt::skip]
+const BODY_5: &str =
+r#"FUNC __datetime_duration5(days AS Integer, hours AS Integer, mins AS Integer, seconds AS Integer, nanos AS Integer) AS Duration
+  RETURN __datetime_normDuration(days * 86400 + hours * 3600 + mins * 60 + seconds, nanos)
+END FUNC"#;
 
 const INTRO: &str =
     r#"Build a `Duration` span from seconds, nanoseconds, or larger time components."#;
@@ -100,7 +129,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 }],
                 return_type: super::ParameterType::named("Duration"),
                 errors: vec![],
-                body: super::Body::Rewrite("__datetime_duration1"),
+                body: super::Body::mfb(BODY_1, "__datetime_duration1"),
             },
             super::Implementation {
                 params: vec![
@@ -121,7 +150,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::named("Duration"),
                 errors: vec![],
-                body: super::Body::Rewrite("__datetime_duration2"),
+                body: super::Body::mfb(BODY_2, "__datetime_duration2"),
             },
             super::Implementation {
                 params: vec![
@@ -149,7 +178,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::named("Duration"),
                 errors: vec![],
-                body: super::Body::Rewrite("__datetime_duration3"),
+                body: super::Body::mfb(BODY_3, "__datetime_duration3"),
             },
             super::Implementation {
                 params: vec![
@@ -184,7 +213,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::named("Duration"),
                 errors: vec![],
-                body: super::Body::Rewrite("__datetime_duration4"),
+                body: super::Body::mfb(BODY_4, "__datetime_duration4"),
             },
             super::Implementation {
                 params: vec![
@@ -226,7 +255,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::named("Duration"),
                 errors: vec![],
-                body: super::Body::Rewrite("__datetime_duration5"),
+                body: super::Body::mfb(BODY_5, "__datetime_duration5"),
             },
         ],
     });

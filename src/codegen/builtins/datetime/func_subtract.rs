@@ -1,8 +1,7 @@
 //! `datetime::subtract` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str = r#"Shift an `Instant` backward along the UTC timeline by a `Duration`."#;
 const DESC: &str = r#"`datetime::subtract` returns the `Instant` reached by moving `at` backward along

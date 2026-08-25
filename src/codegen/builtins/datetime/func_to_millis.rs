@@ -1,8 +1,7 @@
 //! `datetime::toMillis` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str = r#"Return the whole milliseconds between the Unix epoch and an `Instant`."#;
 const DESC: &str = r#"`datetime::toMillis` collapses the absolute point `at` into a single `Integer`

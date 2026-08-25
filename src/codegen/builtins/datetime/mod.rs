@@ -1,9 +1,9 @@
 //! Built-in `datetime::` package — migrated onto the clean-room registry
 //! (`crate::codegen::registry`), mirroring `csv`/`json`/`regex`.
 //!
-//! The portable calendar math, formatting, and parsing live in `package.mfb`
-//! (types, enums, private `__datetime_*` helpers, and the arity-dispatched
-//! constructor bodies); each callable member's body is spliced in from its
+//! The portable calendar math, formatting, and parsing live in the injected
+//! source (registry-modeled types and enums, private `__datetime_*` helpers,
+//! and the arity-dispatched constructor bodies); each member's body rides its
 //! `func_*.rs` `BODY` const via [`Body::mfb`]. Registration, the argument-typed
 //! return resolution, and the public→internal rewrite mapping all live here.
 //! The only platform state is reached through three intrinsics (`nowNanos`,
@@ -19,8 +19,8 @@
 //! are gone.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, EnumVariant, Implementation, Parameter, Registry, RegistryEnum,
-    RegistryFunction, RegistryPackage,
+    Body, DefaultValue, EnumVariant, Implementation, Parameter, RecordProp, Registry, RegistryEnum,
+    RegistryFunction, RegistryPackage, RegistryRecord,
 };
 use crate::types::ParameterType;
 
@@ -66,30 +66,280 @@ required offset."#;
 
 /// Register the `datetime` package on the clean-room registry.
 ///
-/// The types (`Instant`, `Date`, …) and enums (`ZoneKind`, `Weekday`, `Month`),
-/// the private `__datetime_*` helpers, and the arity constructor bodies all live
-/// in `package.mfb` (the registry does not model `ENUM`s or the source `DOC`
-/// blocks, so they stay authored there); it is injected via
-/// `add_helper_functions`, and each single-body member's `.mfb` body is appended
-/// through its [`Body::mfb`].
+/// Everything renders from registry models: the value records (`Instant`, …,
+/// with their `DOC` blocks round-tripped through `RegistryRecord::description`),
+/// the enums (`ZoneKind`, `Weekday`, `Month`), the private `__datetime_*`
+/// helpers (one `helper_*.rs` per FUNC — private-only), and every member body
+/// through its [`Body::mfb`] (the multi-overload constructors carry one body per
+/// `Implementation` in their `func_*.rs`).
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("datetime", MODULE_INTRO, MODULE_DESC);
 
-    // `package.mfb` carries its own `IMPORT datetime/strings/collections`, the
-    // `TYPE`/`ENUM` declarations, the private helpers, and the arity bodies.
-    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
-        "datetime_package",
-        include_str!("package.mfb"),
-    ));
+    // The injected source's IMPORT lines (verbatim order from the old companion;
+    // the self-import lets the bodies call the native clock intrinsics).
+    pkg.add_imports(vec!["datetime", "strings", "collections"]);
 
-    // The public value RECORDS are authored (with their `DOC` blocks and byte-exact
-    // field formatting) in `package.mfb`; recording their names as source-declared
-    // types lets the generic `registry::is_builtin_type` / `qualified_builtin_type`
-    // recognize them without double-declaring.
-    pkg.add_source_types(&["Instant", "Duration", "Date", "Time", "Zone", "DateTime"]);
+    // The public value records (§3): every one a flat copyable record; the DOC
+    // blocks render into the injected source via `description`.
+    pkg.add_record(RegistryRecord {
+        name: "Instant",
+        export: true,
+        description: "An absolute point on the UTC timeline, stored as a count of seconds since the Unix epoch plus a sub-second nanosecond part.",
+        props: vec![
+            RecordProp {
+                name: "seconds",
+                ty: ParameterType::Integer,
+                description: "Whole seconds since the Unix epoch (1970-01-01T00:00:00Z).",
+            },
+            RecordProp {
+                name: "nanos",
+                ty: ParameterType::Integer,
+                description: "Sub-second part in nanoseconds, in the range 0..999_999_999.",
+            },
+        ],
+    });
+    pkg.add_record(RegistryRecord {
+        name: "Duration",
+        export: true,
+        description:
+            "A signed span of time between two instants, stored as seconds plus a nanosecond part.",
+        props: vec![
+            RecordProp {
+                name: "seconds",
+                ty: ParameterType::Integer,
+                description: "The whole-seconds component of the span.",
+            },
+            RecordProp {
+                name: "nanos",
+                ty: ParameterType::Integer,
+                description: "The sub-second part in nanoseconds, in the range 0..999_999_999.",
+            },
+        ],
+    });
+    pkg.add_record(RegistryRecord {
+        name: "Date",
+        export: true,
+        description: "A proleptic-Gregorian calendar date, without any time or zone.",
+        props: vec![
+            RecordProp {
+                name: "year",
+                ty: ParameterType::Integer,
+                description: "The year (e.g. 2026).",
+            },
+            RecordProp {
+                name: "month",
+                ty: ParameterType::Integer,
+                description: "The month of the year, 1..12.",
+            },
+            RecordProp {
+                name: "day",
+                ty: ParameterType::Integer,
+                description: "The day of the month, 1..31.",
+            },
+        ],
+    });
+    pkg.add_record(RegistryRecord {
+        name: "Time",
+        export: true,
+        description: "A wall-clock time of day, without any date or zone.",
+        props: vec![
+            RecordProp {
+                name: "hour",
+                ty: ParameterType::Integer,
+                description: "The hour of the day, 0..23.",
+            },
+            RecordProp {
+                name: "minute",
+                ty: ParameterType::Integer,
+                description: "The minute of the hour, 0..59.",
+            },
+            RecordProp {
+                name: "second",
+                ty: ParameterType::Integer,
+                description: "The second of the minute, 0..59.",
+            },
+            RecordProp {
+                name: "nanos",
+                ty: ParameterType::Integer,
+                description: "The sub-second part in nanoseconds, in the range 0..999_999_999.",
+            },
+        ],
+    });
+    pkg.add_record(RegistryRecord {
+        name: "Zone",
+        export: true,
+        description: "A time zone, described by its offset from UTC together with the kind of zone and a display label.",
+        props: vec![
+            RecordProp {
+                name: "offsetSeconds",
+                ty: ParameterType::Integer,
+                description: "Offset from UTC in seconds (east positive).",
+            },
+            RecordProp {
+                name: "kind",
+                ty: ParameterType::Integer,
+                description: "The zone's kind as a `ZoneKind` discriminant (Utc, FixedOffset, or Local).",
+            },
+            RecordProp {
+                name: "label",
+                ty: ParameterType::String,
+                description: "A human-readable label for the zone (e.g. `\"UTC\"` or `\"+05:30\"`).",
+            },
+        ],
+    });
+    pkg.add_record(RegistryRecord {
+        name: "DateTime",
+        export: true,
+        description: "A zoned date-and-time: a `Date` and `Time` interpreted in a `Zone`, with the resolved UTC offset cached alongside.",
+        props: vec![
+            RecordProp {
+                name: "date",
+                ty: ParameterType::named("Date"),
+                description: "The calendar date component.",
+            },
+            RecordProp {
+                name: "time",
+                ty: ParameterType::named("Time"),
+                description: "The wall-clock time component.",
+            },
+            RecordProp {
+                name: "zone",
+                ty: ParameterType::named("Zone"),
+                description: "The zone the date and time are expressed in.",
+            },
+            RecordProp {
+                name: "offset",
+                ty: ParameterType::Integer,
+                description: "The resolved offset from UTC in seconds at this moment.",
+            },
+        ],
+    });
+    // The parser's internal accumulators (not exported: only the `__datetime_*`
+    // helper bodies touch them).
+    pkg.add_record(RegistryRecord {
+        name: "__datetime_NumRead",
+        export: false,
+        description: "",
+        props: vec![
+            RecordProp {
+                name: "value",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "nextPos",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+        ],
+    });
+    pkg.add_record(RegistryRecord {
+        name: "__datetime_Fields",
+        export: false,
+        description: "",
+        props: vec![
+            RecordProp {
+                name: "year",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "month",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "day",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "hour",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "minute",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "second",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "nanos",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "offset",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "hasOff",
+                ty: ParameterType::Boolean,
+                description: "",
+            },
+            RecordProp {
+                name: "isPM",
+                ty: ParameterType::Boolean,
+                description: "",
+            },
+            RecordProp {
+                name: "is12",
+                ty: ParameterType::Boolean,
+                description: "",
+            },
+            RecordProp {
+                name: "hadPM",
+                ty: ParameterType::Boolean,
+                description: "",
+            },
+            RecordProp {
+                name: "nextPos",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+        ],
+    });
+
+    // The private `__datetime_*` helper bodies (normalization, civil math,
+    // formatting, and the pattern parser), one `helper_*.rs` per FUNC
+    // (`add_helper` — private-only), registered in the old companion order.
+    helper_norm_instant::register(&mut pkg);
+    helper_norm_duration::register(&mut pkg);
+    helper_floor_div::register(&mut pkg);
+    helper_floor_mod::register(&mut pkg);
+    helper_days_from_civil::register(&mut pkg);
+    helper_civil_from_days::register(&mut pkg);
+    helper_pad2::register(&mut pkg);
+    helper_offset_label_sep::register(&mut pkg);
+    helper_offset_label::register(&mut pkg);
+    helper_resolve_local::register(&mut pkg);
+    helper_is_letter::register(&mut pkg);
+    helper_pad_n::register(&mut pkg);
+    helper_iso_weekday::register(&mut pkg);
+    helper_month_name::register(&mut pkg);
+    helper_weekday_name::register(&mut pkg);
+    helper_offset_label_compact::register(&mut pkg);
+    helper_hour12::register(&mut pkg);
+    helper_format_token::register(&mut pkg);
+    helper_is_digit::register(&mut pkg);
+    helper_peek::register(&mut pkg);
+    helper_read_num::register(&mut pkg);
+    helper_month_from_name::register(&mut pkg);
+    helper_skip_weekday_name::register(&mut pkg);
+    helper_read_offset::register(&mut pkg);
+    helper_parse_fields::register(&mut pkg);
+    helper_build_from_fields::register(&mut pkg);
+    helper_expect::register(&mut pkg);
+    helper_iso_zone::register(&mut pkg);
 
     // The public value ENUMS are modeled on the registry — `get_mfb` renders them into
-    // the injected source in place of a hand-written `EXPORT ENUM` in `package.mfb`.
+    // the injected source alongside the modeled records.
     pkg.add_enum(RegistryEnum {
         name: "ZoneKind",
         export: true,
@@ -291,6 +541,35 @@ mod func_to_utc;
 mod func_utc;
 mod func_weekday;
 mod func_with_zone;
+
+mod helper_build_from_fields;
+mod helper_civil_from_days;
+mod helper_days_from_civil;
+mod helper_expect;
+mod helper_floor_div;
+mod helper_floor_mod;
+mod helper_format_token;
+mod helper_hour12;
+mod helper_is_digit;
+mod helper_is_letter;
+mod helper_iso_weekday;
+mod helper_iso_zone;
+mod helper_month_from_name;
+mod helper_month_name;
+mod helper_norm_duration;
+mod helper_norm_instant;
+mod helper_offset_label;
+mod helper_offset_label_compact;
+mod helper_offset_label_sep;
+mod helper_pad2;
+mod helper_pad_n;
+mod helper_parse_fields;
+mod helper_peek;
+mod helper_read_num;
+mod helper_read_offset;
+mod helper_resolve_local;
+mod helper_skip_weekday_name;
+mod helper_weekday_name;
 
 // Man-page citation anchor: `DATETIME`. The ~50 `datetime/*` man pages ground their
 // value-type and OS-seam facts in this package with `[[…/datetime/mod.rs:DATETIME]]`.
@@ -521,8 +800,8 @@ mod tests {
 
     #[test]
     fn builtin_types_recognized() {
-        // The value records/enums are source-declared (in `package.mfb`) and
-        // recognized through the generic registry via `add_source_types`.
+        // The value records/enums are registry-modeled and
+        // recognized through the generic registry via `add_record`.
         for t in [
             "Instant", "Duration", "Date", "Time", "Zone", "DateTime", "ZoneKind", "Weekday",
             "Month",

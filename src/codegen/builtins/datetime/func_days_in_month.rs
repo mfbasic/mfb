@@ -1,8 +1,7 @@
 //! `datetime::daysInMonth` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str = r#"The number of days in a calendar month."#;
 const DESC: &str = r#"`datetime::daysInMonth` returns the number of days in the given `month` of the

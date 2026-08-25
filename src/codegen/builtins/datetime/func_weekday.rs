@@ -1,8 +1,7 @@
 //! `datetime::weekday` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str = r#"The day of the week of a `DateTime`'s civil date."#;
 const DESC: &str = r#"`datetime::weekday` returns the day of the week on which `dt`'s civil date falls,

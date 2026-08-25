@@ -1,8 +1,7 @@
 //! `datetime::plus` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str = r#"Add two `Duration` spans into their combined `Duration`."#;
 const DESC: &str = r#"`datetime::plus` returns the `Duration` `a + b`, the signed span that results

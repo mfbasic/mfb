@@ -1,8 +1,7 @@
 //! `datetime::date` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str = r#"Validate and build a calendar `Date` from year, month, and day components."#;
 const DESC: &str = r#"`datetime::date` builds a calendar `Date` on the proleptic-Gregorian calendar

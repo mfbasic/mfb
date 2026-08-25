@@ -1,23 +1,87 @@
 //! `http::responseDefault` — descriptor entry (source-backed, body
-//! `__http_responseDefault`). Docs in
-//! `src/docs/man/builtins/http/responseDefault.md`.
+//! `__http_responseDefault`).
 
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
+const INTRO: &str = r#"Return a fresh `200 OK` response value, the base for `WITH` edits."#;
+
+const DESC: &str = r#"`responseDefault` takes no arguments and returns a newly constructed
+`http::Response` with `status` `200`, `reason` `"OK"`, `httpVersion` `"1.1"`, an
+**empty** headers map, a `body` of the two bytes of the text `"OK"`, and `ok`
+`TRUE`. It reads no state and has no side effects; every call returns the same
+value.
+
+It exists because `http::Response` cannot be mutated in place — MFBASIC has no
+field-target assignment — so a handler that wants a response shape the other
+constructors do not produce starts from this value and rewrites fields with
+`WITH`. When `http::ok`, `http::status`, or `http::json` already produce what you
+want, use those instead: they set a `content-type` header, which
+`responseDefault` does not.
+
+Two consequences of the returned field values matter when you edit them:
+
+- `ok` is a plain stored field, not a computed one. `WITH resp { status := 500 }`
+  leaves `ok` `TRUE`; set it yourself in the same or a following `WITH` if
+  anything downstream reads it.
+- `reason` is `"OK"` rather than `""`. The server fills in a status-appropriate
+  reason phrase only when `reason` is empty, so a response whose `status` you
+  changed but whose `reason` you did not will be written on the wire as, for
+  example, `HTTP/1.1 418 OK`. Set `reason` explicitly, or clear it to `""` to let
+  the server derive it.
+
+When the response is served, `Content-Length` and `Connection` are always supplied
+by the server and any handler-set value for those two names is dropped; the empty
+headers map here means no other header is emitted."#;
+
+const EX: &str = r#"Building a custom status and body with `WITH`, keeping `reason` and `ok`
+consistent:
+
+```
+IMPORT http
+
+FUNC teapot() AS http::Response
+  MUT resp AS http::Response = http::responseDefault()
+  resp = WITH resp { status := 418 }
+  resp = WITH resp { reason := "I'm a teapot" }
+  resp = WITH resp { ok := FALSE }
+  resp = WITH resp { body := http::bytes("no coffee here") }
+  RETURN resp
+END FUNC
+```
+
+Starting from the default and adding a header:
+
+```
+IMPORT http
+IMPORT io
+
+SUB main()
+  LET resp = http::withHeader(http::responseDefault(), "cache-control", "no-store")
+  io::print(toString(resp.status) & " " & resp.reason)
+END SUB
+```"#;
+
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __http_responseDefault() AS Response
+  LET h AS Map OF String TO String = Map OF String TO String {}
+  RETURN Response[200, "OK", "1.1", h, strings::toBytes("OK"), TRUE]
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "responseDefault",
-        intro: "",
-        desc: "",
-        example: "",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
         expected_arguments: Some("no arguments"),
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::named(super::RESPONSE_TYPE),
             errors: vec![],
-            body: Body::Rewrite("__http_responseDefault"),
+            body: Body::mfb(BODY, "__http_responseDefault"),
         }],
     });
 }

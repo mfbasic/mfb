@@ -1,8 +1,19 @@
 //! `datetime::parse` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
+
+#[rustfmt::skip]
+const BODY_2: &str =
+r#"FUNC __datetime_parse2(value AS String, pattern AS String) AS DateTime
+  RETURN __datetime_parse3(value, pattern, __datetime_utc())
+END FUNC"#;
+
+#[rustfmt::skip]
+const BODY_3: &str =
+r#"FUNC __datetime_parse3(value AS String, pattern AS String, zone AS Zone) AS DateTime
+  RETURN __datetime_buildFromFields(__datetime_parseFields(value, pattern), zone)
+END FUNC"#;
 
 const INTRO: &str = r#"Parse text into a `DateTime` using the format pattern mini-language."#;
 const DESC: &str = r#"`datetime::parse` reads `value` against `pattern` and returns the `DateTime` it
@@ -123,7 +134,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::named("DateTime"),
                 errors: vec![],
-                body: super::Body::Rewrite("__datetime_parse2"),
+                body: super::Body::mfb(BODY_2, "__datetime_parse2"),
             },
             super::Implementation {
                 params: vec![
@@ -151,7 +162,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::named("DateTime"),
                 errors: vec![],
-                body: super::Body::Rewrite("__datetime_parse3"),
+                body: super::Body::mfb(BODY_3, "__datetime_parse3"),
             },
         ],
     });

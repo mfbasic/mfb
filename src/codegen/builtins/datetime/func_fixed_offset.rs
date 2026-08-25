@@ -1,8 +1,35 @@
 //! `datetime::fixedOffset` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
+
+#[rustfmt::skip]
+const BODY_1: &str =
+r#"FUNC __datetime_fixedOffset1(offsetSeconds AS Integer) AS Zone
+  IF offsetSeconds <= -86400 OR offsetSeconds >= 86400 THEN
+    FAIL error(77050002, "datetime: fixed offset magnitude must be under 24h")
+  END IF
+  RETURN Zone[offsetSeconds, 1, __datetime_offsetLabel(offsetSeconds)]
+END FUNC"#;
+
+#[rustfmt::skip]
+const BODY_2: &str =
+r#"FUNC __datetime_fixedOffset2(hours AS Integer, mins AS Integer) AS Zone
+  IF mins < 0 OR mins > 59 THEN
+    FAIL error(77050002, "datetime: fixed offset minutes out of range")
+  END IF
+  MUT absHours AS Integer = hours
+  MUT negative AS Boolean = FALSE
+  IF hours < 0 THEN
+    absHours = -hours
+    negative = TRUE
+  END IF
+  MUT total AS Integer = absHours * 3600 + mins * 60
+  IF negative THEN
+    total = -total
+  END IF
+  RETURN __datetime_fixedOffset1(total)
+END FUNC"#;
 
 const INTRO: &str = r#"Build a `Zone` with a constant UTC offset."#;
 const DESC: &str = r#"`datetime::fixedOffset` builds a `Zone` whose offset from UTC is a constant
@@ -84,7 +111,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 }],
                 return_type: super::ParameterType::named("Zone"),
                 errors: vec![],
-                body: super::Body::Rewrite("__datetime_fixedOffset1"),
+                body: super::Body::mfb(BODY_1, "__datetime_fixedOffset1"),
             },
             super::Implementation {
                 params: vec![
@@ -105,7 +132,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::named("Zone"),
                 errors: vec![],
-                body: super::Body::Rewrite("__datetime_fixedOffset2"),
+                body: super::Body::mfb(BODY_2, "__datetime_fixedOffset2"),
             },
         ],
     });

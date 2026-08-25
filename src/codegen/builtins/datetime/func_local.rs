@@ -1,8 +1,7 @@
 //! `datetime::local` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str = r#"The `Zone` representing the host's local time."#;
 const DESC: &str = r#"`datetime::local` returns the `Zone` that represents the host's local time. The

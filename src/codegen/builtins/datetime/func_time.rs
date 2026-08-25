@@ -1,8 +1,7 @@
 //! `datetime::time` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str = r#"Validate and build a time-of-day `Time` from hour, minute, second, and sub-second components."#;
 const DESC: &str = r#"`datetime::time` builds a `Time` of day from its `hour`, `minute`, `second`, and

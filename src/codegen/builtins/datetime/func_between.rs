@@ -1,8 +1,7 @@
 //! `datetime::between` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str = r#"The signed `Duration` span between two instants."#;
 const DESC: &str = r#"`datetime::between` returns the signed `Duration` `finish - start`: the length of

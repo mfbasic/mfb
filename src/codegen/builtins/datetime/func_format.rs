@@ -1,8 +1,7 @@
 //! `datetime::format` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str = r#"Render a `DateTime` as text with the pattern mini-language."#;
 const DESC: &str = r#"`datetime::format` renders the fields of `dt` as text by walking `pattern` from

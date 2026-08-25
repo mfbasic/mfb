@@ -1,8 +1,7 @@
 //! `datetime::offsetAt` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md): the descriptor, the authored docs,
+//! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str = r#"A `Zone`'s signed UTC offset in seconds at a given `Instant`."#;
 const DESC: &str = r#"`datetime::offsetAt` returns the signed offset from UTC, in seconds, that

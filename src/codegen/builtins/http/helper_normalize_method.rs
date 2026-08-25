@@ -1,0 +1,23 @@
+//! `__http_normalizeMethod` — shared private helper for the `http` package.
+//!
+//! Registered via `add_helper`; renders in the helper section of the assembled
+//! source, in the order `mod.rs` calls the helpers. Body byte-significant
+//! (2-space indent → `.ncode` columns); do not reformat.
+
+use crate::codegen::registry::{RegistryHelper, RegistryPackage};
+
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __http_normalizeMethod(method AS String) AS String
+  IF method = "" THEN
+    FAIL error(77050002, "empty HTTP method")
+  END IF
+  IF strings::contains(method, " ") THEN
+    FAIL error(77050002, "invalid HTTP method")
+  END IF
+  RETURN strings::upper(method)
+END FUNC"#;
+
+pub(crate) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_helper(RegistryHelper::always("http_normalizeMethod", BODY));
+}
