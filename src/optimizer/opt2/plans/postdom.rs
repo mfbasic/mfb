@@ -22,7 +22,11 @@ use crate::codegen::engine::regalloc::analysis::Block;
 /// Postdominance facts for one function's CFG.
 pub(crate) struct PostDom {
     /// `ipdom[b]` = immediate postdominator block of `b`, or `usize::MAX` when
-    /// `b`'s immediate postdominator is the virtual exit.
+    /// `b`'s immediate postdominator is the virtual exit. ADCE consumes only
+    /// `controllers` (a dead branch deletes outright — see `opt2::adce`), so
+    /// outside this module the tree is read only by the unit tests below,
+    /// which pin the algorithm through it.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) ipdom: Vec<usize>,
     /// `controllers[b]` = indices of blocks whose *conditional terminator*
     /// decides whether `b` executes (control dependence, deduplicated).

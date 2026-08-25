@@ -1255,15 +1255,26 @@ mod tests {
         assert!(parse_build_options(s(&["-O"])).is_err());
         assert!(parse_test_options(s(&["--optimize"])).is_err());
 
-        for bogus in ["-O2", "-O6", "-Ox", "-O=2", "--optimize=2", "-optimize=z"] {
+        // Landed levels parse in the attached spelling too (2 and 3 opened
+        // with the DCE/ADCE rows).
+        use crate::optimizer::OptLevel;
+        for (level, want) in [("-O2", OptLevel(2)), ("-O3", OptLevel(3))] {
+            let parsed = parse_build_options(s(&[level])).expect(level);
+            assert_eq!(parsed.opt, want, "{level}");
+        }
+
+        for bogus in ["-O4", "-O6", "-Ox", "-O=9", "--optimize=4", "-optimize=z"] {
             let message = build_err(&[bogus]);
-            assert!(message.contains("available: 0, 1"), "{bogus} -> {message}");
+            assert!(
+                message.contains("available: 0, 1, 2, 3"),
+                "{bogus} -> {message}"
+            );
             assert!(parse_test_options(s(&[bogus])).is_err(), "{bogus}");
         }
 
         // The space form reports the same list.
-        let message = build_err(&["-O", "3"]);
-        assert!(message.contains("available: 0, 1"), "{message}");
+        let message = build_err(&["-O", "5"]);
+        assert!(message.contains("available: 0, 1, 2, 3"), "{message}");
     }
 
     fn build_err(args: &[&str]) -> String {
