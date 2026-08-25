@@ -649,16 +649,6 @@ pub(crate) const THREAD_TYPE: &str = "Thread";
 /// The worker thread handle's type name.
 pub(crate) const THREAD_WORKER_TYPE: &str = "ThreadWorker";
 
-/// The `Thread`/`ThreadWorker` keyword for a [`ParameterType::ThreadHandle`]'s
-/// `worker` flag — the render-side inverse of the flag `parse` sets.
-pub(crate) fn thread_type_keyword(worker: bool) -> &'static str {
-    if worker {
-        THREAD_WORKER_TYPE
-    } else {
-        THREAD_TYPE
-    }
-}
-
 /// Render a thread type string from its parts, emitting the optional `RES Res`
 /// clause and the resource-only spelling (`message == "Nothing"`) symmetrically
 /// with [`split_thread_types`].

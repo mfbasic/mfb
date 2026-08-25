@@ -425,9 +425,8 @@ impl<'a> Monomorphizer<'a> {
 
     fn lower_binding(&mut self, mut binding: HirTopLevelBinding) -> HirTopLevelBinding {
         if binding.explicit_type {
-            let type_name = binding.type_.name().into_owned();
-            binding.type_ =
-                ParameterType::parse(&self.concrete_type_name(&type_name, &HashMap::new()));
+            let declared = binding.type_.clone();
+            binding.type_ = self.concrete_type(&declared, &HashMap::new());
         }
         if let Some(value) = binding.value.take() {
             let mut context = self.function_context();
@@ -477,15 +476,13 @@ impl<'a> Monomorphizer<'a> {
         function.template_params.clear();
         for param in &mut function.params {
             if !matches!(param.type_, ParameterType::Unknown) {
-                let type_name = param.type_.name().into_owned();
-                param.type_ =
-                    ParameterType::parse(&self.concrete_type_name(&type_name, substitutions));
+                let declared = param.type_.clone();
+                param.type_ = self.concrete_type(&declared, substitutions);
             }
         }
         if !matches!(function.returns, ParameterType::Unknown) {
-            let return_type = function.returns.name().into_owned();
-            function.returns =
-                ParameterType::parse(&self.concrete_type_name(&return_type, substitutions));
+            let declared = function.returns.clone();
+            function.returns = self.concrete_type(&declared, substitutions);
         }
 
         let mut context = self.function_context();
@@ -875,8 +872,7 @@ impl<'a> Monomorphizer<'a> {
         substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
     ) -> HirTypeField {
         let mut lowered = field.clone();
-        let type_name = field.type_.name().into_owned();
-        lowered.type_ = ParameterType::parse(&self.concrete_type_name(&type_name, substitutions));
+        lowered.type_ = self.concrete_type(&field.type_, substitutions);
         lowered
     }
 
@@ -1084,10 +1080,7 @@ impl<'a> Monomorphizer<'a> {
                                 }
                                 HirMatchPattern::Union { type_, binding } => {
                                     HirMatchPattern::Union {
-                                        type_: ParameterType::parse(&self.concrete_type_name(
-                                            type_.name().as_ref(),
-                                            substitutions,
-                                        )),
+                                        type_: self.concrete_type(type_, substitutions),
                                         binding: binding.clone(),
                                     }
                                 }
@@ -1636,164 +1629,199 @@ impl<'a> Monomorphizer<'a> {
         }
     }
 
+    /// The interned name of a NOMINAL leaf — a concrete nominal or a type
+    /// variable — or `None` for anything with structure.
+    ///
+    /// This is where the `substitutions` probe belongs: its keys are always bare
+    /// template-parameter names. `Var` and `Named` both appear because a name
+    /// reaching monomorph through HIR was classified by `with_vars`, while one
+    /// reaching it through a rendered spelling was not.
+    fn leaf_symbol(type_: &ParameterType) -> Option<crate::intern::Symbol> {
+        match type_ {
+            ParameterType::Named(name) | ParameterType::Var(name) => Some(*name),
+            _ => None,
+        }
+    }
+
+    /// The name-domain entry to [`concrete_type`](Self::concrete_type), for the
+    /// callers that still hold a type SPELLING.
     fn concrete_type_name(
         &mut self,
         type_name: &str,
         substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
     ) -> String {
-        // A grouped type (`(T)`) is valid syntax the parser keeps verbatim;
-        // unwrap it before matching so it isn't mis-parsed as a `(Map`-named
-        // template and mangled into garbage (bug-105).
-        let type_name = crate::types::strip_type_group(type_name);
-        if let Some(value) = substitutions.get(&crate::intern::Symbol::intern(type_name)) {
-            let bound = value.name().into_owned();
-            // The bound value is already fully substituted, but it may itself be an
-            // un-INSTANTIATED user generic: binding `T := Holder OF Integer` while
-            // expanding `Holder OF Holder OF Integer` used to return that spelling
-            // verbatim, so the inner `Holder OF Integer` template was never lowered
-            // and the post-monomorph resolve pass reported
-            // `SYMBOL_UNKNOWN_TYPE: Type 'Holder OF Integer' is not a built-in or
-            // top-level project type` against the template's own field. Walk the
-            // bound value so its instantiation happens too.
-            //
-            // Walked with NO substitutions, deliberately: the value is already
-            // substituted, and re-applying the map would loop forever on a binding
-            // that names its own parameter. Every other shape walks to itself, so
-            // only the user-generic arm actually changes anything here.
-            if bound != type_name {
-                return self.concrete_type_name(&bound, &HashMap::new());
+        self.concrete_type(&ParameterType::parse(type_name), substitutions)
+            .name()
+            .into_owned()
+    }
+
+    /// Substitute a template's parameters through `type_`, instantiating any user
+    /// generic it names, and return the concrete type.
+    ///
+    /// plan-106-E: was `concrete_type_name(&str) -> String`, which parsed its
+    /// input, recursed by RE-RENDERING each child, and rebuilt the result with
+    /// seven `format!("List OF {…}")`-family templates — a second renderer beside
+    /// `ParameterType::name`. It is now a structural walk.
+    ///
+    /// Two behaviours the by-name recursion encoded are preserved explicitly:
+    ///
+    /// * the per-level grouped-type unwrap (bug-105) is no longer needed here —
+    ///   plan-106-E made `ParameterType::parse` peel a `(T)` group at every level,
+    ///   so a grouped spelling never reaches this walk as a junk nominal;
+    /// * the `substitutions` probe is at the NOMINAL LEAVES. Its keys are always
+    ///   bare template-parameter names (`Symbol::intern(param)` over
+    ///   `template_params`, at `lower.rs:707` and `:861`), so probing the whole
+    ///   spelling at every level — as the string form did — could only ever have
+    ///   matched at a leaf anyway.
+    fn concrete_type(
+        &mut self,
+        type_: &ParameterType,
+        substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
+    ) -> ParameterType {
+        if let Some(symbol) = Self::leaf_symbol(type_) {
+            if let Some(bound) = substitutions.get(&symbol) {
+                // The bound value is already fully substituted, but it may itself be
+                // an un-INSTANTIATED user generic: binding `T := Holder OF Integer`
+                // while expanding `Holder OF Holder OF Integer` used to return that
+                // spelling verbatim, so the inner `Holder OF Integer` template was
+                // never lowered and the post-monomorph resolve pass reported
+                // `SYMBOL_UNKNOWN_TYPE` against the template's own field. Walk the
+                // bound value so its instantiation happens too.
+                //
+                // Walked with NO substitutions, deliberately: the value is already
+                // substituted, and re-applying the map would loop forever on a
+                // binding that names its own parameter. The comparison is on the
+                // rendered names, as the string form's `bound != type_name` was, so
+                // a `Var`/`Named` spelling difference is not mistaken for progress.
+                if bound.name() != type_.name() {
+                    return self.concrete_type(&bound.clone(), &HashMap::new());
+                }
+                return bound.clone();
             }
-            return bound;
         }
-        // plan-105-B: classify with the canonical grammar (`ParameterType::parse`)
-        // instead of a private `strip_prefix` cascade. Each child recurses back
-        // through this function by NAME rather than by value, which is deliberate:
-        // that preserves the per-level `strip_type_group` unwrap (bug-105) and the
-        // `substitutions` lookup keyed on the whole child spelling, both of which a
-        // pure value recursion would skip.
-        match crate::types::ParameterType::parse(type_name) {
-            crate::types::ParameterType::ListOf(element) => format!(
-                "List OF {}",
-                self.concrete_type_name(&element.name(), substitutions)
+        match type_ {
+            ParameterType::ListOf(element) => {
+                ParameterType::list_of(self.concrete_type(element, substitutions))
+            }
+            ParameterType::SetOf(element) => {
+                ParameterType::set_of(self.concrete_type(element, substitutions))
+            }
+            ParameterType::ResultOf(success) => {
+                ParameterType::result_of(self.concrete_type(success, substitutions))
+            }
+            ParameterType::MapOf(key, value) => ParameterType::map_of(
+                self.concrete_type(key, substitutions),
+                self.concrete_type(value, substitutions),
             ),
-            crate::types::ParameterType::SetOf(element) => format!(
-                "Set OF {}",
-                self.concrete_type_name(&element.name(), substitutions)
+            ParameterType::MapEntryOf(key, value) => ParameterType::map_entry_of(
+                self.concrete_type(key, substitutions),
+                self.concrete_type(value, substitutions),
             ),
-            crate::types::ParameterType::ResultOf(success) => format!(
-                "Result OF {}",
-                self.concrete_type_name(&success.name(), substitutions)
-            ),
-            crate::types::ParameterType::MapOf(key, value) => format!(
-                "Map OF {} TO {}",
-                self.concrete_type_name(&key.name(), substitutions),
-                self.concrete_type_name(&value.name(), substitutions)
-            ),
-            crate::types::ParameterType::MapEntryOf(key, value) => format!(
-                "MapEntry OF {} TO {}",
-                self.concrete_type_name(&key.name(), substitutions),
-                self.concrete_type_name(&value.name(), substitutions)
-            ),
-            crate::types::ParameterType::ThreadHandle {
+            ParameterType::ThreadHandle {
                 worker,
                 msg,
                 res,
                 out,
             } => {
-                // The resource plane is only rewritten when present; an absent plane
-                // is `Nothing` and stays elided by `format_thread_type`.
-                let resource = match res.as_ref() {
-                    crate::types::ParameterType::Nothing => None,
-                    other => Some(self.concrete_type_name(&other.name(), substitutions)),
+                // An absent resource plane is `Nothing` and stays `Nothing`, which
+                // `name()` elides exactly as `format_thread_type` did.
+                let res = match res.as_ref() {
+                    ParameterType::Nothing => ParameterType::Nothing,
+                    other => self.concrete_type(other, substitutions),
                 };
-                crate::types::format_thread_type(
-                    crate::types::thread_type_keyword(worker),
-                    &self.concrete_type_name(&msg.name(), substitutions),
-                    resource.as_deref(),
-                    &self.concrete_type_name(&out.name(), substitutions),
+                ParameterType::thread_handle(
+                    *worker,
+                    self.concrete_type(msg, substitutions),
+                    res,
+                    self.concrete_type(out, substitutions),
                 )
             }
-            crate::types::ParameterType::Func(params, ret, isolated) => {
+            ParameterType::Func(params, ret, isolated) => {
                 let params = params
                     .iter()
-                    .map(|param| self.concrete_type_name(&param.name(), substitutions))
+                    .map(|param| self.concrete_type(param, substitutions))
                     .collect::<Vec<_>>();
-                format!(
-                    "{}FUNC({}) AS {}",
-                    if isolated { "ISOLATED " } else { "" },
-                    params.join(", "),
-                    self.concrete_type_name(&ret.name(), substitutions)
-                )
+                let ret = self.concrete_type(ret, substitutions);
+                if *isolated {
+                    ParameterType::func_isolated(params, ret)
+                } else {
+                    ParameterType::func(params, ret)
+                }
             }
             // A user generic is the one arm that does more than rewrite: it also
-            // INSTANTIATES the template, and returns the mangled concrete name.
-            crate::types::ParameterType::UserOf(name, args) => {
+            // INSTANTIATES the template, and yields the mangled concrete nominal.
+            ParameterType::UserOf(name, args) => {
                 let args = args
                     .iter()
-                    .map(|arg| self.concrete_type_name(&arg.name(), substitutions))
+                    .map(|arg| self.concrete_type(arg, substitutions).name().into_owned())
                     .collect::<Vec<_>>();
-                self.instantiate_type(name.resolve(), &args)
+                ParameterType::parse(&self.instantiate_type(name.resolve(), &args))
             }
             // A scalar, a concrete nominal, `RES`, `Unknown`, `Arg` — identity, as
             // the cascade's fall-through was.
-            _ => type_name.to_string(),
+            other => other.clone(),
         }
     }
 
-    /// The inverse of [`concrete_type_name`](Self::concrete_type_name): rewrite a
-    /// mangled concrete type back to its template spelling for diagnostics.
-    ///
-    /// plan-105-B: classified via the canonical grammar, like its twin. The
-    /// user-generic arm is keyed on `type_instantiations` (a MANGLED name is a plain
-    /// nominal, so it can only be recognized by lookup, never by parsing).
+    /// The name-domain entry to [`template_view`](Self::template_view).
     fn template_view_type(&self, type_name: &str) -> String {
-        let type_name = crate::types::strip_type_group(type_name);
-        match crate::types::ParameterType::parse(type_name) {
-            crate::types::ParameterType::ListOf(element) => {
-                format!("List OF {}", self.template_view_type(&element.name()))
+        self.template_view(&ParameterType::parse(type_name))
+            .name()
+            .into_owned()
+    }
+
+    /// The inverse of [`concrete_type`](Self::concrete_type): rewrite a mangled
+    /// concrete type back to its template spelling, for diagnostics.
+    ///
+    /// plan-106-E: structural, like its twin. The user-generic arm stays a LOOKUP
+    /// in `type_instantiations` — a mangled name is a plain nominal, so it can only
+    /// be recognized that way, never by parsing.
+    fn template_view(&self, type_: &ParameterType) -> ParameterType {
+        match type_ {
+            ParameterType::ListOf(element) => ParameterType::list_of(self.template_view(element)),
+            ParameterType::SetOf(element) => ParameterType::set_of(self.template_view(element)),
+            ParameterType::ResultOf(success) => {
+                ParameterType::result_of(self.template_view(success))
             }
-            crate::types::ParameterType::SetOf(element) => {
-                format!("Set OF {}", self.template_view_type(&element.name()))
+            ParameterType::MapOf(key, value) => {
+                ParameterType::map_of(self.template_view(key), self.template_view(value))
             }
-            crate::types::ParameterType::ResultOf(success) => {
-                format!("Result OF {}", self.template_view_type(&success.name()))
+            ParameterType::MapEntryOf(key, value) => {
+                ParameterType::map_entry_of(self.template_view(key), self.template_view(value))
             }
-            crate::types::ParameterType::MapOf(key, value) => format!(
-                "Map OF {} TO {}",
-                self.template_view_type(&key.name()),
-                self.template_view_type(&value.name())
-            ),
-            crate::types::ParameterType::MapEntryOf(key, value) => format!(
-                "MapEntry OF {} TO {}",
-                self.template_view_type(&key.name()),
-                self.template_view_type(&value.name())
-            ),
-            crate::types::ParameterType::ThreadHandle {
+            ParameterType::ThreadHandle {
                 worker,
                 msg,
                 res,
                 out,
             } => {
-                let resource = match res.as_ref() {
-                    crate::types::ParameterType::Nothing => None,
-                    other => Some(self.template_view_type(&other.name())),
+                let res = match res.as_ref() {
+                    ParameterType::Nothing => ParameterType::Nothing,
+                    other => self.template_view(other),
                 };
-                crate::types::format_thread_type(
-                    crate::types::thread_type_keyword(worker),
-                    &self.template_view_type(&msg.name()),
-                    resource.as_deref(),
-                    &self.template_view_type(&out.name()),
+                ParameterType::thread_handle(
+                    *worker,
+                    self.template_view(msg),
+                    res,
+                    self.template_view(out),
                 )
             }
-            _ => {
-                if let Some((name, args)) = self.type_instantiations.get(type_name) {
+            other => {
+                let name = other.name();
+                if let Some((template, args)) = self.type_instantiations.get(name.as_ref()) {
                     let args = args
                         .iter()
                         .map(|arg| self.template_view_type(arg))
                         .collect::<Vec<_>>();
-                    return format!("{name} OF {}", args.join(", "));
+                    // The template spelling is rebuilt through the grammar rather
+                    // than `format!`ed: `UserOf`'s own render is the one that knows
+                    // how its argument list is separated.
+                    return ParameterType::user_of(
+                        template,
+                        args.iter().map(|a| ParameterType::parse(a)).collect(),
+                    );
                 }
-                type_name.to_string()
+                other.clone()
             }
         }
     }
