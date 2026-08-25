@@ -19,9 +19,9 @@ types (such as `TermColor`) become available when their package is imported.
 
 MFBASIC has a small set of compiler-owned types that the language always
 understands. Primitive types name scalar values. Compiler-owned templates such
-as `List`, `Map`, `MapEntry`, `Pair`, `Partition`, `Thread`, and `ThreadWorker`
-are monomorphized before code is generated, so each concrete use has a fully
-known type.
+as `List`, `Map`, `Set`, `MapEntry`, `Pair`, `Partition`, `Thread`, and
+`ThreadWorker` are monomorphized before code is generated, so each concrete use
+has a fully known type.
 
 User-defined `TYPE`, `UNION`, `ENUM`, and package-scope `RESOURCE … CLOSE BY`
 declarations (native `LINK` resources) create additional program types, but they
@@ -83,6 +83,9 @@ user code. See `mfb man errors`.
 - **`Map OF K TO V`** — an owned key/value mapping. `K` must be comparable. Map
   iteration order is implementation-defined but stable for a given unchanged map
   value during one program run. See `mfb man types map`.
+- **`Set OF T`** — an owned, unordered, deduplicated collection: each distinct
+  element appears at most once, and adding a present element is a no-op. `T`
+  must be comparable, exactly as a `Map` key must be. See `mfb man types set`.
 - **`MapEntry OF K TO V`** — the compiler-owned record produced by `FOR EACH`
   over a map, with public read-only `key AS K` and `value AS V` fields.
 - **`Pair OF A, B`** — a compiler-owned two-value product used by
@@ -116,15 +119,15 @@ Comparable types (`=`, `<>`) are `Integer`, `Float`, `Fixed`, `Boolean`,
 `String`, `Byte`, `Nothing`, enum types, the built-in `Error`/`ErrorLoc` records,
 and records whose fields are all comparable. Orderable types (`<`, `>`, `<=`,
 `>=`) are the narrower set `Integer`, `Float`, `Fixed`, `Byte`, and `String`.
-`List`, `Map`, unions, functions, lambdas, threads, and resource handles are
-neither comparable nor orderable. Map keys and list search helpers require
+`List`, `Map`, `Set`, unions, functions, lambdas, threads, and resource handles
+are neither comparable nor orderable. Map keys and list search helpers require
 comparable types; `collections::sort` requires orderable ones. See
 `mfb man types comparisons`.
 
 Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and
-unions whose active payload is copyable are copyable. `List` and `Map` are
-copyable only when their element, key, and value types are copyable; copying a
-collection copies its contents. Thread and resource handles are not copyable.
+unions whose active payload is copyable are copyable. `List`, `Map`, and `Set`
+are copyable only when their element, key, and value types are copyable; copying
+a collection copies its contents. Thread and resource handles are not copyable.
 
 ## Errors
 
@@ -135,6 +138,7 @@ No errors.
 - `mfb man types numeric`
 - `mfb man types list`
 - `mfb man types map`
+- `mfb man types set`
 - `mfb man errors`
 - `mfb man general`
 - `mfb man thread`
