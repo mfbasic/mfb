@@ -115,7 +115,7 @@ pub fn run(options: &AuditOptions) -> i32 {
         return 3;
     }
     let Ok(entry) =
-        crate::manifest::entry::validate_entry_point(&options.location, &manifest, &concrete_ast)
+        crate::manifest::entry::validate_entry_point(&options.location, &manifest, &concrete_hir)
     else {
         return 3;
     };

@@ -362,7 +362,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             returns: crate::types::ParameterType::Integer,
             accepts_args: false,
         }),
-        None => validate_entry_point(&options.location, &manifest, &concrete_ast)?,
+        None => validate_entry_point(&options.location, &manifest, &concrete_hir)?,
     };
     // plan-20-Z cutover: the semantic rules are split across two passes that
     // both run to completion (neither short-circuits the other) so a program

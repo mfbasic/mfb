@@ -263,6 +263,29 @@ impl ParameterType {
     /// `Copy` [`Symbol`] (deduplicated, not leaked per occurrence). A leading `RES `
     /// ownership marker is stripped (a collection element stores the bare type).
     pub(crate) fn parse(name: &str) -> ParameterType {
+        // A grouped type name (`(T)`) is the source-level parenthesization the
+        // parser emits verbatim (`ast/expr.rs`). Peel it HERE, so it is peeled at
+        // every level of the grammar — that is what makes
+        // `List OF (Map OF String TO Integer)` decompose into
+        // `ListOf(MapOf(String, Integer))` (bug-105) instead of falling to a junk
+        // `UserOf("(Map", [Named("String TO Integer)")])` whose only virtue was
+        // that `name()` rendered the garbage back verbatim.
+        //
+        // This is the one place `parse` is deliberately NORMALIZING rather than
+        // byte-exact: `parse("(Integer)").name()` is `"Integer"`. That is the
+        // form every consumer already computed for itself before plan-106-D —
+        // `resolver::resolve_type_name`, `syntaxcheck::parse_type`, and
+        // `monomorph::lower` (×2) each called `strip_type_group` at their own
+        // position — so nothing downstream sees a type it did not see before.
+        // Once the type is structural, the group carries no information, and a
+        // consumer walking variants (rather than re-parsing a string) has no
+        // place left to strip it.
+        if name.starts_with('(') && name.ends_with(')') {
+            let stripped = strip_type_group(name);
+            if stripped != name {
+                return ParameterType::parse(stripped);
+            }
+        }
         // A `RES ` ownership marker wraps a [`Res`](Self::Res) around the inner type
         // (rather than being stripped), so a collection element like
         // `List OF RES File` round-trips byte-exact through `parse`/`name`. Matching
@@ -984,6 +1007,48 @@ mod tests {
             ParameterType::parse(spelling).name(),
             spelling,
             "round-trip mismatch for `{spelling}`"
+        );
+    }
+
+    /// plan-106-D: a grouped type name decomposes STRUCTURALLY at every level,
+    /// instead of surviving as a junk `Named`/`UserOf` that only round-tripped
+    /// because `name()` echoed the garbage back verbatim.
+    ///
+    /// This is the deliberate exception to `parse`↔`name` byte-exactness: the
+    /// group is source-level parenthesization carrying no type information, and
+    /// it is the form every consumer already computed by calling
+    /// `strip_type_group` at its own position.
+    #[test]
+    fn a_grouped_type_name_decomposes_at_every_level() {
+        assert_eq!(ParameterType::parse("(Integer)"), ParameterType::Integer);
+        assert_eq!(
+            ParameterType::parse("List OF (Map OF String TO Integer)"),
+            ParameterType::list_of(ParameterType::map_of(
+                ParameterType::String,
+                ParameterType::Integer,
+            ))
+        );
+        assert_eq!(
+            ParameterType::parse("(((Integer)))"),
+            ParameterType::Integer
+        );
+        // The group is normalized away, so the render is the bare spelling.
+        assert_eq!(
+            ParameterType::parse("List OF (Map OF String TO Integer)").name(),
+            "List OF Map OF String TO Integer"
+        );
+
+        // A leading `(` that is NOT a whole-name group must not be peeled: the
+        // depth check in `strip_type_group` is what keeps `(A) TO (B)` — and any
+        // other shape whose first `(` closes before the end — intact.
+        assert_eq!(
+            ParameterType::parse("(A) TO (B)"),
+            ParameterType::named("(A) TO (B)")
+        );
+        // A `FUNC(...)` type does not start with `(`, so the peel never sees it.
+        assert_eq!(
+            ParameterType::parse("FUNC(Integer) AS String").name(),
+            "FUNC(Integer) AS String"
         );
     }
 

@@ -142,7 +142,17 @@ None. Diagnostics byte-identical.
       this phase and are in §Corrections: `resolve_augmented` is the SHARED core
       of both resolve passes (not a post-monomorph-only entry point), and its
       `resolve_type_name` is still a full string-grammar machine.
-- [ ] Port `validate_entry_point` to `&HirProject` (both callers).
+- [x] Port `validate_entry_point` to `&HirProject` (both callers, plus the
+      `manifest/mod.rs` integration test). Both type facts it compared as string
+      literals are now `ParameterType` values: `returns != "Integer"` →
+      `returns != ParameterType::Integer`, and
+      `param.type_name.as_deref() == Some("List OF String")` →
+      `param.type_ == ParameterType::list_of(ParameterType::String)`. The
+      `ir::EntryPoint.returns` field was already a `ParameterType`, so the
+      render-then-`parse` at the return was deleted outright rather than moved.
+- [x] **Prerequisite discovered mid-phase (Correction 3): `ParameterType::parse`
+      does not peel a grouped type name.** Added as a task rather than deferred,
+      per §Do-the-work — the resolver port cannot proceed without it.
 - [ ] Port `resolve_augmented` to `&HirProject`.
 - [ ] Tests: entry-validation unit tests; resolver corpus.
 
@@ -216,6 +226,50 @@ This is not a backward edge and does not violate the terminal invariant:
 `elaborate` is AST→HIR, the same direction the compile path already runs. The
 cost is one structural walk on a project already being walked several times.
 The §Non-goals bullet is struck through above.
+
+### Correction 3 — `ParameterType::parse` did not peel a grouped type name
+
+Found while designing `resolve_type`. Probed directly:
+
+```
+PROBE "(List OF String)" = UserOf("(List", [Named("String)")])
+PROBE "List OF String"   = ListOf(String)
+```
+
+A grouped spelling (`LET y AS (Integer)`, `List OF (Map OF String TO Integer)`,
+`Thread OF (List OF String) TO String` — 4 fixtures use them, and bug-105 exists
+precisely to keep them working) parsed into *garbage*. It survived only because
+`name()` echoed the garbage back verbatim, and because every consumer called
+`strip_type_group` at its own position first: `resolver::resolve_type_name:1278`,
+`syntaxcheck::parse_type:39`, `monomorph::lower:1647` and `:1750`.
+
+That is exactly the failure mode this plan exists to end. A consumer that walks
+variants instead of re-parsing a string has nowhere left to strip, so
+`resolve_type(&ParameterType)` would have hit `Named("(Integer)")`, missed
+`self.types`, and re-opened bug-105 as `SYMBOL_UNKNOWN_TYPE`.
+
+Fixed at the grammar: `parse` peels a whole-name group before anything else, and
+therefore at every level of the recursion. `List OF (Map OF String TO Integer)`
+now yields `ListOf(MapOf(String, Integer))`. The depth check in
+`strip_type_group` keeps `(A) TO (B)` intact, and a `FUNC(…)` type never starts
+with `(`, so neither is touched.
+
+This is the one deliberate exception to `parse`↔`name` byte-exactness
+(`[[hir-parse-name-roundtrip-load-bearing]]`): `parse("(Integer)").name()` is
+`"Integer"`. It is safe because the normalized form is precisely what all four
+consumers above already computed. **Proven, not argued** — the group-peel plus
+the entry port together produce:
+
+```
+artifact-gate.sh target/release/mfb all -> 1255 tests, 1402 build(s),
+                                           1730 golden(s) checked, 0 diff(s)
+test-accept.sh                          -> acceptance tests passed (1271 ran)
+cargo test --bin mfb                    -> 3650 passed, 0 failed
+```
+
+Zero golden movement across every fixture that spells a grouped type. The four
+`strip_type_group` call sites are now redundant and are removed as their
+consumers port.
 
 ### Correction 2 — `resolve_type_name` is still a full string-grammar machine
 
