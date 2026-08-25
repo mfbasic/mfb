@@ -26,12 +26,14 @@
 //! (`audio.read` → `audio.readTimeout`, …), keyed on argument shape.
 //!
 //! The `render`/`play` members are pure MFBASIC: the tone renderer and the MML
-//! sequencer are injected from the source companion (`package.mfb`, which CALLs
-//! the migrated `math` registry package by name), and the public members rewrite
+//! sequencer are injected source (one `__audio_*` body per `helper_*.rs` file,
+//! registered via `add_helper` and assembled by `get_mfb`; the bodies CALL the
+//! migrated `math` registry package by name), and the public members rewrite
 //! to their `__audio_render`/`__audio_play`/`__audio_playTracks` bodies
 //! (`Body::Rewrite`) through the generic `registry::rewrite_target`. The three
-//! value records (`AudioDevice`, `AudioEnvelope`, `AudioNote`) are registered via
-//! `add_record` and rendered into the injected source by `get_mfb`.
+//! value records (`AudioDevice`, `AudioEnvelope`, `AudioNote`) and the internal
+//! `__audio_MmlEvent` event record are registered via `add_record` and rendered
+//! into the injected source by `get_mfb`.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Parameter, RecordProp, Registry, RegistryPackage, RegistryRecord,
@@ -64,6 +66,33 @@ mod func_render;
 mod func_write;
 mod func_xruns;
 
+mod helper_append_s16_le;
+mod helper_clamp_s16;
+mod helper_mml_apply_legato;
+mod helper_mml_clamp_fade;
+mod helper_mml_encode;
+mod helper_mml_expand;
+mod helper_mml_frames;
+mod helper_mml_has_open;
+mod helper_mml_is_digit;
+mod helper_mml_lcg;
+mod helper_mml_mix;
+mod helper_mml_note;
+mod helper_mml_note_semitone;
+mod helper_mml_parse;
+mod helper_mml_parse_uint;
+mod helper_mml_render_samples;
+mod helper_mml_req_int;
+mod helper_mml_rest;
+mod helper_mml_synth;
+mod helper_mml_tokens;
+mod helper_mml_trailing_dots;
+mod helper_mml_wave_code;
+mod helper_play;
+mod helper_play_samples;
+mod helper_play_tracks;
+mod helper_render;
+
 /// The `AudioInput` capture handle's bare type name (the `RegistryResource` name
 /// and the `type` half of its qualified id).
 pub(crate) const AUDIO_INPUT_TYPE: &str = "AudioInput";
@@ -81,8 +110,8 @@ pub(crate) const AUDIO_OUTPUT_TYPE_ID: &str = "audio.AudioOutput";
 /// only from `audio::devices()`).
 pub(crate) const AUDIO_DEVICE_TYPE: &str = "AudioDevice";
 /// The `AudioEnvelope`/`AudioNote` value records the user constructs and passes to
-/// `audio::render` (defined ALSO in the source companion so the source `render`
-/// operates on them).
+/// `audio::render` (rendered into the injected source by `get_mfb` so the source
+/// `render` body operates on them).
 pub(crate) const AUDIO_ENVELOPE_TYPE: &str = "AudioEnvelope";
 pub(crate) const AUDIO_NOTE_TYPE: &str = "AudioNote";
 
@@ -308,6 +337,53 @@ pub(crate) fn register(r: &mut Registry) {
             },
         ],
     });
+    // The MML sequencer's internal event record: a single synthesized event. A
+    // rest has freq <= 0. `soundFrames` < `totalFrames` leaves a trailing silence
+    // (staccato); fadeIn/fadeOut are short click-guard ramps in frames (0 at the
+    // interior joins of a legato run). Not exported: only the `__audio_mml*`
+    // helper bodies touch it.
+    pkg.add_record(RegistryRecord {
+        name: "__audio_MmlEvent",
+        export: false,
+        description: "",
+        props: vec![
+            RecordProp {
+                name: "freq",
+                ty: ParameterType::Float,
+                description: "",
+            },
+            RecordProp {
+                name: "totalFrames",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "soundFrames",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "gain",
+                ty: ParameterType::Float,
+                description: "",
+            },
+            RecordProp {
+                name: "wave",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "fadeIn",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "fadeOut",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+        ],
+    });
 
     // The two opaque, move-only resource handles. Their strict base-resource
     // matching rejects a cross-direction argument (`read(AudioOutput)`); their
@@ -350,13 +426,52 @@ pub(crate) fn register(r: &mut Registry) {
     func_render::register(&mut pkg);
     func_play::register(&mut pkg);
 
-    // The source companion: the `__audio_*` tone renderer + MML sequencer helper
-    // FUNCs (including the `__audio_render`/`__audio_play`/`__audio_playTracks`
-    // rewrite targets). The three value records are registered above (add_record).
-    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
-        "audio_package",
-        include_str!("package.mfb"),
-    ));
+    // The injected `__audio_*` bodies — the `render` tone synth and the `play`
+    // MML sequencer (including the `__audio_render`/`__audio_play`/
+    // `__audio_playTracks` rewrite targets). Each lives in its own `helper_*.rs`
+    // and registers via `add_helper`; they render (in this order) in the helper
+    // section of the assembled source. Order is preserved from the old single
+    // `package.mfb` blob. The value records are registered above (add_record).
+    //
+    // Shared s16 primitives + the tone renderer.
+    helper_clamp_s16::register(&mut pkg);
+    helper_append_s16_le::register(&mut pkg);
+    helper_render::register(&mut pkg);
+    // audio::play — a small MML (Music Macro Language) sequencer. A track is a
+    // space-separated string of tokens; every token is separated by a single
+    // space. Tokens: notes A..G (with a trailing + / - accidental, an inline
+    // length, and trailing dots), R (rest of the current length), P<n> (a pause
+    // of length n), O0..O6 / < / > (octave), L1..L64 (default length),
+    // T32..T255 (tempo), V0..V10 (volume), `I <name>` (instrument: square/
+    // triangle/sine/saw/noise), ( .. ) legato, [ .. ] staccato, and { .. }<count>
+    // repeat (may nest). Each track is isolated — no shared tempo/length/octave/
+    // etc. A play() call pre-renders every track to PCM, mixes them, and writes
+    // the result. Invalid MML raises ErrInvalidArgument (7-705-0002).
+    // Waveform codes: 0 sine, 1 square, 2 triangle, 3 saw, 4 noise. All
+    // rendering is mono s16le at 48 kHz (one frame = 2 bytes), matching render().
+    helper_mml_is_digit::register(&mut pkg);
+    helper_mml_parse_uint::register(&mut pkg);
+    helper_mml_note_semitone::register(&mut pkg);
+    helper_mml_wave_code::register(&mut pkg);
+    helper_mml_trailing_dots::register(&mut pkg);
+    helper_mml_frames::register(&mut pkg);
+    helper_mml_req_int::register(&mut pkg);
+    helper_mml_rest::register(&mut pkg);
+    helper_mml_note::register(&mut pkg);
+    helper_mml_has_open::register(&mut pkg);
+    helper_mml_expand::register(&mut pkg);
+    helper_mml_apply_legato::register(&mut pkg);
+    helper_mml_tokens::register(&mut pkg);
+    helper_mml_parse::register(&mut pkg);
+    helper_mml_clamp_fade::register(&mut pkg);
+    helper_mml_lcg::register(&mut pkg);
+    helper_mml_synth::register(&mut pkg);
+    helper_mml_render_samples::register(&mut pkg);
+    helper_mml_mix::register(&mut pkg);
+    helper_mml_encode::register(&mut pkg);
+    helper_play_samples::register(&mut pkg);
+    helper_play::register(&mut pkg);
+    helper_play_tracks::register(&mut pkg);
 
     r.add_package(pkg);
 }
@@ -373,7 +488,8 @@ mod tests {
     fn audio_registered_on_the_clean_room_registry() {
         let pkg = registry().resolve_package("audio").expect("audio package");
         assert_eq!(pkg.functions().len(), 11);
-        assert_eq!(pkg.records().len(), 3);
+        // The three public value records + the internal `__audio_MmlEvent`.
+        assert_eq!(pkg.records().len(), 4);
         assert_eq!(pkg.resources().len(), 2);
         // The three value records are visible to the generic type query.
         assert!(registry().is_builtin_type("AudioDevice"));
