@@ -135,10 +135,15 @@ No errors.
 
 ## See also
 
-- `mfb man types numeric`
+- `mfb man types comparisons`
 - `mfb man types list`
+- `mfb man types logical`
 - `mfb man types map`
+- `mfb man types numeric`
+- `mfb man types pair`
+- `mfb man types partition`
 - `mfb man types set`
+- `mfb man types string`
 - `mfb man errors`
 - `mfb man general`
 - `mfb man thread`
