@@ -28,7 +28,7 @@ use self::helpers::*;
 ///
 /// plan-106-C rung 2d: these were four `Type` variants
 /// (`AttributedString`/`Error`/`ErrorLoc`/`Scalar`). They are now
-/// [`Type::User`] like any other nominal — which is what `ParameterType` models
+/// [`Type::Named`] like any other nominal — which is what `ParameterType` models
 /// them as ([`Named`](crate::types::ParameterType::Named)), and the last
 /// structural difference between the two enums apart from `User` itself.
 ///
@@ -52,88 +52,58 @@ pub(super) fn is_comparable_builtin_nominal(name: &str) -> bool {
     matches!(name, "Error" | "ErrorLoc" | "Scalar")
 }
 
-impl Type {
-    /// The `Error` built-in nominal. plan-106-C rung 2d replaced the `Type::Error`
-    /// variant with a nominal; these constructors keep the call sites reading the
-    /// same and give each name one spelling.
-    pub(super) fn error() -> Type {
-        Type::User("Error".to_string())
-    }
-
-    /// The `ErrorLoc` built-in nominal.
-    pub(super) fn error_loc() -> Type {
-        Type::User("ErrorLoc".to_string())
-    }
-
-    /// The `Scalar` built-in nominal — a 32-bit Unicode scalar value
-    /// (plan-41-A). Register-carried like `Byte`, written with a backtick
-    /// literal `` `x` ``; comparable and orderable by codepoint, but **not
-    /// numeric** — it never enters the promotion lattice.
-    pub(super) fn scalar() -> Type {
-        Type::User("Scalar".to_string())
-    }
-
-    /// The `AttributedString` built-in nominal (plan-89-A) — an opaque,
-    /// value-semantic wrapper over a visible `String` plus an attribute overlay.
-    /// It exposes no user-visible fields, and is copyable/defaultable but NOT
-    /// comparable.
-    pub(super) fn attributed_string() -> Type {
-        Type::User("AttributedString".to_string())
-    }
-
-    /// Whether this type is the named built-in nominal `name`.
-    pub(super) fn is_named(&self, name: &str) -> bool {
-        matches!(self, Type::User(n) if n == name)
-    }
+/// The `Error` built-in nominal. plan-106-C rung 2d replaced the `Type::Error`
+/// variant with a nominal; these constructors give each name one spelling.
+pub(super) fn error_type() -> Type {
+    Type::named("Error")
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum Type {
-    Boolean,
-    Byte,
-    Fixed,
-    Float,
-    Integer,
-    /// `Money`: an 8-byte base-10 fixed-point financial scalar (plan-29-A). A
-    /// dimensioned numeric with a restricted algebra — see `numeric::money_result_type`.
-    Money,
-    ListOf(Box<Type>),
-    /// `Set OF T` (plan-63): an unordered collection of comparable, deduplicated
-    /// elements. Single type parameter, like `List`; element must be comparable,
-    /// like a `Map` key.
-    SetOf(Box<Type>),
-    MapOf(Box<Type>, Box<Type>),
-    /// A `RES`-marked collection element (`List OF RES fs::File`, `Map ... TO RES
-    /// File`). The `RES` is the mandatory resource ownership-axis marker for a
-    /// resource appearing as an element — exactly as `RES f` / `RES f AS fs::File`
-    /// mark a binding or parameter. The collection still holds a *pointer* and
-    /// owns nothing; a scope owns the resource (§15.6).
-    Res(Box<Type>),
-    Func(Vec<Type>, Box<Type>, bool),
-    Nothing,
-    ResultOf(Box<Type>),
-    String,
-    /// A thread handle. `worker` distinguishes a `ThreadWorker` handle from a
-    /// parent `Thread` handle — the two never unify with each other — mirroring
-    /// [`ParameterType::ThreadHandle`](crate::types::ParameterType) so the enums
-    /// stay isomorphic (plan-106-C rung 2c; they were two variants before).
-    ///
-    /// `msg`/`out` are the data-plane message and output types. `res` is the
-    /// optional resource-plane type carried by thread::transfer/accept (`None`
-    /// for a data-only thread); `res_state` is that resource's optional `STATE T`
-    /// payload, declared on the plane so it is checked across the thread boundary
-    /// (plan-54, closes bug-257). `res_state` is `None` unless `res` is `Some`
-    /// and carries a `STATE` clause.
-    ThreadHandle {
-        worker: bool,
-        msg: Box<Type>,
-        res: Option<Box<Type>>,
-        res_state: Option<Box<Type>>,
-        out: Box<Type>,
-    },
-    User(String),
-    Unknown,
+/// The `ErrorLoc` built-in nominal.
+pub(super) fn error_loc_type() -> Type {
+    Type::named("ErrorLoc")
 }
+
+/// The `Scalar` built-in nominal — a 32-bit Unicode scalar value (plan-41-A).
+/// Register-carried like `Byte`, written with a backtick literal `` `x` ``;
+/// comparable and orderable by codepoint, but **not numeric** — it never enters
+/// the promotion lattice.
+pub(super) fn scalar_type() -> Type {
+    Type::named("Scalar")
+}
+
+/// The `AttributedString` built-in nominal (plan-89-A) — an opaque,
+/// value-semantic wrapper over a visible `String` plus an attribute overlay. It
+/// exposes no user-visible fields, and is copyable/defaultable but NOT
+/// comparable.
+///
+/// Deliberately `Named("AttributedString")` and NOT
+/// [`ParameterType::AttributeString`](crate::types::ParameterType), which
+/// renders `"AttributeString"` — no `d` — a spelling the language's
+/// attributed-text type never uses.
+pub(super) fn attributed_string_type() -> Type {
+    Type::named("AttributedString")
+}
+
+/// syntaxcheck's type representation **is** the compiler's one type vocabulary.
+///
+/// plan-106-C rung 2e: this was a private `enum Type` — the compiler's sixth
+/// type representation, carrying its own copy of the type grammar. Rungs 2a-2d
+/// deleted the grammar and brought the enum shape-for-shape onto
+/// [`ParameterType`](crate::types::ParameterType); this alias retires it.
+///
+/// Two consequences are worth stating, because they are the only places
+/// syntaxcheck's model and `ParameterType`'s differ in spirit:
+///
+/// * A resource's ` STATE T` clause rides INSIDE a nominal's spelling in
+///   `ParameterType`, whereas syntaxcheck wants it beside the type
+///   (`LocalInfo::state_type`). `parse_type` therefore still peels it at every
+///   leaf (plan-52-D §4) — except in a thread handle's resource plane, which is
+///   exactly where plan-54 wants it kept and where `split_state` hands it back.
+/// * `ParameterType` has variants syntaxcheck's own parser never produces
+///   (`Var`, `Arg`, `UserOf`, `MapEntryOf`, `AttributeString`). They can still
+///   arrive from a decoded package signature, so matches over a type keep a tail
+///   arm rather than assuming they cannot occur.
+type Type = crate::types::ParameterType;
 
 #[derive(Clone)]
 struct LocalInfo {
@@ -606,7 +576,7 @@ impl<'a> SyntaxChecker<'a> {
         let mut seen = HashSet::new();
         match type_export.kind {
             BinaryReprExportKind::Type => {
-                let type_ = Type::User(type_export.name.clone());
+                let type_ = Type::named(&type_export.name);
                 self.validate_package_metadata_type(
                     file,
                     line,
@@ -617,7 +587,7 @@ impl<'a> SyntaxChecker<'a> {
                 );
             }
             BinaryReprExportKind::Union => {
-                let type_ = Type::User(type_export.name.clone());
+                let type_ = Type::named(&type_export.name);
                 self.validate_package_metadata_type(
                     file,
                     line,
@@ -694,7 +664,6 @@ impl<'a> SyntaxChecker<'a> {
             Type::ThreadHandle {
                 msg: message,
                 res: resource,
-                res_state: resource_state,
                 out: output,
                 ..
             } => {
@@ -706,22 +675,27 @@ impl<'a> SyntaxChecker<'a> {
                     context,
                     seen,
                 );
-                if let Some(resource) = resource {
+                // plan-106-C rung 2e: an absent resource plane is `Nothing`, and
+                // the plane's ` STATE T` rides inside its spelling — so the two
+                // walks the separate `res_state` slot used to need become one
+                // `split_state` here.
+                let (plane_resource, plane_state) = resource.split_state();
+                if !matches!(plane_resource, Type::Nothing) {
                     self.validate_package_metadata_type(
                         file,
                         line,
                         package_file,
-                        resource,
+                        &plane_resource,
                         context,
                         seen,
                     );
                 }
-                if let Some(resource_state) = resource_state {
+                if let Some(plane_state) = &plane_state {
                     self.validate_package_metadata_type(
                         file,
                         line,
                         package_file,
-                        resource_state,
+                        plane_state,
                         context,
                         seen,
                     );
@@ -738,11 +712,12 @@ impl<'a> SyntaxChecker<'a> {
             // A built-in nominal (`Error`, `Scalar`, …) is always in scope and
             // declares no fields, so there is nothing to walk and nothing to
             // report — it was one of the four inert `=> {}` variants before rung
-            // 2d. Checked BEFORE the general `User` arm, which would otherwise
+            // 2d. Checked BEFORE the general `Named` arm, which would otherwise
             // report it as a type the package references but does not declare.
-            Type::User(name) if is_builtin_nominal(name) => {}
-            Type::User(name) => {
-                if self.resource_registry.is_resource(name) || !seen.insert(name.clone()) {
+            Type::Named(name) if is_builtin_nominal(name.resolve()) => {}
+            Type::Named(name) => {
+                let name = name.resolve();
+                if self.resource_registry.is_resource(name) || !seen.insert(name.to_string()) {
                     return;
                 }
                 let Some(info) = self.type_infos.get(name).cloned() else {
@@ -797,6 +772,21 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Nothing
             | Type::String
             | Type::Unknown => {}
+            // `ParameterType` carries variants syntaxcheck's own parser never
+            // produces (`Var`, `Arg`, `UserOf`, `MapEntryOf`, `AttributeString`);
+            // a decoded package signature can still hold one. Before plan-106-C
+            // rung 2e each arrived spelled out as `Type::User(<spelling>)` and so
+            // took the NOMINAL arm above — routing the render back through it
+            // reproduces that exactly, rather than guessing a new answer for a
+            // shape this checker has never had to answer for.
+            other => self.validate_package_metadata_type(
+                file,
+                line,
+                package_file,
+                &Type::named(&other.name()),
+                context,
+                seen,
+            ),
         }
     }
 
@@ -1509,7 +1499,7 @@ impl<'a> SyntaxChecker<'a> {
             trap_locals.insert(
                 trap.name.clone(),
                 LocalInfo {
-                    type_: Type::error(),
+                    type_: error_type(),
                     mutable: false,
                     state_type: None,
                 },
@@ -1619,7 +1609,6 @@ impl<'a> SyntaxChecker<'a> {
             Type::ThreadHandle {
                 msg: message,
                 res: resource,
-                res_state: resource_state,
                 out: output,
                 ..
             } => {
@@ -1641,9 +1630,18 @@ impl<'a> SyntaxChecker<'a> {
                         line,
                     );
                 }
-                if let Some(resource) = resource {
-                    self.check_type_reference(file, resource, line);
-                    self.require_thread_sendable_type(file, line, "Thread resource type", resource);
+                // plan-106-C rung 2e: an absent plane is `Nothing`, and the
+                // plane's ` STATE T` rides inside its spelling — `split_state`
+                // gives back exactly what the separate `res_state` slot held.
+                let (plane_resource, plane_state) = resource.split_state();
+                if !matches!(plane_resource, Type::Nothing) {
+                    self.check_type_reference(file, &plane_resource, line);
+                    self.require_thread_sendable_type(
+                        file,
+                        line,
+                        "Thread resource type",
+                        &plane_resource,
+                    );
                 }
                 // The plane's `STATE T` payload type (plan-54) must resolve, and
                 // its defaultability/copyability is enforced by ir::verify as for a
@@ -1657,17 +1655,18 @@ impl<'a> SyntaxChecker<'a> {
                 // `TYPE S { files AS List OF RES fs::File }` satisfies both yet carries
                 // resource pointers to sender-owned resources, which §15.6 forbids
                 // from crossing.
-                if let Some(resource_state) = resource_state {
-                    self.check_type_reference(file, resource_state, line);
+                if let Some(plane_state) = &plane_state {
+                    self.check_type_reference(file, plane_state, line);
                     self.require_thread_sendable_type(
                         file,
                         line,
                         "Thread resource STATE type",
-                        resource_state,
+                        plane_state,
                     );
                 }
             }
-            Type::User(name) => {
+            Type::Named(name) => {
+                let name = name.resolve();
                 if name == "Ok" {
                     // `Ok` is the internal success member of `Result`; it is not a
                     // user-nameable type.
@@ -1689,94 +1688,26 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Nothing
             | Type::String
             | Type::Unknown => {}
+            // `ParameterType` carries variants syntaxcheck's own parser never
+            // produces (`Var`, `Arg`, `UserOf`, `MapEntryOf`, `AttributeString`);
+            // a decoded package signature can still hold one. Before plan-106-C
+            // rung 2e each arrived spelled out as `Type::User(<spelling>)` and so
+            // took the NOMINAL arm above — routing the render back through it
+            // reproduces that exactly, rather than guessing a new answer for a
+            // shape this checker has never had to answer for.
+            other => self.check_type_reference(file, &Type::named(&other.name()), line),
         }
     }
 
+    /// The rendered name of a type, for diagnostics.
+    ///
+    /// plan-106-C rung 2e: [`ParameterType::name`](crate::types::ParameterType)
+    /// IS this function. A 50-line match, plus `format_thread_type_name` and
+    /// `thread_type_argument_name`, collapsed into it when `Type` became the
+    /// alias. Kept as a named seam because its 55 call sites read better saying
+    /// what they want than reaching for `.name().into_owned()`.
     pub(super) fn type_name(&self, type_: &Type) -> String {
-        match type_ {
-            Type::Boolean => "Boolean".to_string(),
-            Type::Byte => "Byte".to_string(),
-            Type::Fixed => "Fixed".to_string(),
-            Type::Float => "Float".to_string(),
-            Type::Integer => "Integer".to_string(),
-            Type::Money => "Money".to_string(),
-            Type::ListOf(element) => format!("List OF {}", self.type_name(element)),
-            Type::SetOf(element) => format!("Set OF {}", self.type_name(element)),
-            Type::MapOf(key, value) => {
-                format!(
-                    "Map OF {} TO {}",
-                    self.type_name(key),
-                    self.type_name(value)
-                )
-            }
-            Type::Res(inner) => format!("RES {}", self.type_name(inner)),
-            Type::Func(params, return_type, isolated) => {
-                let params = params
-                    .iter()
-                    .map(|param| self.type_name(param))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!(
-                    "{}FUNC({}) AS {}",
-                    if *isolated { "ISOLATED " } else { "" },
-                    params,
-                    self.type_name(return_type)
-                )
-            }
-            Type::Nothing => "Nothing".to_string(),
-            Type::ResultOf(success) => format!("Result OF {}", self.type_name(success)),
-            Type::String => "String".to_string(),
-            Type::ThreadHandle {
-                worker,
-                msg,
-                res,
-                res_state,
-                out,
-            } => self.format_thread_type_name(
-                crate::types::thread_type_keyword(*worker),
-                msg,
-                res,
-                res_state,
-                out,
-            ),
-            Type::User(name) => name.clone(),
-            Type::Unknown => "Unknown".to_string(),
-        }
-    }
-
-    pub(super) fn thread_type_argument_name(&self, type_: &Type) -> String {
-        let name = self.type_name(type_);
-        if name.contains(" TO ") {
-            format!("({name})")
-        } else {
-            name
-        }
-    }
-
-    /// Format a `Thread`/`ThreadWorker` type, emitting the optional `RES Res`
-    /// clause and the resource-only spelling (message `Nothing`) symmetrically
-    /// with the parser.
-    pub(super) fn format_thread_type_name(
-        &self,
-        kind: &str,
-        message: &Type,
-        resource: &Option<Box<Type>>,
-        resource_state: &Option<Box<Type>>,
-        output: &Type,
-    ) -> String {
-        let message = self.thread_type_argument_name(message);
-        let output = self.thread_type_argument_name(output);
-        // Weave the plane's `STATE T` back into the resource element string
-        // (plan-54): `File` + `Cursor` → `fs::File STATE Cursor`, so the plane type
-        // round-trips the state that thread::transfer/accept check.
-        let resource = resource.as_ref().map(|resource| {
-            let base = self.thread_type_argument_name(resource);
-            match resource_state.as_ref() {
-                Some(state) => format!("{base} STATE {}", self.type_name(state)),
-                None => base,
-            }
-        });
-        crate::types::format_thread_type(kind, &message, resource.as_deref(), &output)
+        type_.name().into_owned()
     }
 
     pub(super) fn report(&mut self, rule: &str, detail: &str, file: &AstFile, line: usize) {
@@ -2493,23 +2424,22 @@ mod checker_tests {
         );
         checker.validate_package_metadata_type(file_ref, 1, &pkg, &fn_ty, "ctx", &mut seen);
 
-        // Thread carrying resource + resource_state + output: the `Some(resource)`
-        // and `Some(resource_state)` branches plus the message/output recursion.
+        // Thread carrying resource + resource STATE + output: both branches of
+        // the plane's `split_state`, plus the message/output recursion.
+        // plan-106-C rung 2e: the STATE rides inside the plane's spelling.
         let thread_ty = Type::ThreadHandle {
             worker: false,
             msg: Box::new(Type::Integer),
-            res: Some(Box::new(Type::String)),
-            res_state: Some(Box::new(Type::Boolean)),
+            res: Box::new(Type::String.with_state(&Type::Boolean)),
             out: Box::new(Type::Float),
         };
         checker.validate_package_metadata_type(file_ref, 1, &pkg, &thread_ty, "ctx", &mut seen);
 
-        // ThreadWorker with no resource plane: the same arm, `None` branches.
+        // ThreadWorker with no resource plane: the same arm, `Nothing` branch.
         let worker_ty = Type::ThreadHandle {
             worker: true,
             msg: Box::new(Type::Integer),
-            res: None,
-            res_state: None,
+            res: Box::new(Type::Nothing),
             out: Box::new(Type::Nothing),
         };
         checker.validate_package_metadata_type(file_ref, 1, &pkg, &worker_ty, "ctx", &mut seen);
@@ -2520,7 +2450,7 @@ mod checker_tests {
             file_ref,
             1,
             &pkg,
-            &Type::User("Nope".into()),
+            &Type::named("Nope"),
             "ctx",
             &mut seen,
         );
@@ -2543,7 +2473,7 @@ mod checker_tests {
             file_ref,
             1,
             &pkg,
-            &Type::User("MyEnum".into()),
+            &Type::named("MyEnum"),
             "ctx",
             &mut seen2,
         );

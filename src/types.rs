@@ -510,6 +510,16 @@ impl ParameterType {
         self.split_state().0
     }
 
+    /// Whether this type is the nominal named `name`.
+    ///
+    /// A NOMINAL only: a scalar variant answers `false` even when its rendered
+    /// name matches, because the question this answers is "is this the named
+    /// user/builtin type?", not "does this render as?". Added by plan-106-C when
+    /// syntaxcheck's four built-in nominal variants became `Named`.
+    pub(crate) fn is_named(&self, name: &str) -> bool {
+        matches!(self, ParameterType::Named(sym) if sym.resolve() == name)
+    }
+
     /// The parameter type's formatted name.
     pub(crate) fn name(&self) -> Cow<'static, str> {
         match self {

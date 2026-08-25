@@ -291,11 +291,19 @@ why this order, not the plan's original one):
       passed / 0 failed, `artifact-gate all` 0 diffs, `test-accept` 1271 ran /
       0 mismatches, 0 warnings. See Correction 7 for the one place this went
       wrong first.
-- [ ] **2e — replace `enum Type` with `ParameterType`**; delete the conversion,
+- [x] **2e — replace `enum Type` with `ParameterType`**; delete the conversion,
       and fold the thread plane's `res_state` into `res` at the same moment
-      (Correction 6).
+      (Correction 6). `type Type = crate::types::ParameterType;` —
+      `rg -n 'enum Type' src/syntaxcheck/` → 0 (the one hit is the doc comment
+      recording the removal). The `type_from_parameter` conversion became
+      `normalize`, which is only syntaxcheck's three real normalizations; the
+      50-line `type_name` match plus `format_thread_type_name` and
+      `thread_type_argument_name` collapsed into `ParameterType::name`;
+      `compatible_optional` went with the folded plane. Two latent
+      `named()`-on-a-structured-spelling bugs surfaced and were fixed
+      (Correction 8).
 - [ ] `helpers.rs` promotion copy → the numeric.rs typed source.
-- [ ] Tests: the full `*-invalid` diagnostic corpus after EVERY rung.
+- [x] Tests: the full `*-invalid` diagnostic corpus after EVERY rung.
 
 Acceptance: `cargo test --no-fail-fast` green; diagnostic corpus
 byte-identical; `artifact-gate all` no NEW diff; `rg -n 'enum Type' src/syntaxcheck/`
@@ -324,6 +332,40 @@ Commit: —
   Recommend the thin fn — one seam, testable.
 
 ## Corrections
+
+### 8. `named()` on a structured spelling, twice more — and the gate caught both
+
+Rung 2e turned two long-standing `format!`-a-spelling-into-a-nominal sites into
+live defects the moment the nominal fold went away. Both are the class letter A
+found in the `fs::pathJoin` descriptor and letter B found in
+`is_defaultable`; this is its third and fourth appearance, which is why the
+registry now has a permanent guard for its half.
+
+1. **`checking.rs`'s FOR EACH element type.** Iterating a `Map` built its element
+   type as `Type::named(&format!("MapEntry OF {k} TO {v}"))`. While `Type` was
+   private that was *correct*, because syntaxcheck's parser had no `MapEntry`
+   arm and the member-access path re-parsed the spelling to recover `.key`/
+   `.value`. Once `Type` was `ParameterType`, `named()` produced a nominal that
+   matched nothing and `entry.value` degraded to `Unknown`:
+
+   ```
+   rt-behavior/types/types-behavior  =>  MISSING .ast/.ir
+     error[TYPE_CALL_ARGUMENT_MISMATCH]: Call to `toString` has argument
+     type(s) (Unknown), expected Integer, Float[, Byte], …
+   ```
+
+   Fixed by building it structurally (`Type::map_entry_of(k, v)`) and matching
+   the variant in `infer_member` instead of re-parsing — which also deletes the
+   parse-of-render plan-105-B had left there.
+
+2. **The `WITH` read-only check.** `read_only_record_type` recognizes a
+   `MapEntry` by `starts_with("MapEntry OF ")`, and its caller binds
+   `Type::Named(name)` first. A `MapEntryOf` variant falls straight past that
+   bind, silently dropping the rule. Given its own arm before the bind.
+
+The pattern to carry forward: **a `format!`ed type spelling is a bug waiting for
+its reader to become typed.** It survives exactly as long as every consumer
+re-parses it.
 
 ### 7. Deleting a variant flips the default answer — `AttributedString`
 

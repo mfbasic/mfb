@@ -568,11 +568,14 @@ impl<'a> SyntaxChecker<'a> {
                     Type::ListOf(element) => strip_res(&element).clone(),
                     // `FOR EACH x IN set` yields the element `T` (plan-63).
                     Type::SetOf(element) => *element,
-                    Type::MapOf(key, value) => Type::User(format!(
-                        "MapEntry OF {} TO {}",
-                        self.type_name(&key),
-                        self.type_name(strip_res(&value))
-                    )),
+                    // Iterating a `Map` yields a `MapEntry OF K TO V`. Built
+                    // STRUCTURALLY (plan-106-C rung 2e): this used to `format!` the
+                    // spelling into a `Type::User`, which the member-access arm
+                    // then re-parsed to get `.key`/`.value` back out — and once
+                    // `Type` became `ParameterType`, `named()` on a spelling that
+                    // denotes a container produced a nominal that matched nothing,
+                    // so `entry.value` degraded to `Unknown`.
+                    Type::MapOf(key, value) => Type::map_entry_of(*key, strip_res(&value).clone()),
                     _other => Type::Unknown,
                 };
                 let mut nested = locals.clone();

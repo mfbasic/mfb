@@ -55,7 +55,7 @@ impl<'a> SyntaxChecker<'a> {
         self.allow_value_less_call = false;
         match expression {
             Expression::String(_) => Type::String,
-            Expression::Scalar(_) => Type::scalar(),
+            Expression::Scalar(_) => scalar_type(),
             Expression::Boolean(_) => Type::Boolean,
             Expression::Number(value) => match numeric::classify_literal(value).1 {
                 numeric::LiteralType::Integer => Type::Integer,
@@ -179,7 +179,7 @@ impl<'a> SyntaxChecker<'a> {
                 handler_locals.insert(
                     binding.clone(),
                     LocalInfo {
-                        type_: Type::error(),
+                        type_: error_type(),
                         mutable: false,
                         state_type: None,
                     },
@@ -437,8 +437,8 @@ impl<'a> SyntaxChecker<'a> {
                     return;
                 }
                 match matched_type {
-                    Type::User(union_name) => {
-                        let Some(info) = self.type_infos.get(union_name) else {
+                    Type::Named(union_name) => {
+                        let Some(info) = self.type_infos.get(union_name.resolve()) else {
                             return;
                         };
                         if !matches!(info.kind, TypeDeclKind::Union)
@@ -452,7 +452,7 @@ impl<'a> SyntaxChecker<'a> {
                         case_locals.insert(
                             binding.clone(),
                             LocalInfo {
-                                type_: Type::User(type_name.clone()),
+                                type_: Type::named(type_name),
                                 mutable: false,
                                 // A resource union's STATE is uniform across its
                                 // variants, so a MATCH-extracted variant carries the
@@ -490,9 +490,10 @@ impl<'a> SyntaxChecker<'a> {
         matched_type: &Type,
         covered_cases: &HashSet<String>,
     ) -> bool {
-        let Type::User(type_name) = matched_type else {
+        let Type::Named(type_name) = matched_type else {
             return false;
         };
+        let type_name = type_name.resolve();
         let Some(info) = self.type_infos.get(type_name) else {
             return false;
         };
@@ -642,7 +643,7 @@ impl<'a> SyntaxChecker<'a> {
                     ExprMode::Transfer,
                 );
             }
-            return Type::attributed_string();
+            return attributed_string_type();
         }
 
         // `Error` and `ErrorLoc` are read-only compiler/runtime-generated records.
@@ -667,9 +668,9 @@ impl<'a> SyntaxChecker<'a> {
                 );
             }
             return if type_name == "Error" {
-                Type::error()
+                error_type()
             } else {
-                Type::error_loc()
+                error_loc_type()
             };
         }
 
@@ -720,7 +721,7 @@ impl<'a> SyntaxChecker<'a> {
                 locals,
                 line,
             );
-            return Type::User(type_name.to_string());
+            return Type::named(type_name);
         }
 
         for argument in arguments {
@@ -744,15 +745,29 @@ impl<'a> SyntaxChecker<'a> {
         line: usize,
     ) -> Type {
         let target_type = self.infer_expression(file, target, locals, line, ExprMode::Transfer);
-        if matches!(&target_type, Type::User(name) if is_builtin_nominal(name)) {
+        if matches!(&target_type, Type::Named(name) if is_builtin_nominal(name.resolve())) {
             for update in updates {
                 self.infer_expression(file, &update.value, locals, update.line, ExprMode::Transfer);
             }
             return target_type;
         }
-        let Type::User(type_name) = &target_type else {
+        // `WITH` on a compiler-owned record. A `MapEntry OF K TO V` is one, and
+        // it is now a VARIANT rather than a nominal whose spelling starts with
+        // `MapEntry OF ` (plan-106-C rung 2e), so it has to be recognized before
+        // the `Named` bind below — which it would otherwise fall straight past,
+        // silently dropping the rule. `ir::verify` owns the emission
+        // (TYPE_READ_ONLY_RECORD_UPDATE is in RELOCATED_TO_IR_VERIFY); this arm
+        // keeps syntaxcheck walking the update values the same way.
+        if matches!(target_type, Type::MapEntryOf(_, _)) {
+            for update in updates {
+                self.infer_expression(file, &update.value, locals, update.line, ExprMode::Transfer);
+            }
+            return target_type;
+        }
+        let Type::Named(type_name) = &target_type else {
             return Type::Unknown;
         };
+        let type_name = type_name.resolve();
         if read_only_record_type(type_name) {
             for update in updates {
                 self.infer_expression(file, &update.value, locals, update.line, ExprMode::Transfer);
@@ -819,7 +834,7 @@ impl<'a> SyntaxChecker<'a> {
                     if !info.members.contains(member) {
                         return Type::Unknown;
                     }
-                    return Type::User(type_name.clone());
+                    return Type::named(type_name);
                 }
             }
         }
@@ -838,7 +853,7 @@ impl<'a> SyntaxChecker<'a> {
             return match member {
                 "code" => Type::Integer,
                 "message" => Type::String,
-                "source" => Type::error_loc(),
+                "source" => error_loc_type(),
                 _ => Type::Unknown,
             };
         }
@@ -850,22 +865,27 @@ impl<'a> SyntaxChecker<'a> {
                 _ => Type::Unknown,
             };
         }
-        let Type::User(type_name) = target_type else {
-            return Type::Unknown;
-        };
-        // plan-105-B: decompose `MapEntry OF K TO V` with the canonical grammar,
-        // which owns the depth-aware top-level ` TO ` split (bug-108.2), instead of
-        // a local prefix strip plus a second copy of that splitter.
-        if let crate::types::ParameterType::MapEntryOf(key, value) =
-            crate::types::ParameterType::parse(&type_name)
-        {
+        // `MapEntry OF K TO V` — the element type of a map iteration.
+        //
+        // plan-105-B decomposed it by re-parsing the nominal's spelling, because
+        // syntaxcheck's private `Type` had no `MapEntry` variant and the parser
+        // folded the whole spelling into `Type::User`. plan-106-C rung 2e made the
+        // shape a real variant, so this is a match — and it HAS to be: the
+        // re-parse arm silently stopped firing when the fold went away, and
+        // `entry.value` degraded to `Unknown`
+        // (caught by `rt-behavior/types/types-behavior`).
+        if let Type::MapEntryOf(key, value) = target_type {
             return match member {
-                "key" => self.parse_type(&key.name()),
-                "value" => self.parse_type(&value.name()),
+                "key" => (*key).clone(),
+                "value" => (*value).clone(),
                 _ => Type::Unknown,
             };
         }
-        let Some(info) = self.type_infos.get(&type_name).cloned() else {
+        let Type::Named(type_name) = target_type else {
+            return Type::Unknown;
+        };
+        let type_name = type_name.resolve();
+        let Some(info) = self.type_infos.get(type_name).cloned() else {
             return Type::Unknown;
         };
         if !matches!(info.kind, TypeDeclKind::Type) {
@@ -991,7 +1011,7 @@ impl<'a> SyntaxChecker<'a> {
             // `String`). Attributes on the right operand shift by the left's scalar
             // length (Open Decision 2).
             if left.is_named("AttributedString") && right.is_named("AttributedString") {
-                return Type::attributed_string();
+                return attributed_string_type();
             }
             if self.compatible(&Type::String, left) && self.compatible(&Type::String, right) {
                 return Type::String;
@@ -1228,7 +1248,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::String
             | Type::Byte
             | Type::Unknown => true,
-            Type::User(name) if name == "Scalar" => true,
+            Type::Named(name) if name.resolve() == "Scalar" => true,
             Type::ListOf(inner) => matches!(**inner, Type::Byte),
             _ => false,
         }
