@@ -86,6 +86,24 @@ pub(crate) fn rows() -> &'static [Row] {
             counter: &stats::COPY_PROPAGATION,
         },
         Row {
+            name: "Local value numbering",
+            level: 3,
+            stage: "MIR",
+            summary: "Rewrites a computation repeated within a block — same \
+                      operation over operands holding the same values — into a \
+                      copy of the earlier result.",
+            counter: &stats::LOCAL_VALUE_NUMBERING,
+        },
+        Row {
+            name: "Global value numbering (GVN)",
+            level: 3,
+            stage: "MIR",
+            summary: "Whole-function form of the same idea, on SSA values: a \
+                      computation already performed on every path leading here \
+                      (a dominating block) becomes a copy of that result.",
+            counter: &stats::GLOBAL_VALUE_NUMBERING,
+        },
+        Row {
             name: "Branch simplification / folding",
             level: 2,
             stage: "NIR + MIR",

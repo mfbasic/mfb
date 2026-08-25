@@ -77,6 +77,11 @@ pub(crate) struct Ssa {
     /// `(instruction index, variable)` → the copy-chain source operand this
     /// use may be rewritten to (copy propagation), valid at that point.
     copy_forward: HashMap<(usize, Var), Operand>,
+    /// Dominator-tree preorder interval per block (`usize::MAX` = unreachable):
+    /// block `a` dominates block `b` iff `a`'s interval encloses `b`'s. Read by
+    /// [`Ssa::dominates`] (the GVN row's availability test).
+    dom_enter: Vec<usize>,
+    dom_exit: Vec<usize>,
 }
 
 impl Ssa {
@@ -89,6 +94,19 @@ impl Ssa {
     /// propagation, when a forward is valid there.
     pub(crate) fn forwarded_source(&self, inst: usize, var: Var) -> Option<&Operand> {
         self.copy_forward.get(&(inst, var))
+    }
+
+    /// Whether block `a` dominates block `b` (reflexive: a block dominates
+    /// itself). `false` when either block is unreachable — no facts, no
+    /// transform.
+    pub(crate) fn dominates(&self, a: usize, b: usize) -> bool {
+        let (Some(&ea), Some(&eb)) = (self.dom_enter.get(a), self.dom_enter.get(b)) else {
+            return false;
+        };
+        if ea == usize::MAX || eb == usize::MAX {
+            return false;
+        }
+        ea <= eb && self.dom_exit[b] <= self.dom_exit[a]
     }
 }
 
@@ -126,6 +144,8 @@ pub(crate) fn build(
         values: Vec::new(),
         use_value: HashMap::new(),
         copy_forward: HashMap::new(),
+        dom_enter: Vec::new(),
+        dom_exit: Vec::new(),
     };
     let nb = blocks.len();
     if nb == 0 {
@@ -330,14 +350,22 @@ pub(crate) fn build(
     let mut copy_source: HashMap<ValueId, (Var, ValueId, Operand)> = HashMap::new();
     let mut pushed: Vec<Var> = Vec::new();
 
+    // Dominator-tree preorder intervals, stamped by the same walk (the GVN
+    // row's O(1) dominance test).
+    let mut dom_enter = vec![usize::MAX; nb];
+    let mut dom_exit = vec![usize::MAX; nb];
+    let mut clock = 0usize;
+
     enum Frame {
         Enter(usize),
-        Exit(usize),
+        Exit(usize, usize),
     }
     let mut walk: Vec<Frame> = vec![Frame::Enter(0)];
     while let Some(frame) = walk.pop() {
         match frame {
-            Frame::Exit(mark) => {
+            Frame::Exit(block, mark) => {
+                dom_exit[block] = clock;
+                clock += 1;
                 while pushed.len() > mark {
                     let var = pushed.pop().expect("len checked");
                     stacks.get_mut(&var).expect("pushed implies stack").pop();
@@ -345,6 +373,8 @@ pub(crate) fn build(
             }
             Frame::Enter(b) => {
                 let mark = pushed.len();
+                dom_enter[b] = clock;
+                clock += 1;
 
                 // The block's phis define first.
                 for (&var, &vid) in &phis[b] {
@@ -417,7 +447,7 @@ pub(crate) fn build(
                     }
                 }
 
-                walk.push(Frame::Exit(mark));
+                walk.push(Frame::Exit(b, mark));
                 for &child in children[b].iter().rev() {
                     walk.push(Frame::Enter(child));
                 }
@@ -429,6 +459,8 @@ pub(crate) fn build(
         values,
         use_value,
         copy_forward,
+        dom_enter,
+        dom_exit,
     }
 }
 

@@ -22,6 +22,12 @@ pub(super) static CONSTANT_PROPAGATION: AtomicU64 = AtomicU64::new(0);
 /// "Copy propagation" (Opt2): register uses rewritten to read a copy's
 /// ultimate source directly.
 pub(super) static COPY_PROPAGATION: AtomicU64 = AtomicU64::new(0);
+/// "Local value numbering" (Opt2): block-local recomputes rewritten to
+/// copies of the earlier result.
+pub(super) static LOCAL_VALUE_NUMBERING: AtomicU64 = AtomicU64::new(0);
+/// "Global value numbering (GVN)" (Opt2): dominated recomputes rewritten to
+/// copies of the dominating result (also the CSE row).
+pub(super) static GLOBAL_VALUE_NUMBERING: AtomicU64 = AtomicU64::new(0);
 /// "Branch simplification / folding" (both seams): constant-condition IFs /
 /// WHILE FALSE folded on NIR plus known compare-and-branches folded on MIR.
 pub(super) static BRANCH_SIMPLIFICATION: AtomicU64 = AtomicU64::new(0);
@@ -59,6 +65,14 @@ pub(crate) fn count_constant_propagations(fired: u64) {
 
 pub(crate) fn count_copy_propagations(fired: u64) {
     add(&COPY_PROPAGATION, fired);
+}
+
+pub(crate) fn count_local_value_numberings(fired: u64) {
+    add(&LOCAL_VALUE_NUMBERING, fired);
+}
+
+pub(crate) fn count_global_value_numberings(fired: u64) {
+    add(&GLOBAL_VALUE_NUMBERING, fired);
 }
 
 pub(crate) fn count_branch_simplifications(fired: u64) {

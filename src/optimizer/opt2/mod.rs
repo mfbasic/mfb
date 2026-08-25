@@ -17,15 +17,16 @@
 //!    mandatory lowering rather than a dial row. It stays in
 //!    `crate::codegen::compiler::opt::fma_fusion` (plan-100 Corrections).
 //! 2. **The between-selection-and-regalloc MIR seam**, [`optimize_mir`],
-//!    occupied by ten rows: the Opt2 halves of constant folding
+//!    occupied by twelve rows: the Opt2 halves of constant folding
 //!    ([`constant_folding`], Level 1), constant propagation ([`constprop`],
 //!    Level 2) and copy propagation ([`copyprop`], Level 2) on the SSA
-//!    overlay, branch folding ([`branches`], Level 2), jump threading
-//!    ([`threading`], Level 3), dead-code elimination ([`dce`], Level 2),
-//!    unreachable code elimination ([`uce`], Level 2), dead-store
-//!    elimination ([`dse`], Level 2), aggressive DCE ([`adce`], Level 3),
-//!    and basic block merging ([`merge`], Level 2). The [`plans`] module
-//!    holds their optimization-only analyses (def-use marking,
+//!    overlay, local and global value numbering ([`lvn`]/[`gvn`], Level 3 —
+//!    the latter also the CSE row), branch folding ([`branches`], Level 2),
+//!    jump threading ([`threading`], Level 3), dead-code elimination
+//!    ([`dce`], Level 2), unreachable code elimination ([`uce`], Level 2),
+//!    dead-store elimination ([`dse`], Level 2), aggressive DCE ([`adce`],
+//!    Level 3), and basic block merging ([`merge`], Level 2). The [`plans`]
+//!    module holds their optimization-only analyses (def-use marking,
 //!    postdominators/control dependence, the SSA overlay), built on the
 //!    allocator's own effect model and CFG.
 
@@ -36,6 +37,8 @@ pub(crate) mod constprop;
 pub(crate) mod copyprop;
 pub(crate) mod dce;
 pub(crate) mod dse;
+pub(crate) mod gvn;
+pub(crate) mod lvn;
 pub(crate) mod merge;
 pub(crate) mod peephole;
 pub(crate) mod plans;
@@ -82,8 +85,10 @@ pub(crate) fn optimize_mir(
     let _ = level;
     // Pipeline order, each row self-guarded on its own catalog level: folding
     // (L1) strands dead feeders; constant propagation (L2) folds the
-    // cross-block constants the block-local folder cannot see; copy
-    // propagation (L2) bypasses register copies, stranding them; branch
+    // cross-block constants the block-local folder cannot see; local and
+    // global value numbering (L3) rewrite recomputes into copies; copy
+    // propagation (L2) bypasses register copies — the minted ones included —
+    // stranding them; branch
     // folding (L2) turns known compares into unconditional flow (creating
     // statically-dead blocks); jump threading (L3) collapses jump-to-jump
     // chains; dead-store elimination (L2) strands more; DCE (L2) sweeps them
@@ -93,6 +98,8 @@ pub(crate) fn optimize_mir(
     // branch-to-next hops and orphaned labels back into straight-line blocks.
     constant_folding::fold_constants(instructions);
     constprop::eliminate(instructions, model);
+    lvn::eliminate(instructions, model);
+    gvn::eliminate(instructions, model);
     copyprop::eliminate(instructions, model);
     branches::fold_branches(instructions);
     threading::thread_jumps(instructions);
