@@ -258,14 +258,40 @@ Commit: —
 
 ### Phase 3 — docs/spec pass
 
-- [ ] `.ai/compiler.md` (pipeline description: typed end-to-end, no
-      de-elaboration), `.ai/codegen-invariants.md`, `.ai/collections.md`;
-      spec `02_frontend.md`/`04_ir.md`/`13_native-ir.md` reviewed for stale
-      "types are strings" claims (serialized formats unchanged — fix only
-      in-memory claims).
-- [ ] Memory sync: update `hir-parse-name-roundtrip-load-bearing` (the
-      deelaborate dependency no longer exists) and close the loop on
-      `byte-identity-cannot-see-backward-seams` (census now institutional).
+- [x] Docs/spec pass. Driven by a **symbol-level citation sweep**, not by
+      reading: `spec_citations_resolve` is file-level only (`.ai/testing-gates.md`
+      says so), so a deleted symbol passes it. Swept all 1,580 `[[file:Symbol]]`
+      citations across `src/docs/spec/`, `src/docs/man/` and `.ai/` for symbols
+      that no longer appear in the cited file.
+
+      90 dangle in total; **exactly one is plan-106's** —
+      `[[src/ir/lower.rs:promote_loop_numeric_type_name]]` in
+      `spec/architecture/04_ir.md`, deleted by letter A. Fixed, with the prose
+      retargeted to `numeric::typed_promote_loop_numeric_type` and a line saying
+      what it replaced. The other 89 are pre-existing (mostly `file.rs:LINE`
+      citations, which are not symbols) and are left alone — they are not this
+      plan's to fix and are noted here so the next reader knows the sweep saw
+      them.
+
+      Prose corrections:
+      * `.ai/codegen-invariants.md` — was "the `static_nir_value_type` oracle …
+        with `typed_numeric_binary_result_type` as the numeric twin". Both halves
+        were stale: ALL FOUR NIR oracles are `Option<ParameterType>` now, and the
+        promotion twin is `promoted_binary_type`, a one-line delegation.
+      * `.ai/resources-packages.md` — the thread resource-plane split is keyed on
+        `is_worker_thread_handle` (the variant's flag); the name-prefix
+        `is_worker_thread_type` it names is deleted.
+      * `.ai/compiler.md` — the sibling-walk note is now correct AND carries
+        Correction 1's finding: the walks are **not interchangeable**, with the
+        table delta spelled out, so the next reader does not "consolidate" them
+        into a behavior change.
+- [x] Memory sync. `hir-parse-name-roundtrip-load-bearing` rewritten: the
+      `deelaborate` dependency is gone (it lists what still depends on the
+      round-trip — the wire serializers and codegen's name-keyed tables), and it
+      now records the ONE deliberate exception to byte-exactness (the grouped-type
+      peel, Correction 3 of letter D). `byte-identity-cannot-see-backward-seams`
+      closes the loop with the census's own result: it works, and it must be
+      allowed to fail — it found both the 109-site codegen gap and a real wire bug.
 
 Acceptance: docs updated; full suite; gate; test-accept; fmt both crates.
 Commit: —

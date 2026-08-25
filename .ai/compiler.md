@@ -42,6 +42,18 @@ three others turn out to be wrong. **Fix them in the same change.** See AGENTS.m
   missing `MemberAccess`/variant arm in one is nearly always missing in the others
   (bug-363 → bug-366 found exactly this, one seam at a time). Grep for the sibling
   walks and test each directly.
+  - **They are NOT interchangeable, and do not "consolidate" them.** plan-106-E
+    diffed the bodies (its Correction 1). `static_nir_value_type` is the precise
+    oracle (registry-resolved calls). `static_type_name` and its pre-pass twin
+    `static_type_name_with_types` differ in the `Global` fallback, the field
+    source, and — decisively — the builtin-call TABLE: the builder maps BARE names
+    (`replace`/`find`/`mid`, `get`/`getOr`, eight `math.*`), the pre-pass maps
+    QUALIFIED ones (`strings.find`, `strings.mid`, eight more `strings.*`,
+    `graphemes`/`split` → `List OF String`). **Neither is a superset — they answer
+    differently for the same program**, and `static_type_name_for_fold`'s own doc
+    explains why widening either shifts codegen. Only the two 15-line `_for_fold`
+    wrappers are true env-only twins. That the two base tables disagree is a
+    latent inconsistency worth its own ticket; it is not a refactor to do casually.
 - **Probe the whole matrix, not the one case you were handed.** Vary the numeric
   type (Integer/Float/Fixed/Money), the operand position (left/right), and the
   operand *shape* (literal, local, param, record field, union-variant field, map
