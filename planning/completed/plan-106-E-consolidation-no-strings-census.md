@@ -177,7 +177,7 @@ test-accept.sh                            acceptance tests passed (1271 ran)
 
 Walk count: **5 → 5**, deliberately (Correction 1), but 4 of the 5 changed
 domain from `String` to `ParameterType`.
-Commit: —
+Commit: `2a5c3f40f`
 
 ### Phase 2 — the terminal census + straggler burn-down
 
@@ -254,7 +254,8 @@ deferral — see plan-106-A §Corrections 2 and 3 for the measurements):
 Acceptance: the census in this file shows the invariant HOLDS with every
 residual hit classified into the three permitted boundary classes; suite
 green; gate no NEW diff; `test-accept` no NEW mismatch; perf ≤ baseline.
-Commit: —
+Commit: `e70c84697` (1/n), `91bce3797` (2/n), `4746fa03a` (3/n),
+`cba1524ba` (4/n), `a2b8692f5` (census recorded)
 
 ### Phase 3 — docs/spec pass
 
@@ -294,7 +295,7 @@ Commit: —
       allowed to fail — it found both the 109-site codegen gap and a real wire bug.
 
 Acceptance: docs updated; full suite; gate; test-accept; fmt both crates.
-Commit: —
+Commit: `9255d90c6`
 
 ## Validation Plan
 
