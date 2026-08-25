@@ -1,14 +1,20 @@
 use crate::types::ParameterType;
 
+/// plan-106-E: the three names below are reached only by the name-domain
+/// pinning harness in this file's tests (see [`binary_result_type`]); production
+/// promotion is entirely typed.
+#[cfg(test)]
 pub(crate) const TYPE_BYTE: &str = "Byte";
 pub(crate) const TYPE_FIXED: &str = "Fixed";
 pub(crate) const TYPE_FLOAT: &str = "Float";
+#[cfg(test)]
 pub(crate) const TYPE_INTEGER: &str = "Integer";
 /// `Money`: a 64-bit signed integer carrier interpreted as a base-10 fixed-point
 /// value scaled to 5 decimal places (SCALE = 100000). One unit = 0.00001;
 /// `1.00000` is raw i64 `100000` (plan-29-A). It is a *dimensioned* numeric —
 /// same-dimension add/subtract, scalar scaling, `M/M` ratio — with every
 /// dimensionally-invalid pairing rejected at compile time (see `money_result_type`).
+#[cfg(test)]
 pub(crate) const TYPE_MONEY: &str = "Money";
 
 /// The base-10 scale of a `Money` raw i64: the value is `raw / MONEY_SCALE`, so
@@ -381,6 +387,16 @@ pub(crate) fn money_conversion_from_decimal(value: &str) -> Result<MoneyConversi
 /// that still hold type *names* (the AST and wire domains). Maps each operand
 /// name onto its scalar variant, runs the one algebra, and renders the closed
 /// result set back to its `&'static str` spelling — no parse, no second table.
+/// The name-domain view of the promotion algebra.
+///
+/// plan-106-E: production has **no** string promotion caller left — codegen's
+/// last two (`static_type_name` and its pre-pass twin) went typed with the NIR
+/// walks. This survives as `#[cfg(test)]` because ~30 assertions in this file
+/// state the promotion table in NAME form, which is how the table is legible and
+/// how it is pinned against the frozen `legacy_*` copies. It is an adapter over
+/// [`typed_binary_result_type`], not a second implementation: promotion has
+/// exactly one algebra.
+#[cfg(test)]
 pub(crate) fn binary_result_type(operator: &str, left: &str, right: &str) -> Option<&'static str> {
     let left = numeric_variant(left)?;
     let right = numeric_variant(right)?;
@@ -458,6 +474,7 @@ pub(crate) fn typed_promote_loop_numeric_type(
 /// `TYPE_*` constants — deliberately NOT [`ParameterType::parse`], which owns the
 /// type *grammar* (plan-106-A's one-parser invariant); this only maps a leaf name
 /// the lattice already enumerates.
+#[cfg(test)]
 fn numeric_variant(name: &str) -> Option<ParameterType> {
     match name {
         TYPE_BYTE => Some(ParameterType::Byte),
@@ -471,6 +488,7 @@ fn numeric_variant(name: &str) -> Option<ParameterType> {
 
 /// The `&'static str` spelling of a numeric scalar variant — the inverse of
 /// [`numeric_variant`], and the render half of the name-keyed adapters above.
+#[cfg(test)]
 fn numeric_variant_name(type_: &ParameterType) -> Option<&'static str> {
     match type_ {
         ParameterType::Byte => Some(TYPE_BYTE),

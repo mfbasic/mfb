@@ -56,7 +56,7 @@ impl CodeBuilder<'_> {
         };
         let list_type = local.type_.clone();
         let Some(element_type) =
-            crate::codegen::engine::types::list_element_type(&list_type.name())
+            crate::codegen::engine::types::typed_list_element_type(&list_type).cloned()
         else {
             return Ok(false);
         };
@@ -84,7 +84,12 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             item_slot,
         ));
-        self.lower_list_append_in_place(stack_offset, item_slot, &list_type.name(), &element_type)?;
+        self.lower_list_append_in_place(
+            stack_offset,
+            item_slot,
+            &list_type.name(),
+            &element_type.name(),
+        )?;
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
         }
@@ -146,7 +151,9 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        let Some(element_type) = crate::codegen::engine::types::list_element_type(&field_type)
+        let field_type_parsed = crate::types::ParameterType::parse(&field_type);
+        let Some(element_type) =
+            crate::codegen::engine::types::typed_list_element_type(&field_type_parsed).cloned()
         else {
             return Ok(false);
         };
@@ -173,7 +180,7 @@ impl CodeBuilder<'_> {
         // Single element (item type == element type) vs bulk concatenation.
         let bulk = match self.static_type_name(&args[1]) {
             Some(t) if t == element_type => false,
-            Some(t) if t == field_type => true,
+            Some(t) if t == field_type_parsed => true,
             _ => return Ok(false),
         };
         // Exclude the self-alias `append(field, field)`.
@@ -199,7 +206,7 @@ impl CodeBuilder<'_> {
                 stack_offset,
                 field_index,
                 &field_type,
-                &element_type,
+                &element_type.name(),
                 rhs_slot,
             )?;
         } else {
@@ -207,7 +214,7 @@ impl CodeBuilder<'_> {
                 stack_offset,
                 field_index,
                 &field_type,
-                &element_type,
+                &element_type.name(),
                 rhs_slot,
             )?;
         }
@@ -274,7 +281,8 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let set_type = local.type_.clone();
-        let Some(element_type) = crate::codegen::engine::types::set_element_type(&set_type.name())
+        let Some(element_type) =
+            crate::codegen::engine::types::typed_set_element_type(&set_type).cloned()
         else {
             return Ok(false);
         };
@@ -303,7 +311,7 @@ impl CodeBuilder<'_> {
             item_slot,
             true_slot,
             &set_type.name(),
-            &element_type,
+            &element_type.name(),
             "Boolean",
         )?;
         if let Some(local) = self.locals.get_mut(name) {
@@ -351,7 +359,8 @@ impl CodeBuilder<'_> {
         };
         let map_type = local.type_.clone();
         let Some((key_type, _value_type)) =
-            crate::codegen::engine::types::map_type_parts(&map_type.name())
+            crate::codegen::engine::types::typed_map_type_parts(&map_type)
+                .map(|(k, v)| (k.clone(), v.clone()))
         else {
             return Ok(false);
         };
@@ -368,7 +377,12 @@ impl CodeBuilder<'_> {
         let key = self.materialize_value(key)?;
         let key_slot = self.allocate_stack_object("inplace_remove_key", 8);
         self.store_value_at(&key, abi::stack_pointer(), key_slot);
-        self.lower_map_remove_key_in_place(stack_offset, key_slot, &map_type.name(), &key_type)?;
+        self.lower_map_remove_key_in_place(
+            stack_offset,
+            key_slot,
+            &map_type.name(),
+            &key_type.name(),
+        )?;
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
         }
@@ -430,7 +444,7 @@ impl CodeBuilder<'_> {
         // element type — that is the single-element fast path). A RHS whose static
         // type is unknown (a general call result) falls through to the value path.
         match self.static_type_name(&args[1]) {
-            Some(item_type) if item_type == list_type.name().as_ref() => {}
+            Some(item_type) if item_type == list_type => {}
             _ => return Ok(false),
         }
         let rhs = self.lower_value(&args[1])?;

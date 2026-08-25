@@ -256,10 +256,11 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        let Some(element_type) = list_element_type(&field_type) else {
+        let field_type = crate::types::ParameterType::parse(&field_type);
+        let Some(element_type) = typed_list_element_type(&field_type).cloned() else {
             return Ok(false);
         };
-        if CollectionTypeLayout::from_type(&field_type).is_none() {
+        if CollectionTypeLayout::from_type(&field_type.name()).is_none() {
             return Ok(false);
         }
         let NirValue::Call {
@@ -323,16 +324,16 @@ impl CodeBuilder<'_> {
             self.lower_inline_list_bulk_append_in_place(
                 state_slot,
                 field_index,
-                &field_type,
-                &element_type,
+                &field_type.name(),
+                &element_type.name(),
                 rhs_slot,
             )?;
         } else {
             self.lower_inline_list_append_in_place(
                 state_slot,
                 field_index,
-                &field_type,
-                &element_type,
+                &field_type.name(),
+                &element_type.name(),
                 rhs_slot,
             )?;
         }

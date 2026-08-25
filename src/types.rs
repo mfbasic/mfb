@@ -686,11 +686,6 @@ pub(crate) fn is_parent_thread_type(name: &str) -> bool {
     thread_parts(name).is_some_and(|(kind, _, _)| kind == THREAD_TYPE)
 }
 
-/// Whether `name` spells a worker `ThreadWorker` handle type.
-pub(crate) fn is_worker_thread_type(name: &str) -> bool {
-    thread_parts(name).is_some_and(|(kind, _, _)| kind == THREAD_WORKER_TYPE)
-}
-
 /// The data-plane message type of a thread handle (`"Nothing"` for a resource-only
 /// thread), or `None` for a non-thread type.
 pub(crate) fn thread_message(name: &str) -> Option<&str> {
@@ -869,6 +864,15 @@ fn type_owns_a_to_separator(body: &str, at: usize) -> bool {
     ["MapEntry OF ", "ThreadWorker OF ", "Map OF ", "Thread OF "]
         .iter()
         .any(|keyword| body[at..].starts_with(keyword))
+}
+
+/// Whether `type_` is a WORKER-side thread handle (`ThreadWorker OF …`).
+///
+/// plan-106-E: the typed twin of [`is_worker_thread_type`], for the codegen sites
+/// that pick the worker vs parent runtime helper off a value's static type. It is
+/// the `worker` flag of the variant — no spelling involved.
+pub(crate) fn is_worker_thread_handle(type_: &ParameterType) -> bool {
+    matches!(type_, ParameterType::ThreadHandle { worker: true, .. })
 }
 
 pub(crate) fn strip_type_group(type_: &str) -> &str {

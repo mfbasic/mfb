@@ -34,7 +34,7 @@ See plan-106-A §Prerequisites (shared). Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-106-D complete | `rg -n 'deelaborate' src/` → 0 | NOT MET until D lands |
+| plan-106-D complete | `rg -n 'deelaborate' src/` → 0 | **MET** (2026-08-24, commit `47d60ec82`) — one hit, the tombstone comment; zero code |
 
 ## 1. Goal
 
@@ -89,10 +89,9 @@ the promotion shells not yet deleted, and codegen's five walks now
 ### Verified properties
 
 - **The `_with_types` variants "differ only in the environment they consult"**
-  is the review's claim, UNVERIFIED by us — Phase 1 diffs the walk bodies and
-  records the delta before any merge. If a walk embeds a genuine semantic
-  difference, it is documented and kept as an explicit mode flag, not silently
-  merged.
+  — the review's claim. **MEASURED IN PHASE 1, AND IT IS FALSE.** See Correction 1.
+  The five are not five siblings; they are three distinct oracles, and the pair
+  that looks mergeable answers *differently for the same program*.
 
 ## 3. Design Overview
 
@@ -114,13 +113,70 @@ None.
 
 ### Phase 1 — promotion + sibling-walk consolidation
 
-- [ ] Delete residual promotion shells; re-measure → 1 implementation.
-- [ ] Diff the five NIR walk bodies; record the delta; merge onto
-      `static_nir_value_type` + env params (or record the justified mode
-      flags).
-- [ ] Tests: the A-phase equivalence suite extended over the merged walks.
+- [x] Delete residual promotion shells; re-measure → 1 implementation.
 
-Acceptance: suite green; gate no NEW diff; walk count recorded.
+      codegen's two shells are gone: `typed_numeric_binary_result_type` (which
+      rendered both operand names, ran the string algorithm, then re-matched the
+      result back to a variant) and its string twin `numeric_binary_result_type`.
+      What replaces them is a one-line `promoted_binary_type` over the typed
+      source. Re-measured:
+
+      ```
+      $ rg -n 'fn (numeric_binary_result_type|promote_loop_numeric_type|typed_binary_result_type|typed_promote_loop_numeric_type|promoted_binary_type|binary_result_type)' src/
+      numeric.rs:431          typed_binary_result_type          <- THE implementation
+      numeric.rs:463          typed_promote_loop_numeric_type   <- the FOR fold, built on it
+      numeric.rs:400          binary_result_type                <- #[cfg(test)] name adapter
+      syntaxcheck/helpers.rs  numeric_binary_result_type        <- 1-line delegation
+      syntaxcheck/helpers.rs  promote_loop_numeric_type         <- 1-line delegation
+      codegen/…/type_utils.rs promoted_binary_type              <- 1-line delegation
+      ```
+
+      **One algebra, three named delegations** (each existing because its layer
+      defaults differently: syntaxcheck → `Unknown`, codegen → `Integer`), plus
+      the `FOR` fold and a test-only name adapter.
+
+      Production now has **zero** string promotion callers, which made
+      `numeric::binary_result_type` and its two name mappers dead in the binary.
+      They are `#[cfg(test)]` rather than deleted, and commented why: ~30
+      assertions state the promotion table in NAME form, which is how it stays
+      legible and how it is pinned against the frozen `legacy_*` copies. An
+      adapter is not a second implementation.
+- [x] Diff the five NIR walk bodies; record the delta (**Correction 1** — the
+      review's premise is false, and the delta is recorded there in full); merge
+      what is genuinely shared.
+
+      What landed instead of the proposed merge — and it is the bigger prize:
+      **all four `static_type_name*` walks went from `Option<String>` to
+      `Option<ParameterType>`.**
+
+      ```
+      $ rg -n 'fn static_type_name.*-> Option<String>' src/
+      (0 hits)
+      ```
+
+      That is what killed codegen's last string promotion callers, and with them
+      a chain of derived string grammar across 9 files: `strip_prefix("Result OF ")`,
+      `format!("Result OF {…}")`, `strip_prefix("ISOLATED FUNC(")` + `") AS "`
+      re-split, `starts_with("List OF ")`, `== Some("Address")`,
+      `== Some("AttributedString")`, `== Some("Byte") | Some("Scalar")`, and five
+      `is_worker_thread_type(&str)` calls (that helper is now deleted; the typed
+      `is_worker_thread_handle` reads the variant's `worker` flag).
+- [x] Tests: the A-phase equivalence suite extended over the merged walks. The
+      pre-pass/resolver drift test (`data_objects.rs`, bug-354) now compares
+      `ParameterType`s structurally on both sides instead of names.
+
+Acceptance: suite green; gate no NEW diff; walk count recorded. **ALL MET:**
+
+```
+cargo test --bin mfb                      3651 passed, 0 failed
+cargo build --bin mfb / --release         0 warnings
+artifact-gate.sh target/release/mfb all   1255 tests, 1402 build(s),
+                                          1730 golden(s) checked, 0 diff(s)
+test-accept.sh                            acceptance tests passed (1271 ran)
+```
+
+Walk count: **5 → 5**, deliberately (Correction 1), but 4 of the 5 changed
+domain from `String` to `ParameterType`.
 Commit: —
 
 ### Phase 2 — the terminal census + straggler burn-down
@@ -186,7 +242,50 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+### Correction 1 — the five NIR walks are NOT five siblings; the review's premise is false
+
+§2 recorded the review's claim as UNVERIFIED and required a body diff before any
+merge. Diffed. The claim does not survive it.
+
+The five are **three distinct oracles**:
+
+| Walk | Role |
+|---|---|
+| `static_nir_value_type` | the precise typed oracle (registry-resolved calls) |
+| `static_type_name` / `static_type_name_with_types` | the coarse builder oracle, and its pre-pass twin |
+| `static_type_name_for_fold` / `…_for_fold_with_types` | 15-line wrappers adding the resolver fallback, one per base |
+
+Only the `_for_fold` pair is "the same body with a different environment". The
+BASE pair — the one the consolidation was aimed at — differs in three ways, and
+two of them change the answer:
+
+1. **`Global`**: the builder falls back to `self.globals`; the pre-pass answers
+   `None`.
+2. **The builtin-call table is a different table.** The builder maps bare names
+   (`replace`, `find`, `mid`, plus `get`/`getOr` and eight `math.*`); the pre-pass
+   maps qualified ones (`strings.find`, `collections.find`, `strings.mid`, eight
+   more `strings.*`, `strings.graphemes`/`split` → `List OF String`, the three
+   `strings` predicates → `Boolean`). Neither is a superset. **They answer
+   differently for the same program.**
+3. **The field source**: `self.type_model.record_fields` + `union_variant_fields`
+   vs a flat `FieldTypes` map.
+
+Merging them is a behavior change, which §Non-goals forbids — and the code already
+knew: `static_type_name_for_fold`'s own doc says it "deliberately does NOT widen
+`static_type_name` … widening it would shift their codegen for every program using
+these builtins."
+
+So the walk count stays 5, per §Phase-1's sanctioned alternative ("or record the
+justified mode flags"). The real consolidation opportunity was one the plan had not
+seen: all four `static_type_name*` walks were **`Option<String>`** — the largest
+remaining type-string carrier in the compiler. Retyping them to `ParameterType` is
+what Phase 1 did instead, and it is what let the promotion shells die.
+
+**Filed for later, not silently dropped:** that the two base tables disagree is a
+latent inconsistency (the pre-pass is documented as "the pre-pass twin of
+`CodeBuilder::static_type_name`", and a twin that answers differently is a bug
+waiting for a consumer to notice). Reconciling them is a behavior change and
+belongs to its own ticket, not to a no-strings plan.
 
 ## Summary
 

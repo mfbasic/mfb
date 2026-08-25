@@ -798,10 +798,11 @@ impl CodeBuilder<'_> {
             NirValue::Call { target, args, .. } | NirValue::RuntimeCall { target, args, .. }
                 if target == "typeName" && args.len() == 1 =>
             {
+                // `typeName` folds to the argument type's SPELLING.
                 self.static_type_name(&args[0])
-                    .map(|value| NirValue::Const {
+                    .map(|type_| NirValue::Const {
                         type_: ParameterType::String,
-                        value,
+                        value: type_.name().into_owned(),
                     })
             }
             NirValue::Binary { op, .. } if op == "&" => {
@@ -861,6 +862,7 @@ impl CodeBuilder<'_> {
                 // constant (a write into rodata → SIGBUS). Same fold-mismatch class
                 // as the strings-package note below.
                 self.static_type_name_for_fold(&args[0])
+                    .map(|type_| type_.name().into_owned())
             }
             NirValue::Binary {
                 op, left, right, ..
@@ -925,21 +927,16 @@ impl CodeBuilder<'_> {
         }
     }
 
-    pub(crate) fn static_type_name(&self, value: &NirValue) -> Option<String> {
+    pub(crate) fn static_type_name(&self, value: &NirValue) -> Option<ParameterType> {
         match value {
-            NirValue::Const { type_, .. } => Some(type_.name().into_owned()),
-            NirValue::Local(name) => self
-                .locals
-                .get(name)
-                .map(|local| local.type_.name().into_owned()),
-            NirValue::LocalRef { type_, .. } => Some(type_.name().into_owned()),
+            NirValue::Const { type_, .. } => Some(type_.clone()),
+            NirValue::Local(name) => self.locals.get(name).map(|local| local.type_.clone()),
+            NirValue::LocalRef { type_, .. } => Some(type_.clone()),
             NirValue::Global { name, type_ } => {
-                if type_.name().is_empty() {
-                    self.globals
-                        .get(name)
-                        .map(|global| global.type_.name().into_owned())
+                if is_unset_type(type_) {
+                    self.globals.get(name).map(|global| global.type_.clone())
                 } else {
-                    Some(type_.name().into_owned())
+                    Some(type_.clone())
                 }
             }
             NirValue::FunctionRef { type_, .. }
@@ -949,27 +946,29 @@ impl CodeBuilder<'_> {
             | NirValue::WithUpdate { type_, .. }
             | NirValue::ListLiteral { type_, .. }
             | NirValue::SetLiteral { type_, .. }
-            | NirValue::MapLiteral { type_, .. } => Some(type_.name().into_owned()),
-            NirValue::UnionWrap { union_type, .. } => Some(union_type.name().into_owned()),
-            NirValue::UnionExtract { type_, .. } => Some(type_.name().into_owned()),
-            NirValue::ResultIsOk { .. } => Some("Boolean".to_string()),
-            NirValue::ResultValue { value } => self
-                .static_type_name(value)
-                .and_then(|type_| type_.strip_prefix("Result OF ").map(str::to_string))
-                .or_else(|| self.static_type_name(value)),
-            NirValue::ResultError { .. } => Some("Error".to_string()),
+            | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
+            NirValue::UnionWrap { union_type, .. } => Some(union_type.clone()),
+            NirValue::UnionExtract { type_, .. } => Some(type_.clone()),
+            NirValue::ResultIsOk { .. } => Some(ParameterType::Boolean),
+            NirValue::ResultValue { value } => match self.static_type_name(value)? {
+                // A non-`Result` operand answers with its own type, as the
+                // `strip_prefix(…).or_else(…)` this replaces did.
+                ParameterType::ResultOf(success) => Some(*success),
+                other => Some(other),
+            },
+            NirValue::ResultError { .. } => Some(error_type()),
             NirValue::Call { target, args, .. }
             | NirValue::CallResult { target, args, .. }
             | NirValue::RuntimeCall { target, args, .. } => match target.as_str() {
-                "replace" | "typeName" | "toString" => Some("String".to_string()),
-                "find" | "len" | "toInt" => Some("Integer".to_string()),
-                "mid" => Some("String".to_string()),
-                "toFloat" => Some("Float".to_string()),
-                "toFixed" => Some("Fixed".to_string()),
-                "toByte" => Some("Byte".to_string()),
-                "toMoney" => Some("Money".to_string()),
-                "toScalar" => Some("Scalar".to_string()),
-                "isNumeric" => Some("Boolean".to_string()),
+                "replace" | "typeName" | "toString" => Some(ParameterType::String),
+                "find" | "len" | "toInt" => Some(ParameterType::Integer),
+                "mid" => Some(ParameterType::String),
+                "toFloat" => Some(ParameterType::Float),
+                "toFixed" => Some(ParameterType::Fixed),
+                "toByte" => Some(ParameterType::Byte),
+                "toMoney" => Some(ParameterType::Money),
+                "toScalar" => Some(scalar_type()),
+                "isNumeric" => Some(ParameterType::Boolean),
                 // A list element read resolves to the list's element type, so an
                 // append/set whose item is a `get` (or arithmetic over `get`s)
                 // stays on the allocation-free in-place fast path instead of the
@@ -979,8 +978,11 @@ impl CodeBuilder<'_> {
                 "get" | "getOr" | "collections.get" | "collections.getOr" => args
                     .first()
                     .and_then(|arg| self.static_type_name(arg))
-                    .and_then(|type_| crate::codegen::engine::types::list_element_type(&type_)),
-                "math.floor" | "math.ceil" | "math.round" => Some("Integer".to_string()),
+                    .and_then(|type_| match type_ {
+                        ParameterType::ListOf(element) => Some(*element),
+                        _ => None,
+                    }),
+                "math.floor" | "math.ceil" | "math.round" => Some(ParameterType::Integer),
                 "math.sqrt" | "math.exp" | "math.log" | "math.log10" | "math.sin" | "math.cos"
                 | "math.tan" | "math.asin" | "math.acos" | "math.atan" => {
                     args.first().and_then(|arg| self.static_type_name(arg))
@@ -997,18 +999,18 @@ impl CodeBuilder<'_> {
                     op.as_str(),
                     "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
                 ) {
-                    return Some("Boolean".to_string());
+                    return Some(ParameterType::Boolean);
                 }
                 if op == "&" {
-                    return Some("String".to_string());
+                    return Some(ParameterType::String);
                 }
                 let left = self.static_type_name(left)?;
                 let right = self.static_type_name(right)?;
-                Some(numeric_binary_result_type(op, &left, &right).to_string())
+                Some(promoted_binary_type(op, &left, &right))
             }
             NirValue::Unary { op, operand, .. } => {
                 if op == "NOT" {
-                    Some("Boolean".to_string())
+                    Some(ParameterType::Boolean)
                 } else {
                     self.static_type_name(operand)
                 }
@@ -1016,8 +1018,11 @@ impl CodeBuilder<'_> {
             NirValue::MemberAccess { target, member } => {
                 let target_type = self.static_type_name(target)?;
                 if member == "result" {
-                    if let Some(output_type) = crate::types::parent_thread_output(&target_type) {
-                        return Some(format!("Result OF {output_type}"));
+                    if let ParameterType::ThreadHandle {
+                        worker: false, out, ..
+                    } = &target_type
+                    {
+                        return Some(ParameterType::result_of((**out).clone()));
                     }
                 }
                 // A record or union-variant field, read from the same tables the
@@ -1025,24 +1030,28 @@ impl CodeBuilder<'_> {
                 // could not name the type of `rec.field`, so `typeName(rec.field)`
                 // failed to lower at all with "cannot determine typeName argument
                 // type" (bug-366).
+                // The two field tables are keyed by nominal type NAME, so the
+                // lookup renders the (scalar-cheap) name — a name-keyed table
+                // probe, not a type-string derivation.
+                let owner = target_type.name();
                 let field_type = self
                     .type_model
                     .record_fields
-                    .get(&target_type)
-                    .or_else(|| self.type_model.union_variant_fields.get(&target_type))
+                    .get(owner.as_ref())
+                    .or_else(|| self.type_model.union_variant_fields.get(owner.as_ref()))
                     .and_then(|fields| {
                         fields
                             .iter()
                             .find(|(name, _)| name == member)
-                            .map(|(_, type_)| type_.name().into_owned())
+                            .map(|(_, type_)| type_.clone())
                     });
                 if field_type.is_some() {
                     return field_type;
                 }
-                let (key_type, value_type) = parse_map_entry_type(&target_type)?;
+                let (key_type, value_type) = typed_map_entry_type_parts(&target_type)?;
                 match member.as_str() {
-                    "key" => Some(key_type),
-                    "value" => Some(value_type),
+                    "key" => Some(key_type.clone()),
+                    "value" => Some(value_type.clone()),
                     _ => None,
                 }
             }
@@ -1066,9 +1075,9 @@ impl CodeBuilder<'_> {
     /// fold is the only place a table miss is a hard error, so the resolver
     /// fallback is scoped to exactly here. Recurses through itself so nested calls
     /// (`typeName(strings::upper(strings::lower(s)))`) resolve too.
-    pub(crate) fn static_type_name_for_fold(&self, value: &NirValue) -> Option<String> {
-        if let Some(type_name) = self.static_type_name(value) {
-            return Some(type_name);
+    pub(crate) fn static_type_name_for_fold(&self, value: &NirValue) -> Option<ParameterType> {
+        if let Some(type_) = self.static_type_name(value) {
+            return Some(type_);
         }
         match value {
             NirValue::Call { target, args, .. }
@@ -1078,7 +1087,7 @@ impl CodeBuilder<'_> {
                     .iter()
                     .map(|arg| self.static_type_name_for_fold(arg))
                     .collect::<Option<Vec<_>>>()?;
-                builtins::resolve_call_return_type(target, &arg_types, false)
+                builtins::resolve_call_return_type_typed(target, &arg_types, false)
             }
             _ => None,
         }
@@ -1090,17 +1099,16 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
     ) -> Option<String> {
         match target {
-            "thread.start" => {
-                let function_type = self.static_type_name(args.first()?)?;
-                function_type
-                    .strip_prefix("ISOLATED FUNC(")?
-                    .split_once(") AS ")
-                    .and_then(|(params, _)| {
-                        crate::codegen::builtins::split_top_level_types(params)
-                            .into_iter()
-                            .next()
-                    })
-            }
+            // The worker entry's FIRST parameter — `thread::start`'s runtime
+            // return type. plan-106-E: the isolated-FUNC spelling is a variant, so
+            // the parameter is read off it instead of being re-split out of
+            // `ISOLATED FUNC(` … `) AS `.
+            "thread.start" => match self.static_type_name(args.first()?)? {
+                crate::types::ParameterType::Func(params, _, true) => {
+                    params.first().map(|param| param.name().into_owned())
+                }
+                _ => None,
+            },
             "thread.isRunning" | "thread.poll" | "thread.isCancelled" => {
                 Some("Boolean".to_string())
             }
@@ -1113,17 +1121,17 @@ impl CodeBuilder<'_> {
             | "thread.closeStdIn" => Some("Nothing".to_string()),
             "thread.waitFor" => {
                 let thread_type = self.static_type_name(args.first()?)?;
-                crate::types::parent_thread_output(&thread_type).map(str::to_string)
+                crate::types::parent_thread_output(&thread_type.name()).map(str::to_string)
             }
             "thread.receive" => {
                 let thread_type = self.static_type_name(args.first()?)?;
-                crate::types::thread_message(&thread_type).map(str::to_string)
+                crate::types::thread_message(&thread_type.name()).map(str::to_string)
             }
             // The resource plane: accept yields the thread's resource type
             // (worker reads the inbound queue, parent reads the outbound queue).
             "thread.acceptResource" | "thread.readResource" => {
                 let thread_type = self.static_type_name(args.first()?)?;
-                crate::types::thread_resource(&thread_type).map(str::to_string)
+                crate::types::thread_resource(&thread_type.name()).map(str::to_string)
             }
             _ => None,
         }

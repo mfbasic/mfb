@@ -409,9 +409,7 @@ fn value_may_emit_float_arithmetic_error(
         } => {
             let result_type = static_nir_value_type(left, locals, fields)
                 .zip(static_nir_value_type(right, locals, fields))
-                .map(|(left_type, right_type)| {
-                    typed_numeric_binary_result_type(op, &left_type, &right_type)
-                });
+                .map(|(left_type, right_type)| promoted_binary_type(op, &left_type, &right_type));
             (matches!(op.as_str(), "+" | "-" | "*" | "/" | "DIV" | "MOD" | "^")
                 && result_type == Some(ParameterType::Float))
                 || value_may_emit_float_arithmetic_error(left, locals, fields)
@@ -1005,10 +1003,11 @@ pub(crate) fn value_may_return_invalid_format(
         | NirValue::RuntimeCall { target, args, .. } => match target.as_str() {
             // `toInt(Byte)` and `toInt(Scalar)` are infallible width-preserving
             // moves; every other 1-arg form can fail.
-            "toInt" if args.len() == 1 => !matches!(
-                static_type_name_with_types(&args[0], types, fields).as_deref(),
-                Some("Byte") | Some("Scalar")
-            ),
+            "toInt" if args.len() == 1 => {
+                let arg_type = static_type_name_with_types(&args[0], types, fields);
+                !matches!(arg_type, Some(ParameterType::Byte))
+                    && arg_type.as_ref() != Some(&scalar_type())
+            }
             // The 2-arg `toInt(text, base)` form parses a String in a runtime
             // base; it FAILs `77050003` on an empty string, an out-of-range
             // base, or a digit invalid for the base (plan-02-cleanup §5).

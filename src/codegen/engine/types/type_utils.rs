@@ -37,9 +37,7 @@ pub(crate) fn static_nir_value_type(
             op, left, right, ..
         } => static_nir_value_type(left, locals, fields)
             .zip(static_nir_value_type(right, locals, fields))
-            .map(|(left_type, right_type)| {
-                typed_numeric_binary_result_type(op, &left_type, &right_type)
-            }),
+            .map(|(left_type, right_type)| promoted_binary_type(op, &left_type, &right_type)),
         NirValue::Unary { operand, .. } => static_nir_value_type(operand, locals, fields),
         NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
             let arg_types = args
@@ -169,10 +167,12 @@ pub(crate) fn local_constant_value_with_constants(
         | NirValue::RuntimeCall { target, args, .. }
             if target == "typeName" && args.len() == 1 =>
         {
-            static_type_name_for_fold_with_types(&args[0], types, fields).map(|value| {
+            // `typeName` folds to the argument type's SPELLING as a string
+            // constant — the rendered name IS the program-visible value here.
+            static_type_name_for_fold_with_types(&args[0], types, fields).map(|type_| {
                 NirValue::Const {
                     type_: ParameterType::String,
-                    value,
+                    value: type_.name().into_owned(),
                 }
             })
         }
@@ -248,9 +248,9 @@ pub(crate) fn binary_may_consume_float_into_exact(
     let Some(right_type) = static_type_name_with_types(right, types, fields) else {
         return false;
     };
-    let result = numeric_binary_result_type(op, &left_type, &right_type);
-    (result == numeric::TYPE_FIXED || result == numeric::TYPE_MONEY)
-        && (left_type == numeric::TYPE_FLOAT || right_type == numeric::TYPE_FLOAT)
+    let result = promoted_binary_type(op, &left_type, &right_type);
+    matches!(result, ParameterType::Fixed | ParameterType::Money)
+        && (left_type == ParameterType::Float || right_type == ParameterType::Float)
 }
 
 pub(crate) fn static_primitive_text_with_constants(
@@ -459,28 +459,41 @@ pub(crate) fn parse_map_entry_type(type_: &str) -> Option<(String, String)> {
     Some((key.to_string(), value.to_string()))
 }
 
-pub(crate) fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'static str {
-    numeric::binary_result_type(operator, left, right).unwrap_or(numeric::TYPE_INTEGER)
-}
-
-/// Typed twin of [`numeric_binary_result_type`] (plan-104-B): renders the
-/// operand names (scalar renders are `Cow::Borrowed`, allocation-free), runs
-/// the one string algorithm in `numeric`, and maps its closed scalar result
-/// set back to variants with a static match — no parse. The string form
-/// survives for the still-shimmed consumer trees (deleted when its last
-/// string caller converts, per the plan's Open Decision).
-pub(crate) fn typed_numeric_binary_result_type(
+/// The promoted result type of a binary numeric operation, defaulting a
+/// non-numeric pairing to `Integer` — codegen's total flavour of the ONE
+/// promotion algebra.
+///
+/// plan-106-E: was `promoted_binary_type`, which rendered both
+/// operand names, ran the string algorithm, and re-matched the result back to a
+/// variant. Its string twin `numeric_binary_result_type` is deleted with it —
+/// promotion now has exactly one implementation, `numeric::typed_binary_result_type`.
+///
+/// The `unwrap_or(Integer)` is codegen's own defaulting, not part of the algebra:
+/// `numeric` answers `None` for a non-numeric or dimensionally-invalid pairing,
+/// and every caller here needs a type.
+pub(crate) fn promoted_binary_type(
     operator: &str,
     left: &ParameterType,
     right: &ParameterType,
 ) -> ParameterType {
-    match numeric_binary_result_type(operator, &left.name(), &right.name()) {
-        "Byte" => ParameterType::Byte,
-        "Float" => ParameterType::Float,
-        "Fixed" => ParameterType::Fixed,
-        "Money" => ParameterType::Money,
-        _ => ParameterType::Integer,
-    }
+    numeric::typed_binary_result_type(operator, left, right).unwrap_or(ParameterType::Integer)
+}
+
+/// Whether a NIR type slot is the EMPTY nominal — the "no declared type" marker a
+/// synthesized `Global` node carries, which sends the reader to the global table.
+pub(crate) fn is_unset_type(type_: &ParameterType) -> bool {
+    matches!(type_, ParameterType::Named(name) if name.resolve().is_empty())
+}
+
+/// The built-in `Scalar` nominal. It has no [`ParameterType`] variant (it is a
+/// nominal, like `Error`), so it is spelled once here rather than at each site.
+pub(crate) fn scalar_type() -> ParameterType {
+    ParameterType::named("Scalar")
+}
+
+/// The built-in `Error` nominal.
+pub(crate) fn error_type() -> ParameterType {
+    ParameterType::named("Error")
 }
 
 pub(crate) fn native_immediate_value(type_: &str, value: &str) -> Result<String, String> {

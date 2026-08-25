@@ -14,7 +14,7 @@
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::list_element_type;
+use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -37,13 +37,13 @@ impl CodeBuilder<'_> {
         let Some(list_type) = self.static_type_name(&args[0]) else {
             return Ok(None);
         };
-        let Some(element_type) = list_element_type(&list_type) else {
+        let Some(element_type) = typed_list_element_type(&list_type) else {
             return Ok(None);
         };
-        if CollectionTypeLayout::from_type(&list_type).is_none() {
+        if CollectionTypeLayout::from_type(&list_type.name()).is_none() {
             return Ok(None);
         }
-        let result = self.lower_list_slice_range(args, &element_type)?;
+        let result = self.lower_list_slice_range(args, &element_type.name())?;
         Ok(Some(result))
     }
 
