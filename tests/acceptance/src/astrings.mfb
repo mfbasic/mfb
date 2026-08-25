@@ -1,0 +1,737 @@
+IMPORT astrings
+IMPORT strings
+IMPORT collections
+IMPORT errorCode
+IMPORT io
+
+' Consolidated runtime-behavior acceptance for the astrings builtin package and
+' every seam that accepts an AttributedString outside it. This is the full
+' acceptance and security suite for the import:
+'
+'   * astrings::fromString and the visible-text seams (toString, io::print,
+'     io::write);
+'   * every Attribute constructor (bold/italic/underline/strike/overline/font/
+'     fontSize/foreground/background) plus the open, user-constructible
+'     Attribute model (AttrFlag/AttrText/AttrNumber literals);
+'   * addAttribute/getAttributes storage and higher-start-wins resolution;
+'   * removeAttribute (structural match + inclusive-bound split) and both
+'     clearAttributes overloads (whole + ranged);
+'   * astrings::toMarkdown (flags, font/size state switches, escaping);
+'   * every Tier-A strings:: query and every Tier-B strings:: transform over an
+'     AttributedString, plus `&` concatenation;
+'   * the error surface: 77050001 ErrIndexOutOfRange for any out-of-bounds
+'     index/range (an op on an empty AttributedString always fails this way),
+'     77050002 ErrInvalidArgument for a negative start or inverted range, and
+'     identical propagation through the Tier-A/Tier-B overloads.
+'
+' Not testable inside this TESTING app, covered elsewhere:
+'   * term::drawText(x, y, AttributedString) needs the term surface —
+'     tests/rt-behavior/term/func_term_drawText_attr_valid;
+'   * compile-time opacity (no field access / record literal / WITH on the
+'     opaque type) — tests/syntax/astrings/opacity-invalid;
+'   * the internal-only overlay bridge (readSpans/writeSpans/scalarLen is never
+'     user-callable) — tests/syntax/astrings/attribute-model-invalid.
+
+' Canonical rendering of an attribute list: one space-terminated token per
+' attribute, in getAttributes order (span insertion order).
+FUNC astrDescribe(attrs AS List OF Attribute) AS String
+  MUT out AS String = ""
+  FOR EACH a IN attrs
+    MATCH a
+      CASE AttrFlag(f)
+        MATCH f.kind
+          CASE AttrTypeFlag.Bold
+            out = out & "Bold "
+          CASE AttrTypeFlag.Italic
+            out = out & "Italic "
+          CASE AttrTypeFlag.Underline
+            out = out & "Underline "
+          CASE AttrTypeFlag.Strike
+            out = out & "Strike "
+          CASE AttrTypeFlag.Overline
+            out = out & "Overline "
+        END MATCH
+      CASE AttrText(t)
+        out = out & "Font:" & t.value & " "
+      CASE AttrNumber(n)
+        MATCH n.kind
+          CASE AttrTypeNumber.FontSize
+            out = out & "Size:" & toString(n.value) & " "
+          CASE AttrTypeNumber.Foreground
+            out = out & "Fg:" & toString(n.value) & " "
+          CASE AttrTypeNumber.Background
+            out = out & "Bg:" & toString(n.value) & " "
+        END MATCH
+    END MATCH
+  NEXT
+  RETURN out
+END FUNC
+
+' The resolved attributes at one scalar, rendered canonically.
+FUNC astrAt(a AS AttributedString, i AS Integer) AS String
+  RETURN astrDescribe(astrings::getAttributes(a, i))
+END FUNC
+
+' Per-scalar flag map: one character per visible scalar — B/I/U/S/O for the
+' first flag present in canonical order, `-` when no flag is resolved there.
+FUNC astrFlagMap(a AS AttributedString) AS String
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  LET n AS Integer = len(strings::toScalars(toString(a)))
+  WHILE i < n
+    MUT bold AS Boolean = FALSE
+    MUT italic AS Boolean = FALSE
+    MUT under AS Boolean = FALSE
+    MUT strike AS Boolean = FALSE
+    MUT over AS Boolean = FALSE
+    FOR EACH at IN astrings::getAttributes(a, i)
+      MATCH at
+        CASE AttrFlag(f)
+          MATCH f.kind
+            CASE AttrTypeFlag.Bold
+              bold = TRUE
+            CASE AttrTypeFlag.Italic
+              italic = TRUE
+            CASE AttrTypeFlag.Underline
+              under = TRUE
+            CASE AttrTypeFlag.Strike
+              strike = TRUE
+            CASE AttrTypeFlag.Overline
+              over = TRUE
+          END MATCH
+        CASE ELSE
+      END MATCH
+    NEXT
+    IF bold THEN
+      out = out & "B"
+    ELSE
+      IF italic THEN
+        out = out & "I"
+      ELSE
+        IF under THEN
+          out = out & "U"
+        ELSE
+          IF strike THEN
+            out = out & "S"
+          ELSE
+            IF over THEN
+              out = out & "O"
+            ELSE
+              out = out & "-"
+            END IF
+          END IF
+        END IF
+      END IF
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' A 30-scalar base string shared by the storage/resolution cases.
+FUNC astrBase AS AttributedString
+  RETURN astrings::fromString("hello world, styled text here!")
+END FUNC
+
+TESTING
+  TGROUP "Builtin: astrings"
+
+    TGROUP "fromString / toString / defaults"
+      TCASE "round-trip"
+        expectString(toString(astrings::fromString("hello")), "hello")
+        expectString(toString(astrings::fromString("")), "")
+        expectString(toString(astrings::fromString("aé😀b")), "aé😀b")
+      END TCASE
+      TCASE "defaulted value has empty text and no attributes"
+        MUT d AS AttributedString
+        expectString(toString(d), "")
+        expectString(astrings::toMarkdown(d), "")
+      END TCASE
+      TCASE "scalar structure of the visible text"
+        LET u AS AttributedString = astrings::fromString("aé😀b")
+        expectInteger(len(strings::toScalars(u)), 4)
+        expectInteger(strings::byteLen(u), 8)
+      END TCASE
+      TCASE "a fresh value carries no attributes"
+        expectString(astrAt(astrings::fromString("abc"), 1), "")
+      END TCASE
+    END TGROUP
+
+    TGROUP "constructors"
+      TCASE "flag constructors"
+        expectString(astrDescribe([astrings::bold()]), "Bold ")
+        expectString(astrDescribe([astrings::italic()]), "Italic ")
+        expectString(astrDescribe([astrings::underline()]), "Underline ")
+        expectString(astrDescribe([astrings::strike()]), "Strike ")
+        expectString(astrDescribe([astrings::overline()]), "Overline ")
+      END TCASE
+      TCASE "font and fontSize constructors"
+        expectString(astrDescribe([astrings::font("Serif")]), "Font:Serif ")
+        expectString(astrDescribe([astrings::font("")]), "Font: ")
+        expectString(astrDescribe([astrings::fontSize(14)]), "Size:14 ")
+        expectString(astrDescribe([astrings::fontSize(0)]), "Size:0 ")
+      END TCASE
+      TCASE "foreground/background pack 0xRRGGBB losslessly"
+        expectString(astrDescribe([astrings::foreground(255, 128, 64)]), "Fg:16744512 ")
+        expectString(astrDescribe([astrings::foreground(0, 0, 0)]), "Fg:0 ")
+        expectString(astrDescribe([astrings::background(255, 255, 255)]), "Bg:16777215 ")
+        expectString(astrDescribe([astrings::background(1, 2, 3)]), "Bg:66051 ")
+      END TCASE
+      TCASE "the Attribute model is open — user-built values are equivalent"
+        LET f AS Attribute = AttrFlag[AttrTypeFlag.Strike]
+        LET t AS Attribute = AttrText[AttrTypeText.Font, "Mono"]
+        LET n AS Attribute = AttrNumber[AttrTypeNumber.Background, 42]
+        expectString(astrDescribe([f, t, n]), "Strike Font:Mono Bg:42 ")
+        MUT a AS AttributedString = astrings::fromString("xy")
+        a = astrings::addAttribute(a, 0, 1, AttrFlag[AttrTypeFlag.Underline])
+        expectString(astrAt(a, 0), "Underline ")
+      END TCASE
+      TCASE "all constructors round-trip through storage"
+        MUT a AS AttributedString = astrings::fromString("x")
+        a = astrings::addAttribute(a, 0, 0, astrings::overline())
+        a = astrings::addAttribute(a, 0, 0, astrings::font("Sans"))
+        a = astrings::addAttribute(a, 0, 0, astrings::fontSize(9))
+        a = astrings::addAttribute(a, 0, 0, astrings::foreground(16, 32, 48))
+        a = astrings::addAttribute(a, 0, 0, astrings::background(48, 32, 16))
+        expectString(astrAt(a, 0), "Overline Font:Sans Size:9 Fg:1056816 Bg:3153936 ")
+      END TCASE
+    END TGROUP
+
+    TGROUP "addAttribute / getAttributes"
+      TCASE "basic storage and span extent"
+        MUT a AS AttributedString = astrings::fromString("hello")
+        a = astrings::addAttribute(a, 0, 4, astrings::bold())
+        expectString(astrAt(a, 0), "Bold ")
+        expectString(astrAt(a, 4), "Bold ")
+        expectString(astrFlagMap(a), "BBBBB")
+      END TCASE
+      TCASE "single-scalar span (start = endIndex)"
+        MUT a AS AttributedString = astrings::fromString("hello")
+        a = astrings::addAttribute(a, 2, 2, astrings::bold())
+        expectString(astrFlagMap(a), "--B--")
+      END TCASE
+      TCASE "addAttribute is value-semantic — the input is untouched"
+        LET base AS AttributedString = astrings::fromString("hello")
+        LET derived AS AttributedString = astrings::addAttribute(base, 0, 4, astrings::bold())
+        expectString(astrFlagMap(derived), "BBBBB")
+        expectString(astrFlagMap(base), "-----")
+      END TCASE
+      TCASE "higher start wins within one member"
+        MUT b AS AttributedString = astrBase()
+        b = astrings::addAttribute(b, 10, 20, astrings::fontSize(10))
+        b = astrings::addAttribute(b, 15, 25, astrings::fontSize(20))
+        expectString(astrAt(b, 12), "Size:10 ")
+        expectString(astrAt(b, 15), "Size:20 ")
+        expectString(astrAt(b, 21), "Size:20 ")
+        expectString(astrAt(b, 26), "")
+      END TCASE
+      TCASE "equal start — later insertion wins"
+        MUT a AS AttributedString = astrings::fromString("hello")
+        a = astrings::addAttribute(a, 0, 4, astrings::fontSize(10))
+        a = astrings::addAttribute(a, 0, 4, astrings::fontSize(20))
+        expectString(astrAt(a, 2), "Size:20 ")
+      END TCASE
+      TCASE "different members coexist"
+        MUT c AS AttributedString = astrBase()
+        c = astrings::addAttribute(c, 0, 10, astrings::bold())
+        c = astrings::addAttribute(c, 5, 15, astrings::italic())
+        c = astrings::addAttribute(c, 0, 29, astrings::font("Serif"))
+        expectString(astrAt(c, 7), "Bold Italic Font:Serif ")
+        expectString(astrAt(c, 0), "Bold Font:Serif ")
+        expectString(astrAt(c, 12), "Italic Font:Serif ")
+        expectString(astrAt(c, 20), "Font:Serif ")
+      END TCASE
+      TCASE "duplicate flag spans resolve to a single attribute"
+        MUT a AS AttributedString = astrings::fromString("hello")
+        a = astrings::addAttribute(a, 0, 4, astrings::bold())
+        a = astrings::addAttribute(a, 2, 4, astrings::bold())
+        expectInteger(len(astrings::getAttributes(a, 3)), 1)
+        expectString(astrAt(a, 3), "Bold ")
+      END TCASE
+      TCASE "overlapping fonts resolve to one winner"
+        MUT a AS AttributedString = astrings::fromString("hello")
+        a = astrings::addAttribute(a, 0, 4, astrings::font("Serif"))
+        a = astrings::addAttribute(a, 2, 4, astrings::font("Mono"))
+        expectString(astrAt(a, 1), "Font:Serif ")
+        expectString(astrAt(a, 3), "Font:Mono ")
+      END TCASE
+      TCASE "numeric members are independent planes"
+        MUT a AS AttributedString = astrings::fromString("hello")
+        a = astrings::addAttribute(a, 0, 4, astrings::fontSize(12))
+        a = astrings::addAttribute(a, 0, 4, astrings::foreground(0, 0, 255))
+        a = astrings::addAttribute(a, 0, 4, astrings::background(0, 255, 0))
+        expectString(astrAt(a, 2), "Size:12 Fg:255 Bg:65280 ")
+      END TCASE
+      TCASE "spans index Unicode scalars"
+        MUT u AS AttributedString = astrings::fromString("aé😀b")
+        u = astrings::addAttribute(u, 2, 2, astrings::bold())
+        expectString(astrFlagMap(u), "--B-")
+        expectString(astrAt(u, 3), "")
+      END TCASE
+    END TGROUP
+
+    TGROUP "removeAttribute"
+      TCASE "inclusive-bound split leaves both flanks"
+        MUT a AS AttributedString = astrings::addAttribute(astrBase(), 5, 25, astrings::bold())
+        a = astrings::removeAttribute(a, 10, 20, astrings::bold())
+        expectString(astrAt(a, 5), "Bold ")
+        expectString(astrAt(a, 9), "Bold ")
+        expectString(astrAt(a, 15), "")
+        expectString(astrAt(a, 21), "Bold ")
+        expectString(astrAt(a, 25), "Bold ")
+      END TCASE
+      TCASE "removing the winner reveals the loser"
+        MUT r AS AttributedString = astrBase()
+        r = astrings::addAttribute(r, 0, 15, astrings::fontSize(10))
+        r = astrings::addAttribute(r, 10, 18, astrings::fontSize(20))
+        expectString(astrAt(r, 12), "Size:20 ")
+        LET revealed AS AttributedString = astrings::removeAttribute(r, 10, 18, astrings::fontSize(20))
+        expectString(astrAt(revealed, 12), "Size:10 ")
+      END TCASE
+      TCASE "structural match is exact — kind and value"
+        MUT a AS AttributedString = astrings::fromString("hello")
+        a = astrings::addAttribute(a, 0, 4, astrings::bold())
+        a = astrings::addAttribute(a, 0, 4, astrings::font("Serif"))
+        a = astrings::addAttribute(a, 0, 4, astrings::fontSize(10))
+        ' A different flag, font value, or size value matches nothing.
+        LET r1 AS AttributedString = astrings::removeAttribute(a, 0, 4, astrings::italic())
+        expectString(astrAt(r1, 2), "Bold Font:Serif Size:10 ")
+        LET r2 AS AttributedString = astrings::removeAttribute(a, 0, 4, astrings::font("Sans"))
+        expectString(astrAt(r2, 2), "Bold Font:Serif Size:10 ")
+        LET r3 AS AttributedString = astrings::removeAttribute(a, 0, 4, astrings::fontSize(12))
+        expectString(astrAt(r3, 2), "Bold Font:Serif Size:10 ")
+        ' The exact value matches and is removed.
+        LET r4 AS AttributedString = astrings::removeAttribute(a, 0, 4, astrings::font("Serif"))
+        expectString(astrAt(r4, 2), "Bold Size:10 ")
+      END TCASE
+      TCASE "exact-range removal leaves nothing"
+        MUT a AS AttributedString = astrings::fromString("hello")
+        a = astrings::addAttribute(a, 1, 3, astrings::bold())
+        LET r AS AttributedString = astrings::removeAttribute(a, 1, 3, astrings::bold())
+        expectString(astrFlagMap(r), "-----")
+      END TCASE
+      TCASE "left and right flank removal"
+        LET a AS AttributedString = astrings::addAttribute(astrBase(), 5, 25, astrings::bold())
+        LET l AS AttributedString = astrings::removeAttribute(a, 5, 10, astrings::bold())
+        expectString(astrAt(l, 5), "")
+        expectString(astrAt(l, 10), "")
+        expectString(astrAt(l, 11), "Bold ")
+        LET r AS AttributedString = astrings::removeAttribute(a, 20, 25, astrings::bold())
+        expectString(astrAt(r, 19), "Bold ")
+        expectString(astrAt(r, 20), "")
+      END TCASE
+      TCASE "single-scalar removal from a single-scalar span"
+        MUT g AS AttributedString = astrings::fromString("hello")
+        g = astrings::addAttribute(g, 2, 2, astrings::bold())
+        LET r AS AttributedString = astrings::removeAttribute(g, 2, 2, astrings::bold())
+        expectString(astrFlagMap(r), "-----")
+      END TCASE
+      TCASE "removal over an empty overlay is a no-op"
+        LET plain AS AttributedString = astrings::fromString("hello")
+        LET r AS AttributedString = astrings::removeAttribute(plain, 0, 4, astrings::bold())
+        expectString(toString(r), "hello")
+        expectString(astrFlagMap(r), "-----")
+      END TCASE
+    END TGROUP
+
+    TGROUP "clearAttributes"
+      TCASE "whole-value clear drops every attribute kind"
+        MUT a AS AttributedString = astrings::fromString("hello")
+        a = astrings::addAttribute(a, 0, 4, astrings::bold())
+        a = astrings::addAttribute(a, 1, 3, astrings::font("Serif"))
+        a = astrings::addAttribute(a, 2, 2, astrings::foreground(9, 9, 9))
+        LET c AS AttributedString = astrings::clearAttributes(a)
+        expectString(toString(c), "hello")
+        expectString(astrAt(c, 2), "")
+      END TCASE
+      TCASE "ranged clear splits straddlers, flanks survive"
+        MUT c AS AttributedString = astrings::addAttribute(astrBase(), 0, 9, astrings::bold())
+        c = astrings::clearAttributes(c, 2, 7)
+        expectString(astrAt(c, 1), "Bold ")
+        expectString(astrAt(c, 4), "")
+        expectString(astrAt(c, 8), "Bold ")
+      END TCASE
+      TCASE "ranged clear drops every kind inside the range only"
+        MUT a AS AttributedString = astrings::fromString("hello")
+        a = astrings::addAttribute(a, 0, 4, astrings::bold())
+        a = astrings::addAttribute(a, 0, 4, astrings::fontSize(12))
+        LET c AS AttributedString = astrings::clearAttributes(a, 1, 3)
+        expectString(astrAt(c, 0), "Bold Size:12 ")
+        expectString(astrAt(c, 2), "")
+        expectString(astrAt(c, 4), "Bold Size:12 ")
+      END TCASE
+      TCASE "clearing an already-clear value is a no-op"
+        LET plain AS AttributedString = astrings::fromString("hello")
+        expectString(toString(astrings::clearAttributes(plain)), "hello")
+        expectString(toString(astrings::clearAttributes(plain, 0, 4)), "hello")
+      END TCASE
+    END TGROUP
+
+    TGROUP "error surface"
+      TCASE "addAttribute range validation"
+        LET s AS AttributedString = astrings::fromString("abcde")
+        ' endIndex is inclusive: scalar count 5 makes 4 the last valid index.
+        expectTrap(astrings::addAttribute(s, 0, 5, astrings::bold()), errorCode::ErrIndexOutOfRange)
+        expectTrap(astrings::addAttribute(s, 0, 9999999, astrings::bold()), errorCode::ErrIndexOutOfRange)
+        expectTrap(astrings::addAttribute(s, -1, 2, astrings::bold()), errorCode::ErrInvalidArgument)
+        expectTrap(astrings::addAttribute(s, 3, 2, astrings::bold()), errorCode::ErrInvalidArgument)
+        expectTrap(astrings::addAttribute(s, -5, -2, astrings::bold()), errorCode::ErrInvalidArgument)
+        expectNTrap(astrings::addAttribute(s, 0, 4, astrings::bold()))
+      END TCASE
+      TCASE "any attribute op on an empty value is out of bounds"
+        LET e AS AttributedString = astrings::fromString("")
+        expectTrap(astrings::addAttribute(e, 0, 0, astrings::bold()), errorCode::ErrIndexOutOfRange)
+        expectTrap(astrings::removeAttribute(e, 0, 0, astrings::bold()), errorCode::ErrIndexOutOfRange)
+        expectTrap(astrings::clearAttributes(e, 0, 0), errorCode::ErrIndexOutOfRange)
+        expectTrap(astrings::getAttributes(e, 0), errorCode::ErrIndexOutOfRange)
+        ' Whole-value clear has no range to validate and stays legal.
+        expectNTrap(astrings::clearAttributes(e))
+      END TCASE
+      TCASE "removeAttribute and ranged clearAttributes validate identically"
+        LET s AS AttributedString = astrings::fromString("abcde")
+        expectTrap(astrings::removeAttribute(s, 0, 5, astrings::bold()), errorCode::ErrIndexOutOfRange)
+        expectTrap(astrings::removeAttribute(s, -1, 0, astrings::bold()), errorCode::ErrInvalidArgument)
+        expectTrap(astrings::clearAttributes(s, 0, 5), errorCode::ErrIndexOutOfRange)
+        expectTrap(astrings::clearAttributes(s, 2, 1), errorCode::ErrInvalidArgument)
+      END TCASE
+      TCASE "getAttributes index validation"
+        LET s AS AttributedString = astrings::fromString("abcde")
+        expectTrap(astrings::getAttributes(s, -1), errorCode::ErrIndexOutOfRange)
+        expectTrap(astrings::getAttributes(s, 5), errorCode::ErrIndexOutOfRange)
+        expectTrap(astrings::getAttributes(s, 9999999), errorCode::ErrIndexOutOfRange)
+        expectNTrap(astrings::getAttributes(s, 4))
+      END TCASE
+      TCASE "a failed mutation leaves the input intact"
+        MUT a AS AttributedString = astrings::fromString("abcde")
+        a = astrings::addAttribute(a, 0, 2, astrings::bold())
+        expectTrap(astrings::addAttribute(a, 0, 5, astrings::italic()), errorCode::ErrIndexOutOfRange)
+        expectString(astrFlagMap(a), "BBB--")
+      END TCASE
+      TCASE "Tier-B overloads propagate the String error surface"
+        LET a AS AttributedString = astrings::addAttribute(astrings::fromString("abcde"), 0, 4, astrings::bold())
+        expectTrap(strings::mid(a, 0, 10), errorCode::ErrIndexOutOfRange)
+        expectTrap(strings::left(a, -1), errorCode::ErrInvalidArgument)
+        expectTrap(strings::right(a, -1), errorCode::ErrInvalidArgument)
+        expectTrap(strings::repeat(a, -1), errorCode::ErrInvalidArgument)
+      END TCASE
+      TCASE "Tier-A overloads propagate the String error surface"
+        LET a AS AttributedString = astrings::addAttribute(astrings::fromString("abcde"), 0, 4, astrings::bold())
+        expectTrap(strings::graphemeAt(a, 5), errorCode::ErrIndexOutOfRange)
+        expectTrap(strings::find(a, "zz"), errorCode::ErrNotFound)
+      END TCASE
+    END TGROUP
+
+    TGROUP "Tier-A queries answer on the visible text"
+      TCASE "measurements"
+        LET a AS AttributedString = astrings::addAttribute(astrings::fromString("hello world"), 0, 4, astrings::bold())
+        expectInteger(strings::byteLen(a), 11)
+        expectInteger(strings::graphemesCount(a), 11)
+        expectInteger(strings::displayWidth(a), 11)
+        expectInteger(len(strings::toScalars(a)), 11)
+        expectInteger(len(strings::toBytes(a)), 11)
+        expectInteger(toInt(collections::get(strings::toBytes(a), 0)), 104)
+      END TCASE
+      TCASE "predicates"
+        LET a AS AttributedString = astrings::addAttribute(astrings::fromString("hello world"), 0, 4, astrings::bold())
+        expectEqual(strings::contains(a, "world"), TRUE)
+        expectEqual(strings::contains(a, "xyz"), FALSE)
+        expectEqual(strings::startsWith(a, "hell"), TRUE)
+        expectEqual(strings::endsWith(a, "rld"), TRUE)
+        expectEqual(strings::startsWithAny(a, ["x", "he"]), TRUE)
+        expectEqual(strings::endsWithAny(a, ["x", "ld"]), TRUE)
+        LET none AS List OF String = []
+        expectEqual(strings::startsWithAny(a, none), FALSE)
+      END TCASE
+      TCASE "positions and counts"
+        LET a AS AttributedString = astrings::addAttribute(astrings::fromString("hello world"), 0, 4, astrings::bold())
+        expectInteger(strings::find(a, "o"), 4)
+        expectInteger(strings::count(a, "l"), 3)
+        expectString(strings::graphemeAt(a, 6), "w")
+      END TCASE
+      TCASE "decompositions yield plain values"
+        LET a AS AttributedString = astrings::addAttribute(astrings::fromString("hello world"), 0, 10, astrings::bold())
+        LET parts AS List OF String = strings::split(a, " ")
+        expectInteger(len(parts), 2)
+        expectString(collections::get(parts, 0), "hello")
+        expectString(collections::get(parts, 1), "world")
+        LET gs AS List OF String = strings::graphemes(a)
+        expectInteger(len(gs), 11)
+        expectString(collections::get(gs, 0), "h")
+      END TCASE
+      TCASE "attributes never change an answer"
+        LET plain AS String = "aé😀b"
+        MUT u AS AttributedString = astrings::fromString(plain)
+        u = astrings::addAttribute(u, 0, 3, astrings::bold())
+        u = astrings::addAttribute(u, 1, 2, astrings::font("Serif"))
+        expectInteger(strings::byteLen(u), strings::byteLen(plain))
+        expectInteger(strings::displayWidth(u), strings::displayWidth(plain))
+        expectInteger(strings::graphemesCount(u), strings::graphemesCount(plain))
+        expectString(strings::graphemeAt(u, 2), strings::graphemeAt(plain, 2))
+      END TCASE
+    END TGROUP
+
+    TGROUP "Tier-B transforms remap spans"
+      TCASE "slice: left / right / mid"
+        LET base AS AttributedString = astrings::addAttribute(astrings::fromString("hello world"), 0, 4, astrings::bold())
+        LET m AS AttributedString = strings::mid(base, 3, 5)
+        expectString(toString(m), "lo wo")
+        expectString(astrFlagMap(m), "BB---")
+        LET l AS AttributedString = strings::left(base, 3)
+        expectString(toString(l), "hel")
+        expectString(astrFlagMap(l), "BBB")
+        LET r AS AttributedString = strings::right(base, 4)
+        expectString(toString(r), "orld")
+        expectString(astrFlagMap(r), "----")
+      END TCASE
+      TCASE "slice edges: zero and over-length counts"
+        LET base AS AttributedString = astrings::addAttribute(astrings::fromString("abcde"), 0, 4, astrings::bold())
+        expectString(toString(strings::left(base, 0)), "")
+        expectString(toString(strings::mid(base, 2, 0)), "")
+        LET whole AS AttributedString = strings::left(base, 99)
+        expectString(toString(whole), "abcde")
+        expectString(astrFlagMap(whole), "BBBBB")
+      END TCASE
+      TCASE "trim family"
+        LET sp AS AttributedString = astrings::addAttribute(astrings::fromString("  hi  "), 2, 3, astrings::bold())
+        LET tr AS AttributedString = strings::trim(sp)
+        expectString(toString(tr), "hi")
+        expectString(astrFlagMap(tr), "BB")
+        LET ts AS AttributedString = strings::trimStart(sp)
+        expectString(toString(ts), "hi  ")
+        expectString(astrFlagMap(ts), "BB--")
+        LET te AS AttributedString = strings::trimEnd(sp)
+        expectString(toString(te), "  hi")
+        expectString(astrFlagMap(te), "--BB")
+      END TCASE
+      TCASE "trimChars"
+        LET spx AS AttributedString = astrings::addAttribute(astrings::fromString("__hi__"), 2, 3, astrings::bold())
+        LET tc AS AttributedString = strings::trimChars(spx, "_")
+        expectString(toString(tc), "hi")
+        expectString(astrFlagMap(tc), "BB")
+        ' An empty trim set keeps text and spans untouched.
+        LET keep AS AttributedString = strings::trimChars(spx, "")
+        expectString(toString(keep), "__hi__")
+        expectString(astrFlagMap(keep), "--BB--")
+      END TCASE
+      TCASE "stripPrefix / stripSuffix"
+        LET pfx AS AttributedString = astrings::addAttribute(astrings::fromString(">>data"), 2, 5, astrings::bold())
+        LET sp2 AS AttributedString = strings::stripPrefix(pfx, ">>")
+        expectString(toString(sp2), "data")
+        expectString(astrFlagMap(sp2), "BBBB")
+        LET nomatch AS AttributedString = strings::stripPrefix(pfx, "zz")
+        expectString(toString(nomatch), ">>data")
+        expectString(astrFlagMap(nomatch), "--BBBB")
+        LET sfx AS AttributedString = astrings::addAttribute(astrings::fromString("data<<"), 0, 3, astrings::bold())
+        LET ss AS AttributedString = strings::stripSuffix(sfx, "<<")
+        expectString(toString(ss), "data")
+        expectString(astrFlagMap(ss), "BBBB")
+        LET keep AS AttributedString = strings::stripSuffix(sfx, "zz")
+        expectString(astrFlagMap(keep), "BBBB--")
+      END TCASE
+      TCASE "padLeft shifts spans, padRight keeps them"
+        LET base AS AttributedString = astrings::addAttribute(astrings::fromString("hello world"), 0, 4, astrings::bold())
+        LET pl AS AttributedString = strings::padLeft(base, 14)
+        expectString(toString(pl), "   hello world")
+        expectString(astrFlagMap(pl), "---BBBBB------")
+        LET pr AS AttributedString = strings::padRight(base, 14)
+        expectString(toString(pr), "hello world   ")
+        expectString(astrFlagMap(pr), "BBBBB---------")
+      END TCASE
+      TCASE "pad edges: short width and custom pad character"
+        LET tc AS AttributedString = astrings::addAttribute(astrings::fromString("ab"), 0, 1, astrings::bold())
+        LET short AS AttributedString = strings::padLeft(tc, 1)
+        expectString(toString(short), "ab")
+        expectString(astrFlagMap(short), "BB")
+        LET pc AS AttributedString = strings::padLeft(tc, 4, ".")
+        expectString(toString(pc), "..ab")
+        expectString(astrFlagMap(pc), "--BB")
+        LET pr AS AttributedString = strings::padRight(tc, 4, ".")
+        expectString(toString(pr), "ab..")
+        expectString(astrFlagMap(pr), "BB--")
+      END TCASE
+      TCASE "repeat tiles the overlay"
+        LET base AS AttributedString = astrings::addAttribute(astrings::fromString("hello world"), 0, 4, astrings::bold())
+        LET rep AS AttributedString = strings::repeat(base, 2)
+        expectString(toString(rep), "hello worldhello world")
+        expectString(astrFlagMap(rep), "BBBBB------BBBBB------")
+        expectString(toString(strings::repeat(base, 0)), "")
+      END TCASE
+      TCASE "replace: kept segments keep spans, insertions are plain"
+        LET s AS AttributedString = astrings::addAttribute(astrings::fromString("aXbXc"), 0, 4, astrings::bold())
+        LET r AS AttributedString = strings::replace(s, "X", "YY")
+        expectString(toString(r), "aYYbYYc")
+        expectString(astrFlagMap(r), "B--B--B")
+      END TCASE
+      TCASE "replace: dropped-inside and shifted-after spans"
+        MUT s2 AS AttributedString = astrings::fromString("aXbXc")
+        s2 = astrings::addAttribute(s2, 1, 1, astrings::bold())
+        s2 = astrings::addAttribute(s2, 4, 4, astrings::italic())
+        LET r2 AS AttributedString = strings::replace(s2, "X", "YY")
+        expectString(toString(r2), "aYYbYYc")
+        expectString(astrFlagMap(r2), "------I")
+      END TCASE
+      TCASE "replace edges: no match and empty needle are no-ops"
+        LET s AS AttributedString = astrings::addAttribute(astrings::fromString("abcde"), 1, 3, astrings::bold())
+        LET keep AS AttributedString = strings::replace(s, "zz", "Y")
+        expectString(toString(keep), "abcde")
+        expectString(astrFlagMap(keep), "-BBB-")
+        LET empty AS AttributedString = strings::replace(s, "", "Y")
+        expectString(toString(empty), "abcde")
+        expectString(astrFlagMap(empty), "-BBB-")
+        ' Deletion (empty replacement) still remaps the kept segments.
+        LET del AS AttributedString = strings::replace(s, "bc", "")
+        expectString(toString(del), "ade")
+        expectString(astrFlagMap(del), "-B-")
+      END TCASE
+      TCASE "case and normalization transforms drop attributes"
+        LET base AS AttributedString = astrings::addAttribute(astrings::fromString("hello world"), 0, 4, astrings::bold())
+        LET up AS AttributedString = strings::upper(base)
+        expectString(toString(up), "HELLO WORLD")
+        expectString(astrFlagMap(up), "-----------")
+        LET lo AS AttributedString = strings::lower(astrings::addAttribute(astrings::fromString("HELLO"), 0, 4, astrings::bold()))
+        expectString(toString(lo), "hello")
+        expectString(astrFlagMap(lo), "-----")
+        LET cf AS AttributedString = strings::caseFold(astrings::addAttribute(astrings::fromString("Straße"), 0, 5, astrings::bold()))
+        expectString(toString(cf), "strasse")
+        expectString(astrFlagMap(cf), "-------")
+        ' Scalar-count-changing uppercase (ß -> SS) keeps the text invariant.
+        LET ss AS AttributedString = strings::upper(astrings::addAttribute(astrings::fromString("straße"), 0, 5, astrings::bold()))
+        expectString(toString(ss), "STRASSE")
+        LET nf AS AttributedString = strings::normalizeNfc(astrings::addAttribute(astrings::fromString("e\u{301}x"), 0, 2, astrings::bold()))
+        expectString(toString(nf), "éx")
+        expectInteger(len(strings::toScalars(nf)), 2)
+        expectString(astrFlagMap(nf), "--")
+      END TCASE
+      TCASE "the text invariant holds for every transform"
+        LET plain AS String = "  aXbXc  "
+        LET a AS AttributedString = astrings::addAttribute(astrings::fromString(plain), 2, 6, astrings::bold())
+        expectString(toString(strings::trim(a)), strings::trim(plain))
+        expectString(toString(strings::mid(a, 1, 6)), strings::mid(plain, 1, 6))
+        expectString(toString(strings::replace(a, "X", "!")), strings::replace(plain, "X", "!"))
+        expectString(toString(strings::padLeft(a, 12)), strings::padLeft(plain, 12))
+        expectString(toString(strings::upper(a)), strings::upper(plain))
+      END TCASE
+    END TGROUP
+
+    TGROUP "concatenation"
+      TCASE "both overlays carry, right shifts by left's length"
+        LET ca AS AttributedString = astrings::addAttribute(astrings::fromString("foo"), 0, 2, astrings::bold())
+        LET cb AS AttributedString = astrings::addAttribute(astrings::fromString("bar"), 1, 2, astrings::bold())
+        LET cc AS AttributedString = ca & cb
+        expectString(toString(cc), "foobar")
+        expectString(astrFlagMap(cc), "BBB-BB")
+      END TCASE
+      TCASE "distinct members stay on their own sides"
+        LET l AS AttributedString = astrings::addAttribute(astrings::fromString("ab"), 0, 1, astrings::font("Serif"))
+        LET r AS AttributedString = astrings::addAttribute(astrings::fromString("cd"), 0, 0, astrings::bold())
+        LET c AS AttributedString = l & r
+        expectString(astrAt(c, 1), "Font:Serif ")
+        expectString(astrAt(c, 2), "Bold ")
+        expectString(astrAt(c, 3), "")
+      END TCASE
+      TCASE "empty operands"
+        LET e AS AttributedString = astrings::fromString("")
+        LET tc AS AttributedString = astrings::addAttribute(astrings::fromString("ab"), 0, 1, astrings::bold())
+        LET le AS AttributedString = e & tc
+        expectString(toString(le), "ab")
+        expectString(astrFlagMap(le), "BB")
+        LET re AS AttributedString = tc & e
+        expectString(toString(re), "ab")
+        expectString(astrFlagMap(re), "BB")
+      END TCASE
+      TCASE "chained concatenation"
+        LET a AS AttributedString = astrings::addAttribute(astrings::fromString("a"), 0, 0, astrings::bold())
+        LET b AS AttributedString = astrings::fromString("b")
+        LET c AS AttributedString = astrings::addAttribute(astrings::fromString("c"), 0, 0, astrings::italic())
+        LET all AS AttributedString = a & b & c
+        expectString(toString(all), "abc")
+        expectString(astrFlagMap(all), "B-I")
+      END TCASE
+    END TGROUP
+
+    TGROUP "toMarkdown"
+      TCASE "plain and empty text pass through"
+        expectString(astrings::toMarkdown(astrings::fromString("plain text")), "plain text")
+        expectString(astrings::toMarkdown(astrings::fromString("")), "")
+      END TCASE
+      TCASE "single flag wraps the run"
+        LET b AS AttributedString = astrings::addAttribute(astrings::fromString("hello"), 0, 4, astrings::bold())
+        expectString(astrings::toMarkdown(b), "**hello**")
+      END TCASE
+      TCASE "overlapping flags nest per run"
+        MUT o AS AttributedString = astrings::fromString("hello world")
+        o = astrings::addAttribute(o, 0, 7, astrings::bold())
+        o = astrings::addAttribute(o, 4, 10, astrings::italic())
+        expectString(astrings::toMarkdown(o), "**hell*****o wo****rld*")
+      END TCASE
+      TCASE "all five flags open canonically and close in reverse"
+        MUT all AS AttributedString = astrings::fromString("x")
+        all = astrings::addAttribute(all, 0, 0, astrings::bold())
+        all = astrings::addAttribute(all, 0, 0, astrings::italic())
+        all = astrings::addAttribute(all, 0, 0, astrings::underline())
+        all = astrings::addAttribute(all, 0, 0, astrings::strike())
+        all = astrings::addAttribute(all, 0, 0, astrings::overline())
+        expectString(astrings::toMarkdown(all), "***__~~^^x^^~~__***")
+      END TCASE
+      TCASE "delimiter characters in text are escaped"
+        LET e AS AttributedString = astrings::fromString("a*b_c~d^e:f\\g")
+        expectString(astrings::toMarkdown(e), "a\\*b\\_c\\~d\\^e\\:f\\\\g")
+      END TCASE
+      TCASE "font and size switch via forward state markers"
+        MUT fs AS AttributedString = astrings::fromString("abcdefg")
+        fs = astrings::addAttribute(fs, 0, 4, astrings::font("Serif"))
+        fs = astrings::addAttribute(fs, 2, 6, astrings::fontSize(12))
+        expectString(astrings::toMarkdown(fs), "::Serif::ab::;12::cde::-::fg")
+        MUT bo AS AttributedString = astrings::fromString("hi")
+        bo = astrings::addAttribute(bo, 0, 1, astrings::font("Mono"))
+        bo = astrings::addAttribute(bo, 0, 1, astrings::fontSize(10))
+        expectString(astrings::toMarkdown(bo), "::Mono;10::hi")
+        MUT un AS AttributedString = astrings::fromString("abc")
+        un = astrings::addAttribute(un, 0, 2, astrings::fontSize(9))
+        expectString(astrings::toMarkdown(un), "::;9::abc")
+        MUT rz AS AttributedString = astrings::fromString("abcd")
+        rz = astrings::addAttribute(rz, 0, 1, astrings::fontSize(8))
+        expectString(astrings::toMarkdown(rz), "::;8::ab::;-::cd")
+      END TCASE
+      TCASE "font names are escaped, including a literal dash"
+        MUT fe AS AttributedString = astrings::fromString("z")
+        fe = astrings::addAttribute(fe, 0, 0, astrings::font("a:b;c"))
+        expectString(astrings::toMarkdown(fe), "::a\\:b\\;c::z")
+        MUT dash AS AttributedString = astrings::fromString("q")
+        dash = astrings::addAttribute(dash, 0, 0, astrings::font("-"))
+        expectString(astrings::toMarkdown(dash), "::\\-::q")
+      END TCASE
+      TCASE "colors do not render in markdown"
+        MUT col AS AttributedString = astrings::fromString("x")
+        col = astrings::addAttribute(col, 0, 0, astrings::foreground(255, 128, 64))
+        col = astrings::addAttribute(col, 0, 0, astrings::background(1, 2, 3))
+        expectString(astrings::toMarkdown(col), "x")
+      END TCASE
+    END TGROUP
+
+    TGROUP "value semantics and io seams"
+      TCASE "collection copies are deep and independent"
+        LET a AS AttributedString = astrings::addAttribute(astrings::fromString("hello"), 0, 4, astrings::bold())
+        MUT xs AS List OF AttributedString = []
+        xs = collections::append(xs, a)
+        xs = collections::append(xs, a)
+        expectString(toString(collections::get(xs, 0)), "hello")
+        expectString(astrFlagMap(collections::get(xs, 0)), "BBBBB")
+        expectString(astrFlagMap(collections::get(xs, 1)), "BBBBB")
+      END TCASE
+      TCASE "reassignment replaces the value"
+        MUT b AS AttributedString = astrings::fromString("first")
+        b = astrings::fromString("second")
+        expectString(toString(b), "second")
+      END TCASE
+      TCASE "io::print and io::write accept an AttributedString"
+        ' Empty visible text keeps the harness output clean; the point is that
+        ' both overloads dispatch and complete (the visible-text rendering is
+        ' asserted byte-exactly by rt-behavior/astrings/fromstring-print-rt).
+        expectNTrap(io::write(astrings::fromString("")))
+        expectNTrap(io::print(astrings::fromString("")))
+      END TCASE
+    END TGROUP
+
+  END TGROUP
+END TESTING
