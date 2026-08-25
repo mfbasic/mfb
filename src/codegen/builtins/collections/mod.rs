@@ -165,6 +165,10 @@ pub(crate) fn register(r: &mut Registry) {
     // names are recorded as registry data so the shared pipeline recognizes a call
     // like `collections.sort` as a builtin member without a per-package branch.
     pkg.add_source_generics(FUNCTIONS);
+    // findLastIndex's native fast path raises the same errors its package.mfb body
+    // does (77050001 / 77050004); declared here because a source-generic member has
+    // no RegistryFunction to carry them.
+    pkg.add_source_generic_errors(&[("findLastIndex", &["ErrIndexOutOfRange", "ErrNotFound"])]);
 
     // The native HOF fast paths for the source-generic members. Recorded as registry
     // data (they cannot ride a `Body::Mfb` — source generics are not registered

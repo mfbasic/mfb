@@ -845,6 +845,12 @@ pub(crate) struct RegistryPackage {
     /// [`mfb_fast_path`] can answer a `#<pkg>_<member>$…` monomorph target without a
     /// per-package table.
     source_generic_fast_paths: Vec<(&'static str, MfbFastPath)>,
+    /// Errors a source-generic member's **native fast path** raises (member name →
+    /// error names). A source-generic member has no [`RegistryFunction`] (its surface
+    /// is the injected `package.mfb` body), so a fast path's `raise_error` validation
+    /// needs this table to find the declared set — which must mirror the source
+    /// body's own `FAIL error(...)` codes.
+    source_generic_errors: Vec<(&'static str, &'static [&'static str])>,
     /// Compile-time package constants (scalar folds + record-constructor inlines) the
     /// package owns — the registry home of the `math`/`errorcode`/`vector` constant
     /// hand tables. Queried by the [`is_package_constant`] / [`constant_type_name`] /
@@ -885,6 +891,7 @@ impl RegistryPackage {
             source_generics: Vec::new(),
             source_types: Vec::new(),
             source_generic_fast_paths: Vec::new(),
+            source_generic_errors: Vec::new(),
             constants: Vec::new(),
             overrides: Vec::new(),
             unqualified_global: false,
@@ -1100,6 +1107,16 @@ impl RegistryPackage {
     /// registry signature and are recognized only by [`is_source_generic_member`].
     pub(crate) fn add_source_generics(&mut self, names: &[&'static str]) -> &mut Self {
         self.source_generics.extend_from_slice(names);
+        self
+    }
+
+    /// Declare the errors a source-generic member's native fast path raises (see
+    /// [`source_generic_errors`](Self::source_generic_errors)). Additive.
+    pub(crate) fn add_source_generic_errors(
+        &mut self,
+        errors: &[(&'static str, &'static [&'static str])],
+    ) -> &mut Self {
+        self.source_generic_errors.extend_from_slice(errors);
         self
     }
 
@@ -1441,8 +1458,26 @@ impl Registry {
     /// implementations' errors — the half of the `raise_error` "a builtin must declare
     /// the errors it raises" check.
     pub(crate) fn declares_error(&self, qualified: &str, error_name: &str) -> bool {
-        self.resolve_func(qualified)
+        if self
+            .resolve_func(qualified)
             .is_some_and(|resolved| resolved.function.declares_error(error_name))
+        {
+            return true;
+        }
+        // A source-generic member has no `RegistryFunction`; its fast path's raises
+        // are declared in the package's `source_generic_errors` table.
+        let Some((pkg_name, member)) = qualified.split_once('.') else {
+            return false;
+        };
+        self.packages()
+            .iter()
+            .find(|p| p.import_name == pkg_name)
+            .is_some_and(|package| {
+                package
+                    .source_generic_errors
+                    .iter()
+                    .any(|(name, errors)| *name == member && errors.contains(&error_name))
+            })
     }
 
     /// Whether `name` is a value type (`EXPORT TYPE`/`UNION`/`ENUM`) declared by any
