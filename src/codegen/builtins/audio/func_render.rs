@@ -1,7 +1,7 @@
 //! `audio::render` — synthesize one `AudioNote` to `s16le` PCM (source member).
 //!
 //! A pure-MFBASIC tone synthesizer (no device call): rewrites to the
-//! `__audio_render` body in the source companion (`package.mfb`) through the
+//! `__audio_render` body in the injected source (`helper_render.rs`) through the
 //! generic `registry::rewrite_target`.
 
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};

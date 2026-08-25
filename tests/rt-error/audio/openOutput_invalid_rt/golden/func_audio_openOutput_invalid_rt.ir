@@ -49,17 +49,17 @@
   },
   {
     "kind": "type",
-    "line": 118,
+    "line": 31,
     "visibility": "public",
     "name": "#audio_MmlEvent",
     "fields": [
-    { "visibility": null, "line": 119, "name": "freq", "type": "Float" },
-    { "visibility": null, "line": 120, "name": "totalFrames", "type": "Integer" },
-    { "visibility": null, "line": 121, "name": "soundFrames", "type": "Integer" },
-    { "visibility": null, "line": 122, "name": "gain", "type": "Float" },
-    { "visibility": null, "line": 123, "name": "wave", "type": "Integer" },
-    { "visibility": null, "line": 124, "name": "fadeIn", "type": "Integer" },
-    { "visibility": null, "line": 125, "name": "fadeOut", "type": "Integer" }
+    { "visibility": null, "line": 32, "name": "freq", "type": "Float" },
+    { "visibility": null, "line": 33, "name": "totalFrames", "type": "Integer" },
+    { "visibility": null, "line": 34, "name": "soundFrames", "type": "Integer" },
+    { "visibility": null, "line": 35, "name": "gain", "type": "Float" },
+    { "visibility": null, "line": 36, "name": "wave", "type": "Integer" },
+    { "visibility": null, "line": 37, "name": "fadeIn", "type": "Integer" },
+    { "visibility": null, "line": 38, "name": "fadeOut", "type": "Integer" }
     ]
   }
   ],
@@ -211,138 +211,138 @@
   },
   {
     "name": "#audio_mmlIsDigit",
-    "line": 130,
+    "line": 100,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "ch", "line": 130, "type": "String", "default": null }
+    { "name": "ch", "line": 100, "type": "String", "default": null }
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "return", "line": 131, "value": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "9" } } } }
+    { "op": "return", "line": 101, "value": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "9" } } } }
     ]
   },
   {
     "name": "#audio_mmlParseUint",
-    "line": 136,
+    "line": 106,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "s", "line": 136, "type": "String", "default": null }
+    { "name": "s", "line": 106, "type": "String", "default": null }
     ],
     "returns": "Integer",
     "body": [
     {
       "op": "if",
-      "line": 137,
+      "line": 107,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "s" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "return", "line": 138, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "return", "line": 108, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "line": 140, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 110, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 141,
+      "line": 111,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "s" }] } },
       "body": [
       {
         "op": "if",
-        "line": 142,
+        "line": 112,
         "condition": { "kind": "unary", "type": "Boolean", "op": "NOT", "operand": { "kind": "call", "type": "Boolean", "target": "#audio_mmlIsDigit", "args": [{ "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "s" }, { "kind": "local", "name": "i" }, { "kind": "const", "type": "Integer", "value": "1" }] }] } },
         "then": [
-        { "op": "return", "line": 143, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+        { "op": "return", "line": 113, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
         ],
         "else": [
         ]
       },
-      { "op": "assign", "line": 145, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 115, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "bind", "line": 147, "mutable": false, "name": "$trap_res3", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "s" }] } },
-    { "op": "bind", "line": 147, "mutable": true, "name": "$trap_val4", "type": "Integer", "value": null },
+    { "op": "bind", "line": 117, "mutable": false, "name": "$trap_res3", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "bind", "line": 117, "mutable": true, "name": "$trap_val4", "type": "Integer", "value": null },
     {
       "op": "if",
-      "line": 147,
+      "line": 117,
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res3" } },
       "then": [
-      { "op": "assign", "line": 147, "name": "$trap_val4", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res3" } } }
+      { "op": "assign", "line": 117, "name": "$trap_val4", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res3" } } }
       ],
       "else": [
-      { "op": "return", "line": 148, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "return", "line": 118, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "bind", "line": 147, "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "local", "name": "$trap_val4" } },
-    { "op": "return", "line": 150, "value": { "kind": "local", "name": "v" } }
+    { "op": "bind", "line": 117, "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "local", "name": "$trap_val4" } },
+    { "op": "return", "line": 120, "value": { "kind": "local", "name": "v" } }
     ]
   },
   {
     "name": "#audio_mmlNoteSemitone",
-    "line": 154,
+    "line": 124,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "letter", "line": 154, "type": "String", "default": null }
+    { "name": "letter", "line": 124, "type": "String", "default": null }
     ],
     "returns": "Integer",
     "body": [
     {
       "op": "if",
-      "line": 155,
+      "line": 125,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "letter" }, "right": { "kind": "const", "type": "String", "value": "C" } },
       "then": [
-      { "op": "return", "line": 156, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      { "op": "return", "line": 126, "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ],
       "else": [
       {
         "op": "if",
-        "line": 157,
+        "line": 127,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "letter" }, "right": { "kind": "const", "type": "String", "value": "D" } },
         "then": [
-        { "op": "return", "line": 158, "value": { "kind": "const", "type": "Integer", "value": "2" } }
+        { "op": "return", "line": 128, "value": { "kind": "const", "type": "Integer", "value": "2" } }
         ],
         "else": [
         {
           "op": "if",
-          "line": 159,
+          "line": 129,
           "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "letter" }, "right": { "kind": "const", "type": "String", "value": "E" } },
           "then": [
-          { "op": "return", "line": 160, "value": { "kind": "const", "type": "Integer", "value": "4" } }
+          { "op": "return", "line": 130, "value": { "kind": "const", "type": "Integer", "value": "4" } }
           ],
           "else": [
           {
             "op": "if",
-            "line": 161,
+            "line": 131,
             "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "letter" }, "right": { "kind": "const", "type": "String", "value": "F" } },
             "then": [
-            { "op": "return", "line": 162, "value": { "kind": "const", "type": "Integer", "value": "5" } }
+            { "op": "return", "line": 132, "value": { "kind": "const", "type": "Integer", "value": "5" } }
             ],
             "else": [
             {
               "op": "if",
-              "line": 163,
+              "line": 133,
               "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "letter" }, "right": { "kind": "const", "type": "String", "value": "G" } },
               "then": [
-              { "op": "return", "line": 164, "value": { "kind": "const", "type": "Integer", "value": "7" } }
+              { "op": "return", "line": 134, "value": { "kind": "const", "type": "Integer", "value": "7" } }
               ],
               "else": [
               {
                 "op": "if",
-                "line": 165,
+                "line": 135,
                 "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "letter" }, "right": { "kind": "const", "type": "String", "value": "A" } },
                 "then": [
-                { "op": "return", "line": 166, "value": { "kind": "const", "type": "Integer", "value": "9" } }
+                { "op": "return", "line": 136, "value": { "kind": "const", "type": "Integer", "value": "9" } }
                 ],
                 "else": [
                 {
                   "op": "if",
-                  "line": 167,
+                  "line": 137,
                   "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "letter" }, "right": { "kind": "const", "type": "String", "value": "B" } },
                   "then": [
-                  { "op": "return", "line": 168, "value": { "kind": "const", "type": "Integer", "value": "11" } }
+                  { "op": "return", "line": 138, "value": { "kind": "const", "type": "Integer", "value": "11" } }
                   ],
                   "else": [
                   ]
@@ -359,57 +359,57 @@
       }
       ]
     },
-    { "op": "return", "line": 170, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+    { "op": "return", "line": 140, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
     ]
   },
   {
     "name": "#audio_mmlWaveCode",
-    "line": 174,
+    "line": 144,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "name", "line": 174, "type": "String", "default": null }
+    { "name": "name", "line": 144, "type": "String", "default": null }
     ],
     "returns": "Integer",
     "body": [
     {
       "op": "if",
-      "line": 175,
+      "line": 145,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "name" }, "right": { "kind": "const", "type": "String", "value": "sine" } },
       "then": [
-      { "op": "return", "line": 176, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      { "op": "return", "line": 146, "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ],
       "else": [
       {
         "op": "if",
-        "line": 177,
+        "line": 147,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "name" }, "right": { "kind": "const", "type": "String", "value": "square" } },
         "then": [
-        { "op": "return", "line": 178, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+        { "op": "return", "line": 148, "value": { "kind": "const", "type": "Integer", "value": "1" } }
         ],
         "else": [
         {
           "op": "if",
-          "line": 179,
+          "line": 149,
           "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "name" }, "right": { "kind": "const", "type": "String", "value": "triangle" } },
           "then": [
-          { "op": "return", "line": 180, "value": { "kind": "const", "type": "Integer", "value": "2" } }
+          { "op": "return", "line": 150, "value": { "kind": "const", "type": "Integer", "value": "2" } }
           ],
           "else": [
           {
             "op": "if",
-            "line": 181,
+            "line": 151,
             "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "name" }, "right": { "kind": "const", "type": "String", "value": "saw" } },
             "then": [
-            { "op": "return", "line": 182, "value": { "kind": "const", "type": "Integer", "value": "3" } }
+            { "op": "return", "line": 152, "value": { "kind": "const", "type": "Integer", "value": "3" } }
             ],
             "else": [
             {
               "op": "if",
-              "line": 183,
+              "line": 153,
               "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "name" }, "right": { "kind": "const", "type": "String", "value": "noise" } },
               "then": [
-              { "op": "return", "line": 184, "value": { "kind": "const", "type": "Integer", "value": "4" } }
+              { "op": "return", "line": 154, "value": { "kind": "const", "type": "Integer", "value": "4" } }
               ],
               "else": [
               ]
@@ -422,154 +422,154 @@
       }
       ]
     },
-    { "op": "return", "line": 186, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+    { "op": "return", "line": 156, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
     ]
   },
   {
     "name": "#audio_mmlTrailingDots",
-    "line": 190,
+    "line": 160,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "token", "line": 190, "type": "String", "default": null },
-    { "name": "fromIdx", "line": 190, "type": "Integer", "default": null }
+    { "name": "token", "line": 160, "type": "String", "default": null },
+    { "name": "fromIdx", "line": 160, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 191, "mutable": true, "name": "count", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 192, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "fromIdx" } },
+    { "op": "bind", "line": 161, "mutable": true, "name": "count", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 162, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "fromIdx" } },
     {
       "op": "while",
-      "line": 193,
+      "line": 163,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "token" }] } },
       "body": [
       {
         "op": "if",
-        "line": 194,
+        "line": 164,
         "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "token" }, { "kind": "local", "name": "i" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "right": { "kind": "const", "type": "String", "value": "." } },
         "then": [
-        { "op": "return", "line": 195, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+        { "op": "return", "line": 165, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
         ],
         "else": [
         ]
       },
-      { "op": "assign", "line": 197, "name": "count", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "count" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-      { "op": "assign", "line": 198, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 167, "name": "count", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "count" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "assign", "line": 168, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "return", "line": 200, "value": { "kind": "local", "name": "count" } }
+    { "op": "return", "line": 170, "value": { "kind": "local", "name": "count" } }
     ]
   },
   {
     "name": "#audio_mmlFrames",
-    "line": 205,
+    "line": 175,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "tempo", "line": 205, "type": "Integer", "default": null },
-    { "name": "lengthN", "line": 205, "type": "Integer", "default": null },
-    { "name": "dots", "line": 205, "type": "Integer", "default": null }
+    { "name": "tempo", "line": 175, "type": "Integer", "default": null },
+    { "name": "lengthN", "line": 175, "type": "Integer", "default": null },
+    { "name": "dots", "line": 175, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 206, "mutable": false, "name": "wholeSeconds", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "const", "type": "Float", "value": "60.0" }, "right": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "tempo" }] } }, "right": { "kind": "const", "type": "Float", "value": "4.0" } } },
-    { "op": "bind", "line": 207, "mutable": false, "name": "base", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "local", "name": "wholeSeconds" }, "right": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "lengthN" }] } } },
-    { "op": "bind", "line": 208, "mutable": false, "name": "dotFactor", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "const", "type": "Float", "value": "2.0" }, "right": { "kind": "call", "type": "Float", "target": "math.pow", "args": [{ "kind": "const", "type": "Float", "value": "0.5" }, { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "dots" }] }] } } },
-    { "op": "return", "line": 209, "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "local", "name": "base" }, "right": { "kind": "local", "name": "dotFactor" } }, "right": { "kind": "const", "type": "Float", "value": "48000.0" } }] } }
+    { "op": "bind", "line": 176, "mutable": false, "name": "wholeSeconds", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "const", "type": "Float", "value": "60.0" }, "right": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "tempo" }] } }, "right": { "kind": "const", "type": "Float", "value": "4.0" } } },
+    { "op": "bind", "line": 177, "mutable": false, "name": "base", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "local", "name": "wholeSeconds" }, "right": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "lengthN" }] } } },
+    { "op": "bind", "line": 178, "mutable": false, "name": "dotFactor", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "const", "type": "Float", "value": "2.0" }, "right": { "kind": "call", "type": "Float", "target": "math.pow", "args": [{ "kind": "const", "type": "Float", "value": "0.5" }, { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "dots" }] }] } } },
+    { "op": "return", "line": 179, "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "local", "name": "base" }, "right": { "kind": "local", "name": "dotFactor" } }, "right": { "kind": "const", "type": "Float", "value": "48000.0" } }] } }
     ]
   },
   {
     "name": "#audio_mmlReqInt",
-    "line": 214,
+    "line": 184,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "token", "line": 214, "type": "String", "default": null },
-    { "name": "lo", "line": 214, "type": "Integer", "default": null },
-    { "name": "hi", "line": 214, "type": "Integer", "default": null },
-    { "name": "label", "line": 214, "type": "String", "default": null }
+    { "name": "token", "line": 184, "type": "String", "default": null },
+    { "name": "lo", "line": 184, "type": "Integer", "default": null },
+    { "name": "hi", "line": 184, "type": "Integer", "default": null },
+    { "name": "label", "line": 184, "type": "String", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 215, "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlParseUint", "args": [{ "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "token" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "token" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] }] } },
+    { "op": "bind", "line": 185, "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlParseUint", "args": [{ "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "token" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "token" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] }] } },
     {
       "op": "if",
-      "line": 216,
+      "line": 186,
       "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "v" }, "right": { "kind": "local", "name": "lo" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "v" }, "right": { "kind": "local", "name": "hi" } } },
       "then": [
-      { "op": "fail", "line": 217, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "audio::play: " }, "right": { "kind": "local", "name": "label" } }, "right": { "kind": "const", "type": "String", "value": " out of range in '" } }, "right": { "kind": "local", "name": "token" } }, "right": { "kind": "const", "type": "String", "value": "'" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "217" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 187, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "audio::play: " }, "right": { "kind": "local", "name": "label" } }, "right": { "kind": "const", "type": "String", "value": " out of range in '" } }, "right": { "kind": "local", "name": "token" } }, "right": { "kind": "const", "type": "String", "value": "'" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "187" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 219, "value": { "kind": "local", "name": "v" } }
+    { "op": "return", "line": 189, "value": { "kind": "local", "name": "v" } }
     ]
   },
   {
     "name": "#audio_mmlRest",
-    "line": 223,
+    "line": 193,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "frames", "line": 223, "type": "Integer", "default": null }
+    { "name": "frames", "line": 193, "type": "Integer", "default": null }
     ],
     "returns": "#audio_MmlEvent",
     "body": [
-    { "op": "return", "line": 224, "value": { "kind": "constructor", "type": "#audio_MmlEvent", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }, { "kind": "local", "name": "frames" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Float", "value": "0.0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+    { "op": "return", "line": 194, "value": { "kind": "constructor", "type": "#audio_MmlEvent", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }, { "kind": "local", "name": "frames" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Float", "value": "0.0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
     ]
   },
   {
     "name": "#audio_mmlNote",
-    "line": 228,
+    "line": 198,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "token", "line": 228, "type": "String", "default": null },
-    { "name": "octave", "line": 228, "type": "Integer", "default": null },
-    { "name": "length", "line": 228, "type": "Integer", "default": null },
-    { "name": "tempo", "line": 228, "type": "Integer", "default": null },
-    { "name": "volume", "line": 228, "type": "Integer", "default": null },
-    { "name": "wave", "line": 228, "type": "Integer", "default": null },
-    { "name": "staccato", "line": 228, "type": "Boolean", "default": null }
+    { "name": "token", "line": 198, "type": "String", "default": null },
+    { "name": "octave", "line": 198, "type": "Integer", "default": null },
+    { "name": "length", "line": 198, "type": "Integer", "default": null },
+    { "name": "tempo", "line": 198, "type": "Integer", "default": null },
+    { "name": "volume", "line": 198, "type": "Integer", "default": null },
+    { "name": "wave", "line": 198, "type": "Integer", "default": null },
+    { "name": "staccato", "line": 198, "type": "Boolean", "default": null }
     ],
     "returns": "#audio_MmlEvent",
     "body": [
-    { "op": "bind", "line": 229, "mutable": false, "name": "semi", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlNoteSemitone", "args": [{ "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "token" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "1" }] }] } },
+    { "op": "bind", "line": 199, "mutable": false, "name": "semi", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlNoteSemitone", "args": [{ "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "token" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "1" }] }] } },
     {
       "op": "if",
-      "line": 230,
+      "line": 200,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "semi" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "fail", "line": 231, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "audio::play: unrecognized token '" }, "right": { "kind": "local", "name": "token" } }, "right": { "kind": "const", "type": "String", "value": "'" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "231" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 201, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "audio::play: unrecognized token '" }, "right": { "kind": "local", "name": "token" } }, "right": { "kind": "const", "type": "String", "value": "'" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "201" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "line": 233, "mutable": true, "name": "idx", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
-    { "op": "bind", "line": 234, "mutable": true, "name": "accidental", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 203, "mutable": true, "name": "idx", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    { "op": "bind", "line": 204, "mutable": true, "name": "accidental", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "if",
-      "line": 235,
+      "line": 205,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "token" }] } },
       "then": [
-      { "op": "bind", "line": 236, "mutable": false, "name": "c", "type": "String", "value": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "token" }, { "kind": "local", "name": "idx" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+      { "op": "bind", "line": 206, "mutable": false, "name": "c", "type": "String", "value": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "token" }, { "kind": "local", "name": "idx" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
       {
         "op": "if",
-        "line": 237,
+        "line": 207,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "c" }, "right": { "kind": "const", "type": "String", "value": "+" } },
         "then": [
-        { "op": "assign", "line": 238, "name": "accidental", "value": { "kind": "const", "type": "Integer", "value": "1" } },
-        { "op": "assign", "line": 239, "name": "idx", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        { "op": "assign", "line": 208, "name": "accidental", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+        { "op": "assign", "line": 209, "name": "idx", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
         ],
         "else": [
         {
           "op": "if",
-          "line": 240,
+          "line": 210,
           "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "c" }, "right": { "kind": "const", "type": "String", "value": "-" } },
           "then": [
-          { "op": "assign", "line": 241, "name": "accidental", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } },
-          { "op": "assign", "line": 242, "name": "idx", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+          { "op": "assign", "line": 211, "name": "accidental", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } },
+          { "op": "assign", "line": 212, "name": "idx", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
           ],
           "else": [
           ]
@@ -580,30 +580,30 @@
       "else": [
       ]
     },
-    { "op": "bind", "line": 245, "mutable": true, "name": "digits", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "line": 215, "mutable": true, "name": "digits", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
     {
       "op": "while",
-      "line": 246,
+      "line": 216,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "token" }] } }, "right": { "kind": "call", "type": "Boolean", "target": "#audio_mmlIsDigit", "args": [{ "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "token" }, { "kind": "local", "name": "idx" }, { "kind": "const", "type": "Integer", "value": "1" }] }] } },
       "body": [
-      { "op": "assign", "line": 247, "name": "digits", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "digits" }, "right": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "token" }, { "kind": "local", "name": "idx" }, { "kind": "const", "type": "Integer", "value": "1" }] } } },
-      { "op": "assign", "line": 248, "name": "idx", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 217, "name": "digits", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "digits" }, "right": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "token" }, { "kind": "local", "name": "idx" }, { "kind": "const", "type": "Integer", "value": "1" }] } } },
+      { "op": "assign", "line": 218, "name": "idx", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "bind", "line": 250, "mutable": true, "name": "noteLen", "type": "Integer", "value": { "kind": "local", "name": "length" } },
+    { "op": "bind", "line": 220, "mutable": true, "name": "noteLen", "type": "Integer", "value": { "kind": "local", "name": "length" } },
     {
       "op": "if",
-      "line": 251,
+      "line": 221,
       "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "digits" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "assign", "line": 252, "name": "noteLen", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlParseUint", "args": [{ "kind": "local", "name": "digits" }] } },
+      { "op": "assign", "line": 222, "name": "noteLen", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlParseUint", "args": [{ "kind": "local", "name": "digits" }] } },
       {
         "op": "if",
-        "line": 253,
+        "line": 223,
         "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "noteLen" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "noteLen" }, "right": { "kind": "const", "type": "Integer", "value": "64" } } },
         "then": [
-        { "op": "fail", "line": 254, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "audio::play: note length out of range in '" }, "right": { "kind": "local", "name": "token" } }, "right": { "kind": "const", "type": "String", "value": "'" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "254" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+        { "op": "fail", "line": 224, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "audio::play: note length out of range in '" }, "right": { "kind": "local", "name": "token" } }, "right": { "kind": "const", "type": "String", "value": "'" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "224" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
         ],
         "else": [
         ]
@@ -612,33 +612,33 @@
       "else": [
       ]
     },
-    { "op": "bind", "line": 257, "mutable": false, "name": "dots", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlTrailingDots", "args": [{ "kind": "local", "name": "token" }, { "kind": "local", "name": "idx" }] } },
+    { "op": "bind", "line": 227, "mutable": false, "name": "dots", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlTrailingDots", "args": [{ "kind": "local", "name": "token" }, { "kind": "local", "name": "idx" }] } },
     {
       "op": "if",
-      "line": 258,
+      "line": 228,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "dots" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "fail", "line": 259, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "audio::play: unrecognized token '" }, "right": { "kind": "local", "name": "token" } }, "right": { "kind": "const", "type": "String", "value": "'" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "259" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 229, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "audio::play: unrecognized token '" }, "right": { "kind": "local", "name": "token" } }, "right": { "kind": "const", "type": "String", "value": "'" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "229" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "line": 261, "mutable": false, "name": "midi", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "12" }, "right": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "octave" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }, "right": { "kind": "local", "name": "semi" } }, "right": { "kind": "local", "name": "accidental" } } },
-    { "op": "bind", "line": 262, "mutable": false, "name": "freq", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "const", "type": "Float", "value": "440.0" }, "right": { "kind": "call", "type": "Float", "target": "math.pow", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }, { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "midi" }, "right": { "kind": "const", "type": "Integer", "value": "69" } }] }, "right": { "kind": "const", "type": "Float", "value": "12.0" } }] } } },
-    { "op": "bind", "line": 263, "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlFrames", "args": [{ "kind": "local", "name": "tempo" }, { "kind": "local", "name": "noteLen" }, { "kind": "local", "name": "dots" }] } },
-    { "op": "bind", "line": 264, "mutable": true, "name": "sound", "type": "Integer", "value": { "kind": "local", "name": "total" } },
+    { "op": "bind", "line": 231, "mutable": false, "name": "midi", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "12" }, "right": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "octave" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }, "right": { "kind": "local", "name": "semi" } }, "right": { "kind": "local", "name": "accidental" } } },
+    { "op": "bind", "line": 232, "mutable": false, "name": "freq", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "const", "type": "Float", "value": "440.0" }, "right": { "kind": "call", "type": "Float", "target": "math.pow", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }, { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "midi" }, "right": { "kind": "const", "type": "Integer", "value": "69" } }] }, "right": { "kind": "const", "type": "Float", "value": "12.0" } }] } } },
+    { "op": "bind", "line": 233, "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlFrames", "args": [{ "kind": "local", "name": "tempo" }, { "kind": "local", "name": "noteLen" }, { "kind": "local", "name": "dots" }] } },
+    { "op": "bind", "line": 234, "mutable": true, "name": "sound", "type": "Integer", "value": { "kind": "local", "name": "total" } },
     {
       "op": "if",
-      "line": 265,
+      "line": 235,
       "condition": { "kind": "local", "name": "staccato" },
       "then": [
-      { "op": "assign", "line": 266, "name": "sound", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "total" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } },
+      { "op": "assign", "line": 236, "name": "sound", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "total" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } },
       {
         "op": "if",
-        "line": 267,
+        "line": 237,
         "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "sound" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
         "then": [
-        { "op": "assign", "line": 268, "name": "sound", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+        { "op": "assign", "line": 238, "name": "sound", "value": { "kind": "const", "type": "Integer", "value": "1" } }
         ],
         "else": [
         ]
@@ -647,433 +647,433 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 271, "value": { "kind": "constructor", "type": "#audio_MmlEvent", "args": [{ "kind": "local", "name": "freq" }, { "kind": "local", "name": "total" }, { "kind": "local", "name": "sound" }, { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "volume" }] }, "right": { "kind": "const", "type": "Float", "value": "10.0" } }, { "kind": "local", "name": "wave" }, { "kind": "const", "type": "Integer", "value": "48" }, { "kind": "const", "type": "Integer", "value": "48" }] } }
+    { "op": "return", "line": 241, "value": { "kind": "constructor", "type": "#audio_MmlEvent", "args": [{ "kind": "local", "name": "freq" }, { "kind": "local", "name": "total" }, { "kind": "local", "name": "sound" }, { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "volume" }] }, "right": { "kind": "const", "type": "Float", "value": "10.0" } }, { "kind": "local", "name": "wave" }, { "kind": "const", "type": "Integer", "value": "48" }, { "kind": "const", "type": "Integer", "value": "48" }] } }
     ]
   },
   {
     "name": "#audio_mmlHasOpen",
-    "line": 275,
+    "line": 245,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "tokens", "line": 275, "type": "List OF String", "default": null }
+    { "name": "tokens", "line": 245, "type": "List OF String", "default": null }
     ],
     "returns": "Boolean",
     "body": [
     {
       "op": "forEach",
-      "line": 276,
+      "line": 246,
       "name": "tk",
       "type": "String",
       "iterable": { "kind": "local", "name": "tokens" },
       "body": [
       {
         "op": "if",
-        "line": 277,
+        "line": 247,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "tk" }, "right": { "kind": "const", "type": "String", "value": "{" } },
         "then": [
-        { "op": "return", "line": 278, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+        { "op": "return", "line": 248, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
         ],
         "else": [
         ]
       }
       ]
     },
-    { "op": "return", "line": 281, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    { "op": "return", "line": 251, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
     ]
   },
   {
     "name": "#audio_mmlExpand",
-    "line": 286,
+    "line": 256,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "tokens", "line": 286, "type": "List OF String", "default": null }
+    { "name": "tokens", "line": 256, "type": "List OF String", "default": null }
     ],
     "returns": "List OF String",
     "body": [
-    { "op": "bind", "line": 287, "mutable": true, "name": "work", "type": "List OF String", "value": { "kind": "local", "name": "tokens" } },
-    { "op": "bind", "line": 288, "mutable": true, "name": "guard", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+    { "op": "bind", "line": 257, "mutable": true, "name": "work", "type": "List OF String", "value": { "kind": "local", "name": "tokens" } },
+    { "op": "bind", "line": 258, "mutable": true, "name": "guard", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
     {
       "op": "while",
-      "line": 289,
+      "line": 259,
       "loop": "while",
       "condition": { "kind": "local", "name": "guard" },
       "body": [
-      { "op": "bind", "line": 290, "mutable": true, "name": "closeIdx", "type": "Integer", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } },
-      { "op": "bind", "line": 291, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      { "op": "bind", "line": 260, "mutable": true, "name": "closeIdx", "type": "Integer", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "bind", "line": 261, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
       {
         "op": "while",
-        "line": 292,
+        "line": 262,
         "loop": "while",
         "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "work" }] } },
         "body": [
         {
           "op": "if",
-          "line": 293,
+          "line": 263,
           "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "work" }, { "kind": "local", "name": "i" }] }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "right": { "kind": "const", "type": "String", "value": "}" } },
           "then": [
-          { "op": "assign", "line": 294, "name": "closeIdx", "value": { "kind": "local", "name": "i" } },
-          { "op": "assign", "line": 295, "name": "i", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "work" }] } }
+          { "op": "assign", "line": 264, "name": "closeIdx", "value": { "kind": "local", "name": "i" } },
+          { "op": "assign", "line": 265, "name": "i", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "work" }] } }
           ],
           "else": [
-          { "op": "assign", "line": 297, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+          { "op": "assign", "line": 267, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
           ]
         }
         ]
       },
       {
         "op": "if",
-        "line": 300,
+        "line": 270,
         "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "closeIdx" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
         "then": [
         {
           "op": "if",
-          "line": 301,
+          "line": 271,
           "condition": { "kind": "call", "type": "Boolean", "target": "#audio_mmlHasOpen", "args": [{ "kind": "local", "name": "work" }] },
           "then": [
-          { "op": "fail", "line": 302, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: unbalanced '{' in MML" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "302" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+          { "op": "fail", "line": 272, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: unbalanced '{' in MML" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "272" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
           ],
           "else": [
           ]
         },
-        { "op": "return", "line": 304, "value": { "kind": "local", "name": "work" } }
+        { "op": "return", "line": 274, "value": { "kind": "local", "name": "work" } }
         ],
         "else": [
         ]
       },
-      { "op": "bind", "line": 306, "mutable": false, "name": "closeTk", "type": "String", "value": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "work" }, { "kind": "local", "name": "closeIdx" }] } },
-      { "op": "bind", "line": 307, "mutable": false, "name": "count", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlParseUint", "args": [{ "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "closeTk" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "closeTk" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] }] } },
+      { "op": "bind", "line": 276, "mutable": false, "name": "closeTk", "type": "String", "value": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "work" }, { "kind": "local", "name": "closeIdx" }] } },
+      { "op": "bind", "line": 277, "mutable": false, "name": "count", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlParseUint", "args": [{ "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "closeTk" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "closeTk" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] }] } },
       {
         "op": "if",
-        "line": 308,
+        "line": 278,
         "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "count" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
         "then": [
-        { "op": "fail", "line": 309, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "audio::play: repeat count must be >= 1 in '" }, "right": { "kind": "local", "name": "closeTk" } }, "right": { "kind": "const", "type": "String", "value": "'" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "309" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+        { "op": "fail", "line": 279, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "audio::play: repeat count must be >= 1 in '" }, "right": { "kind": "local", "name": "closeTk" } }, "right": { "kind": "const", "type": "String", "value": "'" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "279" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
         ],
         "else": [
         ]
       },
-      { "op": "bind", "line": 311, "mutable": true, "name": "openIdx", "type": "Integer", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } },
-      { "op": "bind", "line": 312, "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "closeIdx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "bind", "line": 281, "mutable": true, "name": "openIdx", "type": "Integer", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "bind", "line": 282, "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "closeIdx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
       {
         "op": "while",
-        "line": 313,
+        "line": 283,
         "loop": "while",
         "condition": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
         "body": [
         {
           "op": "if",
-          "line": 314,
+          "line": 284,
           "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "work" }, { "kind": "local", "name": "j" }] }, "right": { "kind": "const", "type": "String", "value": "{" } },
           "then": [
-          { "op": "assign", "line": 315, "name": "openIdx", "value": { "kind": "local", "name": "j" } },
-          { "op": "assign", "line": 316, "name": "j", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+          { "op": "assign", "line": 285, "name": "openIdx", "value": { "kind": "local", "name": "j" } },
+          { "op": "assign", "line": 286, "name": "j", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
           ],
           "else": [
-          { "op": "assign", "line": 318, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+          { "op": "assign", "line": 288, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
           ]
         }
         ]
       },
       {
         "op": "if",
-        "line": 321,
+        "line": 291,
         "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "openIdx" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
         "then": [
-        { "op": "fail", "line": 322, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: '}' without matching '{' in MML" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "322" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+        { "op": "fail", "line": 292, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: '}' without matching '{' in MML" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "292" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
         ],
         "else": [
         ]
       },
-      { "op": "bind", "line": 324, "mutable": true, "name": "rebuilt", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [] } },
-      { "op": "bind", "line": 325, "mutable": false, "name": "$for_end6", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "openIdx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-      { "op": "bind", "line": 325, "mutable": false, "name": "$for_step7", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+      { "op": "bind", "line": 294, "mutable": true, "name": "rebuilt", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [] } },
+      { "op": "bind", "line": 295, "mutable": false, "name": "$for_end6", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "openIdx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "bind", "line": 295, "mutable": false, "name": "$for_step7", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
       {
         "op": "for",
-        "line": 325,
+        "line": 295,
         "name": "$for_iter5",
         "type": "Integer",
         "start": { "kind": "const", "type": "Integer", "value": "0" },
         "end": { "kind": "local", "name": "$for_end6" },
         "step": { "kind": "local", "name": "$for_step7" },
         "body": [
-        { "op": "bind", "line": 325, "mutable": false, "name": "k", "type": "Integer", "value": { "kind": "local", "name": "$for_iter5" } },
-        { "op": "assign", "line": 326, "name": "rebuilt", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "rebuilt" }, { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "work" }, { "kind": "local", "name": "k" }] }] } }
+        { "op": "bind", "line": 295, "mutable": false, "name": "k", "type": "Integer", "value": { "kind": "local", "name": "$for_iter5" } },
+        { "op": "assign", "line": 296, "name": "rebuilt", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "rebuilt" }, { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "work" }, { "kind": "local", "name": "k" }] }] } }
         ]
       },
-      { "op": "bind", "line": 328, "mutable": true, "name": "rep", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      { "op": "bind", "line": 298, "mutable": true, "name": "rep", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
       {
         "op": "while",
-        "line": 329,
+        "line": 299,
         "loop": "while",
         "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "rep" }, "right": { "kind": "local", "name": "count" } },
         "body": [
-        { "op": "bind", "line": 330, "mutable": false, "name": "$for_end9", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "closeIdx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-        { "op": "bind", "line": 330, "mutable": false, "name": "$for_step10", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+        { "op": "bind", "line": 300, "mutable": false, "name": "$for_end9", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "closeIdx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+        { "op": "bind", "line": 300, "mutable": false, "name": "$for_step10", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
         {
           "op": "for",
-          "line": 330,
+          "line": 300,
           "name": "$for_iter8",
           "type": "Integer",
           "start": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "openIdx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
           "end": { "kind": "local", "name": "$for_end9" },
           "step": { "kind": "local", "name": "$for_step10" },
           "body": [
-          { "op": "bind", "line": 330, "mutable": false, "name": "k", "type": "Integer", "value": { "kind": "local", "name": "$for_iter8" } },
-          { "op": "assign", "line": 331, "name": "rebuilt", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "rebuilt" }, { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "work" }, { "kind": "local", "name": "k" }] }] } }
+          { "op": "bind", "line": 300, "mutable": false, "name": "k", "type": "Integer", "value": { "kind": "local", "name": "$for_iter8" } },
+          { "op": "assign", "line": 301, "name": "rebuilt", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "rebuilt" }, { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "work" }, { "kind": "local", "name": "k" }] }] } }
           ]
         },
-        { "op": "assign", "line": 333, "name": "rep", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "rep" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        { "op": "assign", "line": 303, "name": "rep", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "rep" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
         ]
       },
-      { "op": "bind", "line": 335, "mutable": false, "name": "$for_end12", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "work" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-      { "op": "bind", "line": 335, "mutable": false, "name": "$for_step13", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+      { "op": "bind", "line": 305, "mutable": false, "name": "$for_end12", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "work" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "bind", "line": 305, "mutable": false, "name": "$for_step13", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
       {
         "op": "for",
-        "line": 335,
+        "line": 305,
         "name": "$for_iter11",
         "type": "Integer",
         "start": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "closeIdx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
         "end": { "kind": "local", "name": "$for_end12" },
         "step": { "kind": "local", "name": "$for_step13" },
         "body": [
-        { "op": "bind", "line": 335, "mutable": false, "name": "k", "type": "Integer", "value": { "kind": "local", "name": "$for_iter11" } },
-        { "op": "assign", "line": 336, "name": "rebuilt", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "rebuilt" }, { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "work" }, { "kind": "local", "name": "k" }] }] } }
+        { "op": "bind", "line": 305, "mutable": false, "name": "k", "type": "Integer", "value": { "kind": "local", "name": "$for_iter11" } },
+        { "op": "assign", "line": 306, "name": "rebuilt", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "rebuilt" }, { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "work" }, { "kind": "local", "name": "k" }] }] } }
         ]
       },
-      { "op": "assign", "line": 338, "name": "work", "value": { "kind": "local", "name": "rebuilt" } }
+      { "op": "assign", "line": 308, "name": "work", "value": { "kind": "local", "name": "rebuilt" } }
       ]
     },
-    { "op": "return", "line": 340, "value": { "kind": "local", "name": "work" } }
+    { "op": "return", "line": 310, "value": { "kind": "local", "name": "work" } }
     ]
   },
   {
     "name": "#audio_mmlApplyLegato",
-    "line": 345,
+    "line": 315,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "events", "line": 345, "type": "List OF #audio_MmlEvent", "default": null },
-    { "name": "startIdx", "line": 345, "type": "Integer", "default": null }
+    { "name": "events", "line": 315, "type": "List OF #audio_MmlEvent", "default": null },
+    { "name": "startIdx", "line": 315, "type": "Integer", "default": null }
     ],
     "returns": "List OF #audio_MmlEvent",
     "body": [
-    { "op": "bind", "line": 346, "mutable": true, "name": "out", "type": "List OF #audio_MmlEvent", "value": { "kind": "local", "name": "events" } },
-    { "op": "bind", "line": 347, "mutable": false, "name": "last", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "out" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-    { "op": "bind", "line": 348, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "startIdx" } },
+    { "op": "bind", "line": 316, "mutable": true, "name": "out", "type": "List OF #audio_MmlEvent", "value": { "kind": "local", "name": "events" } },
+    { "op": "bind", "line": 317, "mutable": false, "name": "last", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "out" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "bind", "line": 318, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "startIdx" } },
     {
       "op": "while",
-      "line": 349,
+      "line": 319,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "last" } },
       "body": [
-      { "op": "bind", "line": 350, "mutable": true, "name": "ev", "type": "#audio_MmlEvent", "value": { "kind": "call", "type": "#audio_MmlEvent", "target": "collections.get", "args": [{ "kind": "local", "name": "out" }, { "kind": "local", "name": "i" }] } },
-      { "op": "bind", "line": 351, "mutable": true, "name": "fi", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-      { "op": "bind", "line": 352, "mutable": true, "name": "fo", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      { "op": "bind", "line": 320, "mutable": true, "name": "ev", "type": "#audio_MmlEvent", "value": { "kind": "call", "type": "#audio_MmlEvent", "target": "collections.get", "args": [{ "kind": "local", "name": "out" }, { "kind": "local", "name": "i" }] } },
+      { "op": "bind", "line": 321, "mutable": true, "name": "fi", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      { "op": "bind", "line": 322, "mutable": true, "name": "fo", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
       {
         "op": "if",
-        "line": 353,
+        "line": 323,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "startIdx" } },
         "then": [
-        { "op": "assign", "line": 354, "name": "fi", "value": { "kind": "const", "type": "Integer", "value": "48" } }
+        { "op": "assign", "line": 324, "name": "fi", "value": { "kind": "const", "type": "Integer", "value": "48" } }
         ],
         "else": [
         ]
       },
       {
         "op": "if",
-        "line": 356,
+        "line": 326,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "last" } },
         "then": [
-        { "op": "assign", "line": 357, "name": "fo", "value": { "kind": "const", "type": "Integer", "value": "48" } }
+        { "op": "assign", "line": 327, "name": "fo", "value": { "kind": "const", "type": "Integer", "value": "48" } }
         ],
         "else": [
         ]
       },
-      { "op": "assign", "line": 359, "name": "ev", "value": { "kind": "with", "type": "#audio_MmlEvent", "target": { "kind": "local", "name": "ev" }, "updates": [{ "field": "fadeIn", "value": { "kind": "local", "name": "fi" } }, { "field": "fadeOut", "value": { "kind": "local", "name": "fo" } }] } },
-      { "op": "assign", "line": 360, "name": "out", "value": { "kind": "call", "type": "List OF #audio_MmlEvent", "target": "collections.set", "args": [{ "kind": "local", "name": "out" }, { "kind": "local", "name": "i" }, { "kind": "local", "name": "ev" }] } },
-      { "op": "assign", "line": 361, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 329, "name": "ev", "value": { "kind": "with", "type": "#audio_MmlEvent", "target": { "kind": "local", "name": "ev" }, "updates": [{ "field": "fadeIn", "value": { "kind": "local", "name": "fi" } }, { "field": "fadeOut", "value": { "kind": "local", "name": "fo" } }] } },
+      { "op": "assign", "line": 330, "name": "out", "value": { "kind": "call", "type": "List OF #audio_MmlEvent", "target": "collections.set", "args": [{ "kind": "local", "name": "out" }, { "kind": "local", "name": "i" }, { "kind": "local", "name": "ev" }] } },
+      { "op": "assign", "line": 331, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "return", "line": 363, "value": { "kind": "local", "name": "out" } }
+    { "op": "return", "line": 333, "value": { "kind": "local", "name": "out" } }
     ]
   },
   {
     "name": "#audio_mmlTokens",
-    "line": 367,
+    "line": 337,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "mml", "line": 367, "type": "String", "default": null }
+    { "name": "mml", "line": 337, "type": "String", "default": null }
     ],
     "returns": "List OF String",
     "body": [
-    { "op": "bind", "line": 368, "mutable": true, "name": "tokens", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [] } },
+    { "op": "bind", "line": 338, "mutable": true, "name": "tokens", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [] } },
     {
       "op": "forEach",
-      "line": 369,
+      "line": 339,
       "name": "tk",
       "type": "String",
       "iterable": { "kind": "call", "type": "List OF String", "target": "strings.split", "args": [{ "kind": "local", "name": "mml" }, { "kind": "const", "type": "String", "value": " " }] },
       "body": [
       {
         "op": "if",
-        "line": 370,
+        "line": 340,
         "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "tk" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
         "then": [
-        { "op": "assign", "line": 371, "name": "tokens", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "tokens" }, { "kind": "local", "name": "tk" }] } }
+        { "op": "assign", "line": 341, "name": "tokens", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "tokens" }, { "kind": "local", "name": "tk" }] } }
         ],
         "else": [
         ]
       }
       ]
     },
-    { "op": "return", "line": 374, "value": { "kind": "call", "type": "List OF String", "target": "#audio_mmlExpand", "args": [{ "kind": "local", "name": "tokens" }] } }
+    { "op": "return", "line": 344, "value": { "kind": "call", "type": "List OF String", "target": "#audio_mmlExpand", "args": [{ "kind": "local", "name": "tokens" }] } }
     ]
   },
   {
     "name": "#audio_mmlParse",
-    "line": 378,
+    "line": 348,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "mml", "line": 378, "type": "String", "default": null }
+    { "name": "mml", "line": 348, "type": "String", "default": null }
     ],
     "returns": "List OF #audio_MmlEvent",
     "body": [
-    { "op": "bind", "line": 379, "mutable": false, "name": "flat", "type": "List OF String", "value": { "kind": "call", "type": "List OF String", "target": "#audio_mmlTokens", "args": [{ "kind": "local", "name": "mml" }] } },
-    { "op": "bind", "line": 380, "mutable": true, "name": "events", "type": "List OF #audio_MmlEvent", "value": { "kind": "list", "type": "List OF #audio_MmlEvent", "values": [] } },
-    { "op": "bind", "line": 381, "mutable": true, "name": "tempo", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "120" } },
-    { "op": "bind", "line": 382, "mutable": true, "name": "octave", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "4" } },
-    { "op": "bind", "line": 383, "mutable": true, "name": "length", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "4" } },
-    { "op": "bind", "line": 384, "mutable": true, "name": "volume", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "10" } },
-    { "op": "bind", "line": 385, "mutable": true, "name": "wave", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 386, "mutable": true, "name": "expectName", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 387, "mutable": true, "name": "inLegato", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 388, "mutable": true, "name": "inStaccato", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 389, "mutable": true, "name": "legatoStart", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 349, "mutable": false, "name": "flat", "type": "List OF String", "value": { "kind": "call", "type": "List OF String", "target": "#audio_mmlTokens", "args": [{ "kind": "local", "name": "mml" }] } },
+    { "op": "bind", "line": 350, "mutable": true, "name": "events", "type": "List OF #audio_MmlEvent", "value": { "kind": "list", "type": "List OF #audio_MmlEvent", "values": [] } },
+    { "op": "bind", "line": 351, "mutable": true, "name": "tempo", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "120" } },
+    { "op": "bind", "line": 352, "mutable": true, "name": "octave", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "4" } },
+    { "op": "bind", "line": 353, "mutable": true, "name": "length", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "4" } },
+    { "op": "bind", "line": 354, "mutable": true, "name": "volume", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "10" } },
+    { "op": "bind", "line": 355, "mutable": true, "name": "wave", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 356, "mutable": true, "name": "expectName", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 357, "mutable": true, "name": "inLegato", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 358, "mutable": true, "name": "inStaccato", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 359, "mutable": true, "name": "legatoStart", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "forEach",
-      "line": 390,
+      "line": 360,
       "name": "tk",
       "type": "String",
       "iterable": { "kind": "local", "name": "flat" },
       "body": [
       {
         "op": "if",
-        "line": 391,
+        "line": 361,
         "condition": { "kind": "local", "name": "expectName" },
         "then": [
-        { "op": "bind", "line": 392, "mutable": false, "name": "wc", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlWaveCode", "args": [{ "kind": "local", "name": "tk" }] } },
+        { "op": "bind", "line": 362, "mutable": false, "name": "wc", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlWaveCode", "args": [{ "kind": "local", "name": "tk" }] } },
         {
           "op": "if",
-          "line": 393,
+          "line": 363,
           "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "wc" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
           "then": [
-          { "op": "fail", "line": 394, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "audio::play: unknown instrument '" }, "right": { "kind": "local", "name": "tk" } }, "right": { "kind": "const", "type": "String", "value": "'" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "394" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+          { "op": "fail", "line": 364, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "audio::play: unknown instrument '" }, "right": { "kind": "local", "name": "tk" } }, "right": { "kind": "const", "type": "String", "value": "'" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "364" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
           ],
           "else": [
           ]
         },
-        { "op": "assign", "line": 396, "name": "wave", "value": { "kind": "local", "name": "wc" } },
-        { "op": "assign", "line": 397, "name": "expectName", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+        { "op": "assign", "line": 366, "name": "wave", "value": { "kind": "local", "name": "wc" } },
+        { "op": "assign", "line": 367, "name": "expectName", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
         ],
         "else": [
         {
           "op": "if",
-          "line": 398,
+          "line": 368,
           "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "tk" }, "right": { "kind": "const", "type": "String", "value": "I" } },
           "then": [
-          { "op": "assign", "line": 399, "name": "expectName", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+          { "op": "assign", "line": 369, "name": "expectName", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
           ],
           "else": [
           {
             "op": "if",
-            "line": 400,
+            "line": 370,
             "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "tk" }, "right": { "kind": "const", "type": "String", "value": "(" } },
             "then": [
             {
               "op": "if",
-              "line": 401,
+              "line": 371,
               "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "local", "name": "inLegato" }, "right": { "kind": "local", "name": "inStaccato" } },
               "then": [
-              { "op": "fail", "line": 402, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: legato may not nest inside legato or staccato" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "402" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+              { "op": "fail", "line": 372, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: legato may not nest inside legato or staccato" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "372" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
               ],
               "else": [
               ]
             },
-            { "op": "assign", "line": 404, "name": "inLegato", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
-            { "op": "assign", "line": 405, "name": "legatoStart", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "events" }] } }
+            { "op": "assign", "line": 374, "name": "inLegato", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+            { "op": "assign", "line": 375, "name": "legatoStart", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "events" }] } }
             ],
             "else": [
             {
               "op": "if",
-              "line": 406,
+              "line": 376,
               "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "tk" }, "right": { "kind": "const", "type": "String", "value": ")" } },
               "then": [
               {
                 "op": "if",
-                "line": 407,
+                "line": 377,
                 "condition": { "kind": "unary", "type": "Boolean", "op": "NOT", "operand": { "kind": "local", "name": "inLegato" } },
                 "then": [
-                { "op": "fail", "line": 408, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: ')' without matching '('" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "408" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+                { "op": "fail", "line": 378, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: ')' without matching '('" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "378" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
                 ],
                 "else": [
                 ]
               },
-              { "op": "assign", "line": 410, "name": "inLegato", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-              { "op": "assign", "line": 411, "name": "events", "value": { "kind": "call", "type": "List OF #audio_MmlEvent", "target": "#audio_mmlApplyLegato", "args": [{ "kind": "local", "name": "events" }, { "kind": "local", "name": "legatoStart" }] } }
+              { "op": "assign", "line": 380, "name": "inLegato", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+              { "op": "assign", "line": 381, "name": "events", "value": { "kind": "call", "type": "List OF #audio_MmlEvent", "target": "#audio_mmlApplyLegato", "args": [{ "kind": "local", "name": "events" }, { "kind": "local", "name": "legatoStart" }] } }
               ],
               "else": [
               {
                 "op": "if",
-                "line": 412,
+                "line": 382,
                 "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "tk" }, "right": { "kind": "const", "type": "String", "value": "[" } },
                 "then": [
                 {
                   "op": "if",
-                  "line": 413,
+                  "line": 383,
                   "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "local", "name": "inLegato" }, "right": { "kind": "local", "name": "inStaccato" } },
                   "then": [
-                  { "op": "fail", "line": 414, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: staccato may not nest inside legato or staccato" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "414" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+                  { "op": "fail", "line": 384, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: staccato may not nest inside legato or staccato" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "384" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
                   ],
                   "else": [
                   ]
                 },
-                { "op": "assign", "line": 416, "name": "inStaccato", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+                { "op": "assign", "line": 386, "name": "inStaccato", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
                 ],
                 "else": [
                 {
                   "op": "if",
-                  "line": 417,
+                  "line": 387,
                   "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "tk" }, "right": { "kind": "const", "type": "String", "value": "]" } },
                   "then": [
                   {
                     "op": "if",
-                    "line": 418,
+                    "line": 388,
                     "condition": { "kind": "unary", "type": "Boolean", "op": "NOT", "operand": { "kind": "local", "name": "inStaccato" } },
                     "then": [
-                    { "op": "fail", "line": 419, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: ']' without matching '['" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "419" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+                    { "op": "fail", "line": 389, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: ']' without matching '['" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "389" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
                     ],
                     "else": [
                     ]
                   },
-                  { "op": "assign", "line": 421, "name": "inStaccato", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+                  { "op": "assign", "line": 391, "name": "inStaccato", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
                   ],
                   "else": [
                   {
                     "op": "if",
-                    "line": 422,
+                    "line": 392,
                     "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "tk" }, "right": { "kind": "const", "type": "String", "value": "<" } },
                     "then": [
-                    { "op": "assign", "line": 423, "name": "octave", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "octave" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+                    { "op": "assign", "line": 393, "name": "octave", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "octave" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
                     {
                       "op": "if",
-                      "line": 424,
+                      "line": 394,
                       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "octave" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
                       "then": [
-                      { "op": "assign", "line": 425, "name": "octave", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+                      { "op": "assign", "line": 395, "name": "octave", "value": { "kind": "const", "type": "Integer", "value": "0" } }
                       ],
                       "else": [
                       ]
@@ -1082,16 +1082,16 @@
                     "else": [
                     {
                       "op": "if",
-                      "line": 427,
+                      "line": 397,
                       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "tk" }, "right": { "kind": "const", "type": "String", "value": ">" } },
                       "then": [
-                      { "op": "assign", "line": 428, "name": "octave", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "octave" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+                      { "op": "assign", "line": 398, "name": "octave", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "octave" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
                       {
                         "op": "if",
-                        "line": 429,
+                        "line": 399,
                         "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "octave" }, "right": { "kind": "const", "type": "Integer", "value": "6" } },
                         "then": [
-                        { "op": "assign", "line": 430, "name": "octave", "value": { "kind": "const", "type": "Integer", "value": "6" } }
+                        { "op": "assign", "line": 400, "name": "octave", "value": { "kind": "const", "type": "Integer", "value": "6" } }
                         ],
                         "else": [
                         ]
@@ -1100,65 +1100,65 @@
                       "else": [
                       {
                         "op": "if",
-                        "line": 432,
+                        "line": 402,
                         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "right": { "kind": "const", "type": "String", "value": "T" } },
                         "then": [
-                        { "op": "assign", "line": 433, "name": "tempo", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlReqInt", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "255" }, { "kind": "const", "type": "String", "value": "tempo" }] } }
+                        { "op": "assign", "line": 403, "name": "tempo", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlReqInt", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "255" }, { "kind": "const", "type": "String", "value": "tempo" }] } }
                         ],
                         "else": [
                         {
                           "op": "if",
-                          "line": 434,
+                          "line": 404,
                           "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "right": { "kind": "const", "type": "String", "value": "O" } },
                           "then": [
-                          { "op": "assign", "line": 435, "name": "octave", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlReqInt", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "6" }, { "kind": "const", "type": "String", "value": "octave" }] } }
+                          { "op": "assign", "line": 405, "name": "octave", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlReqInt", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "6" }, { "kind": "const", "type": "String", "value": "octave" }] } }
                           ],
                           "else": [
                           {
                             "op": "if",
-                            "line": 436,
+                            "line": 406,
                             "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "right": { "kind": "const", "type": "String", "value": "L" } },
                             "then": [
-                            { "op": "assign", "line": 437, "name": "length", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlReqInt", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "64" }, { "kind": "const", "type": "String", "value": "length" }] } }
+                            { "op": "assign", "line": 407, "name": "length", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlReqInt", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "64" }, { "kind": "const", "type": "String", "value": "length" }] } }
                             ],
                             "else": [
                             {
                               "op": "if",
-                              "line": 438,
+                              "line": 408,
                               "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "right": { "kind": "const", "type": "String", "value": "V" } },
                               "then": [
-                              { "op": "assign", "line": 439, "name": "volume", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlReqInt", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "String", "value": "volume" }] } }
+                              { "op": "assign", "line": 409, "name": "volume", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlReqInt", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "String", "value": "volume" }] } }
                               ],
                               "else": [
                               {
                                 "op": "if",
-                                "line": 440,
+                                "line": 410,
                                 "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "right": { "kind": "const", "type": "String", "value": "P" } },
                                 "then": [
-                                { "op": "bind", "line": 441, "mutable": false, "name": "pauseLen", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlReqInt", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "64" }, { "kind": "const", "type": "String", "value": "pause" }] } },
-                                { "op": "assign", "line": 442, "name": "events", "value": { "kind": "call", "type": "List OF #audio_MmlEvent", "target": "collections.append", "args": [{ "kind": "local", "name": "events" }, { "kind": "call", "type": "#audio_MmlEvent", "target": "#audio_mmlRest", "args": [{ "kind": "call", "type": "Integer", "target": "#audio_mmlFrames", "args": [{ "kind": "local", "name": "tempo" }, { "kind": "local", "name": "pauseLen" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } }
+                                { "op": "bind", "line": 411, "mutable": false, "name": "pauseLen", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlReqInt", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "64" }, { "kind": "const", "type": "String", "value": "pause" }] } },
+                                { "op": "assign", "line": 412, "name": "events", "value": { "kind": "call", "type": "List OF #audio_MmlEvent", "target": "collections.append", "args": [{ "kind": "local", "name": "events" }, { "kind": "call", "type": "#audio_MmlEvent", "target": "#audio_mmlRest", "args": [{ "kind": "call", "type": "Integer", "target": "#audio_mmlFrames", "args": [{ "kind": "local", "name": "tempo" }, { "kind": "local", "name": "pauseLen" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } }
                                 ],
                                 "else": [
                                 {
                                   "op": "if",
-                                  "line": 443,
+                                  "line": 413,
                                   "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "right": { "kind": "const", "type": "String", "value": "R" } },
                                   "then": [
-                                  { "op": "bind", "line": 444, "mutable": false, "name": "dots", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlTrailingDots", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+                                  { "op": "bind", "line": 414, "mutable": false, "name": "dots", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlTrailingDots", "args": [{ "kind": "local", "name": "tk" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
                                   {
                                     "op": "if",
-                                    "line": 445,
+                                    "line": 415,
                                     "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "dots" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
                                     "then": [
-                                    { "op": "fail", "line": 446, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "audio::play: unrecognized token '" }, "right": { "kind": "local", "name": "tk" } }, "right": { "kind": "const", "type": "String", "value": "'" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "446" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+                                    { "op": "fail", "line": 416, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "audio::play: unrecognized token '" }, "right": { "kind": "local", "name": "tk" } }, "right": { "kind": "const", "type": "String", "value": "'" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "416" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
                                     ],
                                     "else": [
                                     ]
                                   },
-                                  { "op": "assign", "line": 448, "name": "events", "value": { "kind": "call", "type": "List OF #audio_MmlEvent", "target": "collections.append", "args": [{ "kind": "local", "name": "events" }, { "kind": "call", "type": "#audio_MmlEvent", "target": "#audio_mmlRest", "args": [{ "kind": "call", "type": "Integer", "target": "#audio_mmlFrames", "args": [{ "kind": "local", "name": "tempo" }, { "kind": "local", "name": "length" }, { "kind": "local", "name": "dots" }] }] }] } }
+                                  { "op": "assign", "line": 418, "name": "events", "value": { "kind": "call", "type": "List OF #audio_MmlEvent", "target": "collections.append", "args": [{ "kind": "local", "name": "events" }, { "kind": "call", "type": "#audio_MmlEvent", "target": "#audio_mmlRest", "args": [{ "kind": "call", "type": "Integer", "target": "#audio_mmlFrames", "args": [{ "kind": "local", "name": "tempo" }, { "kind": "local", "name": "length" }, { "kind": "local", "name": "dots" }] }] }] } }
                                   ],
                                   "else": [
-                                  { "op": "assign", "line": 450, "name": "events", "value": { "kind": "call", "type": "List OF #audio_MmlEvent", "target": "collections.append", "args": [{ "kind": "local", "name": "events" }, { "kind": "call", "type": "#audio_MmlEvent", "target": "#audio_mmlNote", "args": [{ "kind": "local", "name": "tk" }, { "kind": "local", "name": "octave" }, { "kind": "local", "name": "length" }, { "kind": "local", "name": "tempo" }, { "kind": "local", "name": "volume" }, { "kind": "local", "name": "wave" }, { "kind": "local", "name": "inStaccato" }] }] } }
+                                  { "op": "assign", "line": 420, "name": "events", "value": { "kind": "call", "type": "List OF #audio_MmlEvent", "target": "collections.append", "args": [{ "kind": "local", "name": "events" }, { "kind": "call", "type": "#audio_MmlEvent", "target": "#audio_mmlNote", "args": [{ "kind": "local", "name": "tk" }, { "kind": "local", "name": "octave" }, { "kind": "local", "name": "length" }, { "kind": "local", "name": "tempo" }, { "kind": "local", "name": "volume" }, { "kind": "local", "name": "wave" }, { "kind": "local", "name": "inStaccato" }] }] } }
                                   ]
                                 }
                                 ]
@@ -1191,195 +1191,195 @@
     },
     {
       "op": "if",
-      "line": 453,
+      "line": 423,
       "condition": { "kind": "local", "name": "expectName" },
       "then": [
-      { "op": "fail", "line": 454, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: 'I' with no instrument name" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "454" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 424, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: 'I' with no instrument name" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "424" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
     },
     {
       "op": "if",
-      "line": 456,
+      "line": 426,
       "condition": { "kind": "local", "name": "inLegato" },
       "then": [
-      { "op": "fail", "line": 457, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: unclosed legato '('" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "457" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 427, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: unclosed legato '('" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "427" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
     },
     {
       "op": "if",
-      "line": 459,
+      "line": 429,
       "condition": { "kind": "local", "name": "inStaccato" },
       "then": [
-      { "op": "fail", "line": 460, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: unclosed staccato '['" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "460" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 430, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "audio::play: unclosed staccato '['" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/audio.mfb" }, { "kind": "const", "type": "Integer", "value": "430" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 462, "value": { "kind": "local", "name": "events" } }
+    { "op": "return", "line": 432, "value": { "kind": "local", "name": "events" } }
     ]
   },
   {
     "name": "#audio_mmlClampFade",
-    "line": 466,
+    "line": 436,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "fade", "line": 466, "type": "Integer", "default": null },
-    { "name": "sound", "line": 466, "type": "Integer", "default": null }
+    { "name": "fade", "line": 436, "type": "Integer", "default": null },
+    { "name": "sound", "line": 436, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 467, "mutable": true, "name": "f", "type": "Integer", "value": { "kind": "local", "name": "fade" } },
+    { "op": "bind", "line": 437, "mutable": true, "name": "f", "type": "Integer", "value": { "kind": "local", "name": "fade" } },
     {
       "op": "if",
-      "line": 468,
+      "line": 438,
       "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "f" }, "right": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "sound" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } },
       "then": [
-      { "op": "assign", "line": 469, "name": "f", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "sound" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
+      { "op": "assign", "line": 439, "name": "f", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "sound" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
       ],
       "else": [
       ]
     },
     {
       "op": "if",
-      "line": 471,
+      "line": 441,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "f" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "assign", "line": 472, "name": "f", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      { "op": "assign", "line": 442, "name": "f", "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 474, "value": { "kind": "local", "name": "f" } }
+    { "op": "return", "line": 444, "value": { "kind": "local", "name": "f" } }
     ]
   },
   {
     "name": "#audio_mmlLcg",
-    "line": 478,
+    "line": 448,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "seed", "line": 478, "type": "Integer", "default": null }
+    { "name": "seed", "line": 448, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "line": 479, "value": { "kind": "call", "type": "Integer", "target": "bits.band", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "seed" }, "right": { "kind": "const", "type": "Integer", "value": "1103515245" } }, "right": { "kind": "const", "type": "Integer", "value": "12345" } }, { "kind": "const", "type": "Integer", "value": "2147483647" }] } }
+    { "op": "return", "line": 449, "value": { "kind": "call", "type": "Integer", "target": "bits.band", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "seed" }, "right": { "kind": "const", "type": "Integer", "value": "1103515245" } }, "right": { "kind": "const", "type": "Integer", "value": "12345" } }, { "kind": "const", "type": "Integer", "value": "2147483647" }] } }
     ]
   },
   {
     "name": "#audio_mmlSynth",
-    "line": 483,
+    "line": 453,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "events", "line": 483, "type": "List OF #audio_MmlEvent", "default": null }
+    { "name": "events", "line": 453, "type": "List OF #audio_MmlEvent", "default": null }
     ],
     "returns": "List OF Integer",
     "body": [
-    { "op": "bind", "line": 484, "mutable": true, "name": "out", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "line": 454, "mutable": true, "name": "out", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
     {
       "op": "forEach",
-      "line": 485,
+      "line": 455,
       "name": "ev",
       "type": "#audio_MmlEvent",
       "iterable": { "kind": "local", "name": "events" },
       "body": [
       {
         "op": "if",
-        "line": 486,
+        "line": 456,
         "condition": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "memberAccess", "type": "Float", "target": { "kind": "local", "name": "ev" }, "member": "freq" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } },
         "then": [
-        { "op": "bind", "line": 487, "mutable": false, "name": "$for_end15", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ev" }, "member": "totalFrames" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-        { "op": "bind", "line": 487, "mutable": false, "name": "$for_step16", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+        { "op": "bind", "line": 457, "mutable": false, "name": "$for_end15", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ev" }, "member": "totalFrames" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+        { "op": "bind", "line": 457, "mutable": false, "name": "$for_step16", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
         {
           "op": "for",
-          "line": 487,
+          "line": 457,
           "name": "$for_iter14",
           "type": "Integer",
           "start": { "kind": "const", "type": "Integer", "value": "0" },
           "end": { "kind": "local", "name": "$for_end15" },
           "step": { "kind": "local", "name": "$for_step16" },
           "body": [
-          { "op": "bind", "line": 487, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter14" } },
-          { "op": "assign", "line": 488, "name": "out", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+          { "op": "bind", "line": 457, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter14" } },
+          { "op": "assign", "line": 458, "name": "out", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
           ]
         }
         ],
         "else": [
-        { "op": "bind", "line": 491, "mutable": false, "name": "sound", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ev" }, "member": "soundFrames" } },
-        { "op": "bind", "line": 492, "mutable": false, "name": "fadeIn", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlClampFade", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ev" }, "member": "fadeIn" }, { "kind": "local", "name": "sound" }] } },
-        { "op": "bind", "line": 493, "mutable": false, "name": "fadeOut", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlClampFade", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ev" }, "member": "fadeOut" }, { "kind": "local", "name": "sound" }] } },
-        { "op": "bind", "line": 494, "mutable": true, "name": "noiseSeed", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "305419896" } },
-        { "op": "bind", "line": 495, "mutable": false, "name": "$for_end18", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ev" }, "member": "totalFrames" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-        { "op": "bind", "line": 495, "mutable": false, "name": "$for_step19", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+        { "op": "bind", "line": 461, "mutable": false, "name": "sound", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ev" }, "member": "soundFrames" } },
+        { "op": "bind", "line": 462, "mutable": false, "name": "fadeIn", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlClampFade", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ev" }, "member": "fadeIn" }, { "kind": "local", "name": "sound" }] } },
+        { "op": "bind", "line": 463, "mutable": false, "name": "fadeOut", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlClampFade", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ev" }, "member": "fadeOut" }, { "kind": "local", "name": "sound" }] } },
+        { "op": "bind", "line": 464, "mutable": true, "name": "noiseSeed", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "305419896" } },
+        { "op": "bind", "line": 465, "mutable": false, "name": "$for_end18", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ev" }, "member": "totalFrames" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+        { "op": "bind", "line": 465, "mutable": false, "name": "$for_step19", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
         {
           "op": "for",
-          "line": 495,
+          "line": 465,
           "name": "$for_iter17",
           "type": "Integer",
           "start": { "kind": "const", "type": "Integer", "value": "0" },
           "end": { "kind": "local", "name": "$for_end18" },
           "step": { "kind": "local", "name": "$for_step19" },
           "body": [
-          { "op": "bind", "line": 495, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter17" } },
-          { "op": "bind", "line": 496, "mutable": true, "name": "si", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+          { "op": "bind", "line": 465, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter17" } },
+          { "op": "bind", "line": 466, "mutable": true, "name": "si", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
           {
             "op": "if",
-            "line": 497,
+            "line": 467,
             "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "sound" } },
             "then": [
-            { "op": "bind", "line": 498, "mutable": false, "name": "t", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "i" }] }, "right": { "kind": "const", "type": "Float", "value": "48000.0" } } },
-            { "op": "bind", "line": 499, "mutable": false, "name": "phase", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "memberAccess", "type": "Float", "target": { "kind": "local", "name": "ev" }, "member": "freq" }, "right": { "kind": "local", "name": "t" } } },
-            { "op": "bind", "line": 500, "mutable": false, "name": "frac", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "local", "name": "phase" }, "right": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "call", "type": "Integer", "target": "math.floor", "args": [{ "kind": "local", "name": "phase" }] }] } } },
-            { "op": "bind", "line": 501, "mutable": true, "name": "w", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "0.0" } },
+            { "op": "bind", "line": 468, "mutable": false, "name": "t", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "i" }] }, "right": { "kind": "const", "type": "Float", "value": "48000.0" } } },
+            { "op": "bind", "line": 469, "mutable": false, "name": "phase", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "memberAccess", "type": "Float", "target": { "kind": "local", "name": "ev" }, "member": "freq" }, "right": { "kind": "local", "name": "t" } } },
+            { "op": "bind", "line": 470, "mutable": false, "name": "frac", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "local", "name": "phase" }, "right": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "call", "type": "Integer", "target": "math.floor", "args": [{ "kind": "local", "name": "phase" }] }] } } },
+            { "op": "bind", "line": 471, "mutable": true, "name": "w", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "0.0" } },
             {
               "op": "if",
-              "line": 502,
+              "line": 472,
               "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ev" }, "member": "wave" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
               "then": [
-              { "op": "assign", "line": 503, "name": "w", "value": { "kind": "call", "type": "Float", "target": "math.sin", "args": [{ "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "const", "type": "Float", "value": "2.0" }, "right": { "kind": "const", "type": "Float", "value": "3.141592653589793" } }, "right": { "kind": "local", "name": "phase" } }] } }
+              { "op": "assign", "line": 473, "name": "w", "value": { "kind": "call", "type": "Float", "target": "math.sin", "args": [{ "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "const", "type": "Float", "value": "2.0" }, "right": { "kind": "const", "type": "Float", "value": "3.141592653589793" } }, "right": { "kind": "local", "name": "phase" } }] } }
               ],
               "else": [
               {
                 "op": "if",
-                "line": 504,
+                "line": 474,
                 "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ev" }, "member": "wave" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
                 "then": [
                 {
                   "op": "if",
-                  "line": 505,
+                  "line": 475,
                   "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "frac" }, "right": { "kind": "const", "type": "Float", "value": "0.5" } },
                   "then": [
-                  { "op": "assign", "line": 506, "name": "w", "value": { "kind": "const", "type": "Float", "value": "1.0" } }
+                  { "op": "assign", "line": 476, "name": "w", "value": { "kind": "const", "type": "Float", "value": "1.0" } }
                   ],
                   "else": [
-                  { "op": "assign", "line": 508, "name": "w", "value": { "kind": "unary", "type": "Float", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "1.0" } } }
+                  { "op": "assign", "line": 478, "name": "w", "value": { "kind": "unary", "type": "Float", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "1.0" } } }
                   ]
                 }
                 ],
                 "else": [
                 {
                   "op": "if",
-                  "line": 510,
+                  "line": 480,
                   "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ev" }, "member": "wave" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
                   "then": [
-                  { "op": "assign", "line": 511, "name": "w", "value": { "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "const", "type": "Float", "value": "4.0" }, "right": { "kind": "call", "type": "Float", "target": "math.abs", "args": [{ "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "local", "name": "frac" }, "right": { "kind": "const", "type": "Float", "value": "0.5" } }] } }, "right": { "kind": "const", "type": "Float", "value": "1.0" } } }
+                  { "op": "assign", "line": 481, "name": "w", "value": { "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "const", "type": "Float", "value": "4.0" }, "right": { "kind": "call", "type": "Float", "target": "math.abs", "args": [{ "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "local", "name": "frac" }, "right": { "kind": "const", "type": "Float", "value": "0.5" } }] } }, "right": { "kind": "const", "type": "Float", "value": "1.0" } } }
                   ],
                   "else": [
                   {
                     "op": "if",
-                    "line": 512,
+                    "line": 482,
                     "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ev" }, "member": "wave" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
                     "then": [
-                    { "op": "assign", "line": 513, "name": "w", "value": { "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "const", "type": "Float", "value": "2.0" }, "right": { "kind": "local", "name": "frac" } }, "right": { "kind": "const", "type": "Float", "value": "1.0" } } }
+                    { "op": "assign", "line": 483, "name": "w", "value": { "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "const", "type": "Float", "value": "2.0" }, "right": { "kind": "local", "name": "frac" } }, "right": { "kind": "const", "type": "Float", "value": "1.0" } } }
                     ],
                     "else": [
-                    { "op": "assign", "line": 515, "name": "noiseSeed", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlLcg", "args": [{ "kind": "local", "name": "noiseSeed" }] } },
-                    { "op": "assign", "line": 516, "name": "w", "value": { "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "noiseSeed" }, "right": { "kind": "const", "type": "Integer", "value": "65536" } }] }, "right": { "kind": "const", "type": "Float", "value": "32768.0" } }, "right": { "kind": "const", "type": "Float", "value": "1.0" } } }
+                    { "op": "assign", "line": 485, "name": "noiseSeed", "value": { "kind": "call", "type": "Integer", "target": "#audio_mmlLcg", "args": [{ "kind": "local", "name": "noiseSeed" }] } },
+                    { "op": "assign", "line": 486, "name": "w", "value": { "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "noiseSeed" }, "right": { "kind": "const", "type": "Integer", "value": "65536" } }] }, "right": { "kind": "const", "type": "Float", "value": "32768.0" } }, "right": { "kind": "const", "type": "Float", "value": "1.0" } } }
                     ]
                   }
                   ]
@@ -1388,209 +1388,209 @@
               }
               ]
             },
-            { "op": "bind", "line": 518, "mutable": true, "name": "amp", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "1.0" } },
+            { "op": "bind", "line": 488, "mutable": true, "name": "amp", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "1.0" } },
             {
               "op": "if",
-              "line": 519,
+              "line": 489,
               "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "fadeIn" } },
               "then": [
-              { "op": "assign", "line": 520, "name": "amp", "value": { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "i" }] }, "right": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "fadeIn" }] } } }
+              { "op": "assign", "line": 490, "name": "amp", "value": { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "i" }] }, "right": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "fadeIn" }] } } }
               ],
               "else": [
               {
                 "op": "if",
-                "line": 521,
+                "line": 491,
                 "condition": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "sound" }, "right": { "kind": "local", "name": "fadeOut" } } },
                 "then": [
-                { "op": "assign", "line": 522, "name": "amp", "value": { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "sound" }, "right": { "kind": "local", "name": "i" } }] }, "right": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "fadeOut" }] } } }
+                { "op": "assign", "line": 492, "name": "amp", "value": { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "sound" }, "right": { "kind": "local", "name": "i" } }] }, "right": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "fadeOut" }] } } }
                 ],
                 "else": [
                 ]
               }
               ]
             },
-            { "op": "assign", "line": 524, "name": "si", "value": { "kind": "call", "type": "Integer", "target": "#audio_clampS16", "args": [{ "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "local", "name": "w" }, "right": { "kind": "local", "name": "amp" } }, "right": { "kind": "memberAccess", "type": "Float", "target": { "kind": "local", "name": "ev" }, "member": "gain" } }, "right": { "kind": "const", "type": "Float", "value": "32767.0" } }] }] } }
+            { "op": "assign", "line": 494, "name": "si", "value": { "kind": "call", "type": "Integer", "target": "#audio_clampS16", "args": [{ "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "local", "name": "w" }, "right": { "kind": "local", "name": "amp" } }, "right": { "kind": "memberAccess", "type": "Float", "target": { "kind": "local", "name": "ev" }, "member": "gain" } }, "right": { "kind": "const", "type": "Float", "value": "32767.0" } }] }] } }
             ],
             "else": [
             ]
           },
-          { "op": "assign", "line": 526, "name": "out", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "local", "name": "si" }] } }
+          { "op": "assign", "line": 496, "name": "out", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "local", "name": "si" }] } }
           ]
         }
         ]
       }
       ]
     },
-    { "op": "return", "line": 530, "value": { "kind": "local", "name": "out" } }
+    { "op": "return", "line": 500, "value": { "kind": "local", "name": "out" } }
     ]
   },
   {
     "name": "#audio_mmlRenderSamples",
-    "line": 534,
+    "line": 504,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "mml", "line": 534, "type": "String", "default": null }
+    { "name": "mml", "line": 504, "type": "String", "default": null }
     ],
     "returns": "List OF Integer",
     "body": [
-    { "op": "return", "line": 535, "value": { "kind": "call", "type": "List OF Integer", "target": "#audio_mmlSynth", "args": [{ "kind": "call", "type": "List OF #audio_MmlEvent", "target": "#audio_mmlParse", "args": [{ "kind": "local", "name": "mml" }] }] } }
+    { "op": "return", "line": 505, "value": { "kind": "call", "type": "List OF Integer", "target": "#audio_mmlSynth", "args": [{ "kind": "call", "type": "List OF #audio_MmlEvent", "target": "#audio_mmlParse", "args": [{ "kind": "local", "name": "mml" }] }] } }
     ]
   },
   {
     "name": "#audio_mmlMix",
-    "line": 540,
+    "line": 510,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "tracks", "line": 540, "type": "List OF List OF Integer", "default": null }
+    { "name": "tracks", "line": 510, "type": "List OF List OF Integer", "default": null }
     ],
     "returns": "List OF Integer",
     "body": [
-    { "op": "bind", "line": 541, "mutable": true, "name": "maxLen", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 511, "mutable": true, "name": "maxLen", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "forEach",
-      "line": 542,
+      "line": 512,
       "name": "tr",
       "type": "List OF Integer",
       "iterable": { "kind": "local", "name": "tracks" },
       "body": [
       {
         "op": "if",
-        "line": 543,
+        "line": 513,
         "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "tr" }] }, "right": { "kind": "local", "name": "maxLen" } },
         "then": [
-        { "op": "assign", "line": 544, "name": "maxLen", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "tr" }] } }
+        { "op": "assign", "line": 514, "name": "maxLen", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "tr" }] } }
         ],
         "else": [
         ]
       }
       ]
     },
-    { "op": "bind", "line": 547, "mutable": true, "name": "out", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-    { "op": "bind", "line": 548, "mutable": false, "name": "$for_end21", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "maxLen" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-    { "op": "bind", "line": 548, "mutable": false, "name": "$for_step22", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    { "op": "bind", "line": 517, "mutable": true, "name": "out", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "line": 518, "mutable": false, "name": "$for_end21", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "maxLen" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "bind", "line": 518, "mutable": false, "name": "$for_step22", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
     {
       "op": "for",
-      "line": 548,
+      "line": 518,
       "name": "$for_iter20",
       "type": "Integer",
       "start": { "kind": "const", "type": "Integer", "value": "0" },
       "end": { "kind": "local", "name": "$for_end21" },
       "step": { "kind": "local", "name": "$for_step22" },
       "body": [
-      { "op": "bind", "line": 548, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter20" } },
-      { "op": "bind", "line": 549, "mutable": true, "name": "acc", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      { "op": "bind", "line": 518, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter20" } },
+      { "op": "bind", "line": 519, "mutable": true, "name": "acc", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
       {
         "op": "forEach",
-        "line": 550,
+        "line": 520,
         "name": "tr",
         "type": "List OF Integer",
         "iterable": { "kind": "local", "name": "tracks" },
         "body": [
         {
           "op": "if",
-          "line": 551,
+          "line": 521,
           "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "tr" }] } },
           "then": [
-          { "op": "assign", "line": 552, "name": "acc", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc" }, "right": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "tr" }, { "kind": "local", "name": "i" }] } } }
+          { "op": "assign", "line": 522, "name": "acc", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc" }, "right": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "tr" }, { "kind": "local", "name": "i" }] } } }
           ],
           "else": [
           ]
         }
         ]
       },
-      { "op": "assign", "line": 555, "name": "out", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "Integer", "target": "#audio_clampS16", "args": [{ "kind": "local", "name": "acc" }] }] } }
+      { "op": "assign", "line": 525, "name": "out", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "Integer", "target": "#audio_clampS16", "args": [{ "kind": "local", "name": "acc" }] }] } }
       ]
     },
-    { "op": "return", "line": 557, "value": { "kind": "local", "name": "out" } }
+    { "op": "return", "line": 527, "value": { "kind": "local", "name": "out" } }
     ]
   },
   {
     "name": "#audio_mmlEncode",
-    "line": 561,
+    "line": 531,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "samples", "line": 561, "type": "List OF Integer", "default": null }
+    { "name": "samples", "line": 531, "type": "List OF Integer", "default": null }
     ],
     "returns": "List OF Byte",
     "body": [
-    { "op": "bind", "line": 562, "mutable": true, "name": "pcm", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
+    { "op": "bind", "line": 532, "mutable": true, "name": "pcm", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
     {
       "op": "forEach",
-      "line": 563,
+      "line": 533,
       "name": "s",
       "type": "Integer",
       "iterable": { "kind": "local", "name": "samples" },
       "body": [
-      { "op": "assign", "line": 564, "name": "pcm", "value": { "kind": "call", "type": "List OF Byte", "target": "#audio_appendS16LE", "args": [{ "kind": "local", "name": "pcm" }, { "kind": "local", "name": "s" }] } }
+      { "op": "assign", "line": 534, "name": "pcm", "value": { "kind": "call", "type": "List OF Byte", "target": "#audio_appendS16LE", "args": [{ "kind": "local", "name": "pcm" }, { "kind": "local", "name": "s" }] } }
       ]
     },
-    { "op": "return", "line": 566, "value": { "kind": "local", "name": "pcm" } }
+    { "op": "return", "line": 536, "value": { "kind": "local", "name": "pcm" } }
     ]
   },
   {
     "name": "#audio_playSamples",
-    "line": 572,
+    "line": 542,
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "out", "line": 572, "type": "audio.AudioOutput", "default": null },
-    { "name": "samples", "line": 572, "type": "List OF Integer", "default": null }
+    { "name": "out", "line": 542, "type": "audio.AudioOutput", "default": null },
+    { "name": "samples", "line": 542, "type": "List OF Integer", "default": null }
     ],
     "returns": "Nothing",
     "body": [
     {
       "op": "if",
-      "line": 573,
+      "line": 543,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "samples" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "return", "line": 574, "value": null }
+      { "op": "return", "line": 544, "value": null }
       ],
       "else": [
       ]
     },
-    { "op": "eval", "line": 576, "value": { "kind": "call", "type": "Nothing", "target": "audio.write", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "List OF Byte", "target": "#audio_mmlEncode", "args": [{ "kind": "local", "name": "samples" }] }] } }
+    { "op": "eval", "line": 546, "value": { "kind": "call", "type": "Nothing", "target": "audio.write", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "List OF Byte", "target": "#audio_mmlEncode", "args": [{ "kind": "local", "name": "samples" }] }] } }
     ]
   },
   {
     "name": "#audio_play",
-    "line": 580,
+    "line": 550,
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "out", "line": 580, "type": "audio.AudioOutput", "default": null },
-    { "name": "mml", "line": 580, "type": "String", "default": null }
+    { "name": "out", "line": 550, "type": "audio.AudioOutput", "default": null },
+    { "name": "mml", "line": 550, "type": "String", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "line": 581, "value": { "kind": "call", "type": "Nothing", "target": "#audio_playSamples", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "List OF Integer", "target": "#audio_mmlRenderSamples", "args": [{ "kind": "local", "name": "mml" }] }] } }
+    { "op": "eval", "line": 551, "value": { "kind": "call", "type": "Nothing", "target": "#audio_playSamples", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "List OF Integer", "target": "#audio_mmlRenderSamples", "args": [{ "kind": "local", "name": "mml" }] }] } }
     ]
   },
   {
     "name": "#audio_playTracks",
-    "line": 587,
+    "line": 557,
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "out", "line": 587, "type": "audio.AudioOutput", "default": null },
-    { "name": "tracks", "line": 587, "type": "List OF String", "default": null }
+    { "name": "out", "line": 557, "type": "audio.AudioOutput", "default": null },
+    { "name": "tracks", "line": 557, "type": "List OF String", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 588, "mutable": true, "name": "rendered", "type": "List OF List OF Integer", "value": { "kind": "list", "type": "List OF List OF Integer", "values": [] } },
+    { "op": "bind", "line": 558, "mutable": true, "name": "rendered", "type": "List OF List OF Integer", "value": { "kind": "list", "type": "List OF List OF Integer", "values": [] } },
     {
       "op": "forEach",
-      "line": 589,
+      "line": 559,
       "name": "tk",
       "type": "String",
       "iterable": { "kind": "local", "name": "tracks" },
       "body": [
-      { "op": "assign", "line": 590, "name": "rendered", "value": { "kind": "call", "type": "List OF List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "rendered" }, { "kind": "call", "type": "List OF Integer", "target": "#audio_mmlRenderSamples", "args": [{ "kind": "local", "name": "tk" }] }] } }
+      { "op": "assign", "line": 560, "name": "rendered", "value": { "kind": "call", "type": "List OF List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "rendered" }, { "kind": "call", "type": "List OF Integer", "target": "#audio_mmlRenderSamples", "args": [{ "kind": "local", "name": "tk" }] }] } }
       ]
     },
-    { "op": "eval", "line": 592, "value": { "kind": "call", "type": "Nothing", "target": "#audio_playSamples", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "List OF Integer", "target": "#audio_mmlMix", "args": [{ "kind": "local", "name": "rendered" }] }] } }
+    { "op": "eval", "line": 562, "value": { "kind": "call", "type": "Nothing", "target": "#audio_playSamples", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "List OF Integer", "target": "#audio_mmlMix", "args": [{ "kind": "local", "name": "rendered" }] }] } }
     ]
   }
   ]
