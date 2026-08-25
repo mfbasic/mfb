@@ -307,3 +307,142 @@ impl CodeBuilder<'_> {
         })
     }
 }
+
+// --- source-generic descriptor + body ---
+
+const INTRO: &str = r#"Combine two maps into one, choosing which side wins on a key collision"#;
+
+const DESC: &str = r#"`collections::merge` starts the result as a copy of `a`, then iterates `b` with
+`FOR EACH` and considers each of its entries in turn. An entry of `b` is written
+into the result only when `preferB` is `TRUE`, or when the entry's key is not
+already present in the result. Every other entry of `b` is skipped, leaving the
+value that came from `a` in place.
+
+The result therefore always contains the union of the two key sets: every key of
+`a` and every key of `b` appears exactly once. `preferB` decides only what
+happens on a collision — a key present in both maps:
+
+- `preferB = TRUE` — `b`'s value overwrites `a`'s value for that key.
+- `preferB = FALSE` — `a`'s value is kept and `b`'s value is discarded.
+
+`preferB` is a required `Boolean` parameter. It has no default, so all three
+arguments must be supplied; there is no two-argument form of `merge`.
+
+Neither `a` nor `b` is modified. The result is a distinct map value, so writing
+to it afterwards does not disturb either input.
+
+Because the result is seeded from `a` and then extended by iterating `b`, keys of
+`a` are inserted first and keys unique to `b` are inserted afterwards, each side
+in its own traversal order. Map traversal order is implementation-defined but
+stable for a given unchanged map value during one program run, so no ordering
+guarantee beyond that should be relied on; see `mfb man types map`. Note that
+overwriting an existing key when `preferB` is `TRUE` replaces its value and does
+not move the key to the end.
+
+`merge` invokes no user callback and raises no error.
+
+`merge` is generic over `K` and `V`, the key and value types of the maps. Both
+`a` and `b` bind the same `K` and the same `V`, so the two maps must have
+identical key and value types; merging maps with different value types is a
+compile-time error. The result is a `Map OF K TO V` with those same types."#;
+
+const EX: &str = r#"Let the second map win on a collision:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET a AS Map OF String TO Integer = Map OF String TO Integer { "x" := 1 }
+  LET b AS Map OF String TO Integer = Map OF String TO Integer { "x" := 2, "y" := 9 }
+  LET merged AS Map OF String TO Integer = collections::merge(a, b, TRUE)
+  io::print(toString(collections::get(merged, "x")))
+  RETURN 0
+END FUNC
+```
+
+Keep the first map's value instead, while still gaining `b`'s new keys:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET defaults AS Map OF String TO Integer = Map OF String TO Integer { "retries" := 3 }
+  LET overrides AS Map OF String TO Integer = Map OF String TO Integer { "retries" := 9, "timeout" := 30 }
+  LET settings AS Map OF String TO Integer = collections::merge(a := defaults, b := overrides, preferB := FALSE)
+  io::print(toString(collections::get(settings, "retries")) & " " & toString(collections::get(settings, "timeout")))
+  RETURN 0
+END FUNC
+```
+
+Both inputs are left unchanged:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET a AS Map OF String TO Integer = Map OF String TO Integer { "x" := 1 }
+  LET b AS Map OF String TO Integer = Map OF String TO Integer { "x" := 2 }
+  LET merged AS Map OF String TO Integer = collections::merge(a, b, TRUE)
+  io::print(toString(collections::get(a, "x")))
+  RETURN 0
+END FUNC
+```"#;
+
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __collections_merge OF K, V(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V
+  MUT result AS Map OF K TO V = a
+  FOR EACH e IN b
+    IF preferB OR NOT collections::hasKey(result, e.key) THEN
+      result = collections::set(result, e.key, e.value)
+    END IF
+  NEXT
+  RETURN result
+END FUNC"#;
+
+pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
+    use crate::codegen::registry::{
+        Body, DefaultValue, Implementation, Parameter, RegistryFunction,
+    };
+    use crate::types::ParameterType;
+
+    pkg.add_function(RegistryFunction {
+        name: "merge",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: Some("Map OF K TO V, Map OF K TO V, Boolean"),
+        internal_only: false,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "a",
+                    desc: "The base map. The result begins as a copy of it, so its entries survive unless a colliding entry of `b` displaces them. May be empty. Not modified.",
+                    aliases: &[],
+                    ty: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("V")),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "b",
+                    desc: "The map merged on top. Must have the same key and value types as `a`. May be empty. Not modified.",
+                    aliases: &[],
+                    ty: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("V")),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "preferB",
+                    desc: "Which side wins on a key present in both maps: `TRUE` takes `b`'s value, `FALSE` keeps `a`'s. Required — there is no default.",
+                    aliases: &[],
+                    ty: ParameterType::Boolean,
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("V")),
+            errors: vec![],
+            body: Body::mfb_with_fast_path(BODY, "__collections_merge", merge_fast_path),
+        }],
+    });
+}

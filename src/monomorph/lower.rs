@@ -145,13 +145,21 @@ impl<'a> Monomorphizer<'a> {
     /// Rewrites a `collections::` call callee (`collections.sort`, or an aliased
     /// `c.sort`) to its internal generic implementation (`__collections_sort`).
     /// Returns the callee unchanged when it is not a `collections::` call.
+    ///
+    /// The rewrite symbol comes from the member's registered `Body::Mfb` descriptor
+    /// (`registry::rewrite_target`), so only the source-generic members rewrite here
+    /// — a native member (`get`, `transform`, …) has a non-rewrite body and stays a
+    /// `collections.` call for the IR-lower native path. The rewrite happens at
+    /// monomorph (not IR lowering, where the other packages' `Body::Mfb` members
+    /// rewrite) because these bodies are GENERIC — the rewritten `#collections_sort`
+    /// must flow into `instantiate_function` to be type-mangled and instantiated.
     fn collections_internal_callee(&self, callee: &str) -> Option<String> {
         let (binding, member) = callee.split_once('.')?;
         if !self.collections_bindings.contains(binding) {
             return None;
         }
-        crate::codegen::registry::is_source_generic_member(&format!("collections.{member}"))
-            .then(|| crate::internal_name::internalize(&format!("__collections_{member}")))
+        crate::codegen::registry::rewrite_target(&format!("collections.{member}"), &[])
+            .map(crate::internal_name::internalize)
     }
 
     /// Rewrite a call to an imported overloaded function to the package's mangled

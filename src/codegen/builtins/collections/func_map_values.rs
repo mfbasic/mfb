@@ -160,3 +160,133 @@ impl CodeBuilder<'_> {
         })
     }
 }
+
+// --- source-generic descriptor + body ---
+
+const INTRO: &str = r#"Transform every value of a map, leaving the keys unchanged"#;
+
+const DESC: &str = r#"`collections::mapValues` builds a new `Map OF K TO U` by iterating `value` with
+`FOR EACH` and, for each entry, storing the original `e.key` together with the
+transformed value `f(e.value)`. The keys are copied through untouched, so the
+result has exactly the same key set as `value` and the same number of entries.
+Only the value type changes, from `V` to `U`.
+
+`f` is applied exactly once per entry in `value`. Because entries are written in
+the order `FOR EACH` yields them, the result is built by inserting keys in the
+source map's traversal order. Map traversal order is implementation-defined but
+stable for a given unchanged map value during one program run, so no ordering
+guarantee beyond that should be relied on; see `mfb man types map`.
+
+`value` is not modified — the source map is read, and a separate result map is
+constructed and returned. When `value` is empty, `f` is never called and the
+result is an empty map.
+
+`f` is an ordinary MFBASIC function value invoked with an ordinary call. If `f`
+fails on some entry, its error propagates out of `mapValues` to the caller and
+can be caught by the caller's `TRAP` block; the partially built result map is
+discarded. `mapValues` itself raises no error of its own.
+
+`f` may be a named `FUNC` or a `LAMBDA` expression, since both produce a function
+value of the required type.
+
+`mapValues` is generic over `K` and `V`, the key and value types of the source
+map, and `U`, the value type `f` returns. All three are inferred from the
+argument types. `K` is carried straight through to the result type, so it must
+remain a valid map key type; `U` may be any type, including `V` itself."#;
+
+const EX: &str = r#"Double every value in a map:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC double(n AS Integer) AS Integer
+  RETURN n * 2
+END FUNC
+
+FUNC main AS Integer
+  LET scores AS Map OF String TO Integer = Map OF String TO Integer { "a" := 3, "b" := 4 }
+  LET doubled AS Map OF String TO Integer = collections::mapValues(scores, double)
+  io::print(toString(collections::get(doubled, "a")))
+  RETURN 0
+END FUNC
+```
+
+Change the value type, using a lambda and named arguments:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET scores AS Map OF String TO Integer = Map OF String TO Integer { "a" := 3 }
+  LET labels AS Map OF String TO String = collections::mapValues(value := scores, f := LAMBDA(n AS Integer) -> toString(n))
+  io::print(collections::get(labels, "a"))
+  RETURN 0
+END FUNC
+```
+
+The source map is left unchanged:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC double(n AS Integer) AS Integer
+  RETURN n * 2
+END FUNC
+
+FUNC main AS Integer
+  LET scores AS Map OF String TO Integer = Map OF String TO Integer { "a" := 3 }
+  LET doubled AS Map OF String TO Integer = collections::mapValues(scores, double)
+  io::print(toString(collections::get(scores, "a")))
+  RETURN 0
+END FUNC
+```"#;
+
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __collections_mapValues OF K, V, U(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U
+  MUT result AS Map OF K TO U = Map OF K TO U {}
+  FOR EACH e IN value
+    result = collections::set(result, e.key, f(e.value))
+  NEXT
+  RETURN result
+END FUNC"#;
+
+pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
+    use crate::codegen::registry::{
+        Body, DefaultValue, Implementation, Parameter, RegistryFunction,
+    };
+    use crate::types::ParameterType;
+
+    pkg.add_function(RegistryFunction {
+        name: "mapValues",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: Some("Map OF K TO V, FUNC(V) AS U"),
+        internal_only: false,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "value",
+                    desc: "The source map. May be empty. Not modified.",
+                    aliases: &[],
+                    ty: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("V")),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "f",
+                    desc: "Transform applied to each entry's value. Receives only the value; the entry's key is not passed to it. Called once per entry.",
+                    aliases: &[],
+                    ty: ParameterType::func(vec![ParameterType::var("V")], ParameterType::var("U")),
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("U")),
+            errors: vec![],
+            body: Body::mfb_with_fast_path(BODY, "__collections_mapValues", map_values_fast_path),
+        }],
+    });
+}

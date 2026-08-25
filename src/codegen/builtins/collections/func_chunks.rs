@@ -330,3 +330,139 @@ impl CodeBuilder<'_> {
         })
     }
 }
+
+// --- source-generic descriptor + body ---
+
+const INTRO: &str =
+    r#"Split a list into consecutive, non-overlapping blocks of at most `chunkSize` elements"#;
+
+const DESC: &str = r#"`collections::chunks` walks `value` from index 0 in steps of `chunkSize`, and
+for each step emits the range starting there and running `chunkSize` elements
+forward, stopping early at the end of the list. The result is a list of those
+blocks. It is a generic function written in MFBASIC source, rewritten to the
+internal `__collections_chunks` generic and instantiated for the element type
+`T` during monomorphization.
+
+Because the step and the block length are both `chunkSize`, the blocks are
+consecutive and never overlap, and concatenating them reproduces `value`
+exactly. Every block holds exactly `chunkSize` elements except possibly the
+last: when the length of `value` is not a multiple of `chunkSize`, the final
+block holds the remainder, which is between 1 and `chunkSize - 1` elements. No
+padding element is ever inserted.
+
+An empty `value` produces an empty result — the loop never runs, so there is no
+empty leading block. A `value` shorter than `chunkSize` produces exactly one
+block holding the whole list.
+
+`chunkSize` must be at least 1. A `chunkSize` below 1 is rejected at runtime
+with `ErrInvalidArgument`; there is no clamping and no default, so the argument
+is always required.
+
+Each block is built by the internal slice helper, which is lowered natively as a
+bulk range copy, so element payloads are copied into freshly allocated lists and
+no block shares storage with `value`. `value` is not modified.
+
+`T` is inferred from `value` and carries no ordering or comparability
+requirement: `chunks` copies contiguous ranges and never inspects an element, so
+any list element type is accepted. `chunkSize` must be `Integer`. The result
+type is one level more nested than the argument: `List OF List OF T`."#;
+
+const EX: &str = r#"Split five elements into blocks of two, leaving a short final block:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET parts AS List OF List OF Integer = collections::chunks([1, 2, 3, 4, 5], 2)
+  io::print(toString(len(parts)))
+  io::print(toString(len(collections::get(parts, 2))))
+  RETURN 0
+END FUNC
+```
+
+A list shorter than the chunk size yields a single block:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET one AS List OF List OF Integer = collections::chunks([1, 2], 10)
+  io::print(toString(len(one)))
+  RETURN 0
+END FUNC
+```
+
+Reject a non-positive chunk size at runtime:
+
+```
+IMPORT collections
+IMPORT io
+IMPORT errorCode
+
+FUNC main AS Integer
+  LET bad AS List OF List OF Integer = collections::chunks([1, 2, 3], 0) TRAP(e)
+    io::print(toString(e.code = errorCode::ErrInvalidArgument))
+    RECOVER []
+  END TRAP
+  RETURN 0
+END FUNC
+```"#;
+
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __collections_chunks OF T(value AS List OF T, chunkSize AS Integer) AS List OF List OF T
+  IF chunkSize < 1 THEN
+    FAIL error(77050002, "Argument value is not valid for the requested operation.")
+  END IF
+  MUT result AS List OF List OF T = []
+  MUT i AS Integer = 0
+  WHILE i < len(value)
+    MUT stop AS Integer = i + chunkSize
+    IF stop > len(value) THEN
+      stop = len(value)
+    END IF
+    LET piece AS List OF T = __collections_slice(value, i, stop)
+    result = collections::append(result, piece)
+    i = i + chunkSize
+  END WHILE
+  RETURN result
+END FUNC"#;
+
+pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
+    use crate::codegen::registry::{
+        Body, DefaultValue, Implementation, Parameter, RegistryFunction,
+    };
+    use crate::types::ParameterType;
+
+    pkg.add_function(RegistryFunction {
+        name: "chunks",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: Some("List OF T, Integer"),
+        internal_only: false,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "value",
+                    desc: "The list to split. Any length is accepted; the empty list yields an empty result. Named-argument spelling is `value`.",
+                    aliases: &[],
+                    ty: ParameterType::list_of(ParameterType::var("T")),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "chunkSize",
+                    desc: "The block length and the step between blocks. Must be 1 or greater; there is no default. Named-argument spelling is `chunkSize`.",
+                    aliases: &[],
+                    ty: ParameterType::Integer,
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::list_of(ParameterType::list_of(ParameterType::var("T"))),
+            errors: vec!["ErrInvalidArgument"],
+            body: Body::mfb_with_fast_path(BODY, "__collections_chunks", chunks_fast_path),
+        }],
+    });
+}

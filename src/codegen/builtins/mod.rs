@@ -593,9 +593,8 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
     // (bug-213), with no explicit guard needed.
     // Migrated (clean-room registry) packages first; else the old REGISTRY.
     // plan-72-BB: descriptor membership is every package's `is_<pkg>_call`
-    // (`DefaultResolver::contains`). The remaining non-descriptor member surface stays
-    // explicit: `collections`' source-generic functions. (`vector`'s constants are
-    // registry constants, admitted through `is_package_constant`, not as calls.) The
+    // (`DefaultResolver::contains`). (`vector`'s constants are registry constants,
+    // admitted through `is_package_constant`, not as calls.) The
     // `call_return_type_name` tail preserves the pre-existing admission of lowered-only
     // names whose return type is known (e.g. `tls.closeListener`).
     // `general` (the unqualified global builtins) is bare-named, so `is_member` (which
@@ -604,10 +603,6 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
     // this is the membership the legacy `REGISTRY.function(<bare>)` used to carry.
     general::is_general_call(name)
         || crate::codegen::registry::registry().is_member(name)
-        // Migrated packages' injected source-generic members (`collections.sort`, …):
-        // `is_member` covers their registered native members, this their source
-        // generics, together reproducing the old `collections::is_collections_call`.
-        || crate::codegen::registry::is_source_generic_member(name)
         || call_return_type_name(name).is_some()
 }
 

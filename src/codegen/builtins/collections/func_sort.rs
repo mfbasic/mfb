@@ -529,3 +529,172 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(ge_label));
     }
 }
+
+// --- source-generic descriptor + body ---
+
+const INTRO: &str = r#"Return a new list holding the elements of a list in ascending order"#;
+
+const DESC: &str = r#"`collections::sort` returns a new list containing every element of `value`
+arranged in ascending order. It is a generic function written in MFBASIC source:
+a call to `collections::sort` is rewritten to the internal
+`__collections_sort` generic and instantiated for the element type `T` during
+monomorphization.
+
+The algorithm is a bottom-up merge sort with O(n log n) comparisons. Runs of
+width 1 are merged into runs of width 2, then 4, and so on, until a single run
+covers the list. The merge is **stable**: when a left-run element and a
+right-run element compare equal, the left-run element is emitted first, because
+the right-run element is taken only when it is *strictly less than* the left-run
+element. Elements that compare equal therefore keep their original relative
+order.
+
+Ordering is determined entirely by the `<` operator applied to whole elements.
+For the numeric element types that is numeric order; for `String` it is the
+ordering the `<` operator defines on strings; for `Scalar` it is codepoint
+order. There is no descending form, no comparison-function parameter, and no
+locale or case-insensitivity option. To sort by something other than the element
+itself, use `collections::sortBy`, which orders by a computed key.
+
+When `value` has fewer than two elements — that is, when it is empty or holds a
+single element — `sort` returns `value` unchanged without performing any
+comparison.
+
+`value` is not modified. Like every `collections` helper, `sort` produces a new
+list value and leaves its argument intact.
+
+`T` is inferred from the argument. `sort` compares whole elements with `<`, so
+the instantiated element type must be one the `<` operator accepts: `Integer`,
+`Byte`, `Float`, `Fixed`, `Money`, `String`, or `Scalar`. `Money` compares only
+against `Money`, and `Scalar` never orders against `String`.
+
+The constraint is enforced after monomorphization, when the generic body has
+been instantiated for a concrete `T`. Sorting a list whose element type the `<`
+operator does not accept — a `Boolean`, a record, a nested `List`, or a `Map` —
+is a compile-time `TYPE_BINARY_OPERATOR_MISMATCH` error reported against the
+comparison inside the merge, not a runtime failure."#;
+
+const EX: &str = r#"Sort a list of integers:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET ordered AS List OF Integer = collections::sort([3, 1, 2])
+  io::print(toString(collections::get(ordered, 0)))
+  RETURN 0
+END FUNC
+```
+
+Sort strings, and observe that the input is untouched:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET names AS List OF String = ["pear", "apple", "fig"]
+  LET ordered AS List OF String = collections::sort(names)
+  io::print(collections::get(ordered, 0))
+  io::print(collections::get(names, 0))
+  RETURN 0
+END FUNC
+```
+
+A list of fewer than two elements is returned as-is:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET one AS List OF Integer = collections::sort([7])
+  io::print(toString(len(one)))
+  RETURN 0
+END FUNC
+```"#;
+
+#[rustfmt::skip]
+const BODY: &str =
+r#"' Stable bottom-up merge sort — O(n log n). Equal elements keep their original
+' order (a right-run element is taken only when strictly less than the left-run
+' element), matching the previous insertion sort's stability and ascending order.
+FUNC __collections_sort OF T(value AS List OF T) AS List OF T
+  LET n AS Integer = len(value)
+  IF n < 2 THEN
+    RETURN value
+  END IF
+  MUT src AS List OF T = value
+  MUT width AS Integer = 1
+  WHILE width < n
+    MUT dst AS List OF T = src
+    MUT lo AS Integer = 0
+    WHILE lo < n
+      MUT mid AS Integer = lo + width
+      IF mid > n THEN
+        mid = n
+      END IF
+      MUT hi AS Integer = lo + width + width
+      IF hi > n THEN
+        hi = n
+      END IF
+      MUT i AS Integer = lo
+      MUT j AS Integer = mid
+      MUT k AS Integer = lo
+      WHILE i < mid AND j < hi
+        IF collections::get(src, j) < collections::get(src, i) THEN
+          dst = collections::set(dst, k, collections::get(src, j))
+          j = j + 1
+        ELSE
+          dst = collections::set(dst, k, collections::get(src, i))
+          i = i + 1
+        END IF
+        k = k + 1
+      END WHILE
+      WHILE i < mid
+        dst = collections::set(dst, k, collections::get(src, i))
+        i = i + 1
+        k = k + 1
+      END WHILE
+      WHILE j < hi
+        dst = collections::set(dst, k, collections::get(src, j))
+        j = j + 1
+        k = k + 1
+      END WHILE
+      lo = lo + width + width
+    END WHILE
+    src = dst
+    width = width + width
+  END WHILE
+  RETURN src
+END FUNC"#;
+
+pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
+    use crate::codegen::registry::{
+        Body, DefaultValue, Implementation, Parameter, RegistryFunction,
+    };
+    use crate::types::ParameterType;
+
+    pkg.add_function(RegistryFunction {
+        name: "sort",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: Some("List OF T"),
+        internal_only: false,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "value",
+                    desc: "The list to order. Any length is accepted, including the empty list. `T` must be a type the `<` operator accepts. Named-argument spelling is `value`.",
+                    aliases: &[],
+                    ty: ParameterType::list_of(ParameterType::var("T")),
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::list_of(ParameterType::var("T")),
+            errors: vec![],
+            body: Body::mfb_with_fast_path(BODY, "__collections_sort", sort_fast_path),
+        }],
+    });
+}

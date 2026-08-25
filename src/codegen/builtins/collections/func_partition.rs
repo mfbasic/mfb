@@ -214,3 +214,170 @@ impl CodeBuilder<'_> {
         Ok(record)
     }
 }
+
+// --- source-generic descriptor + body ---
+
+const INTRO: &str =
+    r#"Split a list into the elements that satisfy a predicate and those that do not"#;
+
+const DESC: &str = r#"`collections::partition` walks `value` once, from index `0` upward, calling
+`predicate` with each element. Each element is appended to the `matched` list
+when `predicate` returns `TRUE` and to the `unmatched` list otherwise, and the
+two lists are returned together in a single `Partition OF T` record.
+
+Unlike `collections::any` and `collections::all`, `partition` does **not**
+short-circuit: `predicate` is called exactly once for every element of `value`,
+in index order, because every element must be classified.
+
+Order is preserved within each side. Elements keep their original relative order
+inside `matched` and inside `unmatched`; concatenating the two does not in
+general reconstruct `value`, but each side on its own is a subsequence of it.
+Every element lands on exactly one side, so `len(result.matched) +
+len(result.unmatched)` always equals `len(value)`. An empty input yields a
+`Partition` whose two lists are both empty.
+
+The result type `Partition OF T` is an ordinary generic record with two fields,
+`matched` and `unmatched`, both of type `List OF T`. It is constructed and
+field-accessed like any other record — write `result.matched` — and it is
+declared in the compiler-owned prelude injected into every project, so it is in
+scope without an import.
+
+`predicate` is an ordinary function value of type `FUNC(T) AS Boolean` — a named
+`FUNC` or a `LAMBDA`. Because it is called as an ordinary call, an error raised
+inside `predicate` is **not** absorbed by `partition`: it propagates out of the
+`collections::partition` call to the caller, abandoning the partially built
+result. `partition` itself defines no error of its own. Note that a lambda
+passed here may not capture an outer `MUT` binding; the callback position proven
+non-escaping is `collections::forEach`, not `partition`.
+
+`partition` does not mutate `value`; it builds two new lists. It allocates while
+doing so, but allocation failure is not a trappable domain error, and the
+`append` it uses is classified infallible for exactly that reason.
+
+`partition` is a generic implemented in MFBASIC source; a call is rewritten to
+the internal `__collections_partition` generic and instantiated for the element
+type like any other generic function.
+
+`T` is inferred from the element type of `value` and may be any type;
+`partition` imposes no comparability or orderability constraint on `T`, because
+elements are never compared to one another — they are only passed to
+`predicate`. The second argument must be a function value taking exactly one `T`
+and returning `Boolean`. The result binding, when annotated, is written
+`Partition OF T` with the same `T` as the input's element type."#;
+
+const EX: &str = r#"Split integers into positives and the rest:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main AS Integer
+  LET result AS Partition OF Integer = collections::partition([-1, 2, -3, 4], isPos)
+  io::print(toString(len(result.matched)))
+  io::print(toString(len(result.unmatched)))
+  RETURN 0
+END FUNC
+```
+
+Each side keeps its original order:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main AS Integer
+  LET result AS Partition OF Integer = collections::partition([3, -1, 5, -2], isPos)
+  io::print(toString(collections::get(result.matched, 0)))
+  io::print(toString(collections::get(result.matched, 1)))
+  io::print(toString(collections::get(result.unmatched, 0)))
+  RETURN 0
+END FUNC
+```
+
+Named arguments bind by the declared parameter names `value` and `predicate`:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC main AS Integer
+  LET result AS Partition OF Integer = collections::partition(value := [1, -1], predicate := isPos)
+  io::print(toString(len(result.matched)))
+  RETURN 0
+END FUNC
+```"#;
+
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __collections_partition OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Partition OF T
+  ' `predicate` is evaluated once per element through `collections::transform`,
+  ' whose callback loop checks the result tag and PROPAGATES a runtime failure —
+  ' a directly-called `IF predicate(item)` silently swallows it (the same reason
+  ' `sortBy`/`groupBy` build their keys via `transform`). The native
+  ' `lower_collection_partition_call` covers the fixed-width fast path; this body
+  ' serves the String/Scalar/Byte and inline-TRAP cases.
+  LET flags AS List OF Boolean = collections::transform(value, predicate)
+  MUT matched AS List OF T = []
+  MUT unmatched AS List OF T = []
+  MUT i AS Integer = 0
+  WHILE i < len(value)
+    LET item AS T = collections::get(value, i)
+    IF collections::get(flags, i) THEN
+      matched = collections::append(matched, item)
+    ELSE
+      unmatched = collections::append(unmatched, item)
+    END IF
+    i = i + 1
+  END WHILE
+  LET result AS Partition OF T = Partition[matched, unmatched]
+  RETURN result
+END FUNC"#;
+
+pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
+    use crate::codegen::registry::{
+        Body, DefaultValue, Implementation, Parameter, RegistryFunction,
+    };
+    use crate::types::ParameterType;
+
+    pkg.add_function(RegistryFunction {
+        name: "partition",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: Some("List OF T, FUNC(T) AS Boolean"),
+        internal_only: false,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "value",
+                    desc: "The list to split, visited in index order from `0`. An empty list is accepted and yields two empty lists. Not modified.",
+                    aliases: &[],
+                    ty: ParameterType::list_of(ParameterType::var("T")),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "predicate",
+                    desc: "Classifier applied to every element exactly once. `TRUE` sends the element to `matched`, `FALSE` to `unmatched`. An error it raises propagates to the caller.",
+                    aliases: &[],
+                    ty: ParameterType::func(vec![ParameterType::var("T")], ParameterType::Boolean),
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::user_of("Partition", vec![ParameterType::var("T")]),
+            errors: vec![],
+            body: Body::mfb_with_fast_path(BODY, "__collections_partition", partition_fast_path),
+        }],
+    });
+}

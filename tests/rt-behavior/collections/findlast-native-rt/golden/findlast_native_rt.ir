@@ -62,58 +62,58 @@
   },
   {
     "name": "#collections_findLastIndex$String",
-    "line": 206,
+    "line": 182,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 206, "type": "List OF String", "default": null },
-    { "name": "predicate", "line": 206, "type": "FUNC(String) AS Boolean", "default": null },
-    { "name": "endIndex", "line": 206, "type": "Integer", "default": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+    { "name": "value", "line": 182, "type": "List OF String", "default": null },
+    { "name": "predicate", "line": 182, "type": "FUNC(String) AS Boolean", "default": null },
+    { "name": "endIndex", "line": 182, "type": "Integer", "default": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 207, "mutable": true, "name": "e", "type": "Integer", "value": { "kind": "local", "name": "endIndex" } },
+    { "op": "bind", "line": 183, "mutable": true, "name": "e", "type": "Integer", "value": { "kind": "local", "name": "endIndex" } },
     {
       "op": "if",
-      "line": 208,
+      "line": 184,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "e" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "assign", "line": 209, "name": "e", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] }, "right": { "kind": "local", "name": "e" } } }
+      { "op": "assign", "line": 185, "name": "e", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] }, "right": { "kind": "local", "name": "e" } } }
       ],
       "else": [
       ]
     },
     {
       "op": "if",
-      "line": 211,
+      "line": 187,
       "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "e" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "e" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } } },
       "then": [
-      { "op": "fail", "line": 212, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050001" }, { "kind": "const", "type": "String", "value": "List or string index/range is outside valid bounds." }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "212" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 188, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050001" }, { "kind": "const", "type": "String", "value": "List or string index/range is outside valid bounds." }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "188" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "line": 214, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "e" } },
+    { "op": "bind", "line": 190, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "e" } },
     {
       "op": "while",
-      "line": 215,
+      "line": 191,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "body": [
       {
         "op": "if",
-        "line": 216,
+        "line": 192,
         "condition": { "kind": "call", "type": "Boolean", "target": "predicate", "args": [{ "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] },
         "then": [
-        { "op": "return", "line": 217, "value": { "kind": "local", "name": "i" } }
+        { "op": "return", "line": 193, "value": { "kind": "local", "name": "i" } }
         ],
         "else": [
         ]
       },
-      { "op": "assign", "line": 219, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 195, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "fail", "line": 221, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "const", "type": "String", "value": "Requested item, key, file, or resource was not found." }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "221" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    { "op": "fail", "line": 197, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "const", "type": "String", "value": "Requested item, key, file, or resource was not found." }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "197" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
     ]
   }
   ]

@@ -1158,8 +1158,7 @@ mod tests {
         assert!(
             undeclared.is_empty(),
             "raise_error sites naming errors their descriptor does not declare \
-             (add the error to the member's descriptor `errors`, or for a \
-             source-generic member to its package's `add_source_generic_errors`):\n{}",
+             (add the error to the member's descriptor `errors`):\n{}",
             undeclared.join("\n")
         );
     }

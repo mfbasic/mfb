@@ -1,7 +1,6 @@
 // --- codegen tier imports (migration) ---
 use crate::ast::AstProject;
 use crate::codegen::registry::{Registry, RegistryPackage};
-use std::path::Path;
 mod func_add;
 mod func_all;
 mod func_any;
@@ -68,49 +67,23 @@ mod gen_mutate;
 mod gen_set;
 mod gen_slice;
 
+mod helper_slice;
+
 /// Path of the compiler-owned `collections` package source injected into every
 /// project that imports it. This is the `AstFile.path` (see `augmented_project`), so
 /// `AstProject::to_json` can filter it out of `-ast` output.
 pub(crate) const SOURCE_PATH: &str = "builtins/collections.mfb";
 
-/// The public `collections::` function names (without the `collections.`
-/// qualifier). The implementations live in `package.mfb` as generic
-/// `__collections_<name>` functions; a user call `collections::sort(...)` is
-/// rewritten to `__collections_sort(...)` during monomorphization so the generic
-/// machinery instantiates it like any other generic function.
+// The source-generic public members (`sort`, `sortBy`, …, the set algebra) are
+// registered `RegistryFunction`s like every other member — see the `func_*.rs`
+// registrations below; each carries its generic `__collections_<name>` body as
+// `Body::Mfb`, rewritten and instantiated during monomorphization.
+//
 // `toMap`, `zipWith`, and `filterEntries` from §6.4 are not yet exported: they
 // depend on runtime capabilities MFBASIC does not have today — storing the
 // compiler-owned `MapEntry` record inside a `List` (toMap/filterEntries) and
 // applying a two-argument function value element-wise (zipWith). They are
 // deferred until that infrastructure lands; see plan-01-functions.md §6.4.
-const FUNCTIONS: &[&str] = &[
-    "sort",
-    "sortBy",
-    "take",
-    "drop",
-    "any",
-    "all",
-    "findIndex",
-    "findLastIndex",
-    "groupBy",
-    "mapValues",
-    "flatten",
-    "zip",
-    "chunks",
-    "window",
-    "distinct",
-    "merge",
-    "partition",
-    // Set algebra (plan-63-C): source generics over B's native Set members.
-    "toSet",
-    "union",
-    "intersection",
-    "difference",
-    "symmetricDifference",
-    "isSubset",
-    "isSuperset",
-    "isDisjoint",
-];
 
 /// One-line package intro (was `BuiltinModule::doc_intro`).
 const INTRO: &str = "Sequence and map helper functions";
@@ -150,46 +123,64 @@ unmatched elements. See `mfb man types pair` and `mfb man types partition`.
 The List-only overloads of `find`, `mid`, and `replace` live here; their String
 overloads live in `strings::`."#;
 
-/// Register the `collections` package on the clean-room registry. Only the NATIVE
-/// members are registered here (the source-generic members — `sort`, `zip`, … —
-/// keep their manifest-injected MFBASIC bodies and are resolved by the
-/// monomorphizer, so they are deliberately absent). No records/unions/helpers are
-/// added and no `Body::Mfb` member is registered, so `get_mfb()` is empty and
-/// `registry().augment_project` does NOT inject `collections` — it stays injected
-/// through [`augmented_project`].
+/// Register the `collections` package on the clean-room registry. Every public
+/// member is a registered function: the NATIVE members lower at the call site
+/// (`Body::abi_inline`), and the source-generic members (`sort`, `zip`, …) carry
+/// their generic MFBASIC bodies as `Body::Mfb` — rendered into the assembled
+/// source by `get_mfb` and instantiated by the monomorphizer. The generic
+/// `registry().augment_project` deliberately SKIPS `collections` (see
+/// `synthetic_files`): the source must be present at parse time — before
+/// monomorphization instantiates the generics — so it is injected by the
+/// [`augmented_project`] pass `parse_project` runs.
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("collections", INTRO, COLLECTIONS_DESC);
 
-    // The source-generic members (`sort`, `partition`, …) are not registered as
-    // `RegistryFunction`s (they are monomorphized from `package.mfb`), but their
-    // names are recorded as registry data so the shared pipeline recognizes a call
-    // like `collections.sort` as a builtin member without a per-package branch.
-    pkg.add_source_generics(FUNCTIONS);
-    // findLastIndex's native fast path raises the same errors its package.mfb body
-    // does (77050001 / 77050004); declared here because a source-generic member has
-    // no RegistryFunction to carry them.
-    pkg.add_source_generic_errors(&[("findLastIndex", &["ErrIndexOutOfRange", "ErrNotFound"])]);
+    // The injected source's single IMPORT line: the bodies qualify their native
+    // member calls (`collections::get`/`set`/`append`/…), so the file imports the
+    // package itself. `len(...)` stays a global builtin; the internal
+    // `__collections_slice` helper is a plain top-level function called
+    // unqualified (plan-01-functions.md §5).
+    pkg.add_imports(vec!["collections"]);
 
-    // The native HOF fast paths for the source-generic members. Recorded as registry
-    // data (they cannot ride a `Body::Mfb` — source generics are not registered
-    // functions) so the generic `registry::mfb_fast_path` answers a
-    // `#collections_<member>$…` monomorph target without a per-package table.
-    pkg.add_source_generic_fast_paths(&[
-        ("sort", func_sort::sort_fast_path),
-        ("sortBy", func_sort_by::sort_by_fast_path),
-        ("mapValues", func_map_values::map_values_fast_path),
-        ("groupBy", func_group_by::group_by_fast_path),
-        ("chunks", func_chunks::chunks_fast_path),
-        ("window", func_window::window_fast_path),
-        ("merge", func_merge::merge_fast_path),
-        ("partition", func_partition::partition_fast_path),
-        ("flatten", func_flatten::flatten_fast_path),
-        (
-            "findLastIndex",
-            func_find_last_index::find_last_index_fast_path,
-        ),
-        ("zip", func_zip::zip_fast_path),
-    ]);
+    // The private `__collections_slice` helper the take/drop/chunks/window bodies
+    // call (`add_helper` — helper_* files are for PRIVATE helpers only; it renders
+    // in the helper section of the assembled source, before the member bodies).
+    helper_slice::register(&mut pkg);
+
+    // The source-generic PUBLIC members (plan-01-functions.md §6.4): each is a
+    // registered `RegistryFunction` in its `func_*.rs` (the csv/json shape) whose
+    // `Body::Mfb` carries the generic `__collections_*` MFBASIC body — rendered
+    // into the assembled source in this order and instantiated by the
+    // monomorphizer per call site (rewritten in `monomorph::lower`, not IR lower).
+    func_sort::register(&mut pkg);
+    func_sort_by::register(&mut pkg);
+    func_take::register(&mut pkg);
+    func_drop::register(&mut pkg);
+    func_any::register(&mut pkg);
+    func_all::register(&mut pkg);
+    func_find_index::register(&mut pkg);
+    func_find_last_index::register(&mut pkg);
+    func_group_by::register(&mut pkg);
+    func_map_values::register(&mut pkg);
+    func_flatten::register(&mut pkg);
+    func_zip::register(&mut pkg);
+    func_chunks::register(&mut pkg);
+    func_window::register(&mut pkg);
+    func_distinct::register(&mut pkg);
+    func_merge::register(&mut pkg);
+    func_partition::register(&mut pkg);
+    // Set algebra (plan-63-C): eight source generics over B's native Set
+    // primitives (`add`/`contains`/`toList`/`FOR EACH`). Pure: each returns a new
+    // value and mutates no argument. Instantiated only for comparable `T`, since
+    // `Set OF T` already requires it.
+    func_to_set::register(&mut pkg);
+    func_union::register(&mut pkg);
+    func_intersection::register(&mut pkg);
+    func_difference::register(&mut pkg);
+    func_symmetric_difference::register(&mut pkg);
+    func_is_subset::register(&mut pkg);
+    func_is_superset::register(&mut pkg);
+    func_is_disjoint::register(&mut pkg);
 
     func_get::register(&mut pkg);
     func_get_or::register(&mut pkg);
@@ -223,36 +214,24 @@ pub(crate) fn register(r: &mut Registry) {
 /// it. The source is appended last (so the monomorphizer's first-file emission
 /// target is unchanged) and is filtered out of `-ast` output by its sentinel
 /// path. Call rewriting (`collections.sort` -> `__collections_sort`) happens in
-/// the monomorphizer. `package.mfb` is self-contained (all source-generic bodies
-/// inlined at their original marker positions), so it is parsed directly.
+/// the monomorphizer.
 ///
-/// `collections` is injected by this dedicated late pass (not the generic
-/// `registry::augment_project`) because its members are source generics with no
-/// modeled registry bodies (`get_mfb` is empty), so the migration keeps this hook.
-/// #[deprecated(note = "migrate registry().augment_project once source generics are modeled")]
+/// The injected source is the generic [`RegistryPackage::get_mfb`] assembly
+/// (imports → the `helper_*.rs` generic bodies), identical to what the generic
+/// `registry::augment_project` would produce; only the injection *position* is
+/// bespoke — `parse_project` runs this pass at parse time because the
+/// monomorphizer must see the generic bodies to instantiate them, long before the
+/// ir-lower augmentation chain. The generic pass therefore skips `collections`
+/// (see `Registry::augment_project`), which also prevents a double injection.
 pub(crate) fn augmented_project(ast: AstProject) -> Result<AstProject, ()> {
-    let imported = ast.files.iter().any(|file| {
-        file.imports
-            .iter()
-            .any(|i| i.package_name() == "collections")
-    });
-    if !imported {
-        return Ok(ast);
-    }
-    let file = crate::ast::parse_source_internal(
-        Path::new(SOURCE_PATH),
-        SOURCE_PATH,
-        include_str!("package.mfb"),
-    )?;
-    let mut augmented = ast;
-    augmented.files.push(file);
-    Ok(augmented)
+    crate::codegen::registry::inject_late_pass(&ast, "collections", SOURCE_PATH, SOURCE_PATH)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::codegen::registry::{self, registry};
+    use std::path::Path;
 
     fn strings(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
@@ -267,22 +246,15 @@ mod tests {
         }
     }
 
-    // The `is_collections_call` / `is_source_generic_member` shape, exercised through
-    // the generic registry accessors the pipeline now routes through.
+    // The old `is_collections_call` shape: every member — native and source-generic
+    // — is a registered function now, so `owning_package` alone answers it.
     fn is_collections_call(name: &str) -> bool {
         registry().owning_package(name) == Some("collections")
-            || registry::is_source_generic_member(name)
     }
 
     #[test]
     fn function_and_native_membership() {
-        // Source generics answer through `is_source_generic_member`; native members
-        // through `owning_package` (they are the registered functions).
-        assert!(registry::is_source_generic_member("collections.sort"));
-        assert!(registry::is_source_generic_member("collections.partition"));
-        assert!(!registry::is_source_generic_member("collections.get"));
-        assert!(!registry::is_source_generic_member("collections.nope"));
-
+        // Native members AND source-generic members are registered functions.
         assert_eq!(
             registry().owning_package("collections.get"),
             Some("collections")
@@ -291,7 +263,14 @@ mod tests {
             registry().owning_package("collections.replace"),
             Some("collections")
         );
-        assert!(registry().owning_package("collections.sort").is_none());
+        assert_eq!(
+            registry().owning_package("collections.sort"),
+            Some("collections")
+        );
+        assert_eq!(
+            registry().owning_package("collections.partition"),
+            Some("collections")
+        );
         assert!(registry().owning_package("collections.nope").is_none());
     }
 
@@ -306,13 +285,13 @@ mod tests {
 
     #[test]
     fn native_member_call_and_bare() {
-        // `is_native_member_call` -> `owning_package == Some("collections")`;
-        // the bare-name dequalification -> `crate::codegen::builtins::native_builtin_target`.
+        // The bare-name dequalification (`native_builtin_target`) covers only the
+        // `Body::AbiInline` native members: a `Body::Mfb` source generic (`sort`)
+        // is registered but does NOT dequalify to a bare native name.
         assert_eq!(
             registry().owning_package("collections.get"),
             Some("collections")
         );
-        assert!(registry().owning_package("collections.sort").is_none());
         assert!(registry().owning_package("get").is_none());
         assert_eq!(
             crate::codegen::builtins::native_builtin_target("collections.get"),
@@ -327,9 +306,8 @@ mod tests {
 
     #[test]
     fn call_param_names_all_members() {
-        // Every native member's keyword table is served by the generic registry
-        // union of its overloads' parameters. The registered functions ARE the native
-        // members (source generics are injected source, not registered).
+        // Every member's keyword table — native and source-generic alike — is
+        // served by the generic registry union of its overloads' parameters.
         let pkg = registry().resolve_package("collections").unwrap();
         for function in pkg.functions() {
             let name = format!("collections.{}", function.name);
@@ -339,7 +317,10 @@ mod tests {
                 function.name
             );
         }
-        assert!(registry::call_param_names("collections.sort").is_none());
+        assert_eq!(
+            registry::call_param_names("collections.sort"),
+            Some(vec![vec!["value"]])
+        );
         assert!(registry::call_param_names("get").is_none());
         // A concrete union: `get`'s List and Map overloads agree on position 0.
         assert_eq!(
@@ -350,7 +331,7 @@ mod tests {
 
     #[test]
     fn expected_arguments_all_members() {
-        // Every native member carries a bespoke `"or"`/generic phrasing on its
+        // Every member carries a bespoke `"or"`/generic phrasing on its
         // descriptor, served by the generic `registry::expected_arguments`.
         let pkg = registry().resolve_package("collections").unwrap();
         for function in pkg.functions() {
@@ -361,7 +342,10 @@ mod tests {
                 function.name
             );
         }
-        assert!(registry::expected_arguments("collections.sort").is_none());
+        assert_eq!(
+            registry::expected_arguments("collections.sort"),
+            Some("List OF T")
+        );
         assert_eq!(
             registry::expected_arguments("collections.get"),
             Some("List OF T, Integer or Map OF K TO V, K")
@@ -388,13 +372,16 @@ mod tests {
     }
 
     #[test]
-    fn source_file_parses() {
-        assert!(crate::ast::parse_source_internal(
-            Path::new(SOURCE_PATH),
-            SOURCE_PATH,
-            include_str!("package.mfb")
-        )
-        .is_ok());
+    fn reassembled_source_parses() {
+        let source = registry()
+            .resolve_package("collections")
+            .expect("collections")
+            .get_mfb();
+        assert!(source.contains("FUNC __collections_sort OF T"));
+        assert!(source.contains("FUNC __collections_isDisjoint OF T"));
+        assert!(
+            crate::ast::parse_source_internal(Path::new(SOURCE_PATH), SOURCE_PATH, &source).is_ok()
+        );
     }
 
     #[test]
@@ -417,11 +404,36 @@ mod tests {
         let pkg = registry()
             .resolve_package("collections")
             .expect("collections package");
-        // Exactly the 24 native members (source generics are not registered here).
-        assert_eq!(pkg.functions().len(), 24);
+        // The 24 native members + the 25 source-generic `Body::Mfb` members.
+        assert_eq!(pkg.functions().len(), 49);
         assert!(registry().is_member("collections.get"));
-        assert!(!registry().is_member("collections.sort")); // source generic
+        assert!(registry().is_member("collections.sort")); // source generic, registered
         assert!(!registry().is_member("collections.nope"));
+        // A source-generic member rewrites to its generic body's internal name
+        // (the monomorph rewrite source of truth), resolves a generic call, and
+        // carries its arity.
+        assert_eq!(
+            registry::rewrite_target("collections.sort", &strings(&["List OF Integer"])),
+            Some("__collections_sort")
+        );
+        assert_eq!(registry().arity("collections.sort"), Some((1, 1)));
+        assert_eq!(registry().arity("collections.findIndex"), Some((2, 3)));
+        assert_eq!(
+            registry::resolve_call(
+                "collections.union",
+                &strings(&["Set OF Integer", "Set OF Integer"]),
+                true
+            ),
+            Some("Set OF Integer".to_string())
+        );
+        assert_eq!(
+            registry::resolve_call(
+                "collections.zip",
+                &strings(&["List OF Integer", "List OF String"]),
+                true
+            ),
+            Some("List OF Pair OF Integer, String".to_string())
+        );
     }
 
     fn rt(name: &str, args: &[&str]) -> Option<String> {

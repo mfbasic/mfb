@@ -460,3 +460,175 @@ impl CodeBuilder<'_> {
         })
     }
 }
+
+// --- source-generic descriptor + body ---
+
+const INTRO: &str = r#"Group the items of a list into a map of lists keyed by a projection"#;
+
+const DESC: &str = r#"`collections::groupBy` builds a `Map OF K TO List OF V` from `value`. It first
+projects the whole list twice: `keyFn` over every item to produce the group key,
+and `valFn` over every item to produce the value stored in that group's bucket.
+Both projections run over the entire list up front, via `collections::transform`,
+before any bucket is written. It then walks the two projected lists in parallel
+in list order, appending each projected value to the bucket for its key, creating
+the bucket on first use.
+
+Because the walk proceeds in list order and each value is appended to the end of
+its bucket, the items inside a bucket appear in the same relative order they had
+in `value`. `groupBy` never merges, reorders, or deduplicates within a bucket:
+two items that produce equal keys *and* equal values both appear.
+
+`groupBy` takes three arguments. There is no single-argument-projection form that
+groups items by a key and stores the original items — pass an identity `FUNC` as
+`valFn` to get that behavior. Calling it with two arguments is a compile-time
+error, because the compiler cannot infer the template argument `V` (it appears
+only in the return type).
+
+`value` is not modified; the result is a newly built map. The key type `K` must
+be a usable map key type, since the result is a `Map OF K TO List OF V`.
+
+`keyFn` and `valFn` are ordinary MFBASIC function values and are called with
+ordinary calls. If either callback fails, its error propagates out of `groupBy`
+to the caller and can be caught by the caller's `TRAP` block; the partially built
+map is discarded. `groupBy` itself raises no error of its own.
+
+Either callback may be a named `FUNC` or a `LAMBDA` expression, since both
+produce a function value of the required type.
+
+`groupBy` is generic over three template parameters: `T`, the element type of
+`value`; `K`, the key type returned by `keyFn`; and `V`, the value type returned
+by `valFn`. All three are inferred from the argument types, so every one of them
+must be determined by an argument — `V` cannot be supplied from the annotation on
+the binding that receives the result. `K` must be a valid map key type."#;
+
+const EX: &str = r#"Group numbers by parity, keeping the numbers themselves:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC parity(n AS Integer) AS Integer
+  RETURN n MOD 2
+END FUNC
+
+FUNC identity(n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  LET nums AS List OF Integer = [1, 2, 3, 4]
+  LET groups AS Map OF Integer TO List OF Integer = collections::groupBy(nums, parity, identity)
+  io::print(toString(len(collections::get(groups, 0))))
+  RETURN 0
+END FUNC
+```
+
+The same grouping written with lambdas and named arguments:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET nums AS List OF Integer = [1, 2, 3, 4]
+  LET groups AS Map OF Integer TO List OF Integer = collections::groupBy(value := nums, keyFn := LAMBDA(n AS Integer) -> n MOD 2, valFn := LAMBDA(n AS Integer) -> n)
+  io::print(toString(len(collections::keys(groups))))
+  RETURN 0
+END FUNC
+```
+
+A failing projection propagates its error to the caller's `TRAP`:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC strictKey(n AS Integer) AS Integer
+  IF n < 0 THEN
+    FAIL error(77050002, "negative item")
+  END IF
+  RETURN n MOD 2
+END FUNC
+
+FUNC identity(n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  LET groups AS Map OF Integer TO List OF Integer = collections::groupBy([1, -2, 3], strictKey, identity)
+  io::print(toString(len(collections::keys(groups))))
+  RETURN 0
+  TRAP(err)
+    io::print("failed: " & toString(err.code))
+    RETURN 1
+  END TRAP
+END FUNC
+```"#;
+
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __collections_groupBy OF T, K, V(value AS List OF T, keyFn AS FUNC(T) AS K, valFn AS FUNC(T) AS V) AS Map OF K TO List OF V
+  LET keys AS List OF K = collections::transform(value, keyFn)
+  LET vals AS List OF V = collections::transform(value, valFn)
+  MUT result AS Map OF K TO List OF V = Map OF K TO List OF V {}
+  MUT i AS Integer = 0
+  WHILE i < len(keys)
+    LET k AS K = collections::get(keys, i)
+    LET v AS V = collections::get(vals, i)
+    IF collections::hasKey(result, k) THEN
+      MUT bucket AS List OF V = collections::get(result, k)
+      bucket = collections::append(bucket, v)
+      result = collections::set(result, k, bucket)
+    ELSE
+      MUT bucket AS List OF V = []
+      bucket = collections::append(bucket, v)
+      result = collections::set(result, k, bucket)
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN result
+END FUNC"#;
+
+pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
+    use crate::codegen::registry::{
+        Body, DefaultValue, Implementation, Parameter, RegistryFunction,
+    };
+    use crate::types::ParameterType;
+
+    pkg.add_function(RegistryFunction {
+        name: "groupBy",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: Some("List OF T, FUNC(T) AS K, FUNC(T) AS V"),
+        internal_only: false,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "value",
+                    desc: "The list to group. May be empty, in which case the result is an empty map. Not modified.",
+                    aliases: &[],
+                    ty: ParameterType::list_of(ParameterType::var("T")),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "keyFn",
+                    desc: "Projection producing the group key for an item. Applied to every item of `value`, including items whose key already exists.",
+                    aliases: &[],
+                    ty: ParameterType::func(vec![ParameterType::var("T")], ParameterType::var("K")),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "valFn",
+                    desc: "Projection producing the value stored in the group's bucket for an item. Applied to every item of `value`.",
+                    aliases: &[],
+                    ty: ParameterType::func(vec![ParameterType::var("T")], ParameterType::var("V")),
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::map_of(ParameterType::var("K"), ParameterType::list_of(ParameterType::var("V"))),
+            errors: vec![],
+            body: Body::mfb_with_fast_path(BODY, "__collections_groupBy", group_by_fast_path),
+        }],
+    });
+}

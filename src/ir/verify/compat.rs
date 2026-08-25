@@ -247,13 +247,11 @@ impl TypeEnv {
         }
         // `collections`/`general` builtins: per-name arity, then arg-typed
         // overload resolution (syntaxcheck's check_general_builtin_call arms).
-        // `collections`'s registered native members (`get`, …) plus its injected
-        // source generics (`sort`, …) — the exact set the old
-        // `collections::is_collections_call` matched, scoped to collections so the
-        // other migrated packages (csv/json/…) still fall through as before.
-        if crate::codegen::registry::registry().owning_package(target) == Some("collections")
-            || crate::codegen::registry::is_source_generic_member(target)
-        {
+        // Every collections member is a registered function now — the native members
+        // (`get`, …) and the source generics (`sort`, …, `Body::Mfb` descriptors) —
+        // scoped to collections so the other migrated packages (csv/json/…) still
+        // fall through as before.
+        if crate::codegen::registry::registry().owning_package(target) == Some("collections") {
             if let Some((min, max)) = builtins::arity(target) {
                 if self.builtin_arity_errored(target, arg_types.len(), min, max) {
                     return;

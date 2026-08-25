@@ -821,14 +821,6 @@ pub(crate) struct RegistryPackage {
     /// own synthetic files by [`Registry::augment_project`].
     helpers: Vec<RegistryHelper>,
     functions: Vec<RegistryFunction>,
-    /// Public member names implemented purely as injected MFBASIC **source
-    /// generics** — instantiated by the monomorphizer from the package's
-    /// `package.mfb`, not registered as [`RegistryFunction`]s (they carry no fixed
-    /// signature the registry can model, so [`function`](Self::function) does not see
-    /// them). Recorded here as data so the shared pipeline can recognize a call like
-    /// `collections.sort` as a builtin member ([`is_source_generic_member`]) without a
-    /// per-package branch.
-    source_generics: Vec<&'static str>,
     /// Value-type names (`EXPORT TYPE`/`ENUM`) a package declares **only** in its
     /// injected companion source (`package.mfb`) rather than as a modeled
     /// [`RegistryRecord`]/[`RegistryEnum`] — `datetime`'s `Instant`/`Date`/…/`ZoneKind`,
@@ -838,19 +830,6 @@ pub(crate) struct RegistryPackage {
     /// a per-package predicate; they are NOT rendered (the companion already declares
     /// them).
     source_types: Vec<&'static str>,
-    /// Native HOF **fast paths** for the package's [`source_generics`](Self::source_generics),
-    /// keyed by bare member name (`"sort"` -> `sort_fast_path`). Source-generic members
-    /// are not registered [`RegistryFunction`]s (see `source_generics`), so their fast
-    /// paths cannot ride on a [`Body::Mfb`]; they are recorded here so the generic
-    /// [`mfb_fast_path`] can answer a `#<pkg>_<member>$…` monomorph target without a
-    /// per-package table.
-    source_generic_fast_paths: Vec<(&'static str, MfbFastPath)>,
-    /// Errors a source-generic member's **native fast path** raises (member name →
-    /// error names). A source-generic member has no [`RegistryFunction`] (its surface
-    /// is the injected `package.mfb` body), so a fast path's `raise_error` validation
-    /// needs this table to find the declared set — which must mirror the source
-    /// body's own `FAIL error(...)` codes.
-    source_generic_errors: Vec<(&'static str, &'static [&'static str])>,
     /// Compile-time package constants (scalar folds + record-constructor inlines) the
     /// package owns — the registry home of the `math`/`errorcode`/`vector` constant
     /// hand tables. Queried by the [`is_package_constant`] / [`constant_type_name`] /
@@ -888,10 +867,7 @@ impl RegistryPackage {
             resources: Vec::new(),
             helpers: Vec::new(),
             functions: Vec::new(),
-            source_generics: Vec::new(),
             source_types: Vec::new(),
-            source_generic_fast_paths: Vec::new(),
-            source_generic_errors: Vec::new(),
             constants: Vec::new(),
             overrides: Vec::new(),
             unqualified_global: false,
@@ -973,13 +949,6 @@ impl RegistryPackage {
             .filter(|h| matches!(h.gate, HelperGate::Always))
             .filter_map(|h| h.body)
             .collect()
-    }
-
-    /// The package's source-generic member names (see [`source_generics`](Self::source_generics)).
-    // Descriptor accessor kept for symmetry with `source_types`; no consumer yet.
-    #[allow(dead_code)]
-    pub(crate) fn source_generics(&self) -> &[&'static str] {
-        &self.source_generics
     }
 
     /// The package's source-declared value-type names (see [`source_types`](Self::source_types)).
@@ -1098,40 +1067,12 @@ impl RegistryPackage {
         self
     }
 
-    /// Record the package's injected **source-generic** member names (see the
-    /// [`source_generics`](Self::source_generics) field). Additive; the names carry no
-    /// registry signature and are recognized only by [`is_source_generic_member`].
-    pub(crate) fn add_source_generics(&mut self, names: &[&'static str]) -> &mut Self {
-        self.source_generics.extend_from_slice(names);
-        self
-    }
-
-    /// Declare the errors a source-generic member's native fast path raises (see
-    /// [`source_generic_errors`](Self::source_generic_errors)). Additive.
-    pub(crate) fn add_source_generic_errors(
-        &mut self,
-        errors: &[(&'static str, &'static [&'static str])],
-    ) -> &mut Self {
-        self.source_generic_errors.extend_from_slice(errors);
-        self
-    }
-
     /// Record the package's **source-declared value-type** names (see the
     /// [`source_types`](Self::source_types) field). Additive; the names are semantic-only
     /// (recognized by [`is_builtin_type`] / [`qualified_builtin_type`]) and are NOT
     /// rendered by [`get_mfb`](Self::get_mfb) — the companion source already declares them.
     pub(crate) fn add_source_types(&mut self, names: &[&'static str]) -> &mut Self {
         self.source_types.extend_from_slice(names);
-        self
-    }
-
-    /// Record native HOF **fast paths** for the package's source-generic members (see
-    /// the [`source_generic_fast_paths`](Self::source_generic_fast_paths) field). Additive.
-    pub(crate) fn add_source_generic_fast_paths(
-        &mut self,
-        fast_paths: &[(&'static str, MfbFastPath)],
-    ) -> &mut Self {
-        self.source_generic_fast_paths.extend_from_slice(fast_paths);
         self
     }
 
@@ -1362,6 +1303,15 @@ impl Registry {
             if matches!(package.import_name(), "net" | "http") {
                 continue;
             }
+            // `collections` is injected by its own dedicated pass at PARSE time
+            // (`codegen::builtins::collections::augmented_project`, run by
+            // `parse_project`): its members are source GENERICS the monomorphizer
+            // must see to instantiate, long before this ir-lower-time pass runs.
+            // That pass injects the identical `get_mfb` assembly; skipping it here
+            // prevents a double injection for a program that imports it directly.
+            if package.import_name() == "collections" {
+                continue;
+            }
             if !package.is_imported_by(view) {
                 continue;
             }
@@ -1466,26 +1416,8 @@ impl Registry {
     /// implementations' errors — the half of the `raise_error` "a builtin must declare
     /// the errors it raises" check.
     pub(crate) fn declares_error(&self, qualified: &str, error_name: &str) -> bool {
-        if self
-            .resolve_func(qualified)
+        self.resolve_func(qualified)
             .is_some_and(|resolved| resolved.function.declares_error(error_name))
-        {
-            return true;
-        }
-        // A source-generic member has no `RegistryFunction`; its fast path's raises
-        // are declared in the package's `source_generic_errors` table.
-        let Some((pkg_name, member)) = qualified.split_once('.') else {
-            return false;
-        };
-        self.packages()
-            .iter()
-            .find(|p| p.import_name == pkg_name)
-            .is_some_and(|package| {
-                package
-                    .source_generic_errors
-                    .iter()
-                    .any(|(name, errors)| *name == member && errors.contains(&error_name))
-            })
     }
 
     /// Whether `name` is a value type (`EXPORT TYPE`/`UNION`/`ENUM`) declared by any
@@ -1662,22 +1594,6 @@ fn push_runtime_call(
 /// `pkg.member`, leaked to `'static` — called once behind [`runtime_specs`]'s `OnceLock`.
 fn qualify_runtime_call(pkg: &str, member: &str) -> &'static str {
     Box::leak(format!("{pkg}.{member}").into_boxed_str())
-}
-
-/// Whether `qualified` (`"collections.sort"`) names a migrated package's injected
-/// **source-generic** member — a member implemented as a monomorphized MFBASIC body
-/// rather than a registered [`RegistryFunction`], so [`is_member`] does not see it.
-/// The generic form of the old `collections::is_collections_call`'s source-generic
-/// half; the native-member half is covered by [`is_member`].
-pub(crate) fn is_source_generic_member(qualified: &str) -> bool {
-    let Some((pkg_name, member)) = qualified.split_once('.') else {
-        return false;
-    };
-    registry()
-        .packages()
-        .iter()
-        .find(|p| p.import_name == pkg_name)
-        .is_some_and(|package| package.source_generics.contains(&member))
 }
 
 /// The [`RegistryConstant`] a migrated package declares for `qualified`
@@ -2390,13 +2306,13 @@ pub(crate) fn native_member_declares_error(qualified: &str) -> Option<bool> {
     inline_native.then_some(declares)
 }
 
-/// The native HOF **fast path** for a source-generic monomorph `target`
-/// (`#collections_sort$Integer` → `collections`'s `sort` fast path), or `None` when
-/// no migrated package registered a fast path for that member. The `try_mfb_fast_path`
-/// codegen seam consults this before instantiating the injected `.mfb` body. Generic
-/// replacement for the old per-package `collections::mfb_fast_path`; the fast paths
-/// ride on the package's [`add_source_generic_fast_paths`](RegistryPackage::add_source_generic_fast_paths)
-/// data because source-generic members are not registered [`RegistryFunction`]s.
+/// The native HOF **fast path** for a generic `Body::Mfb` monomorph `target`
+/// (`#collections_sort$Integer` → `collections::sort`'s fast path), or `None` when
+/// the member's implementation carries none. The `try_mfb_fast_path` codegen seam
+/// consults this before instantiating the injected `.mfb` body. The fast path rides
+/// on the member's [`Body::Mfb`] `fast_path` slot
+/// ([`Body::mfb_with_fast_path`]), so the accelerator lives beside the body it
+/// accelerates in the member's `func_*.rs`.
 pub(crate) fn mfb_fast_path(target: &str) -> Option<MfbFastPath> {
     let (pkg_name, rest) = target.strip_prefix('#')?.split_once('_')?;
     let member = rest.split('$').next()?;
@@ -2404,10 +2320,16 @@ pub(crate) fn mfb_fast_path(target: &str) -> Option<MfbFastPath> {
         .packages()
         .iter()
         .find(|p| p.import_name == pkg_name)?
-        .source_generic_fast_paths
+        .function(member)?
+        .implementations
         .iter()
-        .find(|(name, _)| *name == member)
-        .map(|(_, fast_path)| *fast_path)
+        .find_map(|implementation| match &implementation.body {
+            Body::Mfb {
+                fast_path: Some(fast_path),
+                ..
+            } => Some(*fast_path),
+            _ => None,
+        })
 }
 
 /// The bare native-codegen name a migrated call `qualified` dequalifies to for the

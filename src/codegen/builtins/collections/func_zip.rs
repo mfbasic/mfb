@@ -526,3 +526,131 @@ impl CodeBuilder<'_> {
         })
     }
 }
+
+// --- source-generic descriptor + body ---
+
+const INTRO: &str = r#"Pair items from two lists position-wise"#;
+
+const DESC: &str = r#"`collections::zip` combines two lists element by element. It first computes the
+pairing length `n` as the smaller of `len(a)` and `len(b)`, then for each index
+`i` from `0` to `n - 1` builds a `Pair OF A, B` whose `first` field is the item
+of `a` at `i` and whose `second` field is the item of `b` at `i`, appending each
+pair to the result.
+
+Pairing therefore stops at the shorter input: the result length is exactly
+`min(len(a), len(b))`, and the trailing items of the longer list are dropped
+without notice. There is no padding, no filler value, and no error — zipping a
+3-item list with a 1-item list simply yields one pair. When either list is empty,
+the result is empty.
+
+Positional correspondence is preserved: the pair at index `i` of the result
+always holds the items that were at index `i` in both inputs, so the result reads
+in the same order as the inputs.
+
+`Pair OF A, B` is a compiler-owned prelude record template with the two fields
+`first` and `second`. It is always in scope and needs no import, so a program can
+name the result type `List OF Pair OF A, B` and read `p.first` / `p.second`
+directly.
+
+Neither `a` nor `b` is modified; the result is a newly built list. `zip` invokes
+no user callback and raises no error.
+
+`zip` is generic over `A` and `B`, the element types of the two lists. They are
+inferred independently from the two arguments and need not be the same type. The
+result type is the prelude record template `Pair` instantiated as `Pair OF A, B`."#;
+
+const EX: &str = r#"Pair numbers with labels and read both fields:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET pairs AS List OF Pair OF Integer, String = collections::zip([1, 2], ["a", "b"])
+  LET p AS Pair OF Integer, String = collections::get(pairs, 0)
+  io::print(toString(p.first) & p.second)
+  RETURN 0
+END FUNC
+```
+
+The shorter list decides the result length:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET short AS List OF Pair OF Integer, String = collections::zip(a := [1, 2, 3, 4], b := ["x"])
+  io::print(toString(len(short)))
+  RETURN 0
+END FUNC
+```
+
+Walk a zipped list:
+
+```
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  LET pairs AS List OF Pair OF String, Integer = collections::zip(["a", "b"], [10, 20])
+  FOR EACH p IN pairs
+    io::print(p.first & "=" & toString(p.second))
+  NEXT
+  RETURN 0
+END FUNC
+```"#;
+
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __collections_zip OF A, B(a AS List OF A, b AS List OF B) AS List OF Pair OF A, B
+  MUT result AS List OF Pair OF A, B = []
+  MUT n AS Integer = len(a)
+  IF len(b) < n THEN
+    n = len(b)
+  END IF
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET p AS Pair OF A, B = Pair[collections::get(a, i), collections::get(b, i)]
+    result = collections::append(result, p)
+    i = i + 1
+  END WHILE
+  RETURN result
+END FUNC"#;
+
+pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
+    use crate::codegen::registry::{
+        Body, DefaultValue, Implementation, Parameter, RegistryFunction,
+    };
+    use crate::types::ParameterType;
+
+    pkg.add_function(RegistryFunction {
+        name: "zip",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: Some("List OF A, List OF B"),
+        internal_only: false,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "a",
+                    desc: "The list supplying the `first` field of each pair. May be empty. Not modified.",
+                    aliases: &[],
+                    ty: ParameterType::list_of(ParameterType::var("A")),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "b",
+                    desc: "The list supplying the `second` field of each pair. May be empty, and need not be the same length as `a`. Not modified.",
+                    aliases: &[],
+                    ty: ParameterType::list_of(ParameterType::var("B")),
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::list_of(ParameterType::user_of("Pair", vec![ParameterType::var("A"), ParameterType::var("B")])),
+            errors: vec![],
+            body: Body::mfb_with_fast_path(BODY, "__collections_zip", zip_fast_path),
+        }],
+    });
+}
