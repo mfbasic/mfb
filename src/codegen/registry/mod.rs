@@ -1663,6 +1663,18 @@ pub(crate) fn constant_type_name(qualified: &str) -> Option<&'static str> {
     find_constant(qualified).map(|constant| constant.type_name)
 }
 
+/// The typed twin of [`constant_type_name`] (plan-106-A), for the type checker
+/// and IR lowering.
+///
+/// [`RegistryConstant::type_name`] is a `&'static str` *descriptor literal*, so
+/// this is the one place the canonical grammar is applied to it — the callers
+/// then stay typed instead of each classifying the spelling themselves. Storing
+/// a `ParameterType` in the descriptor directly is a const-context change
+/// (interning is not `const`), recorded as a candidate in letter E.
+pub(crate) fn constant_type(qualified: &str) -> Option<ParameterType> {
+    constant_type_name(qualified).map(ParameterType::parse)
+}
+
 /// The literal a migrated **scalar** constant `qualified` folds to, or `None` (a record
 /// constant, or an un-migrated package) — the registry half of
 /// `builtins::package_constant_value`.
@@ -1742,6 +1754,13 @@ pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&
 /// is only known once the arguments are known — so this yields `None` for it, and the
 /// argument-aware [`resolve_call`] is used instead.
 pub(crate) fn call_return_type(qualified: &str) -> Option<Cow<'static, str>> {
+    call_return_type_typed(qualified).map(|return_type| Cow::Owned(return_type.name().into_owned()))
+}
+
+/// The typed twin of [`call_return_type`] (plan-106-A). The descriptor already
+/// holds a [`ParameterType`]; this hands back a clone instead of rendering it,
+/// so the static-nominal return path costs no allocation and crosses no string.
+pub(crate) fn call_return_type_typed(qualified: &str) -> Option<ParameterType> {
     let return_type = &registry()
         .resolve_func(qualified)?
         .function
@@ -1753,7 +1772,7 @@ pub(crate) fn call_return_type(qualified: &str) -> Option<Cow<'static, str>> {
         return None;
     }
 
-    Some(return_type.name())
+    Some(return_type.clone())
 }
 
 /// Whether a concrete leaf type is compatible with a *scalar or nominal* parameter
@@ -2385,6 +2404,17 @@ fn function_has_unary_callback(function: &RegistryFunction) -> bool {
 /// IR lowering consumes THIS to decide per-argument expected types (e.g. union
 /// wrapping), so widening the diagnostic wording never perturbs codegen (bug-443).
 pub(crate) fn argument_types(qualified: &str) -> Option<Vec<String>> {
+    Some(
+        argument_types_typed(qualified)?
+            .into_iter()
+            .map(|ty| ty.name().into_owned())
+            .collect(),
+    )
+}
+
+/// The typed twin of [`argument_types`] (plan-106-A): the descriptor's parameter
+/// types cloned rather than rendered.
+pub(crate) fn argument_types_typed(qualified: &str) -> Option<Vec<ParameterType>> {
     let function = &registry().resolve_func(qualified)?.function;
     if function.implementations.len() > 1 {
         return None;
@@ -2396,12 +2426,7 @@ pub(crate) fn argument_types(qualified: &str) -> Option<Vec<String>> {
     {
         return None;
     }
-    Some(
-        params
-            .iter()
-            .map(|param| param.ty.name().into_owned())
-            .collect(),
-    )
+    Some(params.iter().map(|param| param.ty.clone()).collect())
 }
 
 pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
@@ -2566,7 +2591,7 @@ pub(crate) fn call_param_name_overloads(qualified: &str) -> Option<Vec<Vec<&'sta
 pub(crate) fn default_argument_padding(
     qualified: &str,
     provided: usize,
-) -> Vec<(String, &'static str)> {
+) -> Vec<(ParameterType, &'static str)> {
     let Some(resolved) = registry().resolve_func(qualified) else {
         return Vec::new();
     };
@@ -2578,10 +2603,9 @@ pub(crate) fn default_argument_padding(
         .iter()
         .skip(provided)
         .filter_map(|param| match &param.default {
-            DefaultValue::Fill { type_name, expr } => {
-                let name = type_name.name().into_owned();
-                Some((name, *expr))
-            }
+            // plan-106-A: the descriptor already holds a `ParameterType`; hand it
+            // back rather than rendering it for the caller to re-parse.
+            DefaultValue::Fill { type_name, expr } => Some((type_name.clone(), *expr)),
             _ => None,
         })
         .collect()
@@ -2732,6 +2756,120 @@ fn expr_references(expr: &crate::ast::Expression, names: &[&'static str]) -> boo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// No registered descriptor may declare a [`ParameterType::Named`] whose name
+    /// *spells something with structure*: for every `Named(n)` in the catalog,
+    /// `parse(n)` must be that same `Named`.
+    ///
+    /// The failure this catches is silent. `ParameterType::named("List OF String")`
+    /// is a `Named` whose name merely *spells* a container — a different value from
+    /// `list_of(String)`, but with the identical rendering. Every pre-plan-106
+    /// consumer rendered `.name()` and re-parsed, which normalized it on the way
+    /// through; the typed accessors plan-106-A introduced read the raw variant, and
+    /// `ir::lower` then inferred the element type of `fs::pathJoin([a, b])` as
+    /// `Unknown` rather than `String` (caught by the byte-identity gate on
+    /// `rt-behavior/project/project-fs-createTempFile-package-valid`, its one
+    /// `.ir` golden).
+    ///
+    /// `named` is for a BARE NOMINAL — a record, union, or user type. Anything with
+    /// structure must be built with the matching constructor.
+    ///
+    /// Deliberately scoped to `Named` and not "everything round-trips": a
+    /// [`Var`](ParameterType::Var) and an [`Arg`](ParameterType::Arg) render as a
+    /// bare name and re-parse as `Named` **by design** — `parse` classifies grammar,
+    /// and it cannot know a name is a type variable without the declaring scope.
+    /// Those are sanctioned; a structure-spelling `Named` is not.
+    #[test]
+    fn descriptor_named_types_are_bare_nominals() {
+        fn check(type_: &ParameterType, where_: &str, failures: &mut Vec<String>) {
+            if let ParameterType::Named(symbol) = type_ {
+                let name = symbol.resolve();
+                let reparsed = ParameterType::parse(name);
+                if !matches!(reparsed, ParameterType::Named(_)) {
+                    failures.push(format!(
+                        "{where_}: `{name}` is a bare `Named` but its own spelling parses to \
+                         {reparsed:?} — build it with the matching constructor, not `named`"
+                    ));
+                }
+            }
+            // Recurse so a bad leaf nested in a real container is caught too.
+            match type_ {
+                ParameterType::ListOf(inner)
+                | ParameterType::SetOf(inner)
+                | ParameterType::ResultOf(inner)
+                | ParameterType::Res(inner) => check(inner, where_, failures),
+                ParameterType::MapOf(key, value) | ParameterType::MapEntryOf(key, value) => {
+                    check(key, where_, failures);
+                    check(value, where_, failures);
+                }
+                ParameterType::UserOf(_, args) => {
+                    for arg in args {
+                        check(arg, where_, failures);
+                    }
+                }
+                ParameterType::Func(params, ret, _) => {
+                    for param in params {
+                        check(param, where_, failures);
+                    }
+                    check(ret, where_, failures);
+                }
+                ParameterType::ThreadHandle { msg, res, out, .. } => {
+                    check(msg, where_, failures);
+                    check(res, where_, failures);
+                    check(out, where_, failures);
+                }
+                _ => {}
+            }
+        }
+
+        let mut failures = Vec::new();
+        let mut checked = 0usize;
+        for package in registry().packages() {
+            for function in &package.functions {
+                for (index, implementation) in function.implementations.iter().enumerate() {
+                    for param in &implementation.params {
+                        let where_ = format!(
+                            "{}.{} impl {index} param `{}`",
+                            package.import_name, function.name, param.name
+                        );
+                        check(&param.ty, &where_, &mut failures);
+                        checked += 1;
+                        if let DefaultValue::Fill { type_name, .. } = &param.default {
+                            let where_ = format!("{where_} (Fill default)");
+                            check(type_name, &where_, &mut failures);
+                            checked += 1;
+                        }
+                    }
+                    let where_ = format!(
+                        "{}.{} impl {index} return",
+                        package.import_name, function.name
+                    );
+                    check(&implementation.return_type, &where_, &mut failures);
+                    checked += 1;
+                }
+            }
+            for record in &package.records {
+                for prop in &record.props {
+                    let where_ = format!(
+                        "{}.{} field `{}`",
+                        package.import_name, record.name, prop.name
+                    );
+                    check(&prop.ty, &where_, &mut failures);
+                    checked += 1;
+                }
+            }
+        }
+        assert!(
+            checked > 0,
+            "the registry exposed no descriptor types to check"
+        );
+        assert!(
+            failures.is_empty(),
+            "{} descriptor type(s) are not structurally what they spell:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
 
     // --- test builders (named-literal wrappers with throwaway docs) ---
 

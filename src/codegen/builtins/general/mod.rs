@@ -204,6 +204,31 @@ pub(crate) fn filter_predicate_type(name: &str, element_type: &str) -> Option<St
     (resolved.return_type == "Boolean").then(|| format!("FUNC({element_type}) AS Boolean"))
 }
 
+/// The typed twin of [`filter_predicate_type`] (plan-106-A): the callback type a
+/// bare general builtin adopts when passed as a `filter`/`transform` predicate
+/// over `element_type`, built as a [`Func`](crate::types::ParameterType::Func)
+/// rather than `format!`ed.
+///
+/// The `resolve_call` half still speaks names (`general`'s bespoke resolver is one
+/// of the three the typed registry entry does not cover — plan-104-C), so the
+/// element renders for that lookup only.
+pub(crate) fn filter_predicate_type_typed(
+    name: &str,
+    element_type: &crate::types::ParameterType,
+) -> Option<crate::types::ParameterType> {
+    use crate::types::ParameterType;
+    builtin_function_id(name)?;
+    let arg_types = vec![element_type.name().into_owned()];
+    let resolved = resolve_call(name, &arg_types)?;
+    (resolved.return_type == "Boolean").then(|| {
+        ParameterType::Func(
+            vec![element_type.clone()],
+            Box::new(ParameterType::Boolean),
+            false,
+        )
+    })
+}
+
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         LEN => Some("String, List OF T, Set OF T, or Map OF K TO V"),

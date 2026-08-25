@@ -400,6 +400,67 @@ impl ParameterType {
         Some((head, rest))
     }
 
+    /// Attach a resource's ` STATE <T>` clause, producing exactly what
+    /// [`parse`](Self::parse) produces for the concatenated spelling
+    /// (`"{self} STATE {state}"`) — structurally, with no round trip.
+    ///
+    /// `STATE` is **not** a variant. Outside a thread plane `parse` has no arm for
+    /// it, so `File STATE Cursor` falls through to the nominal tail as one opaque
+    /// [`Named`](Self::Named). Inside a container the clause therefore lands on the
+    /// *element*: `parse("List OF File STATE Cursor")` is
+    /// `ListOf(Named("File STATE Cursor"))`, because the container arm strips its
+    /// prefix and re-parses the whole remainder.
+    ///
+    /// So the fold below recurses into the **last child each shape renders** — the
+    /// one the trailing text abuts — and wraps the leaf it reaches. `parse` is
+    /// left-to-right over `name()`'s output, so "last rendered child" is exactly
+    /// the position the appended clause would be re-read into.
+    ///
+    /// Guarded by `with_state_matches_parse_of_the_concatenated_spelling`, which
+    /// asserts `t.with_state(s) == parse(&format!("{} STATE {}", t.name(),
+    /// s.name()))` over every shape.
+    pub(crate) fn with_state(&self, state: &ParameterType) -> ParameterType {
+        let state_name = state.name();
+        match self {
+            ParameterType::ListOf(element) => ParameterType::list_of(element.with_state(state)),
+            ParameterType::SetOf(element) => ParameterType::set_of(element.with_state(state)),
+            ParameterType::ResultOf(success) => ParameterType::result_of(success.with_state(state)),
+            ParameterType::Res(inner) => ParameterType::Res(Box::new(inner.with_state(state))),
+            ParameterType::MapOf(key, value) => {
+                ParameterType::map_of((**key).clone(), value.with_state(state))
+            }
+            ParameterType::MapEntryOf(key, value) => {
+                ParameterType::map_entry_of((**key).clone(), value.with_state(state))
+            }
+            ParameterType::Func(params, ret, isolated) => {
+                ParameterType::Func(params.clone(), Box::new(ret.with_state(state)), *isolated)
+            }
+            ParameterType::ThreadHandle {
+                worker,
+                msg,
+                res,
+                out,
+            } => ParameterType::ThreadHandle {
+                worker: *worker,
+                msg: msg.clone(),
+                res: res.clone(),
+                out: Box::new(out.with_state(state)),
+            },
+            // A user generic renders its arguments last, comma-joined; the clause
+            // abuts the final one.
+            ParameterType::UserOf(name, args) if !args.is_empty() => {
+                let mut args = args.clone();
+                let last = args.len() - 1;
+                args[last] = args[last].with_state(state);
+                ParameterType::user_of(name.resolve(), args)
+            }
+            // Every leaf — scalar, nominal, `Var`, `Unknown`, `Arg`, an
+            // argument-less user generic — becomes one opaque nominal, which is
+            // what `parse` does with the whole `"<leaf> STATE <T>"` phrase.
+            leaf => ParameterType::named(&format!("{} STATE {state_name}", leaf.name())),
+        }
+    }
+
     /// The parameter type's formatted name.
     pub(crate) fn name(&self) -> Cow<'static, str> {
         match self {
@@ -992,6 +1053,73 @@ mod tests {
                 "File STATE Cursor"
             )))
         );
+    }
+
+    /// plan-106-A: `with_state` must be *exactly* the structural equivalent of
+    /// parsing the concatenated spelling — that identity is what lets `ir::lower`
+    /// build a stateful resource type without a render→parse round trip.
+    #[test]
+    fn with_state_matches_parse_of_the_concatenated_spelling() {
+        let states = [
+            ParameterType::named("Cursor"),
+            ParameterType::Integer,
+            ParameterType::named("pkg.FileInfo"),
+        ];
+        let bases = [
+            // Leaves: nominal, qualified nominal, every scalar shape, and the
+            // non-nominal leaves that must still fold into one opaque `Named`.
+            ParameterType::named("File"),
+            ParameterType::named("fs.File"),
+            ParameterType::Integer,
+            ParameterType::String,
+            ParameterType::Boolean,
+            ParameterType::Nothing,
+            ParameterType::Unknown,
+            ParameterType::var("T"),
+            // Containers: the clause lands on the element / the VALUE half.
+            ParameterType::list_of(ParameterType::named("File")),
+            ParameterType::set_of(ParameterType::named("File")),
+            ParameterType::result_of(ParameterType::named("File")),
+            ParameterType::Res(Box::new(ParameterType::named("File"))),
+            ParameterType::list_of(ParameterType::Res(Box::new(ParameterType::named("File")))),
+            ParameterType::map_of(ParameterType::String, ParameterType::named("File")),
+            ParameterType::map_entry_of(ParameterType::String, ParameterType::named("File")),
+            ParameterType::list_of(ParameterType::list_of(ParameterType::named("File"))),
+            // Func / thread handle / user generic: the return, the `out` plane,
+            // and the final type argument respectively.
+            ParameterType::Func(
+                vec![ParameterType::Integer],
+                Box::new(ParameterType::named("File")),
+                false,
+            ),
+            ParameterType::Func(
+                vec![ParameterType::Integer],
+                Box::new(ParameterType::named("File")),
+                true,
+            ),
+            ParameterType::ThreadHandle {
+                worker: false,
+                msg: Box::new(ParameterType::Integer),
+                res: Box::new(ParameterType::Nothing),
+                out: Box::new(ParameterType::named("File")),
+            },
+            ParameterType::user_of("Pair", vec![ParameterType::Integer, ParameterType::String]),
+        ];
+        let mut checked = 0usize;
+        for base in &bases {
+            for state in &states {
+                let spelling = format!("{} STATE {}", base.name(), state.name());
+                assert_eq!(
+                    base.with_state(state),
+                    ParameterType::parse(&spelling),
+                    "with_state diverged from parse for `{spelling}`"
+                );
+                // …and the result still renders back to that same spelling.
+                assert_eq!(base.with_state(state).name(), spelling);
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, bases.len() * states.len());
     }
 
     #[test]

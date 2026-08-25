@@ -1135,12 +1135,20 @@ mod tests {
         );
         // A Float bound anywhere in a FOR loop promotes the counter type.
         assert_eq!(
-            crate::numeric::promote_loop_numeric_type_name("Integer", "Float", "Integer"),
-            "Float"
+            crate::numeric::typed_promote_loop_numeric_type(
+                &ParameterType::Integer,
+                &ParameterType::Float,
+                &ParameterType::Integer
+            ),
+            ParameterType::Float
         );
         assert_eq!(
-            crate::numeric::promote_loop_numeric_type_name("Integer", "Integer", "Integer"),
-            "Integer"
+            crate::numeric::typed_promote_loop_numeric_type(
+                &ParameterType::Integer,
+                &ParameterType::Integer,
+                &ParameterType::Integer
+            ),
+            ParameterType::Integer
         );
     }
 

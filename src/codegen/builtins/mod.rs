@@ -421,6 +421,30 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<std::borrow::Cow<'stat
     None
 }
 
+/// The typed twin of [`call_return_type_name`] (plan-106-A): the static
+/// (argument-independent) nominal return of a builtin call as a
+/// [`ParameterType`]. Same dispatch, same `None`s — `general`'s six numeric
+/// narrowing conversions map to their scalar variants, `vector` is excluded to
+/// preserve its `None`, and the registry path clones the descriptor's already-
+/// typed return instead of rendering it.
+pub(crate) fn call_return_type(name: &str) -> Option<crate::types::ParameterType> {
+    use crate::types::ParameterType;
+    if general::is_general_call(name) {
+        return general::nominal_return_type(name).map(|type_name| match type_name {
+            "Integer" => ParameterType::Integer,
+            "Float" => ParameterType::Float,
+            "Fixed" => ParameterType::Fixed,
+            "Byte" => ParameterType::Byte,
+            "Money" => ParameterType::Money,
+            other => ParameterType::named(other),
+        });
+    }
+    if crate::codegen::registry::registry().owning_package(name) == Some("vector") {
+        return None;
+    }
+    crate::codegen::registry::call_return_type_typed(name)
+}
+
 /// The name of the builtin package that owns a fully qualified call, or `None`
 /// (plan-72-BB: the registry's single owner). Used by the syntaxcheck dispatcher
 /// to select a table package's argument-inference mode without a per-package
@@ -483,11 +507,25 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
 /// non-signature shapes (variadic `"1 to 5 Integer"`, zero-arg `"()"`, the
 /// optional-tail brackets, `utf8Decode`'s `"or"`-union) decline via the guard.
 pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
+    Some(
+        argument_types_typed(callee)?
+            .into_iter()
+            .map(|type_| type_.name().into_owned())
+            .collect(),
+    )
+}
+
+/// The typed twin of [`argument_types`] (plan-106-A). Same dispatch and the same
+/// `None`s; the registry half clones already-typed descriptor params, and the
+/// `general` half classifies its *descriptor text* through the canonical grammar
+/// — `general::expected_arguments` is a hand-authored signature string, so this
+/// is that table's one text→type boundary rather than a re-parse of a render.
+pub(crate) fn argument_types_typed(callee: &str) -> Option<Vec<crate::types::ParameterType>> {
     // Migrated packages: the registry's MACHINE coercion table (positional parameter
     // types), decoupled from the human `expected_arguments` diagnostic string so
     // widening the diagnostic never changes per-argument coercion (bug-443). A generic
     // or overloaded member yields `None` here and needs no coercion table.
-    if let Some(types) = crate::codegen::registry::argument_types(callee) {
+    if let Some(types) = crate::codegen::registry::argument_types_typed(callee) {
         return Some(types);
     }
 
@@ -504,11 +542,16 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
     {
         return None;
     }
-    let params = expected.split(", ").map(str::to_string).collect::<Vec<_>>();
+    let params = expected.split(", ").collect::<Vec<_>>();
     if params.iter().any(|param| uses_generic_placeholder(param)) {
         return None;
     }
-    Some(params)
+    Some(
+        params
+            .into_iter()
+            .map(crate::types::ParameterType::parse)
+            .collect(),
+    )
 }
 
 /// Whether a type name is a generic placeholder (`T`/`K`/`V` bare or inside a
@@ -592,6 +635,11 @@ pub(crate) fn is_package_constant(name: &str) -> bool {
 
 pub(crate) fn package_constant_type_name(name: &str) -> Option<&'static str> {
     crate::codegen::registry::constant_type_name(name)
+}
+
+/// The typed twin of [`package_constant_type_name`] (plan-106-A).
+pub(crate) fn package_constant_type(name: &str) -> Option<crate::types::ParameterType> {
+    crate::codegen::registry::constant_type(name)
 }
 
 pub(crate) fn package_constant_value(name: &str) -> Option<&'static str> {

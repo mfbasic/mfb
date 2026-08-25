@@ -453,22 +453,6 @@ pub(crate) fn typed_promote_loop_numeric_type(
     typed_binary_result_type("+", &first, step).unwrap_or(ParameterType::Integer)
 }
 
-/// The name-keyed adapter over [`typed_promote_loop_numeric_type`], for the
-/// still-stringly `FOR` lowering sites. `ir::lower` and `monomorph::helpers`
-/// each carried a byte-identical hand-copy of this fold until plan-106-A;
-/// both now call here, and the callers disappear entirely once their engines
-/// are typed (plan-106-A Phases 2–3).
-pub(crate) fn promote_loop_numeric_type_name(start: &str, end: &str, step: &str) -> String {
-    let promoted = typed_promote_loop_numeric_type(
-        &numeric_variant(start).unwrap_or(ParameterType::Unknown),
-        &numeric_variant(end).unwrap_or(ParameterType::Unknown),
-        &numeric_variant(step).unwrap_or(ParameterType::Unknown),
-    );
-    numeric_variant_name(&promoted)
-        .unwrap_or(TYPE_INTEGER)
-        .to_string()
-}
-
 /// The [`ParameterType`] a numeric type *name* denotes, or `None` for anything
 /// outside the five-scalar lattice. A closed static match over this module's own
 /// `TYPE_*` constants — deliberately NOT [`ParameterType::parse`], which owns the
@@ -1200,13 +1184,6 @@ mod tests {
                     assert_eq!(
                         rendered, legacy,
                         "FOR {start_name} TO {end_name} STEP {step_name}"
-                    );
-                    // And the shipped name-keyed adapter — the one `ir::lower`
-                    // and `monomorph` now call in place of their hand-copies.
-                    assert_eq!(
-                        promote_loop_numeric_type_name(start_name, end_name, step_name),
-                        legacy,
-                        "adapter drift at FOR {start_name} TO {end_name} STEP {step_name}"
                     );
                     checked += 1;
                 }

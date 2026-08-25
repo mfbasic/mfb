@@ -22,7 +22,7 @@ implementation order):
 | **B** | `ir::verify` typed: `infer_type -> ParameterType`, the 42 `String` env-map sites, structural helpers | large |
 | **C** | syntaxcheck's private `Type` enum REPLACED by `ParameterType`; its 1,077-line parser reduced to the canonical one | large |
 | **D** | syntaxcheck/resolve-augmented/entry-validation consume **HIR**; `deelaborate` (16 fns) DELETED; audit path switched | large |
-| **E** | Consolidation (one numeric-promotion source, codegen sibling walks merged) + the terminal no-strings census | medium–large |
+| **E** | Consolidation (one numeric-promotion source, codegen sibling walks merged) + the terminal no-strings census | ~~medium–large~~ **large** (Correction 2) |
 
 ## The terminal invariant (what "NO STRINGS" means, checkably)
 
@@ -121,21 +121,30 @@ expression_type`-adjacent signatures; `FunctionContext` at
 
 ### Measured populations
 
-| What | Count | Command |
-|---|---|---|
-| `ir::lower` `.name()` render-shims | 27 | `rg -c '\.name\(\)' src/ir/lower.rs` → 27 |
-| monomorph `.to_string()` type churn | 100–105 | `rg -c '\.to_string\(\)' src/monomorph/ \| awk -F: '{s+=$2} END{print s}'` (≈105 at plan-writing; re-measure at kickoff post-105) |
-| duplicate promotion fns (this letter kills 4) | 6 | `rg -n 'fn (numeric_binary_result_type\|promote_loop_numeric_type_name)' src/` → 6 |
-| `expression_type` engines retyped | 2 | `src/ir/lower.rs:1940`, `src/monomorph/lower.rs:1823` |
-| `FunctionContext` String maps | 5 fields | read `src/monomorph/mod.rs:88-103` |
+Re-measured at kickoff (2026-08-24, base `94a38078b`) and again at close.
+
+| What | At plan-writing | At kickoff | After A | Command |
+|---|---|---|---|---|
+| `ir::lower` `.name()` render-shims | 27 | 31 | **16**, all render-out (each listed in Phase 3) | `rg -c '\.name\(\)' src/ir/lower.rs` |
+| monomorph `.to_string()` type churn | 100–105 | 105 | 79 | `rg -c '\.to_string\(\)' src/monomorph/ \| awk -F: '{s+=$2} END{print s}'` |
+| duplicate promotion fns (this letter kills 4) | 6 | **7** (+1 typed twin = 8 — Correction 1) | **4** (syntaxcheck ×2 → C; codegen ×2 → E) | `rg -n 'fn (numeric_binary_result_type\|promote_loop_numeric_type)' src/` |
+| `expression_type` engines retyped | 2 | 2 | 2 (both `-> Option<ParameterType>`) | `src/ir/lower.rs`, `src/monomorph/lower.rs` |
+| `FunctionContext` String maps | 5 fields | 5 fields | 0 | read `src/monomorph/mod.rs` |
+| `LowerContext` String type stores | — | 4 fields + 17 `locals` signatures | 0 | read `src/ir/lower.rs` |
+| hand-rolled type-grammar copies in `ir::lower` | — | 4 | **0** (all deleted in Phase 3) | `parse_map_type`, `parse_map_entry_type`, `function_type_parts_for_predicate`, `collection_iteration_type` |
 
 ### Verified properties
 
 - **Both engines' string outputs are consumed only by their own layer's
   stores** (post-104/105 there is no downstream string consumer left except
-  verify/syntaxcheck, which B/C retype). UNVERIFIED until the 104/105 gates are
-  MET — re-verify at kickoff with a caller sweep of both `expression_type`s and
-  record here.
+  verify/syntaxcheck, which B/C retype). **VERIFIED** by construction during the
+  conversion: both `expression_type`s were retyped to `Option<ParameterType>`
+  and the compiler enumerated every consumer (16 callers in `ir::lower`, 16 in
+  `monomorph`). None reached outside its own layer — no change was required in
+  `ir::verify`, `syntaxcheck`, `resolver`, or `hir`, and `git diff --stat`
+  confirms those trees are untouched. The only cross-layer edits were *adding*
+  typed accessors in `codegen::{registry,builtins}` (the engines' downstream
+  queries) and the one descriptor bug-fix in Correction 6.
 
 ## 3. Design Overview
 
@@ -198,9 +207,9 @@ AGENTS.md "No blanket dead-code suppression"):
       `numeric_variant` and a frozen `legacy_is_numeric_type` oracle.
       `cargo build --bin mfb` → **0 warnings**.
 
-Acceptance: equivalence tests pass; suite green. **MET** — see the Commit line's
-full-suite run.
-Commit: —
+Acceptance: equivalence tests pass; suite green. **MET** — the equivalence
+suite above, plus the Phase-2 full-suite/gate/test-accept runs on the same tree.
+Commit: `f20b96ca9` (shared with Phase 2 — see Correction 5)
 
 ### Phase 2 — monomorph engine typed
 
@@ -259,29 +268,97 @@ Acceptance: suite green; `artifact-gate all` no NEW diff. **MET**:
 `cargo test --bin mfb` → 3644 passed, 0 failed;
 `scripts/artifact-gate.sh target/release/mfb all` →
 `1255 tests, 1402 build(s), 1730 golden(s) checked, 0 diff(s)` — byte-identical
-to the 106 baseline.
-Commit: —
+to the 106 baseline. Plus `cargo test --no-fail-fast` exit 0 (62 suites, 0
+FAILED) and `test-accept` 1271 ran / 0 mismatches.
+Commit: `f20b96ca9` (shared with Phase 1 — see Correction 5)
 
 ### Phase 3 — ir::lower engine typed
 
-- [ ] The five String maps + per-body `locals` → `ParameterType`;
+- [x] The five String maps + per-body `locals` → `ParameterType`;
       `expression_type`/`match_expression_type`/`literal_expression_type` →
-      typed; the 27 `.name()` shims removed or annotated (diagnostic formatting
-      only); the two local promotion copies deleted.
-- [ ] Tests: ir unit suite; full corpus.
+      typed; the `.name()` shims removed or annotated; the two local promotion
+      copies deleted.
+- [x] Tests: ir unit suite; full corpus.
 
-Acceptance: suite green; `artifact-gate all` no NEW diff; `rg -c '\.name\(\)'
-src/ir/lower.rs` → each survivor is a render-out (diagnostic/serializer) site,
-listed here; **no-backward check**: no `ParameterType::parse` of a value that
-was rendered from a `ParameterType` (grep per plan-104-A's acceptance pattern).
+What landed:
+
+- [x] `LowerContext`'s `function_returns` / `function_types` /
+      `function_params.CallParam.type_` / `binding_types` /
+      `current_return_type`, the four builders that fill them
+      (`function_returns`, `function_types`, `function_params`,
+      `declared_binding_types`), and all **17** `locals: &HashMap<String, …>`
+      signatures → `ParameterType`. `RecoverTarget`, `CapturedLocal` and
+      `InlineTrapTarget::Bind` retyped with them.
+- [x] `expression_type` → `Option<ParameterType>`, structural in every arm;
+      `match_expression_type` and `literal_expression_type` likewise;
+      `TypeIndex::constructor_result` / `record_field_type` typed.
+- [x] The whole `expected` thread (`lower_expression_with_expected`,
+      `wrap_union_value`, `call_argument_expected_type`,
+      `lower_constructor_args`) is `Option<&ParameterType>`; the numeric-literal
+      coercion compares `Some(&ParameterType::Fixed)` instead of `Some("Fixed")`.
+- [x] **Four hand-rolled type-grammar copies deleted from `ir::lower`**:
+      `parse_map_type`, `parse_map_entry_type`,
+      `function_type_parts_for_predicate` (a `strip_prefix("FUNC(")` +
+      `split_once(") AS ")` that cut at the FIRST `") AS "`, mis-typing a
+      higher-order parameter), and `collection_iteration_type`'s
+      `List OF`/`Set OF`/`Map OF` + `RES ` cascade — now a variant match plus a
+      `strip_res` helper. `numeric_binary_result_type` and
+      `declared_func_parts` are gone too (the engine calls
+      `numeric::typed_binary_result_type` and matches `Func` directly).
+- [x] `numeric::promote_loop_numeric_type_name` — the name-keyed adapter Phase 1
+      added — **deleted**: with both engines typed it had no callers left.
+      Promotion definitions: **7 → 4** (`syntaxcheck`×2 → letter C,
+      `codegen/type_utils`×2 → letter E), all four delegating to the one
+      `numeric.rs` algebra.
+- [x] New typed accessors so the engine never renders to ask a question:
+      `registry::constant_type` / `call_return_type_typed` /
+      `argument_types_typed` / `default_argument_padding` (now
+      `Vec<(ParameterType, _)>` — the descriptor already held the type),
+      `builtins::package_constant_type` / `call_return_type` /
+      `argument_types_typed`, `general::filter_predicate_type_typed`.
+- [x] `ParameterType::with_state` added in `src/types.rs`: the structural
+      equivalent of parsing `"{base} STATE {state}"`, replacing five
+      `format!("{…} STATE {…}")` sites (function return, `RES` param, `LET`
+      binding, trap binding, union match-case binding). Guarded by
+      `with_state_matches_parse_of_the_concatenated_spelling` — 21 base shapes ×
+      3 state types = 63 assertions that `t.with_state(s)` equals
+      `parse(&format!("{} STATE {}", t.name(), s.name()))` **and** still renders
+      to that spelling.
+- [x] Fixed a latent descriptor bug the retype exposed, with a permanent guard
+      (Correction 6).
+
+`.name()` census — `rg -c '\.name\(\)' src/ir/lower.rs` → **16**, every one a
+render-out into a NAME domain, listed:
+
+| Site | Why it renders |
+|---|---|
+| `:1655`, `:1667`, `:1718`, `:1998`, `:3219` | union-variant / constructor name as a *symbol* (an `IrValue::Local` name, an index key) |
+| `:1752`, `:2037` | reading the `STATE` clause, which rides inside the resource's nominal *spelling* (`parse` has no `STATE` arm) |
+| `:2060`, `:3247`, `:3540` | `TypeIndex` lookups — keyed by type NAME (a declaration table) |
+| `:2901`, `:2923`, `:2949`, `:2979`, `:3039` | per-package dispatch tables keyed by type name (`general_override_target`, `TLS_LISTENER_TYPE`, audio / vector / term selectors) |
+| `:2547` | registry record-constant field types, into the name-keyed constant path |
+
+**No-backward check**: `rg -n 'ParameterType::parse' src/ir/lower.rs`
+(production) → every remaining site is a *source/wire/descriptor* parse-in, not
+a re-parse of a render: `native_type` + the two `return_state_type` sites (the
+un-elaborated `HirItem::Link` AST block — see the fn doc), `lower_field`'s
+`ImportedTypeField.type_` (wire-decoded package types), the registry
+record-constant type name, and static literals. Zero parse-of-render.
+
+Acceptance: suite green; `artifact-gate all` no NEW diff; the `.name()` census
+recorded above; the no-backward check clean. **MET**:
+`cargo test --bin mfb` → 3646 passed, 0 failed;
+`scripts/artifact-gate.sh target/release/mfb all` →
+`1255 tests, 1402 build(s), 1730 golden(s) checked, 0 diff(s)`.
 Commit: —
 
 ## Validation Plan
 
 - Tests: promotion-equivalence units; both engines' unit suites; full corpus.
 - Coverage check: every fixture flows both engines (monomorph pre, lower post).
-- Runtime proof: `artifact-gate all` byte-identical; `test-accept` no NEW
-  mismatch (2 documented environmental failures excepted).
+- Runtime proof: `artifact-gate all` byte-identical; `test-accept` fully green
+  at **1271 ran, 0 mismatches** (the "2 documented environmental failures"
+  clause is deleted — see Correction 4).
 - Doc sync: none in A (E owns the docs pass).
 - Acceptance: full suite; gate; test-accept; fmt both crates.
 
@@ -290,6 +367,12 @@ Commit: —
 - **Typed promotion signature:** over `ParameterType` directly vs a small
   `NumericClass` enum extracted first. Recommend `ParameterType` directly
   (scalars are variants; no intermediate abstraction).
+  **RESOLVED as recommended** (Phase 1): `numeric::typed_binary_result_type`
+  takes and returns `&ParameterType`/`ParameterType`. No intermediate enum was
+  needed — the five numeric scalars are already variants, and the two private
+  helpers the name-keyed adapters need (`numeric_variant` /
+  `numeric_variant_name`) are five-arm matches over this module's own `TYPE_*`
+  constants, not a new abstraction.
 
 ## Corrections
 
@@ -332,6 +415,105 @@ text says "replacing 4 of the measured 6", and A still deletes exactly those 4
 correction only means C owns **two** (`numeric_binary_result_type` *and*
 `promote_loop_numeric_type`), and E's final count is 1 production definition,
 not "1 of 6".
+
+### 6. A REAL BUG the retype exposed: `fs::pathJoin`'s parameter descriptor
+
+Phase 3's first gate run was **not** byte-identical — 1 DIFF, on
+`rt-behavior/project/project-fs-createTempFile-package-valid`'s `.ir`. Per the
+skill this is a root-cause trigger, not a stop; diffing that one fixture
+localized it immediately:
+
+```
+$ diff golden/project_fs_createTempFile_package_valid.ir <rebuilt>
+32c32
+< … "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", …
+> … "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF Unknown", …
+```
+
+Cause — a latent **descriptor bug**, not the retype:
+
+```
+$ rg -n 'ParameterType::named\("[^"]* [^"]*"\)' src/          # ONE hit, tree-wide
+src/codegen/builtins/fs/func_path_join.rs:83: ty: ParameterType::named("List OF String")
+```
+
+`named` is for a bare nominal; `Named("List OF String")` is a *different value*
+from `list_of(String)` with an identical rendering. Every pre-plan-106 consumer
+of `registry::argument_types` rendered `.name()` and re-parsed, which silently
+normalized it in transit. plan-106-A's typed accessor
+(`argument_types_typed`) hands back the raw variant, so `ir::lower`'s
+`Some(ParameterType::ListOf(element))` match missed and the element type of
+`fs::pathJoin([a, b])` fell back to `Unknown`.
+
+Fixed at the descriptor (`ty: ParameterType::list_of(ParameterType::String)`) —
+the gate is 0 diffs again. This is the class of latent defect the whole
+"NO STRINGS" invariant exists to surface: a render→parse round trip was
+laundering a wrong value, and it stayed invisible for exactly as long as
+everything spoke strings.
+
+- [x] Added a permanent guard, `registry::tests::
+      descriptor_named_types_are_bare_nominals`: it walks EVERY registered
+      descriptor (params, `Fill` defaults, returns, record fields — recursing
+      into containers) and asserts no `Named(n)` has a name that re-parses to
+      something structured. Verified RED against the original descriptor
+      (`fs.pathJoin impl 0 param 'parts': 'List OF String' is a bare Named but
+      its own spelling parses to ListOf(String)`) and GREEN after the fix.
+      Deliberately scoped to `Named` rather than "every type round-trips":
+      `Var` and `Arg` render as bare names and re-parse as `Named` **by
+      design** (`parse` classifies grammar and cannot know a name is a type
+      variable without the declaring scope), so a blanket round-trip assertion
+      reds on all 16 thread-package type variables. Those are sanctioned; a
+      structure-spelling `Named` is not.
+
+### 7. The descriptor fix restores a MISSING diagnostic (one golden regenerated)
+
+Correction 6's descriptor fix has one visible consequence: `test-accept` went to
+**1 mismatch / 1271 ran** on `syntax/fs/func_fs_pathJoin_invalid`. With the
+parameter now a real `ListOf(String)` instead of an opaque
+`Named("List OF String")`, the registry matcher recurses into the element and
+`fs::pathJoin([1, 2])` picks up the `TYPE_CALL_ARGUMENT_MISMATCH` it had been
+escaping.
+
+A's non-goals say "no diagnostics wording/order change", so this needed the
+AGENTS.md four-question gate before the golden could move. It clears it:
+
+1. **When/why written.** `git log -- tests/syntax/fs/func_fs_pathJoin_invalid/`
+   → `e76b2b741` "regenerate 16 stale sidecar goldens after os/fs migration".
+   The golden was *regenerated from* the post-migration compiler, never
+   hand-asserted — it captured whatever the migration produced.
+2. **Behavior it protects.** That `fs::pathJoin` rejects each bad call shape:
+   arity-0, a scalar argument, a wrong-element list, arity-2.
+3. **Who else depends.** Only this fixture's own `build.log`
+   (`artifact-gate all` is 0 diffs; the other 1270 acceptance tests are green).
+4. **Proof it is wrong.** The sibling `fs::writeBytes`, whose list parameter is
+   correctly declared `ty: ParameterType::list_of(ParameterType::Byte)`, DOES
+   report the argument mismatch for the identical shape:
+
+   ```
+   $ grep TYPE_CALL_ARGUMENT_MISMATCH -A1 \
+       tests/syntax/fs/func_fs_writeBytes_invalid/golden/build.log
+   …:5 error[…TYPE_CALL_ARGUMENT_MISMATCH]: …
+      Call to `fs.writeBytes` has argument type(s) (Integer, List OF Integer),
+      expected String, List OF Byte.
+   ```
+
+   Every other `fs` list parameter uses `list_of` (`rg -n 'ty:
+   ParameterType::list_of' src/codegen/builtins/fs/*.rs` → `write_all_bytes`,
+   `write_bytes_atomic`, `write_bytes`, `append_bytes`); `pathJoin` was a
+   one-off slip **in that same migration commit** (`73374e779`). So the golden
+   recorded a compiler defect, and the two fixtures disagreed for no reason but
+   the typo.
+
+**The accept/reject set does not change.** `fs::pathJoin([1, 2])` was already
+rejected — via `TYPE_LIST_ELEMENT_MISMATCH` ("List element has type Integer,
+expected String"), which the golden kept and still keeps. The regenerated
+golden is **purely additive**: `git diff tests/ | grep -c '^-[^-]'` → **0**
+removed lines, 12 added. Nothing was re-baselined away; a missing diagnostic
+was restored.
+
+- [x] Regenerated exactly that one golden
+      (`scripts/sync-goldens.sh target/release/mfb func_fs_pathJoin_invalid`
+      → "synced 1 golden file(s) across 1 test(s)").
 
 ### 5. Phases 1 and 2 land in ONE commit (they cannot be split)
 
