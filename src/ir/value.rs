@@ -139,22 +139,13 @@ pub(crate) enum IrValue {
 }
 
 impl IrValue {
-    /// The node's result type, when it is annotated on the node itself.
-    /// `ResultIsOk` is always `Boolean` and `ResultError` always `Error`;
-    /// `Local`/`Global` resolve through the enclosing binding environment
-    /// (master plan §4.1) and yield `None` here.
+    /// The node's result type, when it is annotated on the node itself, as a
+    /// [`ParameterType`]. `None` for a `Local`/`Global` (resolved through the
+    /// binding environment instead — master plan §4.1). The synthesized
+    /// `ResultIsOk`/`ResultError` results are `Boolean`/`Error`.
     ///
-    /// Rendered as a string via [`ParameterType::name`] at this seam so the many
-    /// string consumers keep working (a `Cow` because a container type name is a
-    /// freshly formatted `String` while a scalar/nominal borrows the interned name).
-    /// The typed accessor is [`annotated_parameter_type`](Self::annotated_parameter_type).
-    pub(crate) fn annotated_type(&self) -> Option<std::borrow::Cow<'_, str>> {
-        self.annotated_parameter_type().map(|t| t.name())
-    }
-
-    /// The node's annotated result type as a [`ParameterType`], or `None` for a
-    /// `Local`/`Global` (resolved through the binding environment instead). The
-    /// synthesized `ResultIsOk`/`ResultError` results are `Boolean`/`Error`.
+    /// plan-106-B deleted the rendering twin `annotated_type`: with `ir::verify`
+    /// typed, every consumer wants the type, and the last string caller was gone.
     pub(crate) fn annotated_parameter_type(&self) -> Option<ParameterType> {
         match self {
             IrValue::Const { type_, .. }

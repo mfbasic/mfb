@@ -1161,7 +1161,10 @@ pub(crate) fn static_string_value_with_constants(
         | NirValue::RuntimeCall { target, args, .. }
             if target == "typeName" && args.len() == 1 =>
         {
+            // `typeName` yields the argument type's SPELLING — the rendered
+            // name IS the program-visible string value here.
             static_type_name_for_fold_with_types(&args[0], types, fields)
+                .map(|type_| type_.name().into_owned())
         }
         NirValue::Call { target, args, .. }
         | NirValue::CallResult { target, args, .. }
@@ -1183,14 +1186,12 @@ pub(crate) fn static_type_name_with_types(
     value: &NirValue,
     types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
-) -> Option<String> {
+) -> Option<ParameterType> {
     match value {
-        NirValue::Const { type_, .. } => Some(type_.name().into_owned()),
-        NirValue::Local(name) => types.get(name).map(|type_| type_.name().into_owned()),
-        NirValue::LocalRef { type_, .. } => Some(type_.name().into_owned()),
-        NirValue::Global { type_, .. } if !type_.name().is_empty() => {
-            Some(type_.name().into_owned())
-        }
+        NirValue::Const { type_, .. } => Some(type_.clone()),
+        NirValue::Local(name) => types.get(name).cloned(),
+        NirValue::LocalRef { type_, .. } => Some(type_.clone()),
+        NirValue::Global { type_, .. } if !is_unset_type(type_) => Some(type_.clone()),
         NirValue::Global { .. } => None,
         NirValue::FunctionRef { type_, .. }
         | NirValue::Closure { type_, .. }
@@ -1199,20 +1200,20 @@ pub(crate) fn static_type_name_with_types(
         | NirValue::WithUpdate { type_, .. }
         | NirValue::ListLiteral { type_, .. }
         | NirValue::SetLiteral { type_, .. }
-        | NirValue::MapLiteral { type_, .. } => Some(type_.name().into_owned()),
-        NirValue::UnionWrap { union_type, .. } => Some(union_type.name().into_owned()),
-        NirValue::UnionExtract { type_, .. } => Some(type_.name().into_owned()),
+        | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
+        NirValue::UnionWrap { union_type, .. } => Some(union_type.clone()),
+        NirValue::UnionExtract { type_, .. } => Some(type_.clone()),
         NirValue::Call { target, .. }
         | NirValue::CallResult { target, .. }
         | NirValue::RuntimeCall { target, .. } => match target.as_str() {
-            "typeName" | "toString" => Some("String".to_string()),
-            "len" | "toInt" => Some("Integer".to_string()),
+            "typeName" | "toString" => Some(ParameterType::String),
+            "len" | "toInt" => Some(ParameterType::Integer),
             // Migrated find/mid/replace: strings:: returns Integer/String; the
             // collections:: List overloads return the list type and are resolved
             // by the precise type path, so only `find` (always Integer) is mapped
             // here (plan-01-functions.md §5).
-            "collections.find" | "strings.find" => Some("Integer".to_string()),
-            "strings.mid" | "strings.replace" => Some("String".to_string()),
+            "collections.find" | "strings.find" => Some(ParameterType::Integer),
+            "strings.mid" | "strings.replace" => Some(ParameterType::String),
             "strings.trim"
             | "strings.trimStart"
             | "strings.trimEnd"
@@ -1220,25 +1221,32 @@ pub(crate) fn static_type_name_with_types(
             | "strings.lower"
             | "strings.caseFold"
             | "strings.normalizeNfc"
-            | "strings.join" => Some("String".to_string()),
-            "strings.graphemes" | "strings.split" => Some("List OF String".to_string()),
-            "strings.startsWith" | "strings.endsWith" | "strings.contains" => {
-                Some("Boolean".to_string())
+            | "strings.join" => Some(ParameterType::String),
+            "strings.graphemes" | "strings.split" => {
+                Some(ParameterType::list_of(ParameterType::String))
             }
-            "strings.byteLen" => Some("Integer".to_string()),
-            "toFloat" => Some("Float".to_string()),
-            "toFixed" => Some("Fixed".to_string()),
-            "toByte" => Some("Byte".to_string()),
-            "toMoney" => Some("Money".to_string()),
-            "toScalar" => Some("Scalar".to_string()),
-            "isNumeric" => Some("Boolean".to_string()),
+            "strings.startsWith" | "strings.endsWith" | "strings.contains" => {
+                Some(ParameterType::Boolean)
+            }
+            "strings.byteLen" => Some(ParameterType::Integer),
+            "toFloat" => Some(ParameterType::Float),
+            "toFixed" => Some(ParameterType::Fixed),
+            "toByte" => Some(ParameterType::Byte),
+            "toMoney" => Some(ParameterType::Money),
+            "toScalar" => Some(scalar_type()),
+            "isNumeric" => Some(ParameterType::Boolean),
             _ => None,
         },
-        NirValue::ResultIsOk { .. } => Some("Boolean".to_string()),
-        NirValue::ResultValue { value } => static_type_name_with_types(value, types, fields)
-            .and_then(|type_| type_.strip_prefix("Result OF ").map(str::to_string))
-            .or_else(|| static_type_name_with_types(value, types, fields)),
-        NirValue::ResultError { .. } => Some("Error".to_string()),
+        NirValue::ResultIsOk { .. } => Some(ParameterType::Boolean),
+        NirValue::ResultValue { value } => {
+            match static_type_name_with_types(value, types, fields)? {
+                // A non-`Result` operand answers with its own type, as the
+                // `strip_prefix(…).or_else(…)` this replaces did.
+                ParameterType::ResultOf(success) => Some(*success),
+                other => Some(other),
+            }
+        }
+        NirValue::ResultError { .. } => Some(error_type()),
         NirValue::Binary {
             op, left, right, ..
         } => {
@@ -1246,18 +1254,18 @@ pub(crate) fn static_type_name_with_types(
                 op.as_str(),
                 "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
             ) {
-                return Some("Boolean".to_string());
+                return Some(ParameterType::Boolean);
             }
             if op == "&" {
-                return Some("String".to_string());
+                return Some(ParameterType::String);
             }
             let left = static_type_name_with_types(left, types, fields)?;
             let right = static_type_name_with_types(right, types, fields)?;
-            Some(numeric_binary_result_type(op, &left, &right).to_string())
+            Some(promoted_binary_type(op, &left, &right))
         }
         NirValue::Unary { op, operand, .. } => {
             if op == "NOT" {
-                Some("Boolean".to_string())
+                Some(ParameterType::Boolean)
             } else {
                 static_type_name_with_types(operand, types, fields)
             }
@@ -1265,8 +1273,11 @@ pub(crate) fn static_type_name_with_types(
         NirValue::MemberAccess { target, member } => {
             let target_type = static_type_name_with_types(target, types, fields)?;
             if member == "result" {
-                if let Some(output_type) = crate::types::parent_thread_output(&target_type) {
-                    return Some(format!("Result OF {output_type}"));
+                if let ParameterType::ThreadHandle {
+                    worker: false, out, ..
+                } = &target_type
+                {
+                    return Some(ParameterType::result_of((**out).clone()));
                 }
             }
             // Record and union-variant fields, then the two `MapEntry` members —
@@ -1275,13 +1286,16 @@ pub(crate) fn static_type_name_with_types(
             // silently under-reported in every predicate built on this seam:
             // `typeName(rec.field)` failed to lower at all, and the
             // ERR_INVALID_FORMAT gate missed a promoting Float operand (bug-366).
-            if let Some(field_type) = fields.get(&(target_type.clone(), member.clone())) {
-                return Some(field_type.name().into_owned());
+            // `FieldTypes` keys are nominal type NAMES, so the lookup renders
+            // the (scalar-cheap) name — a name-keyed table probe.
+            if let Some(field_type) = fields.get(&(target_type.name().into_owned(), member.clone()))
+            {
+                return Some(field_type.clone());
             }
-            let (key_type, value_type) = parse_map_entry_type(&target_type)?;
+            let (key_type, value_type) = typed_map_entry_type_parts(&target_type)?;
             match member.as_str() {
-                "key" => Some(key_type),
-                "value" => Some(value_type),
+                "key" => Some(key_type.clone()),
+                "value" => Some(value_type.clone()),
                 _ => None,
             }
         }
@@ -1302,9 +1316,9 @@ pub(crate) fn static_type_name_for_fold_with_types(
     value: &NirValue,
     types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
-) -> Option<String> {
-    if let Some(type_name) = static_type_name_with_types(value, types, fields) {
-        return Some(type_name);
+) -> Option<ParameterType> {
+    if let Some(type_) = static_type_name_with_types(value, types, fields) {
+        return Some(type_);
     }
     match value {
         NirValue::Call { target, args, .. }
@@ -1314,7 +1328,7 @@ pub(crate) fn static_type_name_for_fold_with_types(
                 .iter()
                 .map(|arg| static_type_name_for_fold_with_types(arg, types, fields))
                 .collect::<Option<Vec<_>>>()?;
-            builtins::resolve_call_return_type(target, &arg_types, false)
+            builtins::resolve_call_return_type_typed(target, &arg_types, false)
         }
         _ => None,
     }
@@ -1474,9 +1488,14 @@ mod tests {
             ("typeName", &["String"]),
         ];
         for (target, arg_types) in catalog {
-            let want = builtins::resolve_call_return_type(
+            // plan-106-E: both sides are `ParameterType` now, so the comparison is
+            // structural rather than a name compare.
+            let want = builtins::resolve_call_return_type_typed(
                 target,
-                &arg_types.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
+                &arg_types
+                    .iter()
+                    .map(|t| ParameterType::parse(t))
+                    .collect::<Vec<_>>(),
                 false,
             );
             let got =

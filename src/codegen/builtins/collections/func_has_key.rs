@@ -2,7 +2,7 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::types::{map_type_parts, set_element_type};
+use crate::codegen::engine::types::{typed_map_type_parts, typed_set_element_type};
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -132,9 +132,12 @@ pub(crate) fn lower_has_key(
 
     // A Map keys on its key type; a Set (reached via `contains`, plan-63-B)
     // keys on its element type — both are the bytes the probe compares.
-    let Some(key_type) = map_type_parts(&collection.type_.name())
+    let Some(key_type) = typed_map_type_parts(&collection.type_)
+        .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
         .map(|(key, _)| key.to_string())
-        .or_else(|| set_element_type(&collection.type_.name()))
+        .or_else(|| {
+            typed_set_element_type(&collection.type_).map(|type_| type_.name().into_owned())
+        })
     else {
         return Err(format!(
             "native collection hasKey/contains does not accept {}",
@@ -153,6 +156,6 @@ pub(crate) fn lower_has_key(
         key_slot,
         key_type,
         "has_key",
-        &collection.type_.name(),
+        &collection.type_,
     )
 }

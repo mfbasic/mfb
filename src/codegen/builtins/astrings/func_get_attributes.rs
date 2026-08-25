@@ -1,6 +1,6 @@
 //! `astrings::getAttributes` — Tier-C query member (`Body::Rewrite`).
 //!
-//! Backed by the injected source companion (`package.mfb`): a call rewrites to the
+//! Backed by the injected source (the per-helper `helper_*.rs` bodies): a call rewrites to the
 //! internal `__astrings_getAttributes` FUNC through the registry's `rewrite_target`.
 //! Returns the winning attributes covering the scalar at `index`
 //! (higher-start-wins resolution).

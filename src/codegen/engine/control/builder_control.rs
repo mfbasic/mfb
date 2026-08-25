@@ -184,7 +184,10 @@ impl CodeBuilder<'_> {
         let field_type = fields[index].1.clone();
         // Only a `List` (kind-0/1/2) grows in place here; a Map/Set is not an
         // `append` target.
-        if list_element_type(&field_type.name()).is_none() {
+        if typed_list_element_type(&field_type)
+            .map(|type_| type_.name().into_owned())
+            .is_none()
+        {
             return None;
         }
         if !self.record_field_is_inlined(record_type, &field_type.name()) {
@@ -255,7 +258,8 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        let Some(element_type) = list_element_type(&field_type) else {
+        let field_type = crate::types::ParameterType::parse(&field_type);
+        let Some(element_type) = typed_list_element_type(&field_type).cloned() else {
             return Ok(false);
         };
         if CollectionTypeLayout::from_type(&field_type).is_none() {
@@ -323,7 +327,7 @@ impl CodeBuilder<'_> {
                 state_slot,
                 field_index,
                 &field_type,
-                &element_type,
+                &element_type.name(),
                 rhs_slot,
             )?;
         } else {
@@ -331,7 +335,7 @@ impl CodeBuilder<'_> {
                 state_slot,
                 field_index,
                 &field_type,
-                &element_type,
+                &element_type.name(),
                 rhs_slot,
             )?;
         }
@@ -495,7 +499,7 @@ impl CodeBuilder<'_> {
                         let aliases_live_resource = value
                             .as_ref()
                             .is_some_and(Self::value_aliases_live_resource);
-                        let owns_resource_slot = !Self::is_thread_type(&type_.name())
+                        let owns_resource_slot = !Self::is_thread_type(&type_)
                             && !aliases_union_variant
                             && !by_ref_capture_slot
                             && !floats_to_collection
@@ -609,7 +613,8 @@ impl CodeBuilder<'_> {
                             // default to arena allocations already).
                             let location = if result.type_ == ParameterType::String {
                                 Operand::from(
-                                    self.copy_flat_block("String", &result.location)?.render(),
+                                    self.copy_flat_block(&ParameterType::String, &result.location)?
+                                        .render(),
                                 )
                             } else {
                                 result.location
@@ -628,7 +633,7 @@ impl CodeBuilder<'_> {
                         // this scope; it is drained on every exit path.
                         if self.owner_collections.contains(name) {
                             self.setup_owned_list(name, &type_.name())?;
-                        } else if Self::is_res_marked_resource_collection(&type_.name())
+                        } else if Self::is_res_marked_resource_collection(&type_)
                             && matches!(
                                 value,
                                 Some(NirValue::Call { .. } | NirValue::CallResult { .. })
@@ -639,7 +644,8 @@ impl CodeBuilder<'_> {
                             // owns them and closes each once at exit (§15.6).
                             self.setup_owned_list(name, &type_.name())?;
                             if let Some(element_type) =
-                                crate::codegen::engine::types::list_element_type(&type_.name())
+                                crate::codegen::engine::types::typed_list_element_type(&type_)
+                                    .map(|type_| type_.name().into_owned())
                             {
                                 self.emit_owned_list_seed_from_collection(
                                     name,
@@ -654,7 +660,7 @@ impl CodeBuilder<'_> {
                             .get(name)
                             .cloned()
                             .unwrap_or(crate::ir::resource_escape::ResOwner::Local);
-                        if Self::is_thread_type(&type_.name()) {
+                        if Self::is_thread_type(&type_) {
                             self.active_cleanups
                                 .push(ActiveCleanup::Thread(ThreadCleanup {
                                     name: name.clone(),
@@ -911,7 +917,7 @@ impl CodeBuilder<'_> {
                             // Observation boundary: a `Float` reassignment must
                             // be finite (plan-17).
                             self.observe_float(value, &result)?;
-                            let assign_slot = if Self::is_thread_type(&result.type_.name()) {
+                            let assign_slot = if Self::is_thread_type(&result.type_) {
                                 let slot = self.allocate_stack_object("thread_assign_value", 8);
                                 self.emit(abi::store_u64(
                                     &result.location,

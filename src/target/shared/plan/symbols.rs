@@ -280,7 +280,7 @@ fn os_env_lock_helper_symbols(module: &NirModule) -> Vec<String> {
 }
 
 pub(super) fn is_thread_type(type_: &str) -> bool {
-    type_.starts_with("Thread OF ")
+    crate::codegen::engine::types::is_parent_thread_type(type_)
 }
 
 pub(super) fn module_has_thread_owner(module: &NirModule) -> bool {

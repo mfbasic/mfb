@@ -2,7 +2,7 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::types::set_element_type;
+use crate::codegen::engine::types::typed_set_element_type;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -95,7 +95,9 @@ pub(crate) fn lower_remove(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let set = args[0].clone();
-    let Some(element_type) = set_element_type(&set.type_.name()) else {
+    let Some(element_type) =
+        typed_set_element_type(&set.type_).map(|type_| type_.name().into_owned())
+    else {
         return Err(format!(
             "native collection remove does not accept {}",
             set.type_
@@ -116,5 +118,5 @@ pub(crate) fn lower_remove(
     }
     let item_slot = builder.allocate_stack_object("set_remove_item", 8);
     builder.store_value_at(&item, abi::stack_pointer(), item_slot);
-    builder.lower_map_remove_key(set_slot, item_slot, &set.type_.name(), &element_type)
+    builder.lower_map_remove_key(set_slot, item_slot, &set.type_, &element_type)
 }

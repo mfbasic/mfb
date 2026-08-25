@@ -2,7 +2,7 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::types::list_element_type;
+use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -124,7 +124,9 @@ pub(crate) fn lower_insert(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let list = args[0].clone();
-    let Some(element_type) = list_element_type(&list.type_.name()) else {
+    let Some(element_type) =
+        typed_list_element_type(&list.type_).map(|type_| type_.name().into_owned())
+    else {
         return Err(format!(
             "native collection insert does not accept {}",
             list.type_
@@ -158,16 +160,16 @@ pub(crate) fn lower_insert(
     // Materialize a `d`-native float before the payload spill (plan-01).
     let item = builder.materialize_value(item)?;
     let (insert_slot, materialized) =
-        builder.collection_argument_as_list_slot(&list.type_.name(), &element_type, item)?;
+        builder.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
     let result = builder.lower_list_insert_collection(
         list_slot,
         index_slot,
         insert_slot,
-        &list.type_.name(),
+        &list.type_,
         &element_type,
     )?;
     if materialized {
-        return builder.free_intermediate_collection(insert_slot, &list.type_.name(), result);
+        return builder.free_intermediate_collection(insert_slot, &list.type_, result);
     }
     Ok(result)
 }

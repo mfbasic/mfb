@@ -1,16 +1,24 @@
 use super::*;
 
-/// The `Option<String>` an AST type field reconstructs to from a HIR bare type:
-/// [`ParameterType::Unknown`] (an absent `AS T` annotation) → `None`, any concrete
-/// type → `Some(rendered)`. Mirrors `crate::hir::unrender_optional_type`, so every
-/// type STRING the monomorph string algorithm reads is byte-identical to the
-/// pre-D3 AST `type_name`/`return_type` field it replaced (parse↔name round-trips
-/// byte-exact).
-pub(super) fn opt_type_name(type_: &ParameterType) -> Option<String> {
+/// The declared type of an optionally-annotated slot: [`ParameterType::Unknown`]
+/// (an absent `AS T` annotation) → `None`, any concrete type → `Some(type)`.
+///
+/// plan-106-A: yields the type itself. It used to render `.name()`, which made
+/// every downstream comparison a string compare — the `Unknown`-means-absent
+/// distinction is the only thing this helper actually encodes.
+pub(super) fn opt_type(type_: &ParameterType) -> Option<ParameterType> {
     match type_ {
         ParameterType::Unknown => None,
-        other => Some(other.name().into_owned()),
+        other => Some(other.clone()),
     }
+}
+
+/// The render-out companion to [`opt_type`], for the SYMBOL-MANGLING sites
+/// ([`mangle_name`], [`overload_key`]) where the product is deliberately a
+/// string: a concrete symbol and a map key. Expressed over [`opt_type`] so the
+/// "`Unknown` means absent" rule has exactly one definition.
+pub(super) fn opt_type_name(type_: &ParameterType) -> Option<String> {
+    opt_type(type_).map(|type_| type_.name().into_owned())
 }
 
 /// The expected (contextual) type for an argument slot: the selected parameter's
@@ -22,11 +30,11 @@ pub(super) fn arg_slot_expected<'a>(
     value: &HirExpression,
     params: Option<&'a [HirParam]>,
     select: impl FnOnce(&'a [HirParam]) -> Option<&'a HirParam>,
-) -> Option<String> {
+) -> Option<ParameterType> {
     if !matches!(value, HirExpression::Call { .. }) {
         return None;
     }
-    opt_type_name(&select(params?)?.type_)
+    opt_type(&select(params?)?.type_)
 }
 
 pub(super) fn call_arg_value(argument: &HirCallArg) -> &HirExpression {
@@ -40,16 +48,14 @@ pub(super) fn constructor_arg_field_type<'a>(
     argument: &HirConstructorArg,
     index: usize,
     fields: Option<&'a [HirTypeField]>,
-) -> Option<String> {
+) -> Option<ParameterType> {
     let fields = fields?;
     match argument {
-        HirConstructorArg::Positional(_) => fields
-            .get(index)
-            .map(|field| field.type_.name().into_owned()),
+        HirConstructorArg::Positional(_) => fields.get(index).map(|field| field.type_.clone()),
         HirConstructorArg::Named { name, .. } => fields
             .iter()
             .find(|field| field.name == *name)
-            .map(|field| field.type_.name().into_owned()),
+            .map(|field| field.type_.clone()),
     }
 }
 
@@ -522,13 +528,19 @@ pub(super) fn param_types_eq(a: &HirFunction, b: &HirFunction) -> bool {
 
 /// Whether a function's parameter types exactly match an argument-type list (the
 /// same exact-match rule ordinary overload resolution uses).
-pub(super) fn params_match(function: &HirFunction, arg_types: &[String]) -> bool {
+/// Whether a candidate overload's declared parameter types match a call's
+/// argument types exactly, position for position.
+///
+/// plan-106-A: compares [`ParameterType`]s structurally. An un-annotated
+/// parameter ([`ParameterType::Unknown`]) matches nothing, exactly as the
+/// previous `opt_type_name(..) == Some(actual)` form did by yielding `None`.
+pub(super) fn params_match(function: &HirFunction, arg_types: &[ParameterType]) -> bool {
     function.params.len() == arg_types.len()
         && function
             .params
             .iter()
             .zip(arg_types.iter())
-            .all(|(param, actual)| opt_type_name(&param.type_).as_deref() == Some(actual.as_str()))
+            .all(|(param, actual)| opt_type(&param.type_).as_ref() == Some(actual))
 }
 
 pub(super) fn sanitize_type_name(value: &str) -> String {
@@ -544,20 +556,40 @@ pub(super) fn sanitize_type_name(value: &str) -> String {
         .collect()
 }
 
-pub(super) fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'static str {
-    numeric::binary_result_type(operator, left, right).unwrap_or(numeric::TYPE_INTEGER)
-}
-
-pub(super) fn promote_loop_numeric_type_name(start: &str, end: &str, step: &str) -> String {
-    let first = numeric_binary_result_type("+", start, end);
-    numeric_binary_result_type("+", first, step).to_string()
-}
-
 pub(super) fn constructor_arg_value(argument: &HirConstructorArg) -> &HirExpression {
     match argument {
         HirConstructorArg::Positional(value) => value,
         HirConstructorArg::Named { value, .. } => value,
     }
+}
+
+/// The two type-environment entries a concrete function contributes: its return
+/// type, and its type as a first-class *value*.
+///
+/// plan-106-A: both are [`ParameterType`]s. The signature used to be
+/// `format!("{ISOLATED }FUNC({params}) AS {returns}")`; it is now a
+/// [`Func`](ParameterType::Func) built from the declared types, which renders to
+/// exactly that spelling. An un-annotated slot becomes
+/// [`Unknown`](ParameterType::Unknown) (rendering `"Unknown"`) and a `SUB`
+/// returns [`Nothing`](ParameterType::Nothing), reproducing the two
+/// `unwrap_or_else` defaults the string form applied.
+///
+/// Shared by `Monomorphizer::function_context` and `add_function_to_context`,
+/// which carried byte-identical copies of this construction.
+pub(super) fn function_signature_types(function: &HirFunction) -> (ParameterType, ParameterType) {
+    let returns = match function.kind {
+        crate::ast::FunctionKind::Func => {
+            opt_type(&function.returns).unwrap_or(ParameterType::Unknown)
+        }
+        crate::ast::FunctionKind::Sub => ParameterType::Nothing,
+    };
+    let params = function
+        .params
+        .iter()
+        .map(|param| opt_type(&param.type_).unwrap_or(ParameterType::Unknown))
+        .collect::<Vec<_>>();
+    let signature = ParameterType::Func(params, Box::new(returns.clone()), function.isolated);
+    (returns, signature)
 }
 
 #[cfg(test)]
@@ -1002,8 +1034,8 @@ mod tests {
         let c = func("f", vec![param("z", Some("String"))], None);
         assert!(param_types_eq(&a, &b));
         assert!(!param_types_eq(&a, &c));
-        assert!(params_match(&a, &["Integer".to_string()]));
-        assert!(!params_match(&a, &["String".to_string()]));
+        assert!(params_match(&a, &[ParameterType::Integer]));
+        assert!(!params_match(&a, &[ParameterType::String]));
         assert!(!params_match(&a, &[]));
     }
 
@@ -1017,8 +1049,8 @@ mod tests {
             column: 1,
         };
         assert_eq!(
-            arg_slot_expected(&call, Some(&params), |p| p.first()).as_deref(),
-            Some("Integer")
+            arg_slot_expected(&call, Some(&params), |p| p.first()),
+            Some(ParameterType::Integer)
         );
         // Non-call arguments get no contextual type.
         let lit = HirExpression::Number("1".to_string());
@@ -1045,8 +1077,8 @@ mod tests {
         ];
         let pos = HirConstructorArg::Positional(HirExpression::Number("1".to_string()));
         assert_eq!(
-            constructor_arg_field_type(&pos, 1, Some(&fields)).as_deref(),
-            Some("String")
+            constructor_arg_field_type(&pos, 1, Some(&fields)),
+            Some(ParameterType::String)
         );
         let named = HirConstructorArg::Named {
             name: "x".to_string(),
@@ -1054,8 +1086,8 @@ mod tests {
             line: 1,
         };
         assert_eq!(
-            constructor_arg_field_type(&named, 0, Some(&fields)).as_deref(),
-            Some("Integer")
+            constructor_arg_field_type(&named, 0, Some(&fields)),
+            Some(ParameterType::Integer)
         );
         // No fields known.
         assert_eq!(constructor_arg_field_type(&pos, 0, None), None);
@@ -1083,19 +1115,40 @@ mod tests {
 
     #[test]
     fn numeric_result_and_loop_promotion() {
+        // plan-106-A deleted monomorph's `numeric_binary_result_type` wrapper;
+        // the engine calls the one typed source directly.
         assert_eq!(
-            numeric_binary_result_type("+", "Integer", "Integer"),
-            "Integer"
+            crate::numeric::typed_binary_result_type(
+                "+",
+                &ParameterType::Integer,
+                &ParameterType::Integer
+            ),
+            Some(ParameterType::Integer)
         );
-        assert_eq!(numeric_binary_result_type("+", "Integer", "Float"), "Float");
+        assert_eq!(
+            crate::numeric::typed_binary_result_type(
+                "+",
+                &ParameterType::Integer,
+                &ParameterType::Float
+            ),
+            Some(ParameterType::Float)
+        );
         // A Float bound anywhere in a FOR loop promotes the counter type.
         assert_eq!(
-            promote_loop_numeric_type_name("Integer", "Float", "Integer"),
-            "Float"
+            crate::numeric::typed_promote_loop_numeric_type(
+                &ParameterType::Integer,
+                &ParameterType::Float,
+                &ParameterType::Integer
+            ),
+            ParameterType::Float
         );
         assert_eq!(
-            promote_loop_numeric_type_name("Integer", "Integer", "Integer"),
-            "Integer"
+            crate::numeric::typed_promote_loop_numeric_type(
+                &ParameterType::Integer,
+                &ParameterType::Integer,
+                &ParameterType::Integer
+            ),
+            ParameterType::Integer
         );
     }
 

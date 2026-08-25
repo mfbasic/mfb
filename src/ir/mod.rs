@@ -80,6 +80,8 @@ pub(crate) use link::{
     BYTE_LIST_TYPE,
 };
 #[cfg(test)]
+pub use lower::lower_monomorphized_project;
+#[cfg(test)]
 pub use lower::lower_project_with_external_functions;
 pub use lower::{
     lower_augmented_project, write_ir, ImportedTypeDef, ImportedTypeField, ImportedTypeKind,

@@ -1,6 +1,6 @@
 //! `astrings::toMarkdown` — Tier-C rendering member (`Body::Rewrite`).
 //!
-//! Backed by the injected source companion (`package.mfb`): a call rewrites to the
+//! Backed by the injected source (the per-helper `helper_*.rs` bodies): a call rewrites to the
 //! internal `__astrings_toMarkdown` FUNC through the registry's `rewrite_target`.
 //! Renders the resolved styling into a bespoke markdown-flavored format.
 

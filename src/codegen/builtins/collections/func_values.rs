@@ -2,7 +2,7 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::types::map_type_parts;
+use crate::codegen::engine::types::typed_map_type_parts;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -105,7 +105,9 @@ pub(crate) fn lower_values(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let collection = &args[0];
-    let Some((_, value_type)) = map_type_parts(&collection.type_.name()) else {
+    let Some((_, value_type)) = typed_map_type_parts(&collection.type_)
+        .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
+    else {
         return Err(format!(
             "native collection values does not accept {}",
             collection.type_

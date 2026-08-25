@@ -9,8 +9,12 @@ use crate::target::shared::nir::*;
 use crate::target::shared::runtime;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
-    pub(crate) fn is_thread_type(type_: &str) -> bool {
-        type_.starts_with("Thread OF ")
+    /// Whether a type is a PARENT-side thread handle (`Thread OF …`).
+    ///
+    /// plan-106-E: the handle and its side are a variant and its `worker` flag,
+    /// not a prefix on a spelling.
+    pub(crate) fn is_thread_type(type_: &ParameterType) -> bool {
+        matches!(type_, ParameterType::ThreadHandle { worker: false, .. })
     }
 
     pub(crate) fn thread_drop_symbol() -> String {
@@ -32,7 +36,7 @@ impl CodeBuilder<'_> {
         if self
             .locals
             .get(name)
-            .is_some_and(|local| Self::is_thread_type(&local.type_.name()))
+            .is_some_and(|local| Self::is_thread_type(&local.type_))
         {
             self.deactivate_thread_cleanup(name);
         }
@@ -200,7 +204,7 @@ impl CodeBuilder<'_> {
                     .record_fields
                     .contains_key(msg_type.name().as_ref())
                 || self.union_is_data(&msg_type.name())
-                || msg_type.name().starts_with("Result OF ")
+                || matches!(msg_type, ParameterType::ResultOf(_))
                 || is_collection_type(&msg_type.name()));
         // bug-425: a bare thread-sendable resource (no STATE) copies to exactly one
         // RESOURCE_RECORD_SIZE block, so its size IS known. Hand it to the failed-send

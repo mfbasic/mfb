@@ -2,7 +2,7 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::types::map_type_parts;
+use crate::codegen::engine::types::typed_map_type_parts;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -119,7 +119,9 @@ pub(crate) fn lower_remove_key(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let map = args[0].clone();
-    let Some((key_type, _)) = map_type_parts(&map.type_.name()) else {
+    let Some((key_type, _)) = typed_map_type_parts(&map.type_)
+        .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
+    else {
         return Err(format!(
             "native collection removeKey does not accept {}",
             map.type_
@@ -141,5 +143,5 @@ pub(crate) fn lower_remove_key(
     let key_slot = builder.allocate_stack_object("remove_key_key", 8);
     // `d`-native float key stores via `str d` (plan-01 float-dnative).
     builder.store_value_at(&key, abi::stack_pointer(), key_slot);
-    builder.lower_map_remove_key(map_slot, key_slot, &map.type_.name(), &key_type)
+    builder.lower_map_remove_key(map_slot, key_slot, &map.type_, &key_type)
 }

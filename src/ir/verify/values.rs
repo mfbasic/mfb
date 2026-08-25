@@ -7,7 +7,7 @@ impl TypeEnv {
     /// Enforce the semantic rules on a value expression and recurse into its
     /// sub-values. Argument and sub-expression checks run before the node's own
     /// rule so the innermost violation surfaces first.
-    pub(super) fn check_value(&self, value: &IrValue, locals: &HashMap<String, String>) {
+    pub(super) fn check_value(&self, value: &IrValue, locals: &HashMap<String, ParameterType>) {
         self.check_value_depth(value, locals, 0);
     }
 
@@ -19,7 +19,7 @@ impl TypeEnv {
     pub(super) fn check_value_depth(
         &self,
         value: &IrValue,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
         depth: usize,
     ) {
         if depth > MAX_DEPTH {
@@ -96,7 +96,7 @@ impl TypeEnv {
             }
             IrValue::ResultValue { type_, value } => {
                 self.check_value_depth(value, locals, depth + 1);
-                self.check_result_value_type(&type_.name(), value, locals);
+                self.check_result_value_type(type_, value, locals);
             }
             IrValue::ResultIsOk { value } | IrValue::ResultError { value } => {
                 self.check_value_depth(value, locals, depth + 1);
@@ -106,7 +106,7 @@ impl TypeEnv {
                 self.check_unary_operand(op, operand, locals);
                 self.check_operator_result_type(
                     value,
-                    derived_unary_type(op, self.infer_type(operand, locals).as_deref()),
+                    derived_unary_type(op, self.infer_type(operand, locals).as_ref()),
                 );
             }
             IrValue::Binary {
@@ -119,8 +119,8 @@ impl TypeEnv {
                     value,
                     derived_binary_type(
                         op,
-                        self.infer_type(left, locals).as_deref(),
-                        self.infer_type(right, locals).as_deref(),
+                        self.infer_type(left, locals).as_ref(),
+                        self.infer_type(right, locals).as_ref(),
                     ),
                 );
             }
@@ -133,40 +133,43 @@ impl TypeEnv {
                 // Reconcile the (attacker-controlled) stamped `type_` against the
                 // target's actual type before any field/read-only rule trusts it
                 // (bug-404).
-                let type_name = type_.name();
-                self.check_with_update_type(&type_name, target, locals);
+                self.check_with_update_type(type_, target, locals);
                 // Compiler/runtime-owned records may never be updated —
                 // syntaxcheck's TYPE_READ_ONLY_RECORD_UPDATE (message differs for
                 // the Error pair vs the compiler-owned handle records). When
                 // lowering could not stamp the update's type (e.g. the target
                 // is a member access it didn't resolve), infer the target here.
-                let inferred;
-                let mut base = resource_base_type(&type_name);
-                if base.is_empty() || base == "Unknown" {
-                    inferred = self.infer_type(target, locals);
-                    if let Some(t) = &inferred {
-                        base = resource_base_type(t);
+                let mut base = resource_base_type(type_);
+                if base.name().is_empty() || matches!(base, ParameterType::Unknown) {
+                    if let Some(t) = self.infer_type(target, locals) {
+                        base = resource_base_type(&t);
                     }
                 }
-                if base == "AttributedString" {
+                // The read-only record tables are keyed by type NAME.
+                let base_name = base.name();
+                if base_name == "AttributedString" {
                     self.emit(
                         "TYPE_READ_ONLY_RECORD_UPDATE",
                         "`AttributedString` is an opaque built-in type and cannot be updated with `WITH`.".to_string(),
                     );
-                } else if matches!(base, "Error" | "ErrorLoc") {
+                } else if matches!(base_name.as_ref(), "Error" | "ErrorLoc") {
                     self.emit(
                         "TYPE_READ_ONLY_RECORD_UPDATE",
-                        format!("`{base}` is a read-only built-in record and cannot be updated."),
+                        format!(
+                            "`{base_name}` is a read-only built-in record and cannot be updated."
+                        ),
                     );
-                } else if read_only_record_type(base) {
+                } else if read_only_record_type(&base) {
                     self.emit(
                         "TYPE_READ_ONLY_RECORD_UPDATE",
-                        format!("TYPE `{base}` is read-only and cannot be updated."),
+                        format!("TYPE `{base_name}` is read-only and cannot be updated."),
                     );
                 }
                 // Each WITH update must match its field's declared type —
                 // syntaxcheck's WITH arm of TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH.
-                let fields = self.field_types.get(resource_base_type(&type_name));
+                let fields = self
+                    .field_types
+                    .get(resource_base_type(type_).name().as_ref());
                 let mut seen_fields: HashSet<&str> = HashSet::new();
                 for update in updates {
                     self.check_value_depth(&update.value, locals, depth + 1);
@@ -184,6 +187,7 @@ impl TypeEnv {
                         continue;
                     };
                     if !self.expression_compatible(expected, &actual, &update.value) {
+                        let (actual, expected) = (actual.name(), expected.name());
                         self.emit(
                             "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
                             format!(
@@ -207,12 +211,12 @@ impl TypeEnv {
                 // A crafted list whose elements do not match its element type is
                 // a type confusion: codegen lays out and reads elements
                 // uniformly by the declared element type.
-                let type_name = type_.name();
-                if let Some(element) = type_name.strip_prefix("List OF ") {
+                if let ParameterType::ListOf(element) = type_ {
                     for v in values {
                         self.check_literal_range(element, v);
                         if let Some(actual) = self.infer_type(v, locals) {
                             if !self.expression_compatible(element, &actual, v) {
+                                let (actual, element) = (actual.name(), element.name());
                                 self.emit(
                                     "TYPE_LIST_ELEMENT_MISMATCH",
                                     format!("List element has type {actual}, expected {element}."),
@@ -229,12 +233,12 @@ impl TypeEnv {
                 // A `Set OF T` element is laid out and read uniformly by the
                 // declared element type, so a crafted mismatch is a type
                 // confusion (mirrors the `List OF T` element check above).
-                let type_name = type_.name();
-                if let Some(element) = type_name.strip_prefix("Set OF ") {
+                if let ParameterType::SetOf(element) = type_ {
                     for v in values {
                         self.check_literal_range(element, v);
                         if let Some(actual) = self.infer_type(v, locals) {
                             if !self.expression_compatible(element, &actual, v) {
+                                let (actual, element) = (actual.name(), element.name());
                                 self.emit(
                                     "TYPE_SET_ELEMENT_MISMATCH",
                                     format!("Set element has type {actual}, expected {element}."),
@@ -245,18 +249,18 @@ impl TypeEnv {
                 }
             }
             IrValue::MapLiteral { type_, entries } => {
-                let type_name = type_.name();
                 for (k, v) in entries {
                     self.check_value_depth(k, locals, depth + 1);
                     self.check_value_depth(v, locals, depth + 1);
                 }
-                self.check_map_key_comparable(&type_name);
-                if let Some((key_type, value_type)) = parse_map(&type_name) {
+                self.check_map_key_comparable(type_);
+                if let ParameterType::MapOf(key_type, value_type) = type_ {
                     for (k, v) in entries {
                         self.check_literal_range(key_type, k);
                         self.check_literal_range(value_type, v);
                         if let Some(actual) = self.infer_type(k, locals) {
                             if !self.expression_compatible(key_type, &actual, k) {
+                                let (actual, key_type) = (actual.name(), key_type.name());
                                 self.emit(
                                     "TYPE_MAP_KEY_MISMATCH",
                                     format!("Map key has type {actual}, expected {key_type}."),
@@ -265,6 +269,7 @@ impl TypeEnv {
                         }
                         if let Some(actual) = self.infer_type(v, locals) {
                             if !self.expression_compatible(value_type, &actual, v) {
+                                let (actual, value_type) = (actual.name(), value_type.name());
                                 self.emit(
                                     "TYPE_MAP_VALUE_MISMATCH",
                                     format!("Map value has type {actual}, expected {value_type}."),
@@ -294,12 +299,12 @@ impl TypeEnv {
     /// `lower.rs:1141`) never rejects.
     pub(super) fn check_result_value_type(
         &self,
-        type_: &str,
+        type_: &ParameterType,
         value: &IrValue,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         let annotated = resource_base_type(type_);
-        if annotated.is_empty() || annotated == "Unknown" {
+        if annotated.name().is_empty() || matches!(annotated, ParameterType::Unknown) {
             return;
         }
         let Some(inner) = self.infer_type(value, locals) else {
@@ -316,15 +321,15 @@ impl TypeEnv {
         // hits this) would be rejected asymmetrically (bug-429). Its
         // `type_ == success_type` invariant holds; the two sides must normalize
         // identically.
-        let inner_base = inner.strip_prefix("RES ").unwrap_or(&inner);
-        let Some(success) = inner_base.strip_prefix("Result OF ") else {
+        let ParameterType::ResultOf(success) = strip_res(&inner) else {
             return; // the value is not a known `Result` → nothing to reconcile
         };
         let element = resource_base_type(success);
-        if element.is_empty() || element == "Unknown" {
+        if element.name().is_empty() || matches!(element, ParameterType::Unknown) {
             return;
         }
-        if !self.compatible(annotated, element) && !self.compatible(element, annotated) {
+        if !self.compatible(&annotated, &element) && !self.compatible(&element, &annotated) {
+            let (annotated, element) = (annotated.name(), element.name());
             self.emit(
                 VERIFY_TYPE,
                 format!(
@@ -344,22 +349,23 @@ impl TypeEnv {
     /// own type — never rejects.
     pub(super) fn check_with_update_type(
         &self,
-        type_: &str,
+        type_: &ParameterType,
         target: &IrValue,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         let annotated = resource_base_type(type_);
-        if annotated.is_empty() || annotated == "Unknown" {
+        if annotated.name().is_empty() || matches!(annotated, ParameterType::Unknown) {
             return;
         }
         let Some(actual) = self.infer_type(target, locals) else {
             return;
         };
         let actual = resource_base_type(&actual);
-        if actual.is_empty() || actual == "Unknown" {
+        if actual.name().is_empty() || matches!(actual, ParameterType::Unknown) {
             return;
         }
-        if !self.compatible(annotated, actual) && !self.compatible(actual, annotated) {
+        if !self.compatible(&annotated, &actual) && !self.compatible(&actual, &annotated) {
+            let (annotated, actual) = (annotated.name(), actual.name());
             self.emit(
                 VERIFY_TYPE,
                 format!(
@@ -380,29 +386,39 @@ impl TypeEnv {
     /// report whether it emitted any diagnostic (the literal was out of
     /// `expected`'s range). Callers use this to suppress a redundant follow-up
     /// type/assignment check when the literal already failed its range.
-    pub(super) fn check_literal_range_errored(&self, expected: &str, value: &IrValue) -> bool {
+    pub(super) fn check_literal_range_errored(
+        &self,
+        expected: &ParameterType,
+        value: &IrValue,
+    ) -> bool {
         let before = self.diags.borrow().len();
         self.check_literal_range(expected, value);
         self.diags.borrow().len() > before
     }
 
-    pub(super) fn check_literal_range(&self, expected: &str, value: &IrValue) {
+    pub(super) fn check_literal_range(&self, expected: &ParameterType, value: &IrValue) {
         // Only a *numeric* literal can overflow a numeric range; a non-numeric
         // Const in a numeric position (e.g. a String arg where Integer is
         // expected) is an argument/assignment mismatch, not a literal overflow.
-        let numeric = |t: &str| {
+        // plan-106-B: a variant match, except `Scalar`, which has no variant and
+        // is a nominal.
+        let numeric = |t: &ParameterType| {
             matches!(
                 t,
-                "Integer" | "Byte" | "Float" | "Fixed" | "Money" | "Scalar"
-            )
+                ParameterType::Integer
+                    | ParameterType::Byte
+                    | ParameterType::Float
+                    | ParameterType::Fixed
+                    | ParameterType::Money
+            ) || t.is_named("Scalar")
         };
         match value {
-            IrValue::Const { type_, value } if numeric(&type_.name()) => {
+            IrValue::Const { type_, value } if numeric(type_) => {
                 self.check_const_literal(expected, value)
             }
             IrValue::Unary { op, operand, .. } if op == "-" => {
                 if let IrValue::Const { type_, value } = operand.as_ref() {
-                    if numeric(&type_.name()) {
+                    if numeric(type_) {
                         self.check_negated_const_literal(expected, value);
                     }
                 }
@@ -412,8 +428,8 @@ impl TypeEnv {
     }
 
     /// The positive/overflow direction of the literal-range check.
-    pub(super) fn check_const_literal(&self, type_: &str, value: &str) {
-        match type_ {
+    pub(super) fn check_const_literal(&self, type_: &ParameterType, value: &str) {
+        match type_.name().as_ref() {
             "Byte" if !value.contains('.') => {
                 if value.parse::<u16>().map_or(true, |n| n > u8::MAX as u16) {
                     self.emit(
@@ -489,8 +505,8 @@ impl TypeEnv {
     }
 
     /// The underflow direction of the literal-range check for a `-<literal>`.
-    pub(super) fn check_negated_const_literal(&self, type_: &str, value: &str) {
-        match type_ {
+    pub(super) fn check_negated_const_literal(&self, type_: &ParameterType, value: &str) {
+        match type_.name().as_ref() {
             "Byte" if !value.contains('.') && value != "0" => {
                 self.emit(
                     "TYPE_BYTE_LITERAL_UNDERFLOW",
@@ -565,7 +581,7 @@ impl TypeEnv {
         &self,
         target: &IrValue,
         member: &str,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         // `Enum.Member` selection: the target is the bare enum TYPE name (no
         // local shadows it), so the member must be one of the enum's declared
@@ -583,9 +599,12 @@ impl TypeEnv {
                 }
             }
         }
-        let Some(type_name) = self.infer_type(target, locals) else {
+        let Some(target_type) = self.infer_type(target, locals) else {
             return;
         };
+        // The declaration tables below (STATE clause, primitive set, record field
+        // sets) are keyed by type NAME; render once.
+        let type_name = target_type.name();
         // Reading `.state` off a resource that declares none. Diagnosed here so it
         // names STATE, matching the write path's `TYPE_STATE_INVALID` (plan-52-C
         // §4). Without this the read degrades to `Unknown` and the error surfaces
@@ -605,10 +624,10 @@ impl TypeEnv {
         // statement, from whichever rule knows the most.
         if member == "state"
             && !self.checking_state_assign.get()
-            && crate::codegen::resource::state_type_name(&type_name).is_none()
-            && self.is_resource_or_resource_union(resource_base_type(&type_name))
+            && target_type.state().is_none()
+            && self.is_resource_or_resource_union(&resource_base_type(&target_type).name())
         {
-            let base = resource_base_type(&type_name);
+            let base = resource_base_type(&target_type).name();
             self.emit(
                 "TYPE_STATE_INVALID",
                 format!(
@@ -619,7 +638,7 @@ impl TypeEnv {
         }
         // The `t.result` field is removed; worker outcomes come only through
         // `thread::waitFor(t)` (syntaxcheck's TYPE_THREAD_RESULT_REMOVED).
-        if resource_base_type(&type_name).starts_with("Thread") && member == "result" {
+        if is_thread_type(&resource_base_type(&target_type)) && member == "result" {
             self.emit(
                 "TYPE_THREAD_RESULT_REMOVED",
                 "Thread values have no `result` field; use `thread::waitFor(t)` to retrieve the worker outcome."
@@ -627,7 +646,7 @@ impl TypeEnv {
             );
             return;
         }
-        if PRIMITIVE_TYPES.contains(&type_name.as_str()) {
+        if PRIMITIVE_TYPES.contains(&type_name.as_ref()) {
             self.emit(
                 "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
                 format!("field access requires a record value, got `{type_name}`."),
@@ -686,7 +705,7 @@ impl TypeEnv {
         op: &str,
         left: &IrValue,
         right: &IrValue,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         let (Some(lt), Some(rt)) = (
             self.infer_type(left, locals),
@@ -698,7 +717,10 @@ impl TypeEnv {
         // obeys the dimensional lattice and the Money-only comparison rule
         // (plan-29-A §4.2/§4.3), not the ordinary numeric acceptance. `Unknown`
         // on either side stays permissive (no false reject).
-        if (lt == "Money" || rt == "Money") && lt != "Unknown" && rt != "Unknown" {
+        if (matches!(lt, ParameterType::Money) || matches!(rt, ParameterType::Money))
+            && !matches!(lt, ParameterType::Unknown)
+            && !matches!(rt, ParameterType::Unknown)
+        {
             self.check_money_operands(op, &lt, &rt);
             return;
         }
@@ -707,17 +729,27 @@ impl TypeEnv {
         // only fires when *both* sides are known, so an Unknown companion falls
         // through here and must not be rejected (module "Unknown stays
         // permissive" contract, :1834).
-        let numeric = |t: &str| {
+        // plan-106-B: variant matches. `Scalar` alone has no variant (it is a
+        // nominal), so it is the one name test here.
+        let numeric = |t: &ParameterType| {
             matches!(
                 t,
-                "Integer" | "Byte" | "Float" | "Fixed" | "Money" | "Unknown"
+                ParameterType::Integer
+                    | ParameterType::Byte
+                    | ParameterType::Float
+                    | ParameterType::Fixed
+                    | ParameterType::Money
+                    | ParameterType::Unknown
             )
         };
-        let string = |t: &str| matches!(t, "String" | "Unknown");
-        let boolean = |t: &str| matches!(t, "Boolean" | "Unknown");
+        let string =
+            |t: &ParameterType| matches!(t, ParameterType::String | ParameterType::Unknown);
+        let boolean =
+            |t: &ParameterType| matches!(t, ParameterType::Boolean | ParameterType::Unknown);
         // Scalar orders by codepoint value; non-numeric, and never orders against
         // String (plan-41-A). Both operands must be Scalar (Unknown permissive).
-        let scalar = |t: &str| matches!(t, "Scalar" | "Unknown");
+        let scalar =
+            |t: &ParameterType| matches!(t, ParameterType::Unknown) || t.is_named("Scalar");
         let ok = match op {
             "AND" | "OR" | "XOR" => boolean(&lt) && boolean(&rt),
             "&" => string(&lt) && string(&rt),
@@ -753,6 +785,7 @@ impl TypeEnv {
                 } else {
                     "TYPE_BINARY_OPERATOR_MISMATCH"
                 };
+                let (lt, rt) = (lt.name(), rt.name());
                 self.emit(
                     rule,
                     format!(
@@ -767,6 +800,7 @@ impl TypeEnv {
                 "<" | ">" | "<=" | ">=" => "numeric or String operands",
                 _ => "numeric operands",
             };
+            let (lt, rt) = (lt.name(), rt.name());
             self.emit(
                 "TYPE_BINARY_OPERATOR_MISMATCH",
                 format!("Operator `{op}` requires {requirement}, got {lt} and {rt}."),
@@ -779,9 +813,10 @@ impl TypeEnv {
     /// scalar scaling, `M/M` ratio, `M MOD M`, and Money-only comparison are
     /// accepted; every other pairing emits `TYPE_MONEY_OPERATION_INVALID` with a
     /// message that explains *why*.
-    pub(super) fn check_money_operands(&self, op: &str, lt: &str, rt: &str) {
-        let l_money = lt == "Money";
-        let r_money = rt == "Money";
+    pub(super) fn check_money_operands(&self, op: &str, lt: &ParameterType, rt: &ParameterType) {
+        let l_money = matches!(lt, ParameterType::Money);
+        let r_money = matches!(rt, ParameterType::Money);
+        let (lt, rt) = (lt.name(), rt.name());
         if matches!(op, "=" | "<>" | "<" | ">" | "<=" | ">=") {
             // Money compares only with Money (both operands, both directions).
             if l_money != r_money {
@@ -794,7 +829,7 @@ impl TypeEnv {
             }
             return;
         }
-        if crate::numeric::money_result_type(op, l_money, r_money).is_some() {
+        if crate::numeric::typed_money_result_type(op, l_money, r_money).is_some() {
             return;
         }
         // Craft an explanation for the specific invalid pairing.
@@ -819,100 +854,110 @@ impl TypeEnv {
     /// (`syntaxcheck::is_comparable`): primitives/enums yes; collections,
     /// functions, results, resources, and unions no; a record only if every
     /// field is comparable. `Unknown` is comparable (never a false rejection).
-    pub(super) fn is_comparable(&self, type_: &str) -> bool {
-        self.is_comparable_seen(resource_base_type(type_), &mut HashSet::new())
+    pub(super) fn is_comparable(&self, type_: &ParameterType) -> bool {
+        self.is_comparable_seen(&resource_base_type(type_), &mut HashSet::new())
     }
 
     /// Every `Map OF K TO V` nested anywhere in `type_` must have a comparable
     /// key — `syntaxcheck`'s map-key arm of `TYPE_REQUIRES_COMPARABLE` (an
     /// incomparable key breaks the map's hash/equality contract at runtime).
-    pub(super) fn check_map_key_comparable(&self, type_: &str) {
+    pub(super) fn check_map_key_comparable(&self, type_: &ParameterType) {
         let t = resource_base_type(type_);
-        if let Some(inner) = t.strip_prefix("List OF ") {
-            self.check_map_key_comparable(inner);
-            return;
-        }
-        if let Some(inner) = t.strip_prefix("Set OF ") {
+        match &t {
+            ParameterType::ListOf(inner) => self.check_map_key_comparable(inner),
             // A `Set OF T` element must be comparable — it is the Set's hash/equality
             // key exactly as a Map key is (plan-63, §4.2). Same diagnostic *code* as
             // the map-key check (`TYPE_REQUIRES_COMPARABLE`), distinct message.
-            if !inner.is_empty()
-                && inner != "Unknown"
-                && self.contains_resource_or_thread(inner, &mut HashSet::new())
-            {
-                self.emit(
-                    "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
-                    format!(
-                        "Ordinary collections cannot store element values of type `{inner}` because they contain a resource or thread handle."
-                    ),
-                );
+            ParameterType::SetOf(inner) => {
+                self.check_collection_element_comparable(inner, "element");
+                self.check_map_key_comparable(inner);
             }
-            if !inner.is_empty() && inner != "Unknown" && !self.is_comparable(inner) {
-                self.emit(
-                    "TYPE_REQUIRES_COMPARABLE",
-                    format!("Set element type requires a comparable type, got `{inner}`."),
-                );
+            ParameterType::MapOf(key, value) => {
+                // A resource/thread may never be a Map key (handles are not
+                // comparable and ordinary collections cannot own them) —
+                // syntaxcheck's TYPE_COLLECTION_OWNERSHIP_VIOLATION key arm.
+                self.check_collection_element_comparable(key, "key");
+                self.check_map_key_comparable(key);
+                self.check_map_key_comparable(value);
             }
-            self.check_map_key_comparable(inner);
-            return;
-        }
-        if let Some((key, value)) = parse_map(t) {
-            // A resource/thread may never be a Map key (handles are not
-            // comparable and ordinary collections cannot own them) —
-            // syntaxcheck's TYPE_COLLECTION_OWNERSHIP_VIOLATION key arm.
-            if !key.is_empty()
-                && key != "Unknown"
-                && self.contains_resource_or_thread(key, &mut HashSet::new())
-            {
-                self.emit(
-                    "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
-                    format!(
-                        "Ordinary collections cannot store key values of type `{key}` because they contain a resource or thread handle."
-                    ),
-                );
-            }
-            if !key.is_empty() && key != "Unknown" && !self.is_comparable(key) {
-                self.emit(
-                    "TYPE_REQUIRES_COMPARABLE",
-                    format!("Map key type requires a comparable type, got `{key}`."),
-                );
-            }
-            self.check_map_key_comparable(key);
-            self.check_map_key_comparable(value);
+            _ => {}
         }
     }
 
-    pub(super) fn is_comparable_seen(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
-        if is_comparable_defaultable_primitive(type_) {
+    /// The ownership + comparability pair a Set element and a Map key both must
+    /// satisfy. `role` is `"element"` or `"key"`; it selects the wording only.
+    ///
+    /// plan-106-B: extracted from the two byte-identical arms
+    /// `check_map_key_comparable` carried for `Set OF T` and `Map OF K TO V`.
+    /// An empty or `Unknown` type is skipped, exactly as the string guards did.
+    fn check_collection_element_comparable(&self, type_: &ParameterType, role: &str) {
+        let name = type_.name();
+        if name.is_empty() || matches!(type_, ParameterType::Unknown) {
+            return;
+        }
+        if self.contains_resource_or_thread(type_, &mut HashSet::new()) {
+            self.emit(
+                "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+                format!(
+                    "Ordinary collections cannot store {role} values of type `{name}` because they contain a resource or thread handle."
+                ),
+            );
+        }
+        if !self.is_comparable(type_) {
+            let subject = if role == "element" {
+                "Set element type"
+            } else {
+                "Map key type"
+            };
+            self.emit(
+                "TYPE_REQUIRES_COMPARABLE",
+                format!("{subject} requires a comparable type, got `{name}`."),
+            );
+        }
+    }
+
+    /// plan-106-B: the "is it a container?" test is a variant match rather than a
+    /// `starts_with` cascade. `Thread`/`ThreadWorker` are one
+    /// [`ThreadHandle`](ParameterType::ThreadHandle) variant; `FUNC(` is
+    /// [`Func`](ParameterType::Func). The remaining tests are NAME lookups into
+    /// the declaration tables (unions, enums, record fields), so they render.
+    pub(super) fn is_comparable_seen(
+        &self,
+        type_: &ParameterType,
+        seen: &mut HashSet<String>,
+    ) -> bool {
+        let name = type_.name();
+        if is_comparable_defaultable_primitive(&name) {
             return true;
         }
-        if type_.starts_with("List OF ")
-            || type_.starts_with("Set OF ")
-            || type_.starts_with("Map OF ")
-            || type_.starts_with("Result OF ")
-            || type_.starts_with("FUNC(")
-            || type_.starts_with("Thread ")
-            || type_.starts_with("ThreadWorker ")
-        {
+        if matches!(
+            type_,
+            ParameterType::ListOf(_)
+                | ParameterType::SetOf(_)
+                | ParameterType::MapOf(_, _)
+                | ParameterType::ResultOf(_)
+                | ParameterType::Func(_, _, _)
+                | ParameterType::ThreadHandle { .. }
+        ) {
             return false;
         }
-        if is_resource_name(type_) {
+        if is_resource_name(&name) {
             return false;
         }
-        if self.unions.contains_key(type_) {
+        if self.unions.contains_key(name.as_ref()) {
             return false;
         }
-        if self.enums.contains_key(type_) {
+        if self.enums.contains_key(name.as_ref()) {
             return true;
         }
-        if !seen.insert(type_.to_string()) {
+        if !seen.insert(name.clone().into_owned()) {
             return false; // a cycle → not a base case
         }
-        if let Some(fields) = self.field_types.get(type_) {
+        if let Some(fields) = self.field_types.get(name.as_ref()) {
             let all = fields
                 .values()
-                .all(|ft| self.is_comparable_seen(resource_base_type(ft), seen));
-            seen.remove(type_);
+                .all(|ft| self.is_comparable_seen(&resource_base_type(ft), seen));
+            seen.remove(name.as_ref());
             return all;
         }
         // Unknown user type — permissive (no false rejection).

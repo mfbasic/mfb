@@ -14,7 +14,7 @@
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::list_element_type;
+use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -37,13 +37,13 @@ impl CodeBuilder<'_> {
         let Some(list_type) = self.static_type_name(&args[0]) else {
             return Ok(None);
         };
-        let Some(element_type) = list_element_type(&list_type) else {
+        let Some(element_type) = typed_list_element_type(&list_type) else {
             return Ok(None);
         };
         if CollectionTypeLayout::from_type(&list_type).is_none() {
             return Ok(None);
         }
-        let result = self.lower_list_slice_range(args, &element_type)?;
+        let result = self.lower_list_slice_range(args, &element_type.name())?;
         Ok(Some(result))
     }
 
@@ -57,10 +57,12 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
         element_type: &str,
     ) -> Result<ValueResult, String> {
-        let layout = CollectionTypeLayout::from_type(&format!("List OF {element_type}"))
-            .ok_or_else(|| {
-                format!("native code collection type 'List OF {element_type}' is not supported")
-            })?;
+        let layout = CollectionTypeLayout::from_type(&ParameterType::list_of(
+            ParameterType::parse(&element_type),
+        ))
+        .ok_or_else(|| {
+            format!("native code collection type 'List OF {element_type}' is not supported")
+        })?;
         let s8 = self.temporary_vreg();
         let s9 = self.temporary_vreg();
         let s10 = self.temporary_vreg();
@@ -407,7 +409,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&format!("List OF {element_type}")),
+            type_: ParameterType::list_of(ParameterType::parse(&element_type)),
             location: Operand::from(result.render()),
             text: format!("slice(List OF {element_type})"),
         })
@@ -428,8 +430,9 @@ impl CodeBuilder<'_> {
         start_slot: usize,
         count_slot: usize,
     ) -> Result<usize, String> {
-        let layout = CollectionTypeLayout::from_type("List OF String")
-            .ok_or_else(|| "native String slice: List OF String layout".to_string())?;
+        let layout =
+            CollectionTypeLayout::from_type(&ParameterType::list_of(ParameterType::String))
+                .ok_or_else(|| "native String slice: List OF String layout".to_string())?;
         let s8 = self.temporary_vreg();
         let s9 = self.temporary_vreg();
         let s10 = self.temporary_vreg();

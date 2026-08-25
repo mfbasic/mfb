@@ -2193,7 +2193,9 @@ mod tests {
             .expect("manifest");
         let ast = ast::parse_project("app", &project_dir, &manifest).expect("ast");
 
-        assert!(validate_entry_point(&project_dir, &manifest, &ast).is_err());
+        assert!(
+            validate_entry_point(&project_dir, &manifest, &crate::hir::elaborate(&ast)).is_err()
+        );
 
         fs::remove_dir_all(root).expect("remove temp dir");
     }

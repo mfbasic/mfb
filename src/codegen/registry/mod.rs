@@ -990,12 +990,8 @@ impl RegistryPackage {
     /// Whether `ast` imports this package — the generic replacement for the old
     /// per-package `uses_package`. A property of the *program being compiled*, so it
     /// takes the AST rather than being a stored flag.
-    pub(crate) fn is_imported_by(&self, ast: &crate::ast::AstProject) -> bool {
-        ast.files.iter().any(|file| {
-            file.imports
-                .iter()
-                .any(|import| import.package_name() == self.import_name)
-        })
+    pub(crate) fn is_imported_by(&self, view: &ProjectView) -> bool {
+        view.imports(self.import_name)
     }
 
     /// Assemble this package's complete injectable MFBASIC source — the modern
@@ -1309,6 +1305,37 @@ impl Registry {
         &self,
         ast: &crate::ast::AstProject,
     ) -> Result<crate::ast::AstProject, ()> {
+        let synthetic_files = self.synthetic_files(&ProjectView::of_ast(ast))?;
+        if synthetic_files.is_empty() {
+            return Ok(ast.clone());
+        }
+        let mut augmented = ast.clone();
+        augmented.files.extend(synthetic_files);
+        Ok(augmented)
+    }
+
+    /// The same injection, onto the elaborated project syntaxcheck consumes
+    /// (plan-106-D). One decision procedure, two thin adapters — the synthetic
+    /// files are parsed from source and elaborated, exactly as the AST pipeline's
+    /// are parsed and then elaborated downstream.
+    pub(crate) fn augment_hir_project(
+        &self,
+        hir: &crate::hir::HirProject,
+    ) -> Result<crate::hir::HirProject, ()> {
+        let synthetic_files = self.synthetic_files(&ProjectView::of_hir(hir))?;
+        if synthetic_files.is_empty() {
+            return Ok(hir.clone());
+        }
+        let mut augmented = hir.clone();
+        augmented
+            .files
+            .extend(synthetic_files.iter().map(crate::hir::elaborate_file));
+        Ok(augmented)
+    }
+
+    /// Every builtin-package source file whose injection gate `view` opens, in
+    /// dependency order.
+    fn synthetic_files(&self, view: &ProjectView) -> Result<Vec<crate::ast::AstFile>, ()> {
         let mut synthetic_files = Vec::new();
 
         for package in self.packages() {
@@ -1335,7 +1362,7 @@ impl Registry {
             if matches!(package.import_name(), "net" | "http") {
                 continue;
             }
-            if !package.is_imported_by(ast) {
+            if !package.is_imported_by(view) {
                 continue;
             }
             let source = package.get_mfb();
@@ -1359,7 +1386,7 @@ impl Registry {
         let mut injected_helpers: std::collections::HashSet<&'static str> =
             std::collections::HashSet::new();
         for package in self.packages() {
-            let package_imported = package.is_imported_by(ast);
+            let package_imported = package.is_imported_by(view);
             for helper in package.helpers() {
                 let Some(body) = helper.body else {
                     continue; // an `import_name` ordering edge — no source to inject.
@@ -1368,18 +1395,14 @@ impl Registry {
                     HelperGate::Always => false, // rendered inline in `get_mfb`.
                     // `WhenUsed` fires only when the OWNING package is imported and a
                     // gated member is referenced (the `strings` scalar-seam gate).
-                    HelperGate::WhenUsed(names) => package_imported && references_any(ast, names),
+                    HelperGate::WhenUsed(names) => package_imported && view.references_any(names),
                     // `WhenImported` is a cross-package bridge keyed on `other` being
                     // imported — the OWNING package need NOT be imported (an
                     // `astrings`-only program does not import `strings`, yet the injected
                     // `astrings` companion calls the `strings` scalar seam, so the seam
                     // must ride in). `other` is matched by raw import name so it works for
                     // a non-registry package too (`astrings`/`term`, not yet migrated).
-                    HelperGate::WhenImported(other) => ast.files.iter().any(|file| {
-                        file.imports
-                            .iter()
-                            .any(|import| import.package_name() == other)
-                    }),
+                    HelperGate::WhenImported(other) => view.imports(other),
                     // `WhenBothImported` is a cross-package bridge whose body references
                     // BOTH packages' surface, so it must inject only when both are
                     // imported (the `term`↔`astrings` `drawText(AttributedString)`
@@ -1387,16 +1410,7 @@ impl Registry {
                     // either alone would drag the other package's surface in as dead
                     // code, shifting the injected `.ir`/`build.log` of a program that
                     // imports only one.
-                    HelperGate::WhenBothImported(a, b) => {
-                        let imports = |name: &str| {
-                            ast.files.iter().any(|file| {
-                                file.imports
-                                    .iter()
-                                    .any(|import| import.package_name() == name)
-                            })
-                        };
-                        imports(a) && imports(b)
-                    }
+                    HelperGate::WhenBothImported(a, b) => view.imports(a) && view.imports(b),
                 };
                 if !gate_open || !injected_helpers.insert(helper.name) {
                     continue;
@@ -1412,13 +1426,7 @@ impl Registry {
             }
         }
 
-        if synthetic_files.is_empty() {
-            return Ok(ast.clone());
-        }
-
-        let mut augmented = ast.clone();
-        augmented.files.extend(synthetic_files);
-        Ok(augmented)
+        Ok(synthetic_files)
     }
 
     // Generic-dispatch queries. Each answers, for a call/type, the fact the old
@@ -1698,6 +1706,18 @@ pub(crate) fn constant_type_name(qualified: &str) -> Option<&'static str> {
     find_constant(qualified).map(|constant| constant.type_name)
 }
 
+/// The typed twin of [`constant_type_name`] (plan-106-A), for the type checker
+/// and IR lowering.
+///
+/// [`RegistryConstant::type_name`] is a `&'static str` *descriptor literal*, so
+/// this is the one place the canonical grammar is applied to it — the callers
+/// then stay typed instead of each classifying the spelling themselves. Storing
+/// a `ParameterType` in the descriptor directly is a const-context change
+/// (interning is not `const`), recorded as a candidate in letter E.
+pub(crate) fn constant_type(qualified: &str) -> Option<ParameterType> {
+    constant_type_name(qualified).map(ParameterType::parse)
+}
+
 /// The literal a migrated **scalar** constant `qualified` folds to, or `None` (a record
 /// constant, or an un-migrated package) — the registry half of
 /// `builtins::package_constant_value`.
@@ -1777,6 +1797,13 @@ pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&
 /// is only known once the arguments are known — so this yields `None` for it, and the
 /// argument-aware [`resolve_call`] is used instead.
 pub(crate) fn call_return_type(qualified: &str) -> Option<Cow<'static, str>> {
+    call_return_type_typed(qualified).map(|return_type| Cow::Owned(return_type.name().into_owned()))
+}
+
+/// The typed twin of [`call_return_type`] (plan-106-A). The descriptor already
+/// holds a [`ParameterType`]; this hands back a clone instead of rendering it,
+/// so the static-nominal return path costs no allocation and crosses no string.
+pub(crate) fn call_return_type_typed(qualified: &str) -> Option<ParameterType> {
     let return_type = &registry()
         .resolve_func(qualified)?
         .function
@@ -1788,7 +1815,7 @@ pub(crate) fn call_return_type(qualified: &str) -> Option<Cow<'static, str>> {
         return None;
     }
 
-    Some(return_type.name())
+    Some(return_type.clone())
 }
 
 /// The static return type of a runtime-call **`os_alias`** (`audio.openOutputDevice`,
@@ -2453,6 +2480,17 @@ fn function_has_unary_callback(function: &RegistryFunction) -> bool {
 /// IR lowering consumes THIS to decide per-argument expected types (e.g. union
 /// wrapping), so widening the diagnostic wording never perturbs codegen (bug-443).
 pub(crate) fn argument_types(qualified: &str) -> Option<Vec<String>> {
+    Some(
+        argument_types_typed(qualified)?
+            .into_iter()
+            .map(|ty| ty.name().into_owned())
+            .collect(),
+    )
+}
+
+/// The typed twin of [`argument_types`] (plan-106-A): the descriptor's parameter
+/// types cloned rather than rendered.
+pub(crate) fn argument_types_typed(qualified: &str) -> Option<Vec<ParameterType>> {
     let function = &registry().resolve_func(qualified)?.function;
     if function.implementations.len() > 1 {
         return None;
@@ -2464,12 +2502,7 @@ pub(crate) fn argument_types(qualified: &str) -> Option<Vec<String>> {
     {
         return None;
     }
-    Some(
-        params
-            .iter()
-            .map(|param| param.ty.name().into_owned())
-            .collect(),
-    )
+    Some(params.iter().map(|param| param.ty.clone()).collect())
 }
 
 pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
@@ -2634,7 +2667,7 @@ pub(crate) fn call_param_name_overloads(qualified: &str) -> Option<Vec<Vec<&'sta
 pub(crate) fn default_argument_padding(
     qualified: &str,
     provided: usize,
-) -> Vec<(String, &'static str)> {
+) -> Vec<(ParameterType, &'static str)> {
     let Some(resolved) = registry().resolve_func(qualified) else {
         return Vec::new();
     };
@@ -2646,160 +2679,567 @@ pub(crate) fn default_argument_padding(
         .iter()
         .skip(provided)
         .filter_map(|param| match &param.default {
-            DefaultValue::Fill { type_name, expr } => {
-                let name = type_name.name().into_owned();
-                Some((name, *expr))
-            }
+            // plan-106-A: the descriptor already holds a `ParameterType`; hand it
+            // back rather than rendering it for the caller to re-parse.
+            DefaultValue::Fill { type_name, expr } => Some((type_name.clone(), *expr)),
             _ => None,
         })
         .collect()
 }
 
-/// Whether `ast` references at least one of `names` as a **call callee** — the
-/// generic evaluator for a [`HelperGate::WhenUsed`] gate (plan-99). Ported verbatim
-/// from the legacy `strings::uses_package` scalar-seam walk: a callee may be
-/// source-qualified (`strings::toScalars`), aliased (`s::toScalars`), or already
-/// canonicalized to the dotted form (`strings.toScalars`), so it is reduced to its
-/// final segment across both separators before matching. Over-matching (a user's own
-/// `toScalars`) only injects the helper unnecessarily, never wrongly.
-fn references_any(ast: &crate::ast::AstProject, names: &[&'static str]) -> bool {
-    ast.files
-        .iter()
-        .any(|file| file.items.iter().any(|item| item_references(item, names)))
+/// The project facts the builtin-source injectors gate on: which packages the
+/// program `IMPORT`s, and which call callees it names.
+///
+/// plan-106-D: both pipelines inject the same builtin sources — the AST one
+/// (`resolver::augment_project`, before monomorphization) and syntaxcheck's HIR
+/// one — and the gates read exactly these two things. Collecting them once, from
+/// either domain, is what lets ONE injector serve both. The alternative was a
+/// second copy of `is_imported_by` plus the ~100-line `references_any` AST walk
+/// per domain, which is the duplication this whole plan exists to remove.
+#[derive(Clone, Default)]
+pub(crate) struct ProjectView {
+    packages: std::collections::HashSet<String>,
+    /// Every call callee reduced to its final segment across `::` and `.`.
+    ///
+    /// A callee may be source-qualified (`strings::toScalars`), aliased
+    /// (`s::toScalars`), or already canonicalized to the dotted form
+    /// (`strings.toScalars`), so [`HelperGate::WhenUsed`] matched the final
+    /// segment. Reducing once at collection is the same match, done once per
+    /// project instead of once per gate. Over-matching (a user's own
+    /// `toScalars`) only injects a helper unnecessarily, never wrongly.
+    callees: std::collections::HashSet<String>,
 }
 
-fn callee_matches(callee: &str, names: &[&'static str]) -> bool {
-    let short = callee
+impl ProjectView {
+    pub(crate) fn of_ast(ast: &crate::ast::AstProject) -> Self {
+        let mut view = Self::default();
+        for file in &ast.files {
+            view.absorb_ast_file(file);
+        }
+        view
+    }
+
+    pub(crate) fn of_hir(hir: &crate::hir::HirProject) -> Self {
+        let mut view = Self::default();
+        for file in &hir.files {
+            view.absorb_imports(&file.imports);
+            for item in &file.items {
+                hir_item_callees(item, &mut view.callees);
+            }
+        }
+        view
+    }
+
+    /// Fold a newly injected source file into the view.
+    ///
+    /// The late passes run in a chain (`http` before `net` before `encoding`)
+    /// precisely because an injected companion carries its OWN imports — the
+    /// injected `http` source `IMPORT net`s, and `net`'s gate must see it. Each
+    /// pass therefore re-reads a view that includes what the previous one added,
+    /// exactly as the old chain re-read a progressively augmented `AstProject`.
+    pub(crate) fn absorb_ast_file(&mut self, file: &crate::ast::AstFile) {
+        self.absorb_imports(&file.imports);
+        for item in &file.items {
+            item_callees(item, &mut self.callees);
+        }
+    }
+
+    fn absorb_imports(&mut self, imports: &[crate::ast::Import]) {
+        for import in imports {
+            self.packages.insert(import.package_name().to_string());
+        }
+    }
+
+    /// Whether the program imports `package`.
+    pub(crate) fn imports(&self, package: &str) -> bool {
+        self.packages.contains(package)
+    }
+
+    /// Whether the program calls any of `names` (a [`HelperGate::WhenUsed`] gate).
+    pub(crate) fn references_any(&self, names: &[&'static str]) -> bool {
+        names.iter().any(|name| self.callees.contains(*name))
+    }
+}
+
+/// Inject a late-pass package's source companion (`http`/`net`/`encoding`) into
+/// an AST project.
+///
+/// These three are skipped by [`Registry::augment_project`]'s single pass and
+/// injected in their own dependency order afterwards, because each carries
+/// transitive imports the single pass cannot see (`http`'s companion `IMPORT
+/// net`s). plan-106-D: one implementation, since all three bodies were identical.
+pub(crate) fn inject_late_pass(
+    ast: &crate::ast::AstProject,
+    package: &str,
+    label: &str,
+    doc: &str,
+) -> Result<crate::ast::AstProject, ()> {
+    match late_pass_file(package, label, doc, &ProjectView::of_ast(ast))? {
+        Some(file) => {
+            let mut augmented = ast.clone();
+            augmented.files.push(file);
+            Ok(augmented)
+        }
+        None => Ok(ast.clone()),
+    }
+}
+
+/// The same injection onto the elaborated project syntaxcheck consumes.
+pub(crate) fn inject_late_pass_hir(
+    hir: &crate::hir::HirProject,
+    package: &str,
+    label: &str,
+    doc: &str,
+) -> Result<crate::hir::HirProject, ()> {
+    match late_pass_file(package, label, doc, &ProjectView::of_hir(hir))? {
+        Some(file) => {
+            let mut augmented = hir.clone();
+            augmented.files.push(crate::hir::elaborate_file(&file));
+            Ok(augmented)
+        }
+        None => Ok(hir.clone()),
+    }
+}
+
+fn late_pass_file(
+    package: &str,
+    label: &str,
+    doc: &str,
+    view: &ProjectView,
+) -> Result<Option<crate::ast::AstFile>, ()> {
+    let Some(pkg) = registry().resolve_package(package) else {
+        return Ok(None);
+    };
+    if !pkg.is_imported_by(view) {
+        return Ok(None);
+    }
+    Ok(Some(crate::ast::parse_source_internal(
+        std::path::Path::new(label),
+        doc,
+        &pkg.get_mfb(),
+    )?))
+}
+
+/// The final segment of a callee across `::` and `.` — the form a `WhenUsed` gate
+/// matches.
+fn short_callee(callee: &str) -> &str {
+    callee
         .rsplit("::")
         .next()
         .unwrap_or(callee)
         .rsplit('.')
         .next()
-        .unwrap_or(callee);
-    names.contains(&short)
+        .unwrap_or(callee)
 }
 
-fn item_references(item: &crate::ast::Item, names: &[&'static str]) -> bool {
+fn item_callees(item: &crate::ast::Item, out: &mut std::collections::HashSet<String>) {
     use crate::ast::Item;
     match item {
-        Item::Function(f) => f.body.iter().any(|s| stmt_references(s, names)),
-        Item::Binding(b) => b.value.as_ref().is_some_and(|v| expr_references(v, names)),
-        Item::Testing(block) => block.groups.iter().any(|g| group_references(g, names)),
-        _ => false,
+        Item::Function(f) => f.body.iter().for_each(|s| stmt_callees(s, out)),
+        Item::Binding(b) => {
+            if let Some(value) = &b.value {
+                expr_callees(value, out);
+            }
+        }
+        Item::Testing(block) => block.groups.iter().for_each(|g| group_callees(g, out)),
+        _ => {}
     }
 }
 
-fn group_references(group: &crate::ast::TestGroup, names: &[&'static str]) -> bool {
+/// A `TESTING` block is the verbatim AST node in HIR too, so one walk serves both.
+fn group_callees(group: &crate::ast::TestGroup, out: &mut std::collections::HashSet<String>) {
     use crate::ast::TestGroupMember;
-    group.members.iter().any(|member| match member {
-        TestGroupMember::Case(case) => case.body.iter().any(|s| stmt_references(s, names)),
-        TestGroupMember::Group(nested) => group_references(nested, names),
-    })
+    for member in &group.members {
+        match member {
+            TestGroupMember::Case(case) => case.body.iter().for_each(|s| stmt_callees(s, out)),
+            TestGroupMember::Group(nested) => group_callees(nested, out),
+        }
+    }
 }
 
-fn stmt_references(stmt: &crate::ast::Statement, names: &[&'static str]) -> bool {
+fn stmt_callees(stmt: &crate::ast::Statement, out: &mut std::collections::HashSet<String>) {
     use crate::ast::Statement;
-    let body = |stmts: &[Statement]| stmts.iter().any(|s| stmt_references(s, names));
     match stmt {
         Statement::Let { value, .. }
         | Statement::Return { value, .. }
         | Statement::Recover { value, .. }
         | Statement::Exit { code: value, .. } => {
-            value.as_ref().is_some_and(|v| expr_references(v, names))
+            if let Some(value) = value {
+                expr_callees(value, out);
+            }
         }
-        Statement::Fail { error, .. } => expr_references(error, names),
+        Statement::Fail { error, .. } => expr_callees(error, out),
         Statement::Assign { value, .. } | Statement::StateAssign { value, .. } => {
-            expr_references(value, names)
+            expr_callees(value, out)
         }
-        Statement::Expression { expression, .. } => expr_references(expression, names),
+        Statement::Expression { expression, .. } => expr_callees(expression, out),
         Statement::If {
             condition,
             then_body,
             else_body,
             ..
-        } => expr_references(condition, names) || body(then_body) || body(else_body),
+        } => {
+            expr_callees(condition, out);
+            then_body.iter().for_each(|s| stmt_callees(s, out));
+            else_body.iter().for_each(|s| stmt_callees(s, out));
+        }
         Statement::Match {
             expression, cases, ..
         } => {
-            expr_references(expression, names)
-                || cases
-                    .iter()
-                    .any(|case| case.body.iter().any(|s| stmt_references(s, names)))
+            expr_callees(expression, out);
+            for case in cases {
+                case.body.iter().for_each(|s| stmt_callees(s, out));
+            }
         }
         Statement::For {
             start,
             end,
             step,
-            body: b,
+            body,
             ..
         } => {
-            expr_references(start, names)
-                || expr_references(end, names)
-                || step.as_ref().is_some_and(|v| expr_references(v, names))
-                || body(b)
+            expr_callees(start, out);
+            expr_callees(end, out);
+            if let Some(step) = step {
+                expr_callees(step, out);
+            }
+            body.iter().for_each(|s| stmt_callees(s, out));
         }
-        Statement::ForEach {
-            iterable, body: b, ..
-        } => expr_references(iterable, names) || body(b),
+        Statement::ForEach { iterable, body, .. } => {
+            expr_callees(iterable, out);
+            body.iter().for_each(|s| stmt_callees(s, out));
+        }
         Statement::While {
-            condition, body: b, ..
+            condition, body, ..
         }
         | Statement::DoUntil {
-            condition, body: b, ..
-        } => expr_references(condition, names) || body(b),
-        Statement::Continue { .. } | Statement::Propagate { .. } => false,
+            condition, body, ..
+        } => {
+            expr_callees(condition, out);
+            body.iter().for_each(|s| stmt_callees(s, out));
+        }
+        Statement::Continue { .. } | Statement::Propagate { .. } => {}
     }
 }
 
-fn expr_references(expr: &crate::ast::Expression, names: &[&'static str]) -> bool {
+fn expr_callees(expr: &crate::ast::Expression, out: &mut std::collections::HashSet<String>) {
     use crate::ast::{CallArg, ConstructorArg, Expression};
-    let arg = |a: &CallArg| match a {
-        CallArg::Positional(v) | CallArg::Named { value: v, .. } => expr_references(v, names),
-    };
     match expr {
         Expression::Call {
             callee, arguments, ..
-        } => callee_matches(callee, names) || arguments.iter().any(arg),
-        Expression::Binary { left, right, .. } => {
-            expr_references(left, names) || expr_references(right, names)
-        }
-        Expression::Unary { operand, .. } => expr_references(operand, names),
-        Expression::Lambda { body, .. } => expr_references(body, names),
-        Expression::Constructor { arguments, .. } => arguments.iter().any(|a| match a {
-            ConstructorArg::Positional(v) | ConstructorArg::Named { value: v, .. } => {
-                expr_references(v, names)
+        } => {
+            out.insert(short_callee(callee).to_string());
+            for argument in arguments {
+                match argument {
+                    CallArg::Positional(v) | CallArg::Named { value: v, .. } => {
+                        expr_callees(v, out)
+                    }
+                }
             }
-        }),
+        }
+        Expression::Binary { left, right, .. } => {
+            expr_callees(left, out);
+            expr_callees(right, out);
+        }
+        Expression::Unary { operand, .. } => expr_callees(operand, out),
+        Expression::Lambda { body, .. } => expr_callees(body, out),
+        Expression::Constructor { arguments, .. } => {
+            for argument in arguments {
+                match argument {
+                    ConstructorArg::Positional(v) | ConstructorArg::Named { value: v, .. } => {
+                        expr_callees(v, out)
+                    }
+                }
+            }
+        }
         Expression::WithUpdate { target, updates } => {
-            expr_references(target, names)
-                || updates.iter().any(|u| expr_references(&u.value, names))
+            expr_callees(target, out);
+            updates.iter().for_each(|u| expr_callees(&u.value, out));
         }
-        Expression::ListLiteral(values) => values.iter().any(|v| expr_references(v, names)),
+        Expression::ListLiteral(values) => values.iter().for_each(|v| expr_callees(v, out)),
         Expression::SetLiteral { elements, .. } => {
-            elements.iter().any(|v| expr_references(v, names))
+            elements.iter().for_each(|v| expr_callees(v, out))
         }
-        Expression::MapLiteral { entries, .. } => entries
-            .iter()
-            .any(|(k, v)| expr_references(k, names) || expr_references(v, names)),
-        Expression::MemberAccess { target, .. } => expr_references(target, names),
+        Expression::MapLiteral { entries, .. } => {
+            for (key, value) in entries {
+                expr_callees(key, out);
+                expr_callees(value, out);
+            }
+        }
+        Expression::MemberAccess { target, .. } => expr_callees(target, out),
         Expression::Trapped {
             expression,
             handler,
             ..
         } => {
-            expr_references(expression, names) || handler.iter().any(|s| stmt_references(s, names))
+            expr_callees(expression, out);
+            handler.iter().for_each(|s| stmt_callees(s, out));
         }
         Expression::String(_)
         | Expression::Number(_)
         | Expression::Scalar(_)
         | Expression::Boolean(_)
-        | Expression::Identifier(_) => false,
+        | Expression::Identifier(_) => {}
+    }
+}
+
+fn hir_item_callees(item: &crate::hir::HirItem, out: &mut std::collections::HashSet<String>) {
+    use crate::hir::HirItem;
+    match item {
+        HirItem::Function(f) => f.body.iter().for_each(|s| hir_stmt_callees(s, out)),
+        HirItem::Binding(b) => {
+            if let Some(value) = &b.value {
+                hir_expr_callees(value, out);
+            }
+        }
+        // HIR reuses the AST `TestingBlock` verbatim.
+        HirItem::Testing(block) => block.groups.iter().for_each(|g| group_callees(g, out)),
+        _ => {}
+    }
+}
+
+fn hir_stmt_callees(stmt: &crate::hir::HirStatement, out: &mut std::collections::HashSet<String>) {
+    use crate::hir::HirStatement;
+    match stmt {
+        HirStatement::Let { value, .. }
+        | HirStatement::Return { value, .. }
+        | HirStatement::Recover { value, .. }
+        | HirStatement::Exit { code: value, .. } => {
+            if let Some(value) = value {
+                hir_expr_callees(value, out);
+            }
+        }
+        HirStatement::Fail { error, .. } => hir_expr_callees(error, out),
+        HirStatement::Assign { value, .. } | HirStatement::StateAssign { value, .. } => {
+            hir_expr_callees(value, out)
+        }
+        HirStatement::Expression { expression, .. } => hir_expr_callees(expression, out),
+        HirStatement::If {
+            condition,
+            then_body,
+            else_body,
+            ..
+        } => {
+            hir_expr_callees(condition, out);
+            then_body.iter().for_each(|s| hir_stmt_callees(s, out));
+            else_body.iter().for_each(|s| hir_stmt_callees(s, out));
+        }
+        HirStatement::Match {
+            expression, cases, ..
+        } => {
+            hir_expr_callees(expression, out);
+            for case in cases {
+                case.body.iter().for_each(|s| hir_stmt_callees(s, out));
+            }
+        }
+        HirStatement::For {
+            start,
+            end,
+            step,
+            body,
+            ..
+        } => {
+            hir_expr_callees(start, out);
+            hir_expr_callees(end, out);
+            if let Some(step) = step {
+                hir_expr_callees(step, out);
+            }
+            body.iter().for_each(|s| hir_stmt_callees(s, out));
+        }
+        HirStatement::ForEach { iterable, body, .. } => {
+            hir_expr_callees(iterable, out);
+            body.iter().for_each(|s| hir_stmt_callees(s, out));
+        }
+        HirStatement::While {
+            condition, body, ..
+        }
+        | HirStatement::DoUntil {
+            condition, body, ..
+        } => {
+            hir_expr_callees(condition, out);
+            body.iter().for_each(|s| hir_stmt_callees(s, out));
+        }
+        HirStatement::Continue { .. } | HirStatement::Propagate { .. } => {}
+    }
+}
+
+fn hir_expr_callees(expr: &crate::hir::HirExpression, out: &mut std::collections::HashSet<String>) {
+    use crate::hir::{HirCallArg, HirConstructorArg, HirExpression};
+    match expr {
+        HirExpression::Call {
+            callee, arguments, ..
+        } => {
+            out.insert(short_callee(callee).to_string());
+            for argument in arguments {
+                match argument {
+                    HirCallArg::Positional(v) | HirCallArg::Named { value: v, .. } => {
+                        hir_expr_callees(v, out)
+                    }
+                }
+            }
+        }
+        HirExpression::Binary { left, right, .. } => {
+            hir_expr_callees(left, out);
+            hir_expr_callees(right, out);
+        }
+        HirExpression::Unary { operand, .. } => hir_expr_callees(operand, out),
+        HirExpression::Lambda { body, .. } => hir_expr_callees(body, out),
+        HirExpression::Constructor { arguments, .. } => {
+            for argument in arguments {
+                match argument {
+                    HirConstructorArg::Positional(v)
+                    | HirConstructorArg::Named { value: v, .. } => hir_expr_callees(v, out),
+                }
+            }
+        }
+        HirExpression::WithUpdate { target, updates } => {
+            hir_expr_callees(target, out);
+            updates.iter().for_each(|u| hir_expr_callees(&u.value, out));
+        }
+        HirExpression::ListLiteral(values) => values.iter().for_each(|v| hir_expr_callees(v, out)),
+        HirExpression::SetLiteral { elements, .. } => {
+            elements.iter().for_each(|v| hir_expr_callees(v, out))
+        }
+        HirExpression::MapLiteral { entries, .. } => {
+            for (key, value) in entries {
+                hir_expr_callees(key, out);
+                hir_expr_callees(value, out);
+            }
+        }
+        HirExpression::MemberAccess { target, .. } => hir_expr_callees(target, out),
+        HirExpression::Trapped {
+            expression,
+            handler,
+            ..
+        } => {
+            hir_expr_callees(expression, out);
+            handler.iter().for_each(|s| hir_stmt_callees(s, out));
+        }
+        HirExpression::String(_)
+        | HirExpression::Number(_)
+        | HirExpression::Scalar(_)
+        | HirExpression::Boolean(_)
+        | HirExpression::Identifier(_) => {}
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// No registered descriptor may declare a [`ParameterType::Named`] whose name
+    /// *spells something with structure*: for every `Named(n)` in the catalog,
+    /// `parse(n)` must be that same `Named`.
+    ///
+    /// The failure this catches is silent. `ParameterType::named("List OF String")`
+    /// is a `Named` whose name merely *spells* a container — a different value from
+    /// `list_of(String)`, but with the identical rendering. Every pre-plan-106
+    /// consumer rendered `.name()` and re-parsed, which normalized it on the way
+    /// through; the typed accessors plan-106-A introduced read the raw variant, and
+    /// `ir::lower` then inferred the element type of `fs::pathJoin([a, b])` as
+    /// `Unknown` rather than `String` (caught by the byte-identity gate on
+    /// `rt-behavior/project/project-fs-createTempFile-package-valid`, its one
+    /// `.ir` golden).
+    ///
+    /// `named` is for a BARE NOMINAL — a record, union, or user type. Anything with
+    /// structure must be built with the matching constructor.
+    ///
+    /// Deliberately scoped to `Named` and not "everything round-trips": a
+    /// [`Var`](ParameterType::Var) and an [`Arg`](ParameterType::Arg) render as a
+    /// bare name and re-parse as `Named` **by design** — `parse` classifies grammar,
+    /// and it cannot know a name is a type variable without the declaring scope.
+    /// Those are sanctioned; a structure-spelling `Named` is not.
+    #[test]
+    fn descriptor_named_types_are_bare_nominals() {
+        fn check(type_: &ParameterType, where_: &str, failures: &mut Vec<String>) {
+            if let ParameterType::Named(symbol) = type_ {
+                let name = symbol.resolve();
+                let reparsed = ParameterType::parse(name);
+                if !matches!(reparsed, ParameterType::Named(_)) {
+                    failures.push(format!(
+                        "{where_}: `{name}` is a bare `Named` but its own spelling parses to \
+                         {reparsed:?} — build it with the matching constructor, not `named`"
+                    ));
+                }
+            }
+            // Recurse so a bad leaf nested in a real container is caught too.
+            match type_ {
+                ParameterType::ListOf(inner)
+                | ParameterType::SetOf(inner)
+                | ParameterType::ResultOf(inner)
+                | ParameterType::Res(inner) => check(inner, where_, failures),
+                ParameterType::MapOf(key, value) | ParameterType::MapEntryOf(key, value) => {
+                    check(key, where_, failures);
+                    check(value, where_, failures);
+                }
+                ParameterType::UserOf(_, args) => {
+                    for arg in args {
+                        check(arg, where_, failures);
+                    }
+                }
+                ParameterType::Func(params, ret, _) => {
+                    for param in params {
+                        check(param, where_, failures);
+                    }
+                    check(ret, where_, failures);
+                }
+                ParameterType::ThreadHandle { msg, res, out, .. } => {
+                    check(msg, where_, failures);
+                    check(res, where_, failures);
+                    check(out, where_, failures);
+                }
+                _ => {}
+            }
+        }
+
+        let mut failures = Vec::new();
+        let mut checked = 0usize;
+        for package in registry().packages() {
+            for function in &package.functions {
+                for (index, implementation) in function.implementations.iter().enumerate() {
+                    for param in &implementation.params {
+                        let where_ = format!(
+                            "{}.{} impl {index} param `{}`",
+                            package.import_name, function.name, param.name
+                        );
+                        check(&param.ty, &where_, &mut failures);
+                        checked += 1;
+                        if let DefaultValue::Fill { type_name, .. } = &param.default {
+                            let where_ = format!("{where_} (Fill default)");
+                            check(type_name, &where_, &mut failures);
+                            checked += 1;
+                        }
+                    }
+                    let where_ = format!(
+                        "{}.{} impl {index} return",
+                        package.import_name, function.name
+                    );
+                    check(&implementation.return_type, &where_, &mut failures);
+                    checked += 1;
+                }
+            }
+            for record in &package.records {
+                for prop in &record.props {
+                    let where_ = format!(
+                        "{}.{} field `{}`",
+                        package.import_name, record.name, prop.name
+                    );
+                    check(&prop.ty, &where_, &mut failures);
+                    checked += 1;
+                }
+            }
+        }
+        assert!(
+            checked > 0,
+            "the registry exposed no descriptor types to check"
+        );
+        assert!(
+            failures.is_empty(),
+            "{} descriptor type(s) are not structurally what they spell:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
 
     // --- test builders (named-literal wrappers with throwaway docs) ---
 
@@ -3947,8 +4387,10 @@ mod tests {
                 files: vec![file],
             }
         };
-        assert!(csv.is_imported_by(&parse("IMPORT csv\nSUB main\nEND SUB\n")));
-        assert!(!csv.is_imported_by(&parse("SUB main\nEND SUB\n")));
+        assert!(csv.is_imported_by(&ProjectView::of_ast(&parse(
+            "IMPORT csv\nSUB main\nEND SUB\n"
+        ))));
+        assert!(!csv.is_imported_by(&ProjectView::of_ast(&parse("SUB main\nEND SUB\n"))));
     }
 
     /// plan-104-C: the typed entry and the string wrapper must agree on every

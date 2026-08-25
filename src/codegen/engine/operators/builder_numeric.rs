@@ -163,8 +163,10 @@ impl CodeBuilder<'_> {
         if left.type_ == ParameterType::Float && matches!(op, "+" | "-" | "*" | "/" | "DIV") {
             let result_is_float = self
                 .static_type_name(right)
-                .as_deref()
-                .map(|right_type| numeric_binary_result_type(op, "Float", right_type) == "Float")
+                .map(|right_type| {
+                    promoted_binary_type(op, &ParameterType::Float, &right_type)
+                        == ParameterType::Float
+                })
                 .unwrap_or(false);
             if result_is_float {
                 return self.lower_float_arithmetic_dnative(op, left, right);
@@ -192,7 +194,7 @@ impl CodeBuilder<'_> {
         ));
         let left_text = left.text.clone();
         let right_text = right.text.clone();
-        let result_type = typed_numeric_binary_result_type(op, &left.type_, &right.type_)
+        let result_type = promoted_binary_type(op, &left.type_, &right.type_)
             .name()
             .into_owned();
         self.reset_temporary_registers();
@@ -332,7 +334,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let left_text = left.text.clone();
         let right = self.lower_value(right)?;
-        let result_type = typed_numeric_binary_result_type(op, &left.type_, &right.type_)
+        let result_type = promoted_binary_type(op, &left.type_, &right.type_)
             .name()
             .into_owned();
         let right_text = right.text.clone();
@@ -681,7 +683,7 @@ impl CodeBuilder<'_> {
         } else if left.type_ == ParameterType::Fixed || right.type_ == ParameterType::Fixed {
             "Fixed".to_string()
         } else {
-            typed_numeric_binary_result_type("+", &left.type_, &right.type_)
+            promoted_binary_type("+", &left.type_, &right.type_)
                 .name()
                 .into_owned()
         };

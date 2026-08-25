@@ -24,7 +24,9 @@
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::{collection_payload_alignment_for_code, list_element_type};
+use crate::codegen::engine::types::{
+    collection_payload_alignment_for_code, typed_list_element_type,
+};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
@@ -43,7 +45,9 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
         let list = args[0].clone();
-        let Some(element_type) = list_element_type(&list.type_.name()) else {
+        let Some(element_type) =
+            typed_list_element_type(&list.type_).map(|type_| type_.name().into_owned())
+        else {
             return Err(format!(
                 "native collection {op} does not accept {}",
                 list.type_
@@ -65,7 +69,7 @@ impl CodeBuilder<'_> {
         // spilled into the collection payload (plan-01 float-dnative).
         let item = self.materialize_value(item)?;
         let (insert_slot, materialized) =
-            self.collection_argument_as_list_slot(&list.type_.name(), &element_type, item)?;
+            self.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
         let index_slot = self.allocate_stack_object(&format!("{op}_index"), 8);
         if at_start {
             self.emit(abi::move_immediate(&scratch8, "Integer", "0"));
@@ -78,11 +82,11 @@ impl CodeBuilder<'_> {
             list_slot,
             index_slot,
             insert_slot,
-            &list.type_.name(),
+            &list.type_,
             &element_type,
         )?;
         if materialized {
-            return self.free_intermediate_collection(insert_slot, &list.type_.name(), result);
+            return self.free_intermediate_collection(insert_slot, &list.type_, result);
         }
         Ok(result)
     }
@@ -94,11 +98,11 @@ impl CodeBuilder<'_> {
     /// ~40% of all allocations under `r = append(r, expr)` churn).
     pub(crate) fn collection_argument_as_list_slot(
         &mut self,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
         item: ValueResult,
     ) -> Result<(usize, bool), String> {
-        if item.type_.name() == list_type {
+        if &item.type_ == list_type {
             let slot = self.allocate_stack_object("collection_insert_list", 8);
             self.emit(abi::store_u64(&item.location, abi::stack_pointer(), slot));
             return Ok((slot, false));
@@ -150,7 +154,7 @@ impl CodeBuilder<'_> {
     /// value-identical to the geometric-growth build it replaces.
     pub(crate) fn lower_reserved_list(
         &mut self,
-        output_type: &str,
+        output_type: &ParameterType,
         source_slot: usize,
     ) -> Result<ValueResult, String> {
         // The reserved result's own entry stride. `transform` and `filter`
@@ -158,7 +162,8 @@ impl CodeBuilder<'_> {
         // including the fixed-width ones, whose blocks must be reserved WITHOUT
         // an entry array or the free (which uses the kind-2 size) releases less
         // than was taken and leaks on every call (plan-57-D).
-        let reserved_stride = list_element_type(output_type)
+        let reserved_stride = typed_list_element_type(output_type)
+            .map(|element| element.name().into_owned())
             .map(|element| list_entry_stride(&element))
             .unwrap_or(COLLECTION_ENTRY_SIZE);
         let layout = CollectionTypeLayout::from_type(output_type).ok_or_else(|| {
@@ -230,7 +235,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&output_type),
+            type_: output_type.clone(),
             location: Operand::from(result.render()),
             text: format!("reserved list {output_type}"),
         })
@@ -239,7 +244,7 @@ impl CodeBuilder<'_> {
         &mut self,
         left_slot: usize,
         right_slot: usize,
-        map_type: &str,
+        map_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         let scratch20 = self.temporary_vreg();
         let scratch21 = self.temporary_vreg();
@@ -533,7 +538,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&map_type),
+            type_: map_type.clone(),
             location: Operand::from(result.render()),
             text: format!("map concat {map_type}"),
         })
@@ -543,7 +548,7 @@ impl CodeBuilder<'_> {
         &mut self,
         map_slot: usize,
         key_slot: usize,
-        map_type: &str,
+        map_type: &ParameterType,
         key_type: &str,
     ) -> Result<ValueResult, String> {
         let scratch20 = self.temporary_vreg();
@@ -754,7 +759,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&map_type),
+            type_: map_type.clone(),
             location: Operand::from(result.render()),
             text: format!("removeKey({map_type}, {key_type})"),
         })

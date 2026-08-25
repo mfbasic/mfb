@@ -80,7 +80,15 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                        Empty components are skipped; any component beginning with `/` is treated \
                        as absolute and resets the accumulated result. May be an empty list.",
                 aliases: &[],
-                ty: ParameterType::named("List OF String"),
+                // `list_of(String)`, NOT `named("List OF String")`: `named` is for a
+                // bare nominal (a record/union/user type), and a `Named` whose name
+                // merely *spells* a container is a different value from the container
+                // it spells. It survived because every consumer rendered `.name()` and
+                // re-parsed, which silently normalized it; the typed consumers
+                // plan-106-A introduced see the raw variant, and `ir::lower` inferred
+                // the element type of `fs::pathJoin([a, b])` as `Unknown` instead of
+                // `String`. Guarded by `descriptor_named_types_are_bare_nominals`.
+                ty: ParameterType::list_of(ParameterType::String),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,

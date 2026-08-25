@@ -1,6 +1,6 @@
 //! `astrings::overline` — `Attribute`-model flag constructor (`Body::Rewrite`).
 //!
-//! Backed by the injected source companion (`package.mfb`): a call rewrites to the
+//! Backed by the injected source (the per-helper `helper_*.rs` bodies): a call rewrites to the
 //! internal `__astrings_overline` FUNC through the registry's `rewrite_target`.
 
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};

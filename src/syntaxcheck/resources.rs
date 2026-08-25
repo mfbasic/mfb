@@ -3,7 +3,8 @@ use super::*;
 impl<'a> SyntaxChecker<'a> {
     pub(super) fn is_resource_type(&self, type_: &Type) -> bool {
         match type_ {
-            Type::User(name) => {
+            Type::Named(name) => {
+                let name = name.resolve();
                 self.resource_registry.is_resource(name) || self.is_resource_union(name)
             }
             // A `RES`-marked element (`RES fs::File`) is a resource (a pointer to one).
@@ -45,17 +46,18 @@ impl<'a> SyntaxChecker<'a> {
         seen: &mut HashSet<String>,
     ) -> bool {
         match type_ {
-            Type::Thread(..) | Type::ThreadWorker(..) => true,
-            Type::List(element) => self.contains_thread_with_seen(element, seen),
-            Type::Set(element) => self.contains_thread_with_seen(element, seen),
-            Type::Map(key, value) => {
+            Type::ThreadHandle { .. } => true,
+            Type::ListOf(element) => self.contains_thread_with_seen(element, seen),
+            Type::SetOf(element) => self.contains_thread_with_seen(element, seen),
+            Type::MapOf(key, value) => {
                 self.contains_thread_with_seen(key, seen)
                     || self.contains_thread_with_seen(value, seen)
             }
-            Type::Result(success) => self.contains_thread_with_seen(success, seen),
+            Type::ResultOf(success) => self.contains_thread_with_seen(success, seen),
             Type::Res(inner) => self.contains_thread_with_seen(inner, seen),
-            Type::User(name) => {
-                if !seen.insert(name.clone()) {
+            Type::Named(name) => {
+                let name = name.resolve();
+                if !seen.insert(name.to_string()) {
                     return false;
                 }
                 let Some(info) = self.type_infos.get(name) else {
@@ -87,19 +89,20 @@ impl<'a> SyntaxChecker<'a> {
         seen: &mut HashSet<String>,
     ) -> bool {
         match type_ {
-            Type::Thread(..) | Type::ThreadWorker(..) => true,
-            Type::User(name) if self.resource_registry.is_resource(name) => true,
-            Type::List(element) => self.contains_resource_or_thread_with_seen(element, seen),
-            Type::Set(element) => self.contains_resource_or_thread_with_seen(element, seen),
-            Type::Map(key, value) => {
+            Type::ThreadHandle { .. } => true,
+            Type::Named(name) if self.resource_registry.is_resource(name.resolve()) => true,
+            Type::ListOf(element) => self.contains_resource_or_thread_with_seen(element, seen),
+            Type::SetOf(element) => self.contains_resource_or_thread_with_seen(element, seen),
+            Type::MapOf(key, value) => {
                 self.contains_resource_or_thread_with_seen(key, seen)
                     || self.contains_resource_or_thread_with_seen(value, seen)
             }
-            Type::Result(success) => self.contains_resource_or_thread_with_seen(success, seen),
+            Type::ResultOf(success) => self.contains_resource_or_thread_with_seen(success, seen),
             Type::Res(inner) => self.contains_resource_or_thread_with_seen(inner, seen),
-            Type::Function { .. } => false,
-            Type::User(name) => {
-                if !seen.insert(name.clone()) {
+            Type::Func(..) => false,
+            Type::Named(name) => {
+                let name = name.resolve();
+                if !seen.insert(name.to_string()) {
                     return false;
                 }
                 let Some(info) = self.type_infos.get(name) else {
@@ -130,7 +133,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn report_invalid_collection_element(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         line: usize,
         role: &str,
         type_: &Type,
@@ -151,10 +154,10 @@ impl<'a> SyntaxChecker<'a> {
     /// collection (its slot holds a pointer copied from that binding).
     pub(super) fn collection_element_is_resource_binding(
         &self,
-        value: &Expression,
+        value: &HirExpression,
         locals: &HashMap<String, LocalInfo>,
     ) -> bool {
-        let Expression::Identifier(name) = value else {
+        let HirExpression::Identifier(name) = value else {
             return false;
         };
         locals
@@ -166,7 +169,7 @@ impl<'a> SyntaxChecker<'a> {
     /// pointer copy (it stays usable after insertion), everything else is consumed.
     pub(super) fn collection_element_mode(
         &self,
-        value: &Expression,
+        value: &HirExpression,
         locals: &HashMap<String, LocalInfo>,
     ) -> ExprMode {
         if self.collection_element_is_resource_binding(value, locals) {
@@ -190,38 +193,40 @@ impl<'a> SyntaxChecker<'a> {
         seen: &mut HashSet<String>,
     ) -> bool {
         match type_ {
-            Type::AttributedString
-            | Type::Boolean
+            Type::Boolean
             | Type::Byte
-            | Type::Error
-            | Type::ErrorLoc
             | Type::Fixed
             | Type::Float
             | Type::Integer
             | Type::Money
             | Type::Nothing
-            | Type::Scalar
             | Type::String
             | Type::Unknown => true,
+            // The built-in nominals carry no fields, so they are copyable — the
+            // general `User` arm below would answer the same (they are not
+            // resources and not in `type_infos`), but saying it here keeps the
+            // primitive set readable and independent of that arm's shape.
+            Type::Named(name) if is_builtin_nominal(name.resolve()) => true,
             // A collection slot holds a *pointer* to a resource (`RES fs::File`),
             // which copies freely — copying the collection makes more pointers,
             // never another resource. A standalone resource stays non-copyable
-            // (the `Type::User` arm below); §15.6.
+            // (the `Type::Named` arm below); §15.6.
             Type::Res(_) => true,
-            Type::List(element) => self.is_copyable_type_with_seen(element, seen),
-            Type::Set(element) => self.is_copyable_type_with_seen(element, seen),
-            Type::Map(key, value) => {
+            Type::ListOf(element) => self.is_copyable_type_with_seen(element, seen),
+            Type::SetOf(element) => self.is_copyable_type_with_seen(element, seen),
+            Type::MapOf(key, value) => {
                 self.is_copyable_type_with_seen(key, seen)
                     && self.is_copyable_type_with_seen(value, seen)
             }
-            Type::Result(success) => self.is_copyable_type_with_seen(success, seen),
-            Type::Function { .. } => true,
-            Type::Thread(..) | Type::ThreadWorker(..) => false,
-            Type::User(name) => {
+            Type::ResultOf(success) => self.is_copyable_type_with_seen(success, seen),
+            Type::Func(..) => true,
+            Type::ThreadHandle { .. } => false,
+            Type::Named(name) => {
+                let name = name.resolve();
                 if self.resource_registry.is_resource(name) {
                     return false;
                 }
-                if !seen.insert(name.clone()) {
+                if !seen.insert(name.to_string()) {
                     return true;
                 }
                 let Some(info) = self.type_infos.get(name) else {
@@ -247,6 +252,14 @@ impl<'a> SyntaxChecker<'a> {
                 seen.remove(name);
                 result
             }
+            // `ParameterType` carries variants syntaxcheck's own parser never
+            // produces (`Var`, `Arg`, `UserOf`, `MapEntryOf`, `AttributeString`);
+            // a decoded package signature can still hold one. Before plan-106-C
+            // rung 2e each arrived spelled out as `Type::User(<spelling>)` and so
+            // took the NOMINAL arm above — routing the render back through it
+            // reproduces that exactly, rather than guessing a new answer for a
+            // shape this checker has never had to answer for.
+            other => self.is_copyable_type_with_seen(&Type::named(&other.name()), seen),
         }
     }
 
@@ -256,34 +269,33 @@ impl<'a> SyntaxChecker<'a> {
         seen: &mut HashSet<String>,
     ) -> bool {
         match type_ {
-            Type::AttributedString
-            | Type::Boolean
+            Type::Boolean
             | Type::Byte
-            | Type::Error
-            | Type::ErrorLoc
             | Type::Fixed
             | Type::Float
             | Type::Integer
             | Type::Money
             | Type::Nothing
-            | Type::Scalar
             | Type::String
             | Type::Unknown => true,
-            Type::List(element) => self.is_thread_sendable_type_with_seen(element, seen),
-            Type::Set(element) => self.is_thread_sendable_type_with_seen(element, seen),
-            Type::Map(key, value) => {
+            // The built-in nominals are plain values: thread-sendable.
+            Type::Named(name) if is_builtin_nominal(name.resolve()) => true,
+            Type::ListOf(element) => self.is_thread_sendable_type_with_seen(element, seen),
+            Type::SetOf(element) => self.is_thread_sendable_type_with_seen(element, seen),
+            Type::MapOf(key, value) => {
                 self.is_thread_sendable_type_with_seen(key, seen)
                     && self.is_thread_sendable_type_with_seen(value, seen)
             }
-            Type::Result(success) => self.is_thread_sendable_type_with_seen(success, seen),
+            Type::ResultOf(success) => self.is_thread_sendable_type_with_seen(success, seen),
             // Sharing a resource collection across threads is out of scope (§15.6).
             Type::Res(_) => false,
-            Type::Function { .. } | Type::Thread(..) | Type::ThreadWorker(..) => false,
-            Type::User(name) => {
+            Type::Func(..) | Type::ThreadHandle { .. } => false,
+            Type::Named(name) => {
+                let name = name.resolve();
                 if self.resource_registry.is_resource(name) {
                     return self.resource_registry.is_sendable(name);
                 }
-                if !seen.insert(name.clone()) {
+                if !seen.insert(name.to_string()) {
                     return true;
                 }
                 let Some(info) = self.type_infos.get(name) else {
@@ -312,12 +324,20 @@ impl<'a> SyntaxChecker<'a> {
                 seen.remove(name);
                 result
             }
+            // `ParameterType` carries variants syntaxcheck's own parser never
+            // produces (`Var`, `Arg`, `UserOf`, `MapEntryOf`, `AttributeString`);
+            // a decoded package signature can still hold one. Before plan-106-C
+            // rung 2e each arrived spelled out as `Type::User(<spelling>)` and so
+            // took the NOMINAL arm above — routing the render back through it
+            // reproduces that exactly, rather than guessing a new answer for a
+            // shape this checker has never had to answer for.
+            other => self.is_thread_sendable_type_with_seen(&Type::named(&other.name()), seen),
         }
     }
 
     pub(super) fn report_thread_type_not_sendable(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         line: usize,
         context: &str,
         type_: &Type,
@@ -335,7 +355,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn require_thread_sendable_type(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         line: usize,
         context: &str,
         type_: &Type,
@@ -347,7 +367,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn check_thread_boundary_sendability(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         display_callee: &str,
         callee: &str,
         arg_types: &[Type],
@@ -364,20 +384,32 @@ impl<'a> SyntaxChecker<'a> {
                         input,
                     );
                 }
-                if let Type::Thread(message, resource, _resource_state, output) = return_type {
+                if let Type::ThreadHandle {
+                    worker: false,
+                    msg: message,
+                    res: resource,
+                    out: output,
+                    ..
+                } = return_type
+                {
                     self.require_thread_sendable_type(
                         file,
                         line,
                         &format!("Call to `{display_callee}` message type"),
                         message,
                     );
-                    if let Some(resource) = resource {
+                    // plan-106-C rung 2e: an absent resource plane is `Nothing`
+                    // (the `ParameterType::ThreadHandle` sentinel), not `None`, and
+                    // the plane's ` STATE T` now rides inside its spelling — so the
+                    // sendability check reads the BARE resource, exactly what the
+                    // separate `res_state` slot used to hand it.
+                    if !matches!(**resource, Type::Nothing) {
                         // The resource plane carries only thread-sendable resources.
                         self.require_thread_sendable_type(
                             file,
                             line,
                             &format!("Call to `{display_callee}` resource type"),
-                            resource,
+                            &resource.without_state(),
                         );
                     }
                     self.require_thread_sendable_type(
@@ -391,7 +423,7 @@ impl<'a> SyntaxChecker<'a> {
             "thread.send" => {
                 if let Some(handle) = arg_types.first() {
                     match handle {
-                        Type::Thread(message, _, _, _) | Type::ThreadWorker(message, _, _, _) => {
+                        Type::ThreadHandle { msg: message, .. } => {
                             self.require_thread_sendable_type(
                                 file,
                                 line,
@@ -418,14 +450,18 @@ impl<'a> SyntaxChecker<'a> {
             }
             "thread.transfer" | "thread.accept" => {
                 if let Some(handle) = arg_types.first() {
-                    if let Type::Thread(_, resource, resource_state, _)
-                    | Type::ThreadWorker(_, resource, resource_state, _) = handle
-                    {
+                    if let Type::ThreadHandle { res, .. } = handle {
+                        // plan-106-C rung 2e: the plane's resource and its
+                        // ` STATE T` share one slot now (the clause rides inside
+                        // the nominal's spelling, where the canonical grammar puts
+                        // it), so `split_state` is what hands the two planes back
+                        // apart. An ABSENT plane is `Nothing`, not `None`.
+                        let (resource, resource_state) = res.split_state();
                         // bug-301 G4: the plane's `STATE T` payload crosses the
                         // boundary with the resource -- plan-54 deep-copies it into
                         // the receiver's arena -- so it must be sendable too. Only
                         // the resource itself was checked here.
-                        if let Some(resource_state) = resource_state {
+                        if let Some(resource_state) = &resource_state {
                             self.require_thread_sendable_type(
                                 file,
                                 line,
@@ -433,10 +469,13 @@ impl<'a> SyntaxChecker<'a> {
                                 resource_state,
                             );
                         }
-                        match resource {
+                        match &resource {
                             // The resource plane carries only thread-sendable
                             // resources, and only when the thread declares one.
-                            Some(resource) if self.is_resource_type(resource) => {
+                            resource
+                                if !matches!(resource, Type::Nothing)
+                                    && self.is_resource_type(resource) =>
+                            {
                                 self.require_thread_sendable_type(
                                     file,
                                     line,
@@ -444,7 +483,7 @@ impl<'a> SyntaxChecker<'a> {
                                     resource,
                                 );
                             }
-                            Some(resource) => {
+                            resource if !matches!(resource, Type::Nothing) => {
                                 self.report(
                                     "TYPE_THREAD_NOT_SENDABLE",
                                     &format!(
@@ -455,7 +494,7 @@ impl<'a> SyntaxChecker<'a> {
                                     line,
                                 );
                             }
-                            None => {
+                            _ => {
                                 self.report(
                                     "TYPE_THREAD_NOT_SENDABLE",
                                     &format!(
@@ -637,13 +676,19 @@ mod resources_tests {
     #[test]
     fn contains_thread_walks_set_element() {
         use super::super::{SyntaxChecker, Type};
-        let project = crate::ast::AstProject {
+        let project = crate::hir::HirProject {
             name: "t".to_string(),
             files: vec![],
         };
         let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
-        let thread = || Type::Thread(Box::new(Type::Integer), None, None, Box::new(Type::Integer));
-        let set_of_thread = Type::Set(Box::new(thread()));
+        // plan-106-C rung 2e: an absent resource plane is `Nothing`.
+        let thread = || Type::ThreadHandle {
+            worker: false,
+            msg: Box::new(Type::Integer),
+            res: Box::new(Type::Nothing),
+            out: Box::new(Type::Integer),
+        };
+        let set_of_thread = Type::SetOf(Box::new(thread()));
         assert!(
             checker.contains_thread(&set_of_thread),
             "contains_thread must recurse into a Set element"
@@ -892,7 +937,7 @@ mod resources_tests {
 
     #[test]
     fn map_res_file_value_walk() {
-        // A `Map OF String TO RES fs::File` value type walks parse_collection_element_type
+        // A `Map OF String TO RES fs::File` value type carries `Type::Res`
         // and the RES-marked value axis check.
         let src = "IMPORT fs\nFUNC main AS Integer\n  MUT m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File {}\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);

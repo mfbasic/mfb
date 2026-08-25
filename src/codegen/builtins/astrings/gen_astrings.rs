@@ -52,7 +52,8 @@ impl CodeBuilder<'_> {
 
         // An empty overlay: `List OF AttrSpan`. `emit_build_inlined_record` inlines
         // this flat list into the record's data region.
-        let spans = self.lower_empty_collection("List OF AttrSpan")?;
+        let spans =
+            self.lower_empty_collection(&ParameterType::list_of(ParameterType::named("AttrSpan")))?;
         let spans_slot = self.allocate_stack_object("astrings_from_string_spans", 8);
         self.emit(abi::store_u64(
             &spans.location,

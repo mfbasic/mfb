@@ -1,129 +1,156 @@
 use super::helpers::*;
 use super::*;
+use crate::types::ParameterType;
 
 impl<'a> SyntaxChecker<'a> {
-    /// Parse a collection element / `Map` value type, honoring the `RES` marker
-    /// (`List OF RES fs::File`). The marker wraps the element in [`Type::Res`]; the
-    /// element validation later checks it matches the element's resource-ness.
-    pub(super) fn parse_collection_element_type(&self, name: &str) -> Type {
-        if let Some(inner) = name.strip_prefix("RES ") {
-            return Type::Res(Box::new(self.parse_type(inner)));
-        }
-        self.parse_type(name)
-    }
-
+    /// The type a source/imported type SPELLING denotes.
+    ///
+    /// plan-106-C: the grammar is [`ParameterType::parse`] — syntaxcheck no
+    /// longer carries a private copy of it. What remains here is only the work
+    /// the canonical parser deliberately does not do, established by reading the
+    /// old parser's five non-grammar steps (recorded in the plan):
+    ///
+    /// 1. the top-level ` STATE T` peel — `Type` has no STATE concept, it carries
+    ///    the clause *beside* the type in `LocalInfo`/`ParamSig`, so a
+    ///    `fs::File STATE Cursor` IS a `File` for every purpose `Type` serves
+    ///    (plan-52-D §4);
+    /// 2. a qualified builtin **resource** keeps its qualified identity (plan-97);
+    /// 3. a qualified builtin **value** type collapses to its bare internal id
+    ///    (plan-03-http §A.1/§B.2);
+    /// 4. the thread plane's `STATE` splits into its own slot (plan-54);
+    /// 5. nothing — the old tail consulted `user_types` and discarded the answer.
+    ///
+    /// Steps 1–4 are applied by [`type_from_parameter`](Self::type_from_parameter)
+    /// at every level, exactly as the recursive private parser applied them.
     pub(super) fn parse_type(&self, name: &str) -> Type {
-        // `Type` has no STATE concept: syntaxcheck carries a resource's `STATE T`
-        // beside the type, in `LocalInfo`/`ParamSig`, never inside it. So a type
-        // string that spells the STATE inline resolves to its base — a
-        // `fs::File STATE Cursor` IS a `File` for every purpose `Type` serves.
-        //
-        // Only imported signatures arrive spelled that way (a locally declared
-        // `RES f AS fs::File STATE Cursor` is parsed with the clause already split off
-        // by the parser). Without this the STATE rode inside `Type::User`, and
-        // every ordinary comparison against it failed — `fs::close(h)` on an
-        // imported stateful handle reported "argument type(s) (fs::File STATE Cursor),
-        // expected File" (plan-52-D §4).
-        let name = crate::codegen::resource::base_resource_name(name);
-        let name = crate::types::strip_type_group(name);
-        // A package-qualified built-in **resource** (`fs.File`, `process.Process`)
-        // KEEPS its qualified identity — resources are package-scoped so a user
-        // `TYPE File` no longer collides (plan-97). Value types still collapse below.
-        if builtins::is_qualified_builtin_resource(name) {
-            return Type::User(name.to_string());
-        }
-        // A package-qualified built-in value type (`net.Url`, `http.Result`) resolves
-        // to its bare internal id (plan-03-http.md §A.1/§B.2).
-        if let Some(bare) = builtins::qualified_builtin_type(name) {
-            return Type::User(bare);
-        }
-        if let Some(rest) = name.strip_prefix("ISOLATED FUNC(") {
-            return self.parse_function_type(rest, true);
-        }
-        if let Some(rest) = name.strip_prefix("FUNC(") {
-            return self.parse_function_type(rest, false);
-        }
-        if let Some(element) = name.strip_prefix("List OF ") {
-            return Type::List(Box::new(self.parse_collection_element_type(element)));
-        }
-        if let Some(element) = name.strip_prefix("Set OF ") {
-            // A Set element is always comparable (never `RES`), so parse it as a
-            // plain element type — no resource-collection element handling needed.
-            return Type::Set(Box::new(self.parse_type(element)));
-        }
-        if let Some(success) = name.strip_prefix("Result OF ") {
-            return Type::Result(Box::new(self.parse_type(success)));
-        }
-        if let Some((kind, message, resource, output)) = crate::types::thread_parts_full(name) {
-            // The plane's `RES` element may carry a `STATE T` clause (plan-54);
-            // peel it into a separate `resource_state` so the resource type stays
-            // bare (every resource consumer sees `File`, not `fs::File STATE Cursor`),
-            // while the plane still names the state it transfers.
-            let resource_state = resource
-                .and_then(crate::codegen::resource::state_type_name)
-                .map(|state| Box::new(self.parse_type(state)));
-            let resource = resource.map(|resource| Box::new(self.parse_type(resource)));
-            if kind == crate::types::THREAD_WORKER_TYPE {
-                return Type::ThreadWorker(
-                    Box::new(self.parse_type(message)),
-                    resource,
-                    resource_state,
-                    Box::new(self.parse_type(output)),
-                );
-            }
-            return Type::Thread(
-                Box::new(self.parse_type(message)),
-                resource,
-                resource_state,
-                Box::new(self.parse_type(output)),
-            );
-        }
-        if let Some(rest) = name.strip_prefix("Map OF ") {
-            if let Some((key, value)) = split_map_body(rest) {
-                return Type::Map(
-                    Box::new(self.parse_type(key)),
-                    Box::new(self.parse_collection_element_type(value)),
-                );
-            }
-        }
+        self.normalize_type(&ParameterType::parse(name))
+    }
 
-        match name {
-            "AttributedString" => Type::AttributedString,
-            "Boolean" => Type::Boolean,
-            "Byte" => Type::Byte,
-            "Error" => Type::Error,
-            "ErrorLoc" => Type::ErrorLoc,
-            "Fixed" => Type::Fixed,
-            "Float" => Type::Float,
-            "Integer" => Type::Integer,
-            "Money" => Type::Money,
-            "Nothing" => Type::Nothing,
-            "Scalar" => Type::Scalar,
-            "String" => Type::String,
-            "Unknown" => Type::Unknown,
-            "Result" => Type::Result(Box::new(Type::Unknown)),
-            other if builtins::is_builtin_type(other) => Type::User(other.to_string()),
-            other if self.user_types.contains(other) => Type::User(other.to_string()),
-            other => Type::User(other.to_string()),
+    /// The same normalization applied to a type HIR already carries.
+    ///
+    /// plan-106-D: every type syntaxcheck reads off an HIR node arrives as a
+    /// `ParameterType`, so it needs syntaxcheck's three non-grammar steps and
+    /// nothing else. `parse_type` above is now just this, preceded by the parse
+    /// — and it survives only for the handful of spellings HIR still stores as
+    /// strings (`UNION` variants, `LINK` signatures).
+    pub(super) fn normalize_type(&self, type_: &Type) -> Type {
+        self.normalize(type_, false)
+    }
+
+    /// syntaxcheck's three normalizations, applied at every level — the only
+    /// work left over once [`ParameterType::parse`] owns the grammar
+    /// (plan-106-C; rung 2e turned the old `type_from_parameter` conversion into
+    /// this, because `Type` IS `ParameterType` now and there is nothing to
+    /// convert):
+    ///
+    /// 1. **Peel a top-level ` STATE T`.** syntaxcheck carries a resource's
+    ///    state BESIDE the type (`LocalInfo::state_type`), so a
+    ///    `fs::File STATE Cursor` IS a `File` for every purpose it serves — the
+    ///    fix plan-52-D §4 made, without which `fs::close(h)` on an imported
+    ///    stateful handle reported "expected File, got fs::File STATE Cursor".
+    ///    The ONE exception is a thread handle's resource plane (`in_thread_res`),
+    ///    where plan-54 wants the clause kept so `transfer`/`accept` can check the
+    ///    state that crosses the boundary.
+    /// 2. **A qualified builtin RESOURCE keeps its qualified identity** —
+    ///    resources are package-scoped, so a user `TYPE File` no longer collides
+    ///    (plan-97).
+    /// 3. **A qualified builtin VALUE type collapses to its bare internal id**
+    ///    (plan-03-http §A.1/§B.2).
+    fn normalize(&self, type_: &Type, in_thread_res: bool) -> Type {
+        match type_ {
+            Type::ListOf(element) => Type::list_of(self.normalize(element, false)),
+            Type::SetOf(element) => Type::set_of(self.normalize(element, false)),
+            Type::ResultOf(success) => Type::result_of(self.normalize(success, false)),
+            Type::Res(inner) => Type::Res(Box::new(self.normalize(inner, in_thread_res))),
+            Type::MapOf(key, value) => {
+                Type::map_of(self.normalize(key, false), self.normalize(value, false))
+            }
+            Type::MapEntryOf(key, value) => {
+                Type::map_entry_of(self.normalize(key, false), self.normalize(value, false))
+            }
+            Type::Func(params, return_type, isolated) => Type::Func(
+                params.iter().map(|p| self.normalize(p, false)).collect(),
+                Box::new(self.normalize(return_type, false)),
+                *isolated,
+            ),
+            Type::ThreadHandle {
+                worker,
+                msg,
+                res,
+                out,
+            } => Type::ThreadHandle {
+                worker: *worker,
+                msg: Box::new(self.normalize(msg, false)),
+                // The plane keeps its ` STATE T`: this is the exception in step 1.
+                res: Box::new(self.normalize(res, true)),
+                out: Box::new(self.normalize(out, false)),
+            },
+            Type::Named(name) => self.normalize_leaf(name.resolve(), in_thread_res),
+            // plan-106-D: a type variable collapses back to the bare nominal.
+            //
+            // `hir::elaborate` classifies a name appearing in the enclosing
+            // declaration's `template_params` as a [`Type::Var`] (`with_vars`).
+            // syntaxcheck's own parser never produced that variant — a generic
+            // parameter `T` was a `Named("T")` here — and every rule below is
+            // written against the nominal. Without this collapse, the injected
+            // `collections` package source stops type-checking against itself: its
+            // generic members' parameters become `Var` while their call sites carry
+            // nominals, and every candidate is rejected as
+            // `TYPE_CALL_ARGUMENT_MISMATCH`.
+            //
+            // The classification is not lost — it lives in the HIR that monomorph
+            // reads. syntaxcheck simply predates it.
+            Type::Var(name) => self.normalize_leaf(name.resolve(), in_thread_res),
+            // Scalars, `Unknown`, and the variants syntaxcheck's own parser never
+            // produces (`Arg`, `UserOf`, `AttributeString`) normalize to
+            // themselves.
+            other => other.clone(),
         }
     }
 
-    pub(super) fn parse_function_type(&self, rest: &str, isolated: bool) -> Type {
-        // Split at the depth-0 `) AS ` and at top-level commas so a nested
-        // function-typed parameter (`FUNC(FUNC(Integer) AS Integer, …) AS R`) is
-        // not mis-split at an inner `) AS `/comma (bug-106).
-        let Some((params, return_type)) = builtins::split_func_params_and_return(rest) else {
-            return Type::Unknown;
+    /// Steps 1-3 of [`normalize`](Self::normalize) at a nominal leaf.
+    fn normalize_leaf(&self, name: &str, keep_state: bool) -> Type {
+        // Step 1 (or its exception): split the clause off, normalize the base,
+        // and re-attach only inside a thread plane.
+        let (base, state) = match crate::codegen::resource::state_type_name(name) {
+            Some(state) => (
+                crate::codegen::resource::base_resource_name(name),
+                Some(state),
+            ),
+            None => (name, None),
         };
-        let params = params
-            .into_iter()
-            .map(|param| self.parse_type(param))
-            .collect();
-        Type::Function {
-            params,
-            return_type: Box::new(self.parse_type(return_type)),
-            isolated,
+        let normalized = self.normalize_bare(base);
+        match state {
+            Some(state) if keep_state => normalized.with_state(&Type::named(state)),
+            _ => normalized,
         }
+    }
+
+    /// Steps 2-3 plus the two spellings that are not nominals at all.
+    fn normalize_bare(&self, name: &str) -> Type {
+        // Step 2: a package-qualified built-in RESOURCE keeps its qualified identity.
+        if builtins::is_qualified_builtin_resource(name) {
+            return Type::named(name);
+        }
+        // Step 3: a package-qualified built-in VALUE type resolves to its bare id.
+        if let Some(bare) = builtins::qualified_builtin_type(name) {
+            return Type::named(&bare);
+        }
+        // A spelling that LOOKS like a function type but did not parse as one is
+        // malformed (`FUNC(Integer` — no `) AS ` return clause). The old private
+        // parser answered `Type::Unknown` for it, and that is the right answer:
+        // `Unknown` is syntaxcheck's permissive skip, whereas treating it as a
+        // nominal would make it match nothing and reject the program on a
+        // *parse* failure. Pinned by `parse_function_type_malformed_yields_unknown`.
+        if name.starts_with("FUNC(") || name.starts_with("ISOLATED FUNC(") {
+            return Type::Unknown;
+        }
+        // `Result` with no ` OF ` is the bare marker; the canonical parser leaves
+        // it a nominal, and it means `Result OF Unknown` here.
+        if name == "Result" {
+            return Type::result_of(Type::Unknown);
+        }
+        Type::named(name)
     }
 
     pub(super) fn compatible(&self, expected: &Type, actual: &Type) -> bool {
@@ -135,47 +162,42 @@ impl<'a> SyntaxChecker<'a> {
         // versa. Strip it before comparing.
         let (expected, actual) = (strip_res(expected), strip_res(actual));
         match (expected, actual) {
-            (Type::List(expected), Type::List(actual)) => self.compatible(expected, actual),
-            (Type::Set(expected), Type::Set(actual)) => self.compatible(expected, actual),
-            (Type::Map(expected_key, expected_value), Type::Map(actual_key, actual_value)) => {
+            (Type::ListOf(expected), Type::ListOf(actual)) => self.compatible(expected, actual),
+            (Type::SetOf(expected), Type::SetOf(actual)) => self.compatible(expected, actual),
+            (Type::MapOf(expected_key, expected_value), Type::MapOf(actual_key, actual_value)) => {
                 self.compatible(expected_key, actual_key)
                     && self.compatible(expected_value, actual_value)
             }
-            (Type::Result(expected), Type::Result(actual)) => self.compatible(expected, actual),
+            (Type::ResultOf(expected), Type::ResultOf(actual)) => self.compatible(expected, actual),
+            // A parent `Thread` handle and a `ThreadWorker` handle never unify
+            // with each other, which the `worker` flags equality preserves (they
+            // were two separate variant pairs before plan-106-C rung 2c).
             (
-                Type::Thread(expected_message, expected_resource, expected_state, expected_output),
-                Type::Thread(actual_message, actual_resource, actual_state, actual_output),
+                Type::ThreadHandle {
+                    worker: expected_worker,
+                    msg: expected_message,
+                    res: expected_resource,
+                    out: expected_output,
+                },
+                Type::ThreadHandle {
+                    worker: actual_worker,
+                    msg: actual_message,
+                    res: actual_resource,
+                    out: actual_output,
+                },
             ) => {
-                self.compatible(expected_message, actual_message)
-                    && self.compatible_optional(expected_resource, actual_resource)
-                    && self.compatible_optional(expected_state, actual_state)
+                // plan-106-C rung 2e: the resource plane and its ` STATE T` share
+                // one slot now, so ONE comparison decides both axes — an absent
+                // plane is `Nothing`, so the old `compatible_optional` pair
+                // (`None`/`Some` plus state) falls out of ordinary compatibility.
+                expected_worker == actual_worker
+                    && self.compatible(expected_message, actual_message)
+                    && self.compatible(expected_resource, actual_resource)
                     && self.compatible(expected_output, actual_output)
             }
             (
-                Type::ThreadWorker(
-                    expected_message,
-                    expected_resource,
-                    expected_state,
-                    expected_output,
-                ),
-                Type::ThreadWorker(actual_message, actual_resource, actual_state, actual_output),
-            ) => {
-                self.compatible(expected_message, actual_message)
-                    && self.compatible_optional(expected_resource, actual_resource)
-                    && self.compatible_optional(expected_state, actual_state)
-                    && self.compatible(expected_output, actual_output)
-            }
-            (
-                Type::Function {
-                    params: expected_params,
-                    return_type: expected_return,
-                    isolated: expected_isolated,
-                },
-                Type::Function {
-                    params: actual_params,
-                    return_type: actual_return,
-                    isolated: actual_isolated,
-                },
+                Type::Func(expected_params, expected_return, expected_isolated),
+                Type::Func(actual_params, actual_return, actual_isolated),
             ) => {
                 (!expected_isolated || *actual_isolated)
                     && expected_params.len() == actual_params.len()
@@ -189,7 +211,8 @@ impl<'a> SyntaxChecker<'a> {
                         .all(|(expected, actual)| self.compatible(actual, expected))
                     && self.compatible(expected_return, actual_return)
             }
-            (Type::User(expected_name), Type::User(actual_name)) => {
+            (Type::Named(expected_name), Type::Named(actual_name)) => {
+                let (expected_name, actual_name) = (expected_name.resolve(), actual_name.resolve());
                 if expected_name == actual_name {
                     return true;
                 }
@@ -240,56 +263,42 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 
-    /// Compatibility for the optional resource plane of a thread type: both
-    /// absent, or both present and compatible.
-    pub(super) fn compatible_optional(
-        &self,
-        expected: &Option<Box<Type>>,
-        actual: &Option<Box<Type>>,
-    ) -> bool {
-        match (expected, actual) {
-            (None, None) => true,
-            (Some(expected), Some(actual)) => self.compatible(expected, actual),
-            _ => false,
-        }
-    }
-
     pub(super) fn expression_compatible(
         &self,
         expected: &Type,
         actual: &Type,
-        expression: Option<&Expression>,
+        expression: Option<&HirExpression>,
     ) -> bool {
         if self.compatible(expected, actual) {
             return true;
         }
         match (expected, actual, expression) {
-            (Type::Byte, Type::Integer, Some(Expression::Number(value))) => value
+            (Type::Byte, Type::Integer, Some(HirExpression::Number(value))) => value
                 .parse::<u16>()
                 .is_ok_and(|number| number <= u8::MAX as u16),
-            (Type::Fixed, Type::Integer | Type::Float, Some(Expression::Number(_))) => true,
+            (Type::Fixed, Type::Integer | Type::Float, Some(HirExpression::Number(_))) => true,
             (
                 Type::Fixed,
                 Type::Integer | Type::Float,
-                Some(Expression::Unary {
+                Some(HirExpression::Unary {
                     operator, operand, ..
                 }),
-            ) if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) => true,
+            ) if operator == "-" && matches!(operand.as_ref(), HirExpression::Number(_)) => true,
             // A decimal literal acquires type Money from a Money expectation
             // (`LET a AS Money = 1.25`), mirroring the Fixed path (plan-29-A §4.4).
             // The exact range is checked in ir::verify.
-            (Type::Money, Type::Integer | Type::Float, Some(Expression::Number(_))) => true,
+            (Type::Money, Type::Integer | Type::Float, Some(HirExpression::Number(_))) => true,
             (
                 Type::Money,
                 Type::Integer | Type::Float,
-                Some(Expression::Unary {
+                Some(HirExpression::Unary {
                     operator, operand, ..
                 }),
-            ) if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) => true,
+            ) if operator == "-" && matches!(operand.as_ref(), HirExpression::Number(_)) => true,
             (
-                Type::List(expected_element),
-                Type::List(_),
-                Some(Expression::ListLiteral(values)),
+                Type::ListOf(expected_element),
+                Type::ListOf(_),
+                Some(HirExpression::ListLiteral(values)),
             ) => values.iter().all(|value| {
                 let Some(actual_element) = numeric_literal_type(value) else {
                     return false;
@@ -323,36 +332,38 @@ impl<'a> SyntaxChecker<'a> {
     /// non-numeric — it does not order against `String` or any numeric type.
     /// `Unknown` is permitted so a prior error does not cascade.
     pub(super) fn is_orderable_scalar(&self, type_: &Type) -> bool {
-        matches!(type_, Type::Scalar | Type::Unknown)
+        matches!(type_, Type::Unknown) || type_.is_named("Scalar")
     }
 
     pub(super) fn is_comparable_with_seen(&self, type_: &Type, seen: &mut HashSet<String>) -> bool {
         match type_ {
             Type::Boolean
             | Type::Byte
-            | Type::Error
-            | Type::ErrorLoc
             | Type::Fixed
             | Type::Float
             | Type::Integer
             | Type::Money
             | Type::Nothing
-            | Type::Scalar
             | Type::String
             | Type::Unknown => true,
-            // `AttributedString` wraps a list overlay (like `List`): not comparable,
-            // not orderable, never a `Map` key or `Set` element (plan-89-A).
-            Type::AttributedString
-            | Type::List(_)
-            | Type::Set(_)
-            | Type::Map(_, _)
-            | Type::Function { .. }
-            | Type::Result(_)
+            // `Error`/`ErrorLoc`/`Scalar` are comparable.
+            Type::Named(name) if is_comparable_builtin_nominal(name.resolve()) => true,
+            // `AttributedString` is NOT: it wraps a list overlay (like `List`),
+            // so it is never a `Map` key or `Set` element (plan-89-A). It needs
+            // its own arm — the general `User` arm below answers `true` for any
+            // name it cannot resolve, so merely leaving it out would flip the
+            // verdict (caught by `attributed_string_not_comparable`).
+            Type::Named(name) if name.resolve() == "AttributedString" => false,
+            Type::ListOf(_)
+            | Type::SetOf(_)
+            | Type::MapOf(_, _)
+            | Type::Func(..)
+            | Type::ResultOf(_)
             | Type::Res(_)
-            | Type::Thread(..)
-            | Type::ThreadWorker(..) => false,
-            Type::User(name) => {
-                if self.resource_registry.is_resource(name) || !seen.insert(name.clone()) {
+            | Type::ThreadHandle { .. } => false,
+            Type::Named(name) => {
+                let name = name.resolve();
+                if self.resource_registry.is_resource(name) || !seen.insert(name.to_string()) {
                     return false;
                 }
                 let Some(info) = self.type_infos.get(name) else {
@@ -369,12 +380,20 @@ impl<'a> SyntaxChecker<'a> {
                 seen.remove(name);
                 result
             }
+            // `ParameterType` carries variants syntaxcheck's own parser never
+            // produces (`Var`, `Arg`, `UserOf`, `MapEntryOf`, `AttributeString`);
+            // a decoded package signature can still hold one. Before plan-106-C
+            // rung 2e each arrived spelled out as `Type::User(<spelling>)` and so
+            // took the NOMINAL arm above — routing the render back through it
+            // reproduces that exactly, rather than guessing a new answer for a
+            // shape this checker has never had to answer for.
+            other => self.is_comparable_with_seen(&Type::named(&other.name()), seen),
         }
     }
 
     pub(super) fn require_comparable_type(
         &mut self,
-        _file: &AstFile,
+        _file: &HirFile,
         _line: usize,
         _context: &str,
         _type_: &Type,
@@ -397,10 +416,11 @@ impl<'a> SyntaxChecker<'a> {
     ) -> ExprMode {
         let param_type = sig.params.get(index).map(|param| &param.type_);
         if index == 0 {
-            if let Some(Type::User(name)) = param_type {
+            if let Some(Type::Named(name)) = param_type {
+                let name = name.resolve();
                 let base = crate::codegen::resource::base_resource_name(name);
                 let is_close_op = self.resource_registry.close_function(base) == Some(callee)
-                    || self.resource_registry.close_function(name.as_str()) == Some(callee)
+                    || self.resource_registry.close_function(name) == Some(callee)
                     // A re-export alias of the close op consumes too (§5a).
                     || self
                         .close_op_aliases
@@ -478,31 +498,6 @@ impl<'a> SyntaxChecker<'a> {
 /// which owns exactly one top-level ` TO ` — begins at byte `at` of `body`. The
 /// match must sit on a word boundary so a user template whose name merely ends
 /// in `Map` (`MyMap OF T`, which owns no ` TO `) is not counted.
-
-/// Split a `Map OF` body `K TO V` (the text after the outer `Map OF ` prefix) on
-/// the ` TO ` that separates the outer key from its value. A leftmost
-/// `split_once(" TO ")` mis-parses a key that itself carries a ` TO `
-/// (`Map OF Map OF String TO Integer TO Boolean`, bug-41): this scan skips the
-/// ` TO ` owned by each nested `Map`/`MapEntry`/`Thread`/`ThreadWorker` sub-type
-/// and ignores separators inside parenthesized / `FUNC(...)` groups. Returns
-/// `None` when there is no top-level ` TO ` (a malformed body), so the caller
-/// falls through and the whole string is treated as a plain type name.
-/// Split a `Map OF` body `K TO V` (the text after the outer `Map OF ` prefix) on
-/// the ` TO ` that separates the outer key from its value.
-///
-/// plan-105-B: this was a verbatim third copy of the same depth-aware scan (the
-/// others lived in `monomorph::helpers` and `resolver::resolution`), which is
-/// precisely the lockstep-edit hazard the architectural review flagged
-/// (`planning/Compiler Pipeline.md:25`) — a fix like bug-41/bug-108.2 had to be
-/// applied to all of them or the compiler disagreed with itself about where a
-/// nested `Map OF Map OF String TO Integer TO Boolean` splits. It now delegates to
-/// the canonical [`crate::types::split_top_level_to`].
-///
-/// Returns `None` when there is no top-level ` TO ` (a malformed body), so the
-/// caller falls through and the whole string is treated as a plain type name.
-fn split_map_body(body: &str) -> Option<(&str, &str)> {
-    crate::types::split_top_level_to(body)
-}
 
 #[cfg(test)]
 mod types_tests {
@@ -654,7 +649,7 @@ mod types_tests {
         ));
     }
 
-    // ---- RES-marked collection element (parse_collection_element_type) ------
+    // ---- RES-marked collection element (Type::Res) --------------------------
 
     #[test]
     fn res_marked_list_element_parses() {
@@ -773,7 +768,9 @@ mod types_tests {
 
     #[test]
     fn split_map_body_handles_nested_key_and_value() {
-        use super::split_map_body;
+        // plan-106-C deleted `split_map_body`, which had become a bare delegate;
+        // these assertions follow the splitter to its one home.
+        use crate::types::split_top_level_to as split_map_body;
         // Simple body: leftmost and balanced agree.
         assert_eq!(
             split_map_body("String TO Integer"),
@@ -813,7 +810,7 @@ mod types_tests {
     fn parse_type_nested_map_key_structure() {
         use super::{SyntaxChecker, Type};
         let dir = std::path::Path::new(".");
-        let project = crate::ast::AstProject {
+        let project = crate::hir::HirProject {
             name: "t".to_string(),
             files: vec![],
         };
@@ -821,13 +818,13 @@ mod types_tests {
         // `Map OF Map OF String TO Integer TO Boolean` must build
         // `Map(Map(String, Integer), Boolean)`, not the mis-split
         // `Map(User("Map OF Map OF String"), …)`.
-        let Type::Map(key, value) =
+        let Type::MapOf(key, value) =
             checker.parse_type("Map OF Map OF String TO Integer TO Boolean")
         else {
             panic!("expected a Map type");
         };
         assert!(matches!(*value, Type::Boolean));
-        let Type::Map(inner_key, inner_value) = *key else {
+        let Type::MapOf(inner_key, inner_value) = *key else {
             panic!("expected the key to be a nested Map");
         };
         assert!(matches!(*inner_key, Type::String));
@@ -841,7 +838,7 @@ mod types_tests {
         use super::{FieldInfo, SyntaxChecker, Type, TypeInfo};
         use crate::ast::{TypeDeclKind, Visibility};
         let dir = std::path::Path::new(".");
-        let project = crate::ast::AstProject {
+        let project = crate::hir::HirProject {
             name: "t".to_string(),
             files: vec![],
         };
@@ -864,22 +861,16 @@ mod types_tests {
             .insert("geo.Point".to_string(), record("lat"));
         checker.type_infos.insert("Point".to_string(), record("x"));
         // bug-41: distinct declarations must NOT unify on the shared bare name.
-        assert!(!checker.compatible(
-            &Type::User("geo.Point".to_string()),
-            &Type::User("Point".to_string())
-        ));
+        assert!(!checker.compatible(&Type::named("geo.Point"), &Type::named("Point")));
         // The legitimate qualified==bare case (both resolve to the same registered
         // `TypeInfo`) still unifies: a qualified alias of the bare `Point`.
-        assert!(checker.compatible(
-            &Type::User("mod.Point".to_string()),
-            &Type::User("Point".to_string())
-        ));
+        assert!(checker.compatible(&Type::named("mod.Point"), &Type::named("Point")));
     }
 
     // ---- parse_type / compatible direct unit tests -------------------------
 
-    fn empty_project() -> crate::ast::AstProject {
-        crate::ast::AstProject {
+    fn empty_project() -> crate::hir::HirProject {
+        crate::hir::HirProject {
             name: "t".to_string(),
             files: vec![],
         }
@@ -890,7 +881,7 @@ mod types_tests {
         use super::{SyntaxChecker, Type};
         let project = empty_project();
         let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
-        assert!(matches!(checker.parse_type("Result"), Type::Result(_)));
+        assert!(matches!(checker.parse_type("Result"), Type::ResultOf(_)));
         assert!(matches!(checker.parse_type("Unknown"), Type::Unknown));
     }
 
@@ -900,7 +891,7 @@ mod types_tests {
         let project = empty_project();
         let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
         // `net.Url` is a package-qualified built-in type id (plan-03-http §A.1).
-        assert!(matches!(checker.parse_type("net.Url"), Type::User(_)));
+        assert!(matches!(checker.parse_type("net.Url"), Type::Named(_)));
     }
 
     #[test]
@@ -919,26 +910,34 @@ mod types_tests {
         let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
         let int = || Box::new(Type::Integer);
         // Result vs Result.
-        assert!(checker.compatible(&Type::Result(int()), &Type::Result(int())));
+        assert!(checker.compatible(&Type::ResultOf(int()), &Type::ResultOf(int())));
         // ThreadWorker vs ThreadWorker, with and without a resource plane.
-        let tw = |res: Option<Box<Type>>| Type::ThreadWorker(int(), res, None, int());
-        assert!(checker.compatible(&tw(None), &tw(None)));
-        assert!(checker.compatible(
-            &tw(Some(Box::new(Type::String))),
-            &tw(Some(Box::new(Type::String)))
-        ));
-        // compatible_optional: one side carries a resource plane, the other not.
-        assert!(!checker.compatible(&tw(Some(Box::new(Type::String))), &tw(None)));
+        // plan-106-C rung 2e: an absent resource plane is `Nothing`, not `None`,
+        // and one `compatible` call decides the plane (the old `compatible_optional`
+        // pair is gone with it).
+        let tw = |res: Type| Type::ThreadHandle {
+            worker: true,
+            msg: int(),
+            res: Box::new(res),
+            out: int(),
+        };
+        assert!(checker.compatible(&tw(Type::Nothing), &tw(Type::Nothing)));
+        assert!(checker.compatible(&tw(Type::String), &tw(Type::String)));
+        // One side carries a resource plane, the other does not.
+        assert!(!checker.compatible(&tw(Type::String), &tw(Type::Nothing)));
         // Thread vs Thread resource-plane mismatch.
-        let th = |res: Option<Box<Type>>| Type::Thread(int(), res, None, int());
-        assert!(!checker.compatible(&th(Some(Box::new(Type::String))), &th(None)));
+        let th = |res: Type| Type::ThreadHandle {
+            worker: false,
+            msg: int(),
+            res: Box::new(res),
+            out: int(),
+        };
+        assert!(!checker.compatible(&th(Type::String), &th(Type::Nothing)));
+        // A parent handle and a worker handle never unify with each other.
+        assert!(!checker.compatible(&th(Type::Nothing), &tw(Type::Nothing)));
         // Function: a non-isolated function fits a non-isolated slot, and an
         // isolated function fits an isolated slot, but not vice versa.
-        let func = |iso: bool| Type::Function {
-            params: vec![Type::Integer],
-            return_type: int(),
-            isolated: iso,
-        };
+        let func = |iso: bool| Type::Func(vec![Type::Integer], int(), iso);
         assert!(checker.compatible(&func(false), &func(true)));
         assert!(!checker.compatible(&func(true), &func(false)));
     }
@@ -949,10 +948,7 @@ mod types_tests {
         let project = empty_project();
         let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
         // Different bare names never unify.
-        assert!(!checker.compatible(
-            &Type::User("Point".to_string()),
-            &Type::User("Circle".to_string())
-        ));
+        assert!(!checker.compatible(&Type::named("Point"), &Type::named("Circle")));
     }
 
     // ---- is_comparable User arms (via `=` on enum / record / union) --------

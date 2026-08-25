@@ -2,7 +2,7 @@
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::*;
+use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
@@ -93,7 +93,9 @@ impl CodeBuilder<'_> {
         let scratch23 = self.temporary_vreg();
         let scratch24 = self.temporary_vreg();
         let haystack = self.lower_value(&args[0])?;
-        if let Some(element_type) = list_element_type(&haystack.type_.name()) {
+        if let Some(element_type) =
+            typed_list_element_type(&haystack.type_).map(|type_| type_.name().into_owned())
+        {
             let haystack_slot = self.allocate_stack_object("find_list_haystack", 8);
             self.emit(abi::store_u64(
                 &haystack.location,
@@ -128,7 +130,7 @@ impl CodeBuilder<'_> {
                     haystack_slot,
                     needle_slot,
                     start_slot,
-                    &haystack.type_.name(),
+                    &haystack.type_,
                     &element_type,
                 );
             }
@@ -137,7 +139,7 @@ impl CodeBuilder<'_> {
                     haystack_slot,
                     needle_slot,
                     start_slot,
-                    &haystack.type_.name(),
+                    &haystack.type_,
                     &element_type,
                 );
             }
@@ -352,7 +354,7 @@ impl CodeBuilder<'_> {
         haystack_slot: usize,
         needle_slot: usize,
         start_slot: usize,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
     ) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
@@ -483,7 +485,7 @@ impl CodeBuilder<'_> {
         haystack_slot: usize,
         needle_slot: usize,
         start_slot: usize,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
     ) -> Result<ValueResult, String> {
         let sub_payload = kind2_payload_size(element_type);
@@ -678,7 +680,9 @@ impl CodeBuilder<'_> {
         let scratch24 = self.temporary_vreg();
         let scratch25 = self.temporary_vreg();
         let value = self.lower_value(&args[0])?;
-        if let Some(element_type) = list_element_type(&value.type_.name()) {
+        if let Some(element_type) =
+            typed_list_element_type(&value.type_).map(|type_| type_.name().into_owned())
+        {
             let value_slot = self.allocate_stack_object("mid_list_value", 8);
             self.emit(abi::store_u64(
                 &value.location,
@@ -715,7 +719,7 @@ impl CodeBuilder<'_> {
                 value_slot,
                 start_slot,
                 count_slot,
-                &value.type_.name(),
+                &value.type_,
                 &element_type,
             );
         }
@@ -941,7 +945,7 @@ impl CodeBuilder<'_> {
         value_slot: usize,
         start_slot: usize,
         count_slot: usize,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
     ) -> Result<ValueResult, String> {
         let layout = CollectionTypeLayout::from_type(list_type)
@@ -1312,7 +1316,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&list_type),
+            type_: list_type.clone(),
             location: Operand::from(result.render()),
             text: format!("mid({list_type}, Integer, Integer) over {element_type}"),
         })

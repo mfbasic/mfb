@@ -4,7 +4,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::list_element_type;
+use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -51,13 +51,14 @@ impl CodeBuilder<'_> {
         size: i64,
     ) -> Result<ValueResult, String> {
         let source = self.lower_value(&args[0])?;
-        let _elem = list_element_type(&source.type_.name())
+        let _elem = typed_list_element_type(&source.type_)
+            .map(|type_| type_.name().into_owned())
             .ok_or_else(|| format!("native chunks does not accept {}", source.type_))?;
         let inner_type = source.type_.clone();
-        let outer_type = format!("List OF {inner_type}");
+        let outer_type = ParameterType::list_of(inner_type.clone());
         let outer_layout = CollectionTypeLayout::from_type(&outer_type)
             .ok_or_else(|| format!("native chunks cannot resolve {outer_type}"))?;
-        let inner_layout = CollectionTypeLayout::from_type(&inner_type.name())
+        let inner_layout = CollectionTypeLayout::from_type(&inner_type)
             .ok_or_else(|| format!("native chunks cannot resolve {inner_type}"))?;
         // Uniform per-chunk block stride (the last chunk over-allocates to this and
         // leaves a harmless tail gap — free uses dataCapacity, reads use offsets).
@@ -242,7 +243,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&outer_type),
+            type_: outer_type.clone(),
             location: Operand::from(result.render()),
             text: format!("chunks({})", source.type_),
         })
@@ -266,7 +267,7 @@ impl CodeBuilder<'_> {
         let scratch2 = self.temporary_vreg();
         let source = self.lower_value(&args[0])?;
         let inner_type = source.type_.clone(); // List OF String
-        let outer_type = format!("List OF {inner_type}"); // List OF List OF String
+        let outer_type = ParameterType::list_of(inner_type.clone()); // List OF List OF String
         let source_slot = self.allocate_stack_object("chunks_s_source", 8);
         self.emit(abi::store_u64(
             &source.location,
@@ -323,7 +324,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), outer_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&outer_type),
+            type_: outer_type.clone(),
             location: Operand::from(result.render()),
             text: format!("chunks({}, {size})", source.type_),
         })

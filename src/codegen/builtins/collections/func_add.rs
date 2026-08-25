@@ -2,7 +2,7 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::types::set_element_type;
+use crate::codegen::engine::types::typed_set_element_type;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -111,7 +111,9 @@ pub(crate) fn lower_add(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let set = args[0].clone();
-    let Some(element_type) = set_element_type(&set.type_.name()) else {
+    let Some(element_type) =
+        typed_set_element_type(&set.type_).map(|type_| type_.name().into_owned())
+    else {
         return Err(format!(
             "native collection add does not accept {}",
             set.type_
@@ -143,14 +145,14 @@ pub(crate) fn lower_add(
     // Copy the set (tight, uniquely owned), then insert into the copy.
     let source = builder.allocate_register();
     builder.emit(abi::load_u64(&source, abi::stack_pointer(), source_slot));
-    let copy = builder.copy_collection_tight(&set.type_.name(), &source)?;
+    let copy = builder.copy_collection_tight(&set.type_, &source)?;
     let copy_slot = builder.allocate_stack_object("set_add_copy", 8);
     builder.emit(abi::store_u64(&copy, abi::stack_pointer(), copy_slot));
     builder.lower_map_set_in_place(
         copy_slot,
         item_slot,
         true_slot,
-        &set.type_.name(),
+        &set.type_,
         &element_type,
         "Boolean",
     )

@@ -4,7 +4,7 @@
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::{list_element_type, set_element_type};
+use crate::codegen::engine::types::{typed_list_element_type, typed_set_element_type};
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -182,17 +182,21 @@ pub(crate) fn lower_contains(
     // over the element (= entry key), shared with `hasKey` (plan-63-B). Decided
     // on the *lowered* type so a nested-call first argument (`contains(union(a,
     // b), x)`, whose static type is unknown pre-lowering) still routes here.
-    if let Some(element_type) = set_element_type(&collection.type_.name()) {
+    if let Some(element_type) =
+        typed_set_element_type(&collection.type_).map(|type_| type_.name().into_owned())
+    {
         return builder.emit_key_membership(
             collection_slot,
             item_slot,
             &element_type,
             "contains",
-            &collection.type_.name(),
+            &collection.type_,
         );
     }
 
-    let Some(element_type) = list_element_type(&collection.type_.name()) else {
+    let Some(element_type) =
+        typed_list_element_type(&collection.type_).map(|type_| type_.name().into_owned())
+    else {
         return Err(format!(
             "native collection contains does not accept {}",
             collection.type_

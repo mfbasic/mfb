@@ -56,12 +56,15 @@ impl CodeBuilder<'_> {
         key_type: &str,
         value_type: &str,
     ) -> Result<ValueResult, String> {
-        let list_v = format!("List OF {value_type}");
-        let map_type = format!("Map OF {key_type} TO {list_v}");
-        let int_layout = CollectionTypeLayout::from_type("List OF Integer")
-            .ok_or_else(|| "groupBy: int layout".to_string())?;
-        let _k_layout = CollectionTypeLayout::from_type(&format!("List OF {key_type}"))
-            .ok_or_else(|| "groupBy: key layout".to_string())?;
+        let list_v = ParameterType::list_of(ParameterType::parse(value_type));
+        let map_type = ParameterType::map_of(ParameterType::parse(key_type), list_v.clone());
+        let int_layout =
+            CollectionTypeLayout::from_type(&ParameterType::list_of(ParameterType::Integer))
+                .ok_or_else(|| "groupBy: int layout".to_string())?;
+        let _k_layout = CollectionTypeLayout::from_type(&ParameterType::list_of(
+            ParameterType::parse(&key_type),
+        ))
+        .ok_or_else(|| "groupBy: key layout".to_string())?;
         let v_layout = CollectionTypeLayout::from_type(&list_v)
             .ok_or_else(|| "groupBy: value layout".to_string())?;
         let ctx = self.inline_abi_ctx();
@@ -401,7 +404,7 @@ impl CodeBuilder<'_> {
             bucket_slot,
             &map_type,
             key_type,
-            &list_v,
+            &list_v.name(),
         )?;
         self.emit(abi::store_u64(
             &set.location,
@@ -411,7 +414,7 @@ impl CodeBuilder<'_> {
         // free the now-copied bucket
         let keep = ValueResult {
             origin: None,
-            type_: ParameterType::parse(&map_type),
+            type_: map_type.clone(),
             location: {
                 let z = self.allocate_register();
                 self.emit(abi::load_u64(&z, abi::stack_pointer(), result_slot));
@@ -428,7 +431,7 @@ impl CodeBuilder<'_> {
         // free the six scratch buffers (thread result through)
         let mut threaded = ValueResult {
             origin: None,
-            type_: ParameterType::parse(&map_type),
+            type_: map_type.clone(),
             location: {
                 let z = self.allocate_register();
                 self.emit(abi::load_u64(&z, abi::stack_pointer(), result_slot));
@@ -437,18 +440,21 @@ impl CodeBuilder<'_> {
             text: String::new(),
         };
         for (s, ty) in [
-            (keys_slot, format!("List OF {key_type}")),
+            (
+                keys_slot,
+                ParameterType::list_of(ParameterType::parse(key_type)),
+            ),
             (vals_slot, list_v.clone()),
-            (hk_slot, "List OF Integer".to_string()),
-            (ho_slot, "List OF Integer".to_string()),
-            (bp_slot, "List OF Integer".to_string()),
-            (ko_slot, "List OF Integer".to_string()),
+            (hk_slot, ParameterType::list_of(ParameterType::Integer)),
+            (ho_slot, ParameterType::list_of(ParameterType::Integer)),
+            (bp_slot, ParameterType::list_of(ParameterType::Integer)),
+            (ko_slot, ParameterType::list_of(ParameterType::Integer)),
         ] {
             threaded = self.free_intermediate_collection(s, &ty, threaded)?;
         }
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&map_type),
+            type_: map_type.clone(),
             location: threaded.location,
             text: "groupBy".to_string(),
         })

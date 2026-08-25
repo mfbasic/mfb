@@ -229,7 +229,7 @@ impl CodeBuilder<'_> {
                         }
                     }
                 }
-                let copied = self.copy_flat_block(&lowered.type_.name(), &lowered.location)?;
+                let copied = self.copy_flat_block(&lowered.type_, &lowered.location)?;
                 return Ok((
                     ValueResult {
                         origin: None,
@@ -342,7 +342,7 @@ impl CodeBuilder<'_> {
                     {
                         Operand::from(
                             self.materialize_inline_value_in_arena(
-                                &result.type_.name(),
+                                &result.type_,
                                 &result.location,
                             )?
                             .render(),
@@ -366,7 +366,7 @@ impl CodeBuilder<'_> {
             if let NirValue::Local(name) = value {
                 if result
                     .as_ref()
-                    .is_some_and(|result| Self::is_thread_type(&result.type_.name()))
+                    .is_some_and(|result| Self::is_thread_type(&result.type_))
                 {
                     self.deactivate_thread_cleanup(name);
                 }
@@ -389,9 +389,10 @@ impl CodeBuilder<'_> {
                 // Returning a `List OF RES File` transfers its owned-list to the
                 // caller: drop this scope's drain so the resources are not closed
                 // here (§15.6).
-                if result.as_ref().is_some_and(|result| {
-                    Self::is_res_marked_resource_collection(&result.type_.name())
-                }) {
+                if result
+                    .as_ref()
+                    .is_some_and(|result| Self::is_res_marked_resource_collection(&result.type_))
+                {
                     self.deactivate_owned_list(name);
                 }
             }

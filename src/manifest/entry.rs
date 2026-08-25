@@ -2,16 +2,23 @@ use std::collections::HashMap;
 use std::path::Path;
 use tinyjson::JsonValue;
 
-use crate::ast;
+use crate::hir::{HirItem, HirProject};
 use crate::ir;
 use crate::rules;
+use crate::types::ParameterType;
 
 use super::{entry_point, project_kind};
 
+/// Validate the executable entry point against the manifest, on the concrete
+/// [`HirProject`] (plan-106-D).
+///
+/// Both type facts it needs — the return type and the lone `args` parameter's
+/// type — are read as [`ParameterType`] values, so the two literal spellings
+/// this used to compare against (`"Integer"`, `"List OF String"`) are gone.
 pub(crate) fn validate_entry_point(
     project_dir: &Path,
     manifest: &HashMap<String, JsonValue>,
-    ast: &ast::AstProject,
+    hir: &HirProject,
 ) -> Result<Option<ir::EntryPoint>, ()> {
     let kind = project_kind(manifest);
     if kind == "package" {
@@ -21,21 +28,26 @@ pub(crate) fn validate_entry_point(
     let entry = entry_point(manifest);
     let mut matches = Vec::new();
 
-    for file in &ast.files {
+    for file in &hir.files {
         for item in &file.items {
-            let ast::Item::Function(function) = item else {
+            let HirItem::Function(function) = item else {
                 continue;
             };
             if function.name != entry {
                 continue;
             }
 
+            // An unannotated `FUNC` elaborates to `Unknown`, which is not
+            // `Integer` and so is rejected by the guard below — exactly as the
+            // `unwrap_or("")` it replaces was.
             let returns = match function.kind {
-                ast::FunctionKind::Sub => "Nothing",
-                ast::FunctionKind::Func => function.return_type.as_deref().unwrap_or(""),
+                crate::ast::FunctionKind::Sub => ParameterType::Nothing,
+                crate::ast::FunctionKind::Func => function.returns.clone(),
             };
 
-            if matches!(function.kind, ast::FunctionKind::Func) && returns != "Integer" {
+            if matches!(function.kind, crate::ast::FunctionKind::Func)
+                && returns != ParameterType::Integer
+            {
                 rules::show_diagnostic(
                     "PROJECT_ENTRY_INVALID",
                     &format!("Executable FUNC entry `{entry}` must return Integer."),
@@ -47,9 +59,10 @@ pub(crate) fn validate_entry_point(
                 return Err(());
             }
 
+            let args_type = ParameterType::list_of(ParameterType::String);
             let accepts_args = match function.params.as_slice() {
                 [] => false,
-                [param] if param.type_name.as_deref() == Some("List OF String") => true,
+                [param] if param.type_ == args_type => true,
                 [param] => {
                     rules::show_diagnostic(
                         "PROJECT_ENTRY_INVALID",
@@ -95,7 +108,7 @@ pub(crate) fn validate_entry_point(
                 file.path.clone(),
                 function.line,
                 entry.to_string(),
-                returns.to_string(),
+                returns,
                 accepts_args,
             ));
         }
@@ -119,7 +132,7 @@ pub(crate) fn validate_entry_point(
     if let Some((_, _, name, returns, accepts_args)) = matches.pop() {
         return Ok(Some(ir::EntryPoint {
             name,
-            returns: crate::types::ParameterType::parse(&returns),
+            returns,
             accepts_args,
         }));
     }
@@ -148,30 +161,30 @@ mod tests {
         map
     }
 
-    fn project(src: &str) -> ast::AstProject {
+    fn project(src: &str) -> HirProject {
         let path = std::path::Path::new("main.mfb");
-        let file = ast::parse_source(path, "main.mfb", src).expect("parse source");
-        ast::AstProject {
+        let file = crate::ast::parse_source(path, "main.mfb", src).expect("parse source");
+        crate::hir::elaborate(&crate::ast::AstProject {
             name: "demo".to_string(),
             files: vec![file],
-        }
+        })
     }
 
     #[test]
     fn package_kind_returns_none() {
-        let ast = project("FUNC helper() AS Integer\n  RETURN 0\nEND FUNC\n");
+        let hir = project("FUNC helper() AS Integer\n  RETURN 0\nEND FUNC\n");
         let result =
-            validate_entry_point(std::path::Path::new("."), &manifest("package", None), &ast);
+            validate_entry_point(std::path::Path::new("."), &manifest("package", None), &hir);
         assert!(matches!(result, Ok(None)));
     }
 
     #[test]
     fn func_entry_returning_integer_accepts_no_args() {
-        let ast = project("FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n");
+        let hir = project("FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n");
         let entry = validate_entry_point(
             std::path::Path::new("."),
             &manifest("executable", None),
-            &ast,
+            &hir,
         )
         .expect("ok")
         .expect("entry");
@@ -182,11 +195,11 @@ mod tests {
 
     #[test]
     fn sub_entry_accepts_args_parameter() {
-        let ast = project("SUB main(args AS List OF String)\n  LET n AS Integer = 0\nEND SUB\n");
+        let hir = project("SUB main(args AS List OF String)\n  LET n AS Integer = 0\nEND SUB\n");
         let entry = validate_entry_point(
             std::path::Path::new("."),
             &manifest("executable", None),
-            &ast,
+            &hir,
         )
         .expect("ok")
         .expect("entry");
@@ -196,82 +209,82 @@ mod tests {
 
     #[test]
     fn func_entry_not_returning_integer_is_error() {
-        let ast = project("FUNC main() AS String\n  RETURN \"x\"\nEND FUNC\n");
+        let hir = project("FUNC main() AS String\n  RETURN \"x\"\nEND FUNC\n");
         assert!(validate_entry_point(
             std::path::Path::new("."),
             &manifest("executable", None),
-            &ast
+            &hir
         )
         .is_err());
     }
 
     #[test]
     fn wrong_arg_type_is_error() {
-        let ast = project("FUNC main(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n");
+        let hir = project("FUNC main(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n");
         assert!(validate_entry_point(
             std::path::Path::new("."),
             &manifest("executable", None),
-            &ast
+            &hir
         )
         .is_err());
     }
 
     #[test]
     fn too_many_params_is_error() {
-        let ast = project(
+        let hir = project(
             "FUNC main(a AS List OF String, b AS Integer) AS Integer\n  RETURN 0\nEND FUNC\n",
         );
         assert!(validate_entry_point(
             std::path::Path::new("."),
             &manifest("executable", None),
-            &ast
+            &hir
         )
         .is_err());
     }
 
     #[test]
     fn args_default_value_is_error() {
-        let ast =
+        let hir =
             project("FUNC main(args AS List OF String = []) AS Integer\n  RETURN 0\nEND FUNC\n");
         assert!(validate_entry_point(
             std::path::Path::new("."),
             &manifest("executable", None),
-            &ast
+            &hir
         )
         .is_err());
     }
 
     #[test]
     fn multiple_entries_is_error() {
-        let ast = project(
+        let hir = project(
             "FUNC main() AS Integer\n  RETURN 0\nEND FUNC\nFUNC main() AS Integer\n  RETURN 1\nEND FUNC\n",
         );
         assert!(validate_entry_point(
             std::path::Path::new("."),
             &manifest("executable", None),
-            &ast
+            &hir
         )
         .is_err());
     }
 
     #[test]
     fn missing_entry_is_error() {
-        let ast = project("FUNC other() AS Integer\n  RETURN 0\nEND FUNC\n");
+        let hir = project("FUNC other() AS Integer\n  RETURN 0\nEND FUNC\n");
         assert!(validate_entry_point(
             std::path::Path::new("."),
             &manifest("executable", None),
-            &ast
+            &hir
         )
         .is_err());
     }
 
     #[test]
     fn custom_entry_name_is_honored() {
-        let ast = project("FUNC run() AS Integer\n  RETURN 0\nEND FUNC\n");
+        let hir = project("FUNC run() AS Integer\n  RETURN 0\nEND FUNC\n");
         let entry = validate_entry_point(
             std::path::Path::new("."),
             &manifest("executable", Some("run")),
-            &ast,
+            &hir,
         )
         .expect("ok")
         .expect("entry");

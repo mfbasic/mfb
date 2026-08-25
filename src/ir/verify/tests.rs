@@ -622,29 +622,47 @@ fn resource_union_parameter_widening_is_directional() {
     let env = super::TypeEnv::build(&proj);
     // variant -> union (widen): accepted
     assert!(
-        env.compatible("Stream", "fs.File"),
+        env.compatible(
+            &ParameterType::parse("Stream"),
+            &ParameterType::parse("fs.File")
+        ),
         "File must widen to Stream"
     );
     assert!(
-        env.compatible("Stream", "Socket"),
+        env.compatible(
+            &ParameterType::parse("Stream"),
+            &ParameterType::parse("Socket")
+        ),
         "Socket must widen to Stream"
     );
     // union -> concrete (reverse): rejected
     assert!(
-        !env.compatible("fs.File", "Stream"),
+        !env.compatible(
+            &ParameterType::parse("fs.File"),
+            &ParameterType::parse("Stream")
+        ),
         "a Stream union must not narrow into a concrete File parameter"
     );
     assert!(
-        !env.compatible("Socket", "Stream"),
+        !env.compatible(
+            &ParameterType::parse("Socket"),
+            &ParameterType::parse("Stream")
+        ),
         "a Stream union must not narrow into a concrete Socket parameter"
     );
     // the RES ownership marker is stripped, so widening/narrowing is unchanged
     assert!(
-        env.compatible("RES Stream", "RES fs.File"),
+        env.compatible(
+            &ParameterType::parse("RES Stream"),
+            &ParameterType::parse("RES fs.File")
+        ),
         "the RES marker must not block variant->union widening"
     );
     assert!(
-        !env.compatible("RES fs.File", "RES Stream"),
+        !env.compatible(
+            &ParameterType::parse("RES fs.File"),
+            &ParameterType::parse("RES Stream")
+        ),
         "the RES marker must not enable union->concrete narrowing"
     );
 }
@@ -5660,10 +5678,23 @@ fn poisoned_return_yields_unknown_value() {
 #[test]
 fn rejects_map_key_thread_ownership() {
     // A Map keyed on a Thread handle: ordinary collections cannot own it.
+    //
+    // The key needs its OWN ` TO Out`, so the well-formed spelling carries two
+    // top-level ` TO `s: the first belongs to the nested `Thread OF`, the second
+    // separates the map's key from its value (`split_top_level_to`). Written
+    // `Map OF Thread OF Integer TO Integer` (one ` TO `) before plan-106-B, which
+    // `ParameterType::parse` correctly reads as a map with NO value type and so
+    // yields an opaque `Named` — the check only ever fired because the duplicate
+    // `parse_map` split naively on the FIRST ` TO `, mis-reading the key as
+    // `Thread OF Integer` and the value as `Integer`.
     let f = func_returns(
         "run",
         "Nothing",
-        vec![param("m", "Map OF Thread OF Integer TO Integer", None)],
+        vec![param(
+            "m",
+            "Map OF Thread OF Integer TO Integer TO Integer",
+            None,
+        )],
         vec![],
     );
     expect_rule(
@@ -6777,10 +6808,15 @@ fn rejects_thread_result_member() {
         member: "result".to_string(),
         type_: crate::types::ParameterType::parse("Unknown"),
     })];
+    // A well-formed handle spells both planes (`Thread OF Msg TO Out`); the
+    // truncated `Thread OF Integer` used here before plan-106-B parses to an
+    // opaque `Named`, so it exercised only the defensive name arm of
+    // `is_thread_type` (pinned directly by
+    // `truncated_thread_spelling_still_counts_as_a_thread`).
     let f = func_returns(
         "run",
         "Integer",
-        vec![param("t", "Thread OF Integer", None)],
+        vec![param("t", "Thread OF Integer TO Integer", None)],
         body,
     );
     expect_rule(&project(vec![f], vec![]), "TYPE_THREAD_RESULT_REMOVED");
@@ -7608,4 +7644,36 @@ fn accepts_length_scaling_the_abi_return() {
         Box::new(crate::ir::IrLinkExpr::Int(2)),
     ));
     accept(&cbuffer_project(lf));
+}
+
+/// plan-106-B: `is_thread_type` keeps a NAME arm beside its structural one, and
+/// this pins it.
+///
+/// `ParameterType::parse` builds a `ThreadHandle` only from the complete
+/// `Thread OF Msg [RES R] TO Out` shape. Decoded package IR is
+/// attacker-controlled (PKG-02) and need not be well formed, so a truncated
+/// `Thread OF Integer` arrives as an opaque `Named` — and must still be treated
+/// as a thread handle by the ownership and `.result` rules, exactly as the
+/// pre-plan-106 `starts_with("Thread")` did.
+#[test]
+fn truncated_thread_spelling_still_counts_as_a_thread() {
+    // Well formed → the structural arm.
+    let handle = ParameterType::parse("Thread OF Integer TO Integer");
+    assert!(matches!(handle, ParameterType::ThreadHandle { .. }));
+    assert!(super::is_thread_type(&handle));
+
+    // Truncated / crafted → an opaque `Named`, caught by the name arm.
+    let truncated = ParameterType::parse("Thread OF Integer");
+    assert!(matches!(truncated, ParameterType::Named(_)));
+    assert!(super::is_thread_type(&truncated));
+
+    let worker = ParameterType::parse("ThreadWorker OF Integer");
+    assert!(super::is_thread_type(&worker));
+
+    // An ordinary nominal is not a thread, however it is spelled.
+    assert!(!super::is_thread_type(&ParameterType::named("Threadbare")));
+    assert!(!super::is_thread_type(&ParameterType::Integer));
+    assert!(!super::is_thread_type(&ParameterType::list_of(
+        ParameterType::Integer
+    )));
 }

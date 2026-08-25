@@ -19,10 +19,9 @@ impl TypeEnv {
                 "type" | "record" => {
                     for field in &ty.fields {
                         self.current_line.set(field.loc.line);
-                        let field_type = field.type_.name();
-                        self.check_map_key_comparable(&field_type);
+                        self.check_map_key_comparable(&field.type_);
                         self.current_line.set(ty.loc.line);
-                        if is_resource_name(resource_base_type(&field_type)) {
+                        if is_resource_name(&resource_base_type(&field.type_).name()) {
                             self.current_line.set(field.loc.line);
                             self.emit(
                                 "TYPE_RESOURCE_FIELD_FORBIDDEN",
@@ -189,11 +188,14 @@ impl TypeEnv {
         for field_type in fields.values() {
             // Only *direct* record fields propagate the cycle; a List/Map/Union
             // field is a legitimate base-case indirection.
-            let base = resource_base_type(field_type);
+            // The record tables are keyed by type NAME.
+            let base = resource_base_type(field_type).name();
             if base == target {
                 return true;
             }
-            if self.records.contains_key(base) && self.record_field_cycle(base, target, seen) {
+            if self.records.contains_key(base.as_ref())
+                && self.record_field_cycle(&base, target, seen)
+            {
                 return true;
             }
         }

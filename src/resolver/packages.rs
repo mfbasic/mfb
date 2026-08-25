@@ -1,7 +1,7 @@
 use super::*;
 
 impl Resolver<'_> {
-    pub(super) fn resolve_imported_package(&mut self, file: &AstFile, name: &str, line: usize) {
+    pub(super) fn resolve_imported_package(&mut self, file: &HirFile, name: &str, line: usize) {
         // The reserved specifier `self` binds the current package's own exported
         // interface (plan-81-import-self.md §4.1). It is not probed against the
         // package store: in a package project it resolves with no diagnostic; in
@@ -74,7 +74,7 @@ impl Resolver<'_> {
 
     fn install_package_type_names(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         name: &str,
         package_file: &Path,
         line: usize,
@@ -113,7 +113,7 @@ impl Resolver<'_> {
         }
     }
 
-    fn resolve_local_dependency(&mut self, file: &AstFile, name: &str, source: &str, line: usize) {
+    fn resolve_local_dependency(&mut self, file: &HirFile, name: &str, source: &str, line: usize) {
         let Some(path) = source.strip_prefix("local://") else {
             unreachable!("checked local scheme");
         };
@@ -147,7 +147,7 @@ impl Resolver<'_> {
 
     fn validate_source_package_manifest(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         expected_name: &str,
         manifest_path: &Path,
         line: usize,
@@ -239,11 +239,11 @@ fn is_builtin_import(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::AstFile;
+    use crate::hir::HirFile;
     use tempfile::tempdir;
 
-    fn empty_file() -> AstFile {
-        AstFile {
+    fn empty_file() -> HirFile {
+        HirFile {
             path: "main.mfb".to_string(),
             imports: Vec::new(),
             items: Vec::new(),
@@ -275,12 +275,12 @@ mod tests {
         manifest: &HashMap<String, JsonValue>,
         name: &str,
     ) -> bool {
-        let ast = AstProject {
+        let hir = crate::hir::HirProject {
             name: "app".to_string(),
             files: vec![empty_file()],
         };
-        let mut resolver = Resolver::new(project_dir, manifest, &ast);
-        resolver.resolve_imported_package(&ast.files[0], name, 1);
+        let mut resolver = Resolver::new(project_dir, manifest, &hir);
+        resolver.resolve_imported_package(&hir.files[0], name, 1);
         resolver.had_error
     }
 

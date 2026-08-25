@@ -13,10 +13,10 @@ impl CodeBuilder<'_> {
     pub(crate) fn free_intermediate_collection(
         &mut self,
         block_slot: usize,
-        type_: &str,
+        type_: &ParameterType,
         result: ValueResult,
     ) -> Result<ValueResult, String> {
-        if !self.is_freeable_flat_value(type_) {
+        if !self.is_freeable_flat_value(&type_.name()) {
             return Ok(result);
         }
         let keep = self.allocate_stack_object("intermediate_free_keep", 8);
@@ -52,13 +52,13 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_free_pre_grow_buffer(
         &mut self,
         slot: usize,
-        type_: &str,
+        type_: &ParameterType,
     ) -> Result<(), String> {
         let keep = self.allocate_register();
         self.emit(abi::load_u64(&keep, abi::stack_pointer(), slot));
         let threaded = ValueResult {
             origin: None,
-            type_: ParameterType::parse(&type_),
+            type_: type_.clone(),
             location: Operand::from(keep.render()),
             text: String::new(),
         };

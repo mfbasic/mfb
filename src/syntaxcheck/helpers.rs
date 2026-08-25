@@ -1,38 +1,52 @@
 use super::*;
 
-pub(super) fn statement_line(statement: &Statement) -> usize {
-    match statement {
-        Statement::Let { line, .. }
-        | Statement::Return { line, .. }
-        | Statement::Exit { line, .. }
-        | Statement::Continue { line, .. }
-        | Statement::Fail { line, .. }
-        | Statement::Propagate { line }
-        | Statement::Recover { line, .. }
-        | Statement::Assign { line, .. }
-        | Statement::StateAssign { line, .. }
-        | Statement::Expression { line, .. }
-        | Statement::If { line, .. }
-        | Statement::Match { line, .. }
-        | Statement::For { line, .. }
-        | Statement::ForEach { line, .. }
-        | Statement::While { line, .. }
-        | Statement::DoUntil { line, .. } => *line,
+/// A declared `AS T` annotation, or `None` when the source gave none.
+///
+/// plan-106-D: HIR spells an absent annotation [`Type::Unknown`], collapsing the
+/// AST's `Option<String>`. That is the same collapse the de-elaboration seam this
+/// letter deletes already applied at this boundary (`hir::unrender_optional_type`),
+/// and the language agrees with it: a parameter written `AS Unknown` is rejected as
+/// `TYPE_PARAM_REQUIRES_TYPE` ("must declare an `AS` type").
+pub(super) fn declared(type_: &Type) -> Option<&Type> {
+    match type_ {
+        Type::Unknown => None,
+        other => Some(other),
     }
 }
 
-pub(super) fn integer_literal_in_range(expression: &Expression) -> bool {
+pub(super) fn statement_line(statement: &HirStatement) -> usize {
+    match statement {
+        HirStatement::Let { line, .. }
+        | HirStatement::Return { line, .. }
+        | HirStatement::Exit { line, .. }
+        | HirStatement::Continue { line, .. }
+        | HirStatement::Fail { line, .. }
+        | HirStatement::Propagate { line }
+        | HirStatement::Recover { line, .. }
+        | HirStatement::Assign { line, .. }
+        | HirStatement::StateAssign { line, .. }
+        | HirStatement::Expression { line, .. }
+        | HirStatement::If { line, .. }
+        | HirStatement::Match { line, .. }
+        | HirStatement::For { line, .. }
+        | HirStatement::ForEach { line, .. }
+        | HirStatement::While { line, .. }
+        | HirStatement::DoUntil { line, .. } => *line,
+    }
+}
+
+pub(super) fn integer_literal_in_range(expression: &HirExpression) -> bool {
     match expression {
-        Expression::Number(value) => match numeric::classify_literal(value) {
+        HirExpression::Number(value) => match numeric::classify_literal(value) {
             (canonical, numeric::LiteralType::Integer) => canonical.parse::<i64>().is_ok(),
             // A Float/Fixed literal is not an integer-range question here; its
             // range is checked by the Float/Fixed literal-overflow rules.
             _ => true,
         },
-        Expression::Unary {
+        HirExpression::Unary {
             operator, operand, ..
         } if operator == "-" => {
-            let Expression::Number(value) = operand.as_ref() else {
+            let HirExpression::Number(value) = operand.as_ref() else {
                 return true;
             };
             match numeric::classify_literal(value) {
@@ -57,15 +71,15 @@ pub(super) fn effective_field_visibility(
 }
 
 pub(super) fn function_type(sig: &FunctionSig) -> Type {
-    Type::Function {
-        params: sig.params.iter().map(|param| param.type_.clone()).collect(),
-        return_type: Box::new(sig.return_type.clone()),
-        isolated: sig.isolated,
-    }
+    Type::Func(
+        sig.params.iter().map(|param| param.type_.clone()).collect(),
+        Box::new(sig.return_type.clone()),
+        sig.isolated,
+    )
 }
 
 pub(super) fn captured_locals(
-    expression: &Expression,
+    expression: &HirExpression,
     outer_locals: &HashMap<String, LocalInfo>,
     local_names: &HashSet<String>,
 ) -> Vec<CapturedLocal> {
@@ -82,14 +96,14 @@ pub(super) fn captured_locals(
 }
 
 pub(super) fn collect_captured_locals(
-    expression: &Expression,
+    expression: &HirExpression,
     outer_locals: &HashMap<String, LocalInfo>,
     local_names: &HashSet<String>,
     seen: &mut HashSet<String>,
     captures: &mut Vec<CapturedLocal>,
 ) {
     match expression {
-        Expression::Identifier(name) => {
+        HirExpression::Identifier(name) => {
             if let Some(local) = outer_locals.get(name) {
                 if !local_names.contains(name) && seen.insert(name.clone()) {
                     captures.push(CapturedLocal {
@@ -100,7 +114,7 @@ pub(super) fn collect_captured_locals(
                 }
             }
         }
-        Expression::Call {
+        HirExpression::Call {
             callee, arguments, ..
         } => {
             if let Some(local) = outer_locals.get(callee) {
@@ -122,15 +136,15 @@ pub(super) fn collect_captured_locals(
                 );
             }
         }
-        Expression::Lambda { .. } => {}
-        Expression::Binary { left, right, .. } => {
+        HirExpression::Lambda { .. } => {}
+        HirExpression::Binary { left, right, .. } => {
             collect_captured_locals(left, outer_locals, local_names, seen, captures);
             collect_captured_locals(right, outer_locals, local_names, seen, captures);
         }
-        Expression::Unary { operand, .. } => {
+        HirExpression::Unary { operand, .. } => {
             collect_captured_locals(operand, outer_locals, local_names, seen, captures);
         }
-        Expression::Constructor { arguments, .. } => {
+        HirExpression::Constructor { arguments, .. } => {
             for argument in arguments {
                 collect_captured_locals(
                     constructor_arg_value(argument),
@@ -141,52 +155,52 @@ pub(super) fn collect_captured_locals(
                 );
             }
         }
-        Expression::ListLiteral(values) => {
+        HirExpression::ListLiteral(values) => {
             for value in values {
                 collect_captured_locals(value, outer_locals, local_names, seen, captures);
             }
         }
-        Expression::SetLiteral { elements, .. } => {
+        HirExpression::SetLiteral { elements, .. } => {
             for value in elements {
                 collect_captured_locals(value, outer_locals, local_names, seen, captures);
             }
         }
-        Expression::MapLiteral { entries, .. } => {
+        HirExpression::MapLiteral { entries, .. } => {
             for (key, value) in entries {
                 collect_captured_locals(key, outer_locals, local_names, seen, captures);
                 collect_captured_locals(value, outer_locals, local_names, seen, captures);
             }
         }
-        Expression::MemberAccess { target, .. } => {
+        HirExpression::MemberAccess { target, .. } => {
             collect_captured_locals(target, outer_locals, local_names, seen, captures);
         }
-        Expression::Trapped { expression, .. } => {
+        HirExpression::Trapped { expression, .. } => {
             collect_captured_locals(expression, outer_locals, local_names, seen, captures);
         }
-        Expression::WithUpdate { target, updates } => {
+        HirExpression::WithUpdate { target, updates } => {
             collect_captured_locals(target, outer_locals, local_names, seen, captures);
             for update in updates {
                 collect_captured_locals(&update.value, outer_locals, local_names, seen, captures);
             }
         }
-        Expression::String(_)
-        | Expression::Number(_)
-        | Expression::Scalar(_)
-        | Expression::Boolean(_) => {}
+        HirExpression::String(_)
+        | HirExpression::Number(_)
+        | HirExpression::Scalar(_)
+        | HirExpression::Boolean(_) => {}
     }
 }
 
-pub(super) fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {
+pub(super) fn constructor_arg_value(argument: &HirConstructorArg) -> &HirExpression {
     match argument {
-        ConstructorArg::Positional(value) => value,
-        ConstructorArg::Named { value, .. } => value,
+        HirConstructorArg::Positional(value) => value,
+        HirConstructorArg::Named { value, .. } => value,
     }
 }
 
-pub(super) fn call_arg_value(argument: &CallArg) -> &Expression {
+pub(super) fn call_arg_value(argument: &HirCallArg) -> &HirExpression {
     match argument {
-        CallArg::Positional(value) => value,
-        CallArg::Named { value, .. } => value,
+        HirCallArg::Positional(value) => value,
+        HirCallArg::Named { value, .. } => value,
     }
 }
 
@@ -224,84 +238,61 @@ pub(super) fn is_c_abi_type(type_name: &str) -> bool {
     )
 }
 
-pub(super) fn numeric_literal_type(expression: &Expression) -> Option<Type> {
+pub(super) fn numeric_literal_type(expression: &HirExpression) -> Option<Type> {
     match expression {
-        Expression::Number(number) => Some(match numeric::classify_literal(number).1 {
+        HirExpression::Number(number) => Some(match numeric::classify_literal(number).1 {
             numeric::LiteralType::Integer => Type::Integer,
             numeric::LiteralType::Float => Type::Float,
             numeric::LiteralType::Fixed => Type::Fixed,
             numeric::LiteralType::Money => Type::Money,
         }),
-        Expression::Unary {
+        HirExpression::Unary {
             operator, operand, ..
-        } if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) => {
+        } if operator == "-" && matches!(operand.as_ref(), HirExpression::Number(_)) => {
             numeric_literal_type(operand)
         }
         _ => None,
     }
 }
 
+/// The `FOR` induction variable's promoted type.
+///
+/// plan-106-C: the one typed source in `numeric` (`Type` is `ParameterType`, so
+/// there is nothing to render). The pre-check is load-bearing and is NOT part of
+/// the shared fold: syntaxcheck answers `Unknown` — its permissive skip — when
+/// any operand is non-numeric, whereas the shared algebra's `unwrap_or(Integer)`
+/// would claim a numeric loop over, say, a `String` bound.
 pub(super) fn promote_loop_numeric_type(start: &Type, end: &Type, step: &Type) -> Type {
-    let Some(start_name) = numeric_type_name(start) else {
+    if !numeric::is_numeric(start) || !numeric::is_numeric(end) || !numeric::is_numeric(step) {
         return Type::Unknown;
-    };
-    let Some(end_name) = numeric_type_name(end) else {
-        return Type::Unknown;
-    };
-    let Some(step_name) = numeric_type_name(step) else {
-        return Type::Unknown;
-    };
-    let first =
-        numeric::binary_result_type("+", start_name, end_name).unwrap_or(numeric::TYPE_INTEGER);
-    let second =
-        numeric::binary_result_type("+", first, step_name).unwrap_or(numeric::TYPE_INTEGER);
-    type_from_numeric_name(second)
-}
-
-pub(super) fn type_from_numeric_name(type_name: &str) -> Type {
-    match type_name {
-        numeric::TYPE_BYTE => Type::Byte,
-        numeric::TYPE_INTEGER => Type::Integer,
-        numeric::TYPE_FIXED => Type::Fixed,
-        numeric::TYPE_FLOAT => Type::Float,
-        numeric::TYPE_MONEY => Type::Money,
-        _ => Type::Unknown,
     }
+    numeric::typed_promote_loop_numeric_type(start, end, step)
 }
 
+/// The result type of a binary numeric operation.
+///
+/// plan-106-C: the one typed source in `numeric`. Its `None` — a non-numeric
+/// operand, or a dimensionally-invalid `Money` pairing — is syntaxcheck's
+/// `Unknown`, which is exactly what the name-mapping cascade this replaced
+/// computed the long way round.
 pub(super) fn numeric_binary_result_type(operator: &str, left: &Type, right: &Type) -> Type {
-    let Some(left) = numeric_type_name(left) else {
-        return Type::Unknown;
-    };
-    let Some(right) = numeric_type_name(right) else {
-        return Type::Unknown;
-    };
-    match numeric::binary_result_type(operator, left, right) {
-        Some("Byte") => Type::Byte,
-        Some("Fixed") => Type::Fixed,
-        Some("Float") => Type::Float,
-        Some("Integer") => Type::Integer,
-        Some("Money") => Type::Money,
-        _ => Type::Unknown,
-    }
+    numeric::typed_binary_result_type(operator, left, right).unwrap_or(Type::Unknown)
 }
 
-pub(super) fn numeric_type_name(type_: &Type) -> Option<&'static str> {
-    match type_ {
-        Type::Byte => Some(numeric::TYPE_BYTE),
-        Type::Fixed => Some(numeric::TYPE_FIXED),
-        Type::Float => Some(numeric::TYPE_FLOAT),
-        Type::Integer => Some(numeric::TYPE_INTEGER),
-        Type::Money => Some(numeric::TYPE_MONEY),
-        _ => None,
+/// Whether a type is a compiler-owned read-only record.
+///
+/// plan-106-E: mirrors the typed form plan-106-B already gave `ir::verify`
+/// (`verify/mod.rs:read_only_record_type`) — a `MapEntry OF K TO V` is read-only
+/// STRUCTURALLY; the rest are nominal lookups into per-package tables, which are
+/// keyed by NAME.
+pub(super) fn read_only_record_type(type_: &Type) -> bool {
+    if matches!(type_, Type::MapEntryOf(_, _)) {
+        return true;
     }
-}
-
-pub(super) fn read_only_record_type(type_name: &str) -> bool {
-    crate::codegen::builtins::term::is_read_only_record(type_name)
+    let type_name = type_.name();
+    crate::codegen::builtins::term::is_read_only_record(&type_name)
         || type_name == crate::codegen::builtins::net::ADDRESS_TYPE
         || type_name == crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE
-        || type_name.starts_with("MapEntry OF ")
 }
 
 #[cfg(test)]
@@ -316,7 +307,7 @@ mod tests {
 
     #[test]
     fn statement_line_used_for_various_unreachable_statements() {
-        // A LET after EXIT (Statement::Let arm of statement_line).
+        // A LET after EXIT (HirStatement::Let arm of statement_line).
         let src = "\
 FUNC main AS Integer
   FOR i = 1 TO 3
@@ -328,7 +319,7 @@ END FUNC
 ";
         assert!(rejects_with(src, "UNREACHABLE_AFTER_EXIT"));
 
-        // An IF after EXIT (Statement::If arm).
+        // An IF after EXIT (HirStatement::If arm).
         let src = "\
 FUNC main AS Integer
   FOR i = 1 TO 3
@@ -342,7 +333,7 @@ END FUNC
 ";
         assert!(rejects_with(src, "UNREACHABLE_AFTER_EXIT"));
 
-        // A while after EXIT (Statement::While arm).
+        // A while after EXIT (HirStatement::While arm).
         let src = "\
 FUNC main AS Integer
   FOR i = 1 TO 3
@@ -359,7 +350,7 @@ END FUNC
     #[test]
     fn statement_line_covers_every_statement_variant() {
         // Each unreachable-after-EXIT statement forces `statement_line` down a
-        // different `Statement::*` arm. One big loop body places every kind
+        // different `HirStatement::*` arm. One big loop body places every kind
         // after `EXIT FOR`.
         let src = "\
 IMPORT io

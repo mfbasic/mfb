@@ -376,7 +376,7 @@ impl CodeBuilder<'_> {
     /// pointer in a fresh register.
     pub(crate) fn copy_flat_block(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         source: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
         let scratch9 = self.temporary_vreg();
@@ -386,7 +386,7 @@ impl CodeBuilder<'_> {
         // drops any spare capacity. A whole-block `memcpy` would carry the
         // headroom (and the gap between the live entries and the data region)
         // into the snapshot; the tight copy compacts both.
-        if is_collection_type(type_) {
+        if is_collection_type(&type_.name()) {
             return self.copy_collection_tight(type_, source);
         }
         let source_slot = self.allocate_stack_object("flat_copy_source", 8);
@@ -398,7 +398,7 @@ impl CodeBuilder<'_> {
         // flat type — `String`, collection, record (walk), and data union
         // (`size@8`) — so `copy_flat_block` is a sound deep copy for any
         // `type_is_flat` value (plan-02 §4.1).
-        self.emit_inlined_block_size_from_ptr_slot(type_, source_slot, size_slot)?;
+        self.emit_inlined_block_size_from_ptr_slot(&type_.name(), source_slot, size_slot)?;
         // plan-71-C Family-1a: the size is arg 0 of the arena-alloc call — emit it into
         // `%arg0`, not `return_register()` (`%ret0`). Byte-identical; clears
         // `builder_collection_layout.rs:332`.
@@ -436,12 +436,14 @@ impl CodeBuilder<'_> {
     /// Returns the destination pointer in a fresh register.
     pub(crate) fn copy_collection_tight(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         source: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
         // A kind-2 source has no entry array: the tight copy neither reserves
         // one nor copies it, and the whole block is header + data (plan-57-D).
-        let element = list_element_type(type_).unwrap_or_default();
+        let element = typed_list_element_type(type_)
+            .map(|element| element.name().into_owned())
+            .unwrap_or_default();
         let tight_stride = list_entry_stride(&element);
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
@@ -490,7 +492,7 @@ impl CodeBuilder<'_> {
         // buckets are recomputed on first probe (no stale offsets across
         // copy/transfer). `collection_has_buckets` keeps Set and Map in lockstep.
         self.emit_reserve_map_buckets(
-            collection_has_buckets(type_),
+            collection_has_buckets(&type_.name()),
             &scratch9,
             abi::return_register(),
             &scratch10,
@@ -666,7 +668,9 @@ impl CodeBuilder<'_> {
             Ok(())
         } else if self.type_model.record_fields.contains_key(field_type) {
             self.emit_record_block_size_to_slot(field_type, ptr_slot, out_slot)
-        } else if self.union_is_data(field_type) || field_type.starts_with("Result OF ") {
+        } else if self.union_is_data(field_type)
+            || crate::codegen::engine::types::is_result_type(field_type)
+        {
             // A data union and a flat `Result` are self-describing: their `size`
             // word lives at +8 (plan-02 §4.3).
             self.emit_data_union_size_to_slot(ptr_slot, out_slot);
@@ -989,7 +993,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn materialize_inline_value_in_arena(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         source: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
         let scratch9 = self.temporary_vreg();
@@ -999,8 +1003,8 @@ impl CodeBuilder<'_> {
         // its flat block at runtime, then block-copy it (plan-02 §4.2/§4.3). The
         // inlined data comes along; pointer fields keep the same shallow-share
         // semantics as the fixed path below.
-        let is_record_inline = self.record_has_inline_data(type_);
-        let is_data_union = self.union_is_data(type_);
+        let is_record_inline = self.record_has_inline_data(&type_.name());
+        let is_data_union = self.union_is_data(&type_.name());
         if is_record_inline || is_data_union {
             let source_slot = self.allocate_stack_object("inline_value_source", 8);
             let size_slot = self.allocate_stack_object("inline_value_size", 8);
@@ -1010,7 +1014,7 @@ impl CodeBuilder<'_> {
             if is_data_union {
                 self.emit_data_union_size_to_slot(source_slot, size_slot);
             } else {
-                self.emit_record_block_size_to_slot(type_, source_slot, size_slot)?;
+                self.emit_record_block_size_to_slot(&type_.name(), source_slot, size_slot)?;
             }
             // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not `return_register()`.
             self.emit(abi::load_u64(
@@ -1038,7 +1042,7 @@ impl CodeBuilder<'_> {
             return Ok(result);
         }
         let size = self
-            .inline_collection_payload_size(type_)
+            .inline_collection_payload_size(&type_.name())
             .ok_or_else(|| format!("native inline type '{type_}' has no fixed storage size"))?;
         let source_slot = self.allocate_stack_object("inline_value_source", 8);
         let result_slot = self.allocate_stack_object("inline_value_result", 8);
@@ -1140,13 +1144,16 @@ impl CodeBuilder<'_> {
         }
     }
 
-    pub(crate) fn lower_empty_collection(&mut self, type_: &str) -> Result<ValueResult, String> {
+    pub(crate) fn lower_empty_collection(
+        &mut self,
+        type_: &ParameterType,
+    ) -> Result<ValueResult, String> {
         self.lower_collection_values(type_, Vec::new(), "empty collection")
     }
 
     pub(crate) fn lower_list_literal(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         values: &[NirValue],
     ) -> Result<ValueResult, String> {
         let mut slots = Vec::new();
@@ -1180,10 +1187,11 @@ impl CodeBuilder<'_> {
     /// literal owns its buffer exclusively).
     pub(crate) fn lower_set_literal(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         values: &[NirValue],
     ) -> Result<ValueResult, String> {
-        let element_type = crate::codegen::engine::types::set_element_type(type_)
+        let element_type = crate::codegen::engine::types::typed_set_element_type(type_)
+            .map(|element| element.name().into_owned())
             .ok_or_else(|| format!("lower_set_literal: not a set type '{type_}'"))?;
         // Start from an empty set and spill its pointer to a stack slot so it can
         // be reloaded and rewritten after each (possibly reallocating) insert.
@@ -1228,7 +1236,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, abi::stack_pointer(), set_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&type_),
+            type_: type_.clone(),
             location: Operand::from(register.render()),
             text: format!("set literal {type_}"),
         })
@@ -1236,7 +1244,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn lower_map_literal(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         entries: &[(NirValue, NirValue)],
     ) -> Result<ValueResult, String> {
         let mut slots = Vec::new();
@@ -1280,7 +1288,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn lower_collection_values(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         slots: Vec<CollectionValueSlot>,
         label: &str,
     ) -> Result<ValueResult, String> {
@@ -1302,8 +1310,13 @@ impl CodeBuilder<'_> {
             .first()
             .filter(|slot| slot.key.is_none())
             .map(|slot| slot.value.type_.as_str());
-        let refined_type = refined_list_literal_type(type_, first_list_element);
-        let type_ = refined_type.as_deref().unwrap_or(type_);
+        // `refined_list_literal_type` compares the DECLARED element spelling with
+        // the first element's to widen `List OF Unknown` — a name-domain
+        // refinement, so it renders in and the refined spelling parses back out.
+        let declared_name = type_.name();
+        let refined_type = refined_list_literal_type(&declared_name, first_list_element)
+            .map(|refined| ParameterType::parse(&refined));
+        let type_ = refined_type.as_ref().unwrap_or(type_);
         let layout = CollectionTypeLayout::from_type(type_)
             .ok_or_else(|| format!("native code collection type '{type_}' is not supported"))?;
         let count = slots.len();
@@ -1352,7 +1365,7 @@ impl CodeBuilder<'_> {
         // `collection_has_buckets` keeps a Set's reservation in lockstep with the
         // sizing/copy/free paths (plan-63-B) — omitting it would size a Set literal
         // short and corrupt the arena on the lazy bucket build.
-        let bucket_bytes = if collection_has_buckets(type_) {
+        let bucket_bytes = if collection_has_buckets(&type_.name()) {
             count * MAP_BUCKET_SIZE * 2
         } else {
             0
@@ -1408,7 +1421,7 @@ impl CodeBuilder<'_> {
         ));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&type_),
+            type_: type_.clone(),
             location: Operand::from(register.render()),
             text: format!("{label} {type_}"),
         })
@@ -2590,15 +2603,15 @@ pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &str) -> bo
         || model
             .union_names
             .contains(crate::codegen::resource::base_resource_name(field_type))
-        || field_type.starts_with("Result OF ")
+        || crate::codegen::engine::types::is_result_type(field_type)
         || field_type == "Error"
 }
 
 /// The payload value types a collection stores: the element type for a `List`,
 /// the key and value types for a `Map`.
 fn collection_payload_types(type_: &str) -> Vec<String> {
-    if let Some(value) = type_.strip_prefix("List OF ") {
-        vec![value.to_string()]
+    if let Some(element) = list_element_type(type_) {
+        vec![element]
     } else if let Some((key, value)) = map_type_parts(type_) {
         vec![key, value]
     } else {
@@ -2626,10 +2639,10 @@ fn type_is_flat_inner(
     }
     let result = if type_ == "String" {
         true
-    } else if let Some(payload) = type_.strip_prefix("Result OF ") {
+    } else if let Some(payload) = crate::codegen::engine::types::result_payload_type(type_) {
         // A flat `Result` `{tag, size, payload}` is pointer-free when its
         // success payload is flat (the `Err` variant is the now-flat `Error`).
-        type_is_flat_inner(model, payload, visited)
+        type_is_flat_inner(model, &payload, visited)
     } else if is_collection_type(type_) {
         // A collection is flat when every payload is flat — including a nested
         // flat collection, which is inlined in the data region (plan-02 §4.4,
@@ -2684,7 +2697,7 @@ pub(crate) fn record_field_is_inlined(
     let is_composite = model.record_fields.contains_key(field_type)
         || model.union_names.contains(field_type)
         || is_collection_type(field_type)
-        || field_type.starts_with("Result OF ");
+        || crate::codegen::engine::types::is_result_type(field_type);
     is_composite && type_is_flat(model, field_type)
 }
 
@@ -2737,8 +2750,8 @@ pub(crate) fn type_components(model: &TypeModel, type_: &str) -> Vec<String> {
     if let Some((key, value)) = map_type_parts(type_) {
         return vec![key, value];
     }
-    if let Some(payload) = type_.strip_prefix("Result OF ") {
-        return vec![payload.to_string()];
+    if let Some(payload) = crate::codegen::engine::types::result_payload_type(type_) {
+        return vec![payload];
     }
     Vec::new()
 }

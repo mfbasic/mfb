@@ -344,7 +344,7 @@ impl CodeBuilder<'_> {
         &mut self,
         collection_slot: usize,
         key_slot: usize,
-        collection_type: &str,
+        collection_type: &ParameterType,
         key_type: &str,
         value_type: &str,
     ) -> Result<ValueResult, String> {
@@ -466,7 +466,7 @@ impl CodeBuilder<'_> {
         collection_slot: usize,
         key_slot: usize,
         default_slot: usize,
-        collection_type: &str,
+        collection_type: &ParameterType,
         key_type: &str,
         value_type: &str,
     ) -> Result<ValueResult, String> {

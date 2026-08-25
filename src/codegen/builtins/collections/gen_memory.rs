@@ -23,7 +23,7 @@
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::{callable_return_type, list_element_type};
+use crate::codegen::engine::types::{callable_return_type, typed_list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
@@ -58,10 +58,12 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             collection_slot,
         ));
-        let layout = CollectionTypeLayout::from_type(&format!("List OF {element_type}"))
-            .ok_or_else(|| {
-                format!("native code collection type 'List OF {element_type}' is not supported")
-            })?;
+        let layout = CollectionTypeLayout::from_type(&ParameterType::list_of(
+            ParameterType::parse(&element_type),
+        ))
+        .ok_or_else(|| {
+            format!("native code collection type 'List OF {element_type}' is not supported")
+        })?;
         let data_len_slot = self.allocate_stack_object("map_projection_data_len", 8);
         let result_slot = self.allocate_stack_object("map_projection_result", 8);
         let length_loop = self.label("map_projection_length_loop");
@@ -342,7 +344,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&format!("List OF {element_type}")),
+            type_: ParameterType::list_of(ParameterType::parse(&element_type)),
             location: Operand::from(result.render()),
             text: if project_key {
                 format!("keys({})", collection.type_)
@@ -360,7 +362,9 @@ impl CodeBuilder<'_> {
         let scratch9 = self.temporary_vreg();
         let scratch17 = self.temporary_vreg();
         let collection = args[0].clone();
-        let Some(element_type) = list_element_type(&collection.type_.name()) else {
+        let Some(element_type) =
+            typed_list_element_type(&collection.type_).map(|type_| type_.name().into_owned())
+        else {
             return Err(format!(
                 "native collection reduce does not accept {}",
                 collection.type_

@@ -8,11 +8,18 @@ use crate::hir::{
 };
 use crate::types::ParameterType;
 
+/// The type environment `ir::lower`'s `expression_type` oracle consults.
+///
+/// plan-106-A: every type-valued entry is a [`ParameterType`]. The *keys* stay
+/// `String` because they are NAMES (functions, bindings, import aliases). Before
+/// plan-106-A each of these was a `HashMap<String, String>` and the engine
+/// inferred over rendered spellings — the plan-102-C3 staging residue this
+/// letter retires.
 struct LowerContext<'a> {
-    function_returns: &'a HashMap<String, String>,
-    function_types: &'a HashMap<String, String>,
+    function_returns: &'a HashMap<String, ParameterType>,
+    function_types: &'a HashMap<String, ParameterType>,
     function_params: &'a HashMap<String, Vec<CallParam>>,
-    binding_types: HashMap<String, String>,
+    binding_types: HashMap<String, ParameterType>,
     bindings: Vec<IrBinding>,
     type_index: &'a TypeIndex,
     current_imports: HashMap<String, String>,
@@ -25,7 +32,7 @@ struct LowerContext<'a> {
     /// Declared return type of the function currently being lowered, used to
     /// implicitly wrap a `RETURN`ed member constructor into its union (so the
     /// wrap is explicit in the IR rather than re-derived during codegen).
-    current_return_type: Option<String>,
+    current_return_type: Option<ParameterType>,
     /// Stack of inline-`TRAP` recover destinations (innermost last). Each entry
     /// is the local slot a `RECOVER` value should be stored into and its type,
     /// or `None` when the trapped value is discarded (bare-statement form).
@@ -144,6 +151,35 @@ pub fn lower_project_with_external_functions(
     ir
 }
 
+/// Lower an already-monomorphized project, for the in-process tests.
+///
+/// The tests monomorphize a BARE (un-injected) project, so the builtin package
+/// sources are injected here — the same chain the AST wrapper above runs, in the
+/// HIR domain.
+///
+/// `ir.docs` comes from the ORIGINAL source AST, not the post-monomorph program.
+/// That matches the build path (whose package path "likewise collects from its
+/// original AST") and is the only thing that can be right: monomorphization
+/// renames overloaded and generic declarations, so a `DOC` header can no longer
+/// find the declaration it documents. Before plan-106-D this read a
+/// de-elaborated post-monomorph AST.
+#[cfg(test)]
+pub fn lower_monomorphized_project(
+    concrete: &crate::hir::HirProject,
+    source: &crate::ast::AstProject,
+    entry: Option<EntryPoint>,
+    external_signatures: &HashMap<String, ExternalSignature>,
+    imported_types: &[ImportedTypeDef],
+) -> IrProject {
+    let augmented =
+        crate::resolver::augment_hir_project(concrete).expect("built-in package source must parse");
+    let mut ir = lower_augmented_project(&augmented, entry, external_signatures, imported_types);
+    ir.docs = collect_project_docs(
+        &crate::resolver::augment_project(source).expect("built-in package source must parse"),
+    );
+    ir
+}
+
 /// Lower an already-augmented project (builtin package sources already injected by
 /// `resolver::augment_project`, before monomorphization) to IR. The build path
 /// calls this directly on the post-monomorph AST; [`lower_project_with_external_
@@ -162,11 +198,11 @@ pub fn lower_augmented_project(
     let binding_types = declared_binding_types(hir);
     // Imported-package signatures arrive TYPED (plan-105-A): the return type and
     // the parameter list are read straight off `ExternalSignature` instead of being
-    // re-split out of a formatted `FUNC(…) AS R` string. The `function_types` entry
-    // is still a string because the lowering context's own map is string-keyed
-    // until plan-106 — that is a render-out (`name()`), not a round-trip.
+    // re-split out of a formatted `FUNC(…) AS R` string. plan-106-A closed the last
+    // gap here — the lowering context's own maps are `ParameterType` now, so these
+    // three entries are clones rather than `name()` renders.
     for (name, signature) in external_signatures {
-        function_types.insert(name.clone(), signature.signature_type().name().into_owned());
+        function_types.insert(name.clone(), signature.signature_type());
         function_params.insert(
             name.clone(),
             signature
@@ -174,12 +210,12 @@ pub fn lower_augmented_project(
                 .iter()
                 .map(|param| CallParam {
                     name: param.name.clone(),
-                    type_: param.type_.name().into_owned(),
+                    type_: param.type_.clone(),
                     default: None,
                 })
                 .collect(),
         );
-        function_returns.insert(name.clone(), signature.returns.name().into_owned());
+        function_returns.insert(name.clone(), signature.returns.clone());
     }
     let type_index = TypeIndex::new(hir, imported_types);
     let mut context = LowerContext {
@@ -291,19 +327,19 @@ fn lower_binding(binding: &HirTopLevelBinding, context: &mut LowerContext<'_>) -
     context.current_loc = loc;
     let locals = context.binding_types.clone();
     let type_ = if binding.explicit_type {
-        binding.type_.name().into_owned()
+        binding.type_.clone()
     } else {
         binding
             .value
             .as_ref()
             .and_then(|value| expression_type(value, &locals, context))
-            .unwrap_or_else(|| "Unknown".to_string())
+            .unwrap_or(ParameterType::Unknown)
     };
     IrBinding {
         name: binding.name.clone(),
         visibility: visibility_name(binding.visibility).to_string(),
         mutable: binding.mutable,
-        type_: ParameterType::parse(&type_),
+        type_: type_.clone(),
         value: binding
             .value
             .as_ref()
@@ -373,16 +409,18 @@ fn lower_enum_member(member: &EnumMember) -> IrEnumMember {
 /// the legal stateful `RETURN` (expected `File`, actual `File STATE Cursor`) and
 /// **hid** the union-STATE / non-defaultable-STATE rules from a return, since a
 /// return's string never contained `" STATE "` for them to match.
-fn function_return_type(function: &HirFunction) -> String {
+///
+/// plan-106-A: the `STATE` fold is [`ParameterType::with_state`], the structural
+/// equivalent of parsing the concatenated spelling (guarded by
+/// `with_state_matches_parse_of_the_concatenated_spelling` in `src/types.rs`), so
+/// the clause is attached without a render→parse round trip.
+fn function_return_type(function: &HirFunction) -> ParameterType {
     match function.kind {
-        FunctionKind::Func => {
-            let returns = function.returns.name().into_owned();
-            match (&function.return_state_type, function.return_resource) {
-                (Some(state), true) => format!("{returns} STATE {}", state.name()),
-                _ => returns,
-            }
-        }
-        FunctionKind::Sub => "Nothing".to_string(),
+        FunctionKind::Func => match (&function.return_state_type, function.return_resource) {
+            (Some(state), true) => function.returns.with_state(state),
+            _ => function.returns.clone(),
+        },
+        FunctionKind::Sub => ParameterType::Nothing,
     }
 }
 
@@ -394,12 +432,11 @@ fn lower_function(function: &HirFunction, context: &mut LowerContext<'_>) -> IrF
     let returns = function_return_type(function);
     let mut locals = HashMap::new();
     for param in &function.params {
-        let type_ = param.type_.name().into_owned();
-        // Carry a `RES` parameter's `STATE T` in the local type string so
-        // `s.state` resolves inside the callee, matching `lower_param`.
+        // Carry a `RES` parameter's `STATE T` in the local's type so `s.state`
+        // resolves inside the callee, matching `lower_param`.
         let type_ = match &param.state_type {
-            Some(state) => format!("{type_} STATE {}", state.name()),
-            None => type_,
+            Some(state) => param.type_.with_state(state),
+            None => param.type_.clone(),
         };
         locals.insert(param.name.clone(), type_);
     }
@@ -418,7 +455,7 @@ fn lower_function(function: &HirFunction, context: &mut LowerContext<'_>) -> IrF
             .iter()
             .map(|param| lower_param(param, &locals, context))
             .collect(),
-        returns: ParameterType::parse(&returns),
+        returns,
         body,
         file: context.current_file.clone(),
         loc: IrSourceLoc {
@@ -433,13 +470,13 @@ fn lower_function(function: &HirFunction, context: &mut LowerContext<'_>) -> IrF
 
 fn lower_function_body(
     function: &HirFunction,
-    locals: &HashMap<String, String>,
+    locals: &HashMap<String, ParameterType>,
     context: &mut LowerContext<'_>,
 ) -> Vec<IrOp> {
     let mut body = lower_statement_block(&function.body, locals, context, None);
     if let Some(trap) = &function.trap {
         let mut trap_locals = locals.clone();
-        trap_locals.insert(trap.name.clone(), "Error".to_string());
+        trap_locals.insert(trap.name.clone(), ParameterType::named("Error"));
         body.push(IrOp::Trap {
             name: trap.name.clone(),
             body: lower_statement_block(
@@ -459,19 +496,18 @@ fn lower_function_body(
 
 fn lower_param(
     param: &HirParam,
-    locals: &HashMap<String, String>,
+    locals: &HashMap<String, ParameterType>,
     context: &mut LowerContext<'_>,
 ) -> IrParam {
-    let type_ = param.type_.name().into_owned();
-    // A `RES` parameter's `STATE T` rides in the type string so the callee can
-    // address the pointed-to resource's shared state payload.
+    // A `RES` parameter's `STATE T` rides inside its type's nominal spelling so
+    // the callee can address the pointed-to resource's shared state payload.
     let type_ = match &param.state_type {
-        Some(state) => format!("{type_} STATE {}", state.name()),
-        None => type_,
+        Some(state) => param.type_.with_state(state),
+        None => param.type_.clone(),
     };
     IrParam {
         name: param.name.clone(),
-        type_: ParameterType::parse(&type_),
+        type_: type_.clone(),
         default: param
             .default
             .as_ref()
@@ -513,25 +549,25 @@ fn statement_loc(statement: &HirStatement) -> IrSourceLoc {
 #[derive(Clone)]
 struct RecoverTarget {
     slot: Option<String>,
-    type_: String,
+    type_: ParameterType,
 }
 
 #[derive(Clone)]
 struct CallParam {
     name: String,
-    type_: String,
+    type_: ParameterType,
     default: Option<HirExpression>,
 }
 
 #[derive(Clone)]
 struct CapturedLocal {
     name: String,
-    type_: String,
+    type_: ParameterType,
 }
 
 fn lower_statement(
     statement: &HirStatement,
-    locals: &mut HashMap<String, String>,
+    locals: &mut HashMap<String, ParameterType>,
     context: &mut LowerContext<'_>,
     trap_name: Option<&str>,
 ) -> Vec<IrOp> {
@@ -554,7 +590,7 @@ fn lower_statement(
             // The explicit `AS T` annotation as the AST's `Option<String>`
             // (`None` when unannotated), reconstructed byte-exact from the HIR
             // `type_`/`explicit_type` pair.
-            let type_name: Option<String> = explicit_type.then(|| type_.name().into_owned());
+            let declared_type: Option<ParameterType> = explicit_type.then(|| type_.clone());
             if let Some(HirExpression::Trapped {
                 expression,
                 binding,
@@ -562,19 +598,17 @@ fn lower_statement(
                 ..
             }) = value
             {
-                let success_type = type_name
+                let success_type = declared_type
                     .clone()
                     .or_else(|| expression_type(expression, locals, context))
-                    .unwrap_or_else(|| "Unknown".to_string());
-                // A `RES` binding's `STATE T` rides in the lowered type string
-                // exactly as on the non-trap path below. `expression_type`
-                // already carries it, so only an explicit `AS T` needs it
-                // reattached — without this, writing the annotation *caused* the
-                // TYPE_STATE_MISMATCH that omitting it avoided (bug-372).
-                let success_type = match (&type_name, state_type) {
-                    (Some(type_name), Some(state)) => {
-                        format!("{type_name} STATE {}", state.name())
-                    }
+                    .unwrap_or(ParameterType::Unknown);
+                // A `RES` binding's `STATE T` rides in the lowered type exactly as
+                // on the non-trap path below. `expression_type` already carries it,
+                // so only an explicit `AS T` needs it reattached — without this,
+                // writing the annotation *caused* the TYPE_STATE_MISMATCH that
+                // omitting it avoided (bug-372).
+                let success_type = match (&declared_type, state_type) {
+                    (Some(declared_type), Some(state)) => declared_type.with_state(state),
                     _ => success_type,
                 };
                 return lower_inline_trap(
@@ -591,11 +625,11 @@ fn lower_statement(
                     context,
                 );
             }
-            let lowered_type = type_name.clone().unwrap_or_else(|| {
+            let lowered_type = declared_type.clone().unwrap_or_else(|| {
                 value
                     .as_ref()
                     .and_then(|value| expression_type(value, locals, context))
-                    .unwrap_or_else(|| "Unknown".to_string())
+                    .unwrap_or(ParameterType::Unknown)
             });
             let lowered_value = value.as_ref().map(|value| {
                 let base =
@@ -605,11 +639,11 @@ fn lower_statement(
                 // the variant tag for tag-dispatched drop.
                 wrap_union_value(base, value, Some(&lowered_type), locals, context)
             });
-            // A `RES` binding's `STATE T` rides in the lowered type string
+            // A `RES` binding's `STATE T` rides in the lowered type
             // (`File STATE T`) so codegen can default-initialize and address the
             // state payload; the bare resource name is recovered for recognition.
             let lowered_type = match state_type {
-                Some(state) => format!("{lowered_type} STATE {}", state.name()),
+                Some(state) => lowered_type.with_state(state),
                 None => lowered_type,
             };
             locals.insert(name.clone(), lowered_type.clone());
@@ -621,7 +655,7 @@ fn lower_statement(
             vec![IrOp::Bind {
                 mutable: *mutable,
                 name: name.clone(),
-                type_: ParameterType::parse(&lowered_type),
+                type_: lowered_type,
                 value: lowered_value,
                 explicit_type: *explicit_type,
                 loc,
@@ -636,12 +670,12 @@ fn lower_statement(
                 // reinterpreted as the destination type (bug-156).
                 let expected = context.current_return_type.clone();
                 let base =
-                    lower_expression_with_expected(value, expected.as_deref(), locals, context);
+                    lower_expression_with_expected(value, expected.as_ref(), locals, context);
                 // Implicitly wrap a returned member constructor into the
                 // function's declared union return type, so the wrap is explicit
                 // in the IR (and faithfully serialized into Binary Representation) rather
                 // than re-derived during native codegen.
-                wrap_union_value(base, value, expected.as_deref(), locals, context)
+                wrap_union_value(base, value, expected.as_ref(), locals, context)
             }),
             loc,
         }],
@@ -691,7 +725,7 @@ fn lower_statement(
                 .cloned()
                 .unwrap_or_else(|| RecoverTarget {
                     slot: None,
-                    type_: "Unknown".to_string(),
+                    type_: ParameterType::Unknown,
                 });
             match (target.slot, value) {
                 (Some(slot), Some(value)) => {
@@ -736,8 +770,7 @@ fn lower_statement(
                 .get(name)
                 .or_else(|| context.binding_types.get(name))
                 .cloned();
-            let lowered =
-                lower_expression_with_expected(value, expected.as_deref(), locals, context);
+            let lowered = lower_expression_with_expected(value, expected.as_ref(), locals, context);
             if locals.contains_key(name) {
                 vec![IrOp::Assign {
                     name: name.clone(),
@@ -759,12 +792,11 @@ fn lower_statement(
                 .get(resource)
                 .or_else(|| context.binding_types.get(resource))
                 .cloned();
-            let state_type = resource_type
-                .as_deref()
-                .and_then(crate::codegen::resource::state_type_name)
-                .map(str::to_string);
+            // plan-106-C: `ParameterType::state` splits the ` STATE T` clause out
+            // structurally, so this no longer renders the type to read it back.
+            let state_type = resource_type.as_ref().and_then(ParameterType::state);
             let lowered =
-                lower_expression_with_expected(value, state_type.as_deref(), locals, context);
+                lower_expression_with_expected(value, state_type.as_ref(), locals, context);
             vec![IrOp::StateAssign {
                 resource: resource.clone(),
                 value: lowered,
@@ -828,12 +860,12 @@ fn lower_statement(
             expression, cases, ..
         } => {
             let matched_type = match_expression_type(expression, locals, context)
-                .unwrap_or_else(|| "Unknown".to_string());
+                .unwrap_or(ParameterType::Unknown);
             let matched_name = make_temp_local_name(context, "match");
             let mut ops = vec![IrOp::Bind {
                 mutable: false,
                 name: matched_name.clone(),
-                type_: ParameterType::parse(&matched_type),
+                type_: matched_type.clone(),
                 value: Some(lower_match_expression(
                     expression,
                     &matched_type,
@@ -849,7 +881,7 @@ fn lower_statement(
             // before lowering (TYPE_RESULT_NOT_MATCHABLE; see the
             // `result-not-matchable-invalid` fixture), so this Result-flag branch
             // is unreachable from valid source; kept for plan-20 total lowering.
-            let match_value = if match_locals[&matched_name].starts_with("Result OF ") {
+            let match_value = if matches!(match_locals[&matched_name], ParameterType::ResultOf(_)) {
                 let match_flag_name = make_temp_local_name(context, "match_ok");
                 ops.push(IrOp::Bind {
                     mutable: false,
@@ -861,7 +893,7 @@ fn lower_statement(
                     loc,
                     explicit_type: false,
                 });
-                match_locals.insert(match_flag_name.clone(), "Boolean".to_string());
+                match_locals.insert(match_flag_name.clone(), ParameterType::Boolean);
                 IrValue::Local(match_flag_name)
             } else {
                 IrValue::Local(matched_name.clone())
@@ -888,14 +920,14 @@ fn lower_statement(
             line,
         } => {
             let start_type =
-                expression_type(start, locals, context).unwrap_or_else(|| "Unknown".to_string());
-            let end_type =
-                expression_type(end, locals, context).unwrap_or_else(|| "Unknown".to_string());
+                expression_type(start, locals, context).unwrap_or(ParameterType::Unknown);
+            let end_type = expression_type(end, locals, context).unwrap_or(ParameterType::Unknown);
             let step_type = step
                 .as_ref()
                 .and_then(|value| expression_type(value, locals, context))
-                .unwrap_or_else(|| "Integer".to_string());
-            let loop_type = promote_loop_numeric_type_name(&start_type, &end_type, &step_type);
+                .unwrap_or(ParameterType::Integer);
+            let loop_type =
+                numeric::typed_promote_loop_numeric_type(&start_type, &end_type, &step_type);
             let iter_name = make_temp_local_name(context, "for_iter");
             let end_name = make_temp_local_name(context, "for_end");
             let step_name = make_temp_local_name(context, "for_step");
@@ -923,7 +955,7 @@ fn lower_statement(
             let mut loop_body = vec![IrOp::Bind {
                 mutable: false,
                 name: name.clone(),
-                type_: ParameterType::parse(&loop_type),
+                type_: loop_type.clone(),
                 value: Some(iter_local.clone()),
                 loc,
                 explicit_type: false,
@@ -934,7 +966,7 @@ fn lower_statement(
                 IrOp::Bind {
                     mutable: false,
                     name: end_name,
-                    type_: ParameterType::parse(&loop_type),
+                    type_: loop_type.clone(),
                     value: Some(end_value),
                     loc,
                     explicit_type: false,
@@ -942,14 +974,14 @@ fn lower_statement(
                 IrOp::Bind {
                     mutable: false,
                     name: step_name,
-                    type_: ParameterType::parse(&loop_type),
+                    type_: loop_type.clone(),
                     value: Some(step_value),
                     loc,
                     explicit_type: false,
                 },
                 IrOp::For {
                     name: iter_name,
-                    type_: ParameterType::parse(&loop_type),
+                    type_: loop_type.clone(),
                     start: start_value,
                     end: end_local,
                     step: step_local,
@@ -968,14 +1000,14 @@ fn lower_statement(
             ..
         } => {
             let iterable_type =
-                expression_type(iterable, locals, context).unwrap_or_else(|| "Unknown".to_string());
+                expression_type(iterable, locals, context).unwrap_or(ParameterType::Unknown);
             let element_type =
-                collection_iteration_type(&iterable_type).unwrap_or_else(|| "Unknown".to_string());
+                collection_iteration_type(&iterable_type).unwrap_or(ParameterType::Unknown);
             let mut nested = locals.clone();
             nested.insert(name.clone(), element_type.clone());
             vec![IrOp::ForEach {
                 name: name.clone(),
-                type_: ParameterType::parse(&element_type),
+                type_: element_type.clone(),
                 iterable: lower_expression(iterable, locals, context),
                 body: lower_statement_block(body, &nested, context, trap_name),
                 loc,
@@ -1011,7 +1043,7 @@ fn lower_statement(
 
 fn lower_statement_block(
     body: &[HirStatement],
-    locals: &HashMap<String, String>,
+    locals: &HashMap<String, ParameterType>,
     context: &mut LowerContext<'_>,
     trap_name: Option<&str>,
 ) -> Vec<IrOp> {
@@ -1027,7 +1059,7 @@ enum InlineTrapTarget {
     Bind {
         mutable: bool,
         name: String,
-        type_: String,
+        type_: ParameterType,
         explicit_type: bool,
     },
     /// `name = <call> TRAP(e) …`
@@ -1121,16 +1153,15 @@ fn lower_inline_trap(
     binding: &str,
     handler: &[HirStatement],
     target: InlineTrapTarget,
-    locals: &mut HashMap<String, String>,
+    locals: &mut HashMap<String, ParameterType>,
     context: &mut LowerContext<'_>,
 ) -> Vec<IrOp> {
     // The inline-TRAP statement's span: the handler block below re-sets
     // `context.current_loc` per handler statement, so ops synthesized after it
     // must use this captured copy.
     let stmt_loc = context.current_loc;
-    let success_type =
-        expression_type(inner, locals, context).unwrap_or_else(|| "Unknown".to_string());
-    let result_type = format!("Result OF {success_type}");
+    let success_type = expression_type(inner, locals, context).unwrap_or(ParameterType::Unknown);
+    let result_type = ParameterType::result_of(success_type.clone());
     let raw = lower_expression(inner, locals, context);
     let call_result = match raw {
         IrValue::Call {
@@ -1139,7 +1170,7 @@ fn lower_inline_trap(
             target,
             args,
             // The fallible form's success type is the call's own result type.
-            type_: crate::types::ParameterType::parse(&success_type),
+            type_: success_type.clone(),
             loc,
         },
         other => other,
@@ -1149,7 +1180,7 @@ fn lower_inline_trap(
     let mut ops = vec![IrOp::Bind {
         mutable: false,
         name: res_name.clone(),
-        type_: ParameterType::parse(&result_type),
+        type_: result_type.clone(),
         value: Some(call_result),
         loc: stmt_loc,
         explicit_type: false,
@@ -1164,7 +1195,7 @@ fn lower_inline_trap(
             ops.push(IrOp::Bind {
                 mutable: true,
                 name: val_name.clone(),
-                type_: ParameterType::parse(&success_type),
+                type_: success_type.clone(),
                 value: None,
                 loc: stmt_loc,
                 explicit_type: false,
@@ -1179,7 +1210,7 @@ fn lower_inline_trap(
         Some(val_name) => vec![IrOp::Assign {
             name: val_name.clone(),
             value: IrValue::ResultValue {
-                type_: crate::types::ParameterType::parse(&success_type),
+                type_: success_type.clone(),
                 value: Box::new(IrValue::Local(res_name.clone())),
             },
             loc: stmt_loc,
@@ -1188,7 +1219,7 @@ fn lower_inline_trap(
     };
 
     let mut handler_locals = locals.clone();
-    handler_locals.insert(binding.to_string(), "Error".to_string());
+    handler_locals.insert(binding.to_string(), ParameterType::named("Error"));
     context.recover_targets.push(RecoverTarget {
         slot: slot.clone(),
         type_: success_type.clone(),
@@ -1208,7 +1239,7 @@ fn lower_inline_trap(
         else_body.push(IrOp::Bind {
             mutable: false,
             name: binding.to_string(),
-            type_: ParameterType::parse("Error"),
+            type_: ParameterType::named("Error"),
             value: Some(IrValue::ResultError {
                 value: Box::new(IrValue::Local(res_name.clone())),
             }),
@@ -1237,7 +1268,7 @@ fn lower_inline_trap(
             ops.push(IrOp::Bind {
                 mutable,
                 name: name.clone(),
-                type_: ParameterType::parse(&type_),
+                type_: type_.clone(),
                 value: Some(IrValue::Local(slot.expect("bind target has a value slot"))),
                 explicit_type,
                 loc: stmt_loc,
@@ -1557,21 +1588,46 @@ fn statement_terminates(statement: &HirStatement) -> bool {
     }
 }
 
-fn collection_iteration_type(type_: &str) -> Option<String> {
-    type_
-        .strip_prefix("List OF ")
+/// The loop-variable type `FOR EACH x IN <collection>` binds, or `None` when the
+/// value is not iterable.
+///
+/// plan-106-A: a structural match on the collection's [`ParameterType`], replacing
+/// the `strip_prefix("List OF ")` / `strip_prefix("Set OF ")` / `parse_map_type`
+/// cascade this grew from — `ir::lower` holds no copy of the type grammar.
+fn collection_iteration_type(type_: &ParameterType) -> Option<ParameterType> {
+    match type_ {
         // Iterating `List OF RES File` yields a pointer to each element; the loop
         // variable's type is the bare resource (`File`), not `RES File` (§15.6).
-        .map(|element| element.strip_prefix("RES ").unwrap_or(element).to_string())
+        ParameterType::ListOf(element) => Some(strip_res(element)),
         // `FOR EACH x IN set` yields the element type `T` (plan-63); a Set element
         // is always comparable, so it never carries a `RES` marker.
-        .or_else(|| type_.strip_prefix("Set OF ").map(str::to_string))
-        .or_else(|| {
-            parse_map_type(type_).map(|(key, value)| {
-                let value = value.strip_prefix("RES ").unwrap_or(value.as_str());
-                format!("MapEntry OF {key} TO {value}")
-            })
-        })
+        ParameterType::SetOf(element) => Some((**element).clone()),
+        ParameterType::MapOf(key, value) => Some(ParameterType::map_entry_of(
+            (**key).clone(),
+            strip_res(value),
+        )),
+        _ => None,
+    }
+}
+
+/// A collection element with its `RES ` ownership marker removed, if it carries
+/// one — the structural form of the `strip_prefix("RES ")` this replaced.
+fn strip_res(type_: &ParameterType) -> ParameterType {
+    match type_ {
+        ParameterType::Res(inner) => (**inner).clone(),
+        other => other.clone(),
+    }
+}
+
+/// The `AttributedString` type (plan-89-D's attributed-text nominal).
+///
+/// Deliberately a NOMINAL and not [`ParameterType::AttributeString`]: that
+/// variant renders `"AttributeString"` — no `d` — which is a different spelling
+/// the language's attributed-text type never uses, so `parse("AttributedString")`
+/// yields a `Named` and every structural comparison must build the same thing.
+/// A function rather than a `const` because [`ParameterType::named`] interns.
+fn attributed_string_type() -> ParameterType {
+    ParameterType::named("AttributedString")
 }
 
 fn make_temp_local_name(context: &mut LowerContext<'_>, prefix: &str) -> String {
@@ -1580,34 +1636,17 @@ fn make_temp_local_name(context: &mut LowerContext<'_>, prefix: &str) -> String 
     name
 }
 
-fn promote_loop_numeric_type_name(start: &str, end: &str, step: &str) -> String {
-    let first = numeric_binary_result_type("+", start, end);
-    numeric_binary_result_type("+", first, step).to_string()
-}
-
-fn numeric_constant_for_type(type_: &str, value: &str) -> IrValue {
+fn numeric_constant_for_type(type_: &ParameterType, value: &str) -> IrValue {
     IrValue::Const {
-        type_: crate::types::ParameterType::parse(type_),
+        type_: type_.clone(),
         value: value.to_string(),
     }
-}
-
-fn parse_map_type(type_: &str) -> Option<(String, String)> {
-    let rest = type_.strip_prefix("Map OF ")?;
-    let (key, value) = rest.split_once(" TO ")?;
-    Some((key.to_string(), value.to_string()))
-}
-
-fn parse_map_entry_type(type_: &str) -> Option<(String, String)> {
-    let rest = type_.strip_prefix("MapEntry OF ")?;
-    let (key, value) = rest.split_once(" TO ")?;
-    Some((key.to_string(), value.to_string()))
 }
 
 fn lower_match_case(
     case: &HirMatchCase,
     matched_local: &str,
-    locals: &HashMap<String, String>,
+    locals: &HashMap<String, ParameterType>,
     context: &mut LowerContext<'_>,
     trap_name: Option<&str>,
 ) -> IrMatchCase {
@@ -1621,7 +1660,7 @@ fn lower_match_case(
     let matched_type = locals
         .get(matched_local)
         .cloned()
-        .unwrap_or_else(|| "Unknown".to_string());
+        .unwrap_or(ParameterType::Unknown);
     let pattern = match &case.pattern {
         HirMatchPattern::Else => IrMatchPattern::Else,
         HirMatchPattern::Literal(expression) => {
@@ -1630,14 +1669,16 @@ fn lower_match_case(
         // coverage:off -- reachable only for a `Result OF ...` scrutinee, which is
         // rejected before lowering (TYPE_RESULT_NOT_MATCHABLE); kept for plan-20
         // total lowering when the AST checker is bypassed.
-        HirMatchPattern::Union { type_, .. } if matched_type.starts_with("Result OF ") => {
+        HirMatchPattern::Union { type_, .. }
+            if matches!(matched_type, ParameterType::ResultOf(_)) =>
+        {
             let matched = match type_.name().as_ref() {
                 "Ok" => "true",
                 "Error" => "false",
                 _ => "false",
             };
             IrMatchPattern::Value(IrValue::Const {
-                type_: crate::types::ParameterType::parse("Boolean"),
+                type_: ParameterType::Boolean,
                 value: matched.to_string(),
             })
         }
@@ -1661,7 +1702,7 @@ fn lower_match_case(
         body.push(IrOp::Bind {
             mutable: false,
             name: binding,
-            type_: ParameterType::parse(&binding_type),
+            type_: binding_type,
             value: Some(value),
             loc,
             explicit_type: false,
@@ -1690,27 +1731,28 @@ fn lower_match_case(
 fn match_case_binding(
     pattern: &HirMatchPattern,
     matched_local: &str,
-    matched_type: &str,
-) -> Option<(String, String, IrValue)> {
+    matched_type: &ParameterType,
+) -> Option<(String, ParameterType, IrValue)> {
     match pattern {
         HirMatchPattern::Union { type_, binding } => {
             let type_name = type_.name().into_owned();
             // coverage:off -- a `Result OF ...` scrutinee is rejected before
             // lowering (TYPE_RESULT_NOT_MATCHABLE); this Ok/Error case binding is
             // kept only for plan-20 total lowering when the checker is bypassed.
-            if let Some(success) = matched_type.strip_prefix("Result OF ") {
+            if let ParameterType::ResultOf(success) = matched_type {
+                let success = (**success).clone();
                 return match type_name.as_str() {
                     "Ok" => Some((
                         binding.clone(),
-                        success.to_string(),
+                        success.clone(),
                         IrValue::ResultValue {
-                            type_: crate::types::ParameterType::parse(&success.to_string()),
+                            type_: success,
                             value: Box::new(IrValue::Local(matched_local.to_string())),
                         },
                     )),
                     "Error" => Some((
                         binding.clone(),
-                        "Error".to_string(),
+                        ParameterType::named("Error"),
                         IrValue::ResultError {
                             value: Box::new(IrValue::Local(matched_local.to_string())),
                         },
@@ -1725,15 +1767,17 @@ fn match_case_binding(
             // resolve and lower through the concrete-record path. The `UnionExtract`
             // itself stays keyed on the bare variant type (it loads the variant
             // record pointer at `+8`).
-            let binding_type = match crate::codegen::resource::state_type_name(matched_type) {
-                Some(state) => format!("{type_name} STATE {state}"),
-                None => type_name.clone(),
+            // The scrutinee's `STATE` clause is split out structurally and
+            // re-attached to the variant (plan-106-C).
+            let binding_type = match matched_type.state() {
+                Some(state) => type_.with_state(&state),
+                None => type_.clone(),
             };
             Some((
                 binding.clone(),
                 binding_type,
                 IrValue::UnionExtract {
-                    type_: crate::types::ParameterType::parse(&type_name.clone()),
+                    type_: type_.clone(),
                     value: Box::new(IrValue::Local(matched_local.to_string())),
                 },
             ))
@@ -1744,8 +1788,8 @@ fn match_case_binding(
 
 fn lower_match_expression(
     expression: &HirExpression,
-    matched_type: &str,
-    locals: &HashMap<String, String>,
+    matched_type: &ParameterType,
+    locals: &HashMap<String, ParameterType>,
     context: &mut LowerContext<'_>,
 ) -> IrValue {
     // A `MATCH` scrutinee that is a call auto-unwraps like any other call site
@@ -1757,19 +1801,19 @@ fn lower_match_expression(
 
 fn match_expression_type(
     expression: &HirExpression,
-    locals: &HashMap<String, String>,
+    locals: &HashMap<String, ParameterType>,
     context: &LowerContext<'_>,
-) -> Option<String> {
+) -> Option<ParameterType> {
     // Call scrutinees auto-unwrap; only a value already of `Result` type keeps
     // its `Result OF …` shape for `CASE Ok`/`CASE Error` matching.
     expression_type(expression, locals, context)
 }
 
-fn function_returns(hir: &HirProject) -> HashMap<String, String> {
+fn function_returns(hir: &HirProject) -> HashMap<String, ParameterType> {
     let mut returns = HashMap::new();
     // Native LINK function return types, keyed `alias.func`, so callers like
     // `sqliteLink::open(...)` get a type during IR lowering (plan-link-update.md §5b).
-    let mut native_returns: HashMap<String, String> = HashMap::new();
+    let mut native_returns: HashMap<String, ParameterType> = HashMap::new();
     for file in &hir.files {
         for item in &file.items {
             match item {
@@ -1780,10 +1824,7 @@ fn function_returns(hir: &HirProject) -> HashMap<String, String> {
                 }
                 HirItem::Link(link) => {
                     for native in &link.functions {
-                        let return_type = native
-                            .return_type
-                            .clone()
-                            .unwrap_or_else(|| "Nothing".to_string());
+                        let return_type = native_type(native.return_type.as_deref());
                         // Carry a stateful native producer's STATE, so a wrapper
                         // that calls `snd::rawOpen(p)` sees `SoundFile STATE
                         // FileInfo` and can RETURN it as its own stateful return
@@ -1791,7 +1832,9 @@ fn function_returns(hir: &HirProject) -> HashMap<String, String> {
                         // `SoundFile` and the wrapper's RETURN mismatches.
                         let return_type = match (native.return_resource, &native.return_state_type)
                         {
-                            (true, Some(state)) => format!("{return_type} STATE {state}"),
+                            (true, Some(state)) => {
+                                return_type.with_state(&ParameterType::parse(state))
+                            }
                             _ => return_type,
                         };
                         native_returns
@@ -1816,7 +1859,7 @@ fn function_returns(hir: &HirProject) -> HashMap<String, String> {
     returns
 }
 
-fn function_types(hir: &HirProject) -> HashMap<String, String> {
+fn function_types(hir: &HirProject) -> HashMap<String, ParameterType> {
     let mut types = HashMap::new();
     for file in &hir.files {
         for item in &file.items {
@@ -1824,9 +1867,8 @@ fn function_types(hir: &HirProject) -> HashMap<String, String> {
                 let params = function
                     .params
                     .iter()
-                    .map(|param| param.type_.name().into_owned())
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                    .map(|param| param.type_.clone())
+                    .collect::<Vec<_>>();
                 // A first-class reference's return carries the STATE for the same
                 // reason a direct call's does: without it `LET g = openTagged` would
                 // launder the state away — `g(p)` would type as a bare `File`, and
@@ -1835,10 +1877,7 @@ fn function_types(hir: &HirProject) -> HashMap<String, String> {
                 let returns = function_return_type(function);
                 types.insert(
                     function.name.clone(),
-                    format!(
-                        "{}FUNC({params}) AS {returns}",
-                        if function.isolated { "ISOLATED " } else { "" }
-                    ),
+                    ParameterType::Func(params, Box::new(returns), function.isolated),
                 );
             }
         }
@@ -1855,24 +1894,22 @@ fn function_types(hir: &HirProject) -> HashMap<String, String> {
                         .map(|param| {
                             param
                                 .type_name
-                                .clone()
-                                .unwrap_or_else(|| "Unknown".to_string())
+                                .as_deref()
+                                .map_or(ParameterType::Unknown, ParameterType::parse)
                         })
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let returns = native
-                        .return_type
-                        .clone()
-                        .unwrap_or_else(|| "Nothing".to_string());
+                        .collect::<Vec<_>>();
+                    let returns = native_type(native.return_type.as_deref());
                     // Stateful native producer: carry its STATE in the callable
                     // type too (plan-53-A/B), matching `native_returns` above.
                     let returns = match (native.return_resource, &native.return_state_type) {
-                        (true, Some(state)) => format!("{returns} STATE {state}"),
+                        (true, Some(state)) => returns.with_state(&ParameterType::parse(state)),
                         _ => returns,
                     };
+                    // A LINK native is never `ISOLATED`, matching the un-prefixed
+                    // `FUNC(…) AS …` spelling this used to `format!`.
                     types.insert(
                         format!("{}.{}", link.alias, native.name),
-                        format!("FUNC({params}) AS {returns}"),
+                        ParameterType::Func(params, Box::new(returns), false),
                     );
                 }
             }
@@ -1893,7 +1930,7 @@ fn function_params(hir: &HirProject) -> HashMap<String, Vec<CallParam>> {
                         .iter()
                         .map(|param| CallParam {
                             name: param.name.clone(),
-                            type_: param.type_.name().into_owned(),
+                            type_: param.type_.clone(),
                             default: param.default.clone(),
                         })
                         .collect(),
@@ -1904,17 +1941,28 @@ fn function_params(hir: &HirProject) -> HashMap<String, Vec<CallParam>> {
     params
 }
 
-fn declared_binding_types(hir: &HirProject) -> HashMap<String, String> {
+fn declared_binding_types(hir: &HirProject) -> HashMap<String, ParameterType> {
     let mut bindings = HashMap::new();
     for file in &hir.files {
         for item in &file.items {
             if let HirItem::Binding(binding) = item {
-                let type_ = binding.type_.name().into_owned();
-                bindings.insert(binding.name.clone(), type_);
+                bindings.insert(binding.name.clone(), binding.type_.clone());
             }
         }
     }
     bindings
+}
+
+/// The declared type of a LINK native's return slot, defaulting an absent
+/// annotation to `Nothing` exactly as the string form did.
+///
+/// `HirItem::Link` is the one HIR item that is NOT elaborated — it carries the
+/// raw [`crate::ast::LinkBlock`], whose `return_type`/`type_name` are still
+/// source strings (`src/hir/mod.rs:435`). So this call site IS that item kind's
+/// AST→typed boundary and the canonical parser belongs here; elaborating
+/// `LinkBlock` properly is recorded as a task in plan-106-E.
+fn native_type(declared: Option<&str>) -> ParameterType {
+    declared.map_or(ParameterType::Nothing, ParameterType::parse)
 }
 
 fn infer_binding_types(hir: &HirProject, context: &mut LowerContext<'_>) {
@@ -1938,27 +1986,24 @@ fn infer_binding_types(hir: &HirProject, context: &mut LowerContext<'_>) {
 
 fn expression_type(
     expression: &HirExpression,
-    locals: &HashMap<String, String>,
+    locals: &HashMap<String, ParameterType>,
     context: &LowerContext<'_>,
-) -> Option<String> {
+) -> Option<ParameterType> {
     match expression {
-        HirExpression::String(_) => Some("String".to_string()),
-        HirExpression::Number(value) => Some(
-            match numeric::classify_literal(value).1 {
-                numeric::LiteralType::Integer => "Integer",
-                numeric::LiteralType::Float => "Float",
-                numeric::LiteralType::Fixed => "Fixed",
-                numeric::LiteralType::Money => "Money",
-            }
-            .to_string(),
-        ),
-        HirExpression::Scalar(_) => Some("Scalar".to_string()),
-        HirExpression::Boolean(_) => Some("Boolean".to_string()),
-        HirExpression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
+        HirExpression::String(_) => Some(ParameterType::String),
+        HirExpression::Number(value) => Some(match numeric::classify_literal(value).1 {
+            numeric::LiteralType::Integer => ParameterType::Integer,
+            numeric::LiteralType::Float => ParameterType::Float,
+            numeric::LiteralType::Fixed => ParameterType::Fixed,
+            numeric::LiteralType::Money => ParameterType::Money,
+        }),
+        HirExpression::Scalar(_) => Some(ParameterType::named("Scalar")),
+        HirExpression::Boolean(_) => Some(ParameterType::Boolean),
+        HirExpression::Identifier(value) if value == "NOTHING" => Some(ParameterType::Nothing),
         HirExpression::Identifier(value) => {
             let canonical_value = canonical_import_name(value, context);
             if builtins::is_package_constant(&canonical_value) {
-                builtins::package_constant_type_name(&canonical_value).map(str::to_string)
+                builtins::package_constant_type(&canonical_value)
             } else {
                 locals
                     .get(value)
@@ -1979,16 +2024,18 @@ fn expression_type(
         HirExpression::WithUpdate { target, .. } => expression_type(target, locals, context),
         HirExpression::ListLiteral(values) => {
             let Some(first) = values.first() else {
-                return Some("List OF Unknown".to_string());
+                return Some(ParameterType::list_of(ParameterType::Unknown));
             };
-            expression_type(first, locals, context).map(|element| format!("List OF {element}"))
+            expression_type(first, locals, context).map(ParameterType::list_of)
         }
-        HirExpression::SetLiteral { element_type, .. } => Some(format!("Set OF {element_type}")),
+        HirExpression::SetLiteral { element_type, .. } => {
+            Some(ParameterType::set_of(element_type.clone()))
+        }
         HirExpression::MapLiteral {
             key_type,
             value_type,
             ..
-        } => Some(format!("Map OF {key_type} TO {value_type}")),
+        } => Some(ParameterType::map_of(key_type.clone(), value_type.clone())),
         HirExpression::MemberAccess { target, member } => {
             if let HirExpression::Identifier(type_name) = target.as_ref() {
                 if context
@@ -1997,34 +2044,36 @@ fn expression_type(
                     .get(type_name)
                     .is_some_and(|members| members.iter().any(|name| name == member))
                 {
-                    return Some(type_name.clone());
+                    return Some(ParameterType::named(type_name));
                 }
             }
             let target_type = expression_type(target, locals, context)?;
-            // `s.state` on a `RES` value yields its `STATE` record type, carried
-            // in the resource type string (`File STATE FileState`).
+            // `s.state` on a `RES` value yields its `STATE` record type, split
+            // out structurally (plan-106-C's `ParameterType::state`).
             if member == "state" {
-                if let Some(state) = crate::codegen::resource::state_type_name(&target_type) {
-                    return Some(state.to_string());
+                if let Some(state) = target_type.state() {
+                    return Some(state);
                 }
             }
             // `t.result` is removed; worker outcomes are retrieved only via
             // `thread::waitFor`. (Typecheck rejects `.result` before IR.)
-            if target_type == "Error" {
+            if target_type == ParameterType::named("Error") {
                 return match member.as_str() {
-                    "code" => Some("Integer".to_string()),
-                    "message" => Some("String".to_string()),
+                    "code" => Some(ParameterType::Integer),
+                    "message" => Some(ParameterType::String),
                     _ => None,
                 };
             }
-            if let Some((key_type, value_type)) = parse_map_entry_type(&target_type) {
+            if let ParameterType::MapEntryOf(key_type, value_type) = &target_type {
                 return match member.as_str() {
-                    "key" => Some(key_type),
-                    "value" => Some(value_type),
+                    "key" => Some((**key_type).clone()),
+                    "value" => Some((**value_type).clone()),
                     _ => None,
                 };
             }
-            context.type_index.record_field_type(&target_type, member)
+            context
+                .type_index
+                .record_field_type(target_type.name().as_ref(), member)
         }
         HirExpression::Call {
             callee, arguments, ..
@@ -2042,7 +2091,7 @@ fn expression_type(
                                 filter_predicate_arg_type(predicate, &collection_type)
                             {
                                 let arg_types = vec![collection_type, predicate_type];
-                                return builtins::resolve_call_return_type(
+                                return builtins::resolve_call_return_type_typed(
                                     &canonical_callee,
                                     &arg_types,
                                     false,
@@ -2055,7 +2104,11 @@ fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::resolve_call_return_type(&canonical_callee, &arg_types, false);
+                return builtins::resolve_call_return_type_typed(
+                    &canonical_callee,
+                    &arg_types,
+                    false,
+                );
             }
             if crate::codegen::registry::abi_inline_lower(&canonical_callee).is_some() {
                 let normalized =
@@ -2071,7 +2124,7 @@ fn expression_type(
                                 filter_predicate_arg_type(predicate, &collection_type)
                             {
                                 let arg_types = vec![collection_type, predicate_type];
-                                return builtins::resolve_call_return_type(
+                                return builtins::resolve_call_return_type_typed(
                                     &canonical_callee,
                                     &arg_types,
                                     false,
@@ -2084,7 +2137,11 @@ fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::resolve_call_return_type(&canonical_callee, &arg_types, false);
+                return builtins::resolve_call_return_type_typed(
+                    &canonical_callee,
+                    &arg_types,
+                    false,
+                );
             }
             // The remaining builtin packages share one arg-typed dispatch
             // (bug-342 A1 — was 17 byte-identical is_*_call → resolve_call
@@ -2131,17 +2188,16 @@ fn expression_type(
                         .iter()
                         .map(|argument| expression_type(argument, locals, context))
                         .collect::<Option<Vec<_>>>()?;
-                return builtins::resolve_call_return_type(&canonical_callee, &arg_types, false);
+                return builtins::resolve_call_return_type_typed(
+                    &canonical_callee,
+                    &arg_types,
+                    false,
+                );
             }
-            builtins::call_return_type_name(&canonical_callee)
-                .map(std::borrow::Cow::into_owned)
+            builtins::call_return_type(&canonical_callee)
                 .or_else(|| context.function_returns.get(callee).cloned())
                 .or_else(|| context.function_returns.get(&canonical_callee).cloned())
-                .or_else(|| {
-                    locals
-                        .get(callee)
-                        .and_then(|type_| function_return_from_type(type_))
-                })
+                .or_else(|| locals.get(callee).and_then(function_return_from_type))
                 .or_else(|| {
                     // A global binding holding a function value is callable too
                     // (bug-198): infer its return type from the declared FUNC type,
@@ -2149,7 +2205,7 @@ fn expression_type(
                     context
                         .binding_types
                         .get(callee)
-                        .and_then(|type_| function_return_from_type(type_))
+                        .and_then(function_return_from_type)
                 })
         }
         HirExpression::Lambda {
@@ -2161,18 +2217,20 @@ fn expression_type(
             let param_types = params
                 .iter()
                 .map(|param| {
-                    let type_ = param.type_.name().into_owned();
-                    nested.insert(param.name.clone(), type_.clone());
-                    type_
+                    nested.insert(param.name.clone(), param.type_.clone());
+                    param.type_.clone()
                 })
                 .collect::<Vec<_>>();
             // An assignment-bodied lambda yields `Nothing`.
             let returns = if assign_target.is_some() {
-                "Nothing".to_string()
+                ParameterType::Nothing
             } else {
                 expression_type(body, &nested, context)?
             };
-            Some(format!("FUNC({}) AS {returns}", param_types.join(", ")))
+            // A lambda is never `ISOLATED` (that marker is only written on a
+            // declared FUNC), reproducing the un-prefixed `FUNC(…) AS …` spelling
+            // this arm used to `format!`.
+            Some(ParameterType::Func(param_types, Box::new(returns), false))
         }
         HirExpression::Binary {
             left,
@@ -2184,25 +2242,34 @@ fn expression_type(
                 operator.as_str(),
                 "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
             ) {
-                return Some("Boolean".to_string());
+                return Some(ParameterType::Boolean);
             }
             if operator == "&" {
                 // plan-89-D: `AttributedString & AttributedString` yields an
                 // AttributedString (both operands attributed); otherwise String.
-                if expression_type(left, locals, context).as_deref() == Some("AttributedString") {
-                    return Some("AttributedString".to_string());
+                //
+                // NB `AttributedString` is a NOMINAL, not the `ParameterType::
+                // AttributeString` variant — that variant renders
+                // `"AttributeString"` (no `d`), a different spelling the language
+                // never uses here, so `parse("AttributedString")` yields
+                // `Named("AttributedString")` and the comparison must too.
+                if expression_type(left, locals, context) == Some(attributed_string_type()) {
+                    return Some(attributed_string_type());
                 }
-                return Some("String".to_string());
+                return Some(ParameterType::String);
             }
             let left = expression_type(left, locals, context)?;
             let right = expression_type(right, locals, context)?;
-            Some(numeric_binary_result_type(operator, &left, &right).to_string())
+            Some(
+                numeric::typed_binary_result_type(operator, &left, &right)
+                    .unwrap_or(ParameterType::Integer),
+            )
         }
         HirExpression::Unary {
             operator, operand, ..
         } => {
             if operator == "NOT" {
-                Some("Boolean".to_string())
+                Some(ParameterType::Boolean)
             } else {
                 expression_type(operand, locals, context)
             }
@@ -2211,34 +2278,30 @@ fn expression_type(
     }
 }
 
-/// The parameter and return types of a declared function-value type string, or
-/// `None` when it is not a `FUNC(…) AS R` at all.
+/// The return type of a declared function-value type, or `None` when it is not a
+/// `FUNC(…) AS R` at all.
 ///
-/// The inputs here are a local's or a global binding's DECLARED type — still a
-/// string until plan-106 retypes the lowering context's maps. Imported-package
-/// signatures no longer reach this path at all: they arrive typed
-/// (`ExternalSignature`, plan-105-A).
-///
-/// Routed through [`ParameterType::parse`] rather than a private `strip_prefix`
-/// cascade, so `ir::lower` holds no copy of the type grammar. That also fixes the
-/// hand-rolled splitters this replaced: they cut at the FIRST `") AS "` and split
-/// parameters on a bare `", "`, so a higher-order declared type
-/// (`FUNC(FUNC(Integer) AS String) AS File`) mis-typed as return `String) AS File`
-/// with a single truncated parameter. `parse` splits at paren depth 0.
-fn declared_func_parts(type_: &str) -> Option<(Vec<ParameterType>, ParameterType)> {
-    match ParameterType::parse(type_) {
-        ParameterType::Func(params, returns, _) => Some((params, *returns)),
+/// plan-106-A: the input arrives as a [`ParameterType`] (a local's or a global
+/// binding's declared type, now held typed in the lowering context), so this is a
+/// variant match. It used to `ParameterType::parse` a rendered spelling — itself
+/// already an improvement over the private `strip_prefix("FUNC(")` splitter that
+/// preceded it, which cut at the FIRST `") AS "` and split parameters on a bare
+/// `", "`, mis-typing a higher-order declared type
+/// (`FUNC(FUNC(Integer) AS String) AS File` → return `String) AS File`).
+fn function_return_from_type(type_: &ParameterType) -> Option<ParameterType> {
+    match type_ {
+        ParameterType::Func(_, returns, _) => Some((**returns).clone()),
         _ => None,
     }
 }
 
-fn function_return_from_type(type_: &str) -> Option<String> {
-    declared_func_parts(type_).map(|(_, returns)| returns.name().into_owned())
-}
-
-fn function_param_types_from_type(type_: &str) -> Option<Vec<String>> {
-    declared_func_parts(type_)
-        .map(|(params, _)| params.iter().map(|p| p.name().into_owned()).collect())
+/// The parameter types of a declared function-value type — the sibling of
+/// [`function_return_from_type`].
+fn function_param_types_from_type(type_: &ParameterType) -> Option<Vec<ParameterType>> {
+    match type_ {
+        ParameterType::Func(params, _, _) => Some(params.clone()),
+        _ => None,
+    }
 }
 
 /// Lower resource-plane thread calls to their dedicated runtime helpers. The
@@ -2277,14 +2340,14 @@ fn call_argument_expected_type(
     callee: &str,
     index: usize,
     arguments: &[HirCallArg],
-    locals: &HashMap<String, String>,
+    locals: &HashMap<String, ParameterType>,
     context: &LowerContext<'_>,
-) -> Option<String> {
+) -> Option<ParameterType> {
     let canonical_callee = canonical_import_name(callee, context);
     if callee == "toString" && index == 1 && arguments.len() == 2 {
-        return Some("Byte".to_string());
+        return Some(ParameterType::Byte);
     }
-    if let Some(params) = builtins::argument_types(&canonical_callee) {
+    if let Some(params) = builtins::argument_types_typed(&canonical_callee) {
         return params.get(index).cloned();
     }
     context
@@ -2295,7 +2358,7 @@ fn call_argument_expected_type(
         .or_else(|| {
             locals
                 .get(callee)
-                .and_then(|type_| function_param_types_from_type(type_))
+                .and_then(function_param_types_from_type)
                 .and_then(|params| params.get(index).cloned())
         })
 }
@@ -2427,7 +2490,7 @@ fn normalize_local_call_arguments<'a>(
 fn lower_local_call_arguments(
     callee: &str,
     arguments: &[HirCallArg],
-    locals: &HashMap<String, String>,
+    locals: &HashMap<String, ParameterType>,
     context: &mut LowerContext<'_>,
 ) -> Vec<IrValue> {
     let canonical_callee = canonical_import_name(callee, context);
@@ -2444,7 +2507,7 @@ fn lower_local_call_arguments(
             match argument {
                 Some(argument) => Some(lower_expression_with_expected(
                     argument,
-                    expected.as_deref(),
+                    expected.as_ref(),
                     locals,
                     context,
                 )),
@@ -2467,24 +2530,29 @@ fn call_arg_value(argument: &HirCallArg) -> &HirExpression {
 
 fn lower_expression(
     expression: &HirExpression,
-    locals: &HashMap<String, String>,
+    locals: &HashMap<String, ParameterType>,
     context: &mut LowerContext<'_>,
 ) -> IrValue {
     lower_expression_with_expected(expression, None, locals, context)
 }
 
 /// The predicate's function type for a `filter`/`forEach`-style callback whose
-/// collection argument has type `collection_type`: strip the `List OF ` prefix
-/// to the element type and ask `filter_predicate_type` for the bare predicate's
-/// signature. `None` when the argument is not a `List OF …` or the name is not a
-/// resolvable general built-in predicate (bug-342 A6 — was written inline at
-/// three call sites).
-fn filter_predicate_arg_type(predicate: &str, collection_type: &str) -> Option<String> {
-    collection_type
-        .strip_prefix("List OF ")
-        .and_then(|element| {
-            crate::codegen::builtins::general::filter_predicate_type(predicate, element)
-        })
+/// collection argument has type `collection_type`: take the element type and ask
+/// `filter_predicate_type_typed` for the bare predicate's signature. `None` when
+/// the argument is not a `List OF …` or the name is not a resolvable general
+/// built-in predicate (bug-342 A6 — was written inline at three call sites).
+///
+/// plan-106-A: matches the `ListOf` variant instead of `strip_prefix("List OF ")`.
+fn filter_predicate_arg_type(
+    predicate: &str,
+    collection_type: &ParameterType,
+) -> Option<ParameterType> {
+    match collection_type {
+        ParameterType::ListOf(element) => {
+            crate::codegen::builtins::general::filter_predicate_type_typed(predicate, element)
+        }
+        _ => None,
+    }
 }
 
 /// The constructor a **migrated** package's record constant `name`
@@ -2499,24 +2567,26 @@ fn registry_record_constant(name: &str) -> Option<IrValue> {
     let type_name = registry::constant_type_name(name)?;
     // Each component's element type comes from the record's declared fields, in order.
     let (package, _) = name.split_once('.')?;
-    let field_types: Vec<String> =
+    // plan-106-A: the record's declared field types are cloned from the descriptor
+    // rather than rendered and re-parsed. The record TYPE is a nominal, so it is
+    // built with `named` (a record constant never names a generic).
+    let field_types: Vec<ParameterType> =
         match registry::registry().resolve_type(&format!("{package}.{type_name}"))? {
-            registry::ResolvedType::Record(record) => record
-                .props
-                .iter()
-                .map(|prop| prop.ty.name().into_owned())
-                .collect(),
+            registry::ResolvedType::Record(record) => {
+                record.props.iter().map(|prop| prop.ty.clone()).collect()
+            }
             _ => return None,
         };
     Some(IrValue::Constructor {
-        type_: crate::types::ParameterType::parse(&type_name.to_string()),
+        type_: ParameterType::named(type_name),
         args: components
             .iter()
             .enumerate()
             .map(|(index, value)| IrValue::Const {
-                type_: crate::types::ParameterType::parse(
-                    &field_types.get(index).cloned().unwrap_or_default(),
-                ),
+                type_: field_types
+                    .get(index)
+                    .cloned()
+                    .unwrap_or(ParameterType::Unknown),
                 value: value.to_string(),
             })
             .collect(),
@@ -2531,36 +2601,30 @@ fn registry_record_constant(name: &str) -> Option<IrValue> {
 /// `filter_predicate_type`, so the type the checker assigns and the type the
 /// `FunctionRef` carries cannot diverge. A divergence would emit a wrapper under
 /// one symbol and reference another.
-fn builtin_predicate_ref_type(name: &str, expected: &str) -> Option<String> {
-    let (params, returns) = function_type_parts_for_predicate(expected)?;
-    if params.len() != 1 || returns != "Boolean" {
+/// plan-106-A: the unary-predicate shape is matched on the expected type's
+/// [`Func`](ParameterType::Func) variant, deleting the private
+/// `function_type_parts_for_predicate` splitter this used to call — a
+/// `strip_prefix("FUNC(")` + `split_once(") AS ")` copy of the type grammar that
+/// mis-cut a higher-order parameter (it split at the FIRST `") AS "`).
+fn builtin_predicate_ref_type(name: &str, expected: &ParameterType) -> Option<ParameterType> {
+    let ParameterType::Func(params, returns, _) = expected else {
+        return None;
+    };
+    if params.len() != 1 || **returns != ParameterType::Boolean {
         return None;
     }
-    crate::codegen::builtins::general::filter_predicate_type(name, params[0])
-}
-
-/// Split `FUNC(A) AS R` into its parameter list and return type. Deliberately
-/// local and minimal: it only needs to recognize the unary predicate shape.
-fn function_type_parts_for_predicate(type_: &str) -> Option<(Vec<&str>, &str)> {
-    let rest = type_.strip_prefix("FUNC(")?;
-    let (params, returns) = rest.split_once(") AS ")?;
-    let params: Vec<&str> = if params.trim().is_empty() {
-        Vec::new()
-    } else {
-        params.split(", ").map(str::trim).collect()
-    };
-    Some((params, returns.trim()))
+    crate::codegen::builtins::general::filter_predicate_type_typed(name, &params[0])
 }
 
 fn lower_expression_with_expected(
     expression: &HirExpression,
-    expected: Option<&str>,
-    locals: &HashMap<String, String>,
+    expected: Option<&ParameterType>,
+    locals: &HashMap<String, ParameterType>,
     context: &mut LowerContext<'_>,
 ) -> IrValue {
     match expression {
         HirExpression::String(value) => IrValue::Const {
-            type_: crate::types::ParameterType::parse("String"),
+            type_: ParameterType::String,
             value: value.clone(),
         },
         HirExpression::Number(value) => {
@@ -2578,44 +2642,42 @@ fn lower_expression_with_expected(
                 || value.ends_with('M');
             let type_ = if is_suffixed {
                 match literal_type {
-                    numeric::LiteralType::Fixed => "Fixed",
-                    numeric::LiteralType::Money => "Money",
-                    _ => "Float",
+                    numeric::LiteralType::Fixed => ParameterType::Fixed,
+                    numeric::LiteralType::Money => ParameterType::Money,
+                    _ => ParameterType::Float,
                 }
-                .to_string()
-            } else if expected == Some("Fixed") {
-                "Fixed".to_string()
-            } else if expected == Some("Byte") {
-                "Byte".to_string()
-            } else if expected == Some("Money") {
+            } else if expected == Some(&ParameterType::Fixed) {
+                ParameterType::Fixed
+            } else if expected == Some(&ParameterType::Byte) {
+                ParameterType::Byte
+            } else if expected == Some(&ParameterType::Money) {
                 // An unsuffixed decimal literal coerces to a Money slot
                 // (`LET a AS Money = 1.25`), mirroring the Fixed/Byte paths
                 // (plan-29-A §4.4).
-                "Money".to_string()
+                ParameterType::Money
             } else {
                 match literal_type {
-                    numeric::LiteralType::Float => "Float",
-                    numeric::LiteralType::Fixed => "Fixed",
-                    numeric::LiteralType::Money => "Money",
-                    numeric::LiteralType::Integer => "Integer",
+                    numeric::LiteralType::Float => ParameterType::Float,
+                    numeric::LiteralType::Fixed => ParameterType::Fixed,
+                    numeric::LiteralType::Money => ParameterType::Money,
+                    numeric::LiteralType::Integer => ParameterType::Integer,
                 }
-                .to_string()
             };
             IrValue::Const {
-                type_: crate::types::ParameterType::parse(&type_),
+                type_,
                 value: canonical,
             }
         }
         HirExpression::Scalar(code_point) => IrValue::Const {
-            type_: crate::types::ParameterType::parse("Scalar"),
+            type_: ParameterType::named("Scalar"),
             value: code_point.to_string(),
         },
         HirExpression::Boolean(value) => IrValue::Const {
-            type_: crate::types::ParameterType::parse("Boolean"),
+            type_: ParameterType::Boolean,
             value: value.to_string(),
         },
         HirExpression::Identifier(value) if value == "NOTHING" => IrValue::Const {
-            type_: crate::types::ParameterType::parse("Nothing"),
+            type_: ParameterType::Nothing,
             value: "NOTHING".to_string(),
         },
         HirExpression::Identifier(value) => {
@@ -2629,16 +2691,12 @@ fn lower_expression_with_expected(
                 return constructor;
             }
             if builtins::is_package_constant(&canonical_value) {
-                let type_ = builtins::package_constant_type_name(&canonical_value)
-                    .unwrap_or("Unknown")
-                    .to_string();
+                let type_ = builtins::package_constant_type(&canonical_value)
+                    .unwrap_or(ParameterType::Unknown);
                 let value = builtins::package_constant_value(&canonical_value)
                     .expect("recognized package constant has a value")
                     .to_string();
-                return IrValue::Const {
-                    type_: crate::types::ParameterType::parse(&type_),
-                    value,
-                };
+                return IrValue::Const { type_, value };
             }
 
             let base = if locals.contains_key(value) {
@@ -2650,7 +2708,7 @@ fn lower_expression_with_expected(
             {
                 IrValue::FunctionRef {
                     name: canonical_value,
-                    type_: crate::types::ParameterType::parse(&type_.clone()),
+                    type_: type_.clone(),
                 }
             } else if context.binding_types.contains_key(value) {
                 IrValue::Global(value.clone())
@@ -2667,7 +2725,7 @@ fn lower_expression_with_expected(
             }) {
                 IrValue::FunctionRef {
                     name: value.clone(),
-                    type_: crate::types::ParameterType::parse(&type_),
+                    type_,
                 }
             } else {
                 IrValue::Local(value.clone())
@@ -2700,7 +2758,7 @@ fn lower_expression_with_expected(
                 // total lowering (plan-20-D) substitutes Unknown-typed const
                 // placeholders when they are absent rather than panicking.
                 let placeholder = || IrValue::Const {
-                    type_: crate::types::ParameterType::parse("Unknown"),
+                    type_: ParameterType::Unknown,
                     value: String::new(),
                 };
                 let code = lowered.next().unwrap_or_else(placeholder);
@@ -2731,7 +2789,7 @@ fn lower_expression_with_expected(
                                 })
                                 .map(|predicate_type| IrValue::FunctionRef {
                                     name: predicate.clone(),
-                                    type_: crate::types::ParameterType::parse(&predicate_type),
+                                    type_: predicate_type,
                                 })
                         }
                         _ => None,
@@ -2761,7 +2819,7 @@ fn lower_expression_with_expected(
                             builtins::is_nonescaping_callback_arg(&canonical_callee, index);
                         let value = lower_expression_with_expected(
                             argument,
-                            expected.as_deref(),
+                            expected.as_ref(),
                             locals,
                             context,
                         );
@@ -2790,14 +2848,13 @@ fn lower_expression_with_expected(
                 && normalized_builtin
                     .first()
                     .and_then(|arg| expression_type(arg, locals, context))
-                    .as_deref()
-                    == Some("AttributedString")
+                    == Some(attributed_string_type())
             {
                 let inner = args[0].clone();
                 args[0] = IrValue::Call {
                     target: "toString".to_string(),
                     args: vec![inner],
-                    type_: crate::types::ParameterType::parse("String"),
+                    type_: ParameterType::String,
                     loc,
                 };
             }
@@ -2813,11 +2870,10 @@ fn lower_expression_with_expected(
                 && normalized_builtin
                     .first()
                     .and_then(|arg| expression_type(arg, locals, context))
-                    .as_deref()
-                    == Some("AttributedString")
+                    == Some(attributed_string_type())
             {
                 args.push(IrValue::Const {
-                    type_: crate::types::ParameterType::parse("String"),
+                    type_: ParameterType::String,
                     value: " ".to_string(),
                 });
             }
@@ -2825,21 +2881,21 @@ fn lower_expression_with_expected(
             let padding =
                 crate::codegen::registry::default_argument_padding(&canonical_callee, args.len());
             for (type_, value) in &padding {
-                if type_.starts_with("List OF ") {
-                    args.push(IrValue::ListLiteral {
-                        type_: crate::types::ParameterType::parse(&type_.clone()),
+                // plan-106-A: the `Fill` type arrives typed, so the empty-collection
+                // vs scalar choice is a variant match, not a prefix test.
+                match type_ {
+                    ParameterType::ListOf(_) => args.push(IrValue::ListLiteral {
+                        type_: type_.clone(),
                         values: Vec::new(),
-                    });
-                } else if parse_map_type(type_).is_some() {
-                    args.push(IrValue::MapLiteral {
-                        type_: crate::types::ParameterType::parse(&type_.clone()),
+                    }),
+                    ParameterType::MapOf(_, _) => args.push(IrValue::MapLiteral {
+                        type_: type_.clone(),
                         entries: Vec::new(),
-                    });
-                } else {
-                    args.push(IrValue::Const {
-                        type_: crate::types::ParameterType::parse(&type_.clone()),
+                    }),
+                    _ => args.push(IrValue::Const {
+                        type_: type_.clone(),
                         value: (*value).to_string(),
-                    });
+                    }),
                 }
             }
             // Dequalify migrated `collections::`/`strings::` native members back
@@ -2868,8 +2924,11 @@ fn lower_expression_with_expected(
                         .first()
                         .map(call_arg_value)
                         .and_then(|argument| expression_type(argument, locals, context))
+                        // The per-package override table is keyed by type NAME
+                        // (a hand-authored dispatch map in codegen), so the
+                        // operand type renders for that lookup.
                         .and_then(|type_| {
-                            builtins::general_override_target(&canonical_callee, &type_)
+                            builtins::general_override_target(&canonical_callee, &type_.name())
                         })
                         .map(crate::internal_name::internalize)
                 } else {
@@ -2890,7 +2949,9 @@ fn lower_expression_with_expected(
                         .first()
                         .map(call_arg_value)
                         .and_then(|argument| expression_type(argument, locals, context))
-                        .filter(|type_| type_ == crate::codegen::builtins::tls::TLS_LISTENER_TYPE)
+                        .filter(|type_| {
+                            type_.name() == crate::codegen::builtins::tls::TLS_LISTENER_TYPE
+                        })
                         .map(|_| crate::codegen::builtins::tls::CLOSE_LISTENER.to_string())
                 })
                 .or_else(|| {
@@ -2907,11 +2968,16 @@ fn lower_expression_with_expected(
                     {
                         return None;
                     }
+                    // These per-package selectors match on type NAMES (exact
+                    // record-type dispatch tables in codegen), so the argument
+                    // types render at that seam.
                     let arg_types: Vec<String> = arguments
                         .iter()
                         .map(call_arg_value)
                         .map(|argument| {
-                            expression_type(argument, locals, context).unwrap_or_default()
+                            expression_type(argument, locals, context)
+                                .map(|type_| type_.name().into_owned())
+                                .unwrap_or_default()
                         })
                         .collect();
                     crate::codegen::builtins::audio::runtime_overload_name(
@@ -2932,11 +2998,16 @@ fn lower_expression_with_expected(
                     {
                         return None;
                     }
+                    // These per-package selectors match on type NAMES (exact
+                    // record-type dispatch tables in codegen), so the argument
+                    // types render at that seam.
                     let arg_types: Vec<String> = arguments
                         .iter()
                         .map(call_arg_value)
                         .map(|argument| {
-                            expression_type(argument, locals, context).unwrap_or_default()
+                            expression_type(argument, locals, context)
+                                .map(|type_| type_.name().into_owned())
+                                .unwrap_or_default()
                         })
                         .collect();
                     crate::codegen::builtins::vector::rewrite_target(&canonical_callee, &arg_types)
@@ -2956,7 +3027,7 @@ fn lower_expression_with_expected(
                         .get(2)
                         .map(call_arg_value)
                         .and_then(|argument| expression_type(argument, locals, context));
-                    if text_arg_type.as_deref() != Some("AttributedString") {
+                    if text_arg_type != Some(attributed_string_type()) {
                         return None;
                     }
                     Some(crate::internal_name::internalize("__term_drawTextAttr"))
@@ -2973,7 +3044,7 @@ fn lower_expression_with_expected(
                         .first()
                         .map(call_arg_value)
                         .and_then(|argument| expression_type(argument, locals, context));
-                    if first_arg_type.as_deref() != Some("AttributedString") {
+                    if first_arg_type != Some(attributed_string_type()) {
                         return None;
                     }
                     crate::codegen::builtins::strings::tier_b_transform_impl(&canonical_callee)
@@ -2987,11 +3058,16 @@ fn lower_expression_with_expected(
                     // `encoding`'s two return-type-overloaded names (`utf8Encode`/
                     // `utf8Decode`) are `Body::Intrinsic` and intentionally yield no
                     // target, so the canonical name reaches the monomorphizer.
+                    // These per-package selectors match on type NAMES (exact
+                    // record-type dispatch tables in codegen), so the argument
+                    // types render at that seam.
                     let arg_types: Vec<String> = arguments
                         .iter()
                         .map(call_arg_value)
                         .map(|argument| {
-                            expression_type(argument, locals, context).unwrap_or_default()
+                            expression_type(argument, locals, context)
+                                .map(|type_| type_.name().into_owned())
+                                .unwrap_or_default()
                         })
                         .collect();
                     // `strings`' seven scalar-seam members (`toScalars`/`isLetter`/…)
@@ -3003,15 +3079,15 @@ fn lower_expression_with_expected(
                         .map(crate::internal_name::internalize)
                 })
                 .unwrap_or_else(|| canonical_callee.clone());
-            let result_type = expression_type(expression, locals, context)
-                .unwrap_or_else(|| "Unknown".to_string());
+            let result_type =
+                expression_type(expression, locals, context).unwrap_or(ParameterType::Unknown);
             IrValue::Call {
                 // The resource plane reuses the proven data-channel runtime:
                 // `thread::transfer`/`accept` lower exactly like `send`/`receive`
                 // (syntaxcheck already enforced their resource semantics).
                 target: thread_resource_plane_target(&resolved_target).to_string(),
                 args,
-                type_: crate::types::ParameterType::parse(&result_type),
+                type_: result_type.clone(),
                 loc,
             }
         }
@@ -3059,11 +3135,10 @@ fn lower_expression_with_expected(
             let ir_params = params
                 .iter()
                 .map(|param| {
-                    let type_ = param.type_.name().into_owned();
-                    lambda_locals.insert(param.name.clone(), type_.clone());
+                    lambda_locals.insert(param.name.clone(), param.type_.clone());
                     IrParam {
                         name: param.name.clone(),
-                        type_: ParameterType::parse(&type_),
+                        type_: param.type_.clone(),
                         default: None,
                         loc,
                     }
@@ -3076,12 +3151,12 @@ fn lower_expression_with_expected(
                 .map(|(index, (capture, &by_ref))| IrOp::Bind {
                     mutable: by_ref,
                     name: capture.name.clone(),
-                    type_: ParameterType::parse(&capture.type_),
+                    type_: capture.type_.clone(),
                     value: Some(IrValue::Capture {
                         // A closure's environment is far smaller than `u32::MAX`
                         // slots; the cast cannot lose an index a program produces.
                         index: index as u32,
-                        type_: crate::types::ParameterType::parse(&capture.type_.clone()),
+                        type_: capture.type_.clone(),
                         by_ref,
                     }),
                     loc,
@@ -3103,11 +3178,11 @@ fn lower_expression_with_expected(
                         loc,
                     });
                     body_ops.push(IrOp::Return { value: None, loc });
-                    "Nothing".to_string()
+                    ParameterType::Nothing
                 }
                 None => {
                     let returns = expression_type(body, &lambda_locals, context)
-                        .unwrap_or_else(|| "Unknown".to_string());
+                        .unwrap_or(ParameterType::Unknown);
                     let value = lower_expression(body, &lambda_locals, context);
                     body_ops.push(IrOp::Return {
                         value: Some(value),
@@ -3122,7 +3197,7 @@ fn lower_expression_with_expected(
                 kind: "func".to_string(),
                 isolated: false,
                 params: ir_params,
-                returns: ParameterType::parse(&returns),
+                returns: returns.clone(),
                 body: body_ops,
                 file: context.current_file.clone(),
                 loc,
@@ -3130,19 +3205,17 @@ fn lower_expression_with_expected(
             });
             let params = params
                 .iter()
-                .map(|param| param.type_.name().into_owned())
-                .collect::<Vec<_>>()
-                .join(", ");
-            let type_ = format!("FUNC({params}) AS {returns}");
+                .map(|param| param.type_.clone())
+                .collect::<Vec<_>>();
+            // A lambda is never `ISOLATED`, matching the un-prefixed
+            // `FUNC(…) AS …` spelling this used to `format!`.
+            let type_ = ParameterType::Func(params, Box::new(returns), false);
             if captures.is_empty() {
-                IrValue::FunctionRef {
-                    name,
-                    type_: crate::types::ParameterType::parse(&type_),
-                }
+                IrValue::FunctionRef { name, type_ }
             } else {
                 IrValue::Closure {
                     name,
-                    type_: crate::types::ParameterType::parse(&type_),
+                    type_: type_.clone(),
                     captures: captures
                         .iter()
                         .zip(by_ref.iter())
@@ -3152,9 +3225,7 @@ fn lower_expression_with_expected(
                                 // the callback observes and updates the live binding.
                                 IrValue::LocalRef {
                                     name: capture.name.clone(),
-                                    type_: crate::types::ParameterType::parse(
-                                        &capture.type_.clone(),
-                                    ),
+                                    type_: capture.type_.clone(),
                                 }
                             } else {
                                 lower_expression(
@@ -3182,14 +3253,17 @@ fn lower_expression_with_expected(
                 .or_else(|| context.type_index.variant_fields.get(&canonical_type_name))
                 .or_else(|| context.type_index.variant_fields.get(type_name.as_ref()));
             let base = IrValue::Constructor {
+                // Deliberately `parse`, not `named`: `canonical_import_name` rewrites
+                // an import ALIAS inside the type's spelling (a name-domain edit), and
+                // the result must be re-classified — a user generic (`Pair OF A, B`)
+                // has to come back as a `UserOf`, not an opaque nominal.
                 type_: crate::types::ParameterType::parse(&canonical_type_name),
                 args: lower_constructor_args(arguments, fields, locals, context),
             };
             wrap_union_value(base, expression, expected, locals, context)
         }
         HirExpression::WithUpdate { target, updates } => {
-            let type_ =
-                expression_type(target, locals, context).unwrap_or_else(|| "Unknown".to_string());
+            let type_ = expression_type(target, locals, context).unwrap_or(ParameterType::Unknown);
             let lowered_target = Box::new(lower_expression(target, locals, context));
             let lowered_updates = updates
                 .iter()
@@ -3198,12 +3272,14 @@ fn lower_expression_with_expected(
                     // declared type, mirroring `lower_constructor_args` — else an
                     // unsuffixed literal updating a `Fixed`/`Money` field is typed
                     // `Integer` and reinterpreted as raw bits (bug-156).
-                    let field_type = context.type_index.record_field_type(&type_, &update.field);
+                    let field_type = context
+                        .type_index
+                        .record_field_type(type_.name().as_ref(), &update.field);
                     IrRecordUpdate {
                         field: update.field.clone(),
                         value: lower_expression_with_expected(
                             &update.value,
-                            field_type.as_deref(),
+                            field_type.as_ref(),
                             locals,
                             context,
                         ),
@@ -3211,27 +3287,35 @@ fn lower_expression_with_expected(
                 })
                 .collect();
             IrValue::WithUpdate {
-                type_: crate::types::ParameterType::parse(&type_),
+                type_,
                 target: lowered_target,
                 updates: lowered_updates,
             }
         }
         HirExpression::ListLiteral(values) => {
-            let expected_element = expected.and_then(|type_| type_.strip_prefix("List OF "));
+            let expected_element = match expected {
+                Some(ParameterType::ListOf(element)) => Some((**element).clone()),
+                _ => None,
+            };
             let lowered = values
                 .iter()
                 .map(|value| {
-                    lower_expression_with_expected(value, expected_element, locals, context)
+                    lower_expression_with_expected(
+                        value,
+                        expected_element.as_ref(),
+                        locals,
+                        context,
+                    )
                 })
                 .collect::<Vec<_>>();
-            let element_type = expected_element.map(str::to_string).unwrap_or_else(|| {
+            let element_type = expected_element.unwrap_or_else(|| {
                 values
                     .first()
                     .and_then(literal_expression_type)
-                    .unwrap_or_else(|| "Unknown".to_string())
+                    .unwrap_or(ParameterType::Unknown)
             });
             IrValue::ListLiteral {
-                type_: crate::types::ParameterType::parse(&format!("List OF {element_type}")),
+                type_: ParameterType::list_of(element_type),
                 values: lowered,
             }
         }
@@ -3239,18 +3323,18 @@ fn lower_expression_with_expected(
             element_type,
             elements,
         } => {
-            let element_type_name = element_type.name();
-            let expected_element = expected
-                .and_then(|type_| type_.strip_prefix("Set OF "))
-                .or(Some(element_type_name.as_ref()));
+            let expected_element = match expected {
+                Some(ParameterType::SetOf(element)) => (**element).clone(),
+                _ => element_type.clone(),
+            };
             let lowered = elements
                 .iter()
                 .map(|value| {
-                    lower_expression_with_expected(value, expected_element, locals, context)
+                    lower_expression_with_expected(value, Some(&expected_element), locals, context)
                 })
                 .collect::<Vec<_>>();
             IrValue::SetLiteral {
-                type_: crate::types::ParameterType::parse(&format!("Set OF {element_type}")),
+                type_: ParameterType::set_of(element_type.clone()),
                 values: lowered,
             }
         }
@@ -3259,13 +3343,16 @@ fn lower_expression_with_expected(
             value_type,
             entries,
         } => {
-            let expected_map = expected.and_then(parse_map_type);
-            let expected_key = expected_map.as_ref().map(|(key, _)| key.as_str());
-            let expected_value = expected_map.as_ref().map(|(_, value)| value.as_str());
+            let (expected_key, expected_value) = match expected {
+                Some(ParameterType::MapOf(key, value)) => {
+                    (Some((**key).clone()), Some((**value).clone()))
+                }
+                _ => (None, None),
+            };
+            let expected_key = expected_key.as_ref();
+            let expected_value = expected_value.as_ref();
             IrValue::MapLiteral {
-                type_: crate::types::ParameterType::parse(&format!(
-                    "Map OF {key_type} TO {value_type}"
-                )),
+                type_: ParameterType::map_of(key_type.clone(), value_type.clone()),
                 entries: entries
                     .iter()
                     .map(|(key, value)| {
@@ -3278,12 +3365,12 @@ fn lower_expression_with_expected(
             }
         }
         HirExpression::MemberAccess { target, member } => {
-            let member_type = expression_type(expression, locals, context)
-                .unwrap_or_else(|| "Unknown".to_string());
+            let member_type =
+                expression_type(expression, locals, context).unwrap_or(ParameterType::Unknown);
             IrValue::MemberAccess {
                 target: Box::new(lower_expression(target, locals, context)),
                 member: member.clone(),
-                type_: crate::types::ParameterType::parse(&member_type),
+                type_: member_type,
             }
         }
         HirExpression::Trapped { .. } => {
@@ -3299,8 +3386,8 @@ fn lower_expression_with_expected(
             line,
             column,
         } => {
-            let result_type = expression_type(expression, locals, context)
-                .unwrap_or_else(|| "Unknown".to_string());
+            let result_type =
+                expression_type(expression, locals, context).unwrap_or(ParameterType::Unknown);
             let loc = IrSourceLoc {
                 line: *line as u32,
                 column: *column as u32,
@@ -3308,14 +3395,14 @@ fn lower_expression_with_expected(
             // plan-89-D: `AttributedString & AttributedString` concatenation routes
             // to the `__astrings_concat` source-companion body (text concatenated,
             // right operand's spans shifted by the left's scalar length).
-            if operator == "&" && result_type == "AttributedString" {
+            if operator == "&" && result_type == attributed_string_type() {
                 return IrValue::Call {
                     target: crate::internal_name::internalize("__astrings_concat"),
                     args: vec![
                         lower_expression(left, locals, context),
                         lower_expression(right, locals, context),
                     ],
-                    type_: crate::types::ParameterType::parse("AttributedString"),
+                    type_: attributed_string_type(),
                     loc,
                 };
             }
@@ -3323,7 +3410,7 @@ fn lower_expression_with_expected(
                 op: operator.clone(),
                 left: Box::new(lower_expression(left, locals, context)),
                 right: Box::new(lower_expression(right, locals, context)),
-                type_: crate::types::ParameterType::parse(&result_type),
+                type_: result_type.clone(),
                 loc,
             }
         }
@@ -3346,13 +3433,15 @@ fn lower_expression_with_expected(
             // -1074528256.0 (bug-367). Every negative `Fixed` literal was affected;
             // the positive form was always correct, which is why it went unnoticed.
             let exact_literal_negation = operator == "-"
-                && matches!(expected, Some("Money") | Some("Fixed"))
+                && matches!(
+                    expected,
+                    Some(ParameterType::Money) | Some(ParameterType::Fixed)
+                )
                 && matches!(operand.as_ref(), HirExpression::Number(_));
             let result_type = if exact_literal_negation {
-                expected.unwrap_or("Unknown").to_string()
+                expected.cloned().unwrap_or(ParameterType::Unknown)
             } else {
-                expression_type(expression, locals, context)
-                    .unwrap_or_else(|| "Unknown".to_string())
+                expression_type(expression, locals, context).unwrap_or(ParameterType::Unknown)
             };
             let lowered_operand = if exact_literal_negation {
                 lower_expression_with_expected(operand, expected, locals, context)
@@ -3375,7 +3464,7 @@ fn lower_expression_with_expected(
                         && numeric::fixed_raw_from_decimal(&format!("-{value}")).is_ok()
                     {
                         return IrValue::Const {
-                            type_: crate::types::ParameterType::parse("Fixed"),
+                            type_: ParameterType::Fixed,
                             value: format!("-{value}"),
                         };
                     }
@@ -3395,7 +3484,7 @@ fn lower_expression_with_expected(
                         && format!("-{value}").parse::<i64>().is_ok()
                     {
                         return IrValue::Const {
-                            type_: crate::types::ParameterType::parse("Integer"),
+                            type_: ParameterType::Integer,
                             value: format!("-{value}"),
                         };
                     }
@@ -3407,7 +3496,7 @@ fn lower_expression_with_expected(
                         && numeric::money_raw_from_decimal(&format!("-{value}")).is_ok()
                     {
                         return IrValue::Const {
-                            type_: crate::types::ParameterType::parse("Money"),
+                            type_: ParameterType::Money,
                             value: format!("-{value}"),
                         };
                     }
@@ -3416,7 +3505,7 @@ fn lower_expression_with_expected(
             IrValue::Unary {
                 op: operator.clone(),
                 operand: Box::new(lowered_operand),
-                type_: crate::types::ParameterType::parse(&result_type),
+                type_: result_type.clone(),
                 loc: IrSourceLoc {
                     line: *line as u32,
                     column: *column as u32,
@@ -3429,18 +3518,18 @@ fn lower_expression_with_expected(
 /// Build an `ErrorLoc` record value for a compile-time source location.
 fn error_loc_value(file: &str, loc: IrSourceLoc) -> IrValue {
     IrValue::Constructor {
-        type_: crate::types::ParameterType::parse("ErrorLoc"),
+        type_: ParameterType::named("ErrorLoc"),
         args: vec![
             IrValue::Const {
-                type_: crate::types::ParameterType::parse("String"),
+                type_: ParameterType::String,
                 value: file.to_string(),
             },
             IrValue::Const {
-                type_: crate::types::ParameterType::parse("Integer"),
+                type_: ParameterType::Integer,
                 value: loc.line.to_string(),
             },
             IrValue::Const {
-                type_: crate::types::ParameterType::parse("Integer"),
+                type_: ParameterType::Integer,
                 value: loc.column.to_string(),
             },
         ],
@@ -3450,7 +3539,7 @@ fn error_loc_value(file: &str, loc: IrSourceLoc) -> IrValue {
 /// Build an `Error` record value (code, message, source) for `error(...)`.
 fn build_error_value(code: IrValue, message: IrValue, file: &str, loc: IrSourceLoc) -> IrValue {
     IrValue::Constructor {
-        type_: crate::types::ParameterType::parse("Error"),
+        type_: ParameterType::named("Error"),
         args: vec![code, message, error_loc_value(file, loc)],
     }
 }
@@ -3458,8 +3547,8 @@ fn build_error_value(code: IrValue, message: IrValue, file: &str, loc: IrSourceL
 fn wrap_union_value(
     base: IrValue,
     expression: &HirExpression,
-    expected: Option<&str>,
-    locals: &HashMap<String, String>,
+    expected: Option<&ParameterType>,
+    locals: &HashMap<String, ParameterType>,
     context: &LowerContext<'_>,
 ) -> IrValue {
     let Some(union_type) = expected else {
@@ -3473,13 +3562,15 @@ fn wrap_union_value(
     let Some(actual_type) = expression_type(expression, locals, context) else {
         return base;
     };
+    // The variant/union membership index is keyed by NAME (a type-declaration
+    // table), so both sides render for the lookup only.
     if context
         .type_index
-        .variant_belongs_to_union(&actual_type, union_type)
+        .variant_belongs_to_union(actual_type.name().as_ref(), union_type.name().as_ref())
     {
         return IrValue::UnionWrap {
-            union_type: crate::types::ParameterType::parse(&union_type.to_string()),
-            member_type: crate::types::ParameterType::parse(&actual_type),
+            union_type: union_type.clone(),
+            member_type: actual_type,
             value: Box::new(base),
         };
     }
@@ -3489,7 +3580,7 @@ fn wrap_union_value(
 fn lower_constructor_args(
     arguments: &[HirConstructorArg],
     fields: Option<&Vec<IrField>>,
-    locals: &HashMap<String, String>,
+    locals: &HashMap<String, ParameterType>,
     context: &mut LowerContext<'_>,
 ) -> Vec<IrValue> {
     let Some(fields) = fields else {
@@ -3506,15 +3597,9 @@ fn lower_constructor_args(
             .iter()
             .filter_map(|field| {
                 arguments.iter().find_map(|argument| match argument {
-                    HirConstructorArg::Named { name, value, .. } if name == &field.name => {
-                        let expected = field.type_.name();
-                        Some(lower_expression_with_expected(
-                            value,
-                            Some(expected.as_ref()),
-                            locals,
-                            context,
-                        ))
-                    }
+                    HirConstructorArg::Named { name, value, .. } if name == &field.name => Some(
+                        lower_expression_with_expected(value, Some(&field.type_), locals, context),
+                    ),
                     _ => None,
                 })
             })
@@ -3524,10 +3609,10 @@ fn lower_constructor_args(
         .iter()
         .enumerate()
         .map(|(index, argument)| {
-            let expected = fields.get(index).map(|field| field.type_.name());
+            let expected = fields.get(index).map(|field| &field.type_);
             lower_expression_with_expected(
                 constructor_arg_value(argument),
-                expected.as_deref(),
+                expected,
                 locals,
                 context,
             )
@@ -3544,7 +3629,7 @@ fn constructor_arg_value(argument: &HirConstructorArg) -> &HirExpression {
 
 fn captured_locals(
     expression: &HirExpression,
-    outer_locals: &HashMap<String, String>,
+    outer_locals: &HashMap<String, ParameterType>,
     local_names: &HashSet<String>,
 ) -> Vec<CapturedLocal> {
     let mut captures = Vec::new();
@@ -3561,7 +3646,7 @@ fn captured_locals(
 
 fn collect_captured_locals(
     expression: &HirExpression,
-    outer_locals: &HashMap<String, String>,
+    outer_locals: &HashMap<String, ParameterType>,
     local_names: &HashSet<String>,
     seen: &mut HashSet<String>,
     captures: &mut Vec<CapturedLocal>,
@@ -3652,25 +3737,18 @@ fn collect_captured_locals(
     }
 }
 
-fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'static str {
-    numeric::binary_result_type(operator, left, right).unwrap_or(numeric::TYPE_INTEGER)
-}
-
-fn literal_expression_type(expression: &HirExpression) -> Option<String> {
+fn literal_expression_type(expression: &HirExpression) -> Option<ParameterType> {
     match expression {
-        HirExpression::String(_) => Some("String".to_string()),
-        HirExpression::Number(value) => Some(
-            match numeric::classify_literal(value).1 {
-                numeric::LiteralType::Integer => "Integer",
-                numeric::LiteralType::Float => "Float",
-                numeric::LiteralType::Fixed => "Fixed",
-                numeric::LiteralType::Money => "Money",
-            }
-            .to_string(),
-        ),
-        HirExpression::Scalar(_) => Some("Scalar".to_string()),
-        HirExpression::Boolean(_) => Some("Boolean".to_string()),
-        HirExpression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
+        HirExpression::String(_) => Some(ParameterType::String),
+        HirExpression::Number(value) => Some(match numeric::classify_literal(value).1 {
+            numeric::LiteralType::Integer => ParameterType::Integer,
+            numeric::LiteralType::Float => ParameterType::Float,
+            numeric::LiteralType::Fixed => ParameterType::Fixed,
+            numeric::LiteralType::Money => ParameterType::Money,
+        }),
+        HirExpression::Scalar(_) => Some(ParameterType::named("Scalar")),
+        HirExpression::Boolean(_) => Some(ParameterType::Boolean),
+        HirExpression::Identifier(value) if value == "NOTHING" => Some(ParameterType::Nothing),
         _ => None,
     }
 }
@@ -3795,25 +3873,29 @@ impl TypeIndex {
         }
     }
 
-    fn constructor_result(&self, name: &str) -> Option<String> {
+    fn constructor_result(&self, name: &str) -> Option<ParameterType> {
         if name == "Error" {
-            Some("Error".to_string())
+            Some(ParameterType::named("Error"))
         } else if name == "Ok" {
-            Some("Result OF Unknown".to_string())
+            Some(ParameterType::result_of(ParameterType::Unknown))
         } else if self.records.contains_key(name) {
-            Some(name.to_string())
+            Some(ParameterType::named(name))
         } else {
-            self.variants.get(name).cloned()
+            // A union variant's owning union, held as a NAME (the index is keyed by
+            // variant name); it denotes a nominal.
+            self.variants
+                .get(name)
+                .map(|union| ParameterType::named(union))
         }
     }
 
-    fn record_field_type(&self, type_name: &str, member: &str) -> Option<String> {
+    fn record_field_type(&self, type_name: &str, member: &str) -> Option<ParameterType> {
         self.records
             .get(type_name)
             .or_else(|| self.variant_fields.get(type_name))?
             .iter()
             .find(|field| field.name == member)
-            .map(|field| field.type_.name().into_owned())
+            .map(|field| field.type_.clone())
     }
 
     fn variant_belongs_to_union(&self, variant_name: &str, union_name: &str) -> bool {

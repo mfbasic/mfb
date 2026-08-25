@@ -92,20 +92,28 @@ struct ImportedOverload {
 }
 
 #[derive(Default)]
+/// The type environment monomorph's `expression_type` oracle consults while a
+/// body is lowered.
+///
+/// Every value is a [`ParameterType`] (plan-106-A): the *keys* stay `String`
+/// because they are NAMES (locals, functions, record types), not types. Before
+/// plan-106-A each of these was `HashMap<String, String>` and the engine
+/// inferred over rendered spellings — the plan-102 staging residue this letter
+/// retires.
 struct FunctionContext {
-    locals: HashMap<String, String>,
-    function_returns: HashMap<String, String>,
-    function_types: HashMap<String, String>,
+    locals: HashMap<String, ParameterType>,
+    function_returns: HashMap<String, ParameterType>,
+    function_types: HashMap<String, ParameterType>,
     record_fields: HashMap<String, Vec<HirTypeField>>,
     /// Declared type of each top-level `LET`/`MUT` binding, keyed by name. Lets
     /// `expression_type` resolve an identifier that names a global so a generic /
     /// overloaded call taking that global infers its type instead of being falsely
     /// rejected (bug-103).
-    globals: HashMap<String, String>,
+    globals: HashMap<String, ParameterType>,
     /// Declared return type of the function whose body is being lowered. Supplies
     /// the expected (contextual) type for a `RETURN` operand so a return-type
     /// overload set resolves there (plan-01-overload.md §F.2).
-    enclosing_return: Option<String>,
+    enclosing_return: Option<ParameterType>,
 }
 
 impl Clone for FunctionContext {

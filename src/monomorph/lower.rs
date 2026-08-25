@@ -167,7 +167,7 @@ impl<'a> Monomorphizer<'a> {
     fn resolve_imported_overload(
         &mut self,
         callee: &str,
-        arg_types: &[String],
+        arg_types: &[ParameterType],
         line: usize,
     ) -> Option<String> {
         let candidates = self.imported_overloads.get(callee)?;
@@ -178,9 +178,18 @@ impl<'a> Monomorphizer<'a> {
                     candidate.param_types.len() == arg_types.len()
                         && candidate.param_types.iter().zip(arg_types.iter()).all(
                             |(param, actual)| {
+                                // The candidate side is a DECODED PACKAGE signature
+                                // (`ImportedOverload::param_types`, stored bare as the
+                                // wire format spelled it), and `normalize_type` /
+                                // `types_compatible` are token algorithms over that
+                                // name domain — qualifier stripping and positional
+                                // `Unknown` wildcarding, neither expressible on the
+                                // typed side. So the call's argument type renders here,
+                                // at the wire boundary, rather than the package's
+                                // strings being parsed into types they may not spell.
                                 self.types_compatible(
                                     &self.normalize_type(param),
-                                    &self.normalize_type(actual),
+                                    &self.normalize_type(actual.name().as_ref()),
                                 )
                             },
                         )
@@ -416,20 +425,17 @@ impl<'a> Monomorphizer<'a> {
 
     fn lower_binding(&mut self, mut binding: HirTopLevelBinding) -> HirTopLevelBinding {
         if binding.explicit_type {
-            let type_name = binding.type_.name().into_owned();
-            binding.type_ =
-                ParameterType::parse(&self.concrete_type_name(&type_name, &HashMap::new()));
+            let declared = binding.type_.clone();
+            binding.type_ = self.concrete_type(&declared, &HashMap::new());
         }
         if let Some(value) = binding.value.take() {
             let mut context = self.function_context();
-            let expected = binding
-                .explicit_type
-                .then(|| binding.type_.name().into_owned());
+            let expected = binding.explicit_type.then(|| binding.type_.clone());
             binding.value = Some(self.lower_expression(
                 &value,
                 &HashMap::new(),
                 &mut context,
-                expected.as_deref(),
+                expected.as_ref(),
                 binding.line,
             ));
         }
@@ -470,24 +476,22 @@ impl<'a> Monomorphizer<'a> {
         function.template_params.clear();
         for param in &mut function.params {
             if !matches!(param.type_, ParameterType::Unknown) {
-                let type_name = param.type_.name().into_owned();
-                param.type_ =
-                    ParameterType::parse(&self.concrete_type_name(&type_name, substitutions));
+                let declared = param.type_.clone();
+                param.type_ = self.concrete_type(&declared, substitutions);
             }
         }
         if !matches!(function.returns, ParameterType::Unknown) {
-            let return_type = function.returns.name().into_owned();
-            function.returns =
-                ParameterType::parse(&self.concrete_type_name(&return_type, substitutions));
+            let declared = function.returns.clone();
+            function.returns = self.concrete_type(&declared, substitutions);
         }
 
         let mut context = self.function_context();
-        context.enclosing_return = opt_type_name(&function.returns);
+        context.enclosing_return = opt_type(&function.returns);
         for param in &function.params {
             if !matches!(param.type_, ParameterType::Unknown) {
                 context
                     .locals
-                    .insert(param.name.clone(), param.type_.name().into_owned());
+                    .insert(param.name.clone(), param.type_.clone());
             }
         }
         function.body = self.lower_statements(&function.body, substitutions, &mut context);
@@ -495,7 +499,7 @@ impl<'a> Monomorphizer<'a> {
             let mut trap_context = context.clone();
             trap_context
                 .locals
-                .insert(trap.name.clone(), "Error".to_string());
+                .insert(trap.name.clone(), ParameterType::named("Error"));
             trap.body = self.lower_statements(&trap.body, substitutions, &mut trap_context);
         }
         function
@@ -510,8 +514,8 @@ impl<'a> Monomorphizer<'a> {
         &self,
         callee: &str,
         arguments: &[HirCallArg],
-        arg_types: &[String],
-    ) -> Option<Vec<String>> {
+        arg_types: &[ParameterType],
+    ) -> Option<Vec<ParameterType>> {
         if !arguments
             .iter()
             .any(|argument| matches!(argument, HirCallArg::Named { .. }))
@@ -519,7 +523,7 @@ impl<'a> Monomorphizer<'a> {
             return None;
         }
         let params = &self.function_templates.get(callee)?.params;
-        let mut ordered: Vec<Option<String>> = vec![None; params.len()];
+        let mut ordered: Vec<Option<ParameterType>> = vec![None; params.len()];
         let mut next_positional = 0usize;
         for (index, argument) in arguments.iter().enumerate() {
             let arg_type = arg_types.get(index)?.clone();
@@ -581,7 +585,7 @@ impl<'a> Monomorphizer<'a> {
     fn instantiate_function(
         &mut self,
         name: &str,
-        arg_types: &[String],
+        arg_types: &[ParameterType],
         line: usize,
     ) -> Option<String> {
         let template = self.function_templates.get(name)?.clone();
@@ -613,7 +617,10 @@ impl<'a> Monomorphizer<'a> {
             if matches!(param.type_, ParameterType::Unknown) {
                 continue;
             }
-            let actual_name = self.template_view_type(actual);
+            // `template_view_type` is still name-in/name-out (plan-106-A
+            // Correction 3 → letter E); its result also spells the diagnostic
+            // below, so this render is a message-formatting site either way.
+            let actual_name = self.template_view_type(actual.name().as_ref());
             if !unify_type(
                 &param.type_,
                 &ParameterType::parse(&actual_name),
@@ -712,8 +719,8 @@ impl<'a> Monomorphizer<'a> {
         &mut self,
         name: &str,
         display: &str,
-        arg_types: &[String],
-        expected: Option<&str>,
+        arg_types: &[ParameterType],
+        expected: Option<&ParameterType>,
         line: usize,
     ) -> Option<String> {
         // Built-in-named overrides are routed by `resolve_general_builtin_override`,
@@ -741,7 +748,7 @@ impl<'a> Monomorphizer<'a> {
                 // call is ambiguous.
                 let mut by_return = param_matches
                     .iter()
-                    .filter(|function| opt_type_name(&function.returns).as_deref() == expected);
+                    .filter(|function| opt_type(&function.returns).as_ref() == expected);
                 match (by_return.next(), by_return.next()) {
                     (Some(unique), None) => unique.clone(),
                     _ => {
@@ -776,14 +783,21 @@ impl<'a> Monomorphizer<'a> {
     /// (scalar/collection args) is left as the bare built-in name for codegen to
     /// dispatch. Fires for a sole built-in-named overload too, unlike the ordinary
     /// `resolve_overload`.
-    fn resolve_general_builtin_override(&self, name: &str, arg_types: &[String]) -> Option<String> {
+    fn resolve_general_builtin_override(
+        &self,
+        name: &str,
+        arg_types: &[ParameterType],
+    ) -> Option<String> {
         if !crate::codegen::builtins::general::is_overridable(name) {
             return None;
         }
         // `name` is already gated to a general-overridable builtin above, so the
         // registry aggregate resolves it exactly as `general::resolve_call` did
-        // (plan-72-BB).
-        if crate::codegen::builtins::resolve_call_return_type(name, arg_types, false).is_some() {
+        // (plan-72-BB). plan-106-A: through the TYPED entry (plan-104-C's
+        // `resolve_call_return_type_typed`), so no type is rendered here.
+        if crate::codegen::builtins::resolve_call_return_type_typed(name, arg_types, false)
+            .is_some()
+        {
             return None;
         }
         let chosen = self
@@ -858,8 +872,7 @@ impl<'a> Monomorphizer<'a> {
         substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
     ) -> HirTypeField {
         let mut lowered = field.clone();
-        let type_name = field.type_.name().into_owned();
-        lowered.type_ = ParameterType::parse(&self.concrete_type_name(&type_name, substitutions));
+        lowered.type_ = self.concrete_type(&field.type_, substitutions);
         lowered
     }
 
@@ -896,26 +909,28 @@ impl<'a> Monomorphizer<'a> {
                 // explicit `AS T` annotation carries its rendered type, an inferred
                 // `LET` carries `None`.
                 let type_name = explicit_type.then(|| type_.name().into_owned());
+                // `concrete_type_name` is still name-in/name-out (plan-106-A
+                // Correction 3 assigns its retype to letter E); parse its result
+                // ONCE here rather than at each consumer.
                 let lowered_type = type_name
                     .as_ref()
-                    .map(|type_name| self.concrete_type_name(type_name, substitutions));
+                    .map(|type_name| self.concrete_type_name(type_name, substitutions))
+                    .map(|type_name| ParameterType::parse(&type_name));
                 let lowered_state = state_type.as_ref().map(|state_type| {
                     self.concrete_type_name(state_type.name().as_ref(), substitutions)
                 });
-                let expected_source_type = type_name.as_ref().map(|type_name| {
-                    substitute_type_params(
-                        &crate::types::ParameterType::parse(type_name),
-                        substitutions,
-                    )
-                    .name()
-                    .into_owned()
-                });
+                // The declared type with this instantiation's template params
+                // substituted. `type_` IS the parse of `type_name` (they round-trip
+                // byte-exact), so substitute the HIR node directly rather than
+                // re-parsing a render of it.
+                let expected_source_type =
+                    explicit_type.then(|| substitute_type_params(type_, substitutions));
                 let lowered_value = value.as_ref().map(|value| {
                     self.lower_expression(
                         value,
                         substitutions,
                         context,
-                        expected_source_type.as_deref(),
+                        expected_source_type.as_ref(),
                         *line,
                     )
                 });
@@ -932,10 +947,7 @@ impl<'a> Monomorphizer<'a> {
                     resource: *resource,
                     state_type: lowered_state.map(|s| ParameterType::parse(&s)),
                     name: name.clone(),
-                    type_: lowered_type
-                        .as_deref()
-                        .map(ParameterType::parse)
-                        .unwrap_or(ParameterType::Unknown),
+                    type_: lowered_type.unwrap_or(ParameterType::Unknown),
                     explicit_type: *explicit_type,
                     value: lowered_value,
                     line: *line,
@@ -949,7 +961,7 @@ impl<'a> Monomorphizer<'a> {
                     let expected = matches!(value, HirExpression::Call { .. })
                         .then(|| context.enclosing_return.clone())
                         .flatten();
-                    self.lower_expression(value, substitutions, context, expected.as_deref(), *line)
+                    self.lower_expression(value, substitutions, context, expected.as_ref(), *line)
                 }),
                 line: *line,
             },
@@ -987,7 +999,7 @@ impl<'a> Monomorphizer<'a> {
                         value,
                         substitutions,
                         context,
-                        expected.as_deref(),
+                        expected.as_ref(),
                         *line,
                     ),
                     line: *line,
@@ -1005,7 +1017,7 @@ impl<'a> Monomorphizer<'a> {
                         value,
                         substitutions,
                         context,
-                        expected.as_deref(),
+                        expected.as_ref(),
                         *line,
                     ),
                     line: *line,
@@ -1049,7 +1061,9 @@ impl<'a> Monomorphizer<'a> {
                         if let HirMatchPattern::Union { binding, type_ } = &case.pattern {
                             case_context.locals.insert(
                                 binding.clone(),
-                                self.concrete_type_name(type_.name().as_ref(), substitutions),
+                                ParameterType::parse(
+                                    &self.concrete_type_name(type_.name().as_ref(), substitutions),
+                                ),
                             );
                         }
                         HirMatchCase {
@@ -1066,10 +1080,7 @@ impl<'a> Monomorphizer<'a> {
                                 }
                                 HirMatchPattern::Union { type_, binding } => {
                                     HirMatchPattern::Union {
-                                        type_: ParameterType::parse(&self.concrete_type_name(
-                                            type_.name().as_ref(),
-                                            substitutions,
-                                        )),
+                                        type_: self.concrete_type(type_, substitutions),
                                         binding: binding.clone(),
                                     }
                                 }
@@ -1130,8 +1141,12 @@ impl<'a> Monomorphizer<'a> {
                         let step_type = lowered_step
                             .as_ref()
                             .and_then(|value| self.expression_type(value, context))
-                            .unwrap_or_else(|| "Integer".to_string());
-                        promote_loop_numeric_type_name(&start_type, &end_type, &step_type)
+                            .unwrap_or(ParameterType::Integer);
+                        crate::numeric::typed_promote_loop_numeric_type(
+                            &start_type,
+                            &end_type,
+                            &step_type,
+                        )
                     })
                 {
                     nested.locals.insert(name.clone(), loop_type);
@@ -1154,22 +1169,18 @@ impl<'a> Monomorphizer<'a> {
                 let lowered_iterable =
                     self.lower_expression(iterable, substitutions, context, None, *line);
                 let mut nested = context.clone();
-                if let Some(type_name) = self.expression_type(&lowered_iterable, context) {
+                if let Some(iterable_type) = self.expression_type(&lowered_iterable, context) {
                     // plan-105-B: the iterable's element type, off the canonical
                     // grammar. Iterating a `Map` yields a `MapEntry` over the same
                     // key/value pair, which is now built structurally instead of by
                     // splicing the raw `K TO V` text behind a `MapEntry OF ` prefix.
-                    let loop_type = match crate::types::ParameterType::parse(&type_name) {
-                        crate::types::ParameterType::ListOf(element)
-                        | crate::types::ParameterType::SetOf(element) => {
-                            element.name().into_owned()
-                        }
-                        crate::types::ParameterType::MapOf(key, value) => {
-                            crate::types::ParameterType::MapEntryOf(key, value)
-                                .name()
-                                .into_owned()
-                        }
-                        _ => "Unknown".to_string(),
+                    // plan-106-A: the iterable's type arrives already typed, so the
+                    // match is on the value itself rather than on a re-parse of its
+                    // rendered name.
+                    let loop_type = match iterable_type {
+                        ParameterType::ListOf(element) | ParameterType::SetOf(element) => *element,
+                        ParameterType::MapOf(key, value) => ParameterType::MapEntryOf(key, value),
+                        _ => ParameterType::Unknown,
                     };
                     nested.locals.insert(name.clone(), loop_type);
                 }
@@ -1208,7 +1219,7 @@ impl<'a> Monomorphizer<'a> {
         expression: &HirExpression,
         substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
         context: &mut FunctionContext,
-        expected_type: Option<&str>,
+        expected_type: Option<&ParameterType>,
         line: usize,
     ) -> HirExpression {
         match expression {
@@ -1237,7 +1248,7 @@ impl<'a> Monomorphizer<'a> {
                                 value,
                                 substitutions,
                                 context,
-                                expected.as_deref(),
+                                expected.as_ref(),
                                 line,
                             ))
                         }
@@ -1252,7 +1263,7 @@ impl<'a> Monomorphizer<'a> {
                                     value,
                                     substitutions,
                                     context,
-                                    expected.as_deref(),
+                                    expected.as_ref(),
                                     *line,
                                 ),
                                 line: *line,
@@ -1269,7 +1280,7 @@ impl<'a> Monomorphizer<'a> {
                     .iter()
                     .map(|argument| {
                         self.expression_type(call_arg_value(argument), context)
-                            .unwrap_or_else(|| "Unknown".to_string())
+                            .unwrap_or(ParameterType::Unknown)
                     })
                     .collect::<Vec<_>>();
                 // The public callee (`encoding.utf8Decode`, `collections.sort`)
@@ -1340,9 +1351,7 @@ impl<'a> Monomorphizer<'a> {
                 let mut concrete_type = None;
                 // plan-105-B: read the expected type's template head/arguments off
                 // `UserOf` instead of re-splitting its rendered name.
-                if let Some(crate::types::ParameterType::UserOf(expected_name, expected_args)) =
-                    expected_type.map(crate::types::ParameterType::parse)
-                {
+                if let Some(ParameterType::UserOf(expected_name, expected_args)) = expected_type {
                     if expected_name.resolve() == type_name {
                         // Each type argument goes through `concrete_type_name` — the
                         // same walk `instantiate_type`'s other caller uses — so a
@@ -1354,7 +1363,7 @@ impl<'a> Monomorphizer<'a> {
                         // `Holder$Holder$OF$Integer` here, so the constructor's type
                         // failed to match its own binding (TYPE_BINDING_MISMATCH).
                         let mut args = Vec::with_capacity(expected_args.len());
-                        for arg in &expected_args {
+                        for arg in expected_args {
                             args.push(self.concrete_type_name(&arg.name(), substitutions));
                         }
                         concrete_type = Some(self.instantiate_type(expected_name.resolve(), &args));
@@ -1376,7 +1385,7 @@ impl<'a> Monomorphizer<'a> {
                             substitutions,
                             context,
                             line,
-                            expected_arg_type.as_deref(),
+                            expected_arg_type.as_ref(),
                         )
                     })
                     .collect::<Vec<_>>();
@@ -1399,12 +1408,7 @@ impl<'a> Monomorphizer<'a> {
                         if let Some(actual) =
                             self.expression_type(constructor_arg_value(argument), context)
                         {
-                            unify_type(
-                                &field.type_,
-                                &crate::types::ParameterType::parse(&actual),
-                                &param_set,
-                                &mut inferred,
-                            );
+                            unify_type(&field.type_, &actual, &param_set, &mut inferred);
                         }
                     }
                     let args = template
@@ -1451,7 +1455,7 @@ impl<'a> Monomorphizer<'a> {
                             value,
                             substitutions,
                             context,
-                            expected_element.as_deref(),
+                            expected_element.as_ref(),
                             line,
                         )
                     })
@@ -1472,7 +1476,7 @@ impl<'a> Monomorphizer<'a> {
                             value,
                             substitutions,
                             context,
-                            expected_element.as_deref(),
+                            expected_element.as_ref(),
                             line,
                         )
                     })
@@ -1545,9 +1549,11 @@ impl<'a> Monomorphizer<'a> {
                         let mut lowered = param.clone();
                         if !matches!(param.type_, ParameterType::Unknown) {
                             let type_name = param.type_.name().into_owned();
-                            let concrete = self.concrete_type_name(&type_name, substitutions);
+                            let concrete = ParameterType::parse(
+                                &self.concrete_type_name(&type_name, substitutions),
+                            );
                             nested.locals.insert(param.name.clone(), concrete.clone());
-                            lowered.type_ = ParameterType::parse(&concrete);
+                            lowered.type_ = concrete;
                         }
                         lowered
                     })
@@ -1575,7 +1581,7 @@ impl<'a> Monomorphizer<'a> {
                 let mut handler_context = context.clone();
                 handler_context
                     .locals
-                    .insert(binding.clone(), "Error".to_string());
+                    .insert(binding.clone(), ParameterType::named("Error"));
                 let lowered_handler =
                     self.lower_statements(handler, substitutions, &mut handler_context);
                 HirExpression::Trapped {
@@ -1599,7 +1605,7 @@ impl<'a> Monomorphizer<'a> {
         substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
         context: &mut FunctionContext,
         line: usize,
-        expected_type: Option<&str>,
+        expected_type: Option<&ParameterType>,
     ) -> HirConstructorArg {
         match argument {
             HirConstructorArg::Positional(value) => HirConstructorArg::Positional(
@@ -1623,164 +1629,199 @@ impl<'a> Monomorphizer<'a> {
         }
     }
 
+    /// The interned name of a NOMINAL leaf — a concrete nominal or a type
+    /// variable — or `None` for anything with structure.
+    ///
+    /// This is where the `substitutions` probe belongs: its keys are always bare
+    /// template-parameter names. `Var` and `Named` both appear because a name
+    /// reaching monomorph through HIR was classified by `with_vars`, while one
+    /// reaching it through a rendered spelling was not.
+    fn leaf_symbol(type_: &ParameterType) -> Option<crate::intern::Symbol> {
+        match type_ {
+            ParameterType::Named(name) | ParameterType::Var(name) => Some(*name),
+            _ => None,
+        }
+    }
+
+    /// The name-domain entry to [`concrete_type`](Self::concrete_type), for the
+    /// callers that still hold a type SPELLING.
     fn concrete_type_name(
         &mut self,
         type_name: &str,
         substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
     ) -> String {
-        // A grouped type (`(T)`) is valid syntax the parser keeps verbatim;
-        // unwrap it before matching so it isn't mis-parsed as a `(Map`-named
-        // template and mangled into garbage (bug-105).
-        let type_name = crate::types::strip_type_group(type_name);
-        if let Some(value) = substitutions.get(&crate::intern::Symbol::intern(type_name)) {
-            let bound = value.name().into_owned();
-            // The bound value is already fully substituted, but it may itself be an
-            // un-INSTANTIATED user generic: binding `T := Holder OF Integer` while
-            // expanding `Holder OF Holder OF Integer` used to return that spelling
-            // verbatim, so the inner `Holder OF Integer` template was never lowered
-            // and the post-monomorph resolve pass reported
-            // `SYMBOL_UNKNOWN_TYPE: Type 'Holder OF Integer' is not a built-in or
-            // top-level project type` against the template's own field. Walk the
-            // bound value so its instantiation happens too.
-            //
-            // Walked with NO substitutions, deliberately: the value is already
-            // substituted, and re-applying the map would loop forever on a binding
-            // that names its own parameter. Every other shape walks to itself, so
-            // only the user-generic arm actually changes anything here.
-            if bound != type_name {
-                return self.concrete_type_name(&bound, &HashMap::new());
+        self.concrete_type(&ParameterType::parse(type_name), substitutions)
+            .name()
+            .into_owned()
+    }
+
+    /// Substitute a template's parameters through `type_`, instantiating any user
+    /// generic it names, and return the concrete type.
+    ///
+    /// plan-106-E: was `concrete_type_name(&str) -> String`, which parsed its
+    /// input, recursed by RE-RENDERING each child, and rebuilt the result with
+    /// seven `format!("List OF {…}")`-family templates — a second renderer beside
+    /// `ParameterType::name`. It is now a structural walk.
+    ///
+    /// Two behaviours the by-name recursion encoded are preserved explicitly:
+    ///
+    /// * the per-level grouped-type unwrap (bug-105) is no longer needed here —
+    ///   plan-106-E made `ParameterType::parse` peel a `(T)` group at every level,
+    ///   so a grouped spelling never reaches this walk as a junk nominal;
+    /// * the `substitutions` probe is at the NOMINAL LEAVES. Its keys are always
+    ///   bare template-parameter names (`Symbol::intern(param)` over
+    ///   `template_params`, at `lower.rs:707` and `:861`), so probing the whole
+    ///   spelling at every level — as the string form did — could only ever have
+    ///   matched at a leaf anyway.
+    fn concrete_type(
+        &mut self,
+        type_: &ParameterType,
+        substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
+    ) -> ParameterType {
+        if let Some(symbol) = Self::leaf_symbol(type_) {
+            if let Some(bound) = substitutions.get(&symbol) {
+                // The bound value is already fully substituted, but it may itself be
+                // an un-INSTANTIATED user generic: binding `T := Holder OF Integer`
+                // while expanding `Holder OF Holder OF Integer` used to return that
+                // spelling verbatim, so the inner `Holder OF Integer` template was
+                // never lowered and the post-monomorph resolve pass reported
+                // `SYMBOL_UNKNOWN_TYPE` against the template's own field. Walk the
+                // bound value so its instantiation happens too.
+                //
+                // Walked with NO substitutions, deliberately: the value is already
+                // substituted, and re-applying the map would loop forever on a
+                // binding that names its own parameter. The comparison is on the
+                // rendered names, as the string form's `bound != type_name` was, so
+                // a `Var`/`Named` spelling difference is not mistaken for progress.
+                if bound.name() != type_.name() {
+                    return self.concrete_type(&bound.clone(), &HashMap::new());
+                }
+                return bound.clone();
             }
-            return bound;
         }
-        // plan-105-B: classify with the canonical grammar (`ParameterType::parse`)
-        // instead of a private `strip_prefix` cascade. Each child recurses back
-        // through this function by NAME rather than by value, which is deliberate:
-        // that preserves the per-level `strip_type_group` unwrap (bug-105) and the
-        // `substitutions` lookup keyed on the whole child spelling, both of which a
-        // pure value recursion would skip.
-        match crate::types::ParameterType::parse(type_name) {
-            crate::types::ParameterType::ListOf(element) => format!(
-                "List OF {}",
-                self.concrete_type_name(&element.name(), substitutions)
+        match type_ {
+            ParameterType::ListOf(element) => {
+                ParameterType::list_of(self.concrete_type(element, substitutions))
+            }
+            ParameterType::SetOf(element) => {
+                ParameterType::set_of(self.concrete_type(element, substitutions))
+            }
+            ParameterType::ResultOf(success) => {
+                ParameterType::result_of(self.concrete_type(success, substitutions))
+            }
+            ParameterType::MapOf(key, value) => ParameterType::map_of(
+                self.concrete_type(key, substitutions),
+                self.concrete_type(value, substitutions),
             ),
-            crate::types::ParameterType::SetOf(element) => format!(
-                "Set OF {}",
-                self.concrete_type_name(&element.name(), substitutions)
+            ParameterType::MapEntryOf(key, value) => ParameterType::map_entry_of(
+                self.concrete_type(key, substitutions),
+                self.concrete_type(value, substitutions),
             ),
-            crate::types::ParameterType::ResultOf(success) => format!(
-                "Result OF {}",
-                self.concrete_type_name(&success.name(), substitutions)
-            ),
-            crate::types::ParameterType::MapOf(key, value) => format!(
-                "Map OF {} TO {}",
-                self.concrete_type_name(&key.name(), substitutions),
-                self.concrete_type_name(&value.name(), substitutions)
-            ),
-            crate::types::ParameterType::MapEntryOf(key, value) => format!(
-                "MapEntry OF {} TO {}",
-                self.concrete_type_name(&key.name(), substitutions),
-                self.concrete_type_name(&value.name(), substitutions)
-            ),
-            crate::types::ParameterType::ThreadHandle {
+            ParameterType::ThreadHandle {
                 worker,
                 msg,
                 res,
                 out,
             } => {
-                // The resource plane is only rewritten when present; an absent plane
-                // is `Nothing` and stays elided by `format_thread_type`.
-                let resource = match res.as_ref() {
-                    crate::types::ParameterType::Nothing => None,
-                    other => Some(self.concrete_type_name(&other.name(), substitutions)),
+                // An absent resource plane is `Nothing` and stays `Nothing`, which
+                // `name()` elides exactly as `format_thread_type` did.
+                let res = match res.as_ref() {
+                    ParameterType::Nothing => ParameterType::Nothing,
+                    other => self.concrete_type(other, substitutions),
                 };
-                crate::types::format_thread_type(
-                    crate::types::thread_type_keyword(worker),
-                    &self.concrete_type_name(&msg.name(), substitutions),
-                    resource.as_deref(),
-                    &self.concrete_type_name(&out.name(), substitutions),
+                ParameterType::thread_handle(
+                    *worker,
+                    self.concrete_type(msg, substitutions),
+                    res,
+                    self.concrete_type(out, substitutions),
                 )
             }
-            crate::types::ParameterType::Func(params, ret, isolated) => {
+            ParameterType::Func(params, ret, isolated) => {
                 let params = params
                     .iter()
-                    .map(|param| self.concrete_type_name(&param.name(), substitutions))
+                    .map(|param| self.concrete_type(param, substitutions))
                     .collect::<Vec<_>>();
-                format!(
-                    "{}FUNC({}) AS {}",
-                    if isolated { "ISOLATED " } else { "" },
-                    params.join(", "),
-                    self.concrete_type_name(&ret.name(), substitutions)
-                )
+                let ret = self.concrete_type(ret, substitutions);
+                if *isolated {
+                    ParameterType::func_isolated(params, ret)
+                } else {
+                    ParameterType::func(params, ret)
+                }
             }
             // A user generic is the one arm that does more than rewrite: it also
-            // INSTANTIATES the template, and returns the mangled concrete name.
-            crate::types::ParameterType::UserOf(name, args) => {
+            // INSTANTIATES the template, and yields the mangled concrete nominal.
+            ParameterType::UserOf(name, args) => {
                 let args = args
                     .iter()
-                    .map(|arg| self.concrete_type_name(&arg.name(), substitutions))
+                    .map(|arg| self.concrete_type(arg, substitutions).name().into_owned())
                     .collect::<Vec<_>>();
-                self.instantiate_type(name.resolve(), &args)
+                ParameterType::parse(&self.instantiate_type(name.resolve(), &args))
             }
             // A scalar, a concrete nominal, `RES`, `Unknown`, `Arg` — identity, as
             // the cascade's fall-through was.
-            _ => type_name.to_string(),
+            other => other.clone(),
         }
     }
 
-    /// The inverse of [`concrete_type_name`](Self::concrete_type_name): rewrite a
-    /// mangled concrete type back to its template spelling for diagnostics.
-    ///
-    /// plan-105-B: classified via the canonical grammar, like its twin. The
-    /// user-generic arm is keyed on `type_instantiations` (a MANGLED name is a plain
-    /// nominal, so it can only be recognized by lookup, never by parsing).
+    /// The name-domain entry to [`template_view`](Self::template_view).
     fn template_view_type(&self, type_name: &str) -> String {
-        let type_name = crate::types::strip_type_group(type_name);
-        match crate::types::ParameterType::parse(type_name) {
-            crate::types::ParameterType::ListOf(element) => {
-                format!("List OF {}", self.template_view_type(&element.name()))
+        self.template_view(&ParameterType::parse(type_name))
+            .name()
+            .into_owned()
+    }
+
+    /// The inverse of [`concrete_type`](Self::concrete_type): rewrite a mangled
+    /// concrete type back to its template spelling, for diagnostics.
+    ///
+    /// plan-106-E: structural, like its twin. The user-generic arm stays a LOOKUP
+    /// in `type_instantiations` — a mangled name is a plain nominal, so it can only
+    /// be recognized that way, never by parsing.
+    fn template_view(&self, type_: &ParameterType) -> ParameterType {
+        match type_ {
+            ParameterType::ListOf(element) => ParameterType::list_of(self.template_view(element)),
+            ParameterType::SetOf(element) => ParameterType::set_of(self.template_view(element)),
+            ParameterType::ResultOf(success) => {
+                ParameterType::result_of(self.template_view(success))
             }
-            crate::types::ParameterType::SetOf(element) => {
-                format!("Set OF {}", self.template_view_type(&element.name()))
+            ParameterType::MapOf(key, value) => {
+                ParameterType::map_of(self.template_view(key), self.template_view(value))
             }
-            crate::types::ParameterType::ResultOf(success) => {
-                format!("Result OF {}", self.template_view_type(&success.name()))
+            ParameterType::MapEntryOf(key, value) => {
+                ParameterType::map_entry_of(self.template_view(key), self.template_view(value))
             }
-            crate::types::ParameterType::MapOf(key, value) => format!(
-                "Map OF {} TO {}",
-                self.template_view_type(&key.name()),
-                self.template_view_type(&value.name())
-            ),
-            crate::types::ParameterType::MapEntryOf(key, value) => format!(
-                "MapEntry OF {} TO {}",
-                self.template_view_type(&key.name()),
-                self.template_view_type(&value.name())
-            ),
-            crate::types::ParameterType::ThreadHandle {
+            ParameterType::ThreadHandle {
                 worker,
                 msg,
                 res,
                 out,
             } => {
-                let resource = match res.as_ref() {
-                    crate::types::ParameterType::Nothing => None,
-                    other => Some(self.template_view_type(&other.name())),
+                let res = match res.as_ref() {
+                    ParameterType::Nothing => ParameterType::Nothing,
+                    other => self.template_view(other),
                 };
-                crate::types::format_thread_type(
-                    crate::types::thread_type_keyword(worker),
-                    &self.template_view_type(&msg.name()),
-                    resource.as_deref(),
-                    &self.template_view_type(&out.name()),
+                ParameterType::thread_handle(
+                    *worker,
+                    self.template_view(msg),
+                    res,
+                    self.template_view(out),
                 )
             }
-            _ => {
-                if let Some((name, args)) = self.type_instantiations.get(type_name) {
+            other => {
+                let name = other.name();
+                if let Some((template, args)) = self.type_instantiations.get(name.as_ref()) {
                     let args = args
                         .iter()
                         .map(|arg| self.template_view_type(arg))
                         .collect::<Vec<_>>();
-                    return format!("{name} OF {}", args.join(", "));
+                    // The template spelling is rebuilt through the grammar rather
+                    // than `format!`ed: `UserOf`'s own render is the one that knows
+                    // how its argument list is separated.
+                    return ParameterType::user_of(
+                        template,
+                        args.iter().map(|a| ParameterType::parse(a)).collect(),
+                    );
                 }
-                type_name.to_string()
+                other.clone()
             }
         }
     }
@@ -1788,28 +1829,9 @@ impl<'a> Monomorphizer<'a> {
     fn function_context(&self) -> FunctionContext {
         let mut context = FunctionContext::default();
         for (name, function) in &self.concrete_functions {
-            let returns = match function.kind {
-                crate::ast::FunctionKind::Func => {
-                    opt_type_name(&function.returns).unwrap_or_else(|| "Unknown".to_string())
-                }
-                crate::ast::FunctionKind::Sub => "Nothing".to_string(),
-            };
-            let params = function
-                .params
-                .iter()
-                .map(|param| opt_type_name(&param.type_).unwrap_or_else(|| "Unknown".to_string()))
-                .collect::<Vec<_>>();
-            context
-                .function_returns
-                .insert(name.clone(), returns.clone());
-            context.function_types.insert(
-                name.clone(),
-                format!(
-                    "{}FUNC({}) AS {returns}",
-                    if function.isolated { "ISOLATED " } else { "" },
-                    params.join(", ")
-                ),
-            );
+            let (returns, signature) = function_signature_types(function);
+            context.function_returns.insert(name.clone(), returns);
+            context.function_types.insert(name.clone(), signature);
         }
         for (name, type_decl) in &self.concrete_types {
             if matches!(type_decl.kind, TypeDeclKind::Type) {
@@ -1825,7 +1847,7 @@ impl<'a> Monomorphizer<'a> {
                 if binding.explicit_type {
                     context
                         .globals
-                        .insert(binding.name.clone(), binding.type_.name().into_owned());
+                        .insert(binding.name.clone(), binding.type_.clone());
                 }
             }
         }
@@ -1836,28 +1858,9 @@ impl<'a> Monomorphizer<'a> {
         let Some(function) = self.concrete_functions.get(name) else {
             return;
         };
-        let returns = match function.kind {
-            crate::ast::FunctionKind::Func => {
-                opt_type_name(&function.returns).unwrap_or_else(|| "Unknown".to_string())
-            }
-            crate::ast::FunctionKind::Sub => "Nothing".to_string(),
-        };
-        let params = function
-            .params
-            .iter()
-            .map(|param| opt_type_name(&param.type_).unwrap_or_else(|| "Unknown".to_string()))
-            .collect::<Vec<_>>();
-        context
-            .function_returns
-            .insert(name.to_string(), returns.clone());
-        context.function_types.insert(
-            name.to_string(),
-            format!(
-                "{}FUNC({}) AS {returns}",
-                if function.isolated { "ISOLATED " } else { "" },
-                params.join(", ")
-            ),
-        );
+        let (returns, signature) = function_signature_types(function);
+        context.function_returns.insert(name.to_string(), returns);
+        context.function_types.insert(name.to_string(), signature);
     }
 
     /// The return type of a builtin/package call, using the same per-package
@@ -1872,36 +1875,42 @@ impl<'a> Monomorphizer<'a> {
         callee: &str,
         arguments: &[HirCallArg],
         context: &FunctionContext,
-    ) -> Option<String> {
+    ) -> Option<ParameterType> {
         let arg_types = arguments
             .iter()
             .map(|argument| {
                 self.expression_type(call_arg_value(argument), context)
-                    .unwrap_or_else(|| "Unknown".to_string())
+                    .unwrap_or(ParameterType::Unknown)
             })
             .collect::<Vec<_>>();
-        crate::codegen::builtins::resolve_call_return_type(callee, &arg_types, false)
+        // plan-106-A: the TYPED registry entry (plan-104-C), so neither the
+        // argument types nor the resolved return crosses a string.
+        crate::codegen::builtins::resolve_call_return_type_typed(callee, &arg_types, false)
     }
 
+    /// Monomorph's type oracle: the (pre-instantiation) type of an expression,
+    /// or `None` when the environment cannot decide it.
+    ///
+    /// plan-106-A: returns a [`ParameterType`], built structurally. Every arm
+    /// that used to `format!` a spelling (`List OF …`, `Map OF … TO …`,
+    /// `FUNC(…) AS …`) now constructs the variant directly, and the scalar arms
+    /// are variants rather than `"Integer".to_string()`.
     fn expression_type(
         &self,
         expression: &HirExpression,
         context: &FunctionContext,
-    ) -> Option<String> {
+    ) -> Option<ParameterType> {
         match expression {
-            HirExpression::String(_) => Some("String".to_string()),
-            HirExpression::Number(value) => Some(
-                match crate::numeric::classify_literal(value).1 {
-                    crate::numeric::LiteralType::Integer => "Integer",
-                    crate::numeric::LiteralType::Float => "Float",
-                    crate::numeric::LiteralType::Fixed => "Fixed",
-                    crate::numeric::LiteralType::Money => "Money",
-                }
-                .to_string(),
-            ),
-            HirExpression::Scalar(_) => Some("Scalar".to_string()),
-            HirExpression::Boolean(_) => Some("Boolean".to_string()),
-            HirExpression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
+            HirExpression::String(_) => Some(ParameterType::String),
+            HirExpression::Number(value) => Some(match crate::numeric::classify_literal(value).1 {
+                crate::numeric::LiteralType::Integer => ParameterType::Integer,
+                crate::numeric::LiteralType::Float => ParameterType::Float,
+                crate::numeric::LiteralType::Fixed => ParameterType::Fixed,
+                crate::numeric::LiteralType::Money => ParameterType::Money,
+            }),
+            HirExpression::Scalar(_) => Some(ParameterType::named("Scalar")),
+            HirExpression::Boolean(_) => Some(ParameterType::Boolean),
+            HirExpression::Identifier(value) if value == "NOTHING" => Some(ParameterType::Nothing),
             HirExpression::Identifier(value) => context
                 .locals
                 .get(value)
@@ -1909,37 +1918,39 @@ impl<'a> Monomorphizer<'a> {
                 .or_else(|| context.function_types.get(value).cloned())
                 .or_else(|| context.globals.get(value).cloned()),
             HirExpression::Constructor { type_, .. } => match type_.name().as_ref() {
-                "Error" => Some("Error".to_string()),
-                "Ok" => Some("Result OF Unknown".to_string()),
-                name if context.record_fields.contains_key(name) => Some(name.to_string()),
+                "Error" => Some(ParameterType::named("Error")),
+                "Ok" => Some(ParameterType::ResultOf(Box::new(ParameterType::Unknown))),
+                name if context.record_fields.contains_key(name) => {
+                    Some(ParameterType::named(name))
+                }
                 _ => None,
             },
             HirExpression::WithUpdate { target, .. } => self.expression_type(target, context),
-            HirExpression::ListLiteral(values) => values
-                .first()
-                .and_then(|value| self.expression_type(value, context))
-                .map(|element| format!("List OF {element}"))
-                .or_else(|| Some("List OF Unknown".to_string())),
+            HirExpression::ListLiteral(values) => Some(ParameterType::ListOf(Box::new(
+                values
+                    .first()
+                    .and_then(|value| self.expression_type(value, context))
+                    .unwrap_or(ParameterType::Unknown),
+            ))),
             HirExpression::SetLiteral { element_type, .. } => {
-                Some(format!("Set OF {}", element_type.name()))
+                Some(ParameterType::SetOf(Box::new(element_type.clone())))
             }
             HirExpression::MapLiteral {
                 key_type,
                 value_type,
                 ..
-            } => Some(format!(
-                "Map OF {} TO {}",
-                key_type.name(),
-                value_type.name()
+            } => Some(ParameterType::MapOf(
+                Box::new(key_type.clone()),
+                Box::new(value_type.clone()),
             )),
             HirExpression::MemberAccess { target, member } => {
                 let target_type = self.expression_type(target, context)?;
                 context
                     .record_fields
-                    .get(&target_type)?
+                    .get(target_type.name().as_ref())?
                     .iter()
                     .find(|field| field.name == *member)
-                    .map(|field| field.type_.name().into_owned())
+                    .map(|field| field.type_.clone())
             }
             HirExpression::Call {
                 callee, arguments, ..
@@ -1957,19 +1968,23 @@ impl<'a> Monomorphizer<'a> {
                 let param_types = params
                     .iter()
                     .map(|param| {
-                        let type_name = param.type_.name().into_owned();
-                        nested.locals.insert(param.name.clone(), type_name.clone());
-                        type_name
+                        nested
+                            .locals
+                            .insert(param.name.clone(), param.type_.clone());
+                        param.type_.clone()
                     })
                     .collect::<Vec<_>>();
                 // An assignment-bodied lambda yields `Nothing`; otherwise its
                 // result type is the body expression's type.
                 let returns = if assign_target.is_some() {
-                    "Nothing".to_string()
+                    ParameterType::Nothing
                 } else {
                     self.expression_type(body, &nested)?
                 };
-                Some(format!("FUNC({}) AS {returns}", param_types.join(", ")))
+                // A lambda is never `ISOLATED` (that marker is only written on a
+                // declared FUNC), reproducing the un-prefixed `FUNC(…) AS …`
+                // spelling this arm used to `format!`.
+                Some(ParameterType::Func(param_types, Box::new(returns), false))
             }
             HirExpression::Binary {
                 operator,
@@ -1981,20 +1996,23 @@ impl<'a> Monomorphizer<'a> {
                     operator.as_str(),
                     "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
                 ) {
-                    return Some("Boolean".to_string());
+                    return Some(ParameterType::Boolean);
                 }
                 if operator == "&" {
-                    return Some("String".to_string());
+                    return Some(ParameterType::String);
                 }
                 let left = self.expression_type(left, context)?;
                 let right = self.expression_type(right, context)?;
-                Some(numeric_binary_result_type(operator, &left, &right).to_string())
+                Some(
+                    numeric::typed_binary_result_type(operator, &left, &right)
+                        .unwrap_or(ParameterType::Integer),
+                )
             }
             HirExpression::Unary {
                 operator, operand, ..
             } => {
                 if operator == "NOT" {
-                    Some("Boolean".to_string())
+                    Some(ParameterType::Boolean)
                 } else {
                     self.expression_type(operand, context)
                 }
@@ -2061,7 +2079,8 @@ impl<'a> Monomorphizer<'a> {
 #[cfg(test)]
 mod tests {
     use super::super::{ImportedOverload, Monomorphizer};
-    use crate::ast::{AstProject, Function, Item, TypeDecl};
+    use crate::ast::AstProject;
+    use crate::types::ParameterType;
 
     /// Parse one or more `(relative_path, source)` files into an `AstProject`.
     fn project(files: &[(&str, &str)]) -> AstProject {
@@ -2080,45 +2099,49 @@ mod tests {
 
     /// Monomorphize a single `main.mfb` source, returning `Ok(project)` or the
     /// error flag. Diagnostics are silenced so error-path tests stay quiet.
-    fn monomorphize(src: &str) -> Result<AstProject, ()> {
+    ///
+    /// plan-106-D: returns the concrete HIR the monomorphizer actually produces.
+    /// It used to be de-elaborated back to an AST purely so these assertions could
+    /// read it — a test-only backward path, which is how backward paths come back.
+    fn monomorphize(src: &str) -> Result<crate::hir::HirProject, ()> {
         monomorphize_files(&[("src/main.mfb", src)])
     }
 
-    fn monomorphize_files(files: &[(&str, &str)]) -> Result<AstProject, ()> {
+    fn monomorphize_files(files: &[(&str, &str)]) -> Result<crate::hir::HirProject, ()> {
         let ast = project(files);
         let dir = std::env::temp_dir();
         let prev = std::panic::take_hook();
         // Silence the front end's diagnostic printing during error-path tests.
         let result = super::super::monomorphize_project(&dir, &crate::hir::elaborate(&ast));
         std::panic::set_hook(prev);
-        result.map(|hir| crate::hir::deelaborate(&hir))
+        result
     }
 
-    fn functions(project: &AstProject) -> Vec<&Function> {
+    fn functions(project: &crate::hir::HirProject) -> Vec<&crate::hir::HirFunction> {
         project
             .files
             .iter()
             .flat_map(|f| &f.items)
             .filter_map(|item| match item {
-                Item::Function(function) => Some(function),
+                crate::hir::HirItem::Function(function) => Some(function),
                 _ => None,
             })
             .collect()
     }
 
-    fn types(project: &AstProject) -> Vec<&TypeDecl> {
+    fn types(project: &crate::hir::HirProject) -> Vec<&crate::hir::HirTypeDecl> {
         project
             .files
             .iter()
             .flat_map(|f| &f.items)
             .filter_map(|item| match item {
-                Item::Type(type_decl) => Some(type_decl),
+                crate::hir::HirItem::Type(type_decl) => Some(type_decl),
                 _ => None,
             })
             .collect()
     }
 
-    fn function_names(project: &AstProject) -> Vec<String> {
+    fn function_names(project: &crate::hir::HirProject) -> Vec<String> {
         functions(project).iter().map(|f| f.name.clone()).collect()
     }
 
@@ -2847,13 +2870,13 @@ END FUNC
         // A concretely-typed argument selects exactly one overload.
         assert_eq!(
             monomorphizer
-                .resolve_imported_overload("pkg.f", &["List OF Integer".to_string()], 1)
+                .resolve_imported_overload("pkg.f", &[ParameterType::parse("List OF Integer")], 1)
                 .as_deref(),
             Some("pkg.f$ListOFInteger")
         );
         assert_eq!(
             monomorphizer
-                .resolve_imported_overload("pkg.f", &["List OF String".to_string()], 1)
+                .resolve_imported_overload("pkg.f", &[ParameterType::parse("List OF String")], 1)
                 .as_deref(),
             Some("pkg.f$ListOFString")
         );
@@ -2862,7 +2885,11 @@ END FUNC
         // `f([])` matches both through the `Unknown` wildcard: ambiguous, not
         // "whichever came first".
         assert_eq!(
-            monomorphizer.resolve_imported_overload("pkg.f", &["List OF Unknown".to_string()], 7),
+            monomorphizer.resolve_imported_overload(
+                "pkg.f",
+                &[ParameterType::parse("List OF Unknown")],
+                7
+            ),
             None
         );
         assert!(monomorphizer.had_error);
@@ -2909,10 +2936,8 @@ END FUNC
             name: "app".to_string(),
             files: vec![file],
         };
-        let concrete = crate::hir::deelaborate(
-            &super::super::monomorphize_project(dir.path(), &crate::hir::elaborate(&ast))
-                .expect("monomorphizes"),
-        );
+        let concrete = super::super::monomorphize_project(dir.path(), &crate::hir::elaborate(&ast))
+            .expect("monomorphizes");
         // The `main` body's call to `package_simple.score` is rewritten to the
         // package-qualified mangled symbol.
         let main = functions(&concrete)
@@ -3195,10 +3220,13 @@ END SUB
 /// `strip_prefix("List OF ")` / `strip_prefix("Set OF ")` pair. `set` picks which
 /// container the caller is lowering, so a `List` literal in a `Set`-typed context
 /// still (correctly) gets no expected element type.
-fn expected_element_type(expected_type: Option<&str>, set: bool) -> Option<String> {
-    match crate::types::ParameterType::parse(expected_type?) {
-        crate::types::ParameterType::SetOf(element) if set => Some(element.name().into_owned()),
-        crate::types::ParameterType::ListOf(element) if !set => Some(element.name().into_owned()),
+fn expected_element_type(
+    expected_type: Option<&ParameterType>,
+    set: bool,
+) -> Option<ParameterType> {
+    match expected_type? {
+        ParameterType::SetOf(element) if set => Some((**element).clone()),
+        ParameterType::ListOf(element) if !set => Some((**element).clone()),
         _ => None,
     }
 }

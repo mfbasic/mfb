@@ -10,7 +10,7 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::types::{list_element_type, map_type_parts};
+use crate::codegen::engine::types::{typed_list_element_type, typed_map_type_parts};
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -167,7 +167,9 @@ pub(crate) fn lower_get(
     // `str x` a later bitwise key compare reads (plan-01 float-dnative).
     builder.store_value_at(&key, abi::stack_pointer(), key_slot);
 
-    if let Some(element_type) = list_element_type(&collection.type_.name()) {
+    if let Some(element_type) =
+        typed_list_element_type(&collection.type_).map(|type_| type_.name().into_owned())
+    {
         if key.type_ != ParameterType::Integer {
             return Err(format!(
                 "native collection get list index must be Integer, got {}",
@@ -177,14 +179,16 @@ pub(crate) fn lower_get(
         let result = builder.lower_list_get(
             collection_slot,
             key_slot,
-            &collection.type_.name(),
+            &collection.type_,
             &element_type,
             unchecked,
         )?;
         return builder.materialize_owned_element(result);
     }
 
-    if let Some((key_type, value_type)) = map_type_parts(&collection.type_.name()) {
+    if let Some((key_type, value_type)) = typed_map_type_parts(&collection.type_)
+        .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
+    {
         if key.type_.name() != key_type.as_str() {
             return Err(format!(
                 "native collection get map key must be {}, got {}",
@@ -194,7 +198,7 @@ pub(crate) fn lower_get(
         let result = builder.lower_map_get(
             collection_slot,
             key_slot,
-            &collection.type_.name(),
+            &collection.type_,
             &key_type,
             &value_type,
         )?;

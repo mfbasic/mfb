@@ -23,7 +23,8 @@ pub(crate) fn lower(
                     value,
                 })
                 .collect::<Vec<_>>();
-            return builder.lower_list_literal("List OF String", &values);
+            return builder
+                .lower_list_literal(&ParameterType::list_of(ParameterType::String), &values);
         }
     }
     if args.len() != 1 {

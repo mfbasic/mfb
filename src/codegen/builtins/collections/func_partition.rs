@@ -5,7 +5,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::{callable_return_type, list_element_type};
+use crate::codegen::engine::types::{callable_return_type, typed_list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -48,7 +48,11 @@ impl CodeBuilder<'_> {
         let scratch9 = self.temporary_vreg();
         let scratch17 = self.temporary_vreg();
         let collection = self.lower_value(&args[0])?;
-        if list_element_type(&collection.type_.name()).as_deref() != Some(element_type) {
+        if typed_list_element_type(&collection.type_)
+            .map(|type_| type_.name().into_owned())
+            .as_deref()
+            != Some(element_type)
+        {
             return Err(format!(
                 "native partition element mismatch: {} vs {element_type}",
                 collection.type_
@@ -82,14 +86,14 @@ impl CodeBuilder<'_> {
 
         // Two subset outputs, each pre-sized to the source so neither append
         // regrows (a partition is a full split — |matched| + |unmatched| == |src|).
-        let matched = self.lower_reserved_list(&collection.type_.name(), collection_slot)?;
+        let matched = self.lower_reserved_list(&collection.type_, collection_slot)?;
         let matched_slot = self.allocate_stack_object("partition_matched", 8);
         self.emit(abi::store_u64(
             &matched.location,
             abi::stack_pointer(),
             matched_slot,
         ));
-        let unmatched = self.lower_reserved_list(&collection.type_.name(), collection_slot)?;
+        let unmatched = self.lower_reserved_list(&collection.type_, collection_slot)?;
         let unmatched_slot = self.allocate_stack_object("partition_unmatched", 8);
         self.emit(abi::store_u64(
             &unmatched.location,
@@ -166,18 +170,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&ok_label));
         self.emit(abi::compare_immediate(RESULT_VALUE_REGISTER, "0"));
         self.emit(abi::branch_eq(&to_unmatched));
-        self.lower_list_append_in_place(
-            matched_slot,
-            item_slot,
-            &collection.type_.name(),
-            element_type,
-        )?;
+        self.lower_list_append_in_place(matched_slot, item_slot, &collection.type_, element_type)?;
         self.emit(abi::branch(&after_append));
         self.emit(abi::label(&to_unmatched));
         self.lower_list_append_in_place(
             unmatched_slot,
             item_slot,
-            &collection.type_.name(),
+            &collection.type_,
             element_type,
         )?;
         self.emit(abi::label(&after_append));
@@ -209,10 +208,9 @@ impl CodeBuilder<'_> {
             location: Operand::from(record_reg.render()),
             text: format!("partition({}, {})", collection.type_, action.text),
         };
+        let record = self.free_intermediate_collection(matched_slot, &collection.type_, record)?;
         let record =
-            self.free_intermediate_collection(matched_slot, &collection.type_.name(), record)?;
-        let record =
-            self.free_intermediate_collection(unmatched_slot, &collection.type_.name(), record)?;
+            self.free_intermediate_collection(unmatched_slot, &collection.type_, record)?;
         Ok(record)
     }
 }

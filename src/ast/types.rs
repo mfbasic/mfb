@@ -1,5 +1,3 @@
-use super::*;
-
 #[derive(Clone, Debug)]
 pub struct AstProject {
     pub name: String,
@@ -41,20 +39,6 @@ impl Import {
 
     pub fn binding_name(&self) -> &str {
         self.alias.as_deref().unwrap_or_else(|| self.package_name())
-    }
-}
-
-impl AstFile {
-    pub fn import_bindings(&self) -> HashMap<String, String> {
-        self.imports
-            .iter()
-            .map(|import| {
-                (
-                    import.binding_name().to_string(),
-                    import.package_name().to_string(),
-                )
-            })
-            .collect()
     }
 }
 

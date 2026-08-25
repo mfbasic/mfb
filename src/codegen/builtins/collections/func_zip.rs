@@ -5,7 +5,7 @@
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::list_element_type;
+use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -58,7 +58,10 @@ impl CodeBuilder<'_> {
         if !is_fixed(parts[0]) || !is_fixed(parts[1]) {
             return Ok(None);
         }
-        let list_type = format!("List OF Pair${}${}", parts[0], parts[1]);
+        let list_type = ParameterType::list_of(ParameterType::named(&format!(
+            "Pair${}${}",
+            parts[0], parts[1]
+        )));
         let Some(layout) = CollectionTypeLayout::from_type(&list_type) else {
             return Ok(None);
         };
@@ -90,7 +93,7 @@ impl CodeBuilder<'_> {
     fn lower_list_zip_fixed(
         &mut self,
         args: &[NirValue],
-        list_type: &str,
+        list_type: &ParameterType,
         layout: CollectionTypeLayout,
     ) -> Result<ValueResult, String> {
         const REC: usize = 16; // Pair of two fixed-width fields: [f0@0][f1@8].
@@ -255,8 +258,12 @@ impl CodeBuilder<'_> {
         // s20 = a blob base, s21 = b blob base, s22 = result blob base. The two
         // inputs are separate lists with their own element types, so each takes
         // its own stride (plan-57-D).
-        let a_element = list_element_type(&a.type_.name()).unwrap_or_default();
-        let b_element = list_element_type(&b.type_.name()).unwrap_or_default();
+        let a_element = typed_list_element_type(&a.type_)
+            .map(|type_| type_.name().into_owned())
+            .unwrap_or_default();
+        let b_element = typed_list_element_type(&b.type_)
+            .map(|type_| type_.name().into_owned())
+            .unwrap_or_default();
         // Both inputs are fixed-width by `try_inline_zip_op`'s guard, so under
         // the entry-free representation BOTH are kind 2 and neither has an entry
         // to read. s12/s13 then carry a byte OFFSET from the blob base rather
@@ -380,7 +387,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&list_type),
+            type_: list_type.clone(),
             location: Operand::from(result.render()),
             text: format!("zip({list_type})"),
         })
@@ -427,14 +434,14 @@ impl CodeBuilder<'_> {
         let scratch = self.temporary_vreg();
         let scratch2 = self.temporary_vreg();
         let record_type = "Pair$String$String";
-        let list_type = "List OF Pair$String$String";
+        let list_type = ParameterType::list_of(ParameterType::named(record_type));
         let a = self.lower_value(&args[0])?;
         let a_slot = self.allocate_stack_object("zips_a", 8);
         self.emit(abi::store_u64(&a.location, abi::stack_pointer(), a_slot));
         let b = self.lower_value(&args[1])?;
         let b_slot = self.allocate_stack_object("zips_b", 8);
         self.emit(abi::store_u64(&b.location, abi::stack_pointer(), b_slot));
-        let outer = self.lower_empty_collection(list_type)?;
+        let outer = self.lower_empty_collection(&list_type)?;
         let outer_slot = self.allocate_stack_object("zips_outer", 8);
         self.emit(abi::store_u64(
             &outer.location,
@@ -484,7 +491,7 @@ impl CodeBuilder<'_> {
         // pair = Pair[av, bv]; append into outer (copies the record bytes).
         let pair = self.emit_build_inlined_record(record_type, &[av_slot, bv_slot])?;
         self.emit(abi::store_u64(&pair, abi::stack_pointer(), pair_slot));
-        self.lower_list_append_in_place(outer_slot, pair_slot, list_type, record_type)?;
+        self.lower_list_append_in_place(outer_slot, pair_slot, &list_type, record_type)?;
         // Reclaim the two materialized items and the copied Pair record.
         self.free_collection_loop_item(av_slot, "String")?;
         self.free_collection_loop_item(bv_slot, "String")?;
@@ -513,7 +520,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), outer_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&list_type),
+            type_: list_type.clone(),
             location: Operand::from(result.render()),
             text: format!("zip({list_type} String)"),
         })

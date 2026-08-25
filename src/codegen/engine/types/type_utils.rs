@@ -37,9 +37,7 @@ pub(crate) fn static_nir_value_type(
             op, left, right, ..
         } => static_nir_value_type(left, locals, fields)
             .zip(static_nir_value_type(right, locals, fields))
-            .map(|(left_type, right_type)| {
-                typed_numeric_binary_result_type(op, &left_type, &right_type)
-            }),
+            .map(|(left_type, right_type)| promoted_binary_type(op, &left_type, &right_type)),
         NirValue::Unary { operand, .. } => static_nir_value_type(operand, locals, fields),
         NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
             let arg_types = args
@@ -105,19 +103,25 @@ pub(crate) fn static_nir_value_type(
     }
 }
 
-pub(crate) fn collection_type_code(type_: &str) -> Option<usize> {
+/// The compact runtime type code for a collection payload.
+///
+/// plan-106-E: a closed match on the variants. The two container arms were
+/// `starts_with("List OF ")` / `("Map OF ")`; a `Set` payload has never had its
+/// own code and still falls to `OBJECT`, as the string form's tail did.
+pub(crate) fn collection_type_code(type_: &ParameterType) -> Option<usize> {
     match type_ {
-        "Nothing" => None,
-        "Boolean" => Some(COLLECTION_TYPE_BOOLEAN),
-        "Byte" => Some(COLLECTION_TYPE_BYTE),
-        "Integer" => Some(COLLECTION_TYPE_INTEGER),
-        "Float" => Some(COLLECTION_TYPE_FLOAT),
-        "Fixed" => Some(COLLECTION_TYPE_FIXED),
-        "Money" => Some(COLLECTION_TYPE_MONEY),
-        "Scalar" => Some(COLLECTION_TYPE_SCALAR),
-        "String" => Some(COLLECTION_TYPE_STRING),
-        _ if type_.starts_with("List OF ") => Some(COLLECTION_TYPE_LIST),
-        _ if type_.starts_with("Map OF ") => Some(COLLECTION_TYPE_MAP),
+        ParameterType::Nothing => None,
+        ParameterType::Boolean => Some(COLLECTION_TYPE_BOOLEAN),
+        ParameterType::Byte => Some(COLLECTION_TYPE_BYTE),
+        ParameterType::Integer => Some(COLLECTION_TYPE_INTEGER),
+        ParameterType::Float => Some(COLLECTION_TYPE_FLOAT),
+        ParameterType::Fixed => Some(COLLECTION_TYPE_FIXED),
+        ParameterType::Money => Some(COLLECTION_TYPE_MONEY),
+        ParameterType::String => Some(COLLECTION_TYPE_STRING),
+        ParameterType::ListOf(_) => Some(COLLECTION_TYPE_LIST),
+        ParameterType::MapOf(_, _) => Some(COLLECTION_TYPE_MAP),
+        // `Scalar` is a nominal, not a variant.
+        ParameterType::Named(name) if name.resolve() == "Scalar" => Some(COLLECTION_TYPE_SCALAR),
         _ => Some(COLLECTION_TYPE_OBJECT),
     }
 }
@@ -169,10 +173,12 @@ pub(crate) fn local_constant_value_with_constants(
         | NirValue::RuntimeCall { target, args, .. }
             if target == "typeName" && args.len() == 1 =>
         {
-            static_type_name_for_fold_with_types(&args[0], types, fields).map(|value| {
+            // `typeName` folds to the argument type's SPELLING as a string
+            // constant — the rendered name IS the program-visible value here.
+            static_type_name_for_fold_with_types(&args[0], types, fields).map(|type_| {
                 NirValue::Const {
                     type_: ParameterType::String,
-                    value,
+                    value: type_.name().into_owned(),
                 }
             })
         }
@@ -248,9 +254,9 @@ pub(crate) fn binary_may_consume_float_into_exact(
     let Some(right_type) = static_type_name_with_types(right, types, fields) else {
         return false;
     };
-    let result = numeric_binary_result_type(op, &left_type, &right_type);
-    (result == numeric::TYPE_FIXED || result == numeric::TYPE_MONEY)
-        && (left_type == numeric::TYPE_FLOAT || right_type == numeric::TYPE_FLOAT)
+    let result = promoted_binary_type(op, &left_type, &right_type);
+    matches!(result, ParameterType::Fixed | ParameterType::Money)
+        && (left_type == ParameterType::Float || right_type == ParameterType::Float)
 }
 
 pub(crate) fn static_primitive_text_with_constants(
@@ -295,8 +301,40 @@ pub(crate) fn join_texts(values: &[ValueResult]) -> String {
         .join(", ")
 }
 
+/// Whether a type SPELLING denotes a collection.
+///
+/// plan-106-E: the shape question goes to the canonical grammar, not a local
+/// prefix cascade — the same move plan-105-B made in the resolver. This and the
+/// four predicates below are codegen's NAME-domain boundary: the block-layout
+/// and symbol tables are keyed by name, so these consumers hold a spelling and
+/// legitimately need it classified. What is gone is a second grammar.
 pub(crate) fn is_collection_type(type_: &str) -> bool {
-    type_.starts_with("List OF ") || type_.starts_with("Map OF ") || is_set_type(type_)
+    typed_is_collection_type(&ParameterType::parse(type_))
+}
+
+/// Whether a type SPELLING denotes a `Result OF T`.
+///
+/// The same NAME-domain boundary as [`is_collection_type`]: codegen's block and
+/// payload emitters hold a spelling, and the shape question goes to the canonical
+/// grammar rather than a `starts_with("Result OF ")` repeated at each site.
+pub(crate) fn is_result_type(type_: &str) -> bool {
+    matches!(ParameterType::parse(type_), ParameterType::ResultOf(_))
+}
+
+/// The payload type NAME of a `Result OF T`.
+pub(crate) fn result_payload_type(type_: &str) -> Option<String> {
+    match ParameterType::parse(type_) {
+        ParameterType::ResultOf(payload) => Some(payload.name().into_owned()),
+        _ => None,
+    }
+}
+
+/// Whether a type SPELLING denotes a PARENT-side thread handle.
+pub(crate) fn is_parent_thread_type(type_: &str) -> bool {
+    matches!(
+        ParameterType::parse(type_),
+        ParameterType::ThreadHandle { worker: false, .. }
+    )
 }
 
 // --- Typed structural twins (plan-104-C) -----------------------------------
@@ -369,11 +407,6 @@ pub(crate) fn typed_map_entry_type_parts(
     }
 }
 
-/// Whether `type_` is a `Set OF T` (plan-63).
-pub(crate) fn is_set_type(type_: &str) -> bool {
-    type_.starts_with("Set OF ")
-}
-
 /// Whether a collection block of `type_` carries the FNV-1a hash bucket region
 /// past its data region — true for `Map` and `Set` (both probe by key/element),
 /// false for every `List` representation. This is the single predicate every
@@ -381,32 +414,24 @@ pub(crate) fn is_set_type(type_: &str) -> bool {
 /// `kind == MAP` test, so a Set is never sized one way and freed another
 /// (plan-63-B §3).
 pub(crate) fn collection_has_buckets(type_: &str) -> bool {
-    type_.starts_with("Map OF ") || is_set_type(type_)
+    matches!(
+        ParameterType::parse(type_),
+        ParameterType::MapOf(_, _) | ParameterType::SetOf(_)
+    )
 }
 
-/// The element type of a `Set OF T` (`Set OF Integer` -> `Integer`). A Set
-/// element is always comparable and never `RES`-marked, so no marker strip is
-/// needed (unlike [`list_element_type`]).
-pub(crate) fn set_element_type(type_: &str) -> Option<String> {
-    type_.strip_prefix("Set OF ").map(str::to_string)
-}
-
+/// The element type NAME of a `List OF T`.
+///
+/// A `List OF RES File` element stores and is read as the bare resource pointer
+/// (`File`); the `RES` ownership-axis marker is not part of the value (§15.6),
+/// which is what [`typed_list_element_type`] peels.
 pub(crate) fn list_element_type(type_: &str) -> Option<String> {
-    let element = type_.strip_prefix("List OF ")?;
-    // A `List OF RES File` element stores and is read as the bare resource pointer
-    // (`File`); the `RES` ownership-axis marker is not part of the value (§15.6).
-    Some(strip_res_marker(element).to_string())
+    typed_list_element_type(&ParameterType::parse(type_)).map(|element| element.name().into_owned())
 }
 
 pub(crate) fn map_type_parts(type_: &str) -> Option<(String, String)> {
-    let rest = type_.strip_prefix("Map OF ")?;
-    let (key, value) = rest.split_once(" TO ")?;
-    Some((key.to_string(), strip_res_marker(value).to_string()))
-}
-
-/// Strip a `RES ` collection-element ownership-axis marker (`RES File` -> `File`).
-pub(crate) fn strip_res_marker(type_: &str) -> &str {
-    type_.strip_prefix("RES ").unwrap_or(type_)
+    typed_map_type_parts(&ParameterType::parse(type_))
+        .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
 }
 
 /// True when `type_` is a first-class function value type — a `FUNC(...) AS T`
@@ -416,7 +441,7 @@ pub(crate) fn strip_res_marker(type_: &str) -> &str {
 /// deep copy and no per-value free (bug-73). This mirrors the front-end
 /// `is_function_type` in `target/shared/validate.rs`.
 pub(crate) fn is_function_type(type_: &str) -> bool {
-    type_.starts_with("FUNC(") || type_.starts_with("ISOLATED FUNC(")
+    matches!(ParameterType::parse(type_), ParameterType::Func(_, _, _))
 }
 
 /// Byte index of the top-level `") AS "` that separates a function type's
@@ -453,34 +478,41 @@ pub(crate) fn callable_return_type(type_: &str) -> Option<String> {
     Some(type_[idx + ") AS ".len()..].to_string())
 }
 
-pub(crate) fn parse_map_entry_type(type_: &str) -> Option<(String, String)> {
-    let rest = type_.strip_prefix("MapEntry OF ")?;
-    let (key, value) = rest.split_once(" TO ")?;
-    Some((key.to_string(), value.to_string()))
-}
-
-pub(crate) fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'static str {
-    numeric::binary_result_type(operator, left, right).unwrap_or(numeric::TYPE_INTEGER)
-}
-
-/// Typed twin of [`numeric_binary_result_type`] (plan-104-B): renders the
-/// operand names (scalar renders are `Cow::Borrowed`, allocation-free), runs
-/// the one string algorithm in `numeric`, and maps its closed scalar result
-/// set back to variants with a static match — no parse. The string form
-/// survives for the still-shimmed consumer trees (deleted when its last
-/// string caller converts, per the plan's Open Decision).
-pub(crate) fn typed_numeric_binary_result_type(
+/// The promoted result type of a binary numeric operation, defaulting a
+/// non-numeric pairing to `Integer` — codegen's total flavour of the ONE
+/// promotion algebra.
+///
+/// plan-106-E: was `promoted_binary_type`, which rendered both
+/// operand names, ran the string algorithm, and re-matched the result back to a
+/// variant. Its string twin `numeric_binary_result_type` is deleted with it —
+/// promotion now has exactly one implementation, `numeric::typed_binary_result_type`.
+///
+/// The `unwrap_or(Integer)` is codegen's own defaulting, not part of the algebra:
+/// `numeric` answers `None` for a non-numeric or dimensionally-invalid pairing,
+/// and every caller here needs a type.
+pub(crate) fn promoted_binary_type(
     operator: &str,
     left: &ParameterType,
     right: &ParameterType,
 ) -> ParameterType {
-    match numeric_binary_result_type(operator, &left.name(), &right.name()) {
-        "Byte" => ParameterType::Byte,
-        "Float" => ParameterType::Float,
-        "Fixed" => ParameterType::Fixed,
-        "Money" => ParameterType::Money,
-        _ => ParameterType::Integer,
-    }
+    numeric::typed_binary_result_type(operator, left, right).unwrap_or(ParameterType::Integer)
+}
+
+/// Whether a NIR type slot is the EMPTY nominal — the "no declared type" marker a
+/// synthesized `Global` node carries, which sends the reader to the global table.
+pub(crate) fn is_unset_type(type_: &ParameterType) -> bool {
+    matches!(type_, ParameterType::Named(name) if name.resolve().is_empty())
+}
+
+/// The built-in `Scalar` nominal. It has no [`ParameterType`] variant (it is a
+/// nominal, like `Error`), so it is spelled once here rather than at each site.
+pub(crate) fn scalar_type() -> ParameterType {
+    ParameterType::named("Scalar")
+}
+
+/// The built-in `Error` nominal.
+pub(crate) fn error_type() -> ParameterType {
+    ParameterType::named("Error")
 }
 
 pub(crate) fn native_immediate_value(type_: &str, value: &str) -> Result<String, String> {

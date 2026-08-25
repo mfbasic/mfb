@@ -17,18 +17,20 @@ impl TypeEnv {
         target: &IrValue,
         member: &str,
         node: &IrValue,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
-        let Some(annotated) = usable_type(node.annotated_type().as_deref()) else {
+        let Some(annotated) = usable_type(node.annotated_parameter_type()) else {
             return;
         };
         let Some(target_type) = self.infer_type(target, locals) else {
             return;
         };
-        let Some(declared) = self.field_type(resource_base_type(&target_type), member) else {
+        let Some(declared) = self.field_type(&resource_base_type(&target_type), member) else {
             return;
         };
         if !self.compatible(&declared, &annotated) {
+            let (target_type, annotated, declared) =
+                (target_type.name(), annotated.name(), declared.name());
             self.emit(
                 VERIFY_TYPE,
                 format!(
@@ -42,13 +44,18 @@ impl TypeEnv {
     /// type its operands produce. `derived` is `None` when the result cannot be
     /// derived (an operand type is unknown, or the operands disagree), in which
     /// case the annotation is left alone.
-    pub(super) fn check_operator_result_type(&self, node: &IrValue, derived: Option<String>) {
+    pub(super) fn check_operator_result_type(
+        &self,
+        node: &IrValue,
+        derived: Option<ParameterType>,
+    ) {
         let (Some(derived), Some(annotated)) =
-            (derived, usable_type(node.annotated_type().as_deref()))
+            (derived, usable_type(node.annotated_parameter_type()))
         else {
             return;
         };
         if !self.compatible(&derived, &annotated) {
+            let (annotated, derived) = (annotated.name(), derived.name());
             self.emit(
                 VERIFY_TYPE,
                 format!(
@@ -85,16 +92,16 @@ impl TypeEnv {
         target: &str,
         node: &IrValue,
         args: &[IrValue],
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         if locals.contains_key(target) {
             return; // indirect call — no named signature
         }
-        let Some(annotated) = usable_type(node.annotated_type().as_deref()) else {
+        let Some(annotated) = usable_type(node.annotated_parameter_type()) else {
             return;
         };
         let declared = if let Some(sig) = self.functions.get(target) {
-            usable_type(Some(&sig.returns))
+            usable_type(Some(sig.returns.clone()))
         } else {
             // Builtin: derive the expected return from the same arg-typed oracle
             // the monomorphizer uses. Reconcile only when every argument type is
@@ -102,21 +109,19 @@ impl TypeEnv {
             // `check_builtin_call_args` does) so an inference gap never rejects.
             let Some(arg_types) = args
                 .iter()
-                .map(|a| {
-                    self.infer_type(a, locals)
-                        .map(|t| resource_base_type(&t).to_string())
-                })
-                .collect::<Option<Vec<String>>>()
+                .map(|a| self.infer_type(a, locals).map(|t| resource_base_type(&t)))
+                .collect::<Option<Vec<ParameterType>>>()
             else {
                 return;
             };
-            crate::codegen::builtins::resolve_call_return_type(target, &arg_types, false)
-                .and_then(|t| usable_type(Some(&t)))
+            crate::codegen::builtins::resolve_call_return_type_typed(target, &arg_types, false)
+                .and_then(|t| usable_type(Some(t)))
         };
         let Some(declared) = declared else {
             return;
         };
         if !self.expression_compatible(&declared, &annotated, node) {
+            let (annotated, declared) = (annotated.name(), declared.name());
             self.emit(
                 VERIFY_TYPE,
                 format!(
@@ -161,7 +166,7 @@ impl TypeEnv {
         &self,
         target: &str,
         args: &[IrValue],
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         // plan-54: a `thread::transfer` moves a resource to a re-typing thread, so
         // the transferred resource's STATE must agree with the plane's declared
@@ -177,8 +182,11 @@ impl TypeEnv {
         ) {
             if let Some(first) = args.first() {
                 if let Some(t) = self.infer_type(first, locals) {
-                    if let Some(element) = resource_base_type(&t).strip_prefix("List OF ") {
-                        if element != "Unknown" && !self.is_comparable(element) {
+                    if let ParameterType::ListOf(element) = resource_base_type(&t) {
+                        if !matches!(*element, ParameterType::Unknown)
+                            && !self.is_comparable(&element)
+                        {
+                            let element = element.name();
                             self.emit(
                                 "TYPE_REQUIRES_COMPARABLE",
                                 format!(
@@ -193,15 +201,20 @@ impl TypeEnv {
         // Strip the `STATE T` clause a resource argument carries in its type
         // string (`File STATE FileState` → `File`); resolve_call and the
         // parameter tables use the bare resource type.
-        let arg_types: Option<Vec<String>> = args
+        let arg_types: Option<Vec<ParameterType>> = args
             .iter()
-            .map(|a| {
-                self.infer_type(a, locals)
-                    .map(|t| resource_base_type(&t).to_string())
-            })
+            .map(|a| self.infer_type(a, locals).map(|t| resource_base_type(&t)))
             .collect();
         let Some(arg_types) = arg_types else {
             return;
+        };
+        // The diagnostics below quote the argument list; render once, here.
+        let arg_type_names = || {
+            arg_types
+                .iter()
+                .map(|t| t.name().into_owned())
+                .collect::<Vec<_>>()
+                .join(", ")
         };
         // `term` exposes its per-name signatures (`arity`, machine `argument_types`)
         // rather than an arg-typed `resolve_call`, so check against those with
@@ -213,7 +226,7 @@ impl TypeEnv {
                     return;
                 }
             }
-            let params = builtins::argument_types(target).unwrap_or_default();
+            let params = builtins::argument_types_typed(target).unwrap_or_default();
             let mut mismatch = false;
             for (i, param) in params.iter().enumerate() {
                 if let (Some(actual), Some(arg)) = (arg_types.get(i), args.get(i)) {
@@ -246,14 +259,14 @@ impl TypeEnv {
                     return;
                 }
             }
-            if builtins::resolve_call_return_type(target, &arg_types, false).is_none() {
+            if builtins::resolve_call_return_type_typed(target, &arg_types, false).is_none() {
                 let expected = builtins::expected_arguments(target)
                     .unwrap_or_else(|| "supported overload".to_string());
                 self.emit(
                     "TYPE_CALL_ARGUMENT_MISMATCH",
                     format!(
                         "Call to `{target}` has argument type(s) ({}), expected {expected}.",
-                        arg_types.join(", ")
+                        arg_type_names()
                     ),
                 );
             }
@@ -265,12 +278,12 @@ impl TypeEnv {
                     return;
                 }
             }
-            if builtins::resolve_call_return_type(target, &arg_types, false).is_none() {
+            if builtins::resolve_call_return_type_typed(target, &arg_types, false).is_none() {
                 // A package-provided override may accept what the built-in
                 // rejects (plan-01-overload §A.3.2) — never reject those.
                 if crate::codegen::builtins::general::is_overridable(target)
                     && arg_types.len() == 1
-                    && builtins::general_override_target(target, &arg_types[0]).is_some()
+                    && builtins::general_override_target(target, &arg_types[0].name()).is_some()
                 {
                     return;
                 }
@@ -280,7 +293,7 @@ impl TypeEnv {
                     "TYPE_CALL_ARGUMENT_MISMATCH",
                     format!(
                         "Call to `{target}` has argument type(s) ({}), expected {expected}.",
-                        arg_types.join(", ")
+                        arg_type_names()
                     ),
                 );
             }
@@ -361,7 +374,7 @@ impl TypeEnv {
             is_os_call,
         ];
         if checked.iter().any(|is_call| is_call(target))
-            && builtins::resolve_call_return_type(target, &arg_types, false).is_none()
+            && builtins::resolve_call_return_type_typed(target, &arg_types, false).is_none()
         {
             self.emit(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
@@ -374,46 +387,54 @@ impl TypeEnv {
     // 12. Compatibility + typed statement checks
     // ===========================================================================
 
-    /// Type compatibility (`syntaxcheck::compatible`), on canonical type-name
-    /// strings. `Unknown` on either side is compatible; the `RES` ownership
-    /// marker is stripped; container types recurse; a union accepts any of its
-    /// variants. Anything unresolved falls back to string equality (never a
-    /// false rejection because callers gate on both types being known).
-    pub(super) fn compatible(&self, expected: &str, actual: &str) -> bool {
-        if expected == "Unknown" || actual == "Unknown" {
+    /// Type compatibility (`syntaxcheck::compatible`). `Unknown` on either side is
+    /// compatible; the `RES` ownership marker is stripped; container types
+    /// recurse; a union accepts any of its variants.
+    ///
+    /// plan-106-B: structural. The prefix cascade
+    /// (`strip_prefix("RES ")`/`("List OF ")`/`("Result OF ")` + `parse_map`)
+    /// became variant matches; `ir::verify` holds no copy of the type grammar.
+    /// The **tail** stays in the name domain on purpose — bare-vs-qualified
+    /// nominal equality (`fs.File` ≡ `File`) and union-variant membership are
+    /// lookups keyed by type NAME, which is what an import registers.
+    pub(super) fn compatible(&self, expected: &ParameterType, actual: &ParameterType) -> bool {
+        if matches!(expected, ParameterType::Unknown) || matches!(actual, ParameterType::Unknown) {
             return true;
         }
-        let expected = expected.strip_prefix("RES ").unwrap_or(expected);
-        let actual = actual.strip_prefix("RES ").unwrap_or(actual);
+        let expected = strip_res(expected);
+        let actual = strip_res(actual);
         if expected == actual {
             return true;
         }
-        if let (Some(e), Some(a)) = (
-            expected.strip_prefix("List OF "),
-            actual.strip_prefix("List OF "),
-        ) {
-            return self.compatible(e, a);
+        match (expected, actual) {
+            (ParameterType::ListOf(e), ParameterType::ListOf(a))
+            | (ParameterType::ResultOf(e), ParameterType::ResultOf(a)) => {
+                return self.compatible(e, a);
+            }
+            (ParameterType::MapOf(ek, ev), ParameterType::MapOf(ak, av)) => {
+                return self.compatible(ek, ak) && self.compatible(ev, av);
+            }
+            _ => {}
         }
-        if let (Some(e), Some(a)) = (
-            expected.strip_prefix("Result OF "),
-            actual.strip_prefix("Result OF "),
-        ) {
-            return self.compatible(e, a);
-        }
-        if let (Some((ek, ev)), Some((ak, av))) = (parse_map(expected), parse_map(actual)) {
-            return self.compatible(ek, ak) && self.compatible(ev, av);
-        }
+        let expected_name = expected.name();
+        let actual_name = actual.name();
         // Bare-name equality (an imported type is registered under its bare
         // name; a qualified `pkg.Type` reference resolves to the same type).
-        let expected_bare = expected.rsplit('.').next().unwrap_or(expected);
-        let actual_bare = actual.rsplit('.').next().unwrap_or(actual);
+        let expected_bare = expected_name
+            .rsplit('.')
+            .next()
+            .unwrap_or(expected_name.as_ref());
+        let actual_bare = actual_name
+            .rsplit('.')
+            .next()
+            .unwrap_or(actual_name.as_ref());
         if expected_bare == actual_bare {
             return true;
         }
         // A union accepts any of its variants. A variant may be spelled qualified
         // (a package-scoped resource, `fs.File`) or bare, so match either form.
-        if let Some(variants) = self.union_variants(expected) {
-            if variants.contains(actual) || variants.contains(actual_bare) {
+        if let Some(variants) = self.union_variants(&expected_name) {
+            if variants.contains(actual_name.as_ref()) || variants.contains(actual_bare) {
                 return true;
             }
         }
@@ -427,29 +448,31 @@ impl TypeEnv {
     /// value, so the same check applies on the IR.
     pub(super) fn expression_compatible(
         &self,
-        expected: &str,
-        actual: &str,
+        expected: &ParameterType,
+        actual: &ParameterType,
         value: &IrValue,
     ) -> bool {
         if self.compatible(expected, actual) {
             return true;
         }
         if let IrValue::Const { type_, value } = value {
-            match (expected, type_.name().as_ref()) {
-                ("Byte", "Integer") => {
+            match (expected, type_) {
+                (ParameterType::Byte, ParameterType::Integer) => {
                     return value.parse::<u16>().is_ok_and(|n| n <= u8::MAX as u16);
                 }
-                ("Fixed", "Integer") | ("Fixed", "Float") => return true,
+                (ParameterType::Fixed, ParameterType::Integer)
+                | (ParameterType::Fixed, ParameterType::Float) => return true,
                 // A decimal literal coerces to a Money slot (plan-29-A §4.4).
-                ("Money", "Integer") | ("Money", "Float") => return true,
+                (ParameterType::Money, ParameterType::Integer)
+                | (ParameterType::Money, ParameterType::Float) => return true,
                 _ => {}
             }
         }
         // Negated numeric literal into Fixed / Money (`-1`, `-1.25`).
-        if expected == "Fixed" || expected == "Money" {
+        if matches!(expected, ParameterType::Fixed | ParameterType::Money) {
             if let IrValue::Unary { op, operand, .. } = value {
                 if op == "-"
-                    && matches!(operand.as_ref(), IrValue::Const { type_, .. } if matches!(type_, crate::types::ParameterType::Integer | crate::types::ParameterType::Float))
+                    && matches!(operand.as_ref(), IrValue::Const { type_, .. } if matches!(type_, ParameterType::Integer | ParameterType::Float))
                 {
                     return true;
                 }
@@ -462,9 +485,15 @@ impl TypeEnv {
     /// function's declared return type (`syntaxcheck`'s `TYPE_RETURN_MISMATCH`).
     /// Codegen places the return value into the ABI return slot by the declared
     /// type, so a crafted mismatch is a type confusion at the return boundary.
-    pub(super) fn check_return_type(&self, value: &IrValue, locals: &HashMap<String, String>) {
+    pub(super) fn check_return_type(
+        &self,
+        value: &IrValue,
+        locals: &HashMap<String, ParameterType>,
+    ) {
         let expected = self.current_return.borrow().clone();
-        if expected.is_empty() || expected == "Nothing" || expected == "Unknown" {
+        if matches!(expected, ParameterType::Nothing | ParameterType::Unknown)
+            || expected.name().is_empty()
+        {
             return;
         }
         let Some(actual) = self.infer_type(value, locals) else {
@@ -486,12 +515,14 @@ impl TypeEnv {
     pub(super) fn check_binding_type(
         &self,
         name: &str,
-        declared: &str,
+        declared: &ParameterType,
         value: &IrValue,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         let expected = resource_base_type(declared);
-        if expected.is_empty() || expected == "Nothing" || expected == "Unknown" {
+        if matches!(expected, ParameterType::Nothing | ParameterType::Unknown)
+            || expected.name().is_empty()
+        {
             return;
         }
         let Some(actual) = self.infer_type(value, locals) else {
@@ -503,8 +534,9 @@ impl TypeEnv {
         // carried their STATE (plan-52-D) an initializer's type never contained
         // one, so the asymmetry was invisible. Whether the two STATEs *agree* is a
         // separate question, answered by `check_binding_state_agreement`.
-        let actual = resource_base_type(&actual).to_string();
-        if !self.expression_compatible(expected, &actual, value) {
+        let actual = resource_base_type(&actual);
+        if !self.expression_compatible(&expected, &actual, value) {
+            let (actual, expected) = (actual.name(), expected.name());
             self.emit(
                 "TYPE_BINDING_MISMATCH",
                 format!("Binding `{name}` has initializer type {actual}, expected {expected}."),
@@ -520,12 +552,12 @@ impl TypeEnv {
         &self,
         what: &str,
         value: &IrValue,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         let Some(actual) = self.infer_type(value, locals) else {
             return;
         };
-        if !self.expression_compatible("Boolean", &actual, value) {
+        if !self.expression_compatible(&ParameterType::Boolean, &actual, value) {
             self.emit(
                 "TYPE_CONDITION_REQUIRES_BOOLEAN",
                 format!("{what} has type {actual}, expected Boolean."),
@@ -542,18 +574,21 @@ impl TypeEnv {
     pub(super) fn check_assignment_type(
         &self,
         name: &str,
-        declared: &str,
+        declared: &ParameterType,
         value: &IrValue,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         let expected = resource_base_type(declared);
-        if expected.is_empty() || expected == "Nothing" || expected == "Unknown" {
+        if matches!(expected, ParameterType::Nothing | ParameterType::Unknown)
+            || expected.name().is_empty()
+        {
             return;
         }
         let Some(actual) = self.infer_type(value, locals) else {
             return;
         };
-        if !self.expression_compatible(expected, &actual, value) {
+        if !self.expression_compatible(&expected, &actual, value) {
+            let (actual, expected) = (actual.name(), expected.name());
             self.emit(
                 "TYPE_ASSIGNMENT_MISMATCH",
                 format!("Assignment to `{name}` has type {actual}, expected {expected}."),
@@ -572,7 +607,7 @@ impl TypeEnv {
         &self,
         type_name: &str,
         args: &[IrValue],
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         // `Ok`/`Result` are compiler-owned (syntaxcheck's TYPE_RESULT_IS_IMPLICIT).
         if matches!(type_name, "Ok" | "Result") {
@@ -587,7 +622,7 @@ impl TypeEnv {
         // rule stays in syntaxcheck: lowering itself emits `Constructor{Error}`
         // for the `error()` builtin and trap machinery, so on the IR a user
         // `Error[..]` is indistinguishable from a legitimate synthesized one.
-        if read_only_record_type(type_name) {
+        if read_only_record_type(&ParameterType::parse(type_name)) {
             self.emit(
                 "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
                 format!("TYPE `{type_name}` is compiler-owned and cannot be constructed."),
@@ -686,7 +721,7 @@ impl TypeEnv {
         union_type: &str,
         member_type: &str,
         value: &IrValue,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         if member_type.is_empty() {
             return;
@@ -701,7 +736,8 @@ impl TypeEnv {
             }
         }
         if let Some(actual) = self.infer_type(value, locals) {
-            if !self.expression_compatible(member_type, &actual, value) {
+            if !self.expression_compatible(&ParameterType::parse(member_type), &actual, value) {
+                let actual = actual.name();
                 self.emit(
                     VERIFY_TYPE,
                     format!(
@@ -722,7 +758,7 @@ impl TypeEnv {
         &self,
         type_: &str,
         value: &IrValue,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         if type_.is_empty() {
             return;
@@ -730,8 +766,8 @@ impl TypeEnv {
         let Some(union_type) = self.infer_type(value, locals) else {
             return;
         };
-        let union_type = resource_base_type(&union_type);
-        if let Some(variants) = self.union_variants(union_type) {
+        let union_type = resource_base_type(&union_type).name();
+        if let Some(variants) = self.union_variants(&union_type) {
             if !variants.contains(type_) {
                 self.emit(
                     VERIFY_TYPE,

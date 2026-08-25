@@ -244,7 +244,7 @@ fn fixed_width_agrees_with_payload_alignment() {
     ] {
         let size = list_element_is_fixed_width(type_)
             .unwrap_or_else(|| panic!("{type_} must be fixed-width"));
-        let code = collection_type_code(type_)
+        let code = collection_type_code(&crate::types::ParameterType::parse(type_))
             .unwrap_or_else(|| panic!("{type_} must have a collection type code"));
         assert_eq!(
             size,

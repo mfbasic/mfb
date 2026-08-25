@@ -63,7 +63,7 @@ impl CodeBuilder<'_> {
         // result = tight copy of the map (keys + bucket structure preserved).
         let srcreg = self.temporary_vreg();
         self.emit(abi::load_u64(&srcreg, abi::stack_pointer(), map_slot));
-        let result_copy = self.copy_collection_tight(&map_type.name(), &srcreg)?;
+        let result_copy = self.copy_collection_tight(&map_type, &srcreg)?;
         let result_slot = self.allocate_stack_object("mapvalues_result", 8);
         self.emit(abi::store_u64(
             &result_copy,

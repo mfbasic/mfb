@@ -2,6 +2,7 @@
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::string::format::*;
@@ -28,7 +29,9 @@ impl CodeBuilder<'_> {
         let scratch25 = self.temporary_vreg();
         let scratch26 = self.temporary_vreg();
         let value = self.lower_value(&args[0])?;
-        if let Some(element_type) = list_element_type(&value.type_.name()) {
+        if let Some(element_type) =
+            typed_list_element_type(&value.type_).map(|type_| type_.name().into_owned())
+        {
             let value_slot = self.allocate_stack_object("replace_list_value", 8);
             self.emit(abi::store_u64(
                 &value.location,
@@ -65,7 +68,7 @@ impl CodeBuilder<'_> {
                 value_slot,
                 old_slot,
                 new_slot,
-                &value.type_.name(),
+                &value.type_,
                 &element_type,
             );
         }
@@ -304,7 +307,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             value_slot,
         ));
-        let copied = self.copy_flat_block("String", &original_ptr)?;
+        let copied = self.copy_flat_block(&ParameterType::String, &original_ptr)?;
         self.emit(abi::move_register(&result, &copied));
         self.emit(abi::label(&done));
 
@@ -321,7 +324,7 @@ impl CodeBuilder<'_> {
         value_slot: usize,
         old_slot: usize,
         new_slot: usize,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
     ) -> Result<ValueResult, String> {
         // Entry stride for this element type: zero builds the result entry-free
@@ -758,7 +761,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&list_type),
+            type_: list_type.clone(),
             location: Operand::from(result.render()),
             text: format!("replace({list_type}, {element_type}, {element_type})"),
         })
@@ -864,7 +867,7 @@ impl CodeBuilder<'_> {
                 let text_ptr = self.allocate_register();
                 self.emit(abi::load_u64(&text_ptr, &value_register, 0));
                 self.emit(abi::add_registers(&text_ptr, &value_register, &text_ptr));
-                let copied = self.copy_flat_block("String", &text_ptr)?;
+                let copied = self.copy_flat_block(&ParameterType::String, &text_ptr)?;
                 Ok(ValueResult {
                     origin: None,
                     type_: ParameterType::String,

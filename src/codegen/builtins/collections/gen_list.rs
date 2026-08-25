@@ -21,7 +21,7 @@ impl CodeBuilder<'_> {
         &mut self,
         collection_slot: usize,
         key_slot: usize,
-        collection_type: &str,
+        collection_type: &ParameterType,
         element_type: &str,
         unchecked: bool,
     ) -> Result<ValueResult, String> {
@@ -45,7 +45,7 @@ impl CodeBuilder<'_> {
         collection_slot: usize,
         key_slot: usize,
         default_slot: Option<usize>,
-        collection_type: &str,
+        collection_type: &ParameterType,
         element_type: &str,
         unchecked: bool,
     ) -> Result<ValueResult, String> {
@@ -137,7 +137,7 @@ impl CodeBuilder<'_> {
         collection_slot: usize,
         key_slot: usize,
         default_slot: usize,
-        collection_type: &str,
+        collection_type: &ParameterType,
         element_type: &str,
     ) -> Result<ValueResult, String> {
         self.lower_list_get_common(

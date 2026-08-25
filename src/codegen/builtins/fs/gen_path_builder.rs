@@ -2,6 +2,7 @@
 
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -65,7 +66,11 @@ impl CodeBuilder<'_> {
     /// identically.
     fn lower_fs_path_join(&mut self, parts: &ValueResult) -> Result<ValueResult, String> {
         let parts = parts.clone();
-        if list_element_type(&parts.type_.name()).as_deref() != Some("String") {
+        if typed_list_element_type(&parts.type_)
+            .map(|type_| type_.name().into_owned())
+            .as_deref()
+            != Some("String")
+        {
             return Err(format!(
                 "fs.pathJoin parts must be List OF String, got {}",
                 parts.type_

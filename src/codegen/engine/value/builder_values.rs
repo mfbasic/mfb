@@ -182,7 +182,7 @@ impl CodeBuilder<'_> {
         }
         if self.value_needs_owning_copy(value) && self.is_freeable_flat_value(&result.type_.name())
         {
-            let copied = self.copy_flat_block(&result.type_.name(), &result.location)?;
+            let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {
                 origin: None,
                 type_: result.type_,
@@ -317,7 +317,7 @@ impl CodeBuilder<'_> {
         self.type_is_flat(type_)
             && (type_ == "String"
                 || is_collection_type(type_)
-                || type_.starts_with("Result OF ")
+                || crate::codegen::engine::types::is_result_type(type_)
                 || self.type_model.record_fields.contains_key(type_)
                 || self.union_is_data(type_))
     }
@@ -803,7 +803,7 @@ impl CodeBuilder<'_> {
                     let type_name = self.static_type_name_for_fold(&args[0]).ok_or_else(|| {
                         "native code cannot determine typeName argument type".to_string()
                     })?;
-                    let register = self.load_string_constant(&type_name)?;
+                    let register = self.load_string_constant(&type_name.name())?;
                     return Ok(ValueResult {
                         origin: None,
                         type_: ParameterType::String,
@@ -1123,7 +1123,7 @@ impl CodeBuilder<'_> {
                     let type_name = self.static_type_name_for_fold(&args[0]).ok_or_else(|| {
                         "native code cannot determine typeName argument type".to_string()
                     })?;
-                    let register = self.load_string_constant(&type_name)?;
+                    let register = self.load_string_constant(&type_name.name())?;
                     return Ok(ValueResult {
                         origin: None,
                         type_: ParameterType::String,
@@ -1447,17 +1447,13 @@ impl CodeBuilder<'_> {
             }
             NirValue::ResultValue { value } => {
                 let result = self.lower_value(value)?;
-                let type_ = result
-                    .type_
-                    .name()
-                    .strip_prefix("Result OF ")
-                    .ok_or_else(|| {
-                        format!(
-                            "native RESULT_VALUE requires raw Result input, got `{}`",
-                            result.type_
-                        )
-                    })?
-                    .to_string();
+                let crate::types::ParameterType::ResultOf(payload) = &result.type_ else {
+                    return Err(format!(
+                        "native RESULT_VALUE requires raw Result input, got `{}`",
+                        result.type_
+                    ));
+                };
+                let type_ = payload.name().into_owned();
                 // The payload is inlined at +16 (plan-02 §4.3): a block payload
                 // yields an alias pointer into the Result; a scalar payload is the
                 // 8-byte value.
@@ -1494,7 +1490,7 @@ impl CodeBuilder<'_> {
             NirValue::MemberAccess { target, member } => match target.as_ref() {
                 _ if member == "result" => {
                     if let Some(output_type) = self.static_type_name(target).and_then(|type_| {
-                        crate::types::parent_thread_output(&type_).map(str::to_string)
+                        crate::types::parent_thread_output(&type_.name()).map(str::to_string)
                     }) {
                         self.emit_raw_call(
                             &runtime::symbol_for_call(
@@ -1584,13 +1580,9 @@ impl CodeBuilder<'_> {
                     self.current_symbol
                 ))
             }
-            NirValue::ListLiteral { type_, values } => {
-                self.lower_list_literal(&type_.name(), values)
-            }
-            NirValue::SetLiteral { type_, values } => self.lower_set_literal(&type_.name(), values),
-            NirValue::MapLiteral { type_, entries } => {
-                self.lower_map_literal(&type_.name(), entries)
-            }
+            NirValue::ListLiteral { type_, values } => self.lower_list_literal(&type_, values),
+            NirValue::SetLiteral { type_, values } => self.lower_set_literal(&type_, values),
+            NirValue::MapLiteral { type_, entries } => self.lower_map_literal(&type_, entries),
         }
     }
 
@@ -1831,7 +1823,7 @@ impl CodeBuilder<'_> {
             let type_name = self
                 .static_type_name_for_fold(&args[0])
                 .ok_or_else(|| "native code cannot determine typeName argument type".to_string())?;
-            let register = self.load_string_constant(&type_name)?;
+            let register = self.load_string_constant(&type_name.name())?;
             return Ok(ValueResult {
                 origin: None,
                 type_: ParameterType::String,
@@ -1870,12 +1862,10 @@ impl CodeBuilder<'_> {
     fn net_connect_is_address_form(&self, args: &[NirValue]) -> bool {
         match args.len() {
             1 => true,
-            2 => {
-                args.first()
-                    .and_then(|arg| self.static_type_name(arg))
-                    .as_deref()
-                    == Some("Address")
-            }
+            2 => args
+                .first()
+                .and_then(|arg| self.static_type_name(arg))
+                .is_some_and(|type_| type_.is_named("Address")),
             _ => false,
         }
     }
@@ -1887,7 +1877,7 @@ impl CodeBuilder<'_> {
     fn net_poll_is_list_form(&self, args: &[NirValue]) -> bool {
         args.first()
             .and_then(|arg| self.static_type_name(arg))
-            .is_some_and(|ty| ty.starts_with("List OF "))
+            .is_some_and(|ty| matches!(ty, crate::types::ParameterType::ListOf(_)))
     }
 
     pub(crate) fn lower_runtime_helper_call(
@@ -1904,7 +1894,10 @@ impl CodeBuilder<'_> {
         // of the writer path is byte-identical to a String argument.
         if matches!(target, "io.print" | "io.write") {
             if let Some(arg) = helper_args.first() {
-                if self.static_type_name(arg).as_deref() == Some("AttributedString") {
+                if self
+                    .static_type_name(arg)
+                    .is_some_and(|type_| type_.is_named("AttributedString"))
+                {
                     let inner = helper_args[0].clone();
                     helper_args[0] = NirValue::Call {
                         target: "toString".to_string(),
@@ -2069,7 +2062,7 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         "native runtime thread.send handle has unknown type".to_string()
                     })?;
-                if crate::types::is_worker_thread_type(&handle) {
+                if crate::types::is_worker_thread_handle(&handle) {
                     "thread.emit"
                 } else {
                     "thread.send"
@@ -2083,7 +2076,7 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         "native runtime thread.receive handle has unknown type".to_string()
                     })?;
-                if crate::types::is_worker_thread_type(&handle) {
+                if crate::types::is_worker_thread_handle(&handle) {
                     "thread.receive"
                 } else {
                     "thread.read"
@@ -2102,7 +2095,7 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         "native runtime thread.sleep handle has unknown type".to_string()
                     })?;
-                if crate::types::is_worker_thread_type(&handle) {
+                if crate::types::is_worker_thread_handle(&handle) {
                     "thread.sleepWorker"
                 } else {
                     "thread.sleep"
@@ -2123,7 +2116,7 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         "native runtime thread.transfer handle has unknown type".to_string()
                     })?;
-                if crate::types::is_worker_thread_type(&handle) {
+                if crate::types::is_worker_thread_handle(&handle) {
                     "thread.emitResource"
                 } else {
                     "thread.transferResource"
@@ -2137,7 +2130,7 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         "native runtime thread.accept handle has unknown type".to_string()
                     })?;
-                if crate::types::is_worker_thread_type(&handle) {
+                if crate::types::is_worker_thread_handle(&handle) {
                     "thread.acceptResource"
                 } else {
                     "thread.readResource"

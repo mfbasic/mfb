@@ -27,7 +27,8 @@ pub(crate) fn lower(
                     value: byte.to_string(),
                 })
                 .collect::<Vec<_>>();
-            return builder.lower_list_literal("List OF Byte", &values);
+            return builder
+                .lower_list_literal(&ParameterType::list_of(ParameterType::Byte), &values);
         }
     }
     if args.len() != 1 {
@@ -52,7 +53,7 @@ pub(crate) fn lower(
     let value_slot = builder.spill_to_slot("strings_to_bytes_value", &value.location);
     let count_slot = builder.allocate_stack_object("strings_to_bytes_count", 8);
     let result_slot = builder.allocate_stack_object("strings_to_bytes_result", 8);
-    let layout = CollectionTypeLayout::from_type("List OF Byte")
+    let layout = CollectionTypeLayout::from_type(&ParameterType::list_of(ParameterType::Byte))
         .ok_or_else(|| "native strings.toBytes cannot resolve List OF Byte layout".to_string())?;
 
     let alloc_ok = builder.label("strings_to_bytes_alloc_ok");

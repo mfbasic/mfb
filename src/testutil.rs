@@ -74,8 +74,12 @@ pub fn lower_src(source: &str) -> IrProject {
 /// codes (in traversal order). An empty vector means the program is accepted.
 pub fn check_src(source: &str) -> Vec<String> {
     let project = project_from_src(source);
-    let diagnostics = crate::syntaxcheck::check_project_collect(Path::new("."), &project)
-        .expect("augmentation should not fail for test sources");
+    // `check_project_collect` consumes HIR (plan-106-D); a hand-written test
+    // source starts as an AST, so it elaborates here — forward, as the compile
+    // path does.
+    let diagnostics =
+        crate::syntaxcheck::check_project_collect(Path::new("."), &crate::hir::elaborate(&project))
+            .expect("augmentation should not fail for test sources");
     diagnostics.into_iter().map(|d| d.rule).collect()
 }
 

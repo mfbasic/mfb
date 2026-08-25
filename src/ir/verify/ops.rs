@@ -13,7 +13,7 @@ impl TypeEnv {
     fn check_ops_in_branch(
         &self,
         body: &[IrOp],
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
         muts: &HashMap<String, bool>,
         closure_slots: Option<usize>,
         depth: usize,
@@ -37,9 +37,9 @@ impl TypeEnv {
         &self,
         name: &str,
         value: &IrValue,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
         is_mut: Option<bool>,
-        declared: Option<String>,
+        declared: Option<ParameterType>,
     ) {
         if is_mut == Some(false) {
             self.emit(
@@ -48,7 +48,7 @@ impl TypeEnv {
             );
         }
         if let Some(t) = declared {
-            let range_errored = self.check_literal_range_errored(resource_base_type(&t), value);
+            let range_errored = self.check_literal_range_errored(&resource_base_type(&t), value);
             if !range_errored {
                 self.check_assignment_type(name, &t, value, locals);
             }
@@ -58,7 +58,7 @@ impl TypeEnv {
     pub(super) fn check_ops(
         &self,
         ops: &[IrOp],
-        locals: &mut HashMap<String, String>,
+        locals: &mut HashMap<String, ParameterType>,
         muts: &mut HashMap<String, bool>,
         closure_slots: Option<usize>,
         depth: usize,
@@ -126,21 +126,21 @@ impl TypeEnv {
                                 ),
                             );
                         }
-                        let range_errored = self
-                            .check_literal_range_errored(resource_base_type(&type_.name()), value);
+                        let range_errored =
+                            self.check_literal_range_errored(&resource_base_type(type_), value);
                         // Only an explicit `AS T` annotation can disagree with
                         // the initializer; an inferred type is the initializer's
                         // type by construction (matches syntaxcheck).
                         if !range_errored && *explicit_type {
-                            self.check_binding_type(name, &type_.name(), value, locals);
+                            self.check_binding_type(name, type_, value, locals);
                         }
                     }
                     // A declared map type's key must be comparable; the
                     // inferred case is covered at its MapLiteral (checking it
                     // here too would double-report).
                     if *explicit_type {
-                        self.check_map_key_comparable(&type_.name());
-                        self.check_collection_res_axis(resource_base_type(&type_.name()));
+                        self.check_map_key_comparable(type_);
+                        self.check_collection_res_axis(&resource_base_type(type_));
                     }
                     // The RES ownership axis (syntaxcheck's
                     // check_resource_declaration): a resource-typed binding
@@ -194,9 +194,8 @@ impl TypeEnv {
                                 | IrValue::Capture { .. }
                         )
                     );
-                    let type_name = type_.name();
-                    let base = resource_base_type(&type_name);
-                    let is_resource = self.is_resource_or_resource_union(base);
+                    let base = resource_base_type(type_).name();
+                    let is_resource = self.is_resource_or_resource_union(&base);
                     if !synthesized_bind && !name.starts_with('$') {
                         let is_res_declared = self.current_owners.borrow().contains(name.as_str());
                         if is_resource && !is_res_declared {
@@ -206,7 +205,8 @@ impl TypeEnv {
                                     "binding `{name}` holds resource `{base}`; bind it with `RES`, not `LET`/`MUT`."
                                 ),
                             );
-                        } else if is_res_declared && !is_resource && self.provably_data_type(base) {
+                        } else if is_res_declared && !is_resource && self.provably_data_type(&base)
+                        {
                             // Only a POSITIVELY known data type rejects: an
                             // unknown name may be an external package's
                             // resource (e.g. sqlite3's Db), which the source
@@ -233,10 +233,8 @@ impl TypeEnv {
                     // can only be *written*, so an inferred binding has nothing
                     // new for them to check.
                     if *explicit_type && !name.starts_with('$') {
-                        if let Some(state_type) =
-                            crate::codegen::resource::state_type_name(&type_.name())
-                        {
-                            if !self.is_defaultable(state_type, &mut HashSet::new()) {
+                        if let Some(state_type) = type_.state() {
+                            if !self.is_defaultable(&state_type, &mut HashSet::new()) {
                                 self.emit(
                                     "TYPE_STATE_INVALID",
                                     format!(
@@ -246,7 +244,7 @@ impl TypeEnv {
                             }
                         }
                         if is_resource {
-                            self.check_binding_state_agreement(name, &type_.name(), value, locals);
+                            self.check_binding_state_agreement(name, type_, value, locals);
                         }
                     }
                     // plan-59-E: RES-binding a collection element used to be
@@ -270,7 +268,7 @@ impl TypeEnv {
                                 "TYPE_LET_REQUIRES_VALUE",
                                 format!("Immutable binding `{name}` must have an initializer."),
                             );
-                        } else if !self.is_defaultable(&type_.name(), &mut HashSet::new()) {
+                        } else if !self.is_defaultable(type_, &mut HashSet::new()) {
                             self.emit(
                                 "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
                                 format!(
@@ -279,7 +277,7 @@ impl TypeEnv {
                             );
                         }
                     }
-                    locals.insert(name.clone(), type_.name().into_owned());
+                    locals.insert(name.clone(), type_.clone());
                     // A capture bind's `mutable` reflects the by-ref/non-escaping
                     // proof, not the outer binding's MUTness — syntaxcheck judges
                     // assignments to captures at the lambda site (as
@@ -313,12 +311,15 @@ impl TypeEnv {
                                 // a stateful native resource compare unequal to
                                 // itself (bug-372).
                                 let expected = resource_base_type(expected);
-                                let actual = resource_base_type(&actual).to_string();
-                                if !expected.is_empty()
-                                    && expected != "Unknown"
-                                    && expected != "Nothing"
-                                    && !self.expression_compatible(expected, &actual, value)
+                                let actual = resource_base_type(&actual);
+                                if !expected.name().is_empty()
+                                    && !matches!(
+                                        expected,
+                                        ParameterType::Unknown | ParameterType::Nothing
+                                    )
+                                    && !self.expression_compatible(&expected, &actual, value)
                                 {
+                                    let (actual, expected) = (actual.name(), expected.name());
                                     self.emit(
                                         "TYPE_RECOVER_TYPE_MISMATCH",
                                         format!("RECOVER has type {actual}, expected {expected}."),
@@ -361,9 +362,11 @@ impl TypeEnv {
                     // carried in the local's type string (`File STATE T`); a
                     // resource declared without STATE has nothing to assign.
                     if let Some(t) = locals.get(resource) {
-                        let declared_state = crate::codegen::resource::state_type_name(t);
+                        // The `STATE` clause rides inside the resource's nominal
+                        // spelling, so it is read off the name.
+                        let declared_state = t.state();
                         if declared_state.is_none()
-                            && self.is_resource_or_resource_union(resource_base_type(t))
+                            && self.is_resource_or_resource_union(&resource_base_type(t).name())
                         {
                             self.emit(
                                 "TYPE_STATE_INVALID",
@@ -372,9 +375,10 @@ impl TypeEnv {
                                 ),
                             );
                         }
-                        if let Some(state_type) = declared_state.map(str::to_string) {
+                        if let Some(state_type) = declared_state {
                             if let Some(actual) = self.infer_type(value, locals) {
                                 if !self.expression_compatible(&state_type, &actual, value) {
+                                    let (actual, state_type) = (actual.name(), state_type.name());
                                     self.emit(
                                         "TYPE_ASSIGNMENT_MISMATCH",
                                         format!(
@@ -399,7 +403,7 @@ impl TypeEnv {
                     // The exit code must be an Integer, and a constant code
                     // must fit the host's 0..255 exit-status range.
                     if let Some(actual) = self.infer_type(value, locals) {
-                        if !self.expression_compatible("Integer", &actual, value) {
+                        if !self.expression_compatible(&ParameterType::Integer, &actual, value) {
                             self.emit(
                                 "TYPE_EXIT_PROGRAM_REQUIRES_INTEGER",
                                 format!("EXIT PROGRAM code has type {actual}, expected Integer."),
@@ -431,7 +435,7 @@ impl TypeEnv {
                         );
                     } else if let Some(actual) = self.infer_type(value, locals) {
                         // FAIL carries an Error (syntaxcheck's TYPE_FAIL_REQUIRES_ERROR).
-                        if !self.compatible("Error", &actual) {
+                        if !self.compatible(&ParameterType::named("Error"), &actual) {
                             self.emit(
                                 "TYPE_FAIL_REQUIRES_ERROR",
                                 format!("FAIL has type {actual}, expected Error."),
@@ -472,8 +476,7 @@ impl TypeEnv {
                         // cannot show the opaque value carries.
                         if self.is_opaque_state_value(value) {
                             let ret = self.current_return.borrow().clone();
-                            if let Some(declared) = crate::codegen::resource::state_type_name(&ret)
-                            {
+                            if let Some(declared) = ret.state().map(|s| s.name().into_owned()) {
                                 self.emit(
                                     "TYPE_STATE_OPAQUE_NARROWING",
                                     format!(
@@ -556,7 +559,7 @@ impl TypeEnv {
                                 let IrOp::Bind { name, type_, .. } = op else {
                                     break;
                                 };
-                                case_locals.insert(name.clone(), type_.name().into_owned());
+                                case_locals.insert(name.clone(), type_.clone());
                             }
                             // bug-297: same omission as the pattern values above.
                             self.check_value_captures(guard, closure_slots);
@@ -628,10 +631,17 @@ impl TypeEnv {
                         // A local the lowering could not type carries the
                         // literal "Unknown" through the locals map — skip it
                         // like any other unreconstructable type.
-                        if actual.is_empty() || actual == "Unknown" {
+                        if actual.name().is_empty() || matches!(actual, ParameterType::Unknown) {
                             continue;
                         }
-                        if !matches!(actual.as_str(), "Integer" | "Float" | "Byte" | "Fixed") {
+                        if !matches!(
+                            actual,
+                            ParameterType::Integer
+                                | ParameterType::Float
+                                | ParameterType::Byte
+                                | ParameterType::Fixed
+                        ) {
+                            let actual = actual.name();
                             self.emit(
                                 "TYPE_FOR_REQUIRES_NUMERIC",
                                 format!(
@@ -650,7 +660,7 @@ impl TypeEnv {
                     }
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
-                    branch.insert(name.clone(), type_.name().into_owned());
+                    branch.insert(name.clone(), type_.clone());
                     // The loop counter is immutable inside the body (syntaxcheck
                     // registers it `mutable: false`).
                     branch_muts.insert(name.clone(), false);
@@ -699,12 +709,16 @@ impl TypeEnv {
                         let base = resource_base_type(&actual);
                         // A local the lowering could not type carries the
                         // literal "Unknown" through the locals map — skip it.
-                        if !base.is_empty()
-                            && base != "Unknown"
-                            && !base.starts_with("List OF ")
-                            && !base.starts_with("Set OF ")
-                            && !base.starts_with("Map OF ")
+                        if !base.name().is_empty()
+                            && !matches!(
+                                base,
+                                ParameterType::Unknown
+                                    | ParameterType::ListOf(_)
+                                    | ParameterType::SetOf(_)
+                                    | ParameterType::MapOf(_, _)
+                            )
                         {
+                            let actual = actual.name();
                             self.emit(
                                 "TYPE_FOR_EACH_REQUIRES_COLLECTION",
                                 format!("FOR EACH source has type {actual}, expected List, Set, or Map."),
@@ -713,7 +727,7 @@ impl TypeEnv {
                     }
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
-                    branch.insert(name.clone(), type_.name().into_owned());
+                    branch.insert(name.clone(), type_.clone());
                     // The element binding is an immutable, non-owning view.
                     branch_muts.insert(name.clone(), false);
                     self.loop_stack.borrow_mut().push(crate::ast::LoopKind::For);
@@ -729,7 +743,7 @@ impl TypeEnv {
                 IrOp::Trap { name, body, .. } => {
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
-                    branch.insert(name.clone(), "Error".to_string());
+                    branch.insert(name.clone(), ParameterType::named("Error"));
                     branch_muts.insert(name.clone(), false);
                     self.check_ops(
                         body,

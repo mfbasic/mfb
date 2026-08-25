@@ -18,7 +18,7 @@ impl CodeBuilder<'_> {
         base_slot: usize,
         index_slot: usize,
         insert_slot: usize,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
     ) -> Result<ValueResult, String> {
         // Zero for a kind-2 list: the sizing arithmetic below then reserves no
@@ -443,7 +443,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&list_type),
+            type_: list_type.clone(),
             location: Operand::from(result.render()),
             text: format!("list update {list_type} over {element_type}"),
         })
@@ -463,7 +463,7 @@ impl CodeBuilder<'_> {
         &mut self,
         buffer_slot: usize,
         item_slot: usize,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
     ) -> Result<ValueResult, String> {
         // Zero for a kind-2 list: the sizing arithmetic below then reserves no
@@ -869,7 +869,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&list_type),
+            type_: list_type.clone(),
             location: Operand::from(result.render()),
             text: format!("append in place {list_type} over {element_type}"),
         })
@@ -899,7 +899,7 @@ impl CodeBuilder<'_> {
         &mut self,
         record_slot: usize,
         field_index: usize,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
         item_slot: usize,
     ) -> Result<(), String> {
@@ -1429,7 +1429,7 @@ impl CodeBuilder<'_> {
         &mut self,
         record_slot: usize,
         field_index: usize,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
         rhs_slot: usize,
     ) -> Result<(), String> {
@@ -1981,7 +1981,7 @@ impl CodeBuilder<'_> {
         &mut self,
         buffer_slot: usize,
         rhs_slot: usize,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
     ) -> Result<ValueResult, String> {
         // Zero for a kind-2 list: the sizing arithmetic below then reserves no
@@ -2393,7 +2393,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&list_type),
+            type_: list_type.clone(),
             location: Operand::from(result.render()),
             text: format!("bulk append in place {list_type} over {element_type}"),
         })
@@ -2412,7 +2412,7 @@ impl CodeBuilder<'_> {
         &mut self,
         buffer_slot: usize,
         item_slot: usize,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
     ) -> Result<ValueResult, String> {
         // Zero for a kind-2 list: the sizing arithmetic below then reserves no
@@ -2938,7 +2938,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&list_type),
+            type_: list_type.clone(),
             location: Operand::from(result.render()),
             text: format!("prepend in place {list_type} over {element_type}"),
         })
@@ -2960,7 +2960,7 @@ impl CodeBuilder<'_> {
         buffer_slot: usize,
         index_slot: usize,
         item_slot: usize,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
     ) -> Result<ValueResult, String> {
         // Zero for a kind-2 list: the sizing arithmetic below then reserves no
@@ -3168,7 +3168,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&keep, abi::stack_pointer(), buffer_slot));
         let threaded = ValueResult {
             origin: None,
-            type_: ParameterType::parse(&list_type),
+            type_: list_type.clone(),
             location: Operand::from(keep.render()),
             text: String::new(),
         };
@@ -3185,7 +3185,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&list_type),
+            type_: list_type.clone(),
             location: Operand::from(result.render()),
             text: format!("set in place {list_type} over {element_type}"),
         })
@@ -3195,7 +3195,7 @@ impl CodeBuilder<'_> {
         &mut self,
         base_slot: usize,
         index_slot: usize,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
     ) -> Result<ValueResult, String> {
         // Zero for a kind-2 list: the sizing arithmetic below then reserves no
@@ -3480,7 +3480,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&list_type),
+            type_: list_type.clone(),
             location: Operand::from(result.render()),
             text: format!("removeAt({list_type}, Integer) over {element_type}"),
         })

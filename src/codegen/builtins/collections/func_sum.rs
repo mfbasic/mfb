@@ -4,7 +4,7 @@
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::list_element_type;
+use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -153,7 +153,9 @@ pub(crate) fn lower_sum(
     let scratch15 = builder.temporary_vreg();
     let scratch16 = builder.temporary_vreg();
     let collection = &args[0];
-    let Some(element_type) = list_element_type(&collection.type_.name()) else {
+    let Some(element_type) =
+        typed_list_element_type(&collection.type_).map(|type_| type_.name().into_owned())
+    else {
         return Err(format!(
             "native collection sum does not accept {}",
             collection.type_

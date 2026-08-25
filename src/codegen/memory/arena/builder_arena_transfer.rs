@@ -188,7 +188,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&format!("Result OF {success_type}")),
+            type_: ParameterType::result_of(ParameterType::parse(success_type)),
             location: Operand::from(register.render()),
             text,
         })
@@ -364,7 +364,9 @@ impl CodeBuilder<'_> {
             // copy (`arena_alloc` + `memcpy`) is a sound deep copy (plan-02 §4.1,
             // Phase 6). Only types that still embed pointers fall through to the
             // per-type glue below.
-            other if self.type_is_flat(other) => self.copy_flat_block(other, source),
+            other if self.type_is_flat(other) => {
+                self.copy_flat_block(&ParameterType::parse(other), source)
+            }
             // The only non-flat values left are resources and the collections /
             // unions that embed them (the single remaining pointer, plan-02 §9).
             // Their transfer copy is still a `memcpy` that moves the resource
@@ -792,8 +794,8 @@ impl CodeBuilder<'_> {
     /// still required. A collection whose key/value payloads are all inline
     /// (scalars, `String`) is already flat and copies generically.
     fn collection_needs_transfer_fix(&self, type_: &str) -> Result<bool, String> {
-        let (key_type, value_type) = if let Some(value_type) = type_.strip_prefix("List OF ") {
-            (None, value_type.to_string())
+        let (key_type, value_type) = if let Some(value_type) = list_element_type(type_) {
+            (None, value_type)
         } else {
             let (key, value) = map_type_parts(type_).ok_or_else(|| {
                 format!("native thread transfer collection type '{type_}' does not resolve")
@@ -818,7 +820,7 @@ impl CodeBuilder<'_> {
         // copy it with the generic flat copy (plan-02 §4.1, Phase 1). Only
         // collections embedding pointer payloads keep the per-payload fix below.
         if !self.collection_needs_transfer_fix(type_)? {
-            return self.copy_flat_block(type_, source);
+            return self.copy_flat_block(&ParameterType::parse(type_), source);
         }
         let source_slot = self.allocate_stack_object("thread_copy_collection_source", 8);
         let size_slot = self.allocate_stack_object("thread_copy_collection_size", 8);
@@ -886,8 +888,8 @@ impl CodeBuilder<'_> {
         source_slot: usize,
         result_slot: usize,
     ) -> Result<(), String> {
-        let (key_type, value_type) = if let Some(value_type) = type_.strip_prefix("List OF ") {
-            (None, value_type.to_string())
+        let (key_type, value_type) = if let Some(value_type) = list_element_type(type_) {
+            (None, value_type)
         } else {
             let (key, value) = map_type_parts(type_).ok_or_else(|| {
                 format!("native thread transfer collection type '{type_}' does not resolve")
@@ -914,7 +916,7 @@ impl CodeBuilder<'_> {
         }
         if is_collection_type(type_)
             || self.type_model.union_names.contains(type_)
-            || type_.starts_with("Result OF ")
+            || crate::codegen::engine::types::is_result_type(type_)
         {
             // A flat nested collection / data union / `Result` was inlined and
             // copied whole; only a non-flat one (an embedded pointer/resource
@@ -1048,7 +1050,7 @@ impl CodeBuilder<'_> {
         ));
 
         if is_collection_type(payload_type)
-            || payload_type.starts_with("Result OF ")
+            || crate::codegen::engine::types::is_result_type(payload_type)
             || payload_type == "Error"
         {
             self.emit(abi::load_u64(

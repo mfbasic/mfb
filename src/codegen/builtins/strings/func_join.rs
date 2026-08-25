@@ -3,7 +3,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::*;
+use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -32,7 +32,11 @@ pub(crate) fn lower(
     let scratch14 = builder.temporary_vreg();
     let scratch15 = builder.temporary_vreg();
     let parts = parts.clone();
-    if list_element_type(&parts.type_.name()).as_deref() != Some("String") {
+    if typed_list_element_type(&parts.type_)
+        .map(|type_| type_.name().into_owned())
+        .as_deref()
+        != Some("String")
+    {
         return Err(format!(
             "strings.join parts must be List OF String, got {}",
             parts.type_
