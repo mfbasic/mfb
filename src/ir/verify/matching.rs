@@ -16,7 +16,7 @@ impl TypeEnv {
         &self,
         value: &IrValue,
         cases: &[super::super::IrMatchCase],
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         let Some(ty) = self.infer_type(value, locals) else {
             return;
@@ -107,16 +107,19 @@ impl TypeEnv {
         &self,
         value: &IrValue,
         cases: &[super::super::IrMatchCase],
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         let Some(scrutinee) = self.infer_type(value, locals) else {
             return;
         };
-        let scrutinee = resource_base_type(&scrutinee).to_string();
-        if scrutinee.is_empty() || scrutinee == "Unknown" {
+        let scrutinee = resource_base_type(&scrutinee);
+        // The union table is keyed by type NAME, and the diagnostics below quote
+        // the scrutinee; render once.
+        let scrutinee_name = scrutinee.name();
+        if scrutinee_name.is_empty() || matches!(scrutinee, ParameterType::Unknown) {
             return;
         }
-        let union_variants = self.union_variants(&scrutinee);
+        let union_variants = self.union_variants(&scrutinee_name);
         let check_pattern = |v: &IrValue| {
             // `Result` is internal: `CASE Ok`/`CASE Error` are never valid
             // match arms (syntaxcheck's TYPE_RESULT_NOT_MATCHABLE). Only fires
@@ -154,7 +157,7 @@ impl TypeEnv {
                             self.emit(
                                 "TYPE_MATCH_PATTERN_MISMATCH",
                                 format!(
-                                    "CASE `{type_name}` is not a member of UNION `{scrutinee}`."
+                                    "CASE `{type_name}` is not a member of UNION `{scrutinee_name}`."
                                 ),
                             );
                         }
@@ -165,7 +168,9 @@ impl TypeEnv {
                         // non-union scrutinee is malformed.
                         self.emit(
                             "TYPE_MATCH_PATTERN_MISMATCH",
-                            format!("CASE `{type_name}` requires a UNION value, got {scrutinee}."),
+                            format!(
+                                "CASE `{type_name}` requires a UNION value, got {scrutinee_name}."
+                            ),
                         );
                     }
                 }
@@ -176,9 +181,10 @@ impl TypeEnv {
             // (infer_type -> None), so they fall through harmlessly here.
             if let Some(pattern_type) = self.infer_type(v, locals) {
                 if !self.expression_compatible(&scrutinee, &pattern_type, v) {
+                    let pattern_type = pattern_type.name();
                     self.emit(
                         "TYPE_MATCH_PATTERN_MISMATCH",
-                        format!("CASE pattern has type {pattern_type}, expected {scrutinee}."),
+                        format!("CASE pattern has type {pattern_type}, expected {scrutinee_name}."),
                     );
                 }
             }

@@ -17,7 +17,7 @@ impl TypeEnv {
     pub(super) fn check_resource_moves(
         &self,
         ops: &[IrOp],
-        locals: &mut HashMap<String, String>,
+        locals: &mut HashMap<String, ParameterType>,
         moved: &mut HashSet<String>,
         owners: &HashMap<String, crate::ir::resource_escape::ResOwner>,
         non_owning: &HashSet<String>,
@@ -61,7 +61,7 @@ impl TypeEnv {
         // fall-through branch back into the outer set (syntaxcheck's MaybeMoved —
         // moved on *some* path means unusable after the join).
         let run_branch = |body: &[IrOp],
-                          locals: &HashMap<String, String>,
+                          locals: &HashMap<String, ParameterType>,
                           moved: &mut HashSet<String>,
                           aliases: &mut HashMap<String, HashSet<String>>| {
             let mut branch_moved = moved.clone();
@@ -148,10 +148,9 @@ impl TypeEnv {
                     // resource local does not move ownership.
                     if owners.contains_key(name) {
                         if let Some(IrValue::Local(source)) = value {
-                            if locals
-                                .get(source)
-                                .is_some_and(|t| self.close_op_for(resource_base_type(t)).is_some())
-                            {
+                            if locals.get(source).is_some_and(|t| {
+                                self.close_op_for(&resource_base_type(t).name()).is_some()
+                            }) {
                                 moved.insert(source.clone());
                             }
                         }
@@ -197,9 +196,8 @@ impl TypeEnv {
                         if let Some(IrValue::Call { args, type_, .. })
                         | Some(IrValue::CallResult { args, type_, .. }) = value
                         {
-                            let type_name = type_.name();
-                            let returned = resource_base_type(&type_name);
-                            if self.close_op_for(returned).is_some() {
+                            let returned = resource_base_type(type_);
+                            if self.close_op_for(&returned.name()).is_some() {
                                 for arg in args {
                                     if let IrValue::Local(source) = arg {
                                         if locals
@@ -220,7 +218,7 @@ impl TypeEnv {
                             }
                         }
                     }
-                    locals.insert(name.clone(), type_.name().into_owned());
+                    locals.insert(name.clone(), type_.clone());
                 }
                 IrOp::If {
                     then_body,
@@ -240,7 +238,7 @@ impl TypeEnv {
                 } => {
                     // The element binding is a non-owning pointer copied from the collection's slot.
                     let mut fe_locals = locals.clone();
-                    fe_locals.insert(name.clone(), type_.name().into_owned());
+                    fe_locals.insert(name.clone(), type_.clone());
                     let mut fe_non_owning = non_owning.clone();
                     fe_non_owning.insert(name.clone());
                     let mut branch_moved = moved.clone();
@@ -279,7 +277,7 @@ impl TypeEnv {
     pub(super) fn value_type_poisoned(
         &self,
         value: &IrValue,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) -> bool {
         if !self.poisoned.get() {
             return false;
@@ -296,14 +294,21 @@ impl TypeEnv {
     /// Whether a type has a defined default value: primitives yes, functions/
     /// results/resources/threads/unions/enums no, collections and records
     /// recurse (cycle-guarded).
-    pub(super) fn is_defaultable(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
-        if is_comparable_defaultable_primitive(type_) {
+    ///
+    /// plan-106-B: the container/FUNC/Result/RES/Thread tests are variant matches.
+    /// The ` STATE ` test stays a name test on purpose — the clause rides INSIDE a
+    /// resource's nominal spelling (`parse` has no `STATE` arm), so there is no
+    /// variant to match. The remaining tests are name lookups into the declaration
+    /// tables.
+    pub(super) fn is_defaultable(&self, type_: &ParameterType, seen: &mut HashSet<String>) -> bool {
+        let type_name = type_.name();
+        if is_comparable_defaultable_primitive(&type_name) {
             return true;
         }
         // `AttributedString` (plan-89-A) is defaultable (its default is empty
         // text + empty overlay) but NOT comparable, so it is a defaultable-only
         // delta here rather than in `is_comparable_defaultable_primitive`.
-        if type_ == "AttributedString" {
+        if type_name == "AttributedString" {
             return true;
         }
         // bug-434: a collection is ALWAYS defaultable — its default is the empty
@@ -316,33 +321,30 @@ impl TypeEnv {
         // front-end block. Comparability of a `Set`/`Map`-key element is a
         // SEPARATE check and is unaffected. Kept ahead of the FUNC/RES/STATE and
         // union/enum arms so the collection short-circuit wins.
-        if type_.starts_with("List OF ") {
+        if matches!(
+            type_,
+            ParameterType::ListOf(_) | ParameterType::SetOf(_) | ParameterType::MapOf(_, _)
+        ) {
             return true;
         }
-        if type_.starts_with("Set OF ") {
-            return true;
-        }
-        if parse_map(type_).is_some() {
-            return true;
-        }
-        if type_.starts_with("FUNC")
-            || type_.starts_with("Result")
-            || type_.starts_with("RES ")
-            || type_.starts_with("Thread")
-            || type_.contains(" STATE ")
+        if matches!(
+            type_,
+            ParameterType::Func(_, _, _) | ParameterType::ResultOf(_) | ParameterType::Res(_)
+        ) || is_thread_type(type_)
+            || type_name.contains(" STATE ")
         {
             return false;
         }
-        if self.close_op_for(type_).is_some()
-            || self.unions.contains_key(type_)
-            || self.enums.contains_key(type_)
+        if self.close_op_for(&type_name).is_some()
+            || self.unions.contains_key(type_name.as_ref())
+            || self.enums.contains_key(type_name.as_ref())
         {
             return false;
         }
-        if !seen.insert(type_.to_string()) {
+        if !seen.insert(type_name.clone().into_owned()) {
             return false;
         }
-        let result = match self.record_field_lists.get(type_) {
+        let result = match self.record_field_lists.get(type_name.as_ref()) {
             Some(fields) => fields.iter().all(|(_, ft)| self.is_defaultable(ft, seen)),
             // On the SOURCE path a name this table has never heard of is an
             // IMPORTED type, not an undefaultable one, and the difference is not
@@ -366,7 +368,7 @@ impl TypeEnv {
             // no syntaxcheck behind it.
             None => self.imported_types_unknown,
         };
-        seen.remove(type_);
+        seen.remove(type_name.as_ref());
         result
     }
 
@@ -378,7 +380,7 @@ impl TypeEnv {
     pub(super) fn block_always_returns(
         &self,
         ops: &[IrOp],
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) -> bool {
         let mut locals = locals.clone();
         for op in ops {
@@ -420,7 +422,7 @@ impl TypeEnv {
                 // returning is irrelevant to fall-through.
                 IrOp::Trap { .. } => {}
                 IrOp::Bind { name, type_, .. } => {
-                    locals.insert(name.clone(), type_.name().into_owned());
+                    locals.insert(name.clone(), type_.clone());
                 }
                 _ => {}
             }
@@ -434,7 +436,7 @@ impl TypeEnv {
         &self,
         value: &IrValue,
         cases: &[super::super::IrMatchCase],
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) -> bool {
         let Some(ty) = self.infer_type(value, locals) else {
             return false;
@@ -458,33 +460,34 @@ impl TypeEnv {
     /// sole rejecter): a resource element must be `RES`-marked (`List OF RES
     /// File`), and `RES` may mark only a resource. Recurses through nested
     /// collections; `line` positions are the caller's.
-    pub(super) fn check_collection_res_axis(&self, type_: &str) {
-        if let Some(element) = type_.strip_prefix("List OF ") {
-            self.collection_axis_element(element, "element");
-            return;
-        }
-        if let Some((_, value)) = parse_map(type_) {
-            self.collection_axis_element(value, "value");
+    /// plan-106-B: structural. `strip_prefix("List OF ")` and `parse_map` became
+    /// variant matches; the `RES ` marker is the [`Res`](ParameterType::Res)
+    /// wrapper rather than a name prefix.
+    pub(super) fn check_collection_res_axis(&self, type_: &ParameterType) {
+        match type_ {
+            ParameterType::ListOf(element) => self.collection_axis_element(element, "element"),
+            ParameterType::MapOf(_, value) => self.collection_axis_element(value, "value"),
+            _ => {}
         }
     }
 
-    pub(super) fn collection_axis_element(&self, element: &str, role: &str) {
-        let bare = element.strip_prefix("RES ");
-        let inner = bare.unwrap_or(element);
-        let is_res_marked = bare.is_some();
-        let is_resource = self.is_resource_or_resource_union(inner);
+    pub(super) fn collection_axis_element(&self, element: &ParameterType, role: &str) {
+        let is_res_marked = matches!(element, ParameterType::Res(_));
+        let inner = strip_res(element);
+        let inner_name = inner.name();
+        let is_resource = self.is_resource_or_resource_union(&inner_name);
         if is_resource && !is_res_marked {
             self.emit(
                 "TYPE_RESOURCE_REQUIRES_RES",
                 format!(
-                    "Collection {role} type `{inner}` is a resource; mark it `RES` (e.g. `List OF RES File`), not a bare resource type."
+                    "Collection {role} type `{inner_name}` is a resource; mark it `RES` (e.g. `List OF RES File`), not a bare resource type."
                 ),
             );
-        } else if is_res_marked && !is_resource && self.provably_data_type(inner) {
+        } else if is_res_marked && !is_resource && self.provably_data_type(&inner_name) {
             self.emit(
                 "TYPE_RES_REQUIRES_RESOURCE",
                 format!(
-                    "Collection {role} is marked `RES` but `{inner}` is not a resource type; drop the `RES`."
+                    "Collection {role} is marked `RES` but `{inner_name}` is not a resource type; drop the `RES`."
                 ),
             );
         }

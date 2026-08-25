@@ -495,16 +495,10 @@ fn numeric_variant_name(type_: &ParameterType) -> Option<&'static str> {
 /// | `DIV`     | `M,M → Float` `M,k → Float` | `k,M` |
 /// | `MOD`     | `M,M → M`            | `M,k` `k,M` |
 /// | `^`       | —                    | any `M`     |
-pub(crate) fn money_result_type(
-    operator: &str,
-    l_money: bool,
-    r_money: bool,
-) -> Option<&'static str> {
-    numeric_variant_name(&typed_money_result_type(operator, l_money, r_money)?)
-}
-
-/// The typed primitive behind [`money_result_type`] — the dimensional table
-/// itself, over [`ParameterType`] variants.
+///
+/// plan-106-B deleted the name-keyed `money_result_type` adapter this used to
+/// sit behind: `ir::verify` was its last caller, and it speaks
+/// [`ParameterType`] now. This is the only definition of the table.
 pub(crate) fn typed_money_result_type(
     operator: &str,
     l_money: bool,
@@ -1203,12 +1197,6 @@ mod tests {
                             .and_then(numeric_variant_name),
                         legacy_money_result_type(operator, l_money, r_money),
                         "{operator} l_money={l_money} r_money={r_money}"
-                    );
-                    // The shipped name-keyed adapter agrees too.
-                    assert_eq!(
-                        money_result_type(operator, l_money, r_money),
-                        legacy_money_result_type(operator, l_money, r_money),
-                        "adapter drift at {operator} l_money={l_money} r_money={r_money}"
                     );
                 }
             }

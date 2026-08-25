@@ -594,12 +594,12 @@ impl TypeEnv {
         for function in &project.link_functions {
             if function.return_resource {
                 if let Some(state) = &function.return_state_type {
-                    check(resource_base_type(&function.return_type), state, self);
+                    check(resource_base_type_name(&function.return_type), state, self);
                 }
             }
             for (_, ptype) in &function.params {
                 if let Some(state) = crate::codegen::resource::state_type_name(ptype) {
-                    check(resource_base_type(ptype), state, self);
+                    check(resource_base_type_name(ptype), state, self);
                 }
             }
         }
@@ -607,31 +607,40 @@ impl TypeEnv {
 
     /// Whether a type contains a resource or thread handle anywhere (mirrors
     /// syntaxcheck's `contains_resource_or_thread` on type strings).
+    /// plan-106-B: structural. The `Thread`/`ThreadWorker` prefix test is the
+    /// [`ThreadHandle`](ParameterType::ThreadHandle) variant, and the `List OF `/
+    /// `Map OF ` descent is a variant match; the resource and record-field
+    /// lookups stay name-keyed (they read declaration tables).
     pub(super) fn contains_resource_or_thread(
         &self,
-        type_: &str,
+        type_: &ParameterType,
         seen: &mut HashSet<String>,
     ) -> bool {
         let t = resource_base_type(type_);
-        if t.starts_with("Thread") || self.is_resource_or_resource_union(t) {
+        if is_thread_type(&t) || self.is_resource_or_resource_union(&t.name()) {
             return true;
         }
-        if let Some(e) = t.strip_prefix("List OF ") {
-            return self.contains_resource_or_thread(e, seen);
+        match &t {
+            ParameterType::ListOf(e) => return self.contains_resource_or_thread(e, seen),
+            ParameterType::MapOf(k, v) => {
+                return self.contains_resource_or_thread(k, seen)
+                    || self.contains_resource_or_thread(v, seen);
+            }
+            _ => {}
         }
-        if let Some((k, v)) = parse_map(t) {
-            return self.contains_resource_or_thread(k, seen)
-                || self.contains_resource_or_thread(v, seen);
-        }
-        if !seen.insert(t.to_string()) {
+        let t_name = t.name();
+        if !seen.insert(t_name.clone().into_owned()) {
             return false;
         }
-        let contained = self.record_field_lists.get(t).is_some_and(|fields| {
-            fields
-                .iter()
-                .any(|(_, ft)| self.contains_resource_or_thread(ft, seen))
-        });
-        seen.remove(t);
+        let contained = self
+            .record_field_lists
+            .get(t_name.as_ref())
+            .is_some_and(|fields| {
+                fields
+                    .iter()
+                    .any(|(_, ft)| self.contains_resource_or_thread(ft, seen))
+            });
+        seen.remove(t_name.as_ref());
         contained
     }
 
@@ -684,7 +693,7 @@ impl TypeEnv {
     pub(super) fn consumed_resource(
         &self,
         op: &IrOp,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) -> Option<String> {
         let close_consumes = |value: &IrValue| -> Option<String> {
             let (target, args) = match value {
@@ -705,7 +714,7 @@ impl TypeEnv {
             };
             let type_ = locals.get(name)?;
             let base = resource_base_type(type_);
-            if self.close_op_for(base) == Some(target.as_str()) {
+            if self.close_op_for(&base.name()) == Some(target.as_str()) {
                 Some(name.clone())
             } else {
                 None
@@ -722,7 +731,10 @@ impl TypeEnv {
                 ..
             } => {
                 let type_ = locals.get(name)?;
-                if self.close_op_for(resource_base_type(type_)).is_some() {
+                if self
+                    .close_op_for(&resource_base_type(type_).name())
+                    .is_some()
+                {
                     Some(name.clone())
                 } else {
                     None

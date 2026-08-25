@@ -1426,7 +1426,10 @@ fn visibility_name_covers_all_visibilities() {
 #[test]
 fn annotated_type_reports_every_annotated_variant() {
     assert_eq!(
-        c("Integer", "1").annotated_type().as_deref(),
+        c("Integer", "1")
+            .annotated_parameter_type()
+            .map(|t| t.name())
+            .as_deref(),
         Some("Integer")
     );
     assert_eq!(
@@ -1434,7 +1437,8 @@ fn annotated_type_reports_every_annotated_variant() {
             name: "a".to_string(),
             type_: crate::types::ParameterType::parse("Integer")
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("Integer")
     );
@@ -1443,7 +1447,8 @@ fn annotated_type_reports_every_annotated_variant() {
             name: "f".to_string(),
             type_: crate::types::ParameterType::parse("() -> Integer")
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("() -> Integer")
     );
@@ -1453,7 +1458,8 @@ fn annotated_type_reports_every_annotated_variant() {
             type_: crate::types::ParameterType::parse("() -> Integer"),
             captures: vec![]
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("() -> Integer")
     );
@@ -1463,7 +1469,8 @@ fn annotated_type_reports_every_annotated_variant() {
             type_: crate::types::ParameterType::parse("Integer"),
             by_ref: false
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("Integer")
     );
@@ -1474,7 +1481,8 @@ fn annotated_type_reports_every_annotated_variant() {
             loc: loc(),
             type_: crate::types::ParameterType::parse("Integer")
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("Integer")
     );
@@ -1485,7 +1493,8 @@ fn annotated_type_reports_every_annotated_variant() {
             loc: loc(),
             type_: crate::types::ParameterType::parse("Integer")
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("Integer")
     );
@@ -1494,7 +1503,8 @@ fn annotated_type_reports_every_annotated_variant() {
             type_: crate::types::ParameterType::parse("Point"),
             args: vec![]
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("Point")
     );
@@ -1503,7 +1513,8 @@ fn annotated_type_reports_every_annotated_variant() {
             type_: crate::types::ParameterType::parse("Point"),
             value: Box::new(c("Integer", "0"))
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("Point")
     );
@@ -1512,7 +1523,8 @@ fn annotated_type_reports_every_annotated_variant() {
             type_: crate::types::ParameterType::parse("Integer"),
             value: Box::new(c("Integer", "0"))
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("Integer")
     );
@@ -1522,7 +1534,8 @@ fn annotated_type_reports_every_annotated_variant() {
             target: Box::new(c("Integer", "0")),
             updates: vec![]
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("Point")
     );
@@ -1531,7 +1544,8 @@ fn annotated_type_reports_every_annotated_variant() {
             type_: crate::types::ParameterType::parse("List OF Integer"),
             values: vec![]
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("List OF Integer")
     );
@@ -1540,7 +1554,8 @@ fn annotated_type_reports_every_annotated_variant() {
             type_: crate::types::ParameterType::parse("Map OF String TO Integer"),
             entries: vec![]
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("Map OF String TO Integer")
     );
@@ -1550,7 +1565,8 @@ fn annotated_type_reports_every_annotated_variant() {
             member: "x".to_string(),
             type_: crate::types::ParameterType::parse("Integer")
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("Integer")
     );
@@ -1562,7 +1578,8 @@ fn annotated_type_reports_every_annotated_variant() {
             loc: loc(),
             type_: crate::types::ParameterType::parse("Integer")
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("Integer")
     );
@@ -1573,7 +1590,8 @@ fn annotated_type_reports_every_annotated_variant() {
             loc: loc(),
             type_: crate::types::ParameterType::parse("Boolean")
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("Boolean")
     );
@@ -1583,7 +1601,8 @@ fn annotated_type_reports_every_annotated_variant() {
             member_type: crate::types::ParameterType::parse("Point"),
             value: Box::new(c("Integer", "0"))
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("Shape")
     );
@@ -1591,7 +1610,8 @@ fn annotated_type_reports_every_annotated_variant() {
         IrValue::ResultIsOk {
             value: Box::new(c("Integer", "0"))
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("Boolean")
     );
@@ -1599,13 +1619,24 @@ fn annotated_type_reports_every_annotated_variant() {
         IrValue::ResultError {
             value: Box::new(c("Integer", "0"))
         }
-        .annotated_type()
+        .annotated_parameter_type()
+        .map(|t| t.name())
         .as_deref(),
         Some("Error")
     );
     // Local and Global resolve through the environment, not the node.
-    assert_eq!(IrValue::Local("a".to_string()).annotated_type(), None);
-    assert_eq!(IrValue::Global("g".to_string()).annotated_type(), None);
+    assert_eq!(
+        IrValue::Local("a".to_string())
+            .annotated_parameter_type()
+            .map(|t| t.name()),
+        None
+    );
+    assert_eq!(
+        IrValue::Global("g".to_string())
+            .annotated_parameter_type()
+            .map(|t| t.name()),
+        None
+    );
 }
 
 // --- IrOp::loc -------------------------------------------------------------

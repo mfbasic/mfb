@@ -222,8 +222,7 @@ fn collect_diagnostics_with(
     let env = env;
     for function in &project.functions {
         env.current_file.replace(function.file.clone());
-        env.current_return
-            .replace(function.returns.name().into_owned());
+        env.current_return.replace(function.returns.clone());
         env.current_kind.replace(function.kind.clone());
         env.current_owners
             .replace(function.resource_owners.keys().cloned().collect());
@@ -237,9 +236,8 @@ fn collect_diagnostics_with(
                 .params
                 .iter()
                 .filter(|p| {
-                    let ty = p.type_.name();
-                    env.is_resource_or_resource_union(resource_base_type(&ty))
-                        && crate::codegen::resource::state_type_name(&ty).is_none()
+                    env.is_resource_or_resource_union(&resource_base_type(&p.type_).name())
+                        && crate::codegen::resource::state_type_name(&p.type_.name()).is_none()
                 })
                 .map(|p| p.name.clone())
                 .collect(),
@@ -248,8 +246,7 @@ fn collect_diagnostics_with(
         // needs the RES element marking like any collection declaration).
         if !function.name.starts_with('$') {
             env.current_line.set(function.loc.line);
-            let returns = function.returns.name();
-            env.check_collection_res_axis(resource_base_type(&returns));
+            env.check_collection_res_axis(&resource_base_type(&function.returns));
             env.check_return_state_declaration(function);
         }
         // A declared FUNC must name its return type (`AS T`); lowering stamps
@@ -277,7 +274,7 @@ fn collect_diagnostics_with(
                 &function
                     .params
                     .iter()
-                    .map(|p| (p.name.clone(), p.type_.name().into_owned()))
+                    .map(|p| (p.name.clone(), p.type_.clone()))
                     .collect(),
             )
         {
@@ -290,15 +287,14 @@ fn collect_diagnostics_with(
                 ),
             );
         }
-        let mut locals: HashMap<String, String> = HashMap::new();
+        let mut locals: HashMap<String, ParameterType> = HashMap::new();
         let mut muts: HashMap<String, bool> = HashMap::new();
         let mut seen_default = false;
         for param in &function.params {
             env.current_line.set(param.loc.line);
-            let param_type = param.type_.name();
-            locals.insert(param.name.clone(), param_type.clone().into_owned());
-            env.check_map_key_comparable(&param_type);
-            env.check_collection_res_axis(resource_base_type(&param_type));
+            locals.insert(param.name.clone(), param.type_.clone());
+            env.check_map_key_comparable(&param.type_);
+            env.check_collection_res_axis(&resource_base_type(&param.type_));
             // Every parameter must declare an `AS` type (lambda parameters
             // included — syntaxcheck checks both forms with this rule).
             if param.type_ == ParameterType::Unknown {
@@ -331,11 +327,13 @@ fn collect_diagnostics_with(
                 env.check_value(default, &locals);
                 // A parameter default must match the declared parameter type —
                 // syntaxcheck's TYPE_DEFAULT_VALUE_MISMATCH (skip-if-unknown).
-                let param_type = param.type_.name();
-                let expected = resource_base_type(&param_type);
-                if !expected.is_empty() && expected != "Unknown" && expected != "Nothing" {
+                let expected = resource_base_type(&param.type_);
+                if !matches!(expected, ParameterType::Unknown | ParameterType::Nothing)
+                    && !expected.name().is_empty()
+                {
                     if let Some(actual) = env.infer_type(default, &locals) {
-                        if !env.expression_compatible(expected, &actual, default) {
+                        if !env.expression_compatible(&expected, &actual, default) {
+                            let (actual, expected) = (actual.name(), expected.name());
                             env.emit(
                                 "TYPE_DEFAULT_VALUE_MISMATCH",
                                 format!(
@@ -363,10 +361,7 @@ fn collect_diagnostics_with(
         let mut non_owning: HashSet<String> = function
             .params
             .iter()
-            .filter(|p| {
-                let ty = p.type_.name();
-                env.is_resource_or_resource_union(resource_base_type(&ty))
-            })
+            .filter(|p| env.is_resource_or_resource_union(&resource_base_type(&p.type_).name()))
             .map(|p| p.name.clone())
             .collect();
         // A RES binding whose ownership floats into a collection
@@ -409,10 +404,10 @@ fn collect_diagnostics_with(
     for binding in &project.bindings {
         env.current_file.replace(binding.file.clone());
         env.current_line.set(binding.loc.line);
-        let binding_type = binding.type_.name();
+        let binding_type = &binding.type_;
         if binding.explicit_type {
-            env.check_map_key_comparable(&binding_type);
-            env.check_collection_res_axis(resource_base_type(&binding_type));
+            env.check_map_key_comparable(binding_type);
+            env.check_collection_res_axis(&resource_base_type(binding_type));
         }
         if binding.value.is_none() {
             if !binding.explicit_type {
@@ -431,7 +426,7 @@ fn collect_diagnostics_with(
                         binding.name
                     ),
                 );
-            } else if !env.is_defaultable(&binding_type, &mut HashSet::new()) {
+            } else if !env.is_defaultable(binding_type, &mut HashSet::new()) {
                 env.emit(
                     "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
                     format!(
@@ -447,9 +442,9 @@ fn collect_diagnostics_with(
             env.check_value_captures(value, None);
             env.check_value(value, &HashMap::new());
             let range_errored =
-                env.check_literal_range_errored(resource_base_type(&binding_type), value);
+                env.check_literal_range_errored(&resource_base_type(binding_type), value);
             if !range_errored && binding.explicit_type {
-                env.check_binding_type(&binding.name, &binding_type, value, &HashMap::new());
+                env.check_binding_type(&binding.name, binding_type, value, &HashMap::new());
             }
         }
     }
@@ -523,13 +518,13 @@ struct FnSig {
     total: usize,
     optional: usize,
     /// Declared parameter types, positional (for argument-type checking).
-    params: Vec<String>,
+    params: Vec<ParameterType>,
     /// `func` or `sub` — a SUB call produces no value (TYPE_SUB_HAS_NO_VALUE).
     kind: String,
     /// The declared return type. A call node carries its own result type, which
     /// on decoded package IR is attacker-controlled; this is the independent
     /// truth it is reconciled against (`check_call_result_type`).
-    returns: String,
+    returns: ParameterType,
 }
 
 /// The reconstructed typing context: everything the semantic rules need to
@@ -543,7 +538,7 @@ struct TypeEnv {
     /// Internal (project + merged-package) function signatures, for arity.
     functions: HashMap<String, FnSig>,
     /// Global binding name → declared type.
-    globals: HashMap<String, String>,
+    globals: HashMap<String, ParameterType>,
     /// Global binding name → whether it was declared `MUT` (assignable).
     global_muts: HashMap<String, bool>,
     /// User-declared native resource type → its registered close op (dotted
@@ -556,11 +551,11 @@ struct TypeEnv {
     closure_counts: HashMap<String, HashSet<usize>>,
     /// Record type name → (member name → declared member type), for chained
     /// member-access type inference.
-    field_types: HashMap<String, HashMap<String, String>>,
+    field_types: HashMap<String, HashMap<String, ParameterType>>,
     /// Record type name → its direct fields as ordered (name, type) pairs, for
     /// positional constructor checking (mirrors syntaxcheck's `TypeInfo.fields`,
     /// which is declaration-ordered and not include-expanded).
-    record_field_lists: HashMap<String, Vec<(String, String)>>,
+    record_field_lists: HashMap<String, Vec<(String, ParameterType)>>,
     /// Enum type name → its complete member-name set, for MATCH exhaustiveness.
     enums: HashMap<String, HashSet<String>>,
     /// Accumulated diagnostics (plan-20-E..I); the checker pushes here instead
@@ -574,7 +569,7 @@ struct TypeEnv {
     current_file: RefCell<String>,
     /// Declared return type of the function currently being checked (for
     /// RETURN-type rules).
-    current_return: RefCell<String>,
+    current_return: RefCell<ParameterType>,
     /// `kind` (`func`/`sub`) of the function currently being checked.
     current_kind: RefCell<String>,
     /// Whether a type-poisoning rule fired while checking the current value —
@@ -644,8 +639,8 @@ impl TypeEnv {
         let mut records = HashMap::new();
         let mut unions = HashMap::new();
         let mut enums: HashMap<String, HashSet<String>> = HashMap::new();
-        let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
-        let mut record_field_lists: HashMap<String, Vec<(String, String)>> = HashMap::new();
+        let mut field_types: HashMap<String, HashMap<String, ParameterType>> = HashMap::new();
+        let mut record_field_lists: HashMap<String, Vec<(String, ParameterType)>> = HashMap::new();
         let mut private_fields: HashMap<String, HashSet<String>> = HashMap::new();
         let type_decl_info: HashMap<String, (String, String)> = project
             .types
@@ -673,7 +668,7 @@ impl TypeEnv {
                         ty.name.clone(),
                         ty.fields
                             .iter()
-                            .map(|f| (f.name.clone(), f.type_.name().into_owned()))
+                            .map(|f| (f.name.clone(), f.type_.clone()))
                             .collect(),
                     );
                     let private: HashSet<String> = ty
@@ -713,7 +708,7 @@ impl TypeEnv {
                                 variant
                                     .fields
                                     .iter()
-                                    .map(|f| (f.name.clone(), f.type_.name().into_owned()))
+                                    .map(|f| (f.name.clone(), f.type_.clone()))
                                     .collect()
                             });
                     }
@@ -733,13 +728,9 @@ impl TypeEnv {
                         .iter()
                         .filter(|p| p.default.is_some())
                         .count(),
-                    params: function
-                        .params
-                        .iter()
-                        .map(|p| p.type_.name().into_owned())
-                        .collect(),
+                    params: function.params.iter().map(|p| p.type_.clone()).collect(),
                     kind: function.kind.clone(),
-                    returns: function.returns.name().into_owned(),
+                    returns: function.returns.clone(),
                 },
             );
         }
@@ -747,7 +738,7 @@ impl TypeEnv {
         let globals = project
             .bindings
             .iter()
-            .map(|b| (b.name.clone(), b.type_.name().into_owned()))
+            .map(|b| (b.name.clone(), b.type_.clone()))
             .collect();
         let global_muts = project
             .bindings
@@ -789,7 +780,7 @@ impl TypeEnv {
             diags: RefCell::new(Vec::new()),
             current_line: Cell::new(0),
             current_file: RefCell::new(String::new()),
-            current_return: RefCell::new(String::new()),
+            current_return: RefCell::new(ParameterType::Unknown),
             current_kind: RefCell::new(String::new()),
             poisoned: Cell::new(false),
             // Strict by default: the package path (and every unit test) builds the
@@ -955,8 +946,8 @@ impl TypeEnv {
     pub(super) fn infer_type(
         &self,
         value: &IrValue,
-        locals: &HashMap<String, String>,
-    ) -> Option<String> {
+        locals: &HashMap<String, ParameterType>,
+    ) -> Option<ParameterType> {
         self.infer_type_depth(value, locals, 0)
     }
 
@@ -968,9 +959,9 @@ impl TypeEnv {
     pub(super) fn infer_type_depth(
         &self,
         value: &IrValue,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
         depth: usize,
-    ) -> Option<String> {
+    ) -> Option<ParameterType> {
         if depth > MAX_DEPTH {
             return None;
         }
@@ -980,7 +971,7 @@ impl TypeEnv {
             IrValue::MemberAccess { target, member, .. } => {
                 // Prefer the annotated member type; fall back to resolving the
                 // field through the target's record type for older shapes.
-                if let Some(annotated) = usable_type(value.annotated_type().as_deref()) {
+                if let Some(annotated) = usable_type(value.annotated_parameter_type()) {
                     return Some(annotated);
                 }
                 let target_type = self.infer_type_depth(target, locals, depth + 1)?;
@@ -988,22 +979,25 @@ impl TypeEnv {
             }
             _ => {}
         }
-        usable_type(value.annotated_type().as_deref())
+        usable_type(value.annotated_parameter_type())
     }
 
     /// The declared type of a record member, for chained member-access
     /// inference. Only resolves through record types whose fields are known.
-    pub(super) fn field_type(&self, type_name: &str, member: &str) -> Option<String> {
-        if let Some(fields) = builtin_type_fields(type_name) {
+    pub(super) fn field_type(&self, type_: &ParameterType, member: &str) -> Option<ParameterType> {
+        // The record is identified by NAME (the field tables are name-keyed
+        // declaration maps), so the type renders for the lookup.
+        let type_name = type_.name();
+        if let Some(fields) = builtin_type_fields(&type_name) {
             return fields
                 .iter()
                 .find(|(name, _)| *name == member)
-                .map(|(_, type_)| (*type_).to_string());
+                .map(|(_, type_)| type_.clone());
         }
         // Project records store field types on the IrType; look them up via the
         // dedicated map built alongside `records`.
         self.field_types
-            .get(type_name)
+            .get(type_name.as_ref())
             .and_then(|fields| fields.get(member).cloned())
     }
 }
@@ -1015,19 +1009,29 @@ impl TypeEnv {
 /// produces `String`, whatever their operands. Arithmetic produces its operand
 /// type, but only when both operands agree — a mixed or unknown pair is left
 /// underived so no valid program is rejected.
-fn derived_binary_type(op: &str, left: Option<&str>, right: Option<&str>) -> Option<String> {
+fn derived_binary_type(
+    op: &str,
+    left: Option<&ParameterType>,
+    right: Option<&ParameterType>,
+) -> Option<ParameterType> {
     match op {
-        "AND" | "OR" | "XOR" | "<" | ">" | "<=" | ">=" | "=" | "<>" => Some("Boolean".to_string()),
-        "&" => Some("String".to_string()),
+        "AND" | "OR" | "XOR" | "<" | ">" | "<=" | ">=" | "=" | "<>" => Some(ParameterType::Boolean),
+        "&" => Some(ParameterType::String),
         "+" | "-" | "*" | "/" | "MOD" | "^" => match (left, right) {
             // Money's dimensional algebra is not the "same type in, same type out"
             // heuristic (`M / M → Float`, `M * k → Money`), so consult the lattice
             // whenever a Money operand is present (plan-29-A §4.2).
-            (Some(left), Some(right)) if left == "Money" || right == "Money" => {
-                crate::numeric::money_result_type(op, left == "Money", right == "Money")
-                    .map(str::to_string)
+            (Some(left), Some(right))
+                if matches!(left, ParameterType::Money)
+                    || matches!(right, ParameterType::Money) =>
+            {
+                crate::numeric::typed_money_result_type(
+                    op,
+                    matches!(left, ParameterType::Money),
+                    matches!(right, ParameterType::Money),
+                )
             }
-            (Some(left), Some(right)) if left == right => Some(left.to_string()),
+            (Some(left), Some(right)) if left == right => Some(left.clone()),
             _ => None,
         },
         _ => None,
@@ -1036,10 +1040,10 @@ fn derived_binary_type(op: &str, left: Option<&str>, right: Option<&str>) -> Opt
 
 /// The result type a unary operator produces from its operand type: `NOT` is
 /// always `Boolean`, and negation preserves its operand's numeric type.
-fn derived_unary_type(op: &str, operand: Option<&str>) -> Option<String> {
+fn derived_unary_type(op: &str, operand: Option<&ParameterType>) -> Option<ParameterType> {
     match op {
-        "NOT" => Some("Boolean".to_string()),
-        "-" => operand.map(str::to_string),
+        "NOT" => Some(ParameterType::Boolean),
+        "-" => operand.cloned(),
         _ => None,
     }
 }
@@ -1048,10 +1052,22 @@ fn derived_unary_type(op: &str, operand: Option<&str>) -> Option<String> {
 /// explicit `"Unknown"` marker lowering stamps when it cannot name a type.
 /// Filtering `"Unknown"` here is what keeps the type-relational rules from
 /// rejecting a node whose type simply could not be reconstructed (plan-20-C).
-fn usable_type(annotated: Option<&str>) -> Option<String> {
+/// The annotated type of a node, when it is usable at all.
+///
+/// plan-106-A/B: takes and returns a [`ParameterType`]. It reproduces the string
+/// form's two rejections exactly:
+///
+/// * the `Unknown` **sentinel** — and the variant test is complete for every
+///   parsed input, because `parse("Unknown")` returns the variant rather than a
+///   nominal (`src/types.rs:274`);
+/// * an **empty** spelling, which is what a malformed or hostile decoded package
+///   IR node yields (`parse("")` → `Named("")`). Kept as a name test because that
+///   is precisely a check on the *spelling*, and this is a hardening path.
+fn usable_type(annotated: Option<ParameterType>) -> Option<ParameterType> {
     match annotated {
-        Some(t) if !t.is_empty() && t != "Unknown" => Some(t.to_string()),
-        _ => None,
+        None | Some(ParameterType::Unknown) => None,
+        Some(type_) if type_.name().is_empty() => None,
+        Some(type_) => Some(type_),
     }
 }
 
@@ -1151,11 +1167,16 @@ pub(crate) fn is_resource_element_pointer(value: &IrValue) -> bool {
 
 /// Compiler-owned record types users may neither construct nor WITH-update —
 /// mirrors `syntaxcheck::helpers::read_only_record_type`.
-fn read_only_record_type(type_name: &str) -> bool {
-    crate::codegen::builtins::term::is_read_only_record(type_name)
+fn read_only_record_type(type_: &ParameterType) -> bool {
+    // A `MapEntry OF K TO V` is read-only structurally; the rest are nominal
+    // lookups into per-package read-only tables, which are keyed by NAME.
+    if matches!(type_, ParameterType::MapEntryOf(_, _)) {
+        return true;
+    }
+    let type_name = type_.name();
+    crate::codegen::builtins::term::is_read_only_record(&type_name)
         || type_name == crate::codegen::builtins::net::ADDRESS_TYPE
         || type_name == crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE
-        || type_name.starts_with("MapEntry OF ")
 }
 
 /// Whether `name` is a built-in resource type (has a registered close op).
@@ -1167,9 +1188,72 @@ fn is_resource_name(name: &str) -> bool {
 /// trailing `STATE T` clause (`File STATE Cursor` → `File`). Composite-safe: a
 /// `STATE` nested inside a thread plane (`Thread OF RES File STATE Cursor TO Out`)
 /// is left intact (plan-54, via `base_resource_name`'s top-level guard).
-fn resource_base_type(type_: &str) -> &str {
+fn resource_base_type(type_: &ParameterType) -> ParameterType {
+    let inner = strip_res(type_);
+    // The ` STATE T` clause rides INSIDE the resource's nominal spelling
+    // (`parse` has no `STATE` arm outside a thread plane), so it is stripped off
+    // the name; `base_resource_name`'s top-level guard leaves a `STATE` nested in
+    // a thread plane intact (plan-54).
+    let name = inner.name();
+    let base = crate::codegen::resource::base_resource_name(&name);
+    if base == name {
+        inner.clone()
+    } else {
+        ParameterType::parse(base)
+    }
+}
+
+/// The name-domain twin of [`resource_base_type`], for the callers that hold a
+/// type SPELLING rather than a type: the `LINK` block's raw AST strings (an
+/// un-elaborated `crate::ast::LinkBlock` — see `src/hir/mod.rs:435`).
+fn resource_base_type_name(type_: &str) -> &str {
     let t = type_.strip_prefix("RES ").unwrap_or(type_);
     crate::codegen::resource::base_resource_name(t)
+}
+
+/// Whether a type is a thread handle — structurally, **or** by a spelling that
+/// merely begins `Thread`/`ThreadWorker`.
+///
+/// The name test is not redundant, and it is not laziness: this checker's whole
+/// job is decoded, attacker-controlled package IR (PKG-02), where a type string
+/// need not be well formed. `ParameterType::parse` builds a
+/// [`ThreadHandle`](ParameterType::ThreadHandle) only from the complete
+/// `Thread OF Msg [RES R] TO Out` shape; a truncated `Thread OF Integer` falls
+/// through to an opaque `Named`. A crafted `.mfp` can carry exactly that, and so
+/// can a legitimate `Map OF Thread OF Integer TO Integer`, whose key the
+/// `Map OF K TO V` grammar cannot spell unambiguously (`split_top_level_to`
+/// takes the FIRST ` TO `). The pre-plan-106 code was a bare
+/// `starts_with("Thread")`, so keeping the name arm preserves its exact reach
+/// while the structural arm handles every well-formed handle.
+///
+/// The name arm is checked on a WORD boundary — `Thread`/`ThreadWorker` alone,
+/// or followed by ` OF `. The pre-plan-106 test was a bare
+/// `starts_with("Thread")`, which also matched an ordinary user record named
+/// `Threadbare` and would have mis-reported it as owning a thread handle. That
+/// over-match is deliberately dropped; nothing in the corpus relies on it
+/// (verified by the full `*-invalid` diagnostic corpus + `artifact-gate all`).
+///
+/// Pinned by `truncated_thread_spelling_still_counts_as_a_thread`.
+fn is_thread_type(type_: &ParameterType) -> bool {
+    if matches!(type_, ParameterType::ThreadHandle { .. }) {
+        return true;
+    }
+    let name = type_.name();
+    for keyword in [crate::types::THREAD_TYPE, crate::types::THREAD_WORKER_TYPE] {
+        if name == keyword || name.starts_with(&format!("{keyword} OF ")) {
+            return true;
+        }
+    }
+    false
+}
+
+/// A type with its `RES ` ownership marker removed, if it carries one — the
+/// structural form of the `strip_prefix("RES ")` this replaced.
+fn strip_res(type_: &ParameterType) -> &ParameterType {
+    match type_ {
+        ParameterType::Res(inner) => inner,
+        other => other,
+    }
 }
 
 /// Collect the names of every `Local` read anywhere in an op's value positions
@@ -1215,18 +1299,11 @@ fn collect_local_reads_value(value: &IrValue, out: &mut Vec<String>) {
     });
 }
 
-/// Parse a `Map OF K TO V` type string into `(K, V)`.
-fn parse_map(type_: &str) -> Option<(&str, &str)> {
-    let rest = type_.strip_prefix("Map OF ")?;
-    let idx = rest.find(" TO ")?;
-    Some((&rest[..idx], &rest[idx + " TO ".len()..]))
-}
-
 /// Build a `member → type` map from a record's declared fields.
-fn field_type_map(fields: &[IrField]) -> HashMap<String, String> {
+fn field_type_map(fields: &[IrField]) -> HashMap<String, ParameterType> {
     fields
         .iter()
-        .map(|f| (f.name.clone(), f.type_.name().into_owned()))
+        .map(|f| (f.name.clone(), f.type_.clone()))
         .collect()
 }
 
@@ -1234,17 +1311,17 @@ fn field_type_map(fields: &[IrField]) -> HashMap<String, String> {
 /// through this local table rather than the project type table. Syntaxcheck types
 /// their members inline in `infer_member`; listed here so member-access inference
 /// resolves `err.source.line` chains and the read-only WITH check sees ErrorLoc.
-fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
+fn builtin_type_fields(name: &str) -> Option<Vec<(&'static str, ParameterType)>> {
     match name {
-        "Error" => Some(&[
-            ("code", "Integer"),
-            ("message", "String"),
-            ("source", "ErrorLoc"),
+        "Error" => Some(vec![
+            ("code", ParameterType::Integer),
+            ("message", ParameterType::String),
+            ("source", ParameterType::named("ErrorLoc")),
         ]),
-        "ErrorLoc" => Some(&[
-            ("filename", "String"),
-            ("line", "Integer"),
-            ("char", "Integer"),
+        "ErrorLoc" => Some(vec![
+            ("filename", ParameterType::String),
+            ("line", ParameterType::Integer),
+            ("char", ParameterType::Integer),
         ]),
         _ => None,
     }

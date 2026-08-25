@@ -12,14 +12,15 @@ impl TypeEnv {
         &self,
         op: &str,
         operand: &IrValue,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         let Some(t) = self.infer_type(operand, locals) else {
             return;
         };
         match op {
             "NOT" => {
-                if !matches!(t.as_str(), "Boolean" | "Unknown") {
+                if !matches!(t, ParameterType::Boolean | ParameterType::Unknown) {
+                    let t = t.name();
                     self.emit(
                         "TYPE_UNARY_OPERATOR_MISMATCH",
                         format!("Operator `NOT` requires a Boolean operand, got {t}."),
@@ -28,9 +29,15 @@ impl TypeEnv {
             }
             "-" => {
                 if !matches!(
-                    t.as_str(),
-                    "Integer" | "Byte" | "Float" | "Fixed" | "Money" | "Unknown"
+                    t,
+                    ParameterType::Integer
+                        | ParameterType::Byte
+                        | ParameterType::Float
+                        | ParameterType::Fixed
+                        | ParameterType::Money
+                        | ParameterType::Unknown
                 ) {
+                    let t = t.name();
                     self.emit(
                         "TYPE_UNARY_OPERATOR_MISMATCH",
                         format!("Unary `-` requires a numeric operand, got {t}."),
@@ -54,7 +61,7 @@ impl TypeEnv {
         &self,
         target: &str,
         argc: usize,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         // Calling something that is not a function — syntaxcheck's
         // SYMBOL_NOT_CALLABLE: a package constant (`math.pi()`), or a local
@@ -70,7 +77,9 @@ impl TypeEnv {
             // A local of FUNC type is an indirect call; its arity is the
             // function type's, not a named signature. Any other *known* local
             // type is not callable at all.
-            if !t.is_empty() && t != "Unknown" && !t.starts_with("FUNC") {
+            if !t.name().is_empty()
+                && !matches!(t, ParameterType::Unknown | ParameterType::Func(_, _, _))
+            {
                 self.emit(
                     "SYMBOL_NOT_CALLABLE",
                     format!("Local binding or parameter `{target}` is not callable."),
@@ -105,7 +114,7 @@ impl TypeEnv {
         &self,
         target: &str,
         args: &[IrValue],
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         if locals.contains_key(target) {
             return; // indirect call — no named signature
@@ -120,13 +129,14 @@ impl TypeEnv {
             let Some(actual) = self.infer_type(arg, locals) else {
                 continue;
             };
-            self.check_argument_state_agreement(target, index, param_type, &actual);
+            self.check_argument_state_agreement(target, index, &param_type.name(), &actual.name());
             // Strip a resource argument's `STATE T` clause; the parameter type
             // is the bare resource type.
-            let actual = resource_base_type(&actual).to_string();
+            let actual = resource_base_type(&actual);
             let param_type = resource_base_type(param_type);
-            self.check_literal_range(param_type, arg);
-            if !self.expression_compatible(param_type, &actual, arg) {
+            self.check_literal_range(&param_type, arg);
+            if !self.expression_compatible(&param_type, &actual, arg) {
+                let (actual, param_type) = (actual.name(), param_type.name());
                 self.emit(
                     "TYPE_CALL_ARGUMENT_MISMATCH",
                     format!(
@@ -162,7 +172,7 @@ impl TypeEnv {
         &self,
         target: &str,
         args: &[IrValue],
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         if target != crate::codegen::builtins::thread::TRANSFER_RESOURCE {
             return;
@@ -176,11 +186,15 @@ impl TypeEnv {
         ) else {
             return;
         };
-        let Some(plane_resource) = crate::types::thread_resource(&handle_type) else {
+        // The thread plane's resource and its `STATE` clause both ride inside the
+        // handle's rendered spelling, so these read off the names.
+        let handle_name = handle_type.name();
+        let resource_name = resource_type.name();
+        let Some(plane_resource) = crate::types::thread_resource(&handle_name) else {
             return;
         };
         let plane_state = crate::codegen::resource::state_type_name(plane_resource);
-        let resource_state = crate::codegen::resource::state_type_name(&resource_type);
+        let resource_state = crate::codegen::resource::state_type_name(&resource_name);
         if plane_state == resource_state {
             return; // both bare, or the same state — the agreeing case.
         }
@@ -284,7 +298,7 @@ impl TypeEnv {
         let Some(state_type) = crate::codegen::resource::state_type_name(&returns) else {
             return;
         };
-        if !self.is_defaultable(state_type, &mut HashSet::new()) {
+        if !self.is_defaultable(&ParameterType::parse(state_type), &mut HashSet::new()) {
             self.emit(
                 "TYPE_STATE_INVALID",
                 format!(
@@ -345,7 +359,7 @@ impl TypeEnv {
         name: &str,
         type_: &str,
         value: &Option<IrValue>,
-        locals: &HashMap<String, String>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         let Some(value) = value else {
             return;
@@ -370,7 +384,8 @@ impl TypeEnv {
         let Some(actual) = self.infer_type(value, locals) else {
             return;
         };
-        let Some(value_state) = crate::codegen::resource::state_type_name(&actual) else {
+        let actual_name = actual.name();
+        let Some(value_state) = crate::codegen::resource::state_type_name(&actual_name) else {
             return; // stateless initializer: attach (or stay bare) — both legal.
         };
         match crate::codegen::resource::state_type_name(type_) {

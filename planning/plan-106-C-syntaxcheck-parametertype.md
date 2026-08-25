@@ -39,8 +39,8 @@ See plan-106-A §Prerequisites (shared). Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-106-B complete | verify typed; B's boxes ticked | NOT MET until B lands |
-| plan-105-B's `UserOf` exists | `rg -n 'UserOf' src/types.rs` → hit | NOT MET until 105 lands (already gated at 106 level) |
+| plan-106-B complete | verify typed; B's boxes ticked | **MET** 2026-08-24 — B's boxes all ticked; `TypeEnv` stores + `infer_type` are `ParameterType` |
+| plan-105-B's `UserOf` exists | `rg -n 'UserOf' src/types.rs` → hit | **MET** 2026-08-24 — `src/types.rs:82` declares `UserOf(Symbol, Vec<ParameterType>)` |
 
 ## 1. Goal
 
@@ -144,13 +144,94 @@ None. Diagnostics byte-identical.
 
 ### Phase 1 — mapping table + thread-shape verification
 
-- [ ] Read both enums + every `Thread(`/`ThreadWorker(` match arm in
+- [x] Read both enums + every `Thread(`/`ThreadWorker(` match arm in
       syntaxcheck; record the complete variant mapping table here, including
       the `res_state` resolution (folded spelling or new accessor).
-- [ ] Read `types.rs::parse_type`'s symbol-table touches; record the
+
+**The mapping table** (`src/syntaxcheck/mod.rs:27` vs `src/types.rs:23`):
+
+| syntaxcheck `Type` | `ParameterType` | Note |
+|---|---|---|
+| `Boolean` `Byte` `Fixed` `Float` `Integer` `Money` `Nothing` `String` | same-named variants | exact |
+| `List(T)` | `ListOf(T)` | exact |
+| `Set(T)` | `SetOf(T)` | exact |
+| `Map(K,V)` | `MapOf(K,V)` | exact |
+| `Result(T)` | `ResultOf(T)` | exact |
+| `Res(T)` | `Res(T)` | exact |
+| `Function{params,return_type,isolated}` | `Func(params, ret, isolated)` | exact, incl. the `isolated` flag |
+| `Unknown` | `Unknown` | exact |
+| `Error` | `Named("Error")` | no variant; a nominal in the language |
+| `ErrorLoc` | `Named("ErrorLoc")` | ditto |
+| `Scalar` | `Named("Scalar")` | ditto |
+| `AttributedString` | `Named("AttributedString")` | **not** `ParameterType::AttributeString` — that variant renders `"AttributeString"`, no `d`, a spelling the language's attributed-text type never uses (verified in letter A, `ir/lower.rs::attributed_string_type`) |
+| `User(String)` | `Named(sym)` or `UserOf(sym, args)` | scope-resolved; `parse` classifies the grammar, syntaxcheck keeps classifying the name |
+| `Thread(msg, res, res_state, out)` | `ThreadHandle{worker:false, msg, res, out}` | **4 slots → 3 — see below** |
+| `ThreadWorker(...)` | `ThreadHandle{worker:true, …}` | ditto |
+
+- [x] **The `res_state` question is ANSWERED, and the answer is: a genuine
+      expressiveness gap exists.** The plan asked whether any rule
+      *distinguishes* `res` from `res_state` in a way the folded spelling
+      cannot. Two do:
+
+      1. `resources.rs:421-441` (`thread.transfer` / `thread.accept`) checks the
+         two planes **separately and differently**, with distinct diagnostics:
+         `require_thread_sendable_type(…, "…resource STATE type", resource_state)`
+         runs whether or not the `resource` arm then fires (bug-301 G4 — the
+         STATE payload is deep-copied across the boundary, so it must be
+         sendable in its own right).
+      2. `types.rs:146-167` (`compatible`) compares the planes with two
+         independent `compatible_optional` calls, so a `Some` state against a
+         `None` state is decidable on its own axis.
+
+      `ParameterType::ThreadHandle` folds the STATE into the `res` type's
+      NOMINAL spelling (`Named("File STATE Cursor")`), so neither rule can be
+      written against it as-is.
+
+      Per this plan's own instruction ("the fix is a `ParameterType` accessor
+      … never a parallel enum"), Phase 2 must add that accessor. **Letter B
+      independently hit the same wall**: its five surviving production
+      `ParameterType::parse` sites all exist to recover a STATE clause from
+      inside a nominal (plan-106-B §Phase 2 census). So this is not a
+      syntaxcheck-local problem — it is the one hole left in the `ParameterType`
+      vocabulary, and closing it serves B's residue, C's swap, and E's census
+      at once.
+
+      **Recorded decision:** give `ParameterType` a first-class STATE
+      representation (an accessor pair at minimum — `state_of(&self)` /
+      `with_state` already exists from letter A — and, if the corpus needs the
+      independent axis, a variant). Sized and executed in Phase 2; the change is
+      a vocabulary addition, so `parse`/`name` must stay byte-exact
+      round-tripping (`hir-parse-name-roundtrip-load-bearing`).
+
+- [x] Read `types.rs::parse_type`'s symbol-table touches; record the
       grammar-vs-scope split.
 
+`parse_type` (`src/syntaxcheck/types.rs:15`) does exactly **five** things that
+`ParameterType::parse` does not, and they are the whole of what Phase 2 must
+preserve. Everything else in its 1,077 lines is the type grammar, which the
+canonical parser already owns.
+
+| # | Non-grammar step | What it is |
+|---|---|---|
+| 1 | `base_resource_name(name)` at the top — strips a top-level ` STATE T` | **Deliberately lossy.** Its own comment: "`Type` has no STATE concept … a `fs::File STATE Cursor` IS a `File` for every purpose `Type` serves." syntaxcheck carries the clause *beside* the type, in `LocalInfo::state_type` / `ParamSig`. |
+| 2 | `builtins::is_qualified_builtin_resource(name)` | Registry lookup: a qualified builtin **resource** (`fs.File`) keeps its qualified identity, because resources are package-scoped (plan-97). |
+| 3 | `builtins::qualified_builtin_type(name)` | Registry lookup: a qualified builtin **value** type (`net.Url`) collapses to its bare internal id (plan-03-http §A.1/§B.2). |
+| 4 | the thread arm peels `state_type_name(resource)` into the separate `resource_state` slot | The 4th-slot split — see the `res_state` finding above. |
+| 5 | `self.user_types.contains(other)` in the tail | **A no-op today.** All three tail arms (`is_builtin_type`, `user_types.contains`, and the bare fallback) produce the identical `Type::User(other.to_string())`. The symbol table is consulted and the answer is discarded. |
+
+**Correction to this plan's premise** (recorded in §Corrections below): §2's
+"Verified properties" says `User(String)` "is scope-resolved at parse time (its
+parser consults symbol tables)" and that the swap "must preserve WHERE
+resolution happens". Row 5 shows the scope consultation is inert — the
+discrimination it performs changes nothing. The real non-grammar work is rows
+1–4: two **registry** rewrites (not scope), the STATE peel, and the thread-plane
+split. That makes Phase 2 simpler than the plan assumed in one respect (no
+scope threading to preserve) and harder in another (the STATE peel is load
+-bearing and has no `ParameterType` equivalent — see the `res_state` finding).
+
 Acceptance: the mapping table exists in this section with no UNVERIFIED rows.
+**MET** — the table above is complete, and both flagged UNVERIFIED items (the
+`res_state` distinction, the grammar-vs-scope split) are answered with citations.
 Commit: —
 
 ### Phase 2 — the swap, module by module
@@ -186,7 +267,28 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+### 1. `User(String)` is NOT scope-resolved — the symbol-table consultation is inert
+
+§2 Verified properties asserts "`User(String)` is scope-resolved at parse time
+(its parser consults symbol tables)" and makes preserving that a Phase-2
+requirement. Measured by reading `parse_type`'s tail
+(`src/syntaxcheck/types.rs:104-107`):
+
+```rust
+other if builtins::is_builtin_type(other) => Type::User(other.to_string()),
+other if self.user_types.contains(other)  => Type::User(other.to_string()),
+other                                     => Type::User(other.to_string()),
+```
+
+All three arms are the same expression. The symbol table is queried and the
+answer thrown away, so there is no scope-dependent classification to preserve
+and the Open Decision's `resolve_type_name(&str, scope)` seam has nothing to
+carry. What *is* scope-ish are two **registry** rewrites (qualified builtin
+resource keeps its qualifier; qualified builtin value collapses to a bare id),
+which are global lookups, not lexical scope.
+
+Phase 2 is re-scoped accordingly: the seam it needs is a *registry+STATE*
+adapter, not a scope resolver.
 
 ## Summary
 
