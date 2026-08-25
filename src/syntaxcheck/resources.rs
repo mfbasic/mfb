@@ -45,14 +45,14 @@ impl<'a> SyntaxChecker<'a> {
         seen: &mut HashSet<String>,
     ) -> bool {
         match type_ {
-            Type::Thread(..) | Type::ThreadWorker(..) => true,
-            Type::List(element) => self.contains_thread_with_seen(element, seen),
-            Type::Set(element) => self.contains_thread_with_seen(element, seen),
-            Type::Map(key, value) => {
+            Type::ThreadHandle { .. } => true,
+            Type::ListOf(element) => self.contains_thread_with_seen(element, seen),
+            Type::SetOf(element) => self.contains_thread_with_seen(element, seen),
+            Type::MapOf(key, value) => {
                 self.contains_thread_with_seen(key, seen)
                     || self.contains_thread_with_seen(value, seen)
             }
-            Type::Result(success) => self.contains_thread_with_seen(success, seen),
+            Type::ResultOf(success) => self.contains_thread_with_seen(success, seen),
             Type::Res(inner) => self.contains_thread_with_seen(inner, seen),
             Type::User(name) => {
                 if !seen.insert(name.clone()) {
@@ -87,17 +87,17 @@ impl<'a> SyntaxChecker<'a> {
         seen: &mut HashSet<String>,
     ) -> bool {
         match type_ {
-            Type::Thread(..) | Type::ThreadWorker(..) => true,
+            Type::ThreadHandle { .. } => true,
             Type::User(name) if self.resource_registry.is_resource(name) => true,
-            Type::List(element) => self.contains_resource_or_thread_with_seen(element, seen),
-            Type::Set(element) => self.contains_resource_or_thread_with_seen(element, seen),
-            Type::Map(key, value) => {
+            Type::ListOf(element) => self.contains_resource_or_thread_with_seen(element, seen),
+            Type::SetOf(element) => self.contains_resource_or_thread_with_seen(element, seen),
+            Type::MapOf(key, value) => {
                 self.contains_resource_or_thread_with_seen(key, seen)
                     || self.contains_resource_or_thread_with_seen(value, seen)
             }
-            Type::Result(success) => self.contains_resource_or_thread_with_seen(success, seen),
+            Type::ResultOf(success) => self.contains_resource_or_thread_with_seen(success, seen),
             Type::Res(inner) => self.contains_resource_or_thread_with_seen(inner, seen),
-            Type::Function { .. } => false,
+            Type::Func(..) => false,
             Type::User(name) => {
                 if !seen.insert(name.clone()) {
                     return false;
@@ -208,15 +208,15 @@ impl<'a> SyntaxChecker<'a> {
             // never another resource. A standalone resource stays non-copyable
             // (the `Type::User` arm below); §15.6.
             Type::Res(_) => true,
-            Type::List(element) => self.is_copyable_type_with_seen(element, seen),
-            Type::Set(element) => self.is_copyable_type_with_seen(element, seen),
-            Type::Map(key, value) => {
+            Type::ListOf(element) => self.is_copyable_type_with_seen(element, seen),
+            Type::SetOf(element) => self.is_copyable_type_with_seen(element, seen),
+            Type::MapOf(key, value) => {
                 self.is_copyable_type_with_seen(key, seen)
                     && self.is_copyable_type_with_seen(value, seen)
             }
-            Type::Result(success) => self.is_copyable_type_with_seen(success, seen),
-            Type::Function { .. } => true,
-            Type::Thread(..) | Type::ThreadWorker(..) => false,
+            Type::ResultOf(success) => self.is_copyable_type_with_seen(success, seen),
+            Type::Func(..) => true,
+            Type::ThreadHandle { .. } => false,
             Type::User(name) => {
                 if self.resource_registry.is_resource(name) {
                     return false;
@@ -269,16 +269,16 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Scalar
             | Type::String
             | Type::Unknown => true,
-            Type::List(element) => self.is_thread_sendable_type_with_seen(element, seen),
-            Type::Set(element) => self.is_thread_sendable_type_with_seen(element, seen),
-            Type::Map(key, value) => {
+            Type::ListOf(element) => self.is_thread_sendable_type_with_seen(element, seen),
+            Type::SetOf(element) => self.is_thread_sendable_type_with_seen(element, seen),
+            Type::MapOf(key, value) => {
                 self.is_thread_sendable_type_with_seen(key, seen)
                     && self.is_thread_sendable_type_with_seen(value, seen)
             }
-            Type::Result(success) => self.is_thread_sendable_type_with_seen(success, seen),
+            Type::ResultOf(success) => self.is_thread_sendable_type_with_seen(success, seen),
             // Sharing a resource collection across threads is out of scope (§15.6).
             Type::Res(_) => false,
-            Type::Function { .. } | Type::Thread(..) | Type::ThreadWorker(..) => false,
+            Type::Func(..) | Type::ThreadHandle { .. } => false,
             Type::User(name) => {
                 if self.resource_registry.is_resource(name) {
                     return self.resource_registry.is_sendable(name);
@@ -364,7 +364,14 @@ impl<'a> SyntaxChecker<'a> {
                         input,
                     );
                 }
-                if let Type::Thread(message, resource, _resource_state, output) = return_type {
+                if let Type::ThreadHandle {
+                    worker: false,
+                    msg: message,
+                    res: resource,
+                    out: output,
+                    ..
+                } = return_type
+                {
                     self.require_thread_sendable_type(
                         file,
                         line,
@@ -391,7 +398,7 @@ impl<'a> SyntaxChecker<'a> {
             "thread.send" => {
                 if let Some(handle) = arg_types.first() {
                     match handle {
-                        Type::Thread(message, _, _, _) | Type::ThreadWorker(message, _, _, _) => {
+                        Type::ThreadHandle { msg: message, .. } => {
                             self.require_thread_sendable_type(
                                 file,
                                 line,
@@ -418,8 +425,11 @@ impl<'a> SyntaxChecker<'a> {
             }
             "thread.transfer" | "thread.accept" => {
                 if let Some(handle) = arg_types.first() {
-                    if let Type::Thread(_, resource, resource_state, _)
-                    | Type::ThreadWorker(_, resource, resource_state, _) = handle
+                    if let Type::ThreadHandle {
+                        res: resource,
+                        res_state: resource_state,
+                        ..
+                    } = handle
                     {
                         // bug-301 G4: the plane's `STATE T` payload crosses the
                         // boundary with the resource -- plan-54 deep-copies it into
@@ -642,8 +652,14 @@ mod resources_tests {
             files: vec![],
         };
         let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
-        let thread = || Type::Thread(Box::new(Type::Integer), None, None, Box::new(Type::Integer));
-        let set_of_thread = Type::Set(Box::new(thread()));
+        let thread = || Type::ThreadHandle {
+            worker: false,
+            msg: Box::new(Type::Integer),
+            res: None,
+            res_state: None,
+            out: Box::new(Type::Integer),
+        };
+        let set_of_thread = Type::SetOf(Box::new(thread()));
         assert!(
             checker.contains_thread(&set_of_thread),
             "contains_thread must recurse into a Set element"

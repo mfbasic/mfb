@@ -909,7 +909,7 @@ impl<'a> SyntaxChecker<'a> {
     ) {
         match callee {
             "contains" | "replace" => {
-                let Some(Type::List(element)) = arg_types.first() else {
+                let Some(Type::ListOf(element)) = arg_types.first() else {
                     return;
                 };
                 self.require_comparable_type(
@@ -923,7 +923,7 @@ impl<'a> SyntaxChecker<'a> {
                 let Some(first) = arg_types.first() else {
                     return;
                 };
-                if let Type::List(element) = first {
+                if let Type::ListOf(element) = first {
                     self.require_comparable_type(
                         file,
                         line,

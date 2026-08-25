@@ -57,11 +57,11 @@ pub(super) fn effective_field_visibility(
 }
 
 pub(super) fn function_type(sig: &FunctionSig) -> Type {
-    Type::Function {
-        params: sig.params.iter().map(|param| param.type_.clone()).collect(),
-        return_type: Box::new(sig.return_type.clone()),
-        isolated: sig.isolated,
-    }
+    Type::Func(
+        sig.params.iter().map(|param| param.type_.clone()).collect(),
+        Box::new(sig.return_type.clone()),
+        sig.isolated,
+    )
 }
 
 pub(super) fn captured_locals(

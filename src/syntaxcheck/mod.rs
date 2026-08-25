@@ -40,38 +40,44 @@ enum Type {
     /// `Money`: an 8-byte base-10 fixed-point financial scalar (plan-29-A). A
     /// dimensioned numeric with a restricted algebra — see `numeric::money_result_type`.
     Money,
-    List(Box<Type>),
+    ListOf(Box<Type>),
     /// `Set OF T` (plan-63): an unordered collection of comparable, deduplicated
     /// elements. Single type parameter, like `List`; element must be comparable,
     /// like a `Map` key.
-    Set(Box<Type>),
-    Map(Box<Type>, Box<Type>),
+    SetOf(Box<Type>),
+    MapOf(Box<Type>, Box<Type>),
     /// A `RES`-marked collection element (`List OF RES fs::File`, `Map ... TO RES
     /// File`). The `RES` is the mandatory resource ownership-axis marker for a
     /// resource appearing as an element — exactly as `RES f` / `RES f AS fs::File`
     /// mark a binding or parameter. The collection still holds a *pointer* and
     /// owns nothing; a scope owns the resource (§15.6).
     Res(Box<Type>),
-    Function {
-        params: Vec<Type>,
-        return_type: Box<Type>,
-        isolated: bool,
-    },
+    Func(Vec<Type>, Box<Type>, bool),
     Nothing,
-    Result(Box<Type>),
+    ResultOf(Box<Type>),
     /// `Scalar`: a 32-bit Unicode scalar value (plan-41-A). Register-carried like
     /// `Byte`, written with a backtick literal `` `x` ``. Comparable and orderable
     /// by codepoint, but **not numeric** — it never enters the promotion lattice.
     Scalar,
     String,
-    // (message, resource, resource_state, output). `resource` is the optional
-    // resource-plane type carried by thread::transfer/accept (`None` for a
-    // data-only thread); `resource_state` is that resource's optional `STATE T`
-    // payload type, declared on the plane so it is checked across the thread
-    // boundary (plan-54, closes bug-257). `resource_state` is `None` unless
-    // `resource` is `Some` and carries a `STATE` clause.
-    Thread(Box<Type>, Option<Box<Type>>, Option<Box<Type>>, Box<Type>),
-    ThreadWorker(Box<Type>, Option<Box<Type>>, Option<Box<Type>>, Box<Type>),
+    /// A thread handle. `worker` distinguishes a `ThreadWorker` handle from a
+    /// parent `Thread` handle — the two never unify with each other — mirroring
+    /// [`ParameterType::ThreadHandle`](crate::types::ParameterType) so the enums
+    /// stay isomorphic (plan-106-C rung 2c; they were two variants before).
+    ///
+    /// `msg`/`out` are the data-plane message and output types. `res` is the
+    /// optional resource-plane type carried by thread::transfer/accept (`None`
+    /// for a data-only thread); `res_state` is that resource's optional `STATE T`
+    /// payload, declared on the plane so it is checked across the thread boundary
+    /// (plan-54, closes bug-257). `res_state` is `None` unless `res` is `Some`
+    /// and carries a `STATE` clause.
+    ThreadHandle {
+        worker: bool,
+        msg: Box<Type>,
+        res: Option<Box<Type>>,
+        res_state: Option<Box<Type>>,
+        out: Box<Type>,
+    },
     User(String),
     Unknown,
 }
@@ -583,9 +589,9 @@ impl<'a> SyntaxChecker<'a> {
         seen: &mut HashSet<String>,
     ) {
         match type_ {
-            Type::List(element)
-            | Type::Set(element)
-            | Type::Result(element)
+            Type::ListOf(element)
+            | Type::SetOf(element)
+            | Type::ResultOf(element)
             | Type::Res(element) => {
                 self.validate_package_metadata_type(
                     file,
@@ -596,7 +602,7 @@ impl<'a> SyntaxChecker<'a> {
                     seen,
                 );
             }
-            Type::Map(key, value) => {
+            Type::MapOf(key, value) => {
                 self.validate_package_metadata_type(file, line, package_file, key, context, seen);
                 self.validate_package_metadata_type(file, line, package_file, value, context, seen);
                 if !self.is_comparable(key) {
@@ -612,11 +618,7 @@ impl<'a> SyntaxChecker<'a> {
                     );
                 }
             }
-            Type::Function {
-                params,
-                return_type,
-                ..
-            } => {
+            Type::Func(params, return_type, _) => {
                 for param in params {
                     self.validate_package_metadata_type(
                         file,
@@ -636,8 +638,13 @@ impl<'a> SyntaxChecker<'a> {
                     seen,
                 );
             }
-            Type::Thread(message, resource, resource_state, output)
-            | Type::ThreadWorker(message, resource, resource_state, output) => {
+            Type::ThreadHandle {
+                msg: message,
+                res: resource,
+                res_state: resource_state,
+                out: output,
+                ..
+            } => {
                 self.validate_package_metadata_type(
                     file,
                     line,
@@ -1355,7 +1362,7 @@ impl<'a> SyntaxChecker<'a> {
                     // `check_type_reference` reports `TYPE_RESULT_NOT_USER_VISIBLE`
                     // for a `Result` in any type position, including this one.
                     self.check_type_reference(file, &return_type, function.line);
-                    if matches!(return_type, Type::Result(_)) {
+                    if matches!(return_type, Type::ResultOf(_)) {
                         Type::Unknown
                     } else {
                         return_type
@@ -1503,7 +1510,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn check_type_reference(&mut self, file: &AstFile, type_: &Type, line: usize) {
         match type_ {
-            Type::List(element) => {
+            Type::ListOf(element) => {
                 let inner = strip_res(element);
                 self.check_type_reference(file, inner, line);
                 // A `List` element may be a resource pointer (§15.6); only thread
@@ -1512,7 +1519,7 @@ impl<'a> SyntaxChecker<'a> {
                     self.report_invalid_collection_element(file, line, "element", inner);
                 }
             }
-            Type::Set(element) => {
+            Type::SetOf(element) => {
                 self.check_type_reference(file, element, line);
                 // A `Set` element must be comparable, so it can be neither a
                 // resource nor a thread handle (plan-63); the element-comparability
@@ -1521,7 +1528,7 @@ impl<'a> SyntaxChecker<'a> {
                     self.report_invalid_collection_element(file, line, "element", element);
                 }
             }
-            Type::Map(key, value) => {
+            Type::MapOf(key, value) => {
                 let value_inner = strip_res(value);
                 self.check_type_reference(file, key, line);
                 self.check_type_reference(file, value_inner, line);
@@ -1536,17 +1543,13 @@ impl<'a> SyntaxChecker<'a> {
                 }
             }
             Type::Res(inner) => self.check_type_reference(file, inner, line),
-            Type::Function {
-                params,
-                return_type,
-                ..
-            } => {
+            Type::Func(params, return_type, _) => {
                 for param in params {
                     self.check_type_reference(file, param, line);
                 }
                 self.check_type_reference(file, return_type, line);
             }
-            Type::Result(_) => {
+            Type::ResultOf(_) => {
                 // `Result` is internal: it is never nameable in a user type
                 // position. (The resolver normally catches this first; this keeps
                 // the invariant honest for any type that reaches the checker.)
@@ -1558,8 +1561,13 @@ impl<'a> SyntaxChecker<'a> {
                     line,
                 );
             }
-            Type::Thread(message, resource, resource_state, output)
-            | Type::ThreadWorker(message, resource, resource_state, output) => {
+            Type::ThreadHandle {
+                msg: message,
+                res: resource,
+                res_state: resource_state,
+                out: output,
+                ..
+            } => {
                 self.check_type_reference(file, message, line);
                 self.check_type_reference(file, output, line);
                 self.require_thread_sendable_type(file, line, "Thread message type", message);
@@ -1645,9 +1653,9 @@ impl<'a> SyntaxChecker<'a> {
             Type::Integer => "Integer".to_string(),
             Type::Money => "Money".to_string(),
             Type::Scalar => "Scalar".to_string(),
-            Type::List(element) => format!("List OF {}", self.type_name(element)),
-            Type::Set(element) => format!("Set OF {}", self.type_name(element)),
-            Type::Map(key, value) => {
+            Type::ListOf(element) => format!("List OF {}", self.type_name(element)),
+            Type::SetOf(element) => format!("Set OF {}", self.type_name(element)),
+            Type::MapOf(key, value) => {
                 format!(
                     "Map OF {} TO {}",
                     self.type_name(key),
@@ -1655,11 +1663,7 @@ impl<'a> SyntaxChecker<'a> {
                 )
             }
             Type::Res(inner) => format!("RES {}", self.type_name(inner)),
-            Type::Function {
-                params,
-                return_type,
-                isolated,
-            } => {
+            Type::Func(params, return_type, isolated) => {
                 let params = params
                     .iter()
                     .map(|param| self.type_name(param))
@@ -1673,24 +1677,21 @@ impl<'a> SyntaxChecker<'a> {
                 )
             }
             Type::Nothing => "Nothing".to_string(),
-            Type::Result(success) => format!("Result OF {}", self.type_name(success)),
+            Type::ResultOf(success) => format!("Result OF {}", self.type_name(success)),
             Type::String => "String".to_string(),
-            Type::Thread(message, resource, resource_state, output) => self
-                .format_thread_type_name(
-                    crate::types::THREAD_TYPE,
-                    message,
-                    resource,
-                    resource_state,
-                    output,
-                ),
-            Type::ThreadWorker(message, resource, resource_state, output) => self
-                .format_thread_type_name(
-                    crate::types::THREAD_WORKER_TYPE,
-                    message,
-                    resource,
-                    resource_state,
-                    output,
-                ),
+            Type::ThreadHandle {
+                worker,
+                msg,
+                res,
+                res_state,
+                out,
+            } => self.format_thread_type_name(
+                crate::types::thread_type_keyword(*worker),
+                msg,
+                res,
+                res_state,
+                out,
+            ),
             Type::User(name) => name.clone(),
             Type::Unknown => "Unknown".to_string(),
         }
@@ -2415,8 +2416,8 @@ mod checker_tests {
         // Map arm's key/value recursion, the `is_comparable` rejection, and the
         // `List | Set | Result | Res` element-recursion arm.
         let mut seen = HashSet::new();
-        let map_ty = Type::Map(
-            Box::new(Type::List(Box::new(Type::Integer))),
+        let map_ty = Type::MapOf(
+            Box::new(Type::ListOf(Box::new(Type::Integer))),
             Box::new(Type::Res(Box::new(Type::String))),
         );
         checker.validate_package_metadata_type(file_ref, 1, &pkg, &map_ty, "ctx", &mut seen);
@@ -2424,8 +2425,8 @@ mod checker_tests {
         // The remaining single-element wrappers (`Set`, `Result`) share the same
         // recursion arm as `List`/`Res` but are distinct pattern alternatives.
         for element_ty in [
-            Type::Set(Box::new(Type::Integer)),
-            Type::Result(Box::new(Type::String)),
+            Type::SetOf(Box::new(Type::Integer)),
+            Type::ResultOf(Box::new(Type::String)),
         ] {
             checker.validate_package_metadata_type(
                 file_ref,
@@ -2438,26 +2439,32 @@ mod checker_tests {
         }
 
         // Function type: parameter list + return-type recursion.
-        let fn_ty = Type::Function {
-            params: vec![Type::Integer, Type::String],
-            return_type: Box::new(Type::Boolean),
-            isolated: false,
-        };
+        let fn_ty = Type::Func(
+            vec![Type::Integer, Type::String],
+            Box::new(Type::Boolean),
+            false,
+        );
         checker.validate_package_metadata_type(file_ref, 1, &pkg, &fn_ty, "ctx", &mut seen);
 
         // Thread carrying resource + resource_state + output: the `Some(resource)`
         // and `Some(resource_state)` branches plus the message/output recursion.
-        let thread_ty = Type::Thread(
-            Box::new(Type::Integer),
-            Some(Box::new(Type::String)),
-            Some(Box::new(Type::Boolean)),
-            Box::new(Type::Float),
-        );
+        let thread_ty = Type::ThreadHandle {
+            worker: false,
+            msg: Box::new(Type::Integer),
+            res: Some(Box::new(Type::String)),
+            res_state: Some(Box::new(Type::Boolean)),
+            out: Box::new(Type::Float),
+        };
         checker.validate_package_metadata_type(file_ref, 1, &pkg, &thread_ty, "ctx", &mut seen);
 
         // ThreadWorker with no resource plane: the same arm, `None` branches.
-        let worker_ty =
-            Type::ThreadWorker(Box::new(Type::Integer), None, None, Box::new(Type::Nothing));
+        let worker_ty = Type::ThreadHandle {
+            worker: true,
+            msg: Box::new(Type::Integer),
+            res: None,
+            res_state: None,
+            out: Box::new(Type::Nothing),
+        };
         checker.validate_package_metadata_type(file_ref, 1, &pkg, &worker_ty, "ctx", &mut seen);
 
         // A `User` type not present in `type_infos` and not a resource: the

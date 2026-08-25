@@ -44,25 +44,27 @@ impl<'a> SyntaxChecker<'a> {
     fn type_from_parameter(&self, type_: &ParameterType) -> Type {
         match type_ {
             ParameterType::ListOf(element) => {
-                Type::List(Box::new(self.type_from_parameter(element)))
+                Type::ListOf(Box::new(self.type_from_parameter(element)))
             }
-            ParameterType::SetOf(element) => Type::Set(Box::new(self.type_from_parameter(element))),
+            ParameterType::SetOf(element) => {
+                Type::SetOf(Box::new(self.type_from_parameter(element)))
+            }
             ParameterType::ResultOf(success) => {
-                Type::Result(Box::new(self.type_from_parameter(success)))
+                Type::ResultOf(Box::new(self.type_from_parameter(success)))
             }
-            ParameterType::MapOf(key, value) => Type::Map(
+            ParameterType::MapOf(key, value) => Type::MapOf(
                 Box::new(self.type_from_parameter(key)),
                 Box::new(self.type_from_parameter(value)),
             ),
             ParameterType::Res(inner) => Type::Res(Box::new(self.type_from_parameter(inner))),
-            ParameterType::Func(params, return_type, isolated) => Type::Function {
-                params: params
+            ParameterType::Func(params, return_type, isolated) => Type::Func(
+                params
                     .iter()
                     .map(|param| self.type_from_parameter(param))
                     .collect(),
-                return_type: Box::new(self.type_from_parameter(return_type)),
-                isolated: *isolated,
-            },
+                Box::new(self.type_from_parameter(return_type)),
+                *isolated,
+            ),
             ParameterType::ThreadHandle {
                 worker,
                 msg,
@@ -83,12 +85,12 @@ impl<'a> SyntaxChecker<'a> {
                         )
                     }
                 };
-                let message = Box::new(self.type_from_parameter(msg));
-                let output = Box::new(self.type_from_parameter(out));
-                if *worker {
-                    Type::ThreadWorker(message, resource, resource_state, output)
-                } else {
-                    Type::Thread(message, resource, resource_state, output)
+                Type::ThreadHandle {
+                    worker: *worker,
+                    msg: Box::new(self.type_from_parameter(msg)),
+                    res: resource,
+                    res_state: resource_state,
+                    out: Box::new(self.type_from_parameter(out)),
                 }
             }
             ParameterType::Boolean => Type::Boolean,
@@ -140,7 +142,7 @@ impl<'a> SyntaxChecker<'a> {
             "Scalar" => Type::Scalar,
             // `Result` with no ` OF ` is the bare marker; the canonical parser
             // leaves it a nominal, and it means `Result OF Unknown` here.
-            "Result" => Type::Result(Box::new(Type::Unknown)),
+            "Result" => Type::ResultOf(Box::new(Type::Unknown)),
             other => Type::User(other.to_string()),
         }
     }
@@ -154,47 +156,41 @@ impl<'a> SyntaxChecker<'a> {
         // versa. Strip it before comparing.
         let (expected, actual) = (strip_res(expected), strip_res(actual));
         match (expected, actual) {
-            (Type::List(expected), Type::List(actual)) => self.compatible(expected, actual),
-            (Type::Set(expected), Type::Set(actual)) => self.compatible(expected, actual),
-            (Type::Map(expected_key, expected_value), Type::Map(actual_key, actual_value)) => {
+            (Type::ListOf(expected), Type::ListOf(actual)) => self.compatible(expected, actual),
+            (Type::SetOf(expected), Type::SetOf(actual)) => self.compatible(expected, actual),
+            (Type::MapOf(expected_key, expected_value), Type::MapOf(actual_key, actual_value)) => {
                 self.compatible(expected_key, actual_key)
                     && self.compatible(expected_value, actual_value)
             }
-            (Type::Result(expected), Type::Result(actual)) => self.compatible(expected, actual),
+            (Type::ResultOf(expected), Type::ResultOf(actual)) => self.compatible(expected, actual),
+            // A parent `Thread` handle and a `ThreadWorker` handle never unify
+            // with each other, which the `worker` flags equality preserves (they
+            // were two separate variant pairs before plan-106-C rung 2c).
             (
-                Type::Thread(expected_message, expected_resource, expected_state, expected_output),
-                Type::Thread(actual_message, actual_resource, actual_state, actual_output),
+                Type::ThreadHandle {
+                    worker: expected_worker,
+                    msg: expected_message,
+                    res: expected_resource,
+                    res_state: expected_state,
+                    out: expected_output,
+                },
+                Type::ThreadHandle {
+                    worker: actual_worker,
+                    msg: actual_message,
+                    res: actual_resource,
+                    res_state: actual_state,
+                    out: actual_output,
+                },
             ) => {
-                self.compatible(expected_message, actual_message)
+                expected_worker == actual_worker
+                    && self.compatible(expected_message, actual_message)
                     && self.compatible_optional(expected_resource, actual_resource)
                     && self.compatible_optional(expected_state, actual_state)
                     && self.compatible(expected_output, actual_output)
             }
             (
-                Type::ThreadWorker(
-                    expected_message,
-                    expected_resource,
-                    expected_state,
-                    expected_output,
-                ),
-                Type::ThreadWorker(actual_message, actual_resource, actual_state, actual_output),
-            ) => {
-                self.compatible(expected_message, actual_message)
-                    && self.compatible_optional(expected_resource, actual_resource)
-                    && self.compatible_optional(expected_state, actual_state)
-                    && self.compatible(expected_output, actual_output)
-            }
-            (
-                Type::Function {
-                    params: expected_params,
-                    return_type: expected_return,
-                    isolated: expected_isolated,
-                },
-                Type::Function {
-                    params: actual_params,
-                    return_type: actual_return,
-                    isolated: actual_isolated,
-                },
+                Type::Func(expected_params, expected_return, expected_isolated),
+                Type::Func(actual_params, actual_return, actual_isolated),
             ) => {
                 (!expected_isolated || *actual_isolated)
                     && expected_params.len() == actual_params.len()
@@ -306,8 +302,8 @@ impl<'a> SyntaxChecker<'a> {
                 }),
             ) if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) => true,
             (
-                Type::List(expected_element),
-                Type::List(_),
+                Type::ListOf(expected_element),
+                Type::ListOf(_),
                 Some(Expression::ListLiteral(values)),
             ) => values.iter().all(|value| {
                 let Some(actual_element) = numeric_literal_type(value) else {
@@ -362,14 +358,13 @@ impl<'a> SyntaxChecker<'a> {
             // `AttributedString` wraps a list overlay (like `List`): not comparable,
             // not orderable, never a `Map` key or `Set` element (plan-89-A).
             Type::AttributedString
-            | Type::List(_)
-            | Type::Set(_)
-            | Type::Map(_, _)
-            | Type::Function { .. }
-            | Type::Result(_)
+            | Type::ListOf(_)
+            | Type::SetOf(_)
+            | Type::MapOf(_, _)
+            | Type::Func(..)
+            | Type::ResultOf(_)
             | Type::Res(_)
-            | Type::Thread(..)
-            | Type::ThreadWorker(..) => false,
+            | Type::ThreadHandle { .. } => false,
             Type::User(name) => {
                 if self.resource_registry.is_resource(name) || !seen.insert(name.clone()) {
                     return false;
@@ -817,13 +812,13 @@ mod types_tests {
         // `Map OF Map OF String TO Integer TO Boolean` must build
         // `Map(Map(String, Integer), Boolean)`, not the mis-split
         // `Map(User("Map OF Map OF String"), …)`.
-        let Type::Map(key, value) =
+        let Type::MapOf(key, value) =
             checker.parse_type("Map OF Map OF String TO Integer TO Boolean")
         else {
             panic!("expected a Map type");
         };
         assert!(matches!(*value, Type::Boolean));
-        let Type::Map(inner_key, inner_value) = *key else {
+        let Type::MapOf(inner_key, inner_value) = *key else {
             panic!("expected the key to be a nested Map");
         };
         assert!(matches!(*inner_key, Type::String));
@@ -886,7 +881,7 @@ mod types_tests {
         use super::{SyntaxChecker, Type};
         let project = empty_project();
         let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
-        assert!(matches!(checker.parse_type("Result"), Type::Result(_)));
+        assert!(matches!(checker.parse_type("Result"), Type::ResultOf(_)));
         assert!(matches!(checker.parse_type("Unknown"), Type::Unknown));
     }
 
@@ -915,9 +910,15 @@ mod types_tests {
         let checker = SyntaxChecker::new(std::path::Path::new("."), &project);
         let int = || Box::new(Type::Integer);
         // Result vs Result.
-        assert!(checker.compatible(&Type::Result(int()), &Type::Result(int())));
+        assert!(checker.compatible(&Type::ResultOf(int()), &Type::ResultOf(int())));
         // ThreadWorker vs ThreadWorker, with and without a resource plane.
-        let tw = |res: Option<Box<Type>>| Type::ThreadWorker(int(), res, None, int());
+        let tw = |res: Option<Box<Type>>| Type::ThreadHandle {
+            worker: true,
+            msg: int(),
+            res,
+            res_state: None,
+            out: int(),
+        };
         assert!(checker.compatible(&tw(None), &tw(None)));
         assert!(checker.compatible(
             &tw(Some(Box::new(Type::String))),
@@ -926,15 +927,17 @@ mod types_tests {
         // compatible_optional: one side carries a resource plane, the other not.
         assert!(!checker.compatible(&tw(Some(Box::new(Type::String))), &tw(None)));
         // Thread vs Thread resource-plane mismatch.
-        let th = |res: Option<Box<Type>>| Type::Thread(int(), res, None, int());
+        let th = |res: Option<Box<Type>>| Type::ThreadHandle {
+            worker: false,
+            msg: int(),
+            res,
+            res_state: None,
+            out: int(),
+        };
         assert!(!checker.compatible(&th(Some(Box::new(Type::String))), &th(None)));
         // Function: a non-isolated function fits a non-isolated slot, and an
         // isolated function fits an isolated slot, but not vice versa.
-        let func = |iso: bool| Type::Function {
-            params: vec![Type::Integer],
-            return_type: int(),
-            isolated: iso,
-        };
+        let func = |iso: bool| Type::Func(vec![Type::Integer], int(), iso);
         assert!(checker.compatible(&func(false), &func(true)));
         assert!(!checker.compatible(&func(true), &func(false)));
     }

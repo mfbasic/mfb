@@ -262,13 +262,28 @@ why this order, not the plan's original one):
       `builtins::is_builtin_type` (whose only production caller was the parser's
       inert tail arm — its 3 assertions follow to `registry().is_builtin_type`).
       `cargo build --bin mfb` → **0 warnings**.
-- [ ] **2b — fold the `res_state` slot** into `res` using `with_state`/`state`,
-      so `Type::Thread` drops to 3 slots.
-- [ ] **2c — merge `Thread`/`ThreadWorker`** into one `worker: bool` variant, and
-      rename the container variants to `ParameterType`'s (`List`→`ListOf`, …).
+- [x] ~~**2b — fold the `res_state` slot** into `res` using `with_state`/`state`,
+      so `Type::Thread` drops to 3 slots.~~ — **moot as a standalone rung, and
+      folded into 2e instead: doing it while `Type` is still private would
+      regress plan-52-D.** See Correction 6.
+- [x] **2c — rename the container variants** to `ParameterType`'s
+      (`List`→`ListOf`, `Set`→`SetOf`, `Map`→`MapOf`, `Result`→`ResultOf`,
+      `Function{..}`→`Func(..)`), and merge `Thread`/`ThreadWorker` into one
+      `worker: bool` variant. **84** references measured
+      (`rg -c 'Type::List\(|Type::Set\(|Type::Map\(|Type::Result\(|Type::Function' src/syntaxcheck/*.rs`).
+      The two thread variants had byte-identical bodies at every one of their
+      paired match arms, so the merge collapses each pair into one
+      `ThreadHandle { .. }` pattern; `compatible` gains an explicit
+      `expected_worker == actual_worker` guard, which is what previously came
+      from their being separate variants. Verified: `cargo test --bin mfb` 3650
+      passed / 0 failed, `artifact-gate all` 0 diffs, `test-accept` 1271 ran /
+      0 mismatches, 0 warnings.
 - [ ] **2d — convert the four nominal variants** (`Error`, `ErrorLoc`, `Scalar`,
-      `AttributedString`) and `User(String)` onto `Named`/`UserOf`.
-- [ ] **2e — replace `enum Type` with `ParameterType`**; delete the conversion.
+      `AttributedString` — **42** refs) and `User(String)` (**34** refs) onto
+      `Named`/`UserOf`.
+- [ ] **2e — replace `enum Type` with `ParameterType`**; delete the conversion,
+      and fold the thread plane's `res_state` into `res` at the same moment
+      (Correction 6).
 - [ ] `helpers.rs` promotion copy → the numeric.rs typed source.
 - [ ] Tests: the full `*-invalid` diagnostic corpus after EVERY rung.
 
@@ -299,6 +314,30 @@ Commit: —
   Recommend the thin fn — one seam, testable.
 
 ## Corrections
+
+### 6. Rung 2b cannot stand alone — the STATE fold must land WITH the swap
+
+The ladder first listed "fold `res_state` into `res`" as its own rung. It is not
+one, and the reason is the invariant syntaxcheck is built on: `Type` deliberately
+carries a resource's ` STATE T` **beside** the type, never inside it
+(`parse_type` step 1, `LocalInfo::state_type`, `ParamSig`). Folding the clause
+into a `Type::User("File STATE Cursor")` while the private enum still exists
+would make every ordinary nominal comparison against it fail — which is exactly
+the bug plan-52-D §4 fixed ("`fs::close(h)` on an imported stateful handle
+reported argument type(s) (fs::File STATE Cursor), expected File").
+
+The fold is only correct once `Type` **is** `ParameterType`, because only then
+does the spelling legitimately carry the clause and only then do
+`split_state`/`state`/`without_state` apply to it. And even then it is a
+*localized* exception: the leaf peel stays, so STATE remains folded only inside
+the thread plane's `res` slot — which is precisely where the canonical grammar
+already puts it (`parse("Thread OF Nothing RES fs.File STATE Cursor TO Nothing")`
+→ `ThreadHandle { res: Named("fs.File STATE Cursor") }`, which the IR and codegen
+have always consumed). The two rules that need the two planes apart
+(`resources.rs` `thread.transfer`/`accept`, `types.rs` `compatible`) call
+`res.split_state()`.
+
+Moved into 2e.
 
 ### 3. The "1,077-line parser" is ~110 lines of grammar
 

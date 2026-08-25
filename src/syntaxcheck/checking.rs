@@ -502,7 +502,7 @@ impl<'a> SyntaxChecker<'a> {
                 // type annotation; its `CASE Ok`/`CASE Error` arms already
                 // reported `TYPE_RESULT_NOT_MATCHABLE`, so suppress the secondary
                 // exhaustiveness cascade.
-                if !exhaustive && !matches!(matched_type, Type::Unknown | Type::Result(_)) {
+                if !exhaustive && !matches!(matched_type, Type::Unknown | Type::ResultOf(_)) {
                     self.report_match_not_exhaustive(file, *line, &matched_type, &covered_cases);
                 }
                 if all_return && exhaustive {
@@ -565,10 +565,10 @@ impl<'a> SyntaxChecker<'a> {
                 let element_type = match iterable_type {
                     // Iterating `List OF RES fs::File` yields a *pointer* to each
                     // element (`File`), not the `RES`-marked slot type (§15.6).
-                    Type::List(element) => strip_res(&element).clone(),
+                    Type::ListOf(element) => strip_res(&element).clone(),
                     // `FOR EACH x IN set` yields the element `T` (plan-63).
-                    Type::Set(element) => *element,
-                    Type::Map(key, value) => Type::User(format!(
+                    Type::SetOf(element) => *element,
+                    Type::MapOf(key, value) => Type::User(format!(
                         "MapEntry OF {} TO {}",
                         self.type_name(&key),
                         self.type_name(strip_res(&value))

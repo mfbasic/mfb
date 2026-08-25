@@ -27,12 +27,7 @@ impl<'a> SyntaxChecker<'a> {
     /// this right via a hardcoded special case in `ir::lower`; this is that rule
     /// generalized to every position (bug-368).
     fn builtin_predicate_value_type(&self, name: &str, expected: Option<&Type>) -> Option<Type> {
-        let Some(Type::Function {
-            params,
-            return_type,
-            ..
-        }) = expected
-        else {
+        let Some(Type::Func(params, return_type, _)) = expected else {
             return None;
         };
         if params.len() != 1 || **return_type != Type::Boolean {
@@ -40,11 +35,7 @@ impl<'a> SyntaxChecker<'a> {
         }
         let param_name = self.type_name(&params[0]);
         crate::codegen::builtins::general::filter_predicate_type(name, &param_name)?;
-        Some(Type::Function {
-            params: params.clone(),
-            return_type: return_type.clone(),
-            isolated: false,
-        })
+        Some(Type::Func(params.clone(), return_type.clone(), false))
     }
 
     pub(super) fn infer_expression_with_expected(
@@ -376,7 +367,7 @@ impl<'a> SyntaxChecker<'a> {
         // value is matched). Local error handling now uses an inline `TRAP`
         // (§8.4); `MATCH` only matches enum/union/`Result` *values*. A
         // `Result`-typed value (a local or field) still infers to
-        // `Type::Result(..)`, preserving `CASE Ok`/`CASE Error` matching.
+        // `Type::ResultOf(..)`, preserving `CASE Ok`/`CASE Error` matching.
         self.infer_expression(file, expression, locals, line, ExprMode::Read)
     }
 
@@ -538,7 +529,7 @@ impl<'a> SyntaxChecker<'a> {
         line: usize,
         expected: Option<&Type>,
     ) -> Type {
-        if let Some(Type::List(expected_element)) = expected {
+        if let Some(Type::ListOf(expected_element)) = expected {
             if self.contains_thread(expected_element) {
                 self.report_invalid_collection_element(file, line, "element", expected_element);
             }
@@ -553,11 +544,11 @@ impl<'a> SyntaxChecker<'a> {
                     mode,
                 );
             }
-            return Type::List(expected_element.clone());
+            return Type::ListOf(expected_element.clone());
         }
 
         let Some(first) = values.first() else {
-            return Type::List(Box::new(Type::Unknown));
+            return Type::ListOf(Box::new(Type::Unknown));
         };
         let first_mode = self.collection_element_mode(first, locals);
         let element_type = self.infer_expression(file, first, locals, line, first_mode);
@@ -568,7 +559,7 @@ impl<'a> SyntaxChecker<'a> {
             let mode = self.collection_element_mode(value, locals);
             self.infer_expression(file, value, locals, line, mode);
         }
-        Type::List(Box::new(element_type))
+        Type::ListOf(Box::new(element_type))
     }
 
     pub(super) fn infer_set_literal(
@@ -590,7 +581,7 @@ impl<'a> SyntaxChecker<'a> {
         for value in elements {
             self.infer_expression(file, value, locals, line, ExprMode::Transfer);
         }
-        Type::Set(Box::new(element_type))
+        Type::SetOf(Box::new(element_type))
     }
 
     pub(super) fn infer_map_literal(
@@ -620,7 +611,7 @@ impl<'a> SyntaxChecker<'a> {
             let value_mode = self.collection_element_mode(value, locals);
             self.infer_expression(file, value, locals, line, value_mode);
         }
-        Type::Map(Box::new(key_type), Box::new(value_type))
+        Type::MapOf(Box::new(key_type), Box::new(value_type))
     }
 
     pub(super) fn infer_constructor(
@@ -837,7 +828,7 @@ impl<'a> SyntaxChecker<'a> {
         }
 
         let target_type = self.infer_expression(file, target, locals, line, ExprMode::Read);
-        if let Type::Thread(..) = &target_type {
+        if let Type::ThreadHandle { worker: false, .. } = &target_type {
             if member == "result" {
                 // The `t.result` field is removed: a worker outcome is retrieved
                 // only through `thread::waitFor(t)`, which auto-unwraps the value
@@ -1241,7 +1232,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Byte
             | Type::Scalar
             | Type::Unknown => true,
-            Type::List(inner) => matches!(**inner, Type::Byte),
+            Type::ListOf(inner) => matches!(**inner, Type::Byte),
             _ => false,
         }
     }
@@ -1323,12 +1314,7 @@ impl<'a> SyntaxChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        let Type::Function {
-            params,
-            return_type,
-            ..
-        } = type_
-        else {
+        let Type::Func(params, return_type, _) = type_ else {
             for argument in arguments {
                 self.infer_expression(file, call_arg_value(argument), locals, line, ExprMode::Read);
             }
@@ -1527,11 +1513,7 @@ impl<'a> SyntaxChecker<'a> {
             }
             None => self.infer_expression(file, body, &mut locals, line, ExprMode::Read),
         };
-        Type::Function {
-            params: param_types,
-            return_type: Box::new(return_type),
-            isolated: false,
-        }
+        Type::Func(param_types, Box::new(return_type), false)
     }
 }
 
