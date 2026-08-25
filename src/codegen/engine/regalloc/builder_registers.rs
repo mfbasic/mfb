@@ -82,6 +82,7 @@ impl CodeBuilder<'_> {
         // deliberately stay post-regalloc: they read physical registers.
         crate::optimizer::opt2::optimize_mir(
             &mut self.instructions,
+            backend.register_model(),
             crate::optimizer::active_opt_level(),
         );
         // 16-aligned so FP spill slots hit `str q`'s alignment requirement (the

@@ -91,14 +91,16 @@ impl Reporter {
     /// One `<catalog row>: <count>` line per landed dial row — Verbose only, on
     /// stderr, printed once codegen has run. The counts accumulate in
     /// `optimizer::stats` as the gated passes fire (the passes have no channel
-    /// back to the CLI); nothing is printed when the dial disabled the rows
-    /// (`-O0`), since none of them ran.
+    /// back to the CLI); a row is printed only when the active dial actually
+    /// ran it, so `-O0` prints nothing and `-O1` omits the L2/L3 rows.
     fn opt_stats(&self) {
-        if self.level != Verbosity::Verbose || !crate::optimizer::level_enabled(1) {
+        if self.level != Verbosity::Verbose {
             return;
         }
-        for (row, count) in crate::optimizer::stats::snapshot() {
-            eprintln!("{row}: {count}");
+        for row in crate::optimizer::catalog::rows() {
+            if crate::optimizer::level_enabled(row.level) {
+                eprintln!("{}: {}", row.name, row.fired());
+            }
         }
     }
 }

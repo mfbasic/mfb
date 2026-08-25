@@ -18,7 +18,10 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::target::shared::regmodel::{RegClass, RegisterModel};
 
-mod analysis;
+// pub(crate): the optimizer's Opt2 analyses (`optimizer::opt2::plans`) reuse the
+// allocator's instruction-effect model and CFG builder rather than restating
+// the field-role/terminator vocabulary (which would drift, bug-328-style).
+pub(crate) mod analysis;
 use analysis::ClassModel;
 pub(crate) mod builder_registers;
 mod linear_scan;
@@ -130,6 +133,42 @@ pub(crate) fn find_physical_operand(instructions: &[CodeInstruction]) -> Option<
 /// `spill_base_offset` is the current frame size, where any spill slots are
 /// placed. Must run before the peephole pass and `finalize_frame` (which
 /// expect physical register names).
+/// The two register-class effect models for a pre-coloring (vreg-sentinel)
+/// stream on the given target. The single construction point, shared by
+/// [`allocate`] and the optimizer's Opt2 analyses, so the field-role and
+/// register-classification vocabulary cannot drift between them.
+///
+/// The `%scratch`/`%sysnr` occupancy indices in `int_physical_index` are
+/// AArch64 realizations; on x86/riscv those tokens realize elsewhere (and are
+/// lowered to concrete names before allocation), so pick the variant that
+/// omits the AArch64 scratch arms off-target (bug-127). The call-clobber masks
+/// are indexed by physical-register *number*, so they cannot be shared across
+/// ISAs — each is derived from the target's own caller-saved table rather than
+/// restated as a constant (bug-350).
+pub(crate) fn class_models(model: &dyn RegisterModel) -> (ClassModel, ClassModel) {
+    let is_aarch64 = model.arena_base() == crate::arch::aarch64::regmodel::ARENA_BASE_REGISTER;
+    let int_physical_index = if is_aarch64 {
+        analysis::int_physical_index
+    } else {
+        analysis::int_physical_index_non_aarch64
+    };
+    let int_model = ClassModel {
+        class: RegClass::Int,
+        parse_vreg,
+        physical_index: int_physical_index,
+        is_fp: false,
+        caller_saved: analysis::caller_saved_mask(model, RegClass::Int, int_physical_index),
+    };
+    let fp_model = ClassModel {
+        class: RegClass::Fp,
+        parse_vreg: parse_fp_vreg,
+        physical_index: analysis::fp_physical_index,
+        is_fp: true,
+        caller_saved: analysis::caller_saved_mask(model, RegClass::Fp, analysis::fp_physical_index),
+    };
+    (int_model, fp_model)
+}
+
 pub(crate) fn allocate(
     instructions: &mut Vec<CodeInstruction>,
     model: &dyn RegisterModel,
@@ -169,41 +208,7 @@ pub(crate) fn allocate(
         // already-integer-colored stream. The two physical files never
         // interfere, so each pass sees only its own operands; FP spill slots
         // are placed after the integer ones.
-        // The `%scratch`/`%sysnr` occupancy indices in `int_physical_index` are
-        // AArch64 realizations; on x86/riscv those tokens realize elsewhere (and
-        // are lowered to concrete names before allocation), so pick the variant
-        // that omits the AArch64 scratch arms off-target (bug-127).
-        let is_aarch64 = model.arena_base() == crate::arch::aarch64::regmodel::ARENA_BASE_REGISTER;
-        let int_physical_index = if is_aarch64 {
-            analysis::int_physical_index
-        } else {
-            analysis::int_physical_index_non_aarch64
-        };
-        // The call-clobber masks are indexed by physical-register *number*,
-        // so they cannot be shared across ISAs (the same bit means `d8` on
-        // AArch64 and `xmm8` on x86). Derive each from the target's own
-        // caller-saved table rather than restating it as a constant — that
-        // restatement is what let x86-64 inherit AArch64's masks and model
-        // `xmm8`–`xmm14` as surviving a call SysV says destroys them
-        // (bug-350).
-        let int_model = ClassModel {
-            class: RegClass::Int,
-            parse_vreg,
-            physical_index: int_physical_index,
-            is_fp: false,
-            caller_saved: analysis::caller_saved_mask(model, RegClass::Int, int_physical_index),
-        };
-        let fp_model = ClassModel {
-            class: RegClass::Fp,
-            parse_vreg: parse_fp_vreg,
-            physical_index: analysis::fp_physical_index,
-            is_fp: true,
-            caller_saved: analysis::caller_saved_mask(
-                model,
-                RegClass::Fp,
-                analysis::fp_physical_index,
-            ),
-        };
+        let (int_model, fp_model) = class_models(model);
         // Uniform per-slot stride so any class fits (x86 16 for a 128-bit FP
         // spill; AArch64 8 — a no-op, byte-identical).
         let slot_bytes = model.spill_slot_bytes();

@@ -17,36 +17,46 @@
 //!    mandatory lowering rather than a dial row. It stays in
 //!    `crate::codegen::compiler::opt::fma_fusion` (plan-100 Corrections).
 //! 2. **The between-selection-and-regalloc MIR seam**, [`optimize_mir`],
-//!    occupied by its first row: the Opt2 half of constant folding
-//!    ([`constant_folding`], Level 1).
+//!    occupied by five rows: the Opt2 halves of constant folding
+//!    ([`constant_folding`], Level 1), dead-code elimination ([`dce`],
+//!    Level 2), and unreachable code elimination ([`uce`], Level 2), plus
+//!    dead-store elimination ([`dse`], Level 2) and aggressive DCE
+//!    ([`adce`], Level 3). The [`plans`] module holds their
+//!    optimization-only analyses (def-use marking, postdominators/control
+//!    dependence), built on the allocator's own effect model and CFG.
 
+pub(crate) mod adce;
 pub(crate) mod constant_folding;
+pub(crate) mod dce;
+pub(crate) mod dse;
 pub(crate) mod peephole;
+pub(crate) mod plans;
+pub(crate) mod uce;
 
 use crate::codegen::engine::types::CodeInstruction;
 use crate::optimizer::OptLevel;
+use crate::target::shared::regmodel::RegisterModel;
 
 /// The Opt2 seam: MIR-level optimization between instruction selection and
 /// register allocation, in place on the selected stream.
 ///
-/// Occupied by the block-local MIR constant folder ([`constant_folding`], the
-/// Opt2 half of the Level-1 "Constant folding" row). The pipeline this seam
-/// eventually brackets is
+/// Occupied by the block-local MIR constant folder ([`constant_folding`], L1),
+/// the def-use DCE sweep ([`dce`], L2), and control-dependence ADCE
+/// ([`adce`], L3) — the latter two consuming the optimization-only analyses in
+/// [`plans`], which reuse the allocator's effect model and CFG. The pipeline
+/// this seam eventually brackets is
 ///
 /// ```text
 /// Plan2(CFG + SSA/def-use) -> Opt2 passes -> Out-of-SSA(MIR) -> regalloc
 /// ```
 ///
-/// where Plan2 is the persistent CFG + SSA/def-use (promoting the throwaway
-/// `build_cfg` in `codegen::engine::regalloc::analysis`) together with its
+/// where Plan2 grows into the persistent CFG + SSA form with its remaining
 /// **demand-driven** analyses — SSA promotion (mem2reg), alias analysis,
 /// memory-SSA / memory-dependence, range and trap analysis, loop
-/// canonicalization, and function-attribute (`no-trap`) inference. None of that
-/// is built yet: it arrives with the first Opt2 pass that needs it, because
-/// building and destructing SSA with zero consumers is pure risk against the
-/// default-level byte-identity gate (plan-100 §5 / Open Decisions).
+/// canonicalization, and function-attribute (`no-trap`) inference. Each
+/// arrives with the first Opt2 pass that needs it (plan-100 §5).
 ///
-/// Rows still to land here are the CFG/dataflow ones in
+/// Rows still to land here are the remaining CFG/dataflow ones in
 /// `planning/optimizations.md` — dead-store elimination, unreachable-block
 /// pruning, jump threading, redundant-load elimination, the alias-based
 /// broadening of store-to-load forwarding, behavior-preserving check elision.
@@ -55,9 +65,22 @@ use crate::optimizer::OptLevel;
 /// physical registers and so stay at their post-regalloc call sites. `level` is
 /// the active dial, threaded for the future rows that will filter on it; each
 /// row self-guards on its own catalog level rather than on the seam.
-pub(crate) fn optimize_mir(instructions: &mut Vec<CodeInstruction>, level: OptLevel) {
+pub(crate) fn optimize_mir(
+    instructions: &mut Vec<CodeInstruction>,
+    model: &dyn RegisterModel,
+    level: OptLevel,
+) {
     let _ = level;
+    // Pipeline order, each row self-guarded on its own catalog level: folding
+    // (L1) strands dead feeders; dead-store elimination (L2) strands more;
+    // DCE (L2) sweeps them; ADCE (L3) removes the dead control structure
+    // plain DCE keeps; unreachable-block pruning (L2) runs last over the
+    // final control flow.
     constant_folding::fold_constants(instructions);
+    dse::eliminate(instructions);
+    dce::eliminate(instructions, model);
+    adce::eliminate(instructions, model);
+    uce::eliminate(instructions);
 }
 
 #[cfg(test)]
@@ -175,7 +198,11 @@ mod tests {
     fn optimize_mir_is_identity_on_a_constant_free_stream() {
         for level in 0..=6u8 {
             let mut stream = plain();
-            optimize_mir(&mut stream, OptLevel(level));
+            optimize_mir(
+                &mut stream,
+                &crate::arch::aarch64::regmodel::Aarch64RegisterModel,
+                OptLevel(level),
+            );
             assert_eq!(shape(&stream), shape(&plain()), "level {level}");
         }
     }
@@ -199,11 +226,23 @@ mod tests {
             ]
         };
         let mut off = foldable();
-        with_opt_level(OptLevel(0), || optimize_mir(&mut off, OptLevel(0)));
+        with_opt_level(OptLevel(0), || {
+            optimize_mir(
+                &mut off,
+                &crate::arch::aarch64::regmodel::Aarch64RegisterModel,
+                OptLevel(0),
+            )
+        });
         assert_eq!(off[2].op, CodeOp::Add, "-O0 must not fold");
 
         let mut on = foldable();
-        with_opt_level(OptLevel(1), || optimize_mir(&mut on, OptLevel(1)));
+        with_opt_level(OptLevel(1), || {
+            optimize_mir(
+                &mut on,
+                &crate::arch::aarch64::regmodel::Aarch64RegisterModel,
+                OptLevel(1),
+            )
+        });
         assert_eq!(on[2].op, CodeOp::MovImm, "-O1 must fold through the seam");
         assert_eq!(on[2].get("value").as_deref(), Some("5"));
     }

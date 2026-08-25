@@ -388,6 +388,29 @@ pub(super) mod testutil {
         }
     }
 
+    /// A one-function `NirModule` for pass-entry tests.
+    pub(in crate::optimizer::opt1) fn test_module(
+        functions: Vec<crate::target::shared::nir::NirFunction>,
+    ) -> NirModule {
+        NirModule {
+            target: "macos-aarch64".to_string(),
+            build_mode: crate::target::NativeBuildMode::Console,
+            stdin_log_cap: 0,
+            project: "test".to_string(),
+            entry: None,
+            globals: vec![],
+            types: vec![],
+            imports: vec![],
+            runtime_helpers: vec![],
+            functions,
+            link_functions: vec![],
+            link_cstructs: vec![],
+            native_resources: vec![],
+            native_libraries: crate::binary_repr::NativeLibraryTable { entries: vec![] },
+            max_buffer_bytes: 0,
+        }
+    }
+
     pub(in crate::optimizer::opt1) fn int_scope(name: &str) -> Scopes {
         let mut scopes = Scopes::new();
         scopes.insert(name.to_string(), ParameterType::Integer);
@@ -557,25 +580,5 @@ mod tests {
             "(local(x) + (local(x) + local(x)))",
             "-O1 must run both rows"
         );
-    }
-
-    fn test_module(functions: Vec<NirFunction>) -> NirModule {
-        NirModule {
-            target: "macos-aarch64".to_string(),
-            build_mode: crate::target::NativeBuildMode::Console,
-            stdin_log_cap: 0,
-            project: "test".to_string(),
-            entry: None,
-            globals: vec![],
-            types: vec![],
-            imports: vec![],
-            runtime_helpers: vec![],
-            functions,
-            link_functions: vec![],
-            link_cstructs: vec![],
-            native_resources: vec![],
-            native_libraries: crate::binary_repr::NativeLibraryTable { entries: vec![] },
-            max_buffer_bytes: 0,
-        }
     }
 }

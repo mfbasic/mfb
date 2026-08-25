@@ -469,14 +469,15 @@ pub(crate) fn effect(instruction: &CodeInstruction, model: &ClassModel) -> Effec
 }
 
 /// A basic block: a half-open instruction range `[start, end)` and its
-/// successor block indices.
-struct Block {
-    start: usize,
-    end: usize,
-    succ: Vec<usize>,
+/// successor block indices. pub(crate): the optimizer's Opt2 analyses
+/// (`optimizer::opt2::plans`) build postdominators over this same CFG.
+pub(crate) struct Block {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) succ: Vec<usize>,
 }
 
-fn is_block_terminator(op: CodeOp) -> bool {
+pub(crate) fn is_block_terminator(op: CodeOp) -> bool {
     matches!(
         op,
         CodeOp::Branch
@@ -516,11 +517,11 @@ fn is_block_terminator(op: CodeOp) -> bool {
     )
 }
 
-fn is_unconditional_terminator(op: CodeOp) -> bool {
+pub(crate) fn is_unconditional_terminator(op: CodeOp) -> bool {
     matches!(op, CodeOp::Branch | CodeOp::Ret | CodeOp::BranchSelf)
 }
 
-fn build_cfg(instructions: &[CodeInstruction]) -> Vec<Block> {
+pub(crate) fn build_cfg(instructions: &[CodeInstruction]) -> Vec<Block> {
     let n = instructions.len();
     if n == 0 {
         return Vec::new();
