@@ -2,6 +2,7 @@
 use crate::codegen::builtins;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::typed_map_entry_type_parts;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
@@ -438,90 +439,88 @@ impl CodeBuilder<'_> {
                 });
             }
         }
-        let (field_index, field_type, payload_offset, inline_string) = if let Some((
-            key_type,
-            value_type,
-        )) =
-            parse_map_entry_type(&target_value.type_.name())
-        {
-            match member {
-                "key" => (0, key_type, 0, false),
-                "value" => (1, value_type, 0, false),
-                _ => {
+        let (field_index, field_type, payload_offset, inline_string) =
+            if let Some((key_type, value_type)) = typed_map_entry_type_parts(&target_value.type_)
+                .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
+            {
+                match member {
+                    "key" => (0, key_type, 0, false),
+                    "value" => (1, value_type, 0, false),
+                    _ => {
+                        return Err(format!(
+                            "native code map entry '{}' has no field '{}'",
+                            target_value.type_, member
+                        ));
+                    }
+                }
+            } else if let Some(fields) = self
+                .type_model
+                .record_fields
+                .get(target_value.type_.name().as_ref())
+            {
+                let Some((index, (_, field_type))) = fields
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (name, _))| name == member)
+                else {
                     return Err(format!(
-                        "native code map entry '{}' has no field '{}'",
+                        "native code record '{}' has no field '{}'",
                         target_value.type_, member
                     ));
-                }
-            }
-        } else if let Some(fields) = self
-            .type_model
-            .record_fields
-            .get(target_value.type_.name().as_ref())
-        {
-            let Some((index, (_, field_type))) = fields
-                .iter()
-                .enumerate()
-                .find(|(_, (name, _))| name == member)
-            else {
-                return Err(format!(
-                    "native code record '{}' has no field '{}'",
-                    target_value.type_, member
-                ));
-            };
-            let inline_string =
-                self.record_field_is_inlined(&target_value.type_.name(), &field_type.name());
-            (index, field_type.name().into_owned(), 0, inline_string)
-        } else if let Some(fields) = self
-            .type_model
-            .union_variant_fields
-            .get(target_value.type_.name().as_ref())
-        {
-            let Some((index, (_, field_type))) = fields
-                .iter()
-                .enumerate()
-                .find(|(_, (name, _))| name == member)
-            else {
-                return Err(format!(
-                    "native code variant '{}' has no field '{}'",
-                    target_value.type_, member
-                ));
-            };
-            (index, field_type.name().into_owned(), 8, false)
-        } else if self
-            .type_model
-            .union_names
-            .contains(target_value.type_.name().as_ref())
-        {
-            // bug-147: a field name shared by two variants must resolve to a
-            // deterministic offset. Walk the variants in the stable
-            // canonical order (`variants_for_union`) rather than iterating
-            // `union_variant_fields` in HashMap order, which produced a
-            // build-nondeterministic offset for ambiguous field names.
-            let Some((index, field_type)) = self
+                };
+                let inline_string =
+                    self.record_field_is_inlined(&target_value.type_.name(), &field_type.name());
+                (index, field_type.name().into_owned(), 0, inline_string)
+            } else if let Some(fields) = self
                 .type_model
-                .variants_for_union(&target_value.type_.name())
-                .filter_map(|variant| self.type_model.union_variant_fields.get(variant))
-                .find_map(|fields| {
-                    fields
-                        .iter()
-                        .enumerate()
-                        .find(|(_, (name, _))| name == member)
-                        .map(|(index, (_, field_type))| (index, field_type.name().into_owned()))
-                })
-            else {
+                .union_variant_fields
+                .get(target_value.type_.name().as_ref())
+            {
+                let Some((index, (_, field_type))) = fields
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (name, _))| name == member)
+                else {
+                    return Err(format!(
+                        "native code variant '{}' has no field '{}'",
+                        target_value.type_, member
+                    ));
+                };
+                (index, field_type.name().into_owned(), 8, false)
+            } else if self
+                .type_model
+                .union_names
+                .contains(target_value.type_.name().as_ref())
+            {
+                // bug-147: a field name shared by two variants must resolve to a
+                // deterministic offset. Walk the variants in the stable
+                // canonical order (`variants_for_union`) rather than iterating
+                // `union_variant_fields` in HashMap order, which produced a
+                // build-nondeterministic offset for ambiguous field names.
+                let Some((index, field_type)) = self
+                    .type_model
+                    .variants_for_union(&target_value.type_.name())
+                    .filter_map(|variant| self.type_model.union_variant_fields.get(variant))
+                    .find_map(|fields| {
+                        fields
+                            .iter()
+                            .enumerate()
+                            .find(|(_, (name, _))| name == member)
+                            .map(|(index, (_, field_type))| (index, field_type.name().into_owned()))
+                    })
+                else {
+                    return Err(format!(
+                        "native code union '{}' has no payload field '{}'",
+                        target_value.type_, member
+                    ));
+                };
+                (index, field_type, 8, false)
+            } else {
                 return Err(format!(
-                    "native code union '{}' has no payload field '{}'",
-                    target_value.type_, member
+                    "native code field access target '{}' is not a record or variant",
+                    target_value.type_
                 ));
             };
-            (index, field_type, 8, false)
-        } else {
-            return Err(format!(
-                "native code field access target '{}' is not a record or variant",
-                target_value.type_
-            ));
-        };
         let register = self.allocate_register()?;
         self.emit(abi::load_u64(
             &register,

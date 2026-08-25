@@ -3,7 +3,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::types::{list_element_type, map_type_parts};
+use crate::codegen::engine::types::{typed_list_element_type, typed_map_type_parts};
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -169,7 +169,9 @@ pub(crate) fn lower_set(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let collection = args[0].clone();
-    if let Some(element_type) = list_element_type(&collection.type_.name()) {
+    if let Some(element_type) =
+        typed_list_element_type(&collection.type_).map(|type_| type_.name().into_owned())
+    {
         let list_slot = builder.allocate_stack_object("set_list", 8);
         builder.emit(abi::store_u64(
             &collection.location,
@@ -287,7 +289,9 @@ pub(crate) fn lower_set(
         );
     }
 
-    if let Some((key_type, value_type)) = map_type_parts(&collection.type_.name()) {
+    if let Some((key_type, value_type)) = typed_map_type_parts(&collection.type_)
+        .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
+    {
         let map_slot = builder.allocate_stack_object("set_map", 8);
         builder.emit(abi::store_u64(
             &collection.location,

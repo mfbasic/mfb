@@ -2,7 +2,7 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::types::map_type_parts;
+use crate::codegen::engine::types::typed_map_type_parts;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -107,7 +107,9 @@ pub(crate) fn lower_keys(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let collection = &args[0];
-    let Some((key_type, _)) = map_type_parts(&collection.type_.name()) else {
+    let Some((key_type, _)) = typed_map_type_parts(&collection.type_)
+        .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
+    else {
         return Err(format!(
             "native collection keys does not accept {}",
             collection.type_

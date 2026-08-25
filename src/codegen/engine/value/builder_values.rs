@@ -1460,17 +1460,13 @@ impl CodeBuilder<'_> {
             }
             NirValue::ResultValue { value } => {
                 let result = self.lower_value(value)?;
-                let type_ = result
-                    .type_
-                    .name()
-                    .strip_prefix("Result OF ")
-                    .ok_or_else(|| {
-                        format!(
-                            "native RESULT_VALUE requires raw Result input, got `{}`",
-                            result.type_
-                        )
-                    })?
-                    .to_string();
+                let crate::types::ParameterType::ResultOf(payload) = &result.type_ else {
+                    return Err(format!(
+                        "native RESULT_VALUE requires raw Result input, got `{}`",
+                        result.type_
+                    ));
+                };
+                let type_ = payload.name().into_owned();
                 // The payload is inlined at +16 (plan-02 §4.3): a block payload
                 // yields an alias pointer into the Result; a scalar payload is the
                 // 8-byte value.

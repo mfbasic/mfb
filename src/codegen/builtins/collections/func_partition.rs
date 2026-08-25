@@ -5,7 +5,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::{callable_return_type, list_element_type};
+use crate::codegen::engine::types::{callable_return_type, typed_list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -48,7 +48,11 @@ impl CodeBuilder<'_> {
         let scratch9 = self.temporary_vreg();
         let scratch17 = self.temporary_vreg();
         let collection = self.lower_value(&args[0])?;
-        if list_element_type(&collection.type_.name()).as_deref() != Some(element_type) {
+        if typed_list_element_type(&collection.type_)
+            .map(|type_| type_.name().into_owned())
+            .as_deref()
+            != Some(element_type)
+        {
             return Err(format!(
                 "native partition element mismatch: {} vs {element_type}",
                 collection.type_

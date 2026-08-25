@@ -2,7 +2,7 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::types::set_element_type;
+use crate::codegen::engine::types::typed_set_element_type;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -111,7 +111,9 @@ pub(crate) fn lower_add(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let set = args[0].clone();
-    let Some(element_type) = set_element_type(&set.type_.name()) else {
+    let Some(element_type) =
+        typed_set_element_type(&set.type_).map(|type_| type_.name().into_owned())
+    else {
         return Err(format!(
             "native collection add does not accept {}",
             set.type_

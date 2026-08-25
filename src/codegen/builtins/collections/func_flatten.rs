@@ -10,7 +10,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::list_element_type;
+use crate::codegen::engine::types::{list_element_type, typed_list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -42,7 +42,8 @@ impl CodeBuilder<'_> {
     fn lower_flatten_native(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let source = self.lower_value(&args[0])?;
         let outer_type = source.type_.clone();
-        let inner_type = list_element_type(&outer_type.name())
+        let inner_type = typed_list_element_type(&outer_type)
+            .map(|type_| type_.name().into_owned())
             .ok_or_else(|| format!("native flatten does not accept {outer_type}"))?;
         let elem = list_element_type(&inner_type)
             .ok_or_else(|| format!("native flatten inner type {inner_type} is not a list"))?;

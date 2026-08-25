@@ -4,6 +4,9 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::function::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::regalloc;
+use crate::codegen::engine::types::typed_list_element_type;
+use crate::codegen::engine::types::typed_map_type_parts;
+use crate::codegen::engine::types::typed_set_element_type;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
@@ -185,7 +188,10 @@ impl CodeBuilder<'_> {
         let field_type = fields[index].1.clone();
         // Only a `List` (kind-0/1/2) grows in place here; a Map/Set is not an
         // `append` target.
-        if list_element_type(&field_type.name()).is_none() {
+        if typed_list_element_type(&field_type)
+            .map(|type_| type_.name().into_owned())
+            .is_none()
+        {
             return None;
         }
         if !self.record_field_is_inlined(record_type, &field_type.name()) {
@@ -630,7 +636,7 @@ impl CodeBuilder<'_> {
                         // this scope; it is drained on every exit path.
                         if self.owner_collections.contains(name) {
                             self.setup_owned_list(name, &type_.name())?;
-                        } else if Self::is_res_marked_resource_collection(&type_.name())
+                        } else if Self::is_res_marked_resource_collection(&type_)
                             && matches!(
                                 value,
                                 Some(NirValue::Call { .. } | NirValue::CallResult { .. })
@@ -641,7 +647,8 @@ impl CodeBuilder<'_> {
                             // owns them and closes each once at exit (§15.6).
                             self.setup_owned_list(name, &type_.name())?;
                             if let Some(element_type) =
-                                crate::codegen::engine::types::list_element_type(&type_.name())
+                                crate::codegen::engine::types::typed_list_element_type(&type_)
+                                    .map(|type_| type_.name().into_owned())
                             {
                                 self.emit_owned_list_seed_from_collection(
                                     name,

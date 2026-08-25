@@ -2,6 +2,7 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Allocate and register a runtime owned-list for an owner collection binding
     /// (§15.6): a head-pointer stack slot (initialized empty) plus an
@@ -36,17 +37,19 @@ impl CodeBuilder<'_> {
         }
     }
 
-    /// Whether a NIR type string is a `RES`-marked resource collection
+    /// Whether a type is a `RES`-marked resource collection
     /// (`List OF RES File`, `Map OF K TO RES File`): its scope-ownership transfers
     /// across a function boundary (§15.6).
-    pub(crate) fn is_res_marked_resource_collection(type_: &str) -> bool {
-        type_
-            .strip_prefix("List OF ")
-            .is_some_and(|e| e.starts_with("RES "))
-            || type_
-                .strip_prefix("Map OF ")
-                .and_then(|rest| rest.split_once(" TO "))
-                .is_some_and(|(_, value)| value.starts_with("RES "))
+    ///
+    /// plan-106-E: the `RES` marker is a [`ParameterType::Res`] variant, so this is
+    /// the element/value shape, not a prefix on its spelling.
+    pub(crate) fn is_res_marked_resource_collection(type_: &ParameterType) -> bool {
+        let marked = |type_: &ParameterType| matches!(type_, ParameterType::Res(_));
+        match type_ {
+            ParameterType::ListOf(element) => marked(element),
+            ParameterType::MapOf(_, value) => marked(value),
+            _ => false,
+        }
     }
 
     /// Push the resource record at `resource_slot` onto `collection`'s owned-list

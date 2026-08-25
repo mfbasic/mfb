@@ -5,7 +5,7 @@
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::list_element_type;
+use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -255,8 +255,12 @@ impl CodeBuilder<'_> {
         // s20 = a blob base, s21 = b blob base, s22 = result blob base. The two
         // inputs are separate lists with their own element types, so each takes
         // its own stride (plan-57-D).
-        let a_element = list_element_type(&a.type_.name()).unwrap_or_default();
-        let b_element = list_element_type(&b.type_.name()).unwrap_or_default();
+        let a_element = typed_list_element_type(&a.type_)
+            .map(|type_| type_.name().into_owned())
+            .unwrap_or_default();
+        let b_element = typed_list_element_type(&b.type_)
+            .map(|type_| type_.name().into_owned())
+            .unwrap_or_default();
         // Both inputs are fixed-width by `try_inline_zip_op`'s guard, so under
         // the entry-free representation BOTH are kind 2 and neither has an entry
         // to read. s12/s13 then carry a byte OFFSET from the blob base rather

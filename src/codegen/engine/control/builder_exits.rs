@@ -389,9 +389,10 @@ impl CodeBuilder<'_> {
                 // Returning a `List OF RES File` transfers its owned-list to the
                 // caller: drop this scope's drain so the resources are not closed
                 // here (§15.6).
-                if result.as_ref().is_some_and(|result| {
-                    Self::is_res_marked_resource_collection(&result.type_.name())
-                }) {
+                if result
+                    .as_ref()
+                    .is_some_and(|result| Self::is_res_marked_resource_collection(&result.type_))
+                {
                     self.deactivate_owned_list(name);
                 }
             }

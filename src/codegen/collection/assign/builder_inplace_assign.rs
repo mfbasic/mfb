@@ -430,8 +430,8 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let list_type = local.type_.clone();
-        let Some(element_type) =
-            crate::codegen::engine::types::list_element_type(&list_type.name())
+        let Some(element_type) = crate::codegen::engine::types::typed_list_element_type(&list_type)
+            .map(|type_| type_.name().into_owned())
         else {
             return Ok(false);
         };
@@ -523,7 +523,8 @@ impl CodeBuilder<'_> {
             return Ok(false);
         }
         if let Some(element_type) =
-            crate::codegen::engine::types::list_element_type(&collection_type.name())
+            crate::codegen::engine::types::typed_list_element_type(&collection_type)
+                .map(|type_| type_.name().into_owned())
         {
             // The list `set` item is always a single element of type `T`
             // (syntaxcheck-enforced), so — unlike append's bulk-vs-single gate — no
@@ -572,7 +573,8 @@ impl CodeBuilder<'_> {
             return Ok(true);
         }
         if let Some((key_type, value_type)) =
-            crate::codegen::engine::types::map_type_parts(&collection_type.name())
+            crate::codegen::engine::types::typed_map_type_parts(&collection_type)
+                .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
         {
             let key = self.lower_value(&args[1])?;
             // Observation boundary: an in-place `Float` map key must be finite
@@ -663,8 +665,8 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let list_type = local.type_.clone();
-        let Some(element_type) =
-            crate::codegen::engine::types::list_element_type(&list_type.name())
+        let Some(element_type) = crate::codegen::engine::types::typed_list_element_type(&list_type)
+            .map(|type_| type_.name().into_owned())
         else {
             return Ok(false);
         };

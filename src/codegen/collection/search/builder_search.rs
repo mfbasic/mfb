@@ -2,7 +2,7 @@
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::*;
+use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
@@ -93,7 +93,9 @@ impl CodeBuilder<'_> {
         let scratch23 = self.temporary_vreg();
         let scratch24 = self.temporary_vreg();
         let haystack = self.lower_value(&args[0])?;
-        if let Some(element_type) = list_element_type(&haystack.type_.name()) {
+        if let Some(element_type) =
+            typed_list_element_type(&haystack.type_).map(|type_| type_.name().into_owned())
+        {
             let haystack_slot = self.allocate_stack_object("find_list_haystack", 8);
             self.emit(abi::store_u64(
                 &haystack.location,
@@ -678,7 +680,9 @@ impl CodeBuilder<'_> {
         let scratch24 = self.temporary_vreg();
         let scratch25 = self.temporary_vreg();
         let value = self.lower_value(&args[0])?;
-        if let Some(element_type) = list_element_type(&value.type_.name()) {
+        if let Some(element_type) =
+            typed_list_element_type(&value.type_).map(|type_| type_.name().into_owned())
+        {
             let value_slot = self.allocate_stack_object("mid_list_value", 8);
             self.emit(abi::store_u64(
                 &value.location,

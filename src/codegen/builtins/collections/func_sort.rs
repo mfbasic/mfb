@@ -4,7 +4,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::list_element_type;
+use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -107,7 +107,8 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let source = self.lower_value(&args[0])?;
         let list_type = source.type_.clone();
-        let elem = list_element_type(&list_type.name())
+        let elem = typed_list_element_type(&list_type)
+            .map(|type_| type_.name().into_owned())
             .ok_or_else(|| format!("native sort does not accept {list_type}"))?;
         // String sorts lexicographically (byte compare + materialized gather);
         // signed-8-byte fixed-width items (Integer/Fixed/Money) sort by a direct

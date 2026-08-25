@@ -24,7 +24,9 @@
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::{collection_payload_alignment_for_code, list_element_type};
+use crate::codegen::engine::types::{
+    collection_payload_alignment_for_code, list_element_type, typed_list_element_type,
+};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
@@ -43,7 +45,9 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
         let list = args[0].clone();
-        let Some(element_type) = list_element_type(&list.type_.name()) else {
+        let Some(element_type) =
+            typed_list_element_type(&list.type_).map(|type_| type_.name().into_owned())
+        else {
             return Err(format!(
                 "native collection {op} does not accept {}",
                 list.type_

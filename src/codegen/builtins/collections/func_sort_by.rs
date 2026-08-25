@@ -4,7 +4,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::{callable_return_type, list_element_type};
+use crate::codegen::engine::types::{callable_return_type, typed_list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -58,7 +58,8 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
         let collection = self.lower_value(&args[0])?;
-        let item_type = list_element_type(&collection.type_.name())
+        let item_type = typed_list_element_type(&collection.type_)
+            .map(|type_| type_.name().into_owned())
             .ok_or_else(|| format!("native sortBy does not accept {}", collection.type_))?;
         // plan-86 A1: for a String item list the 8-byte merge cannot move the
         // variable-width payloads, so `gather` mode sorts an Integer index

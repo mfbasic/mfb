@@ -4,7 +4,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::list_element_type;
+use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -66,7 +66,8 @@ impl CodeBuilder<'_> {
         stride: i64,
     ) -> Result<ValueResult, String> {
         let source = self.lower_value(&args[0])?;
-        let elem = list_element_type(&source.type_.name())
+        let elem = typed_list_element_type(&source.type_)
+            .map(|type_| type_.name().into_owned())
             .ok_or_else(|| format!("native window does not accept {}", source.type_))?;
         let inner_type = source.type_.clone();
         let outer_type = format!("List OF {inner_type}");

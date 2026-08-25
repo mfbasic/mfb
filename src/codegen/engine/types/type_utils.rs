@@ -453,12 +453,6 @@ pub(crate) fn callable_return_type(type_: &str) -> Option<String> {
     Some(type_[idx + ") AS ".len()..].to_string())
 }
 
-pub(crate) fn parse_map_entry_type(type_: &str) -> Option<(String, String)> {
-    let rest = type_.strip_prefix("MapEntry OF ")?;
-    let (key, value) = rest.split_once(" TO ")?;
-    Some((key.to_string(), value.to_string()))
-}
-
 /// The promoted result type of a binary numeric operation, defaulting a
 /// non-numeric pairing to `Integer` — codegen's total flavour of the ONE
 /// promotion algebra.
