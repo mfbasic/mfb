@@ -75,7 +75,7 @@ pub(crate) fn lower_bits_bswap16(
     if value.type_ != ParameterType::Integer {
         return Err(format!("bits.bswap16 does not accept {}", value.type_));
     }
-    let dst = builder.allocate_register()?;
+    let dst = builder.allocate_register();
     // REV of the low word puts the two low bytes at bits [31:16]; a logical
     // >>16 drops the other two bytes and clears bits 16..63.
     builder.emit(abi::reverse_bytes_word(dst, &value.location));

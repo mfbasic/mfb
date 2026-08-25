@@ -81,7 +81,7 @@ pub(crate) fn lower_bits_bswap64(
     if value.type_ != ParameterType::Integer {
         return Err(format!("bits.bswap64 does not accept {}", value.type_));
     }
-    let dst = builder.allocate_register()?;
+    let dst = builder.allocate_register();
     builder.emit(abi::reverse_bytes(dst, &value.location));
     Ok(ValueResult {
         origin: None,

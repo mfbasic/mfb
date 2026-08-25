@@ -262,7 +262,7 @@ pub(crate) fn lower_strings_pad(
     }
     builder.emit(abi::move_immediate(byte, "Integer", "0"));
     builder.emit(abi::store_u8(byte, &scratch13, 0));
-    let result = builder.allocate_register()?;
+    let result = builder.allocate_register();
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     let after = builder.label("strings_pad_after");
     builder.emit(abi::branch(&after));

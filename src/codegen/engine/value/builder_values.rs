@@ -367,7 +367,7 @@ impl CodeBuilder<'_> {
                 // above (builder_value_semantics.rs:562 returns Some for it), so this
                 // arm only reaches non-String scalar constants. bug-175 C: the dead
                 // `type_ == "String"` branch was removed.
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 let immediate = native_immediate_value(&type_.name(), value)?;
                 self.emit(abi::move_immediate(&register, &type_.name(), &immediate));
                 Ok(ValueResult {
@@ -394,27 +394,14 @@ impl CodeBuilder<'_> {
                     return Ok(self.make_vector_native(&type_, lanes));
                 }
                 // A loop-promoted float local lives in an FP register, not its
-                // slot (plan-03 Stage D part 2). Under the `d`-native value model
-                // its FP register *is* the value's home, so return it directly —
-                // no GPR materialization (plan-01 float-dnative). Under the bump
-                // oracle the value model needs the bits, so shuttle to a GPR and
-                // mark it FP-resident so a chained float op skips the reload.
+                // slot (plan-03 Stage D part 2). Its FP register *is* the value's
+                // home under the `d`-native value model, so return it directly —
+                // no GPR materialization (plan-01 float-dnative).
                 if let Some(d) = self.promoted_float_locals.get(name).cloned() {
-                    if self.dnative_floats() {
-                        return Ok(ValueResult {
-                            origin: None,
-                            type_: ParameterType::Float,
-                            location: Operand::from(d),
-                            text: name.clone(),
-                        });
-                    }
-                    let register = self.allocate_register()?;
-                    self.emit(abi::float_move_x_from_d(&register, &d));
-                    self.float_residents.insert(register.render(), d);
                     return Ok(ValueResult {
                         origin: None,
                         type_: ParameterType::Float,
-                        location: Operand::from(register.render()),
+                        location: Operand::from(d),
                         text: name.clone(),
                     });
                 }
@@ -431,8 +418,8 @@ impl CodeBuilder<'_> {
                 // arithmetic with no `ldr x` + `fmov` shuttle (plan-01
                 // float-dnative). A `by_ref` local needs a pointer deref first, so
                 // it stays on the GPR path.
-                if self.dnative_floats() && matches!(type_, ParameterType::Float) && !by_ref {
-                    let d = self.allocate_fp_register()?;
+                if matches!(type_, ParameterType::Float) && !by_ref {
+                    let d = self.allocate_fp_register();
                     self.emit(abi::load_double(&d, abi::stack_pointer(), stack_offset));
                     return Ok(ValueResult {
                         origin: None,
@@ -441,7 +428,7 @@ impl CodeBuilder<'_> {
                         text: name.clone(),
                     });
                 }
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), stack_offset));
                 if by_ref {
                     // A reference local's slot holds a pointer to the parent
@@ -470,7 +457,7 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| format!("native code local ref '{name}' does not resolve"))?;
                 let stack_offset = local.stack_offset;
                 local.constant = None;
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 self.emit(abi::add_immediate(
                     &register,
                     abi::stack_pointer(),
@@ -494,8 +481,8 @@ impl CodeBuilder<'_> {
                 // A `Float` global loads straight into an FP register under the
                 // `d`-native model (plan-01 float-dnative), mirroring the local
                 // load path.
-                if self.dnative_floats() && matches!(value_type, ParameterType::Float) {
-                    let d = self.allocate_fp_register()?;
+                if matches!(value_type, ParameterType::Float) {
+                    let d = self.allocate_fp_register();
                     self.emit(abi::load_double(&d, &address, 0));
                     return Ok(ValueResult {
                         origin: None,
@@ -504,7 +491,7 @@ impl CodeBuilder<'_> {
                         text: name.clone(),
                     });
                 }
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 self.emit(abi::load_u64(&register, &address, 0));
                 Ok(ValueResult {
                     origin: None,
@@ -525,7 +512,7 @@ impl CodeBuilder<'_> {
                     .or_else(|| self.function_symbols.get(name).cloned())
                     .unwrap_or_else(|| name.clone());
                 let desc_symbol = closure_descriptor_symbol(&symbol);
-                let closure_register = self.allocate_register()?;
+                let closure_register = self.allocate_register();
                 self.emit(abi::load_page_address(&closure_register, &desc_symbol));
                 self.relocations.push(CodeRelocation {
                     from: self.current_symbol.clone(),
@@ -563,7 +550,7 @@ impl CodeBuilder<'_> {
                     .get(name)
                     .cloned()
                     .unwrap_or_else(|| name.clone());
-                let function_register = self.allocate_register()?;
+                let function_register = self.allocate_register();
                 self.emit(abi::load_page_address(&function_register, &symbol));
                 self.relocations.push(CodeRelocation {
                     from: self.current_symbol.clone(),
@@ -593,7 +580,7 @@ impl CodeBuilder<'_> {
                 let env_slot = if captures.is_empty() {
                     None
                 } else {
-                    let env_register = self.allocate_register()?;
+                    let env_register = self.allocate_register();
                     let env_slot = self.allocate_stack_object("closure_env", 8);
                     let alloc_ok = self.label("closure_env_alloc_ok");
                     let env_size = (captures.len() * 8).to_string();
@@ -627,13 +614,13 @@ impl CodeBuilder<'_> {
                         // Materialize a `d`-native float before storing it into
                         // the closure env (plan-01 float-dnative).
                         let value = self.materialize_float(value)?;
-                        let env_register = self.allocate_register()?;
+                        let env_register = self.allocate_register();
                         self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
                         self.emit(abi::store_u64(&value.location, &env_register, index * 8));
                     }
                     Some(env_slot)
                 };
-                let closure_register = self.allocate_register()?;
+                let closure_register = self.allocate_register();
                 let alloc_ok = self.label("closure_alloc_ok");
                 // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
                 self.emit(abi::move_immediate(
@@ -657,7 +644,7 @@ impl CodeBuilder<'_> {
                     CLOSURE_OFFSET_CODE,
                 ));
                 if let Some(env_slot) = env_slot {
-                    let env_register = self.allocate_register()?;
+                    let env_register = self.allocate_register();
                     self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
                     self.emit(abi::store_u64(
                         &env_register,
@@ -684,7 +671,7 @@ impl CodeBuilder<'_> {
                 // value/block pointer; for a by-ref capture (`by_ref`) it is the
                 // pointer to the parent binding's slot, which `Bind` installs into
                 // a reference local that derefs on read/write.
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 self.emit(abi::load_u64(&register, CLOSURE_ENV_REGISTER, index * 8));
                 Ok(ValueResult {
                     origin: None,
@@ -722,7 +709,7 @@ impl CodeBuilder<'_> {
                             origin: None,
                             type_: local.type_.clone(),
                             location: {
-                                let register = self.allocate_register()?;
+                                let register = self.allocate_register();
                                 self.emit(abi::load_u64(
                                     &register,
                                     abi::stack_pointer(),
@@ -750,7 +737,7 @@ impl CodeBuilder<'_> {
                             .name()
                             .into_owned();
                         let address = self.load_global_address(target)?;
-                        let register = self.allocate_register()?;
+                        let register = self.allocate_register();
                         self.emit(abi::load_u64(&register, &address, 0));
                         let callable = ValueResult {
                             origin: None,
@@ -886,7 +873,7 @@ impl CodeBuilder<'_> {
                             origin: None,
                             type_: local.type_.clone(),
                             location: {
-                                let register = self.allocate_register()?;
+                                let register = self.allocate_register();
                                 self.emit(abi::load_u64(
                                     &register,
                                     abi::stack_pointer(),
@@ -961,7 +948,7 @@ impl CodeBuilder<'_> {
                             result_slot,
                         ));
                         self.emit(abi::label(&have_payload_label));
-                        let register = self.allocate_register()?;
+                        let register = self.allocate_register();
                         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                         return Ok(ValueResult {
                             origin: None,
@@ -1099,7 +1086,7 @@ impl CodeBuilder<'_> {
                     result_slot,
                 ));
                 self.emit(abi::label(&have_payload_label));
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     origin: None,
@@ -1215,7 +1202,7 @@ impl CodeBuilder<'_> {
                         text: format!("construct {type_}({})", join_texts(&arg_values)),
                     });
                 }
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 let tag = self
                     .type_model
                     .union_variant_tags
@@ -1268,12 +1255,12 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     result_slot,
                 ));
-                let zero_register = self.allocate_register()?;
+                let zero_register = self.allocate_register();
                 self.emit(abi::move_immediate(&zero_register, "Integer", "0"));
                 for offset in (0..union_size).step_by(8) {
                     self.emit(abi::store_u64(&zero_register, abi::mfb_return(1), offset));
                 }
-                let tag_register = self.allocate_register()?;
+                let tag_register = self.allocate_register();
                 self.emit(abi::move_immediate(
                     &tag_register,
                     "UnionTag",
@@ -1384,12 +1371,12 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     result_slot,
                 ));
-                let zero_register = self.allocate_register()?;
+                let zero_register = self.allocate_register();
                 self.emit(abi::move_immediate(&zero_register, "Integer", "0"));
                 for offset in (0..union_size).step_by(8) {
                     self.emit(abi::store_u64(&zero_register, abi::mfb_return(1), offset));
                 }
-                let tag_register = self.allocate_register()?;
+                let tag_register = self.allocate_register();
                 self.emit(abi::move_immediate(
                     &tag_register,
                     "UnionTag",
@@ -1402,7 +1389,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(scratch9, abi::stack_pointer(), wrapped_slot));
                 self.emit(abi::load_u64(scratch10, abi::stack_pointer(), result_slot));
                 self.emit(abi::store_u64(scratch9, scratch10, 8));
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     origin: None,
@@ -1416,7 +1403,7 @@ impl CodeBuilder<'_> {
                 // itself (offset 8): extracting it yields that pointer directly.
                 if crate::codegen::builtins::is_resource_type(&type_.name()) {
                     let source = self.lower_value(value)?;
-                    let register = self.allocate_register()?;
+                    let register = self.allocate_register();
                     self.emit(abi::load_u64(&register, &source.location, 8));
                     return Ok(ValueResult {
                         origin: None,
@@ -1429,7 +1416,7 @@ impl CodeBuilder<'_> {
                 // +16 (plan-02 §4.3); the extracted record is an alias into the
                 // union at that offset.
                 let source = self.lower_value(value)?;
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 self.emit(abi::add_immediate(&register, &source.location, 16));
                 Ok(ValueResult {
                     origin: None,
@@ -1440,7 +1427,7 @@ impl CodeBuilder<'_> {
             }
             NirValue::ResultIsOk { value } => {
                 let result = self.lower_value(value)?;
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 let ok_label = self.label("result_is_ok_true");
                 let end_label = self.label("result_is_ok_end");
                 self.emit(abi::load_u64(scratch9, &result.location, 0));
@@ -1470,7 +1457,7 @@ impl CodeBuilder<'_> {
                 // The payload is inlined at +16 (plan-02 §4.3): a block payload
                 // yields an alias pointer into the Result; a scalar payload is the
                 // 8-byte value.
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 if self.result_payload_is_block(&type_) {
                     self.emit(abi::add_immediate(&register, &result.location, 16));
                 } else {
@@ -1486,7 +1473,7 @@ impl CodeBuilder<'_> {
             NirValue::ResultError { value } => {
                 let result = self.lower_value(value)?;
                 // The error payload (a flat Error block) is inlined at +16.
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 self.emit(abi::add_immediate(&register, &result.location, 16));
                 Ok(ValueResult {
                     origin: None,
@@ -1528,7 +1515,7 @@ impl CodeBuilder<'_> {
                         .get(&(type_name.clone(), member.clone()))
                         .copied()
                     {
-                        let register = self.allocate_register()?;
+                        let register = self.allocate_register();
                         self.emit(abi::move_immediate(
                             &register,
                             "EnumOrdinal",
@@ -1562,7 +1549,7 @@ impl CodeBuilder<'_> {
             NirValue::Unary { op, operand, .. } => {
                 let operand = self.lower_value(operand)?;
                 if op == "NOT" && operand.type_ == ParameterType::Boolean {
-                    let register = self.allocate_register()?;
+                    let register = self.allocate_register();
                     let true_label = self.label("bool_not_true");
                     let done_label = self.label("bool_not_done");
                     self.emit(abi::compare_immediate(&operand.location, "0"));
@@ -1704,7 +1691,7 @@ impl CodeBuilder<'_> {
         // helper's instruction order.
         let mut registers = Vec::with_capacity(spilled.len());
         for _ in &spilled {
-            registers.push(self.allocate_register()?);
+            registers.push(self.allocate_register());
         }
         let mut arg_values = Vec::with_capacity(spilled.len());
         for ((slot, type_, text, origin), register) in spilled.into_iter().zip(registers) {
@@ -2049,6 +2036,17 @@ impl CodeBuilder<'_> {
                 })
             })
             .or_else(|| builtins::call_return_type_name(target).map(std::borrow::Cow::into_owned))
+            // A runtime-call `os_alias` reached directly (the IR-level overload
+            // rewrites: `audio.openOutputDevice`/`openInputDevice`/…) is not a
+            // registry member, so `call_return_type_name` declines it. Resolve the
+            // aliased implementation's own return type — package-qualified, so a
+            // resource return (`audio.AudioOutput`) keeps its resource
+            // classification (the derived spec fallback below bares it, which
+            // broke the inline-TRAP'd device-overload opens).
+            .or_else(|| {
+                crate::codegen::registry::alias_call_return_type(target)
+                    .map(std::borrow::Cow::into_owned)
+            })
             // A migrated package's code-form/scope-drop close op (`audio.closeInput`,
             // `audio.closeOutput`, `tls.closeListener`) is an `os_alias`, not a
             // registry member, so `call_return_type_name` declines it; its return type

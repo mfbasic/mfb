@@ -150,7 +150,7 @@ impl CodeBuilder<'_> {
         let second_copy_one = self.label("replace_second_copy_one");
         let second_done = self.label("replace_second_done");
         let done = self.label("replace_done");
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
 
         self.emit(abi::load_u64(value_ptr, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(old_ptr, abi::stack_pointer(), old_slot));
@@ -301,7 +301,7 @@ impl CodeBuilder<'_> {
         // must be a fresh arena block, not an alias of the input `value` (which
         // may be a caller local or a static constant — freeing either would
         // double-free or fault). Deep-copy the input into the arena.
-        let original_ptr = self.allocate_register()?;
+        let original_ptr = self.allocate_register();
         self.emit(abi::load_u64(
             &original_ptr,
             abi::stack_pointer(),
@@ -757,7 +757,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&copy_loop));
         self.emit(abi::label(&copy_done));
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
@@ -811,7 +811,7 @@ impl CodeBuilder<'_> {
         }
 
         self.reset_temporary_registers();
-        let value_register = self.allocate_register()?;
+        let value_register = self.allocate_register();
         self.emit(abi::load_u64(
             &value_register,
             abi::stack_pointer(),
@@ -831,7 +831,7 @@ impl CodeBuilder<'_> {
             "Integer" => self.emit_integer_to_string_value(&value_register, true),
             "List OF Byte" => self.emit_byte_list_to_string_value(&value_register),
             "Fixed" => {
-                let precision = self.allocate_register()?;
+                let precision = self.allocate_register();
                 self.emit(abi::load_u64(
                     &precision,
                     abi::stack_pointer(),
@@ -840,7 +840,7 @@ impl CodeBuilder<'_> {
                 self.emit_fixed_to_string_value(&value_register, &precision)
             }
             "Float" => {
-                let precision = self.allocate_register()?;
+                let precision = self.allocate_register();
                 self.emit(abi::load_u64(
                     &precision,
                     abi::stack_pointer(),
@@ -849,7 +849,7 @@ impl CodeBuilder<'_> {
                 self.emit_float_to_string_value(&value_register, &precision)
             }
             "Money" => {
-                let precision = self.allocate_register()?;
+                let precision = self.allocate_register();
                 self.emit(abi::load_u64(
                     &precision,
                     abi::stack_pointer(),
@@ -864,7 +864,7 @@ impl CodeBuilder<'_> {
                 // yields an OWNED String, so deep-copy that block — returning the
                 // alias would share the record's arena memory, freed at the
                 // record's scope drop (plan-89-A).
-                let text_ptr = self.allocate_register()?;
+                let text_ptr = self.allocate_register();
                 self.emit(abi::load_u64(&text_ptr, &value_register, 0));
                 self.emit(abi::add_registers(&text_ptr, &value_register, &text_ptr));
                 let copied = self.copy_flat_block(&ParameterType::String, &text_ptr)?;
@@ -887,7 +887,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let false_label = self.label("bool_string_false");
         let done = self.label("bool_string_done");
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::compare_immediate(value_register, "0"));
         self.emit(abi::branch_eq(&false_label));
         self.emit_load_string_constant(&result, "TRUE")?;
@@ -918,14 +918,14 @@ impl CodeBuilder<'_> {
         // (`x8`/`x9` both → `rax`) and the `div`/`msub` pair needs the dividend to
         // survive the `div` (which clobbers `rax`/`rdx`) — vregs, never colored to
         // `rax`/`rdx`, satisfy both.
-        let value_s = self.allocate_register()?;
-        let negative_s = self.allocate_register()?;
-        let length_s = self.allocate_register()?;
-        let cursor_s = self.allocate_register()?;
-        let divisor_s = self.allocate_register()?;
-        let quotient_s = self.allocate_register()?;
-        let digit_s = self.allocate_register()?;
-        let dst_s = self.allocate_register()?;
+        let value_s = self.allocate_register();
+        let negative_s = self.allocate_register();
+        let length_s = self.allocate_register();
+        let cursor_s = self.allocate_register();
+        let divisor_s = self.allocate_register();
+        let quotient_s = self.allocate_register();
+        let digit_s = self.allocate_register();
+        let dst_s = self.allocate_register();
         let value = &value_s;
         let negative = &negative_s;
         let length = &length_s;
@@ -1034,7 +1034,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&copy_done));
         self.emit(abi::move_immediate(digit, "Integer", "0"));
         self.emit(abi::store_u8(digit, dst, 0));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         self.emit(abi::label(&done));
         Ok(ValueResult {
@@ -1765,7 +1765,7 @@ impl CodeBuilder<'_> {
             &fraction_done,
         );
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
@@ -1955,7 +1955,7 @@ impl CodeBuilder<'_> {
             &fraction_done,
         );
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
@@ -1993,7 +1993,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::move_register(&result, abi::mfb_return(1)));
         Ok(ValueResult {
             origin: None,
@@ -2027,7 +2027,7 @@ impl CodeBuilder<'_> {
         let right_ptr = self.temporary_vreg();
         let left_byte = self.temporary_vreg();
         let right_byte = self.temporary_vreg();
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         let loop_label = self.label("cmp_string_loop");
         let equal_label = self.label("cmp_string_equal");
         let not_equal_label = self.label("cmp_string_not_equal");
@@ -2109,7 +2109,7 @@ impl CodeBuilder<'_> {
         let left_ptr = self.temporary_vreg();
         let right_ptr = self.temporary_vreg();
         let left_byte = self.temporary_vreg();
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         let min_done_label = self.label("cmp_string_ord_min");
         let loop_label = self.label("cmp_string_ord_loop");
         let prefix_label = self.label("cmp_string_ord_prefix");

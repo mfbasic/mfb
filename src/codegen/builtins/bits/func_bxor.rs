@@ -101,7 +101,7 @@ pub(crate) fn lower_bits_bxor(
     let right_reg = args[1].location.clone();
     let left_text = &args[0].text;
     let right_text = &args[1].text;
-    let dst = builder.allocate_register()?;
+    let dst = builder.allocate_register();
     builder.emit(abi::exclusive_or_registers(dst, left_reg, right_reg));
     Ok(ValueResult {
         origin: None,

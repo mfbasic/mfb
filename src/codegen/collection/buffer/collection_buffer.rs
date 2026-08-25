@@ -26,7 +26,7 @@ impl CodeBuilder<'_> {
             stack_offset: block_slot,
             closure_captures: None,
         })?;
-        let register = self.allocate_register()?;
+        let register = self.allocate_register();
         self.emit(abi::load_u64(&register, abi::stack_pointer(), keep));
         Ok(ValueResult {
             origin: None,
@@ -54,7 +54,7 @@ impl CodeBuilder<'_> {
         slot: usize,
         type_: &ParameterType,
     ) -> Result<(), String> {
-        let keep = self.allocate_register()?;
+        let keep = self.allocate_register();
         self.emit(abi::load_u64(&keep, abi::stack_pointer(), slot));
         let threaded = ValueResult {
             origin: None,

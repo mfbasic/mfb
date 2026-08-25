@@ -1,9 +1,9 @@
 //! Block-local store-to-load forwarding (plan-01-float-codegen Phase 3a).
 //!
-//! The bump-and-reset register model spills every value to a stack slot between
-//! statements and defensively spills an operand to the stack before lowering the
-//! next one (see `emit_float_binary` / `lower_comparison_binary`). That leaves
-//! runs like
+//! The legacy bump-and-reset register model (since removed) spilled every value
+//! to a stack slot between statements and defensively spilled an operand to the
+//! stack before lowering the next one (see `emit_float_binary` /
+//! `lower_comparison_binary`, which retain that shape). That leaves runs like
 //!
 //! ```text
 //!   str x10, [sp, #0xa8]      ; spill a*b
@@ -250,6 +250,7 @@ pub(crate) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
     // Indexed on purpose: the body rewrites `instructions[index]` in place while
     // `classify` is still holding a reference to that same element, so an `iter_mut` reference
     // cannot span both halves.
+    let mut forwarded = 0;
     #[allow(clippy::needless_range_loop)]
     for index in 0..instructions.len() {
         match classify(&instructions[index], is_x86) {
@@ -260,6 +261,7 @@ pub(crate) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
                 if let Some(reg) = slot_reg(&slots, &offset) {
                     if reg != dst {
                         instructions[index] = abi::move_register(&dst, &reg);
+                        forwarded += 1;
                     }
                 }
                 // The load (or the rewritten move) defines `dst`.
@@ -277,6 +279,7 @@ pub(crate) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
             Effect::Barrier => slots.clear(),
         }
     }
+    crate::optimizer::stats::count_peephole_forwards(forwarded);
 }
 
 /// Remove the GP shuttle that a float value round-trips through purely to satisfy
@@ -359,7 +362,9 @@ pub(crate) fn remove_fp_shuttles(
         i += 1;
     }
 
-    if drop_def.iter().all(|drop| !drop) {
+    let folded = drop_def.iter().filter(|drop| **drop).count() as u64;
+    crate::optimizer::stats::count_fp_shuttles_folded(folded);
+    if folded == 0 {
         return;
     }
     let mut rewritten = Vec::with_capacity(instructions.len());

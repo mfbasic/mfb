@@ -101,7 +101,7 @@ pub(crate) fn lower_bits_rr32(
     let count_reg = args[1].location.clone();
     let value_text = &args[0].text;
     let count_text = &args[1].text;
-    let dst = builder.allocate_register()?;
+    let dst = builder.allocate_register();
     builder.emit(abi::rotate_right_word_registers(dst, value_reg, count_reg));
     Ok(ValueResult {
         origin: None,

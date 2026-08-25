@@ -416,7 +416,7 @@ impl CodeBuilder<'_> {
             origin: None,
             type_: map_type.clone(),
             location: {
-                let z = self.allocate_register()?;
+                let z = self.allocate_register();
                 self.emit(abi::load_u64(&z, abi::stack_pointer(), result_slot));
                 Operand::from(z.render())
             },
@@ -433,7 +433,7 @@ impl CodeBuilder<'_> {
             origin: None,
             type_: map_type.clone(),
             location: {
-                let z = self.allocate_register()?;
+                let z = self.allocate_register();
                 self.emit(abi::load_u64(&z, abi::stack_pointer(), result_slot));
                 Operand::from(z.render())
             },

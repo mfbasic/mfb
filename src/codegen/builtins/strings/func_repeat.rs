@@ -85,7 +85,7 @@ pub(crate) fn lower(
     builder.raise_error_bare("ErrOutOfMemory")?;
     builder.emit(abi::label(&alloc_ok));
     // Capture the allocation result while x1 is unambiguously the call result.
-    let result_ptr = builder.allocate_register()?;
+    let result_ptr = builder.allocate_register();
     builder.emit(abi::move_register(&result_ptr, abi::mfb_return(1)));
     builder.emit(abi::store_u64(
         &result_ptr,
@@ -122,7 +122,7 @@ pub(crate) fn lower(
     builder.emit(abi::label(&outer_done));
     builder.emit(abi::move_immediate(byte, "Integer", "0"));
     builder.emit(abi::store_u8(byte, dst, 0));
-    let result = builder.allocate_register()?;
+    let result = builder.allocate_register();
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     let after = builder.label("strings_repeat_after");
     builder.emit(abi::branch(&after));

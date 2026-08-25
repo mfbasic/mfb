@@ -110,7 +110,7 @@ pub(crate) fn lower_bits_sr(
     builder.emit(abi::label(&out_of_range));
     builder.raise_error_bare("ErrInvalidArgument")?;
     builder.emit(abi::label(&valid));
-    let dst = builder.allocate_register()?;
+    let dst = builder.allocate_register();
     builder.emit(abi::shift_right_variable(dst, value_reg, &count_reg));
     Ok(ValueResult {
         origin: None,

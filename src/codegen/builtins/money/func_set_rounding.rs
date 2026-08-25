@@ -84,8 +84,8 @@ pub(crate) fn lower_money_set_rounding(
 ) -> Result<ValueResult, String> {
     let mode = args[0].clone();
     let text = format!("money.setRounding({})", mode.text);
-    let masked = builder.allocate_register()?;
-    let one = builder.allocate_register()?;
+    let masked = builder.allocate_register();
+    let one = builder.allocate_register();
     builder.emit(abi::move_immediate(one, "Integer", "1"));
     builder.emit(abi::and_registers(masked, &mode.location, one));
     builder.emit(abi::store_u64(

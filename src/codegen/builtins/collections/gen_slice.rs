@@ -405,7 +405,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&copy_loop));
         self.emit(abi::label(&copy_done));
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,

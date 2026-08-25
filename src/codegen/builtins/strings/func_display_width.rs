@@ -124,7 +124,7 @@ pub(crate) fn lower(
     builder.emit(abi::move_immediate(total, "Integer", "0"));
     builder.emit(abi::label(&done));
 
-    let result = builder.allocate_register()?;
+    let result = builder.allocate_register();
     builder.emit(abi::move_register(&result, total));
     Ok(ValueResult {
         origin: None,

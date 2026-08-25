@@ -96,7 +96,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::move_register(&result, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
             origin: None,
@@ -245,7 +245,7 @@ impl CodeBuilder<'_> {
             final_slot,
         ));
         self.emit(abi::label(&done));
-        let out = self.allocate_register()?;
+        let out = self.allocate_register();
         self.emit(abi::load_u64(&out, abi::stack_pointer(), final_slot));
         Ok(ValueResult {
             origin: None,
@@ -710,7 +710,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&scratch8, &scratch9, 0));
         self.emit(abi::add_registers(&scratch12, &scratch9, &scratch8));
         self.emit(abi::store_u8(abi::ZERO, &scratch12, 8));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,

@@ -47,7 +47,7 @@ impl CodeBuilder<'_> {
             let not_found = self.label(&format!("{label_prefix}_not_found"));
             let done = self.label(&format!("{label_prefix}_done"));
             let _ = self.emit_map_probe(collection_slot, key_slot, key_type, &not_found)?;
-            let result = self.allocate_register()?;
+            let result = self.allocate_register();
             self.emit(abi::move_immediate(&result, "Boolean", "true"));
             self.emit(abi::branch(&done));
             self.emit(abi::label(&not_found));
@@ -62,7 +62,7 @@ impl CodeBuilder<'_> {
         }
 
         self.reset_temporary_registers();
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         let loop_label = self.label(&format!("{label_prefix}_loop"));
         let found = self.label(&format!("{label_prefix}_found"));
         let next = self.label(&format!("{label_prefix}_next"));

@@ -15,9 +15,20 @@
 //! ```
 //!
 //! [`opt1`] is the `NirModule -> NirModule` seam; [`opt2`] holds the MIR/machine
-//! passes plus the reserved between-selection-and-regalloc MIR seam. The **two**
-//! Level-1 rows that ship today (`forward_stores_to_loads`, `remove_fp_shuttles`)
-//! live in [`opt2`] and are gated by [`level_enabled`].
+//! passes plus the between-selection-and-regalloc MIR seam. Sixteen rows ship
+//! today, each gated by [`level_enabled`] on its own catalog level: constant
+//! folding (both seams), algebraic simplification, non-loop strength
+//! reduction, and the two machine peepholes at Level 1; constant propagation
+//! and copy propagation (on the `opt2::plans::ssa` overlay), branch
+//! simplification (both seams), dead-code elimination (both seams),
+//! unreachable code elimination (both seams), dead-store elimination, and
+//! basic block merging at Level 2; and aggressive DCE, jump threading, and
+//! local/global value numbering (GVN also covering the CSE row) at
+//! Level 3. The single
+//! code-level description of the landed rows is [`catalog`] (rendered by both
+//! `mfb build -v` and `mfb man optimizations`); the rows' optimization-only
+//! analyses live under `opt1::plans` / `opt2::plans`, distinct from the
+//! compile-required analyses (regalloc liveness/CFG) they build on.
 //!
 //! **The dial's contract: `-O0`..`-O5` change the emitted code, never the
 //! observable results.** Only a pass that is behavior-preserving *by
@@ -29,8 +40,10 @@
 
 use std::sync::OnceLock;
 
+pub(crate) mod catalog;
 pub(crate) mod opt1;
 pub(crate) mod opt2;
+pub(crate) mod stats;
 
 /// The optimization scale level requested on the command line by `-O<N>`.
 ///
@@ -44,10 +57,9 @@ pub(crate) mod opt2;
 /// relaxation) -- and is never reached by escalating the dial, not even at
 /// `-O5`/"max".
 ///
-/// Unlike [`crate::codegen::engine::regalloc::RegallocKind`], whose default is
-/// the first-listed strategy, the default here is deliberately **non-zero**:
-/// today's shipping codegen already runs the Level-1 passes, so `-O1` is the
-/// default and `-O0` is the new "optimizations off" path.
+/// The default here is deliberately **non-zero**: today's shipping codegen
+/// already runs the Level-1 passes, so `-O1` is the default and `-O0` is the
+/// new "optimizations off" path.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub(crate) struct OptLevel(pub(crate) u8);
 
@@ -61,13 +73,13 @@ impl Default for OptLevel {
 ///
 /// The [`OptLevel`] type spans `0..=6` so later rows slot in without a type
 /// change, but the parser accepts only the levels that actually select
-/// something today. Every landed *dial* row is Level 1, so `-O1`..`-O5` would be
-/// indistinguishable; `2..=5` open up as rows land, and `6` additionally
-/// requires an explicit request (plan-100 Non-goals). Level 0 is accepted
-/// because it means "dial passes off", not because it selects a row -- Level-0
-/// rows run unconditionally and are never gated.
+/// something today: `2` selects the propagation, DCE, DSE, and UCE rows and
+/// `3` additionally selects ADCE; `4..=5` open up as rows land, and `6` additionally requires an
+/// explicit request (plan-100 Non-goals). Level 0 is accepted because it means
+/// "dial passes off", not because it selects a row -- Level-0 rows run
+/// unconditionally and are never gated.
 pub(crate) fn available_levels() -> &'static [&'static str] {
-    &["0", "1"]
+    &["0", "1", "2", "3"]
 }
 
 /// Parse an `-O` / `--optimize` value, listing the available levels on an
@@ -76,6 +88,8 @@ pub(crate) fn parse_level(value: &str) -> Result<OptLevel, String> {
     match value {
         "0" => Ok(OptLevel(0)),
         "1" => Ok(OptLevel(1)),
+        "2" => Ok(OptLevel(2)),
+        "3" => Ok(OptLevel(3)),
         other => Err(format!(
             "unknown -O level `{other}` (available: {})",
             available_levels().join(", ")
@@ -114,7 +128,9 @@ pub(crate) fn set_opt_level(level: OptLevel) {
 }
 
 /// The active optimization level, defaulting to [`OptLevel`]'s `1` -- the level
-/// at which the two shipping Level-1 passes run, i.e. today's exact codegen.
+/// at which the shipping Level-1 rows (constant folding, algebraic
+/// simplification, non-loop strength reduction, and the two machine peepholes)
+/// run.
 pub(crate) fn active_opt_level() -> OptLevel {
     #[cfg(test)]
     if let Some(level) = TEST_LEVEL.with(|slot| slot.get()) {
@@ -143,9 +159,11 @@ mod tests {
     }
 
     #[test]
-    fn parse_level_accepts_zero_and_one() {
+    fn parse_level_accepts_the_landed_levels() {
         assert_eq!(parse_level("0"), Ok(OptLevel(0)));
         assert_eq!(parse_level("1"), Ok(OptLevel(1)));
+        assert_eq!(parse_level("2"), Ok(OptLevel(2)));
+        assert_eq!(parse_level("3"), Ok(OptLevel(3)));
     }
 
     #[test]
@@ -182,9 +200,9 @@ mod tests {
 
     #[test]
     fn parse_level_rejects_unlanded_levels() {
-        for bogus in ["2", "5", "6", "x", "", "-1"] {
+        for bogus in ["4", "5", "6", "x", "", "-1"] {
             let err = parse_level(bogus).expect_err("level should not parse yet");
-            assert!(err.contains("available: 0, 1"), "{err}");
+            assert!(err.contains("available: 0, 1, 2, 3"), "{err}");
         }
     }
 }

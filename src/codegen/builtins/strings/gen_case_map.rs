@@ -294,7 +294,7 @@ pub(crate) fn lower_strings_case_map(
     builder.emit(abi::store_u8(&scratch10, &scratch28, 0));
 
     builder.emit(abi::label(&case_done));
-    let result = builder.allocate_register()?;
+    let result = builder.allocate_register();
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     Ok(ValueResult {
         origin: None,

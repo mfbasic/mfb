@@ -50,13 +50,13 @@ impl CodeBuilder<'_> {
         unchecked: bool,
     ) -> Result<ValueResult, String> {
         self.reset_temporary_registers();
-        let collection = self.allocate_register()?;
-        let index = self.allocate_register()?;
-        let count = self.allocate_register()?;
-        let entry_offset = self.allocate_register()?;
-        let entry = self.allocate_register()?;
-        let value_offset = self.allocate_register()?;
-        let value_length = self.allocate_register()?;
+        let collection = self.allocate_register();
+        let index = self.allocate_register();
+        let count = self.allocate_register();
+        let entry_offset = self.allocate_register();
+        let entry = self.allocate_register();
+        let value_offset = self.allocate_register();
+        let value_length = self.allocate_register();
         let (miss, done) = match default_slot {
             None => (self.label("list_get_invalid"), self.label("list_get_done")),
             Some(_) => (
@@ -108,7 +108,7 @@ impl CodeBuilder<'_> {
                     // See `lower_map_get_or`: the found path materializes a fresh
                     // owned string, so the default must be copied too — returning
                     // the alias double-frees it and corrupts the arena.
-                    let default_ptr = self.allocate_register()?;
+                    let default_ptr = self.allocate_register();
                     self.emit(abi::load_u64(
                         &default_ptr,
                         abi::stack_pointer(),

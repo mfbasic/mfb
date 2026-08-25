@@ -84,7 +84,7 @@ pub(crate) fn lower_bits_bnot(
     if value.type_ != ParameterType::Integer {
         return Err(format!("bits.bnot does not accept {}", value.type_));
     }
-    let dst = builder.allocate_register()?;
+    let dst = builder.allocate_register();
     builder.emit(abi::bitwise_not(dst, &value.location));
     Ok(ValueResult {
         origin: None,

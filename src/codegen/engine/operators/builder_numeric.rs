@@ -37,7 +37,7 @@ impl CodeBuilder<'_> {
         right: &NirValue,
     ) -> Result<ValueResult, String> {
         let left = self.lower_value(left)?;
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         let right_label = self.label("bool_and_right");
         let done_label = self.label("bool_and_done");
         self.emit(abi::compare_immediate(&left.location, "0"));
@@ -62,7 +62,7 @@ impl CodeBuilder<'_> {
         right: &NirValue,
     ) -> Result<ValueResult, String> {
         let left = self.lower_value(left)?;
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         let right_label = self.label("bool_or_right");
         let done_label = self.label("bool_or_done");
         self.emit(abi::compare_immediate(&left.location, "0"));
@@ -107,8 +107,8 @@ impl CodeBuilder<'_> {
         ));
         let right_text = right.text.clone();
         self.reset_temporary_registers();
-        let left_register = self.allocate_register()?;
-        let right_register = self.allocate_register()?;
+        let left_register = self.allocate_register();
+        let right_register = self.allocate_register();
         self.emit(abi::load_u64(
             &left_register,
             abi::stack_pointer(),
@@ -119,7 +119,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             right_slot,
         ));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::exclusive_or_registers(
             &result,
             &left_register,
@@ -160,10 +160,7 @@ impl CodeBuilder<'_> {
         // general path's `Fixed` lowering. The right operand's static type
         // decides the result type without lowering it twice; an unknown type
         // conservatively falls through to the general path.
-        if self.dnative_floats()
-            && left.type_ == ParameterType::Float
-            && matches!(op, "+" | "-" | "*" | "/" | "DIV")
-        {
+        if left.type_ == ParameterType::Float && matches!(op, "+" | "-" | "*" | "/" | "DIV") {
             let result_is_float = self
                 .static_type_name(right)
                 .map(|right_type| {
@@ -183,7 +180,7 @@ impl CodeBuilder<'_> {
         // A `d`-native float operand (possible here only as the right operand of
         // an `Integer op Float`) materializes its bits into a GPR before the
         // integer-style slot spill (plan-01 float-dnative §4.1). For every
-        // GP-native value this is the identity, so the bump oracle is unchanged.
+        // GP-native value this is the identity.
         let left_spill = self.float_value_as_gpr(&left)?;
         self.emit(abi::store_u64(&left_spill, abi::stack_pointer(), left_slot));
         let right = self.lower_value(right)?;
@@ -201,8 +198,8 @@ impl CodeBuilder<'_> {
             .name()
             .into_owned();
         self.reset_temporary_registers();
-        let left_register = self.allocate_register()?;
-        let right_register = self.allocate_register()?;
+        let left_register = self.allocate_register();
+        let right_register = self.allocate_register();
         self.emit(abi::load_u64(
             &left_register,
             abi::stack_pointer(),
@@ -231,7 +228,7 @@ impl CodeBuilder<'_> {
             location: Operand::from(right_register.render()),
             text: right_text,
         };
-        let register = self.allocate_register()?;
+        let register = self.allocate_register();
         // The result location is `register` for every type except a `d`-native
         // float op, which keeps its result in an FP register (returned by
         // `emit_float_binary`). This path is reached for `Float` only in the
@@ -256,10 +253,10 @@ impl CodeBuilder<'_> {
                     // Float-to-Fixed conversion uses x8-x12 as internal scratch registers.
                     // Keep promoted Fixed operands above that range so conversion cannot clobber them.
                     while self.next_register <= 12 {
-                        let _ = self.allocate_register()?;
+                        let _ = self.allocate_register();
                     }
-                    let left_fixed = self.allocate_register()?;
-                    let right_fixed = self.allocate_register()?;
+                    let left_fixed = self.allocate_register();
+                    let right_fixed = self.allocate_register();
                     let left_fixed_slot = self.allocate_stack_object("arith_left_fixed", 8);
                     self.load_numeric_as_fixed(&left_fixed, &left)?;
                     self.emit(abi::store_u64(
@@ -343,7 +340,7 @@ impl CodeBuilder<'_> {
         let right_text = right.text.clone();
         // `dst` is used only by the GP-result operators (`MOD`/`^`); the pure-FP
         // operators ignore it and return their FP register.
-        let dst = self.allocate_register()?;
+        let dst = self.allocate_register();
         let location = self.emit_float_binary(op, &left, &right, &dst)?;
         Ok(ValueResult {
             origin: None,
@@ -361,7 +358,7 @@ impl CodeBuilder<'_> {
         &mut self,
         operand: ValueResult,
     ) -> Result<ValueResult, String> {
-        let register = self.allocate_register()?;
+        let register = self.allocate_register();
         let mut location = register.clone();
         match operand.type_.name().as_ref() {
             "Byte" => {
@@ -374,13 +371,13 @@ impl CodeBuilder<'_> {
             }
             "Integer" => {
                 self.emit_min_i64_negation_check(&operand.location, "integer_unary")?;
-                let zero = self.allocate_register()?;
+                let zero = self.allocate_register();
                 self.emit(abi::move_immediate(&zero, "Integer", "0"));
                 self.emit(abi::subtract_registers(&register, &zero, &operand.location));
             }
             "Fixed" => {
                 self.emit_min_i64_negation_check(&operand.location, "fixed_unary")?;
-                let zero = self.allocate_register()?;
+                let zero = self.allocate_register();
                 self.emit(abi::move_immediate(&zero, "Integer", "0"));
                 self.emit(abi::subtract_registers(&register, &zero, &operand.location));
             }
@@ -389,11 +386,11 @@ impl CodeBuilder<'_> {
             // `-92233720368547.75808`, cannot be negated) (plan-29-C §4.3).
             "Money" => {
                 self.emit_min_i64_negation_check(&operand.location, "money_unary")?;
-                let zero = self.allocate_register()?;
+                let zero = self.allocate_register();
                 self.emit(abi::move_immediate(&zero, "Integer", "0"));
                 self.emit(abi::subtract_registers(&register, &zero, &operand.location));
             }
-            "Float" if self.dnative_floats() => {
+            "Float" => {
                 // Negation just flips the sign bit, so a finite operand stays
                 // finite — and every live MFBASIC Float is finite (inf/NaN are
                 // always errors, never values). No overflow/NaN check is needed.
@@ -401,22 +398,9 @@ impl CodeBuilder<'_> {
                 // FP register, so the value never round-trips through a GPR
                 // (plan-01 float-dnative).
                 let d_operand = self.operand_as_double(&operand)?;
-                let d_res = self.allocate_fp_register()?;
+                let d_res = self.allocate_fp_register();
                 self.emit(abi::float_negate_d(&d_res, &d_operand));
                 location = d_res;
-            }
-            "Float" => {
-                // GP-native (bump oracle): flip the sign in `d0` and shuttle the
-                // bits back to a GPR. (The old emit_float_result_check here also
-                // hardcoded `x17` as scratch, which corrupted the result when the
-                // allocator handed out x16/x17 — e.g. two inline `-literal` call
-                // arguments.)
-                self.emit(abi::float_move_d_from_x(
-                    abi::FP_SCRATCH[0],
-                    &operand.location,
-                ));
-                self.emit(abi::float_negate_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0]));
-                self.emit(abi::float_move_x_from_d(&register, abi::FP_SCRATCH[0]));
             }
             other => {
                 return Err(format!(
@@ -465,8 +449,8 @@ impl CodeBuilder<'_> {
                 right_slot,
             ));
             self.reset_temporary_registers();
-            let left_register = self.allocate_register()?;
-            let right_register = self.allocate_register()?;
+            let left_register = self.allocate_register();
+            let right_register = self.allocate_register();
             self.emit(abi::load_u64(
                 &left_register,
                 abi::stack_pointer(),
@@ -504,8 +488,8 @@ impl CodeBuilder<'_> {
                 right_slot,
             ));
             self.reset_temporary_registers();
-            let left_register = self.allocate_register()?;
-            let right_register = self.allocate_register()?;
+            let left_register = self.allocate_register();
+            let right_register = self.allocate_register();
             self.emit(abi::load_u64(
                 &left_register,
                 abi::stack_pointer(),
@@ -554,9 +538,9 @@ impl CodeBuilder<'_> {
                 right_slot,
             ));
             self.reset_temporary_registers();
-            let left_register = self.allocate_register()?;
-            let right_register = self.allocate_register()?;
-            let result = self.allocate_register()?;
+            let left_register = self.allocate_register();
+            let right_register = self.allocate_register();
+            let result = self.allocate_register();
             let equal_label = self.label("cmp_record_equal");
             let not_equal_label = self.label("cmp_record_not_equal");
             let done_label = self.label("cmp_record_done");
@@ -606,9 +590,9 @@ impl CodeBuilder<'_> {
             right_slot,
         ));
         self.reset_temporary_registers();
-        let left_register = self.allocate_register()?;
-        let right_register = self.allocate_register()?;
-        let result = self.allocate_register()?;
+        let left_register = self.allocate_register();
+        let right_register = self.allocate_register();
+        let result = self.allocate_register();
         let true_label = self.label("cmp_true");
         let done_label = self.label("cmp_done");
         self.emit(abi::load_u64(
@@ -668,8 +652,8 @@ impl CodeBuilder<'_> {
         ));
 
         self.reset_temporary_registers();
-        let left_register = self.allocate_register()?;
-        let right_register = self.allocate_register()?;
+        let left_register = self.allocate_register();
+        let right_register = self.allocate_register();
         self.emit(abi::load_u64(
             &left_register,
             abi::stack_pointer(),
@@ -703,7 +687,7 @@ impl CodeBuilder<'_> {
                 .name()
                 .into_owned()
         };
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         let true_label = self.label("cmp_true");
         let done_label = self.label("cmp_done");
 
@@ -714,8 +698,8 @@ impl CodeBuilder<'_> {
                 self.emit(abi::compare_registers(&left.location, &right.location));
             }
             "Fixed" => {
-                let left_fixed = self.allocate_register()?;
-                let right_fixed = self.allocate_register()?;
+                let left_fixed = self.allocate_register();
+                let right_fixed = self.allocate_register();
                 let left_fixed_slot = self.allocate_stack_object("cmp_left_fixed", 8);
                 self.load_numeric_as_fixed(&left_fixed, &left)?;
                 self.emit(abi::store_u64(
@@ -947,7 +931,7 @@ impl CodeBuilder<'_> {
             "MOD" => {
                 self.emit_nonzero_or_invalid(&right.location)?;
                 self.emit_integer_division_overflow_check(&left.location, &right.location)?;
-                let quotient = self.allocate_register()?;
+                let quotient = self.allocate_register();
                 self.emit(abi::signed_divide_registers(
                     &quotient,
                     &left.location,
@@ -1002,7 +986,7 @@ impl CodeBuilder<'_> {
             "MOD" => {
                 self.emit_nonzero_or_invalid(&right.location)?;
                 self.emit_integer_division_overflow_check(&left.location, &right.location)?;
-                let quotient = self.allocate_register()?;
+                let quotient = self.allocate_register();
                 self.emit(abi::signed_divide_registers(
                     &quotient,
                     &left.location,
@@ -1026,10 +1010,9 @@ impl CodeBuilder<'_> {
     }
 
     /// Lower a `Float` arithmetic operator and return the **location of the
-    /// result** (plan-01 float-dnative). Under the `d`-native model the result
-    /// stays in its FP virtual register (`%fN`) and that register is returned, so
-    /// no `fmov`-to-GPR shuttle is emitted; under the bump oracle the result is
-    /// moved back to `dst` (a GPR) exactly as before and `dst` is returned. No
+    /// result** (plan-01 float-dnative). The result stays in its FP virtual
+    /// register (`%fN`) and that register is returned, so no `fmov`-to-GPR
+    /// shuttle is emitted. No
     /// finiteness check is emitted here: an anonymous intermediate may be
     /// non-finite and a transient that recovers to finite must not trap — the
     /// check fires only where the value crosses an observation boundary
@@ -1049,7 +1032,7 @@ impl CodeBuilder<'_> {
             "+" | "-" | "*" | "/" | "DIV" => {
                 let d_left = self.operand_as_double(left)?;
                 let d_right = self.operand_as_double(right)?;
-                let d_res = self.allocate_fp_register()?;
+                let d_res = self.allocate_fp_register();
                 match op {
                     "+" => self.emit(abi::float_add_d(&d_res, &d_left, &d_right)),
                     "-" => self.emit(abi::float_subtract_d(&d_res, &d_left, &d_right)),
@@ -1062,12 +1045,8 @@ impl CodeBuilder<'_> {
                 }
                 // `d`-native model: the FP register *is* the value's home; return
                 // it so consumers stay in the FP domain and the GP shuttle is
-                // never created. Bump oracle: shuttle to `dst` and return `dst`.
-                if self.dnative_floats() {
-                    return Ok(d_res.render());
-                }
-                self.emit(abi::float_move_x_from_d(dst.clone(), &d_res));
-                return Ok(dst.to_string());
+                // never created.
+                return Ok(d_res.render());
             }
             "MOD" => {
                 self.load_numeric_as_double(abi::FP_SCRATCH[0], left)?;
@@ -1086,8 +1065,8 @@ impl CodeBuilder<'_> {
                 // fmod kernel (no libm). d0/d1 still hold a/b from above. The
                 // result of a finite, non-zero-divisor fmod is always finite, so
                 // no per-op finiteness check is needed (plan-17).
-                let a_bits = self.allocate_register()?;
-                let b_bits = self.allocate_register()?;
+                let a_bits = self.allocate_register();
+                let b_bits = self.allocate_register();
                 self.emit(abi::float_move_x_from_d(&a_bits, abi::FP_SCRATCH[0]));
                 self.emit(abi::float_move_x_from_d(&b_bits, abi::FP_SCRATCH[1]));
                 let result = self.emit_float_fmod(&a_bits, &b_bits)?;
@@ -1115,15 +1094,6 @@ impl CodeBuilder<'_> {
         Ok(dst.to_string())
     }
 
-    /// Whether the `d`-register-native float value model is in effect (plan-01
-    /// float-dnative). It is sound only under the liveness-driven allocator (an
-    /// FP virtual register held in a `ValueResult` must survive to its consumers;
-    /// the bump oracle reuses `d0`–`d7` every statement), so the carrier flip is
-    /// gated to `LinearScan` — the bump reference path stays byte-identical.
-    pub(crate) fn dnative_floats(&self) -> bool {
-        self.regalloc_kind == regalloc::RegallocKind::LinearScan
-    }
-
     /// Whether `value` is a `Float` whose canonical home is a `d`-register: its
     /// `location` is an FP virtual register (`%fN`) rather than a GPR/slot holding
     /// the bit pattern (plan-01 float-dnative). Such a value is consumed directly
@@ -1146,7 +1116,7 @@ impl CodeBuilder<'_> {
     /// instruction (which would fail to encode rather than silently miscompile).
     pub(crate) fn float_value_as_gpr(&mut self, value: &ValueResult) -> Result<String, String> {
         if Self::float_is_dnative(value) {
-            let gpr = self.allocate_register()?;
+            let gpr = self.allocate_register();
             self.emit(abi::float_move_x_from_d(&gpr, &value.location));
             return Ok(gpr.render());
         }
@@ -1161,7 +1131,7 @@ impl CodeBuilder<'_> {
     /// `d`-native float never leaks its FP register into a GP-context encoding.
     pub(crate) fn materialize_float(&mut self, value: ValueResult) -> Result<ValueResult, String> {
         if Self::float_is_dnative(&value) {
-            let gpr = self.allocate_register()?;
+            let gpr = self.allocate_register();
             self.emit(abi::float_move_x_from_d(&gpr, &value.location));
             return Ok(ValueResult {
                 origin: None,
@@ -1200,7 +1170,7 @@ impl CodeBuilder<'_> {
                 return Ok(resident);
             }
         }
-        let dst = self.allocate_fp_register()?;
+        let dst = self.allocate_fp_register();
         self.load_numeric_as_double(&dst, value)?;
         Ok(dst.render())
     }
@@ -1247,8 +1217,8 @@ impl CodeBuilder<'_> {
         let dst = dst.into();
         let left = left.into();
         let right = right.into();
-        let high = self.allocate_register()?;
-        let sign = self.allocate_register()?;
+        let high = self.allocate_register();
+        let sign = self.allocate_register();
         let ok_label = self.label("mul_ok");
         // Compute the signed high half from the original operands *before* the low
         // multiply writes `dst` — the pow loops call this with `dst == left`, so
@@ -1284,8 +1254,8 @@ impl CodeBuilder<'_> {
         left: impl Into<Operand>,
         right: impl Into<Operand>,
     ) -> Result<(), String> {
-        let min = self.allocate_register()?;
-        let minus_one = self.allocate_register()?;
+        let min = self.allocate_register();
+        let minus_one = self.allocate_register();
         let not_min = self.label("div_not_min");
         let ok = self.label("div_overflow_ok");
         self.emit(abi::move_immediate(&min, "Integer", F64_SIGN_BIT));
@@ -1309,7 +1279,7 @@ impl CodeBuilder<'_> {
         value: impl Into<Operand>,
         label_prefix: &str,
     ) -> Result<(), String> {
-        let min = self.allocate_register()?;
+        let min = self.allocate_register();
         let ok = self.label(&format!("{label_prefix}_not_min"));
         self.emit(abi::move_immediate(&min, "Integer", F64_SIGN_BIT));
         self.emit(abi::compare_registers(value, &min));
@@ -1332,7 +1302,7 @@ impl CodeBuilder<'_> {
         let loop_label = self.label("pow_loop");
         let done_label = self.label("pow_done");
         let nonnegative = self.label("pow_nonnegative");
-        let remaining = self.allocate_register()?;
+        let remaining = self.allocate_register();
         self.emit(abi::compare_immediate(exponent.clone(), "0"));
         self.emit(abi::branch_ge(&nonnegative));
         self.raise_error_bare("ErrInvalidArgument")?;
@@ -1357,8 +1327,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&bounded_zero));
         self.emit(abi::branch_gt(&done_label)); // base == 1: 1^n == 1.
                                                 // base == -1: 1 for an even exponent, -1 for an odd exponent.
-        let parity = self.allocate_register()?;
-        let one_bit = self.allocate_register()?;
+        let parity = self.allocate_register();
+        let one_bit = self.allocate_register();
         self.emit(abi::move_immediate(&one_bit, "Integer", "1"));
         self.emit(abi::and_registers(&parity, exponent.clone(), &one_bit));
         self.emit(abi::compare_immediate(&parity, "0"));
@@ -1395,10 +1365,10 @@ impl CodeBuilder<'_> {
         let right = right.into();
         // The working registers are dead once the product lands in `dst`.
         let saved_registers = self.next_register;
-        let high = self.allocate_register()?;
-        let shifted_high = self.allocate_register()?;
-        let max_high = self.allocate_register()?;
-        let min_high = self.allocate_register()?;
+        let high = self.allocate_register();
+        let shifted_high = self.allocate_register();
+        let max_high = self.allocate_register();
+        let min_high = self.allocate_register();
         let overflow = self.label("fixed_mul_overflow");
         let ok = self.label("fixed_mul_ok");
         // Compute the signed high half from the original operands *before* the low
@@ -1443,14 +1413,14 @@ impl CodeBuilder<'_> {
         // The working registers are dead once the quotient lands in `dst`.
         let saved_registers = self.next_register;
         self.emit_nonzero_or_invalid(right.clone())?;
-        let lhs_abs = self.allocate_register()?;
-        let rhs_abs = self.allocate_register()?;
-        let sign = self.allocate_register()?;
-        let integer = self.allocate_register()?;
-        let remainder = self.allocate_register()?;
-        let fraction = self.allocate_register()?;
-        let counter = self.allocate_register()?;
-        let bit = self.allocate_register()?;
+        let lhs_abs = self.allocate_register();
+        let rhs_abs = self.allocate_register();
+        let sign = self.allocate_register();
+        let integer = self.allocate_register();
+        let remainder = self.allocate_register();
+        let fraction = self.allocate_register();
+        let counter = self.allocate_register();
+        let bit = self.allocate_register();
         self.emit(abi::move_register(&lhs_abs, left));
         self.emit(abi::move_register(&rhs_abs, right));
         self.emit(abi::exclusive_or_registers(&sign, &lhs_abs, &rhs_abs));
@@ -1460,7 +1430,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::multiply_subtract_registers(
             &remainder, &integer, &rhs_abs, &lhs_abs,
         ));
-        let max_integer = self.allocate_register()?;
+        let max_integer = self.allocate_register();
         let overflow = self.label("fixed_div_overflow");
         let integer_ok = self.label("fixed_div_integer_ok");
         // Admit an integer magnitude up to 2^31 (not 2^31 - 1). The exact result
@@ -1527,7 +1497,7 @@ impl CodeBuilder<'_> {
         //  - magnitude > 2^63: overflow.
         self.emit(abi::compare_immediate(dst.clone(), "0"));
         self.emit(abi::branch_ge(&negate));
-        let min_raw = self.allocate_register()?;
+        let min_raw = self.allocate_register();
         self.emit(abi::move_immediate(
             &min_raw,
             "Integer",
@@ -1567,8 +1537,8 @@ impl CodeBuilder<'_> {
         let base = base.into();
         let exponent = exponent.into();
         let one_raw = 1_u64 << 32;
-        let remaining = self.allocate_register()?;
-        let whole = self.allocate_register()?;
+        let remaining = self.allocate_register();
+        let whole = self.allocate_register();
         let nonnegative = self.label("fixed_pow_nonnegative");
         let loop_label = self.label("fixed_pow_loop");
         let done_label = self.label("fixed_pow_done");
@@ -1600,7 +1570,7 @@ impl CodeBuilder<'_> {
         // Fixed constants are `±2^32`, which exceed the x86 CMP imm32 field and
         // fail to encode (bug-74). `dst` already holds `one_raw`.
         let neg_one_raw = -(one_raw as i64) as u64;
-        let neg_one_reg = self.allocate_register()?;
+        let neg_one_reg = self.allocate_register();
         self.emit(abi::move_immediate(
             &neg_one_reg,
             "Fixed",
@@ -1611,8 +1581,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(base.clone(), &neg_one_reg));
         self.emit(abi::branch_ne(&loop_label)); // |base| != 1.0: enter the loop.
                                                 // base == -1.0: 1.0 for an even exponent, -1.0 for an odd exponent.
-        let parity = self.allocate_register()?;
-        let one_bit = self.allocate_register()?;
+        let parity = self.allocate_register();
+        let one_bit = self.allocate_register();
         self.emit(abi::move_immediate(&one_bit, "Integer", "1"));
         self.emit(abi::and_registers(&parity, &whole, &one_bit));
         self.emit(abi::compare_immediate(&parity, "0"));
@@ -1755,9 +1725,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ge(&nonnegative));
         self.raise_error_bare("ErrFloatDomain")?;
         self.emit(abi::label(&nonnegative));
-        let exponent_int = self.allocate_register()?;
-        let exponent_roundtrip = self.allocate_register()?;
-        let exponent_bits = self.allocate_register()?;
+        let exponent_int = self.allocate_register();
+        let exponent_roundtrip = self.allocate_register();
+        let exponent_bits = self.allocate_register();
         // bug-312 K3: the round-trip whole-number test below converts with a
         // SATURATING `fcvtzs`. An exponent whose magnitude exceeds i64::MAX (e.g.
         // 1.0e19) saturates to i64::MAX, whose f64 round-trip is unequal, so it was
@@ -1772,7 +1742,7 @@ impl CodeBuilder<'_> {
         // bit is 0 and `bits >> 52` is exactly the biased exponent; 2^52 is biased
         // 1075. The upper bound excludes 2047 (Inf/NaN), which is NOT a whole number
         // and must keep falling through to the domain rejection.
-        let biased = self.allocate_register()?;
+        let biased = self.allocate_register();
         let not_huge = self.label("float_pow_not_huge");
         self.emit(abi::float_move_x_from_d(&exponent_bits, exponent.clone()));
         self.emit(abi::shift_right_immediate(&biased, &exponent_bits, 52));
@@ -1803,7 +1773,7 @@ impl CodeBuilder<'_> {
         // which resets the register file (mirroring the `MOD`/fmod path).
         let base_slot = self.allocate_stack_object("float_pow_base", 8);
         let exp_slot = self.allocate_stack_object("float_pow_exp", 8);
-        let base_bits = self.allocate_register()?;
+        let base_bits = self.allocate_register();
         self.emit(abi::float_move_x_from_d(&base_bits, dst.clone()));
         self.emit(abi::store_u64(&base_bits, abi::stack_pointer(), base_slot));
         self.emit(abi::store_u64(
@@ -1812,9 +1782,9 @@ impl CodeBuilder<'_> {
             exp_slot,
         ));
         self.reset_temporary_registers();
-        let base_reg = self.allocate_register()?;
+        let base_reg = self.allocate_register();
         self.emit(abi::load_u64(&base_reg, abi::stack_pointer(), base_slot));
-        let exp_reg = self.allocate_register()?;
+        let exp_reg = self.allocate_register();
         self.emit(abi::load_u64(&exp_reg, abi::stack_pointer(), exp_slot));
         let result = self.emit_pow_scalar(&base_reg, &exp_reg)?;
         self.emit(abi::float_move_d_from_x(dst, &result));

@@ -140,7 +140,7 @@ impl CodeBuilder<'_> {
 
         // Everything below runs after the only call, so registers are free.
         self.reset_temporary_registers();
-        let result_base = self.allocate_register()?;
+        let result_base = self.allocate_register();
         self.emit(abi::move_register(&result_base, abi::return_register()));
         let alloc_ok = self.label(&format!("{label_prefix}_alloc_ok"));
         self.emit(abi::compare_immediate(abi::mfb_return(1), "0"));
@@ -176,9 +176,9 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         self.reset_temporary_registers();
         // Spill the input pointer and count across the alloc call.
-        let in_ptr = self.allocate_register()?;
+        let in_ptr = self.allocate_register();
         self.emit(abi::move_register(&in_ptr, &input.location));
-        let count = self.allocate_register()?;
+        let count = self.allocate_register();
         self.emit(abi::load_u64(&count, &in_ptr, COLLECTION_OFFSET_COUNT));
         let in_slot = self.allocate_stack_object("simd_in_ptr", 8);
         let count_slot = self.allocate_stack_object("simd_count", 8);
@@ -188,17 +188,17 @@ impl CodeBuilder<'_> {
         let result_base =
             self.emit_alloc_result_list(&count, &result_type_code.to_string(), "simd")?;
 
-        let in_ptr = self.allocate_register()?;
+        let in_ptr = self.allocate_register();
         self.emit(abi::load_u64(&in_ptr, abi::stack_pointer(), in_slot));
-        let count = self.allocate_register()?;
+        let count = self.allocate_register();
         self.emit(abi::load_u64(&count, abi::stack_pointer(), count_slot));
-        let in_data = self.allocate_register()?;
+        let in_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&in_data, &in_ptr, "Integer");
-        let out_data = self.allocate_register()?;
+        let out_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&out_data, &result_base, "Integer");
-        let pairs = self.allocate_register()?;
+        let pairs = self.allocate_register();
         self.emit(abi::shift_right_immediate(&pairs, &count, 1));
-        let err = self.allocate_register()?;
+        let err = self.allocate_register();
         self.emit(abi::move_immediate(&err, "Integer", "0"));
 
         // Error mask accumulator v7 = 0 (always, so the reduce is valid even when
@@ -226,7 +226,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_done));
 
         // --- Scalar tail (count & 1) ---  (allocator-placed scratch)
-        let tail_bit = self.allocate_register()?;
+        let tail_bit = self.allocate_register();
         self.emit(abi::move_immediate(&tail_bit, "Integer", "1"));
         self.emit(abi::and_registers(&tail_bit, &count, &tail_bit));
         let tail_done = self.label("simd_tail_done");
@@ -237,8 +237,8 @@ impl CodeBuilder<'_> {
 
         // --- Error reduce ---  (the two mask lanes, allocator-placed)
         if kernel.error().is_some() {
-            let lane0 = self.allocate_register()?;
-            let lane1 = self.allocate_register()?;
+            let lane0 = self.allocate_register();
+            let lane1 = self.allocate_register();
             self.emit(abi::vector_extract_to_x(&lane0, abi::VEC_SCRATCH[7], 0));
             self.emit(abi::vector_extract_to_x(&lane1, abi::VEC_SCRATCH[7], 1));
             self.emit(abi::or_registers(&lane0, &lane0, &lane1));
@@ -267,7 +267,7 @@ impl CodeBuilder<'_> {
         match kernel {
             SimdUnaryKernel::AbsInteger => {
                 // v6 = broadcast(INT64_MIN) for the per-lane overflow compare.
-                let min = self.allocate_register()?;
+                let min = self.allocate_register();
                 self.emit(abi::move_immediate(&min, "Integer", F64_SIGN_BIT));
                 self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[6], &min));
             }
@@ -301,7 +301,7 @@ impl CodeBuilder<'_> {
     /// the given vector register. Uses the caller-saved scratch `x0` (free: the
     /// loop runs after the only call), so it does not consume a loop register.
     fn broadcast_const(&mut self, vreg: &str, value: &str) -> Result<(), String> {
-        let tmp = self.allocate_register()?;
+        let tmp = self.allocate_register();
         self.emit(abi::move_immediate(&tmp, "Integer", value));
         self.emit(abi::vector_dup_from_x(vreg, &tmp));
         Ok(())
@@ -506,8 +506,8 @@ impl CodeBuilder<'_> {
         let err = err.into();
         // Per-element scratch, allocator-placed (plan-34-B Phase 3): `elem` is the
         // loaded lane, `tmp` the transform temporary / convert destination.
-        let elem = self.allocate_register()?;
-        let tmp = self.allocate_register()?;
+        let elem = self.allocate_register();
+        let tmp = self.allocate_register();
         self.emit(abi::load_u64(&elem, in_data, 0));
         match kernel {
             SimdUnaryKernel::AbsInteger => {
@@ -594,10 +594,10 @@ impl CodeBuilder<'_> {
         let bits = bits.into();
         // Allocator-placed scratch (plan-34-B Phase 3); `bits` is the caller's
         // element vreg, `err` its error accumulator.
-        let exponent = self.allocate_register()?;
-        let mask = self.allocate_register()?;
-        let sign = self.allocate_register()?;
-        let mantissa = self.allocate_register()?;
+        let exponent = self.allocate_register();
+        let mask = self.allocate_register();
+        let sign = self.allocate_register();
+        let mantissa = self.allocate_register();
         let ok = self.label("simd_tail_round_ok");
         let edge = self.label("simd_tail_round_edge");
         let overflow = self.label("simd_tail_round_overflow");
@@ -641,12 +641,12 @@ impl CodeBuilder<'_> {
         // `left_slot`/`right_slot` already hold the two list pointers (the caller
         // spilled them as it lowered, so neither crossed the other's lowering).
         self.reset_temporary_registers();
-        let left_ptr = self.allocate_register()?;
+        let left_ptr = self.allocate_register();
         self.emit(abi::load_u64(&left_ptr, abi::stack_pointer(), left_slot));
-        let right_ptr = self.allocate_register()?;
+        let right_ptr = self.allocate_register();
         self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
-        let count = self.allocate_register()?;
-        let rcount = self.allocate_register()?;
+        let count = self.allocate_register();
+        let rcount = self.allocate_register();
         self.emit(abi::load_u64(&count, &left_ptr, COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64(&rcount, &right_ptr, COLLECTION_OFFSET_COUNT));
         // Lengths must match.
@@ -662,19 +662,19 @@ impl CodeBuilder<'_> {
         let result_base =
             self.emit_alloc_result_list(&count, &result_type_code.to_string(), "simd_bin")?;
 
-        let left_ptr = self.allocate_register()?;
+        let left_ptr = self.allocate_register();
         self.emit(abi::load_u64(&left_ptr, abi::stack_pointer(), left_slot));
-        let right_ptr = self.allocate_register()?;
+        let right_ptr = self.allocate_register();
         self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
-        let count = self.allocate_register()?;
+        let count = self.allocate_register();
         self.emit(abi::load_u64(&count, abi::stack_pointer(), count_slot));
-        let left_data = self.allocate_register()?;
+        let left_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&left_data, &left_ptr, "Integer");
-        let right_data = self.allocate_register()?;
+        let right_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&right_data, &right_ptr, "Integer");
-        let out_data = self.allocate_register()?;
+        let out_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&out_data, &result_base, "Integer");
-        let pairs = self.allocate_register()?;
+        let pairs = self.allocate_register();
         self.emit(abi::shift_right_immediate(&pairs, &count, 1));
 
         let loop_label = self.label("simd_bin_loop");
@@ -694,14 +694,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_done));
 
         // Scalar tail (count & 1): left/right lanes are allocator-placed vregs.
-        let tail_bit = self.allocate_register()?;
+        let tail_bit = self.allocate_register();
         self.emit(abi::move_immediate(&tail_bit, "Integer", "1"));
         self.emit(abi::and_registers(&tail_bit, &count, &tail_bit));
         let tail_done = self.label("simd_bin_tail_done");
         self.emit(abi::compare_immediate(&tail_bit, "0"));
         self.emit(abi::branch_eq(&tail_done));
-        let left_lane = self.allocate_register()?;
-        let right_lane = self.allocate_register()?;
+        let left_lane = self.allocate_register();
+        let right_lane = self.allocate_register();
         self.emit(abi::load_u64(&left_lane, &left_data, 0));
         self.emit(abi::load_u64(&right_lane, &right_data, 0));
         self.emit_simd_binary_scalar(kernel, &left_lane, &right_lane);
@@ -839,8 +839,8 @@ impl CodeBuilder<'_> {
 
         self.reset_temporary_registers();
         // low > high is invalid (matches the scalar math::clamp man page).
-        let low = self.allocate_register()?;
-        let high = self.allocate_register()?;
+        let low = self.allocate_register();
+        let high = self.allocate_register();
         self.emit(abi::load_u64(&low, abi::stack_pointer(), low_slot));
         self.emit(abi::load_u64(&high, abi::stack_pointer(), high_slot));
         let bounds_ok = self.label("simd_clamp_bounds_ok");
@@ -860,24 +860,24 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&bounds_ok));
 
         self.reset_temporary_registers();
-        let in_ptr = self.allocate_register()?;
+        let in_ptr = self.allocate_register();
         self.emit(abi::load_u64(&in_ptr, abi::stack_pointer(), in_slot));
-        let count = self.allocate_register()?;
+        let count = self.allocate_register();
         self.emit(abi::load_u64(&count, &in_ptr, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
 
         let result_base =
             self.emit_alloc_result_list(&count, &result_type_code.to_string(), "simd_clamp")?;
 
-        let in_ptr = self.allocate_register()?;
+        let in_ptr = self.allocate_register();
         self.emit(abi::load_u64(&in_ptr, abi::stack_pointer(), in_slot));
-        let count = self.allocate_register()?;
+        let count = self.allocate_register();
         self.emit(abi::load_u64(&count, abi::stack_pointer(), count_slot));
-        let in_data = self.allocate_register()?;
+        let in_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&in_data, &in_ptr, "Integer");
-        let out_data = self.allocate_register()?;
+        let out_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&out_data, &result_base, "Integer");
-        let pairs = self.allocate_register()?;
+        let pairs = self.allocate_register();
         self.emit(abi::shift_right_immediate(&pairs, &count, 1));
         // v5 = broadcast(low), v6 = broadcast(high).
         let bound = self.temporary_vreg();

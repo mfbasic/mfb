@@ -13,7 +13,7 @@ command '<cmd>'` followed by the usage block to stderr and exits
 
 Every flag longer than one character is spelled `--flag`. The single-dash
 spellings of the `build`/`test` flags (`-ast`, `-ir`, `-br`, `-nir`, `-nplan`,
-`-nobj`, `-ncode`, `-mir`, `-target`, `-regalloc`, `-optimize`, `-app`) predate this and
+`-nobj`, `-ncode`, `-mir`, `-target`, `-optimize`, `-app`) predate this and
 remain accepted, undocumented aliases of the `--` forms; they parse identically
 and are not listed below.[[src/cli/build/mod.rs:from_flag]] The single-character
 flags `-q`/`-v` keep their single dash (with `--quiet`/`--verbose` long forms).
@@ -41,7 +41,7 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `init` | `mfb init <location>` | 0 ok; 2 missing/extra arg; 1 create/write failed |
 | `init-pkg` | `mfb init-pkg <location>` | 0 ok; 2 missing/extra arg; 1 create/write failed |
 | `build` | `mfb build [flags] [location]` | 0 ok; 2 bad flags; 1 build failed |
-| `test` | `mfb test [--coverage] [--target os-arch] [--regalloc name] [-O level] [location]` | 0 all cases passed; 1 a case failed or build error; 2 bad flags |
+| `test` | `mfb test [--coverage] [--target os-arch] [-O level] [location]` | 0 all cases passed; 1 a case failed or build error; 2 bad flags |
 | `fmt` | `mfb fmt [--check] [--indent N] [location]` | 0 ok; 2 bad flags; 1 not-formatted (`--check`) or error |
 | `doc` | `mfb doc [--out file] [location]` | 0 ok; 2 bad flags; 1 invalid DOC block or error |
 | `pkg add` | `mfb pkg add <file://…​.mfp or <owner>#<pkg>[@version]> [--pin\|--no-pin]` | 0 ok; 2 usage; 1 failed |
@@ -127,7 +127,6 @@ package).
 | `--nobj` | `NativeObjectPlan` | `<name>.nobj` |
 | `--ncode` | `NativeCodePlan` | `<name>.ncode` |
 | `--mir` | `Mir` | `<name>.mir` (target-neutral machine IR, virtual registers, no `target`/`arch`) |
-| `--regalloc <bump,linear-scan>` / `--regalloc=…` | — | register-allocation strategy; default `linear-scan`. `bump` is the byte-identical reference oracle |
 | `-O <0,1>` / `-O0` / `-O=0` / `--optimize <0,1>` / `--optimize=…` | — | optimization scale level; default `1`. At `-O1` the Level-1 passes (the post-regalloc machine peepholes) run; `-O0` turns them off. Both are behavior-preserving, so `-O0` changes only the emitted code, never a program's observable results |
 | `--target os-arch` / `--target=os-arch` | — | native target instead of host (`BuildTarget::parse`) |
 | `--sign owner` / `--sign=owner` | — | sign the artifact as `owner` (one-off key + proof + attestation); at most one |
@@ -191,9 +190,7 @@ inside the AppDir, under the same "must decode and be exactly 1024×1024" rule t
 
 Native intermediate outputs (`--nir`/`--nplan`/`--nobj`/`--ncode`/`--mir`) are **rejected
 for package projects** with the `PACKAGE_NATIVE_OUTPUT_UNSUPPORTED` diagnostic; a
-package emits only `.mfp`. The `--regalloc` flag requires a value (`mfb build
--regalloc requires a strategy name`) and rejects an unknown one (`unknown
--regalloc strategy`). The `-O` dial behaves the same way: a bare `-O` yields
+package emits only `.mfp`. A bare `-O` yields
 `mfb build -O requires an optimization level`, and a level the compiler does not
 implement yet yields ``unknown -O level `<n>` (available: 0, 1)``. An unknown
 `-flag` yields `unknown build option

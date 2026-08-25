@@ -422,7 +422,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&dst_base, abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), size_slot));
         self.emit_copy_bytes(&dst_base, &scratch9, &scratch10, "flat_copy");
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
     }
@@ -582,7 +582,7 @@ impl CodeBuilder<'_> {
             "tight_copy_data",
         );
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
     }
@@ -766,7 +766,7 @@ impl CodeBuilder<'_> {
             inner_size_slot,
         ));
         self.emit_copy_bytes(&scratch11, &scratch12, &scratch13, "union_wrap_block");
-        let register = self.allocate_register()?;
+        let register = self.allocate_register();
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
         Ok(register)
     }
@@ -986,7 +986,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64(&scratch9, &scratch10, 8 * index));
             }
         }
-        let register = self.allocate_register()?;
+        let register = self.allocate_register();
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
         Ok(register)
     }
@@ -1037,7 +1037,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&dst_base, abi::stack_pointer(), result_slot));
             self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), size_slot));
             self.emit_copy_bytes(&dst_base, &scratch9, &scratch10, "inline_value_block_copy");
-            let result = self.allocate_register()?;
+            let result = self.allocate_register();
             self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
             return Ok(result);
         }
@@ -1076,7 +1076,7 @@ impl CodeBuilder<'_> {
             &scratch13,
             "inline_value_arena_copy",
         );
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
     }
@@ -1085,10 +1085,10 @@ impl CodeBuilder<'_> {
         let value = self.lower_value(value)?;
         if value.type_ == ParameterType::String {
             let count_slot = self.allocate_stack_object("len_string_count", 8);
-            let remaining = self.allocate_register()?;
-            let cursor = self.allocate_register()?;
-            let byte = self.allocate_register()?;
-            let mask = self.allocate_register()?;
+            let remaining = self.allocate_register();
+            let cursor = self.allocate_register();
+            let byte = self.allocate_register();
+            let mask = self.allocate_register();
             let loop_label = self.label("len_string_loop");
             let continuation_label = self.label("len_string_continuation");
             let next_label = self.label("len_string_next");
@@ -1115,7 +1115,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::subtract_immediate(&remaining, &remaining, 1));
             self.emit(abi::branch(&loop_label));
             self.emit(abi::label(&done_label));
-            let register = self.allocate_register()?;
+            let register = self.allocate_register();
             self.emit(abi::load_u64(&register, abi::stack_pointer(), count_slot));
             Ok(ValueResult {
                 origin: None,
@@ -1124,7 +1124,7 @@ impl CodeBuilder<'_> {
                 text: format!("len({})", value.text),
             })
         } else if is_collection_type(&value.type_.name()) {
-            let register = self.allocate_register()?;
+            let register = self.allocate_register();
             self.emit(abi::load_u64(
                 &register,
                 &value.location,
@@ -1204,7 +1204,7 @@ impl CodeBuilder<'_> {
         ));
         // A reusable 1-byte `Boolean` TRUE — every element maps to it.
         let true_slot = self.allocate_stack_object("set_lit_true", 8);
-        let true_reg = self.allocate_register()?;
+        let true_reg = self.allocate_register();
         self.emit(abi::move_immediate(&true_reg, "Boolean", "true"));
         self.emit(abi::store_u64(&true_reg, abi::stack_pointer(), true_slot));
         for value_node in values {
@@ -1232,7 +1232,7 @@ impl CodeBuilder<'_> {
                 set_slot,
             ));
         }
-        let register = self.allocate_register()?;
+        let register = self.allocate_register();
         self.emit(abi::load_u64(&register, abi::stack_pointer(), set_slot));
         Ok(ValueResult {
             origin: None,
@@ -1413,7 +1413,7 @@ impl CodeBuilder<'_> {
         for (index, slot) in slots.iter().enumerate() {
             self.emit_write_collection_entry(collection_slot, index, slot, data_offset_slot)?;
         }
-        let register = self.allocate_register()?;
+        let register = self.allocate_register();
         self.emit(abi::load_u64(
             &register,
             abi::stack_pointer(),
@@ -2117,35 +2117,35 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(collection_input, collection));
         self.emit(abi::move_register(offset_input, offset));
         self.emit(abi::move_register(length_input, length));
-        let data = self.allocate_register()?;
+        let data = self.allocate_register();
         self.emit_collection_data_pointer_for(&data, collection_input, stride_type);
         self.emit(abi::add_registers(&data, &data, offset_input));
         match type_ {
             "Boolean" | "Byte" => {
-                let result = self.allocate_register()?;
+                let result = self.allocate_register();
                 self.emit(abi::load_u8(&result, &data, 0));
                 Ok(result)
             }
             "Scalar" => {
-                let result = self.allocate_register()?;
+                let result = self.allocate_register();
                 self.emit(abi::load_u32(&result, &data, 0));
                 Ok(result)
             }
             "Integer" | "Float" | "Fixed" | "Money" => {
-                let result = self.allocate_register()?;
+                let result = self.allocate_register();
                 self.emit(abi::load_u64(&result, &data, 0));
                 Ok(result)
             }
             // A function value reads back its 8-byte closure pointer; the closure
             // object stays shared (reference semantics, bug-73).
             other if is_function_type(other) => {
-                let result = self.allocate_register()?;
+                let result = self.allocate_register();
                 self.emit(abi::load_u64(&result, &data, 0));
                 Ok(result)
             }
             "String" => self.emit_materialize_string_from_bytes(&data, length_input),
             other if self.is_pointer_collection_payload_type(other) => {
-                let result = self.allocate_register()?;
+                let result = self.allocate_register();
                 self.emit(abi::load_u64(&result, &data, 0));
                 Ok(result)
             }
@@ -2173,9 +2173,9 @@ impl CodeBuilder<'_> {
         source_ptr: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
         let source_ptr = source_ptr.into();
-        let length = self.allocate_register()?;
+        let length = self.allocate_register();
         self.emit(abi::load_u64(&length, source_ptr.clone(), 0));
-        let bytes = self.allocate_register()?;
+        let bytes = self.allocate_register();
         self.emit(abi::add_immediate(&bytes, source_ptr, 8));
         self.emit_materialize_string_from_bytes(&bytes, &length)
     }
@@ -2228,7 +2228,7 @@ impl CodeBuilder<'_> {
         );
         self.emit(abi::move_immediate(&scratch15, "Integer", "0"));
         self.emit(abi::store_u8(&scratch15, &scratch13, 0));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
     }

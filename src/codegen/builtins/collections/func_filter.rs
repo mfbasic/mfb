@@ -221,7 +221,7 @@ pub(crate) fn lower_filter(
     builder.free_collection_loop_item(item_slot, &element_type)?;
     builder.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);
     builder.emit(abi::label(&done));
-    let result = builder.allocate_register()?;
+    let result = builder.allocate_register();
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
     Ok(ValueResult {
         origin: None,

@@ -210,14 +210,14 @@ pub(crate) fn lower_contains(
     }
 
     builder.reset_temporary_registers();
-    let collection_register = builder.allocate_register()?;
-    let item_register = builder.allocate_register()?;
-    let count = builder.allocate_register()?;
-    let index = builder.allocate_register()?;
-    let entry = builder.allocate_register()?;
-    let value_offset = builder.allocate_register()?;
-    let value_length = builder.allocate_register()?;
-    let result = builder.allocate_register()?;
+    let collection_register = builder.allocate_register();
+    let item_register = builder.allocate_register();
+    let count = builder.allocate_register();
+    let index = builder.allocate_register();
+    let entry = builder.allocate_register();
+    let value_offset = builder.allocate_register();
+    let value_length = builder.allocate_register();
+    let result = builder.allocate_register();
     let loop_label = builder.label("contains_loop");
     let found = builder.label("contains_found");
     let next = builder.label("contains_next");

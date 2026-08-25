@@ -115,7 +115,7 @@ END FUNC
 ' RES binding (that double-closes the handle).
 
 FUNC writeLinesFile(path AS String, count AS Integer) AS Integer
-  RES f AS File = fs::open(path, "write")
+  RES f AS fs::File = fs::open(path, "write")
   ' Buffer writes so mfb matches the default buffering of C stdio and Python's
   ' file objects; without this the 20k writeAll calls become 20k write() syscalls.
   fs::setBuffered(f, TRUE)
@@ -126,7 +126,7 @@ FUNC writeLinesFile(path AS String, count AS Integer) AS Integer
 END FUNC
 
 FUNC readLinesFile(path AS String) AS Integer
-  RES f AS File = fs::open(path, "read")
+  RES f AS fs::File = fs::open(path, "read")
   MUT lines AS Integer = 0
   WHILE NOT fs::eof(f)
     LET line AS String = fs::readLine(f)
@@ -136,14 +136,14 @@ FUNC readLinesFile(path AS String) AS Integer
 END FUNC
 
 SUB writeCsvInput(path AS String)
-  RES f AS File = fs::open(path, "write")
+  RES f AS fs::File = fs::open(path, "write")
   FOR i = 0 TO 1999
     fs::writeAll(f, toString(i) & "," & toString(i + 1) & "," & toString(i + 2) & "\n")
   NEXT
 END SUB
 
 SUB writeJsonInput(path AS String)
-  RES f AS File = fs::open(path, "write")
+  RES f AS fs::File = fs::open(path, "write")
   fs::writeAll(f, "{\"nums\":[")
   MUT i AS Integer = 0
   WHILE i < 5000
@@ -157,7 +157,7 @@ SUB writeJsonInput(path AS String)
 END SUB
 
 SUB writeRegexInput(path AS String)
-  RES f AS File = fs::open(path, "write")
+  RES f AS fs::File = fs::open(path, "write")
   MUT i AS Integer = 0
   WHILE i < 200
     IF i > 0 THEN

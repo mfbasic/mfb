@@ -383,7 +383,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&loop_l));
         self.emit(abi::label(&loop_done));
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
@@ -516,7 +516,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&scratch, abi::stack_pointer(), i_slot));
         self.emit(abi::branch(&loop_l));
         self.emit(abi::label(&done_l));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), outer_slot));
         Ok(ValueResult {
             origin: None,

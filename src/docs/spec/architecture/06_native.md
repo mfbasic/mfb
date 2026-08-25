@@ -282,10 +282,9 @@ hashing, comparison spill, collection/record/closure-env element stores, call
 arguments and returns (the `Float` arg/return ABI still travels in a GPR), and
 thread marshalling. Storing a `d`-native float writes the same 8 bytes a `str x`
 would (`str d`), so copy/transfer/golden output is unchanged — only the in-flight
-register class differs. (The carrier is sound only under liveness-based coloring,
-so the `bump` oracle keeps the legacy GP-native round-trip; `MOD`/`^` run
+register class differs. (`MOD`/`^` run
 dedicated scalar kernels — their FP working set is allocator-placed virtual
-registers plus the fixed `d0`–`d7` input/scratch bank — and stay GP-native too.)
+registers plus the fixed `d0`–`d7` input/scratch bank — and stay GP-native.)
 
 A single-use `Float` `a*b±c` chain is **fused** into one single-rounded fused
 multiply-add before register allocation: `a*b+c`→`fmadd_d`,
@@ -310,8 +309,8 @@ The allocator is split into two layers so every backend reuses the
 core:
 
 - **ISA-neutral core**: the virtual-register
-  representation, the rewrite pass, and the pluggable `AllocationStrategy`
-  interface. It names no physical registers.[[src/codegen/engine/regalloc]]
+  representation, the liveness analysis, and the linear-scan coloring.
+  It names no physical registers.[[src/codegen/engine/regalloc]]
 - **Per-ISA register model**: the `RegisterModel`
   trait answers every register question — the allocatable banks and their class
   (integer `x0`–`x30` vs FP/SIMD `d0`–`d31`, where `d_n` aliases the low 64 bits
@@ -322,19 +321,14 @@ core:
   drop its high lane. All three ISAs — AArch64, x86-64, and RISC-V 64 —
   implement the trait.[[src/target/shared/regmodel.rs:RegisterModel]] [[src/arch/aarch64/regmodel.rs:Aarch64RegisterModel]]
 
-The allocation method is selected by the `--regalloc <name>` build flag. Only one
-of the two shipping methods actually goes through the `AllocationStrategy` trait:
-`bump` is invoked through it, while the default `linear-scan` path is called
-directly and bypasses it. The trait is therefore the differential-oracle seam, not
-the dispatch mechanism for the default. The default, `linear-scan`, computes liveness over
-the lowered stream and colors the integer class by live interval, spilling to a
-stack slot under pressure (so a deeply nested expression no longer fails — it
+Linear scan is the only allocation method: it computes liveness over the
+lowered stream and colors the integer class by live interval, spilling to a
+stack slot under pressure (so a deeply nested expression never fails — it
 spills); a value live across a call is spilled, since no register survives an
-internal runtime helper. The `bump` strategy (`BumpAndReset`) replays the legacy
-per-statement bump numbering and is byte-identical to the pre-allocator backend;
-it is retained as the differential reference oracle (`--regalloc bump`). Further
-strategies (graph-coloring) slot in without touching the rewrite pass or the
-register model.
+internal runtime helper. (The legacy `BumpAndReset` replay — the
+`--regalloc bump` differential oracle — was removed: with no spilling it
+miscompiled under pressure and was never a correctness baseline; the
+`--regalloc` flag went with it.)
 
 ### The CodegenPlatform Seam
 

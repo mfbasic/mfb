@@ -176,10 +176,10 @@ pub(crate) fn lower_bits_ctz(
     if value.type_ != ParameterType::Integer {
         return Err(format!("bits.ctz does not accept {}", value.type_));
     }
-    let dst = builder.allocate_register()?;
+    let dst = builder.allocate_register();
     // `ctz` reverses the bits (`RBIT`) and then counts leading zeros; both `clz`
     // and `ctz` return `64` for a zero input.
-    let reversed = builder.allocate_register()?;
+    let reversed = builder.allocate_register();
     builder.emit(abi::reverse_bits(reversed, &value.location));
     builder.emit(abi::count_leading_zeros(dst, reversed));
     Ok(ValueResult {

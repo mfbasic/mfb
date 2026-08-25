@@ -40,7 +40,7 @@ SUB main()
   io::print("Using device: " & seloutDevices.name)
 
   ' Open the selected device
-  RES out AS AudioOutput = audio::openOutput(seloutDevices, 48000, 1, 512) TRAP(e)
+  RES out AS audio::AudioOutput = audio::openOutput(seloutDevices, 48000, 1, 512) TRAP(e)
     io::print("Couldn't open the device:\n" & e.message)
     EXIT PROGRAM 0
   END TRAP

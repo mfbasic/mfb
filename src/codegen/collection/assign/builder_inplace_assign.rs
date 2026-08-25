@@ -296,7 +296,7 @@ impl CodeBuilder<'_> {
         self.store_value_at(&item, abi::stack_pointer(), item_slot);
         // The per-element value is a 1-byte `Boolean` TRUE (a Set is a Map to true).
         let true_slot = self.allocate_stack_object("inplace_set_add_true", 8);
-        let true_reg = self.allocate_register()?;
+        let true_reg = self.allocate_register();
         self.emit(abi::move_immediate(&true_reg, "Boolean", "true"));
         self.emit(abi::store_u64(&true_reg, abi::stack_pointer(), true_slot));
         self.lower_map_set_in_place(

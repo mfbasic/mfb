@@ -59,7 +59,7 @@ pub(crate) fn show_man(args: &[String]) -> Result<(), String> {
                 if all {
                     print_markdown(&render_topic_all_markdown(topic));
                 } else {
-                    print_markdown(topic.overview);
+                    print_markdown(&render_topic_overview(topic));
                 }
                 Ok(())
             } else {
@@ -157,12 +157,28 @@ fn unknown_topic_error(name: &str) -> String {
 /// sub-pages, each separated by a full-width rule — the topic analogue of
 /// `mfb man <package> --all`.
 fn render_topic_all_markdown(topic: &ManTopic) -> String {
-    let mut md = topic.overview.to_string();
+    let mut md = render_topic_overview(topic);
     for page in &topic.pages {
         md.push_str(&man_rule());
         md.push_str(page.page);
     }
     md
+}
+
+/// A guide topic's overview with its generated substitutions applied: the
+/// `optimizations` topic's pass table is rendered from the optimizer's own
+/// landed-row catalog (`optimizer::catalog`) at display time, so the man page
+/// and the compiler can never disagree about which passes exist.
+fn render_topic_overview(topic: &ManTopic) -> String {
+    const CATALOG_MARKER: &str = "{{optimizer-catalog}}";
+    if topic.overview.contains(CATALOG_MARKER) {
+        topic.overview.replace(
+            CATALOG_MARKER,
+            crate::optimizer::catalog::render_markdown_table().trim_end(),
+        )
+    } else {
+        topic.overview.to_string()
+    }
 }
 
 /// The union of every error any of a function's implementations declares, in first-

@@ -81,8 +81,6 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_direct_callable_branch(&mut self, location: impl Into<Operand>) {
         let saved_env_slot = self.allocate_stack_object("closure_saved_env", 8);
-        // Infallible vreg minters: an exhaustion under `-regalloc bump` is recorded
-        // and surfaced by `run_register_allocation` instead of panicking (bug-70).
         let code_register = self.temporary_vreg();
         let env_register = self.temporary_vreg();
         let location = location.into();

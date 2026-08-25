@@ -135,15 +135,15 @@ Arguments:
 Options:
   --sign <owner>      Sign the resulting binary with the specified owner
   --target <os-arch>  Cross-compile to a specific target (e.g., linux-x86_64)
-  --regalloc <name>   Select the register-allocation strategy
-  -O <level>          Optimization level: 0 off, 1 default (also -O0/-O1,
-                      --optimize <level>)
+  -O <level>          Optimization level: 0 off, 1 default, 2-3 enable more
+                      passes (also -O0..-O3, --optimize <level>)
   --app               Build as a standalone application instead of a library
   --app-debug         Like --app, but keep the intermediate build/<name>.AppDir
                       beside the AppImage (Linux; inert on macOS)
   --unsigned          Allow unsigned dependencies from a non-local source
   -q, --quiet         Print only the artifact line and any diagnostics
   -v, --verbose       Also print a per-phase timing line for each build stage
+                      and a per-pass fire count for each optimizer row
 
 Debug/Inspection (Emits intermediate output):
   --ast               Outputs Abstract Syntax Tree
@@ -167,9 +167,8 @@ Arguments:
 Options:
   --coverage          Emit coverage.html for the exercised source lines
   --target <os-arch>  Build for a specific target (only host targets are run)
-  --regalloc <name>   Select the register-allocation strategy
-  -O <level>          Optimization level: 0 off, 1 default (also -O0/-O1,
-                      --optimize <level>)";
+  -O <level>          Optimization level: 0 off, 1 default, 2-3 enable more
+                      passes (also -O0..-O3, --optimize <level>)";
 
 pub(crate) const FMT_HELP: &str = "\
 Usage: mfb fmt [options] [path]

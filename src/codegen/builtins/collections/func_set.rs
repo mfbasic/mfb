@@ -227,7 +227,7 @@ pub(crate) fn lower_set(
                 abi::stack_pointer(),
                 item_slot,
             ));
-            let source = builder.allocate_register()?;
+            let source = builder.allocate_register();
             builder.emit(abi::load_u64(&source, abi::stack_pointer(), list_slot));
             let copy = builder.copy_collection_tight(&collection.type_, &source)?;
             let copy_slot = builder.allocate_stack_object("set_value_copy", 8);

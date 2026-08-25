@@ -116,24 +116,18 @@ in `x28` (see Reserved Registers).
 Lowerings do not name physical temporary registers. `allocate_register` mints a
 **virtual register** carried in the instruction stream; after a function is fully
 lowered, a coloring pass assigns each virtual register a physical register (or a
-spill slot). The method is a pluggable strategy selected by `--regalloc <name>`
-(see `./mfb spec architecture native`). [[src/codegen/engine/regalloc/builder_registers.rs:allocate_register]] [[src/codegen/engine/regalloc/mod.rs:allocate]]
+spill slot). [[src/codegen/engine/regalloc/builder_registers.rs:allocate_register]] [[src/codegen/engine/regalloc/mod.rs:allocate]]
 
-The default strategy, **`linear-scan`**, computes liveness over the lowered
+The allocator, **linear scan**, computes liveness over the lowered
 stream and colors the integer class by live interval, reusing a register as soon
 as its previous occupant dies and **spilling to a stack slot under pressure**.
 A value whose live range crosses a call is spilled, since no register survives an
 internal runtime helper (e.g. `_mfb_arena_alloc` clobbers callee-saved
 `x20`–`x28`). Because pressure spills rather than failing, there is **no
 "break a deep expression into `LET` bindings" limit** — an arbitrarily nested
-expression compiles. [[src/codegen/engine/regalloc/linear_scan.rs:run]]
-
-The reference strategy, **`bump`**, replays the fixed numbering — the
-`next_register` counter starts at `8` and `temporary_register` maps it to a
-physical register (`8..17` → `x8..x17`; `18..26` → the callee-saved `x20..x28`,
-skipping the reserved `x18`/`x19`); allocation past `26` is a hard error. It is
-byte-identical to the pre-allocator backend and kept as the differential oracle
-(`--regalloc bump`). [[src/target/shared/abi.rs:temporary_register]] [[src/codegen/engine/regalloc/mod.rs:BumpAndReset]]
+expression compiles. (The legacy `bump` reference strategy and its
+`--regalloc` selection flag were removed; linear scan is the only
+allocator.) [[src/codegen/engine/regalloc/linear_scan.rs:run]]
 
 When the coloring uses a callee-saved register (`x20..x28`), it is recorded so
 the frame finalizer saves and restores it. [[src/codegen/engine/regalloc/builder_registers.rs:mark_register_used]]
@@ -144,15 +138,14 @@ Two registers carry pinned roles in the convention:
 
 * **`x19` — arena-state** (`ARENA_STATE_REGISTER`). Pins the current package
   instance's arena-state for the life of the call chain; never handed out by the
-  temporary allocator (the bump map skips `x18`/`x19`). Owned by `./mfb spec
+  temporary allocator. Owned by `./mfb spec
   memory arenas`. [[src/codegen/error/constants/error_constants.rs:ARENA_STATE_REGISTER]]
 * **`x28` — closure environment** (`CLOSURE_ENV_REGISTER`). Holds the captured
   environment pointer for an `Indirect` (closure) call; owned by `./mfb spec
   memory closures`. [[src/codegen/error/constants/error_constants.rs:CLOSURE_ENV_REGISTER]]
 
-Unlike `x19`, `x28` is **not** excluded from the temporary map: it is the highest
-register the bump allocator can reach (allocation `26`), so `x28` serves double
-duty as both the closure-environment register and the final scratch slot.
+`x28` also realizes the `%closure_env` role token, and the allocator never
+hands it out as a temporary — the mirror of `x19`'s arena-base exclusion.
 
 ### Neutral names in shared lowering
 

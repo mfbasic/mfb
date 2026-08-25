@@ -83,7 +83,7 @@ pub(crate) fn lower(
     builder.emit(abi::branch(&loop_label));
     builder.emit(abi::label(&done));
     builder.emit(abi::store_u64(&scratch23, abi::stack_pointer(), count_slot));
-    let result = builder.allocate_register()?;
+    let result = builder.allocate_register();
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), count_slot));
     let after = builder.label("strings_count_after");
     builder.emit(abi::branch(&after));

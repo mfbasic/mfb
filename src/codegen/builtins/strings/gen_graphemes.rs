@@ -260,7 +260,7 @@ pub(crate) fn lower_strings_graphemes(
     builder.emit_write_cursor_assert(&scratch20, &scratch10, "strings_graphemes_entries");
     builder.emit(abi::label(&write_empty));
 
-    let result = builder.allocate_register()?;
+    let result = builder.allocate_register();
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     Ok(ValueResult {
         origin: None,

@@ -23,7 +23,7 @@ impl CodeBuilder<'_> {
         // Byte's value and a Scalar's zero-extended codepoint are already their
         // Integer value. The 2-arg radix form is `String`-only, so both are 1-arg.
         if matches!(value.type_.name().as_ref(), "Byte" | "Scalar") {
-            let register = self.allocate_register()?;
+            let register = self.allocate_register();
             self.emit(abi::move_register(&register, &value.location));
             return Ok(ValueResult {
                 origin: None,
@@ -50,7 +50,7 @@ impl CodeBuilder<'_> {
             None
         };
         self.reset_temporary_registers();
-        let source = self.allocate_register()?;
+        let source = self.allocate_register();
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
         match value.type_.name().as_ref() {
             "Fixed" => self.emit_fixed_to_int_value(&source),
@@ -72,7 +72,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let value_reg = self.temporary_vreg();
         let value = &value_reg;
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         let nonnegative = self.label("fixed_to_int_nonnegative");
         let done = self.label("fixed_to_int_done");
         self.emit(abi::move_register(value, source_register));
@@ -99,8 +99,8 @@ impl CodeBuilder<'_> {
         &mut self,
         source_register: impl Into<Operand>,
     ) -> Result<ValueResult, String> {
-        let scale = self.allocate_register()?;
-        let result = self.allocate_register()?;
+        let scale = self.allocate_register();
+        let result = self.allocate_register();
         self.emit(abi::move_immediate(&scale, "Integer", "100000"));
         self.emit(abi::signed_divide_registers(
             &result,
@@ -134,7 +134,7 @@ impl CodeBuilder<'_> {
         let edge_sign_ok = self.label("float_to_int_edge_sign_ok");
         let overflow = self.label("float_to_int_overflow");
         let invalid = self.label("float_to_int_invalid");
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
 
         self.emit(abi::move_register(bits, source_register));
         self.emit_float_exponent_range_guard(
@@ -324,7 +324,7 @@ impl CodeBuilder<'_> {
         let digit_ok = self.label("string_to_int_digit_ok");
         let positive = self.label("string_to_int_positive");
         let done = self.label("string_to_int_return");
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
 
         self.emit(abi::move_register(string, source_register));
         self.emit_string_to_int_sign_prologue(
@@ -439,7 +439,7 @@ impl CodeBuilder<'_> {
         let digit_ok = self.label("string_to_int_base_digit_ok");
         let positive = self.label("string_to_int_base_positive");
         let done = self.label("string_to_int_base_return");
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
 
         // Load the base from its stack slot and validate `2 <= base <= 36`.
         self.emit(abi::load_u64(base, abi::stack_pointer(), base_slot));
@@ -542,8 +542,8 @@ impl CodeBuilder<'_> {
         // `toByte(Money)` narrows the whole-unit part (`raw / 100000`), then
         // range-checks it exactly like an Integer (plan-29-G §4.3).
         let checked = if value.type_ == ParameterType::Money {
-            let scale = self.allocate_register()?;
-            let whole = self.allocate_register()?;
+            let scale = self.allocate_register();
+            let whole = self.allocate_register();
             self.emit(abi::move_immediate(&scale, "Integer", "100000"));
             self.emit(abi::signed_divide_registers(
                 &whole,
@@ -554,7 +554,7 @@ impl CodeBuilder<'_> {
         } else {
             value.location.clone()
         };
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         let overflow = self.label("to_byte_overflow");
         let ok = self.label("to_byte_ok");
         self.emit(abi::compare_immediate(&checked, "0"));
@@ -583,7 +583,7 @@ impl CodeBuilder<'_> {
         let value = self.lower_value(arg)?;
         match value.type_.name().as_ref() {
             "Byte" => {
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 self.emit(abi::move_register(&register, &value.location));
                 Ok(ValueResult {
                     origin: None,
@@ -613,7 +613,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&invalid));
                 self.raise_error("toScalar", "ErrInvalidArgument")?;
                 self.emit(abi::label(&ok));
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 self.emit(abi::move_register(&register, &cp));
                 Ok(ValueResult {
                     origin: None,
@@ -806,7 +806,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&invalid));
         self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&ok));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::move_register(&result, cp));
         Ok(result)
     }
@@ -838,7 +838,7 @@ impl CodeBuilder<'_> {
 
         // Re-derive the buffer address (the encode helper advanced `buf`, and the
         // arena call inside materialize spills it) and build the owned String.
-        let buf_addr = self.allocate_register()?;
+        let buf_addr = self.allocate_register();
         self.emit(abi::add_immediate(
             &buf_addr,
             abi::stack_pointer(),
@@ -862,9 +862,9 @@ impl CodeBuilder<'_> {
             value_slot,
         ));
         self.reset_temporary_registers();
-        let source = self.allocate_register()?;
+        let source = self.allocate_register();
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         match value.type_.name().as_ref() {
             "Integer" => {
                 self.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[0], &source));
@@ -931,9 +931,9 @@ impl CodeBuilder<'_> {
             value_slot,
         ));
         self.reset_temporary_registers();
-        let source = self.allocate_register()?;
+        let source = self.allocate_register();
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         match value.type_.name().as_ref() {
             "Integer" => {
                 self.emit_integer_to_fixed_value(&source, &result)?;
@@ -945,7 +945,7 @@ impl CodeBuilder<'_> {
             // fed the Money raw and the base-10 scale; its range check traps a
             // Money too large for Fixed's 32-bit integer part (plan-29-G §4.3).
             "Money" => {
-                let scale = self.allocate_register()?;
+                let scale = self.allocate_register();
                 self.emit(abi::move_immediate(&scale, "Integer", "100000"));
                 self.emit_fixed_divide(&result, &source, &scale)?;
             }
@@ -995,39 +995,39 @@ impl CodeBuilder<'_> {
             value_slot,
         ));
         self.reset_temporary_registers();
-        let source = self.allocate_register()?;
+        let source = self.allocate_register();
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         let scratch = self.temporary_vreg();
         match value.type_.name().as_ref() {
             // Exact: `value * 100000`, overflow-checked for Integer (a Byte is
             // always in range: 255 * 100000 fits i64).
             "Integer" => {
-                let scale = self.allocate_register()?;
+                let scale = self.allocate_register();
                 self.emit(abi::move_immediate(&scale, "Integer", "100000"));
                 self.emit_checked_integer_multiply(&result, &source, &scale)?;
             }
             "Byte" => {
-                let scale = self.allocate_register()?;
+                let scale = self.allocate_register();
                 self.emit(abi::move_immediate(&scale, "Integer", "100000"));
                 self.emit(abi::multiply_registers(&result, &source, &scale));
             }
             // `fixed_raw * 100000 / 2^32` is exactly `emit_fixed_multiply(fixed_raw,
             // 100000)`; its overflow check traps a Fixed too large for Money.
             "Fixed" => {
-                let scale = self.allocate_register()?;
+                let scale = self.allocate_register();
                 self.emit(abi::move_immediate(&scale, "Integer", "100000"));
                 self.emit_fixed_multiply(&result, &source, &scale)?;
             }
             // Inexact: finiteness → ErrInvalidFormat, `value * 100000.0` rounded
             // under the mode, range → ErrOverflow.
             "Float" => {
-                let fval = self.allocate_fp_register()?;
+                let fval = self.allocate_fp_register();
                 self.emit(abi::float_move_d_from_x(&fval, &source));
                 self.emit_float_finite_or_invalid(&fval)?;
-                let scale = self.allocate_fp_register()?;
+                let scale = self.allocate_fp_register();
                 self.emit_f64_const(&scale, &scratch, 100_000.0);
-                let scaled = self.allocate_fp_register()?;
+                let scaled = self.allocate_fp_register();
                 self.emit(abi::float_multiply_d(&scaled, &fval, &scale));
                 self.emit_round_double_to_money_raw(&scaled, &result)?;
             }
@@ -1052,11 +1052,11 @@ impl CodeBuilder<'_> {
                 // Scientific-notation fallback: f64 parse, scale, mode-round.
                 self.emit(abi::label(&scientific));
                 self.emit_parse_decimal_string_to_double(&source, &invalid)?;
-                let parsed = self.allocate_fp_register()?;
+                let parsed = self.allocate_fp_register();
                 self.emit(abi::float_move_d_from_d(&parsed, abi::FP_SCRATCH[0]));
-                let scale = self.allocate_fp_register()?;
+                let scale = self.allocate_fp_register();
                 self.emit_f64_const(&scale, &scratch, 100_000.0);
-                let scaled = self.allocate_fp_register()?;
+                let scaled = self.allocate_fp_register();
                 self.emit(abi::float_multiply_d(&scaled, &parsed, &scale));
                 self.emit_round_double_to_money_raw(&scaled, &result)?;
                 self.emit(abi::branch(&done));
@@ -1095,11 +1095,11 @@ impl CodeBuilder<'_> {
             value_slot,
         ));
         self.reset_temporary_registers();
-        let source = self.allocate_register()?;
+        let source = self.allocate_register();
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
         let invalid = self.label("is_numeric_false");
         let done = self.label("is_numeric_done");
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit_parse_decimal_string_to_double(&source, &invalid)?;
         self.emit_double_overflow_check(abi::FP_SCRATCH[0], &invalid);
         self.emit(abi::move_immediate(&result, "Boolean", "true"));
@@ -1129,8 +1129,8 @@ impl CodeBuilder<'_> {
             ));
         }
 
-        let mask = self.allocate_register()?;
-        let result = self.allocate_register()?;
+        let mask = self.allocate_register();
+        let result = self.allocate_register();
         let true_label = self.label(name);
         let done_label = self.label(&format!("{name}_done"));
         self.emit(abi::move_immediate(&mask, "Integer", "1"));
@@ -1160,7 +1160,7 @@ impl CodeBuilder<'_> {
         // The predicate reads the operand's bits, so materialize a `d`-native
         // float into a GPR first (plan-01 float-dnative).
         let value = self.materialize_float(value)?;
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         let true_label = self.label(name);
         let done_label = self.label(&format!("{name}_done"));
 
@@ -1211,7 +1211,7 @@ impl CodeBuilder<'_> {
         arg: &NirValue,
     ) -> Result<ValueResult, String> {
         let len = self.lower_len(arg)?;
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         let true_label = self.label(name);
         let done_label = self.label(&format!("{name}_done"));
 
@@ -1246,8 +1246,8 @@ impl CodeBuilder<'_> {
         result: impl Into<Operand>,
     ) -> Result<(), String> {
         let source: Operand = source.into();
-        let min = self.allocate_register()?;
-        let max = self.allocate_register()?;
+        let min = self.allocate_register();
+        let max = self.allocate_register();
         let overflow = self.label("int_to_fixed_overflow");
         let ok = self.label("int_to_fixed_ok");
         self.emit(abi::move_immediate(&min, "Integer", "18446744071562067968"));

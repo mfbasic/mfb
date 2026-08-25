@@ -127,13 +127,13 @@ impl CodeBuilder<'_> {
             self.emit(abi::branch(&found_handle));
         } else {
             self.reset_temporary_registers();
-            let collection = self.allocate_register()?;
-            let key = self.allocate_register()?;
-            let count = self.allocate_register()?;
-            let index = self.allocate_register()?;
-            let entry = self.allocate_register()?;
-            let key_offset = self.allocate_register()?;
-            let key_length = self.allocate_register()?;
+            let collection = self.allocate_register();
+            let key = self.allocate_register();
+            let count = self.allocate_register();
+            let index = self.allocate_register();
+            let entry = self.allocate_register();
+            let key_offset = self.allocate_register();
+            let key_length = self.allocate_register();
             self.emit(abi::load_u64(&collection, abi::stack_pointer(), map_slot));
             self.emit(abi::load_u64(&key, abi::stack_pointer(), key_slot));
             self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
@@ -909,7 +909,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&skip_put));
 
         self.emit(abi::label(&done));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), map_slot));
         Ok(ValueResult {
             origin: None,
@@ -1035,7 +1035,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&s13, "Byte", "0"));
         self.emit(abi::store_u8(&s13, &s8, COLLECTION_OFFSET_BUCKETS_READY));
         self.emit(abi::label(&done));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), map_slot));
         Ok(ValueResult {
             origin: None,

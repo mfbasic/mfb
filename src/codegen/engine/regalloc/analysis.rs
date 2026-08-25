@@ -399,32 +399,47 @@ pub(crate) struct Effect {
     pub(crate) is_call: bool,
 }
 
-pub(crate) fn effect(instruction: &CodeInstruction, model: &ClassModel) -> Effect {
-    // Classify one operand to this class's numbering, once. A typed operand of
-    // this pass's class carries its id/index inline, so read it directly with no
-    // string work (plan-82-B): a `VReg`/`Phys` of the *other* class is definitively
-    // not this class's register, matching today's outcome where the other class's
-    // spelling failed both `parse_vreg` and `physical_index`. Only a `Raw`/`Imm`
-    // operand takes the `rendered()` + `parse_vreg`/`physical_index` string path —
-    // the same classification order the previous `is_tracked` used, so the def/use
-    // sets are byte-identical. Pre-plan-82-C every register operand is still `Raw`
-    // and takes the fallback; post-C the typed fast path carries the hot load.
-    let classify = |value: &Operand| -> Option<RegRef> {
-        match value {
-            Operand::VReg { class, id } => (*class == model.class).then_some(RegRef::VReg(*id)),
-            Operand::Phys { class, index, .. } => {
-                (*class == model.class).then_some(RegRef::Phys(*index))
-            }
-            _ => {
-                let spelling = value.rendered();
-                if let Some(id) = (model.parse_vreg)(&spelling) {
-                    Some(RegRef::VReg(id))
-                } else {
-                    (model.physical_index)(&spelling).map(RegRef::Phys)
-                }
+/// Classify one operand to `model`'s class numbering, once. A typed operand of
+/// this pass's class carries its id/index inline, so read it directly with no
+/// string work (plan-82-B): a `VReg`/`Phys` of the *other* class is definitively
+/// not this class's register, matching today's outcome where the other class's
+/// spelling failed both `parse_vreg` and `physical_index`. Only a `Raw`/`Imm`
+/// operand takes the `rendered()` + `parse_vreg`/`physical_index` string path —
+/// the same classification order the previous `is_tracked` used, so the def/use
+/// sets are byte-identical. Pre-plan-82-C every register operand is still `Raw`
+/// and takes the fallback; post-C the typed fast path carries the hot load.
+/// `#[inline]` + pub(crate): [`effect`] is the allocator hot path, and the
+/// optimizer's SSA overlay (`optimizer::opt2::plans::ssa`) classifies field
+/// operands through this same function so its view cannot drift from the
+/// allocator's.
+#[inline]
+pub(crate) fn classify_ref(value: &Operand, model: &ClassModel) -> Option<RegRef> {
+    match value {
+        Operand::VReg { class, id } => (*class == model.class).then_some(RegRef::VReg(*id)),
+        Operand::Phys { class, index, .. } => {
+            (*class == model.class).then_some(RegRef::Phys(*index))
+        }
+        _ => {
+            let spelling = value.rendered();
+            if let Some(id) = (model.parse_vreg)(&spelling) {
+                Some(RegRef::VReg(id))
+            } else {
+                (model.physical_index)(&spelling).map(RegRef::Phys)
             }
         }
-    };
+    }
+}
+
+/// Whether `name` is one of the operand-field roles an instruction *reads*
+/// ([`USE_FIELDS`]). pub(crate) for the optimizer's copy-propagation rewrite,
+/// which must touch only use fields (a `dst` naming the same register is the
+/// definition, never a forwardable read).
+pub(crate) fn is_use_field(name: &str) -> bool {
+    USE_FIELDS.contains(&name)
+}
+
+pub(crate) fn effect(instruction: &CodeInstruction, model: &ClassModel) -> Effect {
+    let classify = |value: &Operand| -> Option<RegRef> { classify_ref(value, model) };
     let mut defs = Vec::new();
     let mut uses = Vec::new();
     for (name, value) in &instruction.fields {
@@ -469,14 +484,15 @@ pub(crate) fn effect(instruction: &CodeInstruction, model: &ClassModel) -> Effec
 }
 
 /// A basic block: a half-open instruction range `[start, end)` and its
-/// successor block indices.
-struct Block {
-    start: usize,
-    end: usize,
-    succ: Vec<usize>,
+/// successor block indices. pub(crate): the optimizer's Opt2 analyses
+/// (`optimizer::opt2::plans`) build postdominators over this same CFG.
+pub(crate) struct Block {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) succ: Vec<usize>,
 }
 
-fn is_block_terminator(op: CodeOp) -> bool {
+pub(crate) fn is_block_terminator(op: CodeOp) -> bool {
     matches!(
         op,
         CodeOp::Branch
@@ -516,11 +532,11 @@ fn is_block_terminator(op: CodeOp) -> bool {
     )
 }
 
-fn is_unconditional_terminator(op: CodeOp) -> bool {
+pub(crate) fn is_unconditional_terminator(op: CodeOp) -> bool {
     matches!(op, CodeOp::Branch | CodeOp::Ret | CodeOp::BranchSelf)
 }
 
-fn build_cfg(instructions: &[CodeInstruction]) -> Vec<Block> {
+pub(crate) fn build_cfg(instructions: &[CodeInstruction]) -> Vec<Block> {
     let n = instructions.len();
     if n == 0 {
         return Vec::new();

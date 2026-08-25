@@ -37,7 +37,8 @@ pub(crate) enum Verbosity {
     #[default]
     Normal,
     /// `-v`/`--verbose`: additionally a `phase <name> <N>ms` line per front-end
-    /// stage. Doubles as a lightweight build profiler.
+    /// stage and a `<catalog row>: <count>` optimizer-pass fire-count line per
+    /// landed dial row. Doubles as a lightweight build profiler.
     Verbose,
 }
 
@@ -86,6 +87,22 @@ impl Reporter {
             eprintln!("codegen: {stage}");
         }
     }
+
+    /// One `<catalog row>: <count>` line per landed dial row — Verbose only, on
+    /// stderr, printed once codegen has run. The counts accumulate in
+    /// `optimizer::stats` as the gated passes fire (the passes have no channel
+    /// back to the CLI); a row is printed only when the active dial actually
+    /// ran it, so `-O0` prints nothing and `-O1` omits the L2/L3 rows.
+    fn opt_stats(&self) {
+        if self.level != Verbosity::Verbose {
+            return;
+        }
+        for row in crate::optimizer::catalog::rows() {
+            if crate::optimizer::level_enabled(row.level) {
+                eprintln!("{}: {}", row.name, row.fired());
+            }
+        }
+    }
 }
 
 pub(crate) struct BuildOptions {
@@ -108,9 +125,6 @@ pub(crate) struct BuildOptions {
     /// that changes a build's *validity* by target, which is worse than one that
     /// changes nothing.
     pub(crate) app_debug: bool,
-    /// Register-allocation strategy selected by `-regalloc <name>` (plan-03
-    /// §4.2). Defaults to the backend default.
-    pub(crate) regalloc: crate::codegen::engine::regalloc::RegallocKind,
     /// Optimization scale level selected by `-O<N>` / `--optimize <N>`
     /// (plan-100). Defaults to `-O1`, at which the shipping Level-1 passes run
     /// -- so the flagless build is today's exact codegen. `-O0` turns the dial
@@ -179,9 +193,6 @@ impl BuildOutput {
 }
 
 pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
-    // Record the register-allocation strategy for the native backend to read
-    // during lowering (plan-03 §4.2).
-    crate::codegen::engine::regalloc::set_strategy(options.regalloc);
     // Record the optimization level for the gated passes to read at their
     // seams (plan-100 §2). Default `-O1` runs the Level-1 rows, as today.
     crate::optimizer::set_opt_level(options.opt);
@@ -676,6 +687,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 }
             };
             reporter.phase("codegen+link", codegen_start.elapsed());
+            reporter.opt_stats();
             // `mfb test` compiles the driver, then runs it and adopts its exit
             // status (non-zero iff any case failed).
             if options.mode.is_test() {
@@ -894,6 +906,22 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         }
     }
 
+    // The native debug emitters above run the same gated NIR/machine passes as
+    // a real build, so `-v` reports their fire counts here too. Front-end-only
+    // dumps (`--ast`/`--ir`/`--br`) never enter the native pipeline — no line.
+    if options.outputs.iter().any(|output| {
+        matches!(
+            output,
+            BuildOutput::NativeIr
+                | BuildOutput::NativePlan
+                | BuildOutput::NativeObjectPlan
+                | BuildOutput::NativeCodePlan
+                | BuildOutput::Mir
+        )
+    }) {
+        reporter.opt_stats();
+    }
+
     Ok(())
 }
 
@@ -980,7 +1008,7 @@ mod tests {
         assert_eq!(joined.target.name(), "linux-x86_64");
     }
 
-    /// plan-42: `--target`/`--regalloc`/`--app` are the documented spellings; the
+    /// plan-42: `--target`/`--app` are the documented spellings; the
     /// single-dash forms (space and `=`) stay working aliases that parse to the
     /// same options.
     #[test]
@@ -995,19 +1023,6 @@ mod tests {
             let long = parse_build_options(long).expect("--target form");
             let short = parse_build_options(short).expect("-target form");
             assert_eq!(long.target.name(), short.target.name());
-        }
-
-        for (long, short) in [
-            (s(&["--regalloc", "bump"]), s(&["-regalloc", "bump"])),
-            (s(&["--regalloc=bump"]), s(&["-regalloc=bump"])),
-        ] {
-            let long = parse_build_options(long).expect("--regalloc form");
-            let short = parse_build_options(short).expect("-regalloc form");
-            assert_eq!(long.regalloc, short.regalloc);
-            assert_eq!(
-                long.regalloc,
-                crate::codegen::engine::regalloc::parse_kind("bump").expect("bump")
-            );
         }
 
         assert!(
@@ -1074,14 +1089,10 @@ mod tests {
             assert_eq!(long.target.name(), short.target.name());
         }
 
-        for (long, short) in [
-            (s(&["--regalloc", "bump"]), s(&["-regalloc", "bump"])),
-            (s(&["--regalloc=bump"]), s(&["-regalloc=bump"])),
-        ] {
-            let long = parse_test_options(long).expect("--regalloc form");
-            let short = parse_test_options(short).expect("-regalloc form");
-            assert_eq!(long.regalloc, short.regalloc);
-        }
+        // `--regalloc` was removed with the bump oracle; both spellings now
+        // land in the unknown-option arm like any other retired flag.
+        assert!(parse_test_options(s(&["--regalloc", "bump"])).is_err());
+        assert!(parse_test_options(s(&["-regalloc=bump"])).is_err());
 
         assert!(parse_test_options(s(&["--app"])).is_err());
         assert!(parse_test_options(s(&["-app"])).is_err());
@@ -1244,15 +1255,26 @@ mod tests {
         assert!(parse_build_options(s(&["-O"])).is_err());
         assert!(parse_test_options(s(&["--optimize"])).is_err());
 
-        for bogus in ["-O2", "-O6", "-Ox", "-O=2", "--optimize=2", "-optimize=z"] {
+        // Landed levels parse in the attached spelling too (2 and 3 opened
+        // with the DCE/ADCE rows).
+        use crate::optimizer::OptLevel;
+        for (level, want) in [("-O2", OptLevel(2)), ("-O3", OptLevel(3))] {
+            let parsed = parse_build_options(s(&[level])).expect(level);
+            assert_eq!(parsed.opt, want, "{level}");
+        }
+
+        for bogus in ["-O4", "-O6", "-Ox", "-O=9", "--optimize=4", "-optimize=z"] {
             let message = build_err(&[bogus]);
-            assert!(message.contains("available: 0, 1"), "{bogus} -> {message}");
+            assert!(
+                message.contains("available: 0, 1, 2, 3"),
+                "{bogus} -> {message}"
+            );
             assert!(parse_test_options(s(&[bogus])).is_err(), "{bogus}");
         }
 
         // The space form reports the same list.
-        let message = build_err(&["-O", "3"]);
-        assert!(message.contains("available: 0, 1"), "{message}");
+        let message = build_err(&["-O", "5"]);
+        assert!(message.contains("available: 0, 1, 2, 3"), "{message}");
     }
 
     fn build_err(args: &[&str]) -> String {

@@ -845,6 +845,12 @@ pub(crate) struct RegistryPackage {
     /// [`mfb_fast_path`] can answer a `#<pkg>_<member>$…` monomorph target without a
     /// per-package table.
     source_generic_fast_paths: Vec<(&'static str, MfbFastPath)>,
+    /// Errors a source-generic member's **native fast path** raises (member name →
+    /// error names). A source-generic member has no [`RegistryFunction`] (its surface
+    /// is the injected `package.mfb` body), so a fast path's `raise_error` validation
+    /// needs this table to find the declared set — which must mirror the source
+    /// body's own `FAIL error(...)` codes.
+    source_generic_errors: Vec<(&'static str, &'static [&'static str])>,
     /// Compile-time package constants (scalar folds + record-constructor inlines) the
     /// package owns — the registry home of the `math`/`errorcode`/`vector` constant
     /// hand tables. Queried by the [`is_package_constant`] / [`constant_type_name`] /
@@ -885,6 +891,7 @@ impl RegistryPackage {
             source_generics: Vec::new(),
             source_types: Vec::new(),
             source_generic_fast_paths: Vec::new(),
+            source_generic_errors: Vec::new(),
             constants: Vec::new(),
             overrides: Vec::new(),
             unqualified_global: false,
@@ -1096,6 +1103,16 @@ impl RegistryPackage {
     /// registry signature and are recognized only by [`is_source_generic_member`].
     pub(crate) fn add_source_generics(&mut self, names: &[&'static str]) -> &mut Self {
         self.source_generics.extend_from_slice(names);
+        self
+    }
+
+    /// Declare the errors a source-generic member's native fast path raises (see
+    /// [`source_generic_errors`](Self::source_generic_errors)). Additive.
+    pub(crate) fn add_source_generic_errors(
+        &mut self,
+        errors: &[(&'static str, &'static [&'static str])],
+    ) -> &mut Self {
+        self.source_generic_errors.extend_from_slice(errors);
         self
     }
 
@@ -1449,8 +1466,26 @@ impl Registry {
     /// implementations' errors — the half of the `raise_error` "a builtin must declare
     /// the errors it raises" check.
     pub(crate) fn declares_error(&self, qualified: &str, error_name: &str) -> bool {
-        self.resolve_func(qualified)
+        if self
+            .resolve_func(qualified)
             .is_some_and(|resolved| resolved.function.declares_error(error_name))
+        {
+            return true;
+        }
+        // A source-generic member has no `RegistryFunction`; its fast path's raises
+        // are declared in the package's `source_generic_errors` table.
+        let Some((pkg_name, member)) = qualified.split_once('.') else {
+            return false;
+        };
+        self.packages()
+            .iter()
+            .find(|p| p.import_name == pkg_name)
+            .is_some_and(|package| {
+                package
+                    .source_generic_errors
+                    .iter()
+                    .any(|(name, errors)| *name == member && errors.contains(&error_name))
+            })
     }
 
     /// Whether `name` is a value type (`EXPORT TYPE`/`UNION`/`ENUM`) declared by any
@@ -1781,6 +1816,39 @@ pub(crate) fn call_return_type_typed(qualified: &str) -> Option<ParameterType> {
     }
 
     Some(return_type.clone())
+}
+
+/// The static return type of a runtime-call **`os_alias`** (`audio.openOutputDevice`,
+/// `audio.openInputDevice`, …): the aliased [`Implementation`]'s own `return_type`,
+/// package-qualified exactly like [`call_return_type`]'s. An alias is not a registry
+/// member (`resolve_func` sees only surface names), but the code layer meets alias
+/// names directly when a surface call was rewritten at IR level
+/// (`audio::runtime_overload_name`). Without this, the alias fell through to the
+/// derived runtime spec, whose ABI spelling **bares** a resource name
+/// (`abi_return_name`: `audio.AudioOutput` → `AudioOutput`) — and a bare resource
+/// spelling is invisible to the resource classification, so an inline-`TRAP`'d
+/// `openOutput(device, …)` tried to flat-copy the handle and died with
+/// "native inlined field size not available for type 'AudioOutput'".
+pub(crate) fn alias_call_return_type(qualified: &str) -> Option<Cow<'static, str>> {
+    let (pkg_name, alias) = qualified.split_once('.')?;
+    let package = registry()
+        .packages()
+        .iter()
+        .find(|p| p.import_name() == pkg_name)?;
+    for function in package.functions() {
+        for implementation in function.implementations() {
+            let Body::AbiFunction { os_aliases, .. } = &implementation.body else {
+                continue;
+            };
+            if os_aliases.contains(&alias) {
+                if contains_var(&implementation.return_type) {
+                    return None;
+                }
+                return Some(implementation.return_type.name());
+            }
+        }
+    }
+    None
 }
 
 /// Whether a concrete leaf type is compatible with a *scalar or nominal* parameter
