@@ -241,60 +241,28 @@ pub(super) fn numeric_literal_type(expression: &Expression) -> Option<Type> {
     }
 }
 
+/// The `FOR` induction variable's promoted type.
+///
+/// plan-106-C: the one typed source in `numeric` (`Type` is `ParameterType`, so
+/// there is nothing to render). The pre-check is load-bearing and is NOT part of
+/// the shared fold: syntaxcheck answers `Unknown` — its permissive skip — when
+/// any operand is non-numeric, whereas the shared algebra's `unwrap_or(Integer)`
+/// would claim a numeric loop over, say, a `String` bound.
 pub(super) fn promote_loop_numeric_type(start: &Type, end: &Type, step: &Type) -> Type {
-    let Some(start_name) = numeric_type_name(start) else {
+    if !numeric::is_numeric(start) || !numeric::is_numeric(end) || !numeric::is_numeric(step) {
         return Type::Unknown;
-    };
-    let Some(end_name) = numeric_type_name(end) else {
-        return Type::Unknown;
-    };
-    let Some(step_name) = numeric_type_name(step) else {
-        return Type::Unknown;
-    };
-    let first =
-        numeric::binary_result_type("+", start_name, end_name).unwrap_or(numeric::TYPE_INTEGER);
-    let second =
-        numeric::binary_result_type("+", first, step_name).unwrap_or(numeric::TYPE_INTEGER);
-    type_from_numeric_name(second)
-}
-
-pub(super) fn type_from_numeric_name(type_name: &str) -> Type {
-    match type_name {
-        numeric::TYPE_BYTE => Type::Byte,
-        numeric::TYPE_INTEGER => Type::Integer,
-        numeric::TYPE_FIXED => Type::Fixed,
-        numeric::TYPE_FLOAT => Type::Float,
-        numeric::TYPE_MONEY => Type::Money,
-        _ => Type::Unknown,
     }
+    numeric::typed_promote_loop_numeric_type(start, end, step)
 }
 
+/// The result type of a binary numeric operation.
+///
+/// plan-106-C: the one typed source in `numeric`. Its `None` — a non-numeric
+/// operand, or a dimensionally-invalid `Money` pairing — is syntaxcheck's
+/// `Unknown`, which is exactly what the name-mapping cascade this replaced
+/// computed the long way round.
 pub(super) fn numeric_binary_result_type(operator: &str, left: &Type, right: &Type) -> Type {
-    let Some(left) = numeric_type_name(left) else {
-        return Type::Unknown;
-    };
-    let Some(right) = numeric_type_name(right) else {
-        return Type::Unknown;
-    };
-    match numeric::binary_result_type(operator, left, right) {
-        Some("Byte") => Type::Byte,
-        Some("Fixed") => Type::Fixed,
-        Some("Float") => Type::Float,
-        Some("Integer") => Type::Integer,
-        Some("Money") => Type::Money,
-        _ => Type::Unknown,
-    }
-}
-
-pub(super) fn numeric_type_name(type_: &Type) -> Option<&'static str> {
-    match type_ {
-        Type::Byte => Some(numeric::TYPE_BYTE),
-        Type::Fixed => Some(numeric::TYPE_FIXED),
-        Type::Float => Some(numeric::TYPE_FLOAT),
-        Type::Integer => Some(numeric::TYPE_INTEGER),
-        Type::Money => Some(numeric::TYPE_MONEY),
-        _ => None,
-    }
+    numeric::typed_binary_result_type(operator, left, right).unwrap_or(Type::Unknown)
 }
 
 pub(super) fn read_only_record_type(type_name: &str) -> bool {

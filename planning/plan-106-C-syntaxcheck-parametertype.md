@@ -302,19 +302,42 @@ why this order, not the plan's original one):
       `compatible_optional` went with the folded plane. Two latent
       `named()`-on-a-structured-spelling bugs surfaced and were fixed
       (Correction 8).
-- [ ] `helpers.rs` promotion copy → the numeric.rs typed source.
+- [x] `helpers.rs` promotion copies (BOTH — `numeric_binary_result_type` and
+      `promote_loop_numeric_type`, which the plan's census pattern missed; see
+      plan-106-A Correction 1) → the numeric.rs typed source. `numeric_type_name`
+      and `type_from_numeric_name`, the name-mapping cascade they went through,
+      are deleted with them. The `Unknown` pre-check on the loop fold is kept and
+      commented: syntaxcheck answers `Unknown` — its permissive skip — for a
+      non-numeric operand, where the shared algebra's `unwrap_or(Integer)` would
+      claim a numeric loop over a `String` bound.
+
+      Promotion definitions: **8 at kickoff → 2**, both in
+      `codegen/engine/types/type_utils.rs` and both letter E's
+      (`rg -n 'fn (numeric_binary_result_type|promote_loop_numeric_type|typed_numeric_binary_result_type)' src/`).
 - [x] Tests: the full `*-invalid` diagnostic corpus after EVERY rung.
 
 Acceptance: `cargo test --no-fail-fast` green; diagnostic corpus
 byte-identical; `artifact-gate all` no NEW diff; `rg -n 'enum Type' src/syntaxcheck/`
 → 0; `wc -l src/syntaxcheck/types.rs` → file deleted or reduced to
-scope-resolution only (record which).
+scope-resolution only (record which). **ALL MET**:
 
-Rung 2a verified: `cargo test --bin mfb` → 3650 passed, 0 failed;
-`artifact-gate all` → `1255 tests, 1402 build(s), 1730 golden(s) checked,
-0 diff(s)`; `test-accept` → 1271 ran, 0 mismatches — the whole `*-invalid`
-diagnostic corpus byte-identical across a parser swap.
-Commit: —
+- `rg -n 'enum Type' src/syntaxcheck/` → **0** (the single hit is the doc comment
+  recording the removal).
+- `src/syntaxcheck/types.rs` is **1,016 lines**, not deleted — and that is the
+  right outcome, not a shortfall. The *parser* is gone (Correction 3 measured it
+  at ~110 lines); what remains is the compatibility algebra, the argument-mode
+  helpers, and ~500 lines of tests, none of which is a parser and all of which
+  now operates on `ParameterType`.
+- Every rung gated independently. Final state:
+  `cargo test --bin mfb` 3650 passed / 0 failed; `cargo test --no-fail-fast`
+  exit 0, 62 suites, 0 FAILED; `artifact-gate all`
+  `1255 tests, 1402 build(s), 1730 golden(s) checked, 0 diff(s)`;
+  `test-accept` 1271 ran / 0 mismatches; 0 warnings; `cargo fmt --check` clean.
+
+The load-bearing result across all five rungs is that `test-accept` never moved:
+the entire `*-invalid` diagnostic corpus is byte-identical through a parser
+deletion, four variant-shape changes, and an enum swap.
+Commit: `4c60bbb03` (2a), `b0a552159` (2c), `0f51a52a0` (2d), `9df012fd6` (2e)
 
 ## Validation Plan
 
