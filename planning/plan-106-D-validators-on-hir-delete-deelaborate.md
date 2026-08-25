@@ -246,7 +246,7 @@ Commit: `d42e7e4e6` (inventory), `eeb572003` (entry point + group peel)
 
 Acceptance: suite green; corpus byte-identical; gate no NEW diff. **ALL MET**
 (measurements under Phase 3, which landed in the same change — see below).
-Commit: (with Phase 3)
+Commit: `47d60ec82` (with Phase 3)
 
 ### Phase 3 — flip the seams; delete de-elaboration
 
@@ -287,7 +287,7 @@ artifact-gate.sh target/release/mfb all   1255 tests, 1402 build(s),
                                           1730 golden(s) checked, 0 diff(s)
 test-accept.sh                            acceptance tests passed (1271 ran)
 ```
-Commit: —
+Commit: `47d60ec82`
 
 ## Validation Plan
 
