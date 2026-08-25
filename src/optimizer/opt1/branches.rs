@@ -58,6 +58,10 @@ fn constant_condition(condition: &NirValue) -> Option<bool> {
 }
 
 fn simplify_body(ops: &mut Vec<NirOp>, folded: &mut u64) {
+    // Splicing a taken arm flattens its scope into this one: its own-level
+    // declarations must not collide with this body's, or the fold would
+    // declare a name twice (`plans::loops::scope_bind_names`).
+    let body_scope = super::plans::loops::scope_bind_names(ops);
     let mut result: Vec<NirOp> = Vec::with_capacity(ops.len());
     for mut op in ops.drain(..) {
         // Children first, so a nested constant branch inside a kept arm is
@@ -88,7 +92,11 @@ fn simplify_body(ops: &mut Vec<NirOp>, folded: &mut u64) {
                 condition,
                 then_body,
                 else_body,
-            } if constant_condition(&condition).is_some() => {
+            } if constant_condition(&condition).is_some_and(|taken| {
+                let arm = if taken { &then_body } else { &else_body };
+                super::plans::loops::scope_bind_names(arm).is_disjoint(&body_scope)
+            }) =>
+            {
                 *folded += 1;
                 let taken = if constant_condition(&condition).expect("guarded") {
                     then_body

@@ -34,7 +34,12 @@ pub(crate) fn eliminate(module: &mut NirModule) {
 
 /// Recursively truncate every body after its first always-terminal statement.
 /// `keep_final_return`: at a function's top level, a trailing `RETURN` in the
-/// dropped range is retained (see module docs).
+/// dropped range is retained (see module docs). **`TRAP` handlers in the
+/// dropped range are always retained**: a trailing handler is the *raise*
+/// path's destination — `FAIL e ; TRAP(err) …` transfers INTO the trap, so
+/// "post-terminal" does not mean unreachable for it (this deleted a live
+/// error handler and un-swallowed `control-flow-behavior`'s error 11 at
+/// `-O2` before the exception existed).
 fn truncate_unreachable(ops: &mut Vec<NirOp>, keep_final_return: bool, removed: &mut u64) {
     // Children first, so an `If` whose arms only become terminal after their
     // own truncation is still recognized.
@@ -67,15 +72,16 @@ fn truncate_unreachable(ops: &mut Vec<NirOp>, keep_final_return: bool, removed: 
     if first_terminal + 1 >= ops.len() {
         return;
     }
-    let trailing_return = keep_final_return
-        && matches!(ops.last(), Some(NirOp::Return { .. }))
-        && first_terminal + 1 < ops.len();
-    let keep = first_terminal + 1;
-    let final_return = if trailing_return { ops.pop() } else { None };
-    *removed += (ops.len() - keep) as u64;
-    ops.truncate(keep);
-    if let Some(final_return) = final_return {
-        ops.push(final_return);
+    let suffix: Vec<NirOp> = ops.drain(first_terminal + 1..).collect();
+    let last = suffix.len() - 1;
+    for (index, op) in suffix.into_iter().enumerate() {
+        let keep = matches!(op, NirOp::Trap { .. })
+            || (keep_final_return && index == last && matches!(op, NirOp::Return { .. }));
+        if keep {
+            ops.push(op);
+        } else {
+            *removed += 1;
+        }
     }
 }
 
@@ -158,6 +164,27 @@ mod tests {
         let mut module = test_module(vec![function]);
         with_opt_level(OptLevel(level), || eliminate(&mut module));
         module.functions.remove(0).body
+    }
+
+    /// A `TRAP` handler after a `FAIL` is the raise path's destination — it
+    /// must survive truncation (the fixed error-11 un-swallowing bug), while
+    /// ordinary statements around it still die.
+    #[test]
+    fn trailing_trap_handlers_survive_truncation() {
+        let body = run(
+            vec![
+                NirOp::Fail { error: local("e") },
+                eval(local("dead")),
+                NirOp::Trap {
+                    name: "err".to_string(),
+                    body: vec![ret(int_const("1"))],
+                },
+                eval(local("also_dead")),
+            ],
+            2,
+        );
+        assert_eq!(body.len(), 2, "Fail + kept Trap; the Evals die");
+        assert!(matches!(body[1], NirOp::Trap { .. }));
     }
 
     /// Statements after a RETURN are unreachable and die — even trap-capable

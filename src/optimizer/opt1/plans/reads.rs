@@ -39,6 +39,13 @@ impl NameUses {
         self.counts.get(name).copied().unwrap_or(0) > 1
     }
 
+    /// Raw occurrence count. LICM compares a whole-function census against a
+    /// loop-body census: equal counts prove every occurrence of the name lives
+    /// inside the loop, so hoisting its bind just outside is scope-safe.
+    pub(crate) fn count(&self, name: &str) -> u64 {
+        self.counts.get(name).copied().unwrap_or(0)
+    }
+
     fn bump(&mut self, name: &str) {
         *self.counts.entry(name.to_string()).or_insert(0) += 1;
     }
@@ -62,6 +69,13 @@ impl NirVisitor for NameUses {
         match value {
             NirValue::Local(name) => self.bump(name),
             NirValue::LocalRef { name, .. } => self.bump(name),
+            // A call through a function-typed local names it in the `target`
+            // string, not as a `Local` — count it, or a bind read only by
+            // calls looks unused. (Global function targets bump too, which
+            // is harmless: those names are never judged by this census.)
+            NirValue::Call { target, .. }
+            | NirValue::CallResult { target, .. }
+            | NirValue::RuntimeCall { target, .. } => self.bump(target),
             _ => {}
         }
         walk_value(self, value);

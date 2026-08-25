@@ -119,8 +119,9 @@ fn remove_dead_ops(
 }
 
 /// Types whose bindings carry no allocation, ownership, or drop machinery —
-/// removing an unused one is a pure register/slot saving.
-fn scalar_type(type_: &ParameterType) -> bool {
+/// removing an unused one is a pure register/slot saving. pub(in opt1): the
+/// loop rows share the class (a hoisted/reordered bind must be equally inert).
+pub(in crate::optimizer::opt1) fn scalar_type(type_: &ParameterType) -> bool {
     matches!(
         type_,
         ParameterType::Integer
@@ -133,8 +134,10 @@ fn scalar_type(type_: &ParameterType) -> bool {
     )
 }
 
-/// The provably pure, non-trapping expression class this row may erase.
-fn pure_non_trapping(value: &NirValue) -> bool {
+/// The provably pure, non-trapping expression class this row may erase — and
+/// the loop rows may move or re-evaluate (pub(in opt1)): evaluating it more
+/// or fewer times, or elsewhere, is unobservable by construction.
+pub(in crate::optimizer::opt1) fn pure_non_trapping(value: &NirValue) -> bool {
     match value {
         NirValue::Const { .. }
         | NirValue::Local(_)

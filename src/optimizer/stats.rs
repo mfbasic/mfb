@@ -22,6 +22,20 @@ pub(super) static CONSTANT_PROPAGATION: AtomicU64 = AtomicU64::new(0);
 /// "Copy propagation" (Opt2): register uses rewritten to read a copy's
 /// ultimate source directly.
 pub(super) static COPY_PROPAGATION: AtomicU64 = AtomicU64::new(0);
+/// "Loop-invariant code motion (LICM)" (Opt1): invariant pure binds moved in
+/// front of their loops.
+pub(super) static LICM_HOISTS: AtomicU64 = AtomicU64::new(0);
+/// "Loop unswitching" (Opt1): loops split on an invariant condition.
+pub(super) static LOOP_UNSWITCHES: AtomicU64 = AtomicU64::new(0);
+/// "Loop fusion (jamming)" (Opt1): adjacent identical-range loops merged.
+pub(super) static LOOPS_FUSED: AtomicU64 = AtomicU64::new(0);
+/// "Loop fission (distribution)" (Opt1): loops split into independent phases.
+pub(super) static LOOPS_SPLIT: AtomicU64 = AtomicU64::new(0);
+/// "Loop peeling" (Opt1): first iterations split out in front.
+pub(super) static LOOPS_PEELED: AtomicU64 = AtomicU64::new(0);
+/// "Loop rotation" (Opt1): head-tested loops converted to the guarded
+/// bottom-tested form.
+pub(super) static LOOPS_ROTATED: AtomicU64 = AtomicU64::new(0);
 /// "Local value numbering" (Opt2): block-local recomputes rewritten to
 /// copies of the earlier result.
 pub(super) static LOCAL_VALUE_NUMBERING: AtomicU64 = AtomicU64::new(0);
@@ -65,6 +79,30 @@ pub(crate) fn count_constant_propagations(fired: u64) {
 
 pub(crate) fn count_copy_propagations(fired: u64) {
     add(&COPY_PROPAGATION, fired);
+}
+
+pub(crate) fn count_licm_hoists(fired: u64) {
+    add(&LICM_HOISTS, fired);
+}
+
+pub(crate) fn count_loop_unswitches(fired: u64) {
+    add(&LOOP_UNSWITCHES, fired);
+}
+
+pub(crate) fn count_loops_fused(fired: u64) {
+    add(&LOOPS_FUSED, fired);
+}
+
+pub(crate) fn count_loops_split(fired: u64) {
+    add(&LOOPS_SPLIT, fired);
+}
+
+pub(crate) fn count_loops_peeled(fired: u64) {
+    add(&LOOPS_PEELED, fired);
+}
+
+pub(crate) fn count_loops_rotated(fired: u64) {
+    add(&LOOPS_ROTATED, fired);
 }
 
 pub(crate) fn count_local_value_numberings(fired: u64) {

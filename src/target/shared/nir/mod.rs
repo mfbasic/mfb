@@ -159,6 +159,9 @@ pub(crate) struct NirParam {
     pub(crate) default: Option<NirValue>,
 }
 
+// Clone: the Opt1 loop rows (unswitching, peeling) duplicate statement lists
+// wholesale — a structured-tree transform's bread and butter.
+#[derive(Clone)]
 pub(crate) enum NirOp {
     Bind {
         mutable: bool,
@@ -238,12 +241,14 @@ pub(crate) enum NirOp {
     },
 }
 
+#[derive(Clone)]
 pub(crate) struct NirMatchCase {
     pub(crate) pattern: NirMatchPattern,
     pub(crate) guard: Option<NirValue>,
     pub(crate) body: Vec<NirOp>,
 }
 
+#[derive(Clone)]
 pub(crate) enum NirMatchPattern {
     Else,
     Value(NirValue),

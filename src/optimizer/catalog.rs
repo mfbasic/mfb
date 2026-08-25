@@ -86,6 +86,61 @@ pub(crate) fn rows() -> &'static [Row] {
             counter: &stats::COPY_PROPAGATION,
         },
         Row {
+            name: "Loop-invariant code motion (LICM)",
+            level: 3,
+            stage: "NIR",
+            summary: "Moves a binding whose (provably pure, non-trapping) \
+                      initializer computes the same value every iteration out \
+                      in front of the loop, so it runs once.",
+            counter: &stats::LICM_HOISTS,
+        },
+        Row {
+            name: "Loop unswitching",
+            level: 3,
+            stage: "NIR",
+            summary: "Splits a loop testing a loop-invariant condition every \
+                      iteration into one up-front test selecting between two \
+                      specialized loop copies.",
+            counter: &stats::LOOP_UNSWITCHES,
+        },
+        Row {
+            name: "Loop fusion (jamming)",
+            level: 3,
+            stage: "NIR",
+            summary: "Merges adjacent FOR loops over the identical range into \
+                      one loop, when their bodies are provably independent, \
+                      pure, and trap-free.",
+            counter: &stats::LOOPS_FUSED,
+        },
+        Row {
+            name: "Loop fission (distribution)",
+            level: 3,
+            stage: "NIR",
+            summary: "Splits one FOR loop into two over the same range when \
+                      its body separates into independent, pure, trap-free \
+                      phases.",
+            counter: &stats::LOOPS_SPLIT,
+        },
+        Row {
+            name: "Loop peeling",
+            level: 3,
+            stage: "NIR",
+            summary: "Splits a small WHILE loop's first iteration out in \
+                      front so later passes can specialize it; evaluation \
+                      order and counts are preserved exactly.",
+            counter: &stats::LOOPS_PEELED,
+        },
+        Row {
+            name: "Loop rotation",
+            level: 3,
+            stage: "NIR",
+            summary: "Converts a head-tested WHILE into the guarded \
+                      bottom-tested form (`IF c THEN DO .. UNTIL NOT c`), \
+                      saving a branch per iteration; evaluation order and \
+                      counts are preserved exactly.",
+            counter: &stats::LOOPS_ROTATED,
+        },
+        Row {
             name: "Local value numbering",
             level: 3,
             stage: "MIR",
