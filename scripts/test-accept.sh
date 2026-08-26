@@ -145,6 +145,95 @@ else
   target_label=""
 fi
 
+# Host libc, used only to pick which executable a `.run` fixture executes.
+#
+# On Linux `mfb build` emits ONE executable per libc world -- `<pkg>-glibc.out`
+# AND `<pkg>-musl.out` -- while macOS and Windows emit a single `<pkg>.out`. A
+# musl binary is dynamically linked against /lib/ld-musl-<arch>.so.1, which a
+# glibc host does not have, so running the wrong flavor dies in the loader with
+# exit 127 before `main`. Selecting by host libc is therefore a correctness
+# requirement, not a preference: the previous `tail -n 1` picked whichever line
+# the compiler happened to print last (musl), so every runnable fixture failed
+# on a glibc Linux host.
+#
+# `ldd --version` prints "musl libc" on musl and "ldd (GNU libc) …" on glibc.
+# musl's ldd exits non-zero for `--version`, hence the 2>&1 and no status check.
+host_libc=""
+case "$target_name" in
+  linux-*)
+    if ldd --version 2>&1 | head -n 1 | grep -qi musl; then
+      host_libc="musl"
+    else
+      host_libc="glibc"
+    fi
+    ;;
+esac
+
+# Canonicalize the libc-flavor suffix out of a build's stdout so build.log reads
+# the same on every host. Without this the golden corpus is host-specific: a
+# Linux run logs two `Wrote executable to …-{glibc,musl}.out` lines where macOS
+# logs one `…out`, so every fixture that links an executable mismatches.
+#
+# This normalizes ONLY the flavor suffix and the ADJACENT duplicate
+# `Wrote executable to` line it produces -- nothing else is rewritten, so a real
+# change in build output still drifts the golden. The dedupe is deliberately
+# limited to immediately-repeated lines: a fixture can legitimately log the same
+# executable path from two separate build steps, and a whole-file `seen[$0]`
+# dedupe would collapse those and break the macOS goldens instead. The dual-emit
+# itself is not what these fixtures test; it is covered by the cli_* build tests.
+#
+# Applied to the WHOLE build.log rather than per step, because `Wrote executable
+# to` is emitted by several steps (the `.run` build, the mfp/info build, `-app`),
+# and a per-step pass silently missed the ones that are not captured in a var.
+normalize_exe_flavor() {
+  sed -E 's/-(glibc|musl)\.out$/.out/' \
+    | awk '/^Wrote executable to / && $0 == prev { next } { print; prev = $0 }'
+}
+
+# Pick the executable to run from a build's stdout. One line -> use it. Several
+# (Linux dual-emit) -> the flavor this host can actually execute.
+select_run_path() {
+  _paths=$(printf '%s\n' "$1" | sed -n 's/^Wrote executable to //p')
+  if [ -n "$host_libc" ]; then
+    _match=$(printf '%s\n' "$_paths" | grep -e "-$host_libc\.out\$" | tail -n 1)
+    if [ -n "$_match" ]; then
+      printf '%s\n' "$_match"
+      return
+    fi
+  fi
+  printf '%s\n' "$_paths" | tail -n 1
+}
+
+# True if a CONSOLE golden of kind $2 exists for ANY target, not just this host's.
+#
+# The requested native-dump flags must not depend on which host the harness runs
+# on, because the `$ mfb build …` command line is echoed into build.log and
+# compared exactly. Keying off `$package_name.$target_name.$ext` meant a fixture
+# whose only native goldens are macos-aarch64 silently dropped `-nir -nplan -nobj`
+# on a Linux host, drifting its build.log. Comparison stays per-host-target (a
+# dump with no golden for this target is simply not compared); only the REQUEST
+# is made uniform. Every fixture carrying native goldens has a macos-aarch64 set,
+# so this is a no-op on macOS -- no golden regeneration needed.
+any_target_console_golden() {
+  for _g in "$golden_dir/$1."*".$2"; do
+    [ -f "$_g" ] || continue
+    case "${_g##*/}" in
+      "$1".*.app."$2") continue ;;
+    esac
+    return 0
+  done
+  return 1
+}
+
+# The `-app` counterpart of `any_target_console_golden`: true if an app-mode
+# golden of kind $2 exists for ANY target.
+any_target_app_golden() {
+  for _g in "$golden_dir/$1."*".app.$2"; do
+    [ -f "$_g" ] && return 0
+  done
+  return 1
+}
+
 # plan-100: global opt-level switch, mirroring MFB_TARGET above. Unset (the
 # default) appends nothing, so every `mfb build` below is byte-for-byte the
 # command this harness has always run and the binary applies its own default of
@@ -216,7 +305,15 @@ remove_output_dir() {
 # fixtures `dlopen` the system `libsqlite3.dylib`, and macOS stalls 40-60s on that
 # (0s CPU, wall-clock only, duration varying with the network). A 60s bound made
 # those fixtures flaky and `native-link-alias-collision-rt` fail outright at 61s.
-# Anything that trips 300s is genuinely wedged.
+#
+# 300s is NOT "anything above this is wedged" once the compiler is unoptimized.
+# Measured on an M-series Mac, `tests/acceptance` (692 tests, all passing) takes
+# 63.7s driven by `target/release/mfb` but 338.6s driven by `target/debug/mfb` —
+# so the default trips a perfectly healthy fixture on any debug-compiler run, and
+# CI's acceptance job is exactly that (it consumes the `build` job's debug
+# artifact). That is why the bound is an env knob: CI raises
+# `MFB_ACCEPT_RUN_TIMEOUT` rather than this default moving, since a release-driven
+# local run should still catch a hang quickly.
 run_with_watchdog() {
   perl -e '
     my $limit = shift @ARGV;
@@ -398,10 +495,11 @@ while IFS= read -r project_json; do
     if [ -f "$golden_dir/$package_name.hex" ]; then
       console_flags="$console_flags -br"
     fi
-    # Native dumps: request each kind (ARTIFACT_NATIVE_KINDS) whose target-infixed
-    # console golden exists. Same table + flag mapping the fast gate uses.
+    # Native dumps: request each kind (ARTIFACT_NATIVE_KINDS) that has a
+    # target-infixed console golden for ANY target -- see
+    # `any_target_console_golden`. Same table + flag mapping the fast gate uses.
     for ext in $ARTIFACT_NATIVE_KINDS; do
-      if [ -f "$golden_dir/$package_name.$target_name.$ext" ]; then
+      if any_target_console_golden "$package_name" "$ext"; then
         console_flags="$console_flags $(artifact_build_flag "$ext")"
       fi
     done
@@ -419,9 +517,11 @@ while IFS= read -r project_json; do
       run_with_watchdog "$MFB_EXE" build -q $opt_arg "tests/$test_name"
       echo "[exit $?]"
     fi
+    # App-mode dumps: same any-target rule as the console loop above, so the
+    # echoed `-app` command line does not vary by host either.
     app_flags=""
     for ext in $ARTIFACT_NATIVE_APP_KINDS; do
-      if [ -f "$golden_dir/$package_name.$target_name.app.$ext" ]; then
+      if any_target_app_golden "$package_name" "$ext"; then
         app_flags="$app_flags $(artifact_build_flag "$ext")"
       fi
     done
@@ -449,7 +549,9 @@ while IFS= read -r project_json; do
       printf '%s\n' "$build_output"
       echo "[exit $build_status]"
       if [ "$build_status" -eq 0 ]; then
-        run_path=$(printf '%s\n' "$build_output" | sed -n 's/^Wrote executable to //p' | tail -n 1)
+        # Execute the flavor this host can actually load; the path is logged
+        # verbatim and canonicalized by the whole-log pass below.
+        run_path=$(select_run_path "$build_output")
         if [ -n "$run_path" ]; then
           echo "$ $run_path"
           run_with_watchdog "$run_path"
@@ -461,6 +563,9 @@ while IFS= read -r project_json; do
       fi
     fi
   } >"$log_path" 2>&1
+  # Canonicalize the host-varying libc flavor out of the finished log (see
+  # `normalize_exe_flavor`) so this golden is comparable on every host.
+  normalize_exe_flavor <"$log_path" >"$log_path.norm" && mv "$log_path.norm" "$log_path"
   remove_output_dir "$test_dir"
 
   if [ -f "$ast_path" ]; then
@@ -492,7 +597,18 @@ while IFS= read -r project_json; do
           dest="$actual_dir/$package_name.$target_name.app.$ext"
         fi ;;
     esac
-    mv "$src" "$dest"
+    # Keep the actual only when this host's target has a golden to compare it
+    # against. The flags are now requested host-independently
+    # (`any_target_console_golden`) so the echoed command line matches on every
+    # host, which means a Linux run legitimately produces dumps that only have
+    # macos-aarch64 goldens. Moving those in would trip `compare_optional_output`'s
+    # "unexpected actual" guard — a guard worth keeping, so discard here instead of
+    # weakening it.
+    if [ -f "$golden_dir/$(basename "$dest")" ]; then
+      mv "$src" "$dest"
+    else
+      rm -f "$src"
+    fi
   done
 
   audit_path="$actual_dir/$package_name.audit"

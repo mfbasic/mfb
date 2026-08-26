@@ -77,6 +77,14 @@ jobs:
           path: target/debug
       - run: chmod +x target/debug/mfb
       - name: Acceptance tests
+        # This job drives the DEBUG compiler (the `build` job's artifact), which is
+        # ~5x slower than release: `tests/acceptance` measures 63.7s under release
+        # and 338.6s under debug on an M-series Mac, so the harness's 300s default
+        # per-fixture watchdog fails a healthy fixture here (exit 99, "timeout").
+        # Raise the bound for this job only; it still turns a genuine hang into one
+        # named failure well inside the 40-minute job cap above.
+        env:
+          MFB_ACCEPT_RUN_TIMEOUT: "1200"
         run: bash scripts/test-accept.sh target/debug/mfb target/accept-actual
 
   # Golden/artifact byte-identity gate: execution-free codegen-dump diff. Reuses
