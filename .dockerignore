@@ -21,7 +21,7 @@
 tests/
 benchmark/
 examples/
-bindings/
+packages/
 third_party/
 
 # Docs and process files.

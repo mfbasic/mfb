@@ -25,7 +25,7 @@ build/
 *.out
 
 # Compiled package artifacts. Rebuilt from source by `mfb build`.
-bindings/**/*.mfp
+packages/**/*.mfp
 
 # Packages installed into a consuming project by `mfb pkg install`.
 examples/**/packages/

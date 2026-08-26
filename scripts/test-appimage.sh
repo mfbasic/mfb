@@ -313,8 +313,8 @@ print(struct.unpack_from('<Q',b,0x28)[0]+struct.unpack_from('<H',b,0x3a)[0]*stru
   local other_libc=glibc
   [ "$libc" = glibc ] && other_libc=musl
   local other_blob="libsndfile.so.1.0.37-$blob_arch-$other_libc"
-  if [ -f "$ROOT/bindings/libsnd/vendor/$blob" ] &&
-     [ -f "$ROOT/bindings/libsnd/vendor/$other_blob" ]; then
+  if [ -f "$ROOT/packages/libsnd/vendor/$blob" ] &&
+     [ -f "$ROOT/packages/libsnd/vendor/$other_blob" ]; then
     local vproj="$work/vend-$libc"
     mkdir -p "$vproj/src" "$vproj/vendor"
     # BOTH blobs are declared and present, exactly as a real project shipping a
@@ -322,11 +322,11 @@ print(struct.unpack_from('<Q',b,0x28)[0]+struct.unpack_from('<H',b,0x3a)[0]*stru
     # only one libc legitimately fails to resolve for the other half. That also
     # makes this a real test of the per-flavor routing — each image must end up
     # with its own blob and NOT the other's.
-    cp "$ROOT/bindings/libsnd/vendor/$blob" "$vproj/vendor/"
-    cp "$ROOT/bindings/libsnd/vendor/$other_blob" "$vproj/vendor/"
+    cp "$ROOT/packages/libsnd/vendor/$blob" "$vproj/vendor/"
+    cp "$ROOT/packages/libsnd/vendor/$other_blob" "$vproj/vendor/"
     local hash other_hash
-    hash=$(shasum -a 256 "$ROOT/bindings/libsnd/vendor/$blob" | cut -d' ' -f1)
-    other_hash=$(shasum -a 256 "$ROOT/bindings/libsnd/vendor/$other_blob" | cut -d' ' -f1)
+    hash=$(shasum -a 256 "$ROOT/packages/libsnd/vendor/$blob" | cut -d' ' -f1)
+    other_hash=$(shasum -a 256 "$ROOT/packages/libsnd/vendor/$other_blob" | cut -d' ' -f1)
     cat > "$vproj/project.json" <<JSON
 { "name": "vend", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
   "libraries": { "snd": [
