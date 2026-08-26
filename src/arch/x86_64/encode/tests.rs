@@ -111,6 +111,49 @@ fn add_with_move() {
 }
 
 #[test]
+fn mvn_from_zero_token_materializes_minus_one() {
+    // `mvn dst, xzr` is the portable "-1" idiom (net/io poll timeouts, ALSA
+    // "infinite", process::waitFor's WIFSIGNALED result). x86 has no zero
+    // register, and `reg` maps the token to sentinel 16, which enc_mov would
+    // encode as `r8` — yielding `~r8` (whatever the caller last left there)
+    // instead of -1. That is why `process::waitFor` returned -3 on a CI runner
+    // where r8 held 2, while a box whose r8 held 0 saw the correct -1: the
+    // runtime symptom depends on leftover register state, so pin the ENCODING.
+    //
+    // xor rax,rax (48 31 C0) ; not rax (48 F7 D0).
+    assert_eq!(
+        bytes("mvn", &[("dst", "rax"), ("src", "xzr")]),
+        [0x48, 0x31, 0xC0, 0x48, 0xF7, 0xD0]
+    );
+    // r8 needs REX.R+REX.B on the xor (4D 31 C0) and REX.B on the not (49 F7 D0).
+    assert_eq!(
+        bytes("mvn", &[("dst", "r8"), ("src", "xzr")]),
+        [0x4D, 0x31, 0xC0, 0x49, 0xF7, 0xD0]
+    );
+    // A real source register is unaffected: mov rax,rcx (48 89 C8) ; not rax.
+    assert_eq!(
+        bytes("mvn", &[("dst", "rax"), ("src", "rcx")]),
+        [0x48, 0x89, 0xC8, 0x48, 0xF7, 0xD0]
+    );
+}
+
+#[test]
+fn mov_from_zero_token_materializes_zero() {
+    // `mov dst, xzr` means "materialize 0" — reached by the Win64 audio backend's
+    // NULL WASAPI arguments. Encoding `r8` there would pass garbage, not NULL.
+    // xor rcx,rcx (48 31 C9).
+    assert_eq!(
+        bytes("mov", &[("dst", "rcx"), ("src", "xzr")]),
+        [0x48, 0x31, 0xC9]
+    );
+    // A real source register still emits a plain move: mov rax,rcx (48 89 C8).
+    assert_eq!(
+        bytes("mov", &[("dst", "rax"), ("src", "rcx")]),
+        [0x48, 0x89, 0xC8]
+    );
+}
+
+#[test]
 fn sub_with_zero_lhs_negates() {
     // sub rax, xzr, rax : dst==rhs → neg rax (48 F7 D8), NOT `sub rax,rax`=0.
     assert_eq!(

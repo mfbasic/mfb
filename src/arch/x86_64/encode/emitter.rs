@@ -314,6 +314,16 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         "mov" => {
             let dst = reg(field(instruction, "dst")?)?;
             let src = reg(field(instruction, "src")?)?;
+            // `mov dst, xzr` means "materialize 0" (AArch64's hardwired zero
+            // register); x86 has none, and `enc_mov` would encode the sentinel as
+            // `r8`, moving the caller's leftover r8 instead. Reached in practice by
+            // the Win64 audio backend's NULL arguments
+            // (`gen_windows_open`/`gen_windows_io` pass `abi::ZERO` for WASAPI
+            // out-params), which would otherwise receive garbage rather than NULL.
+            // Same 3-byte length as `enc_mov`, so encoded sizes are unchanged.
+            if is_zero_token(src) {
+                return Ok(Encoded::plain(alu_rr(0x31, dst, dst)));
+            }
             Ok(Encoded::plain(enc_mov(dst, src)))
         }
         "mov_imm" => {
@@ -332,7 +342,23 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             // dst = ~src : mov dst,src ; not dst
             let dst = reg(field(instruction, "dst")?)?;
             let src = reg(field(instruction, "src")?)?;
-            let mut bytes = enc_mov(dst, src);
+            // `mvn dst, xzr` is the portable "materialize -1" idiom: AArch64 has a
+            // hardwired zero register, x86 does not. `reg` maps the zero token to
+            // sentinel 16, which `enc_mov` would encode as `r8` (REX.B + reg 0) —
+            // so this produced `~r8`, i.e. whatever the caller last left in r8,
+            // instead of -1. Exactly bug-154's shape (see the add_carry arm below,
+            // which already guards it), and it is what made `process::waitFor`
+            // return -3 for a signal-killed child on x86-64 where the documented
+            // contract is -1: r8 happened to hold 2, and ~2 == -3.
+            //
+            // `xor dst,dst` is 3 bytes, the same length `enc_mov` emits, so the
+            // instruction's encoded size is unchanged and the size-prediction pass
+            // needs no corresponding update.
+            let mut bytes = if is_zero_token(src) {
+                alu_rr(0x31, dst, dst)
+            } else {
+                enc_mov(dst, src)
+            };
             // F7 /2 = NOT r/m64
             bytes.push(rex(true, false, false, dst >= 8));
             bytes.push(0xF7);
