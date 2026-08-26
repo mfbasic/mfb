@@ -379,6 +379,79 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
     }
 }
 
+/// The sp-relative local scratch an already-emitted body needs: the high-water
+/// mark of its literal `[sp + N]` accesses, in bytes.
+///
+/// This is the *measured* answer to the question `finalize_vreg_body_with_locals`
+/// takes on faith from its `local_size` argument, and it exists so a caller that
+/// appends a hand-written platform body — which reserves scratch by naming raw
+/// offsets rather than through `allocate_stack_object` — can report the real
+/// requirement instead of guessing. Guessing is what bug-360 and the
+/// `term::on`/Win64-app drift both were: the body addressed `sp + 0x70` while its
+/// caller declared `0` locals, so in release (where the debug assertion below is
+/// compiled out) the store landed above the frame in the caller's.
+///
+/// Uses exactly the predicate the assertion uses, so "what this returns" and
+/// "what the assertion accepts" cannot drift: same depth tracking (a platform
+/// hook's own `sub_sp` region is not frame-relative), same numeric-parse filter
+/// (argument sentinels are still unresolved here and are correctly skipped), and
+/// the same `AddImm`-names-the-limit rule.
+pub(crate) fn required_sp_local_bytes(instructions: &[CodeInstruction]) -> usize {
+    let mut needed = 0usize;
+    for_each_frame_relative_sp_access(instructions, |bytes| needed = needed.max(bytes));
+    needed
+}
+
+/// Shared walk behind [`required_sp_local_bytes`] and the debug drift assertion:
+/// calls `visit` with the number of frame bytes each `sp`-relative access needs.
+fn for_each_frame_relative_sp_access(
+    instructions: &[CodeInstruction],
+    mut visit: impl FnMut(usize),
+) {
+    let mut depth = 0usize;
+    for instruction in instructions {
+        match instruction.op {
+            CodeOp::SubSp => {
+                depth += 1;
+                continue;
+            }
+            CodeOp::AddSp => {
+                depth = depth.saturating_sub(1);
+                continue;
+            }
+            _ => {}
+        }
+        if depth > 0 {
+            continue;
+        }
+        let stack_relative = instruction.fields.iter().any(|(name, value)| {
+            if !matches!(*name, "base" | "src" | "dst") {
+                return false;
+            }
+            let value = value.rendered();
+            abi::is_stack_pointer(&value)
+                || value.as_ref() == crate::arch::x86_64::regmodel::STACK_POINTER
+        });
+        if !stack_relative {
+            continue;
+        }
+        for (name, value) in &instruction.fields {
+            if !matches!(*name, "offset" | "imm") {
+                continue;
+            }
+            let Ok(offset) = value.rendered().parse::<usize>() else {
+                continue;
+            };
+            // A load/store consumes 8 bytes at `offset`; an address computation
+            // (`add_immediate`) may legally name the frame's end as a limit.
+            visit(match instruction.op {
+                CodeOp::AddImm => offset,
+                _ => offset + 8,
+            });
+        }
+    }
+}
+
 /// Drift guard (bug-360): every `sp`-relative body access must land inside the
 /// frame this function just sized.
 ///
@@ -404,60 +477,16 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
 /// `RULES` drift guard (bug-40).
 #[cfg(debug_assertions)]
 fn assert_stack_accesses_fit_frame(instructions: &[CodeInstruction], total_stack_size: usize) {
-    let mut depth = 0usize;
-    for instruction in instructions {
-        match instruction.op {
-            CodeOp::SubSp => {
-                depth += 1;
-                continue;
-            }
-            CodeOp::AddSp => {
-                depth = depth.saturating_sub(1);
-                continue;
-            }
-            _ => {}
-        }
-        if depth > 0 {
-            continue;
-        }
-        let stack_relative = instruction.fields.iter().any(|(name, value)| {
-            if !matches!(*name, "base" | "src") {
-                return false;
-            }
-            let value = value.rendered();
-            abi::is_stack_pointer(&value)
-                || value.as_ref() == crate::arch::x86_64::regmodel::STACK_POINTER
-        });
-        if !stack_relative {
-            continue;
-        }
-        for (name, value) in &instruction.fields {
-            if !matches!(*name, "offset" | "imm") {
-                continue;
-            }
-            let Ok(offset) = value.rendered().parse::<usize>() else {
-                continue;
-            };
-            // A load/store consumes 8 bytes at `offset`; an address computation
-            // (`add_immediate`) may legally name the frame's end as a limit.
-            let needed = match instruction.op {
-                CodeOp::AddImm => offset,
-                _ => offset + 8,
-            };
-            assert!(
-                needed <= total_stack_size,
-                "sp-relative access at sp+{offset} escapes the {total_stack_size}-byte \
-                 frame (bug-360): the helper body's scratch offsets and the frame's \
-                 reserved local_size have drifted apart"
-            );
-        }
-    }
+    for_each_frame_relative_sp_access(instructions, |needed| {
+        assert!(
+            needed <= total_stack_size,
+            "sp-relative access needing {needed} bytes escapes the {total_stack_size}-byte \
+             frame (bug-360): the helper body's scratch offsets and the frame's \
+             reserved local_size have drifted apart"
+        );
+    });
 }
 
-/// Read the `base`/`offset` of a stack-argument sentinel load/store (bug-08).
-/// Borrows the base operand's spelling (`rendered()` lends the `Raw` sentinel
-/// string with no allocation); the callers only compare it against the two
-/// sentinel constants.
 fn base_of(instruction: &CodeInstruction) -> Option<std::borrow::Cow<'_, str>> {
     instruction
         .fields
@@ -559,5 +588,57 @@ impl Vregs {
         let name = format!("%v{}", self.0);
         self.0 += 1;
         name
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The scratch a body needs is the high-water mark of its `[sp + N]`
+    /// accesses, and a load/store consumes 8 bytes at its offset — so a body
+    /// that stores at `sp+0x70` (what Win64's app-mode `term::on` does for
+    /// hdcScreen) needs 0x78 bytes, not 0x70 and emphatically not 0.
+    #[test]
+    fn required_sp_local_bytes_is_the_access_high_water_mark() {
+        let instructions = vec![
+            abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), 0x10),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x70),
+        ];
+        assert_eq!(required_sp_local_bytes(&instructions), 0x78);
+    }
+
+    /// An address computation may legally name the frame's end as a limit, so it
+    /// needs `offset` bytes rather than `offset + 8`.
+    #[test]
+    fn required_sp_local_bytes_treats_add_immediate_as_a_limit() {
+        let instructions = vec![abi::add_immediate(
+            abi::mfb_arg(0),
+            abi::stack_pointer(),
+            0x40,
+        )];
+        assert_eq!(required_sp_local_bytes(&instructions), 0x40);
+    }
+
+    /// A body with no sp-relative access reserves nothing — this is what keeps
+    /// the macOS/Linux app-mode term bodies byte-identical.
+    #[test]
+    fn required_sp_local_bytes_is_zero_without_stack_access() {
+        let instructions = vec![abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0x80)];
+        assert_eq!(required_sp_local_bytes(&instructions), 0);
+    }
+
+    /// A platform hook that brackets its own `sub_sp`/`add_sp` region addresses
+    /// that region, not this frame, so those accesses are not the caller's to
+    /// reserve — the same depth rule the drift assertion applies.
+    #[test]
+    fn required_sp_local_bytes_skips_a_hooks_own_sub_sp_region() {
+        let instructions = vec![
+            abi::subtract_stack(0x30),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20),
+            abi::add_stack(0x30),
+            abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x08),
+        ];
+        assert_eq!(required_sp_local_bytes(&instructions), 0x10);
     }
 }

@@ -98,9 +98,20 @@ pub(crate) fn lower_term_helper(
                 symbol,
                 presentation_mode_offset,
             );
-            // The app bodies hold every cross-call value in allocator vregs (no
-            // addressable stack scratch), so the body reserves no sp-relative locals.
-            return Ok((instructions, relocations, 0));
+            // Reserve exactly the sp-relative scratch the platform body actually
+            // addresses. This used to hard-code 0 on the belief that "the app
+            // bodies hold every cross-call value in allocator vregs (no
+            // addressable stack scratch)" — untrue on Win64, where the appended
+            // (frameless) bodies name raw slots: `term::on` stores hdcScreen at
+            // `sp+0x70`, and draw_text/draw_box/fill_rect/draw_line/draw_glyph_at
+            // each carry their own slot set. With 0 declared locals those stores
+            // landed above the finalized frame, in the caller's — the exact
+            // bug-360 shape. Measuring the emitted body keeps the reservation and
+            // the offsets from drifting again, and is 0 (byte-identical) for the
+            // macOS/Linux bodies, which genuinely use no sp scratch.
+            let locals =
+                crate::codegen::engine::util::vreg_frame::required_sp_local_bytes(&instructions);
+            return Ok((instructions, relocations, locals));
         }
     }
 
