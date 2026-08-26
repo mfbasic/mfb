@@ -66,9 +66,18 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     # Backstop against a wedged fixture: test-accept.sh already caps each fixture's
-    # build and execution at 300s (run_with_watchdog), so a healthy run finishes
-    # well under this. Without it, a hang would burn GitHub's 6-hour job default.
-    timeout-minutes: 40
+    # build and execution (run_with_watchdog, MFB_ACCEPT_RUN_TIMEOUT below), so a
+    # healthy run finishes under this. Without it, a hang would burn GitHub's
+    # 6-hour job default.
+    #
+    # 40 minutes was only ever enough because the runnable fixtures were failing
+    # instantly: this job ran the musl binary on a glibc runner, so every one died
+    # in the dynamic loader at exit 127 without executing. Now that they actually
+    # run under the debug (≈5x slower than release) compiler, a full sweep needs
+    # substantially longer — the 40-minute cap cancelled the job at fixture 651 of
+    # 1271. Measured from that run: ~51% in 40 min, and the back half (compile-only
+    # `syntax/*`) is faster than the front.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
