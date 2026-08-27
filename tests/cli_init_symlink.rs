@@ -8,6 +8,8 @@
 //! This drives the real `mfb` binary against a symlinked `project.json` and
 //! asserts init refuses and leaves the victim file untouched.
 
+#![cfg(unix)]
+
 use std::process::Command;
 
 mod common;

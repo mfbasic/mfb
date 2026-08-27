@@ -381,6 +381,7 @@ pub(crate) mod tests {
         assert_eq!(std::fs::read_dir(&packages).expect("read dir").count(), 0);
     }
 
+    #[cfg(unix)]
     #[test]
     fn staging_never_writes_through_a_symlink_at_the_destination() {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -511,6 +512,7 @@ pub(crate) mod tests {
     /// The whole reason for staging under a fresh `.part` name: a pre-planted
     /// symlink at `dir/filename` must never be written through — the rename
     /// replaces the symlink rather than following it.
+    #[cfg(unix)]
     #[test]
     fn install_vendor_file_never_writes_through_a_symlink() {
         let dir = tempfile::tempdir().expect("temp dir");

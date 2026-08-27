@@ -242,15 +242,18 @@ mod tests {
             *b"\x7fELF"
         );
         // 0755, and no empty `usr/lib/` for a build that vendors nothing.
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(
-            std::fs::metadata(appdir.join("usr/bin/windowed"))
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o755
-        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(appdir.join("usr/bin/windowed"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o755
+            );
+        }
         assert!(!appdir.join("usr/lib").exists());
     }
 

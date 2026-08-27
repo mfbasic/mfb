@@ -11,7 +11,6 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 /// SquashFS 4.0 image writer (plan-51-B), the second half of an AppImage. A
@@ -190,12 +189,16 @@ pub(crate) fn seal(
     let path = build_dir.join(format!("{project_name}-{flavor_suffix}.AppImage"));
     fs::write(&path, &sealed)
         .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
-    let mut permissions = fs::metadata(&path)
-        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?
-        .permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&path, permissions)
-        .map_err(|err| format!("failed to mark '{}' executable: {err}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&path)
+            .map_err(|err| format!("failed to read '{}': {err}", path.display()))?
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions)
+            .map_err(|err| format!("failed to mark '{}' executable: {err}", path.display()))?;
+    }
     Ok(path)
 }
 
@@ -260,7 +263,7 @@ fn read_dir_node(path: &Path) -> Result<SquashNode, String> {
             SquashNode::File {
                 data: fs::read(&child)
                     .map_err(|err| format!("failed to read '{}': {err}", child.display()))?,
-                mode: (metadata.permissions().mode() & 0o7777) as u16,
+                mode: host_mode(&metadata, default_file_mode(&child)),
             }
         } else {
             // A device node, FIFO, or socket cannot appear in an AppDir the
@@ -272,12 +275,32 @@ fn read_dir_node(path: &Path) -> Result<SquashNode, String> {
         };
         entries.insert(name, node);
     }
-    let mode = (fs::symlink_metadata(path)
-        .map_err(|err| format!("failed to stat '{}': {err}", path.display()))?
-        .permissions()
-        .mode()
-        & 0o7777) as u16;
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|err| format!("failed to stat '{}': {err}", path.display()))?;
+    let mode = host_mode(&metadata, 0o755);
     Ok(SquashNode::Dir { entries, mode })
+}
+
+#[cfg(unix)]
+fn host_mode(metadata: &fs::Metadata, _windows_default: u16) -> u16 {
+    use std::os::unix::fs::PermissionsExt;
+    (metadata.permissions().mode() & 0o7777) as u16
+}
+
+#[cfg(windows)]
+fn host_mode(_metadata: &fs::Metadata, windows_default: u16) -> u16 {
+    windows_default
+}
+
+fn default_file_mode(path: &Path) -> u16 {
+    match path
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+    {
+        Some("bin" | "lib") => 0o755,
+        _ => 0o644,
+    }
 }
 
 #[cfg(test)]
@@ -442,15 +465,19 @@ mod tests {
         fs::create_dir_all(appdir.join("usr/bin")).unwrap();
         fs::create_dir_all(appdir.join("usr/share/applications")).unwrap();
         fs::write(appdir.join("usr/bin/hello"), b"\x7fELF fake").unwrap();
-        fs::set_permissions(
-            appdir.join("usr/bin/hello"),
-            fs::Permissions::from_mode(0o755),
-        )
-        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(
+                appdir.join("usr/bin/hello"),
+                fs::Permissions::from_mode(0o755),
+            )
+            .unwrap();
+        }
         fs::write(appdir.join("hello.desktop"), b"[Desktop Entry]\n").unwrap();
         fs::write(appdir.join("hello.png"), b"fake png").unwrap();
-        std::os::unix::fs::symlink("usr/bin/hello", appdir.join("AppRun")).unwrap();
-        std::os::unix::fs::symlink("hello.png", appdir.join(".DirIcon")).unwrap();
+        crate::os::linux::appdir::make_symlink_for_test("usr/bin/hello", &appdir.join("AppRun"));
+        crate::os::linux::appdir::make_symlink_for_test("hello.png", &appdir.join(".DirIcon"));
         appdir
     }
 
@@ -526,8 +553,11 @@ mod tests {
         assert!(usr.contains_key("lib"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn seal_concatenates_the_runtime_and_a_valid_squashfs() {
+        use std::os::unix::fs::PermissionsExt;
+
         let dir = tempfile::tempdir().unwrap();
         fixture_appdir(dir.path());
         let path = seal(dir.path(), "hello", "glibc", "x86_64").expect("seal");

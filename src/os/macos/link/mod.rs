@@ -8,7 +8,6 @@ use crate::os::BUILD_DIR;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 const VM_BASE: u64 = 0x1_0000_0000;
@@ -191,12 +190,16 @@ fn encode_executable_bytes(project_name: &str, image: &EncodedImage) -> Result<V
 /// Write executable bytes to `path` and mark the file executable (0o755).
 fn write_executable_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     fs::write(path, bytes).map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
-    let mut permissions = fs::metadata(path)
-        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?
-        .permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(path, permissions)
-        .map_err(|err| format!("failed to mark '{}' executable: {err}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(path)
+            .map_err(|err| format!("failed to read '{}': {err}", path.display()))?
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions)
+            .map_err(|err| format!("failed to mark '{}' executable: {err}", path.display()))?;
+    }
     Ok(())
 }
 

@@ -377,12 +377,17 @@ pub(super) fn copy_vendor_libraries(
             // on Linux, but macOS `dlopen` of a non-executable dylib can be
             // refused, and `fs::copy` already carries the source mode on Unix.
             // Set it explicitly so a source blob checked out without +x still works.
-            let mut permissions = std::fs::metadata(&to)
-                .map_err(|err| format!("failed to read '{}': {err}", to.display()))?
-                .permissions();
-            permissions.set_mode(0o755);
-            std::fs::set_permissions(&to, permissions)
-                .map_err(|err| format!("failed to mark '{}' executable: {err}", to.display()))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut permissions = std::fs::metadata(&to)
+                    .map_err(|err| format!("failed to read '{}': {err}", to.display()))?
+                    .permissions();
+                permissions.set_mode(0o755);
+                std::fs::set_permissions(&to, permissions).map_err(|err| {
+                    format!("failed to mark '{}' executable: {err}", to.display())
+                })?;
+            }
         }
     }
     Ok(())

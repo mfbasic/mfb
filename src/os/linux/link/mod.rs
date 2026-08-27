@@ -8,7 +8,6 @@ use crate::os::note::{mfb_note_descriptor, MFB_NOTE_OWNER, MFB_NOTE_TYPE};
 use crate::os::object_plan::align;
 use crate::os::BUILD_DIR;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 const IMAGE_BASE: u64 = 0x400000;
@@ -75,12 +74,16 @@ pub(crate) fn write_executable(
     let path = out_dir.join(format!("{project_name}-{}.out", flavor.suffix()));
     fs::write(&path, bytes)
         .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
-    let mut permissions = fs::metadata(&path)
-        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?
-        .permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&path, permissions)
-        .map_err(|err| format!("failed to mark '{}' executable: {err}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&path)
+            .map_err(|err| format!("failed to read '{}': {err}", path.display()))?
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions)
+            .map_err(|err| format!("failed to mark '{}' executable: {err}", path.display()))?;
+    }
     Ok(path)
 }
 

@@ -285,6 +285,7 @@ mod tests {
         assert!(err.contains("refusing to overwrite"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn write_new_file_never_follows_a_symlink_at_the_target() {
         let dir = tempfile::tempdir().expect("temp dir");

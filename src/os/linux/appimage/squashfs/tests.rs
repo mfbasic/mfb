@@ -795,6 +795,7 @@ fn insert_path(entries: &mut BTreeMap<String, SquashNode>, parts: &[String], lea
 }
 
 #[test]
+#[cfg(unix)]
 fn matches_mksquashfs_modulo_the_documented_normalizations() {
     if !have("mksquashfs") {
         eprintln!("skipping: mksquashfs not on PATH");

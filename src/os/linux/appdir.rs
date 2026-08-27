@@ -7,7 +7,6 @@
 //! single-file `.AppImage`.
 
 use std::fs;
-use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use crate::os::icon::{render_png, HICOLOR_SIZES, ROOT_ICON_SIZE};
@@ -185,26 +184,38 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     fs::write(path, bytes).map_err(|err| format!("failed to write '{}': {err}", path.display()))
 }
 
-fn set_executable(path: &Path) -> Result<(), String> {
-    let mut permissions = fs::metadata(path)
-        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?
-        .permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(path, permissions)
-        .map_err(|err| format!("failed to mark '{}' executable: {err}", path.display()))
+fn set_executable(_path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(_path)
+            .map_err(|err| format!("failed to read '{}': {err}", _path.display()))?
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(_path, permissions)
+            .map_err(|err| format!("failed to mark '{}' executable: {err}", _path.display()))?;
+    }
+    Ok(())
 }
 
 /// Create `link` pointing at the AppDir-relative `target`, replacing any file a
-/// previous build left there. The build host is macOS or Linux — the compiler
-/// only builds on Unix — so `std::os::unix::fs::symlink` is unconditional.
+/// previous build left there.
 fn make_symlink(target: &str, link: &Path) -> Result<(), String> {
     match fs::remove_file(link) {
         Ok(()) => {}
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
         Err(err) => return Err(format!("failed to replace '{}': {err}", link.display())),
     }
-    symlink(target, link)
-        .map_err(|err| format!("failed to link '{}' -> '{target}': {err}", link.display()))
+    #[cfg(unix)]
+    let result = std::os::unix::fs::symlink(target, link);
+    #[cfg(windows)]
+    let result = std::os::windows::fs::symlink_file(target, link);
+    result.map_err(|err| format!("failed to link '{}' -> '{target}': {err}", link.display()))
+}
+
+#[cfg(test)]
+pub(super) fn make_symlink_for_test(target: &str, link: &Path) {
+    make_symlink(target, link).expect("create fixture symlink");
 }
 
 #[cfg(test)]
@@ -274,11 +285,15 @@ mod tests {
         let executable = appdir.join("usr/bin/hello");
         assert!(executable.is_file(), "the ELF is at usr/bin/<name>");
         assert_eq!(std::fs::read(&executable).unwrap(), b"\x7fELF fake");
-        assert_eq!(
-            std::fs::metadata(&executable).unwrap().permissions().mode() & 0o777,
-            0o755,
-            "the executable bit survives"
-        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&executable).unwrap().permissions().mode() & 0o777,
+                0o755,
+                "the executable bit survives"
+            );
+        }
 
         // The AppImage runtime execv's /AppRun; it must resolve to the real ELF
         // and must be a symlink, not a second copy of it.
