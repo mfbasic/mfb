@@ -655,4 +655,16 @@ mod tests {
         assert_eq!(Operand::parse("-5"), Operand::Imm(-5));
         assert_eq!(Operand::parse("-5").render(), "-5");
     }
+
+    #[test]
+    fn operand_display_uses_the_canonical_rendering() {
+        assert_eq!(format!("{}", Operand::imm(-42)), "-42");
+        assert_eq!(format!("{}", Operand::from("symbol")), "symbol");
+    }
+
+    #[test]
+    #[should_panic(expected = "ABI token index 8 out of range for Mfb/Arg")]
+    fn an_out_of_range_abi_token_reports_its_convention_and_role() {
+        let _ = abi_token(AbiConvention::Mfb, AbiRole::Arg, 8);
+    }
 }
