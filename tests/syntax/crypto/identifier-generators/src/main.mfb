@@ -1,0 +1,7 @@
+IMPORT crypto
+
+FUNC main AS Integer
+  LET uuidWrongArity AS String = crypto::uuid7(1)
+  LET ulidWrongArity AS String = crypto::ulid("seed")
+  RETURN 0
+END FUNC

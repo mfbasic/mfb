@@ -68,9 +68,12 @@ extensions); computation is portable-arithmetic only, identical across targets.
   `seal` returns ciphertext plus a 16-byte tag; `open` verifies the tag in
   constant time and **fails closed** with `ErrAuthenticationFailed`
   (`77050016`), returning plaintext only on success. `aad` defaults to empty.
-- **Secure random** — `randomBytes` (raw bytes), `randomInt` (uniform, unbiased,
-  rejection-sampled, inclusive `[min, max]`), `uuid4` (random version-4 UUID,
-  canonical lowercase `8-4-4-4-12`, RFC 4122).
+- **Secure random and identifiers** — `randomBytes` (raw bytes), `randomInt`
+  (uniform, unbiased, rejection-sampled, inclusive `[min, max]`), `uuid4`
+  (random version-4 UUID, canonical lowercase `8-4-4-4-12`), `uuid7` (RFC 9562
+  version-7 UUID with a 48-bit Unix-millisecond prefix and 74 random bits), and
+  `ulid` (canonical 26-character Crockford Base32 with a 48-bit
+  Unix-millisecond prefix and 80 random bits).
 - **Public-key** — Ed25519 (RFC 8032, PureEdDSA, deterministic signing) plus
   ECDSA over NIST P-256/384/521 (FIPS 186; SHA-256/384/512 respectively; DER
   X9.62 signatures, non-deterministic). Key generation returns a `KeyPair`.

@@ -1,6 +1,6 @@
 ' Known-answer vectors for the crypto package's deterministic primitives
 ' (plan-04-crypto.md Part D). Randomised entry points (randomBytes/randomInt/
-' uuid4) are covered by property checks that print deterministic facts.
+' uuid4/uuid7/ulid) are covered by property checks that print deterministic facts.
 IMPORT crypto
 IMPORT encoding
 IMPORT io
@@ -74,6 +74,12 @@ SUB main()
   LET u AS String = crypto::uuid4()
   io::print("uuid-len=" & toString(strings::byteLen(u)))
   io::print("uuid-version=" & strings::mid(u, 14, 1))
+  LET u7 AS String = crypto::uuid7()
+  io::print("uuid7-len=" & toString(strings::byteLen(u7)))
+  io::print("uuid7-version=" & strings::mid(u7, 14, 1))
+  LET id AS String = crypto::ulid()
+  io::print("ulid-len=" & toString(strings::byteLen(id)))
+  io::print("ulid-first-valid=" & toString(strings::mid(id, 0, 1) >= "0" AND strings::mid(id, 0, 1) <= "7"))
   MUT r AS Integer = crypto::randomInt(7, 7)
   io::print("randint-degenerate=" & toString(r))
 END SUB

@@ -465,6 +465,36 @@ TESTING
     END TGROUP
 
     ' -----------------------------------------------------------------------
+    TGROUP "uuid7 — RFC 9562"
+      TCASE "format, version, variant, hyphens"
+        LET u AS String = crypto::uuid7()
+        expectInteger(strings::byteLen(u), 36)
+        expectString(strings::mid(u, 14, 1), "7")
+        LET variant AS String = strings::mid(u, 19, 1)
+        expectEqual(variant = "8" OR variant = "9" OR variant = "a" OR variant = "b", TRUE)
+        expectString(strings::mid(u, 8, 1), "-")
+        expectString(strings::mid(u, 13, 1), "-")
+        expectString(strings::mid(u, 18, 1), "-")
+        expectString(strings::mid(u, 23, 1), "-")
+      END TCASE
+      TCASE "successive UUIDs differ"
+        expectEqual(crypto::uuid7() = crypto::uuid7(), FALSE)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "ulid — canonical Crockford Base32"
+      TCASE "length and alphabet bounds"
+        LET u AS String = crypto::ulid()
+        expectInteger(strings::byteLen(u), 26)
+        expectEqual(strings::mid(u, 0, 1) >= "0" AND strings::mid(u, 0, 1) <= "7", TRUE)
+      END TCASE
+      TCASE "successive ULIDs differ"
+        expectEqual(crypto::ulid() = crypto::ulid(), FALSE)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
     TGROUP "constantTimeEqual"
       TCASE "equality and inequality"
         LET a AS List OF Byte = encoding::hexDecode("00112233445566778899aabbccddeeff")

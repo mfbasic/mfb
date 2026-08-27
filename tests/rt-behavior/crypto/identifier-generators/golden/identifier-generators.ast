@@ -1,0 +1,36 @@
+{
+  "project": "identifier-generators",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "crypto", "line": 1 },
+    { "module": "io", "line": 2 },
+    { "module": "strings", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "u7", "type": "String", "value": { "kind": "call", "callee": "crypto.uuid7", "arguments": [] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "variant", "type": "String", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "identifier", "value": "u7" }, { "kind": "number", "value": "19" }, { "kind": "number", "value": "1" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "uuid7-length=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.byteLen", "arguments": [{ "kind": "identifier", "value": "u7" }] }] } }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "uuid7-version=" }, "right": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "identifier", "value": "u7" }, { "kind": "number", "value": "14" }, { "kind": "number", "value": "1" }] } }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "uuid7-variant=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "variant" }, "right": { "kind": "string", "value": "8" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "variant" }, "right": { "kind": "string", "value": "9" } } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "variant" }, "right": { "kind": "string", "value": "a" } } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "variant" }, "right": { "kind": "string", "value": "b" } } }] } }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "id", "type": "String", "value": { "kind": "call", "callee": "crypto.ulid", "arguments": [] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ulid-length=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.byteLen", "arguments": [{ "kind": "identifier", "value": "id" }] }] } }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ulid-first-valid=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": ">=", "left": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "identifier", "value": "id" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "right": { "kind": "string", "value": "0" } }, "right": { "kind": "binary", "operator": "<=", "left": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "identifier", "value": "id" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }] }, "right": { "kind": "string", "value": "7" } } }] } }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "distinct=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "crypto.uuid7", "arguments": [] }, "right": { "kind": "call", "callee": "crypto.uuid7", "arguments": [] } }, "right": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "crypto.ulid", "arguments": [] }, "right": { "kind": "call", "callee": "crypto.ulid", "arguments": [] } } }] } }] }, "line": 15 }
+      ]
+    }
+    ]
+  }
+  ]
+}

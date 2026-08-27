@@ -28,5 +28,9 @@ ed-bad=FALSE
 rand-len=24
 uuid-len=36
 uuid-version=4
+uuid7-len=36
+uuid7-version=7
+ulid-len=26
+ulid-first-valid=TRUE
 randint-degenerate=7
 [exit 0]

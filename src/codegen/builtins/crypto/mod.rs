@@ -32,11 +32,12 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const MODULE_INTRO: &str = r#"Cryptographic hashes, HMAC, KDFs, authenticated encryption, a secure RNG, public-key signatures, and constant-time comparison"#;
+const MODULE_INTRO: &str = r#"Cryptographic hashes, HMAC, KDFs, authenticated encryption, secure random and time-ordered identifiers, public-key signatures, and constant-time comparison"#;
 const MODULE_DESC: &str = r#"The `crypto` package provides cryptographic hashes, HMAC, key-derivation
 functions, authenticated encryption (AEAD), a cryptographically-secure random
-generator, public-key signatures, and constant-time comparison. It is a built-in
-package, so `IMPORT crypto` needs no manifest dependency.
+generator, UUID and ULID identifiers, public-key signatures, and constant-time
+comparison. It is a built-in package, so `IMPORT crypto` needs no manifest
+dependency.
 
 Inputs and outputs are `List OF Byte`; the hash/HMAC/PBKDF2 functions also accept
 a `String` overload that UTF-8-encodes internally. A digest, ciphertext, or key
@@ -74,7 +75,14 @@ pub(crate) fn register(r: &mut Registry) {
 
     // Injected `IMPORT`s, rendered by `get_mfb` before the records/helpers —
     // mirroring `package.mfb`'s original leading `IMPORT` lines.
-    pkg.add_imports(vec!["crypto", "bits", "strings", "collections", "encoding"]);
+    pkg.add_imports(vec![
+        "crypto",
+        "bits",
+        "strings",
+        "collections",
+        "encoding",
+        "datetime",
+    ]);
 
     // The public value RECORDS `Sealed`/`KeyPair` (with their `DOC` blocks and
     // byte-exact fields), formerly authored in `package.mfb`. Emitted as real
@@ -406,10 +414,12 @@ pub(crate) fn register(r: &mut Registry) {
     // `ciphertext`/`tag` and a `crypto::Sealed` overload. `aad` fills to the empty list.
     func_seal::register(&mut pkg);
     func_open::register(&mut pkg);
-    // Secure random (`randomBytes` native; `randomInt`/`uuid4` source glue).
+    // Secure random (`randomBytes` native; identifier generators are source glue).
     func_random_bytes::register(&mut pkg);
     func_random_int::register(&mut pkg);
     func_uuid4::register(&mut pkg);
+    func_uuid7::register(&mut pkg);
+    func_ulid::register(&mut pkg);
     // Public-key key generation. The unified clean-room `generate(Certificate)`
     // covers every curve (NIST-EC via CNG/SecKey/OpenSSL, Ed25519 via the software
     // helper); the per-type `generateP*`/`generateEd25519` members it replaced were
@@ -455,7 +465,9 @@ mod func_random_bytes;
 mod func_random_int;
 pub(crate) mod func_seal;
 pub(crate) mod func_sign;
+mod func_ulid;
 mod func_uuid4;
+mod func_uuid7;
 pub(crate) mod func_verify;
 pub(crate) mod gen_cert;
 pub(crate) mod gen_cipher;
@@ -635,14 +647,15 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 16 members: the unified `generate`/`sign`/`verify`/`hash`, the
+        // 18 members: the unified `generate`/`sign`/`verify`/`hash`, the
         // `SymmetricCipher`-selected `seal`/`open`, the hash-generic
         // `hmac`/`hkdf`/`pbkdf2(Hash, …)`, `convert` (Ed25519↔X25519 key conversion),
         // the `AsymmetricCipher`-selected `encrypt`/`decrypt` (X25519 sealed box),
-        // plus `randomBytes`/`randomInt`/`uuid4`/`constantTimeEqual`. The per-type
+        // plus `randomBytes`/`randomInt`/`uuid4`/`uuid7`/`ulid`/
+        // `constantTimeEqual`. The per-type
         // generate/sign/verify/sha and per-digest `*Sha*`/per-cipher AEAD members were
         // all retired behind the unified surface.
-        assert_eq!(pkg.functions().len(), 16);
+        assert_eq!(pkg.functions().len(), 18);
     }
 
     #[test]
@@ -657,6 +670,8 @@ mod tests {
             "crypto.randomBytes",
             "crypto.randomInt",
             "crypto.uuid4",
+            "crypto.uuid7",
+            "crypto.ulid",
             "crypto.generate",
             "crypto.sign",
             "crypto.verify",
@@ -769,6 +784,8 @@ mod tests {
         );
         // Single-body source member.
         assert_eq!(sel("crypto.uuid4", &[]), Some("__crypto_uuid4"));
+        assert_eq!(sel("crypto.uuid7", &[]), Some("__crypto_uuid7"));
+        assert_eq!(sel("crypto.ulid", &[]), Some("__crypto_ulid"));
         assert_eq!(
             sel(
                 "crypto.constantTimeEqual",
@@ -828,6 +845,8 @@ mod tests {
             Some("Sealed".into())
         );
         assert_eq!(r("crypto.uuid4", &[]), Some("String".into()));
+        assert_eq!(r("crypto.uuid7", &[]), Some("String".into()));
+        assert_eq!(r("crypto.ulid", &[]), Some("String".into()));
         assert_eq!(
             r("crypto.randomBytes", &["Integer"]),
             Some("List OF Byte".into())

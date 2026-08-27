@@ -678,9 +678,8 @@ fn builtin_capability(callee: &str, link_aliases: &HashSet<String>) -> Option<&'
         // Secure-randomness surface: the entropy-drawing crypto builtins (the
         // rest of `crypto` is pure computation over caller-supplied bytes).
         "crypto" => match callee {
-            "crypto.randomBytes" | "crypto.randomInt" | "crypto.uuid4" | "crypto.generate" => {
-                Some("randomness")
-            }
+            "crypto.randomBytes" | "crypto.randomInt" | "crypto.uuid4" | "crypto.uuid7"
+            | "crypto.ulid" | "crypto.generate" => Some("randomness"),
             _ => None,
         },
         "os" => match callee {
@@ -783,6 +782,8 @@ fn is_fallible_builtin(callee: &str) -> bool {
             | "crypto.randomBytes"
             | "crypto.randomInt"
             | "crypto.uuid4"
+            | "crypto.uuid7"
+            | "crypto.ulid"
             // datetime — the parsers and formatters and the range-checked
             // constructors raise; date/duration arithmetic is total. Derived from
             // the `FAIL` sites in datetime_package.mfb.
