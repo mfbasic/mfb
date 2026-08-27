@@ -8,7 +8,6 @@
 //! a range message), never dies by signal (panic/abort) and never hangs on a
 //! huge allocation.
 
-use std::os::unix::process::ExitStatusExt;
 use std::process::Command;
 
 mod common;
@@ -29,9 +28,9 @@ fn assert_bounded_range_error(output: &std::process::Output, indent: &str) {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.code().is_some(),
-        "--indent={indent}: mfb was killed by signal {:?} (overflow panic?) \
-         instead of reporting a bounded error.\nstderr:\n{stderr}",
-        output.status.signal()
+        "--indent={indent}: mfb terminated abnormally (overflow panic?) \
+         instead of reporting a bounded error.\nstatus: {}\nstderr:\n{stderr}",
+        output.status
     );
     assert!(
         !output.status.success(),

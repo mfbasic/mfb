@@ -8,7 +8,6 @@
 //! files and assert it exits with a *bounded* error (a normal non-zero exit
 //! code), never dies by signal.
 
-use std::os::unix::process::ExitStatusExt;
 use std::process::Command;
 
 mod common;
@@ -28,9 +27,9 @@ fn assert_bounded_not_aborted(output: &std::process::Output, context: &str) {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.code().is_some(),
-        "{context}: mfb was killed by signal {:?} (stack overflow?) instead of \
-         reporting a bounded error.\nstderr:\n{stderr}",
-        output.status.signal()
+        "{context}: mfb terminated abnormally (stack overflow?) instead of \
+         reporting a bounded error.\nstatus: {}\nstderr:\n{stderr}",
+        output.status
     );
     assert!(
         !stderr.contains("stack overflow"),
