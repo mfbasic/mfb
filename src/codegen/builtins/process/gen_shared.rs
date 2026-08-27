@@ -82,3 +82,41 @@ pub(crate) const PROC_EXITCODE: usize = 72;
 // The whole tail must fit inside the shared 96-byte envelope (plan-80).
 const _: () = assert!(PROC_STDIN_W == 32);
 const _: () = assert!(88 + 8 <= RESOURCE_RECORD_SIZE_BYTES);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codegen::engine::tests::test_support::TestPlatform;
+
+    #[test]
+    fn void_result_preserves_the_runtime_call_identity() {
+        let result = void_result("process.close");
+        assert!(result.origin.is_none());
+        assert_eq!(result.type_, ParameterType::Nothing);
+        assert_eq!(result.location, Operand::from("void"));
+        assert_eq!(result.text, "process.close");
+    }
+
+    #[test]
+    fn process_drop_dispatches_to_unix_and_windows_emitters() {
+        let mut imports = HashMap::new();
+        imports.insert("TerminateProcess".to_string(), "kernel32".to_string());
+        imports.insert("CloseHandle".to_string(), "kernel32".to_string());
+        crate::codegen::engine::mir::set_backend(TestPlatform.backend());
+        let (_, unix, _, _) = lower_process_drop_helper("#process_drop", &imports, &TestPlatform)
+            .expect("unix process drop lowers");
+        let windows_platform = crate::target::win_x86_64::code::Platform;
+        crate::codegen::engine::mir::set_backend(windows_platform.backend());
+        let (_, windows, _, _) =
+            lower_process_drop_helper("#process_drop", &imports, &windows_platform)
+                .expect("windows process drop lowers");
+
+        assert!(unix
+            .iter()
+            .any(|instruction| instruction.op == crate::arch::ops::CodeOp::BranchLink));
+        assert!(windows
+            .iter()
+            .any(|instruction| instruction.op == crate::arch::ops::CodeOp::BranchLink));
+        assert_ne!(unix.len(), windows.len());
+    }
+}
