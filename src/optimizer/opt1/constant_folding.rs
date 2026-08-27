@@ -254,6 +254,7 @@ mod tests {
             binary("MOD", int_const(&min), int_const("-1")),
             binary("^", int_const("2"), int_const("-1")),
             binary("^", int_const("2"), int_const("64")),
+            binary("UNKNOWN", int_const("2"), int_const("3")),
             unary("-", int_const(&min)),
         ] {
             let rendered = shape(&value);
@@ -269,11 +270,28 @@ mod tests {
         assert_eq!(folded(value, &scopes), "const(200)");
         let value = binary("^", byte("3"), byte("5"));
         assert_eq!(folded(value, &scopes), "const(243)");
+        assert_eq!(
+            folded(binary("*", byte("6"), byte("7")), &scopes),
+            "const(42)"
+        );
+        assert_eq!(
+            folded(binary("/", byte("9"), byte("2")), &scopes),
+            "const(4)"
+        );
+        assert_eq!(
+            folded(binary("MOD", byte("9"), byte("2")), &scopes),
+            "const(1)"
+        );
+        assert_eq!(
+            folded(binary("=", byte("9"), byte("9")), &scopes),
+            "const(true)"
+        );
         // 200 + 100 = 300 and 5 - 9 = -4 both trap at runtime: no fold.
         for value in [
             binary("+", byte("200"), byte("100")),
             binary("-", byte("5"), byte("9")),
             binary("/", byte("5"), byte("0")),
+            binary("UNKNOWN", byte("5"), byte("1")),
             unary("-", byte("5")),
         ] {
             let rendered = shape(&value);
@@ -336,5 +354,11 @@ mod tests {
             let rendered = shape(&value);
             assert_eq!(folded(value, &scopes), rendered);
         }
+    }
+
+    #[test]
+    fn a_non_expression_value_is_unchanged() {
+        let scopes = Scopes::new();
+        assert_eq!(folded(int_const("7"), &scopes), "const(7)");
     }
 }
