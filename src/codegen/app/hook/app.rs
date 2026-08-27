@@ -59,3 +59,52 @@ pub(crate) fn prepend_wrong_mode_gate(
     };
     instructions.splice(at..at, gate);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn absent_presentation_state_leaves_the_helper_byte_identical() {
+        let mut instructions = vec![abi::label("entry"), abi::return_()];
+        let mut relocations = Vec::new();
+
+        prepend_wrong_mode_gate(&mut instructions, &mut relocations, "#io_input", None);
+
+        assert_eq!(instructions.len(), 2);
+        assert_eq!(instructions[0].op, CodeOp::Label);
+        assert_eq!(instructions[1].op, CodeOp::Ret);
+        assert!(relocations.is_empty());
+    }
+
+    #[test]
+    fn wrong_mode_gate_is_inserted_after_an_entry_label() {
+        let mut instructions = vec![abi::label("entry"), abi::return_()];
+        let mut relocations = Vec::new();
+
+        prepend_wrong_mode_gate(&mut instructions, &mut relocations, "#io_input", Some(40));
+
+        assert_eq!(instructions.first().unwrap().op, CodeOp::Label);
+        assert_eq!(instructions[1].op, CodeOp::LdrU64);
+        assert_eq!(instructions.last().unwrap().op, CodeOp::Ret);
+        assert!(instructions.iter().any(|instruction| {
+            instruction.op == CodeOp::Label
+                && instruction
+                    .fields
+                    .iter()
+                    .any(|(name, value)| *name == "name" && value == "#io_input_mode_ok")
+        }));
+        assert!(!relocations.is_empty());
+    }
+
+    #[test]
+    fn wrong_mode_gate_prepends_a_body_without_an_entry_label() {
+        let mut instructions = vec![abi::return_()];
+        let mut relocations = Vec::new();
+
+        prepend_wrong_mode_gate(&mut instructions, &mut relocations, "#term_on", Some(8));
+
+        assert_eq!(instructions.first().unwrap().op, CodeOp::LdrU64);
+        assert_eq!(instructions.last().unwrap().op, CodeOp::Ret);
+    }
+}
