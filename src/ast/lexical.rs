@@ -125,3 +125,18 @@ impl<'a> FileParser<'a> {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn end_block_rejects_the_wrong_closing_keyword() {
+        let path = Path::new("main.mfb");
+        let tokens = lexer::lex(path, "END WHILE\n").expect("tokens");
+        let mut parser = FileParser::new(path, tokens);
+
+        assert!(!parser.consume_end_block(Keyword::If, "expected END IF"));
+        assert!(parser.had_error);
+    }
+}
