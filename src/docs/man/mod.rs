@@ -80,6 +80,13 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "guide topic `does-not-exist` present")]
+    fn a_missing_guide_topic_names_itself() {
+        let name = "does-not-exist";
+        topic(name).unwrap_or_else(|| panic!("guide topic `{name}` present"));
+    }
+
+    #[test]
     fn sub_pages_are_looked_up_by_name_with_the_order_prefix_stripped() {
         // `flow` ships sub-pages (`for`, `if`, ...); an unknown page is None.
         let flow = topic("flow").expect("flow topic present");
