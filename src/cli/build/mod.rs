@@ -1533,6 +1533,63 @@ mod tests {
         .expect("source");
     }
 
+    fn copy_test_project(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).expect("copy destination");
+        for entry in std::fs::read_dir(from).expect("read fixture directory") {
+            let entry = entry.expect("fixture entry");
+            let source = entry.path();
+            let destination = to.join(entry.file_name());
+            if source.is_dir() {
+                if entry.file_name() == "golden" || entry.file_name() == "build" {
+                    continue;
+                }
+                copy_test_project(&source, &destination);
+            } else {
+                std::fs::copy(&source, &destination).expect("copy fixture file");
+            }
+        }
+    }
+
+    /// Keep every compile-only byte-identity corpus in-process so cargo-llvm-cov
+    /// credits the clean-room `gen_*` files. The artifact gate runs these same
+    /// projects through a child compiler, whose profile cargo-llvm-cov does not
+    /// associate with the test target's object list. Targets are derived from the
+    /// committed ncodesum names, matching artifact-gate.sh rather than widening a
+    /// fixture onto a backend it intentionally does not support.
+    #[test]
+    fn builtin_codegen_corpora_lower_in_process() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/byte-identity");
+        for package in std::fs::read_dir(&root).expect("byte-identity root") {
+            let fixture = package.expect("package directory").path();
+            if !fixture.join("project.json").is_file() {
+                continue;
+            }
+            let dir = tempfile::tempdir().expect("temp dir");
+            copy_test_project(&fixture, dir.path());
+            let project = dir.path().to_str().expect("utf8 temp path");
+            let golden = fixture.join("golden");
+            for target in crate::target::registered_targets() {
+                let target_name = target.name();
+                let has_golden = std::fs::read_dir(&golden)
+                    .expect("fixture goldens")
+                    .filter_map(Result::ok)
+                    .any(|entry| {
+                        entry
+                            .file_name()
+                            .to_string_lossy()
+                            .ends_with(&format!(".{target_name}.ncodesum"))
+                    });
+                if !has_golden {
+                    continue;
+                }
+                let options = parse_build_options(s(&["-ncode", "-target", &target_name, project]))
+                    .expect("options");
+                build_project(&options)
+                    .unwrap_or_else(|()| panic!("{} lowers for {target_name}", fixture.display()));
+            }
+        }
+    }
+
     #[test]
     fn build_project_validates_a_bad_manifest() {
         let dir = tempfile::tempdir().expect("temp dir");
