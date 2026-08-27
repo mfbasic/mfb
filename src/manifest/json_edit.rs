@@ -521,6 +521,34 @@ mod tests {
     }
 
     #[test]
+    fn package_name_is_the_fallback_ident_when_removing() {
+        let contents = r#"{"packages":[{"name":"owner#pkg","version":"1.0.0"}]}"#;
+        let updated = project_json_without_packages(contents, &["owner#pkg"]).unwrap();
+        assert_eq!(updated, r#"{"packages":[]}"#);
+    }
+
+    #[test]
+    fn updating_a_dependency_without_a_version_reports_the_ident() {
+        let contents = r#"{"packages":[{"ident":"owner#pkg"}]}"#;
+        let error =
+            project_json_with_updated_version(contents, "owner#pkg", "2.0.0", None).unwrap_err();
+        assert!(error.contains("owner#pkg"));
+        assert!(error.contains("no `version` field"));
+    }
+
+    #[test]
+    fn malformed_pin_fields_report_the_broken_component() {
+        assert_eq!(
+            rewrite_pin_field("{\"pin\":   ", false).unwrap_err(),
+            "malformed pin value"
+        );
+        assert_eq!(
+            rewrite_pin_field("{\"pin\":true", false).unwrap_err(),
+            "malformed pin value"
+        );
+    }
+
+    #[test]
     fn find_json_punct_scans_over_quoted_escapes() {
         // A quoted string carrying an escaped quote precedes the target `:`, so
         // the in-string escape/quote branches all execute before the punct match.
