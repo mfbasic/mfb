@@ -88,13 +88,10 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
   * `.ai/testing-gates.md` — artifact-gate, byte-identity, acceptance golden harness,
     perf-golden and concurrency hazards, citation sweeps.
   * `.ai/build-tooling.md` — rustfmt/clippy policy, cross-compile + vendor rebuild mechanics.
-* Creating or updating a man page (`src/docs/man/**`, Markdown) → follow the templates
-  exactly: `.ai/man_template.md` for a per-function page, `.ai/man_type_template.md`
-  for a package's consolidated `types` page, `.ai/man_package_template.md` for a
-  package overview. Keep every section name and order; fill in all `<...>`
-  placeholders; omit optional sections only when they do not apply. The templates are
-  bare skeletons — authoring rules live in the driver scripts (`scripts/update_man.sh`
-  for function/type pages, `scripts/update_man_package.sh` for package overviews).
+* Creating or updating `mfb man` content → `.ai/man-content.md`. Built-in package,
+  function, and type documentation lives in the registry descriptors and Rust doc
+  comments described there; the old `src/docs/man/**` built-in-page workflow and its
+  generation scripts are retired.
 * The embedded spec (`mfb spec`, `src/docs/spec/**`) → `.ai/specifications.md` (keep it
   current with every compiler change).
 * Remote test machines → `.ai/remote_systems.md`.
