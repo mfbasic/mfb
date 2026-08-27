@@ -150,4 +150,34 @@ mod tests {
         assert_eq!(gui, dir.path().join("build").join("windowed.exe"));
         assert_eq!(&std::fs::read(&gui).unwrap()[0..2], b"MZ");
     }
+
+    #[test]
+    fn object_plan_reports_an_unwritable_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("not-a-directory");
+        std::fs::write(&file, b"occupied").unwrap();
+        let error = write_native_object_plan(&file, "hello", &plan("windows-x86_64"))
+            .expect_err("a file cannot contain an object plan");
+        assert!(error.contains("failed to write"));
+    }
+
+    #[test]
+    fn linked_executable_reports_an_uncreatable_build_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("not-a-directory");
+        std::fs::write(&file, b"occupied").unwrap();
+        let error = write_linked_executable(&file, "prog", &ret_image(), false, None, None)
+            .expect_err("a file cannot contain a build directory");
+        assert!(error.contains("failed to create"));
+    }
+
+    #[test]
+    fn linked_executable_reports_an_unwritable_output_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("build").join("prog.exe");
+        std::fs::create_dir_all(&output).unwrap();
+        let error = write_linked_executable(dir.path(), "prog", &ret_image(), false, None, None)
+            .expect_err("a directory cannot be overwritten by an executable");
+        assert!(error.contains("failed to write"));
+    }
 }
