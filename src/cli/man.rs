@@ -912,7 +912,13 @@ mod tests {
 
     #[test]
     fn topic_all_renders_the_overview_and_every_sub_page() {
-        assert!(show_man(&s(&["flow", "--all"])).is_ok());
+        let topic = man::topic("flow").unwrap();
+        let md = render_topic_all_markdown(topic);
+
+        assert!(md.starts_with(topic.overview));
+        for page in &topic.pages {
+            assert!(md.contains(page.page), "missing flow page `{}`", page.name);
+        }
     }
 
     #[test]
