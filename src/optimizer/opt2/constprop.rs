@@ -277,4 +277,11 @@ mod tests {
         run(&mut stream, 1);
         assert_eq!(stream[2].op, CodeOp::Add);
     }
+
+    #[test]
+    fn physical_register_values_are_not_treated_as_constants() {
+        let mut stream = vec![ci("mov", &[("dst", "%v1"), ("src", "x0")]), ci("ret", &[])];
+        run(&mut stream, 2);
+        assert_eq!(stream[0].op, CodeOp::Mov);
+    }
 }
