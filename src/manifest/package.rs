@@ -941,6 +941,9 @@ mod tests {
 
     #[test]
     fn package_file_url_path_validates_scheme_and_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let wrong_extension = dir.path().join("package.txt");
+        let missing = dir.path().join("missing.mfp");
         assert!(package_file_url_path("https://x/y.mfp")
             .unwrap_err()
             .contains("file://"));
@@ -953,12 +956,16 @@ mod tests {
         assert!(package_file_url_path("file://relative/path.mfp")
             .unwrap_err()
             .contains("absolute path"));
-        assert!(package_file_url_path("file:///abs/path.txt")
-            .unwrap_err()
-            .contains("must point to a .mfp file"));
-        assert!(package_file_url_path("file:///does/not/exist.mfp")
-            .unwrap_err()
-            .contains("does not exist"));
+        assert!(
+            package_file_url_path(&format!("file://{}", wrong_extension.display()))
+                .unwrap_err()
+                .contains("must point to a .mfp file")
+        );
+        assert!(
+            package_file_url_path(&format!("file://{}", missing.display()))
+                .unwrap_err()
+                .contains("does not exist")
+        );
     }
 
     #[test]

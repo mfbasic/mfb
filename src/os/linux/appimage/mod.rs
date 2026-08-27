@@ -425,6 +425,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn read_dir_node_rejects_a_non_file_non_dir_non_symlink() {
         // A FIFO is neither a file, a directory, nor a symlink, so the reader
         // rejects it rather than silently dropping or misclassifying it.

@@ -19,7 +19,9 @@ impl LocalPaths {
         if let Ok(home) = std::env::var("MFB_HOME") {
             return Ok(Self::new(PathBuf::from(home)));
         }
-        let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map_err(|_| "HOME is not set".to_string())?;
         Ok(Self::new(PathBuf::from(home).join(".mfb")))
     }
 
@@ -487,7 +489,7 @@ mod tests {
     }
 
     #[test]
-    fn from_env_prefers_mfb_home_then_falls_back_to_home() {
+    fn from_env_prefers_mfb_home_then_falls_back_to_platform_home() {
         // MFB_HOME wins outright.
         std::env::set_var("MFB_HOME", "/tmp/mfb-home-test");
         let paths = LocalPaths::from_env().unwrap();
@@ -500,11 +502,22 @@ mod tests {
         let paths = LocalPaths::from_env().unwrap();
         assert_eq!(paths.keys_dir(), PathBuf::from("/tmp/home-test/.mfb/keys"));
 
-        // With neither, it is an error.
+        // Unix has no second platform-home variable, so without HOME it is an
+        // error. Windows falls back to USERPROFILE, which is the native home
+        // variable in shells that do not synthesize HOME.
         std::env::remove_var("HOME");
+        #[cfg(unix)]
         assert!(LocalPaths::from_env()
             .unwrap_err()
             .contains("HOME is not set"));
+        #[cfg(windows)]
+        {
+            let profile = std::env::var("USERPROFILE").expect("Windows user profile");
+            assert_eq!(
+                LocalPaths::from_env().unwrap().keys_dir(),
+                PathBuf::from(profile).join(".mfb/keys")
+            );
+        }
         if let Some(home) = prior_home {
             std::env::set_var("HOME", home);
         }

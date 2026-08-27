@@ -154,15 +154,18 @@ pub(crate) fn install_vendor_file(
 ///   ~/.mfb/<hash>/session/**
 /// where `<hash>` is the SHA-256 (hex) of the repo URL.
 ///
-/// The base directory mirrors `LocalPaths::from_env` (MFB_HOME, else
-/// HOME/.mfb); the repo hash is appended as an additional path component.
+/// The base directory mirrors `LocalPaths::from_env` (MFB_HOME, else the
+/// platform home directory plus `.mfb`); the repo hash is appended as an
+/// additional path component.
 pub(crate) fn local_paths_for_repo(
     repo_url: &str,
 ) -> Result<mfb_repository::local::LocalPaths, String> {
     let base = if let Ok(home) = std::env::var("MFB_HOME") {
         PathBuf::from(home)
     } else {
-        let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map_err(|_| "HOME is not set".to_string())?;
         PathBuf::from(home).join(".mfb")
     };
     let hash = mfb_repository::crypto::fingerprint(repo_url.as_bytes());
@@ -356,6 +359,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn local_paths_for_repo_errors_when_home_unset() {
         let _lock = ENV_LOCK.lock().unwrap();
         let _mfb = EnvVarGuard::unset("MFB_HOME");
@@ -363,6 +367,20 @@ pub(crate) mod tests {
         assert!(local_paths_for_repo("repo")
             .unwrap_err()
             .contains("HOME is not set"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn local_paths_for_repo_falls_back_to_userprofile() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _mfb = EnvVarGuard::unset("MFB_HOME");
+        let _home = EnvVarGuard::unset("HOME");
+        let profile = std::env::var("USERPROFILE").expect("Windows user profile");
+        let paths = local_paths_for_repo("repo").expect("paths");
+        let hash = mfb_repository::crypto::fingerprint("repo".as_bytes());
+        assert!(paths
+            .keys_dir()
+            .starts_with(PathBuf::from(profile).join(".mfb").join(hash)));
     }
 
     #[test]

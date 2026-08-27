@@ -878,8 +878,11 @@ mod tests {
         assert_eq!(unreadable.len(), 1, "findings: {findings:#?}");
         // "put the file in vendor/" is the entire fix, so the message must name
         // the full expected path.
+        let expected = dir.path().join("vendor").join("libmissing.so");
         assert!(
-            unreadable[0].message.contains("vendor/libmissing.so"),
+            unreadable[0]
+                .message
+                .contains(&expected.display().to_string()),
             "message must name the expected path: {}",
             unreadable[0].message
         );

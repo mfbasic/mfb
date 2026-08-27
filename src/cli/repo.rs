@@ -504,6 +504,7 @@ mod tests {
     /// This is the regression guard for the eager-resolution difference between
     /// the old `pkg` dispatch and the new `repo` one.
     #[test]
+    #[cfg(unix)]
     fn arity_errors_do_not_depend_on_the_key_store() {
         let _lock = super::super::tests::ENV_LOCK
             .lock()

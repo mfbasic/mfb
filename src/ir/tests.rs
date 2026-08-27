@@ -3983,10 +3983,16 @@ mod lower_pipeline_tests {
         "entry": "main", "targets": ["native"] }"#;
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
+        let current_thread = std::thread::current();
+        let thread = current_thread.name().unwrap_or("test");
+        let thread: String = thread
+            .chars()
+            .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+            .collect();
         let root = std::env::temp_dir().join(format!(
             "mfb_ir_lower_{name}_{}_{}",
             std::process::id(),
-            std::thread::current().name().unwrap_or("test")
+            thread
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("src")).expect("temp src dir");

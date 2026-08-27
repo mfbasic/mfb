@@ -3284,11 +3284,14 @@ mod tests {
     }
 
     fn test_temp_dir(name: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "mfb_{name}_{}_{}",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test")
-        ));
+        let current_thread = std::thread::current();
+        let thread = current_thread.name().unwrap_or("test");
+        let thread: String = thread
+            .chars()
+            .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+            .collect();
+        let root =
+            std::env::temp_dir().join(format!("mfb_{name}_{}_{}", std::process::id(), thread));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("temp dir");
         root
