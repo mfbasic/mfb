@@ -294,6 +294,22 @@ mod tests {
     }
 
     #[test]
+    fn unknown_package_with_subtopic_is_error() {
+        let err = show_spec(&s(&["definitely-not-a-package", "topic"])).unwrap_err();
+        assert!(err.contains("unknown spec topic"));
+        assert!(err.contains("Available topics"));
+    }
+
+    #[test]
+    fn an_empty_listing_is_accepted() {
+        let style = render::Style {
+            width: 80,
+            color: false,
+        };
+        print_spec_listing("Topic", &[], &style);
+    }
+
+    #[test]
     fn too_many_positionals_is_error() {
         let err = show_spec(&s(&["a", "b", "c"])).unwrap_err();
         assert!(err.contains("at most two arguments"));
