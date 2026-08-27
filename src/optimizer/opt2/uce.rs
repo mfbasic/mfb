@@ -173,4 +173,23 @@ mod tests {
         with_opt_level(OptLevel(1), || eliminate(&mut stream));
         assert_eq!(ops(&stream), before);
     }
+
+    #[test]
+    fn empty_stream_is_unchanged() {
+        let mut stream = Vec::new();
+        with_opt_level(OptLevel(2), || eliminate(&mut stream));
+        assert!(stream.is_empty());
+    }
+
+    #[test]
+    fn a_reference_to_the_entry_label_does_not_process_it_twice() {
+        let mut stream = vec![
+            ci("label", &[("name", "entry")]),
+            ci("mov_imm", &[("dst", "%v1"), ("value", "entry")]),
+            ci("ret", &[]),
+        ];
+        let before = ops(&stream);
+        with_opt_level(OptLevel(2), || eliminate(&mut stream));
+        assert_eq!(ops(&stream), before);
+    }
 }
