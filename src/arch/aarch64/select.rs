@@ -176,4 +176,15 @@ mod tests {
         assert!(vals.contains(&"x3".to_string()), "%argSys3 → x3: {vals:?}");
         assert!(vals.contains(&"x7".to_string()), "%argC7 → x7: {vals:?}");
     }
+
+    #[test]
+    fn enabled_selfmove_probe_does_not_mutate_the_selected_stream() {
+        std::env::set_var("MFB_BUG387_SELFMOVE", "1");
+        let out = select_aarch64(lower_to_mir(&[CodeInstruction::new("mov")
+            .field("dst", "x0")
+            .field("src", "x0")]));
+        std::env::remove_var("MFB_BUG387_SELFMOVE");
+        assert_eq!(out[0].op, CodeOp::Mov);
+        assert_eq!(values(&out), ["x0", "x0"]);
+    }
 }
