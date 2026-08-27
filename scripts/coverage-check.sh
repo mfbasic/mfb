@@ -5,13 +5,13 @@
 # global floor is enforced separately by `cargo llvm-cov report
 # --fail-under-lines`.
 #
-# FLOOR defaults to 95 (the plan-12 bar); override with e.g. FLOOR=0 to only
+# FLOOR defaults to 98; override with e.g. FLOOR=0 to only
 # print a report without gating during bring-up.
 set -eu
 
 cd "$(dirname "$0")/.."
 
-FLOOR="${FLOOR:-95}"
+FLOOR="${FLOOR:-98}"
 . ./scripts/coverage-common.sh
 
 # Regenerate the JSON summary from the cached profile (no test re-run).

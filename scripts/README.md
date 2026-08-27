@@ -95,7 +95,7 @@ Build fixture programs, run them, and diff their behavior against goldens.
   the same LLVM engine locally and in CI so numbers agree per platform.
 - **coverage-check.sh** — Per-file coverage gate: reads the profile left by
   `coverage.sh` and prints every in-scope source file below the floor, exiting
-  non-zero if any fall short. Floor defaults to 95; override with `FLOOR=`.
+  non-zero if any fall short. Floor defaults to 98; override with `FLOOR=`.
 - **coverage-common.sh** — Shared coverage settings (sourced, not executable):
   the `IGNORE` denominator-exclusion regex and `PKG_FLAGS` package selection,
   used by both coverage scripts and the CI global-floor step so they can't drift.

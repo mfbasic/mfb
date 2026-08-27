@@ -30,7 +30,6 @@ cd "$(dirname "$0")/.."
 # is not buried. `set -e` must not abort before the reports, so capture the code.
 status=0
 cargo llvm-cov --workspace --all-targets --no-fail-fast \
-  --ignore-filename-regex "$IGNORE" \
   --no-report || status=$?
 
 # Human-readable + tooling reports from the held profile. If the run produced no

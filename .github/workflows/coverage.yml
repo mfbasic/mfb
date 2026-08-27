@@ -125,14 +125,14 @@ jobs:
         run: cargo install cargo-llvm-cov
       - name: Run coverage
         run: sh scripts/coverage.sh
-      - name: Per-file 95% gate
+      - name: Per-file 98% gate
         run: sh scripts/coverage-check.sh
       - name: Global floor gate
         run: |
           . ./scripts/coverage-common.sh
           cargo llvm-cov report $PKG_FLAGS \
             --ignore-filename-regex "$IGNORE" \
-            --fail-under-lines 95
+            --fail-under-lines 98
       - uses: actions/upload-artifact@v4
         with:
           name: coverage
