@@ -196,11 +196,8 @@ mod tests {
     #[test]
     fn spec_links_resolve() {
         let broken = unresolved_cross_links(spec_pages());
-        assert!(
-            broken.is_empty(),
-            "unresolvable spec cross-links:\n{}",
-            broken.join("\n")
-        );
+        let message = format!("unresolvable spec cross-links:\n{}", broken.join("\n"));
+        assert!(broken.is_empty(), "{message}");
     }
 
     /// The resolver's "broken" arms fire on a synthetic corrupt corpus: an
@@ -229,11 +226,8 @@ mod tests {
     fn spec_citations_resolve() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let broken = unresolved_citations(root, spec_pages());
-        assert!(
-            broken.is_empty(),
-            "unresolvable spec citations:\n{}",
-            broken.join("\n")
-        );
+        let message = format!("unresolvable spec citations:\n{}", broken.join("\n"));
+        assert!(broken.is_empty(), "{message}");
     }
 
     /// The citation resolver's push arm fires on a synthetic citation whose file
@@ -302,5 +296,10 @@ mod tests {
             "A summary line."
         );
         assert_eq!(summary_line("# Only a heading"), "");
+    }
+
+    #[test]
+    fn unterminated_citation_is_ignored() {
+        assert!(citations("before [[src/file.rs:Symbol after").is_empty());
     }
 }
