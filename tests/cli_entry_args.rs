@@ -163,6 +163,28 @@ fn linux_aarch64_console_entry_parks_argv_before_clobbering_it() {
     );
 }
 
+/// A raw PE entry has no incoming argc/argv registers. It must synthesize them
+/// from GetCommandLineW even when the program never calls os::args, then park
+/// the synthesized values before later runtime initialization clobbers rcx/rdx.
+#[test]
+fn windows_console_entry_builds_and_parks_argv_for_main() {
+    let plan = build_ncode("entry_args_windows", ARGS_SOURCE, "windows-x86_64", false);
+    let instructions = function(&plan, "_main");
+    let argv_done = instructions
+        .iter()
+        .position(|i| {
+            i["op"] == "label" && field(i, "name").is_some_and(|name| name.contains("_argv_ld_"))
+        })
+        .expect("Windows entry builds argv from the command line");
+    let after_argv = &instructions[argv_done..];
+    assert!(after_argv.iter().any(|i| {
+        i["op"] == "mov" && field(i, "src") == Some("rcx") && field(i, "dst") == Some("r12")
+    }));
+    assert!(after_argv.iter().any(|i| {
+        i["op"] == "mov" && field(i, "src") == Some("rdx") && field(i, "dst") == Some("r13")
+    }));
+}
+
 /// An app-mode entry is CALLED by the worker, so it must take argc/argv from
 /// registers rather than reading the raw-ELF `[sp]`/`sp+8` layout, which on a
 /// worker stack is unrelated data (bug-240).

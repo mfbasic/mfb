@@ -149,7 +149,7 @@ pub(crate) fn lower_program_entry(
     //
     // Gated on `language_entry_accepts_args`, so a non-arg entry stays
     // byte-identical.
-    if language_entry_accepts_args {
+    if language_entry_accepts_args && !platform.defers_arg_capture() {
         instructions.extend([
             abi::move_register(abi::SCRATCH[17], abi::c_arg(0)),
             abi::move_register(abi::SCRATCH[18], abi::c_arg(1)),
@@ -247,29 +247,37 @@ pub(crate) fn lower_program_entry(
     // and argv in `ARG[1]`; the stores mirror the pre-arena path exactly, so a
     // program that never calls `os::args` (capture_args=false) keeps a
     // byte-identical entry.
-    if capture_args && platform.defers_arg_capture() {
+    if platform.defers_arg_capture() && (capture_args || language_entry_accepts_args) {
         platform.emit_build_argv_utf8(
             entry_symbol,
             platform_imports,
             &mut instructions,
             &mut relocations,
         )?;
-        push_symbol_address(
-            entry_symbol,
-            crate::codegen::builtins::os::OS_ARGC_GLOBAL_SYMBOL,
-            abi::SCRATCH[0],
-            &mut instructions,
-            &mut relocations,
-        );
-        instructions.push(abi::store_u64(abi::c_arg(0), abi::SCRATCH[0], 0));
-        push_symbol_address(
-            entry_symbol,
-            crate::codegen::builtins::os::OS_ARGV_GLOBAL_SYMBOL,
-            abi::SCRATCH[0],
-            &mut instructions,
-            &mut relocations,
-        );
-        instructions.push(abi::store_u64(abi::c_arg(1), abi::SCRATCH[0], 0));
+        if language_entry_accepts_args {
+            instructions.extend([
+                abi::move_register(abi::SCRATCH[17], abi::c_arg(0)),
+                abi::move_register(abi::SCRATCH[18], abi::c_arg(1)),
+            ]);
+        }
+        if capture_args {
+            push_symbol_address(
+                entry_symbol,
+                crate::codegen::builtins::os::OS_ARGC_GLOBAL_SYMBOL,
+                abi::SCRATCH[0],
+                &mut instructions,
+                &mut relocations,
+            );
+            instructions.push(abi::store_u64(abi::c_arg(0), abi::SCRATCH[0], 0));
+            push_symbol_address(
+                entry_symbol,
+                crate::codegen::builtins::os::OS_ARGV_GLOBAL_SYMBOL,
+                abi::SCRATCH[0],
+                &mut instructions,
+                &mut relocations,
+            );
+            instructions.push(abi::store_u64(abi::c_arg(1), abi::SCRATCH[0], 0));
+        }
     }
     // Install SIGINT/SIGTERM handlers (console programs). `signal()` clobbers
     // `x0`/`x1`, so argc/argv are parked below the frame across the calls; `x19`

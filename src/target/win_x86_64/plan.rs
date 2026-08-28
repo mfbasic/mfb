@@ -43,11 +43,11 @@ impl NativePlanPlatform for Platform {
         "windows-x86_64"
     }
 
-    fn entry_imports(&self, _module: &NirModule) -> Vec<PlatformImport> {
+    fn entry_imports(&self, module: &NirModule) -> Vec<PlatformImport> {
         // The entry maps/unmaps the arena (VirtualAlloc/VirtualFree), seeds the
         // arena start time (GetSystemTimePreciseAsFileTime) and the always-on
         // memory-fill RNG (BCryptGenRandom, bcrypt.dll).
-        vec![
+        let mut imports = vec![
             import("VirtualAlloc", KERNEL32, "_start"),
             import("VirtualFree", KERNEL32, "_start"),
             import("GetSystemTimePreciseAsFileTime", KERNEL32, "_start"),
@@ -61,7 +61,20 @@ impl NativePlanPlatform for Platform {
             // plain `RETURN` has no ExitProgram op, so this import rides the entry,
             // not `program_exit_imports`.
             import("ExitProcess", KERNEL32, "_start"),
-        ]
+        ];
+        if module
+            .entry
+            .as_ref()
+            .is_some_and(|entry| entry.accepts_args)
+        {
+            imports.extend([
+                import("GetCommandLineW", KERNEL32, "_start"),
+                import("CommandLineToArgvW", SHELL32, "_start"),
+                import("LocalFree", KERNEL32, "_start"),
+                import("WideCharToMultiByte", KERNEL32, "_start"),
+            ]);
+        }
+        imports
     }
 
     fn entry_error_imports(&self, _module: &NirModule) -> Vec<PlatformImport> {
