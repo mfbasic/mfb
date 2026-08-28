@@ -427,7 +427,7 @@ fn render_declaration(pkg: &str, name: &str, implementation: &Implementation) ->
         .params
         .iter()
         .map(|param| {
-            let decl = format!("{} AS {}", param.name, param.ty.name());
+            let decl = format!("{} AS {}", param.name, public_type_name(&param.ty));
             if matches!(
                 param.default,
                 DefaultValue::Fill { .. } | DefaultValue::Optional
@@ -441,8 +441,12 @@ fn render_declaration(pkg: &str, name: &str, implementation: &Implementation) ->
         .join(", ");
     format!(
         "`{pkg}::{name}({params}) AS {}`",
-        implementation.return_type.name()
+        public_type_name(&implementation.return_type)
     )
+}
+
+fn public_type_name(ty: &crate::types::ParameterType) -> String {
+    ty.name().replace('.', "::")
 }
 
 /// The union of every parameter across all overloads, de-duplicated by name (first
@@ -574,7 +578,7 @@ fn render_parameters(md: &mut String, function: &RegistryFunction) {
     let return_type = function
         .implementations
         .first()
-        .map(|implementation| implementation.return_type.name());
+        .map(|implementation| public_type_name(&implementation.return_type));
 
     if params.is_empty() {
         if single {
@@ -620,13 +624,13 @@ fn render_parameters(md: &mut String, function: &RegistryFunction) {
             };
             md.push_str(&format!(
                 "| {name} | `{}` | {aliases} | {} |\n",
-                param.ty.name(),
+                public_type_name(&param.ty),
                 param.desc
             ));
         } else {
             md.push_str(&format!(
                 "| {name} | `{}` | {} |\n",
-                param.ty.name(),
+                public_type_name(&param.ty),
                 param.desc
             ));
         }
@@ -748,6 +752,19 @@ mod tests {
         assert!(md.contains("`cwd`"));
         assert!(md.contains("`env`"));
         assert!(md.contains("`envReplace`"));
+    }
+
+    #[test]
+    fn function_types_use_public_package_qualification() {
+        let package = registry().resolve_package("net").unwrap();
+        let function = package.function("poll").unwrap();
+        let md = render_function_markdown(package, function);
+
+        assert!(md.contains("sock AS net::Socket"));
+        assert!(md.contains("socks AS List OF net::Socket"));
+        assert!(md.contains("| `sock` | `net::Socket` |"));
+        assert!(md.contains("| `socks` | `List OF net::Socket` |"));
+        assert!(!md.contains("net.Socket"));
     }
 
     #[test]
