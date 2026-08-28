@@ -744,7 +744,9 @@ pub fn mfb_exe() -> String {
         .parent()
         .expect("mfb binary has a parent directory");
     let target_dir = profile_dir.parent().expect("profile dir sits under target");
-    let release = target_dir.join("release").join("mfb");
+    let release = target_dir
+        .join("release")
+        .join(format!("mfb{}", std::env::consts::EXE_SUFFIX));
 
     // Always delegate the up-to-date decision to Cargo — never skip on mere
     // existence. A pre-existing `target/release/mfb` is NOT proof it matches the

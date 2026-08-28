@@ -737,6 +737,14 @@ mod tests {
     }
 
     #[test]
+    fn package_metadata_readers_handle_a_malformed_package_by_contract() {
+        let (_dir, path) = write_temp(b"not an mfp package");
+
+        assert!(resource_closers_from_files(std::slice::from_ref(&path)).is_empty());
+        assert!(verify_foreign_type_abi_consistency(&[path]).is_err());
+    }
+
+    #[test]
     fn read_mfp_header_parses_valid_unsigned_package() {
         let (_dir, path) = write_temp(&build_mfp("mypkg", "1.2.3"));
         let header = read_mfp_header(&path).expect("valid header");
@@ -940,10 +948,8 @@ mod tests {
     // --- percent decoding / file:// URLs ----------------------------------
 
     #[test]
+    #[cfg(unix)]
     fn package_file_url_path_validates_scheme_and_extension() {
-        let dir = tempfile::tempdir().unwrap();
-        let wrong_extension = dir.path().join("package.txt");
-        let missing = dir.path().join("missing.mfp");
         assert!(package_file_url_path("https://x/y.mfp")
             .unwrap_err()
             .contains("file://"));
@@ -956,16 +962,25 @@ mod tests {
         assert!(package_file_url_path("file://relative/path.mfp")
             .unwrap_err()
             .contains("absolute path"));
-        assert!(
-            package_file_url_path(&format!("file://{}", wrong_extension.display()))
-                .unwrap_err()
-                .contains("must point to a .mfp file")
-        );
-        assert!(
-            package_file_url_path(&format!("file://{}", missing.display()))
-                .unwrap_err()
-                .contains("does not exist")
-        );
+        assert!(package_file_url_path("file:///abs/path.txt")
+            .unwrap_err()
+            .contains("must point to a .mfp file"));
+        assert!(package_file_url_path("file:///does/not/exist.mfp")
+            .unwrap_err()
+            .contains("does not exist"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn package_file_url_path_validates_windows_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, expected) in [
+            ("package.txt", "must point to a .mfp file"),
+            ("missing.mfp", "does not exist"),
+        ] {
+            let url = format!("file://{}", dir.path().join(name).display());
+            assert!(package_file_url_path(&url).unwrap_err().contains(expected));
+        }
     }
 
     #[test]
