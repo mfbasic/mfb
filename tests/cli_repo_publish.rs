@@ -125,7 +125,7 @@ fn repo_signs_package_and_embeds_executable_metadata() {
         .find(|path| {
             path.file_name()
                 .and_then(|name| name.to_str())
-                .map(|name| name.ends_with(".out"))
+                .map(|name| name.ends_with(if cfg!(windows) { ".exe" } else { ".out" }))
                 .unwrap_or(false)
         })
         .expect("signed executable");
