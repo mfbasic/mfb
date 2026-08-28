@@ -96,7 +96,7 @@ fn linux_app_mode_emits_a_single_sealed_appimage() {
     );
     let names: Vec<&str> = written
         .iter()
-        .map(|p| p.rsplit('/').next().unwrap())
+        .map(|p| Path::new(p).file_name().unwrap().to_str().unwrap())
         .collect();
     assert!(names.contains(&"linux_app_exe-glibc.AppImage"), "{names:?}");
     assert!(names.contains(&"linux_app_exe-musl.AppImage"), "{names:?}");
