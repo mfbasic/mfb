@@ -1068,7 +1068,8 @@ fn repo_gc_reclaims_an_orphaned_blob_and_leaves_live_packages_installable() {
     // A vendor locator names one concrete build (there is no fat ELF), so on Linux
     // each entry must name an explicit (arch, libc) — a wildcard is rejected with
     // PROJECT_JSON_LIBRARY_INVALID. Enumerate every arch/libc the suite runs on (CI
-    // is linux/x86_64/glibc; the test boxes add musl and other arches) plus macOS.
+    // is linux/x86_64/glibc; the test boxes add musl and other arches) plus macOS
+    // and Windows.
     // A Linux executable build emits both libc flavors of its arch in one pass, so
     // the consumer build resolves — and must find installed — both the glibc and
     // musl `.so` for the host arch.
@@ -1082,6 +1083,9 @@ fn repo_gc_reclaims_an_orphaned_blob_and_leaves_live_packages_installable() {
     ];
     let mut locators = String::from(
         "      { \"os\": \"macos\", \"type\": \"vendor\", \"source\": \"libgc.dylib\" }",
+    );
+    locators.push_str(
+        ",\n      { \"os\": \"windows\", \"arch\": \"x86_64\", \"type\": \"vendor\", \"source\": \"libgc.dll\" }",
     );
     for (arch, libc) in linux_flavors {
         locators.push_str(&format!(
@@ -1130,6 +1134,11 @@ END FUNC
     std::fs::write(
         vendor_pkg.join("vendor/libgc.dylib"),
         vendor_bytes_for("libgc.dylib"),
+    )
+    .unwrap();
+    std::fs::write(
+        vendor_pkg.join("vendor/libgc.dll"),
+        vendor_bytes_for("libgc.dll"),
     )
     .unwrap();
     for (arch, libc) in linux_flavors {
