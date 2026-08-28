@@ -792,7 +792,7 @@ pub fn repo_exe() -> String {
         .parent()
         .expect("mfb binary has a parent directory")
         .to_path_buf();
-    let exe = bin_dir.join("mfb-repo");
+    let exe = bin_dir.join(format!("mfb-repo{}", std::env::consts::EXE_SUFFIX));
 
     BUILD_REPO.call_once(|| {
         if exe.exists() {
