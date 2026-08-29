@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/native/native-abi-no-result-invalid
+  10 |   END FUNC
+  11 | 
+  12 |   FUNC version(RES db AS Db) AS Integer
+     | ^
+tests/syntax/native/native-abi-no-result-invalid/src/lib.mfb:12 error[2-203-0096 NATIVE_ABI_NO_RESULT]: a value-returning native function marks no ABI result
+               Native function `version` returns a value but declares no `RETURN <expr>` naming its result.
+[exit 1]

@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/native/native-abi-unbound-param-invalid
+  11 |   END FUNC
+  12 | 
+  13 |   FUNC open(path AS String, flags AS Integer) AS RES Db
+     | ^
+tests/syntax/native/native-abi-unbound-param-invalid/src/lib.mfb:13 error[2-203-0095 NATIVE_ABI_UNBOUND_PARAM]: a native function parameter has no matching ABI slot
+               Native function `open` parameter `flags` has no matching ABI slot and no BIND IN field.
+[exit 1]

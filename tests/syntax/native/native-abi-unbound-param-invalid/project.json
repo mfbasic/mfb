@@ -1,0 +1,8 @@
+{
+  "name": "native_abi_unbound_param_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "Every wrapper parameter must be consumed by an ABI slot of the same name, a BIND IN field, or a BUFFER SIZE expression; NATIVE_ABI_UNBOUND_PARAM otherwise.",
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}

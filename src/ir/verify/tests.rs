@@ -8295,6 +8295,121 @@ fn accepts_a_copyable_immutable_capture() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// plan-107-C — package-path twins of the LINK sub-forms verify lacked before
+// the front end's rules moved here. Each mutates one thing about a well-formed
+// wrapper over `CSTRUCT S AS Rec { a CInt32 }`.
+// ---------------------------------------------------------------------------
+
+/// A project with `CSTRUCT S AS Rec { a CInt32 }`, record `Rec { a AS Integer }`
+/// and one wrapper whose ABI has a single struct slot `s` of `direction`.
+fn struct_slot_project(direction: crate::ir::AbiDirection) -> (IrProject, crate::ir::IrLinkFunction) {
+    let mut p = project_with_cstructs(vec![cstruct("S", &[("a", "CInt32")])]);
+    p.types = vec![record_typed("Rec", &[("a", "Integer")])];
+    let mut f = link_fn();
+    f.params = vec![];
+    f.abi_slots = vec![crate::ir::IrAbiSlot {
+        name: "s".to_string(),
+        ctype: "S".to_string(),
+        direction,
+    }];
+    (p, f)
+}
+
+fn bind_in(slot: &str, fields: &[(&str, Option<&str>, Option<i64>)]) -> crate::ir::IrBindIn {
+    crate::ir::IrBindIn {
+        slot: slot.to_string(),
+        fields: fields
+            .iter()
+            .map(|(name, param, literal)| crate::ir::IrBindInField {
+                name: (*name).to_string(),
+                param: param.map(str::to_string),
+                literal: *literal,
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn rejects_inout_on_a_non_cstruct_slot() {
+    // A scalar slot is either a C argument or a produced value; INOUT means
+    // nothing for it.
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    let mut f = link_fn();
+    f.abi_slots[0].direction = crate::ir::AbiDirection::InOut;
+    p.link_functions = vec![f];
+    expect_rule(&p, "NATIVE_ABI_UNKNOWN_CTYPE");
+}
+
+#[test]
+fn rejects_returning_an_in_struct_slot() {
+    // An IN slot is zeroed and never read back, so `RETURN s` names nothing.
+    let (mut p, mut f) = struct_slot_project(crate::ir::AbiDirection::In);
+    f.bind_in = vec![bind_in("s", &[("a", None, Some(1))])];
+    f.return_type = "Rec".to_string();
+    f.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
+    p.link_functions = vec![f];
+    expect_rule(&p, "NATIVE_ABI_RESULT_MARKER");
+}
+
+#[test]
+fn rejects_returning_a_struct_slot_as_another_type() {
+    // A wrapper that returns a struct slot must declare its mapped record.
+    let (mut p, mut f) = struct_slot_project(crate::ir::AbiDirection::Out);
+    f.return_type = "Integer".to_string();
+    f.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
+    p.link_functions = vec![f];
+    expect_rule(&p, "NATIVE_STRUCT_FIELD_MISMATCH");
+}
+
+#[test]
+fn rejects_bind_in_on_an_out_slot() {
+    let (mut p, mut f) = struct_slot_project(crate::ir::AbiDirection::Out);
+    f.bind_in = vec![bind_in("s", &[("a", None, Some(1))])];
+    f.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
+    f.return_type = "Rec".to_string();
+    p.link_functions = vec![f];
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+#[test]
+fn rejects_bind_in_setting_a_field_twice() {
+    let (mut p, mut f) = struct_slot_project(crate::ir::AbiDirection::In);
+    f.bind_in = vec![bind_in("s", &[("a", None, Some(1)), ("a", None, Some(2))])];
+    p.link_functions = vec![f];
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+#[test]
+fn rejects_bind_in_field_bound_to_nothing() {
+    // Lowering represents an unmarshalable value as neither param nor literal.
+    let (mut p, mut f) = struct_slot_project(crate::ir::AbiDirection::In);
+    f.bind_in = vec![bind_in("s", &[("a", None, None)])];
+    p.link_functions = vec![f];
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+#[test]
+fn rejects_an_unbound_in_struct_slot() {
+    // An IN struct slot with neither a parameter nor a BIND IN block is unbound
+    // — the front end's second slot pass never exempted struct slots.
+    let (mut p, f) = struct_slot_project(crate::ir::AbiDirection::In);
+    p.link_functions = vec![f];
+    expect_rule(&p, "NATIVE_ABI_UNBOUND_SLOT");
+}
+
+#[test]
+fn accepts_a_bound_in_struct_slot() {
+    let (mut p, mut f) = struct_slot_project(crate::ir::AbiDirection::In);
+    f.bind_in = vec![bind_in("s", &[("a", None, Some(1))])];
+    p.link_functions = vec![f];
+    let got = rules(&p);
+    assert!(
+        !got.iter().any(|r| r.starts_with("NATIVE_")),
+        "{got:?}"
+    );
+}
+
 #[test]
 fn accepts_a_body_that_returns_before_its_trap() {
     let body = vec![

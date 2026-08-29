@@ -1,0 +1,8 @@
+{
+  "name": "native_abi_no_result_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "A value-returning native wrapper must name its result with RETURN <expr> (plan-50-H); NATIVE_ABI_NO_RESULT otherwise.",
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}

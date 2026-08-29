@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/native/native-cstruct-too-large-invalid
+   6 | 
+   7 | LINK "demo" AS demoLink
+   8 |   CSTRUCT Big AS Big
+     | ^
+tests/syntax/native/native-cstruct-too-large-invalid/src/lib.mfb:8 error[2-203-0125 NATIVE_CSTRUCT_TOO_LARGE]: a CSTRUCT lays out larger than the maximum native struct size
+               CSTRUCT `Big` lays out to 1032 bytes, over the 1024-byte maximum.
+[exit 1]
