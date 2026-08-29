@@ -5,24 +5,6 @@ $ mfb build -ast -ir tests/syntax/process/spawn_invalid
      | ^
 tests/syntax/process/spawn_invalid/src/main.mfb:9 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `process.spawn` has 0 argument(s), expected 1 to 4.
-   9 |   RES a = process::spawn()
-  10 |   ' Wrong argument type: a String is not a List OF String.
-  11 |   RES b = process::spawn("echo hi")
-     | ^
-tests/syntax/process/spawn_invalid/src/main.mfb:11 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `process.spawn` has argument type(s) (String), expected List OF String or List OF String, String, Map OF String TO String, Boolean.
-  11 |   RES b = process::spawn("echo hi")
-  12 |   ' Partial full-form: arity 2 matches no overload.
-  13 |   RES c = process::spawn(["echo"], "/tmp")
-     | ^
-tests/syntax/process/spawn_invalid/src/main.mfb:13 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `process.spawn` has argument type(s) (List OF String, String), expected List OF String or List OF String, String, Map OF String TO String, Boolean.
-  13 |   RES c = process::spawn(["echo"], "/tmp")
-  14 |   ' Full form with a wrong final type: envReplace must be Boolean.
-  15 |   RES d = process::spawn(["echo"], "/tmp", Map OF String TO String { "K" := "V" }, 1)
-     | ^
-tests/syntax/process/spawn_invalid/src/main.mfb:15 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `process.spawn` has argument type(s) (List OF String, String, Map OF String TO String, Integer), expected List OF String or List OF String, String, Map OF String TO String, Boolean.
    7 | FUNC main AS Integer
    8 |   ' No arguments: below the minimum arity.
    9 |   RES a = process::spawn()
@@ -33,14 +15,32 @@ tests/syntax/process/spawn_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_
   10 |   ' Wrong argument type: a String is not a List OF String.
   11 |   RES b = process::spawn("echo hi")
      | ^
+tests/syntax/process/spawn_invalid/src/main.mfb:11 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `process.spawn` has argument type(s) (String), expected List OF String or List OF String, String, Map OF String TO String, Boolean.
+   9 |   RES a = process::spawn()
+  10 |   ' Wrong argument type: a String is not a List OF String.
+  11 |   RES b = process::spawn("echo hi")
+     | ^
 tests/syntax/process/spawn_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `b` does not have a known type.
   11 |   RES b = process::spawn("echo hi")
   12 |   ' Partial full-form: arity 2 matches no overload.
   13 |   RES c = process::spawn(["echo"], "/tmp")
      | ^
+tests/syntax/process/spawn_invalid/src/main.mfb:13 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `process.spawn` has argument type(s) (List OF String, String), expected List OF String or List OF String, String, Map OF String TO String, Boolean.
+  11 |   RES b = process::spawn("echo hi")
+  12 |   ' Partial full-form: arity 2 matches no overload.
+  13 |   RES c = process::spawn(["echo"], "/tmp")
+     | ^
 tests/syntax/process/spawn_invalid/src/main.mfb:13 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `c` does not have a known type.
+  13 |   RES c = process::spawn(["echo"], "/tmp")
+  14 |   ' Full form with a wrong final type: envReplace must be Boolean.
+  15 |   RES d = process::spawn(["echo"], "/tmp", Map OF String TO String { "K" := "V" }, 1)
+     | ^
+tests/syntax/process/spawn_invalid/src/main.mfb:15 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `process.spawn` has argument type(s) (List OF String, String, Map OF String TO String, Integer), expected List OF String or List OF String, String, Map OF String TO String, Boolean.
   13 |   RES c = process::spawn(["echo"], "/tmp")
   14 |   ' Full form with a wrong final type: envReplace must be Boolean.
   15 |   RES d = process::spawn(["echo"], "/tmp", Map OF String TO String { "K" := "V" }, 1)

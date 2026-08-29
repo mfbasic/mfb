@@ -282,6 +282,15 @@ impl TypeEnv {
         if !self.poisoned.get() {
             return false;
         }
+        // On the source path `ir::shape` judges the HIR initializer directly —
+        // a value lowering could not type, and every constructor / `WITH`
+        // (the checker typed a read-only nominal's constructor and left an
+        // `Ok[…]` or a union's untyped, verdicts the IR node does not carry);
+        // only an operator node whose type a rule of THIS checker invalidated
+        // cascades here. The package path keeps the full test.
+        if self.source_path.get() {
+            return matches!(value, IrValue::Binary { .. } | IrValue::Unary { .. });
+        }
         matches!(
             value,
             IrValue::Binary { .. }

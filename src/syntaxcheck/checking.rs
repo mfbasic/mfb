@@ -96,14 +96,9 @@ impl<'a> SyntaxChecker<'a> {
         inferred: Option<&Type>,
         value: Option<&HirExpression>,
     ) {
-        if matches!(inferred, Some(Type::Unknown)) {
-            self.report(
-                "TYPE_UNKNOWN_VALUE",
-                &format!("Initializer for binding `{name}` does not have a known type."),
-                file,
-                line,
-            );
-        }
+        // An untypable initializer is `ir::shape`'s cascade (TYPE_UNKNOWN_VALUE,
+        // plan-107-E); nothing is reported here.
+        let _ = (inferred, name);
 
         // The binding-shape rejections (mismatch, missing type/value,
         // non-defaultable MUT, literal range) live in `ir::verify` now
@@ -203,14 +198,9 @@ impl<'a> SyntaxChecker<'a> {
                         )
                     })
                     .unwrap_or(Type::Nothing);
-                if matches!(actual, Type::Unknown) {
-                    self.report(
-                        "TYPE_UNKNOWN_VALUE",
-                        "RETURN value does not have a known type.",
-                        file,
-                        *line,
-                    );
-                }
+                // An untypable RETURN value is `ir::shape`'s cascade
+                // (TYPE_UNKNOWN_VALUE, plan-107-E).
+                let _ = actual;
                 Flow::AlwaysReturns
             }
             HirStatement::Exit { target, code, line } => {
@@ -240,12 +230,6 @@ impl<'a> SyntaxChecker<'a> {
                         // coverage:off — the parser always parses an expression
                         // for `EXIT PROGRAM`, so `code` is never `None` here.
                         let Some(code) = code else {
-                            self.report(
-                                "TYPE_UNKNOWN_VALUE",
-                                "EXIT PROGRAM requires an Integer exit code.",
-                                file,
-                                *line,
-                            );
                             return Flow::AlwaysReturns;
                         };
                         // coverage:on
@@ -331,12 +315,8 @@ impl<'a> SyntaxChecker<'a> {
                         self.infer_expression(file, value, locals, *line, ExprMode::Transfer);
                         return Flow::FallsThrough;
                     }
-                    self.report(
-                        "TYPE_UNKNOWN_VALUE",
-                        &format!("Assignment target `{name}` is not a local binding."),
-                        file,
-                        *line,
-                    );
+                    // An unknown target is `ir::shape`'s rejection
+                    // (TYPE_UNKNOWN_VALUE, plan-107-E).
                     return Flow::FallsThrough;
                 };
                 // Mutability/type/range rejections for local assignment
@@ -354,15 +334,8 @@ impl<'a> SyntaxChecker<'a> {
                     // bug-396: a file-PRIVATE top-level `resource` arrives mangled
                     // (`#<hash>$name`); demangle it so the message names the plain
                     // source identifier rather than the untypeable internal form.
-                    self.report(
-                        "TYPE_UNKNOWN_VALUE",
-                        &format!(
-                            "State assignment target `{}` is not a local binding.",
-                            crate::internal_name::display_name(resource)
-                        ),
-                        file,
-                        *line,
-                    );
+                    // A non-local target is `ir::shape`'s rejection
+                    // (TYPE_UNKNOWN_VALUE, plan-107-E).
                     self.infer_expression(file, value, locals, *line, ExprMode::Read);
                     return Flow::FallsThrough;
                 };

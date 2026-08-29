@@ -266,7 +266,28 @@ Commit: `ecd3601cd` (TYPE_UNKNOWN_ARGUMENT_NAME); TYPE_DUPLICATE_ARGUMENT_NAME �
 
 Acceptance: both codes verify/shape-only; syntaxcheck's builtin checker gone;
 corpus set-equal; gate byte-identical.
-Commit: `f70a3919f` (TYPE_CALL_ARITY_MISMATCH); TYPE_CALL_ARGUMENT_MISMATCH —
+Commit: `f70a3919f` (TYPE_CALL_ARITY_MISMATCH); `4199d19e9` +
+`0b2360912` (TYPE_CALL_ARGUMENT_MISMATCH and the seam gaps its gate exposed)
+
+### Phase 4 — TYPE_UNKNOWN_VALUE (added: A's verdict table routes it here, "after them")
+
+- [x] TYPE_UNKNOWN_VALUE → shape (the cascade over the checker's `Unknown`
+      verdict: initializer / RETURN / parameter-default forms and the two
+      not-a-local-binding target forms) + verify (its own operator-poisoning
+      cascade, source path narrowed to Binary/Unary nodes); list; delete
+      syntaxcheck's 7 sites. Justification: the checker's `Unknown` is a
+      verdict the IR does not carry — lowering stamps a lenient type on a
+      failed builtin call, a `$`-temp on a trapped one, `Integer` on a
+      non-numeric arithmetic, and a typed variant on a MATCH arm the checker
+      never bound. See Corrections C-cascade for the verdict reconstruction
+      and the census that drove it.
+- [x] Tests: corpus + harness (the 301 fixtures: 0 set-diff, 238 reordered,
+      goldens regenerated as pure moves); `ir::shape` cascade tests
+      (constructor, thread entry, builtin failure); the pipeline oracle's
+      syntaxcheck tests green.
+
+Acceptance: shape/verify-only; corpus set-equal.
+Commit: —
 
 ## Validation Plan
 
@@ -396,6 +417,31 @@ Commit: `f70a3919f` (TYPE_CALL_ARITY_MISMATCH); TYPE_CALL_ARGUMENT_MISMATCH —
   the call site's default fill (`lower_local_call_arguments`) and every other
   typed slot use `lower_expression_with_expected`. Fixed in `lower_param`;
   the artifact gate classifies any codegen delta as this fix's.
+- **C-cascade (2026-08-29, Phase 4).** TYPE_UNKNOWN_VALUE is the checker's
+  CASCADE: "the initializer/RETURN/default typed `Unknown`". A census of the
+  corpus's 839 cascades (`/tmp/p107-unknown-triggers2.sh`: the other rules
+  at the same line) found 730 following a builtin count/type failure, ~35
+  following an operator/constructor rule of `ir::verify`'s, 13 with no
+  co-rule at all (member reads the checker could not type). The verdict is
+  therefore split by who can see it: `ir::shape` reconstructs the checker's
+  `Unknown` from lowering's `expression_type` PLUS the verdicts the seam does
+  not carry — a call its own rules typed Unknown (tracked per call node), a
+  package constant in call form (typed), a constructor/`WITH` the checker
+  would not construct (`Ok`/`Result`, a compiler-owned record, a union/enum/
+  unknown name — the read-only nominals stay typed), an arithmetic on Money
+  the lattice rejects or on a `Nothing`/untyped operand, `.state` on a plain
+  `LET` of a stateful resource (the checker kept STATE on the `RES` axis
+  only — bug-376's displaced error, pinned by its fixture), a MATCH arm the
+  checker never bound (`Ok`/`Error`, a non-union scrutinee, an unknown
+  variant), and a bare built-in predicate typed from a FUNC expectation;
+  `ir::verify` keeps the cascade for the operator nodes its own rules poison
+  (Binary/Unary — on the source path only those, so the two never double a
+  line) and skips `$`-temp binds (B's note). Two seam-side bugs surfaced and
+  were fixed on the way: `AttributedString` was comparable to `ir::verify`
+  (an `=` on two attributed strings reached codegen: "native comparable
+  comparison does not support type 'List OF AttrSpan'" — syntaxcheck's
+  cascade had been the only rejecter), and the seam test's program used an
+  unresolvable `collections::map` and constructor-call syntax.
 - **Note from B (2026-08-29), for `TYPE_UNKNOWN_VALUE`'s relocation here:**
   lowering now binds a stray `RECOVER`'s value to a `$recover_stray` temp
   (B Corrections). verify's initializer cascade ("Initializer for binding

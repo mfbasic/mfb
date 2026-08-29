@@ -102,6 +102,11 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     // — named arguments on a function value, thread.start's entry, term's
     // drawText(AttributedString) without IMPORT astrings — are ir::shape's.
     "TYPE_CALL_ARGUMENT_MISMATCH",
+    // plan-107-E: the cascade — ir::shape's for an initializer/RETURN/default
+    // the checker could not type (lowering's seam has no type, or the shape's
+    // own call rules typed the call Unknown) and for the two not-a-local-binding
+    // target forms; ir::verify's for a typed node its own rules poisoned.
+    "TYPE_UNKNOWN_VALUE",
     "TYPE_BINARY_OPERATOR_MISMATCH",
     "TYPE_UNARY_OPERATOR_MISMATCH",
     "TYPE_FIELD_ACCESS_REQUIRES_RECORD",

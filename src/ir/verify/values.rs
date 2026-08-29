@@ -997,6 +997,12 @@ impl TypeEnv {
         if self.enums.contains_key(name.as_ref()) {
             return true;
         }
+        // `AttributedString` wraps a list overlay (like `List`): not comparable
+        // (syntaxcheck's rule; without it an `=` on two attributed strings
+        // reached codegen, which cannot compare a `List OF AttrSpan`).
+        if name == "AttributedString" {
+            return false;
+        }
         if !seen.insert(name.clone().into_owned()) {
             return false; // a cycle → not a base case
         }

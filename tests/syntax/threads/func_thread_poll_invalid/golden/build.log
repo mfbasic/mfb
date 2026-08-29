@@ -6,30 +6,6 @@ uses thread_workers - [Unsigned]
      | ^
 tests/syntax/threads/func_thread_poll_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `thread.poll` has 0 argument(s), expected 2.
-   5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
-   6 |   LET missing AS Boolean = thread::poll()
-   7 |   LET missingTimeout AS Boolean = thread::poll(t)
-     | ^
-tests/syntax/threads/func_thread_poll_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `thread.poll` has 1 argument(s), expected 2.
-   6 |   LET missing AS Boolean = thread::poll()
-   7 |   LET missingTimeout AS Boolean = thread::poll(t)
-   8 |   LET wrongThread AS Boolean = thread::poll(1, 0)
-     | ^
-tests/syntax/threads/func_thread_poll_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.poll` has argument type(s) (Integer, Integer), expected Thread OF Msg TO Out, Integer.
-   7 |   LET missingTimeout AS Boolean = thread::poll(t)
-   8 |   LET wrongThread AS Boolean = thread::poll(1, 0)
-   9 |   LET wrongTimeout AS Boolean = thread::poll(t, "bad")
-     | ^
-tests/syntax/threads/func_thread_poll_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.poll` has argument type(s) (Thread OF String TO Integer, String), expected Thread OF Msg TO Out, Integer.
-   8 |   LET wrongThread AS Boolean = thread::poll(1, 0)
-   9 |   LET wrongTimeout AS Boolean = thread::poll(t, "bad")
-  10 |   LET tooMany AS Boolean = thread::poll(t, 0, 1)
-     | ^
-tests/syntax/threads/func_thread_poll_invalid/src/main.mfb:10 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `thread.poll` has 3 argument(s), expected 2.
    4 | FUNC main AS Integer
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
    6 |   LET missing AS Boolean = thread::poll()
@@ -40,8 +16,20 @@ tests/syntax/threads/func_thread_poll_invalid/src/main.mfb:6 error[2-203-0043 TY
    6 |   LET missing AS Boolean = thread::poll()
    7 |   LET missingTimeout AS Boolean = thread::poll(t)
      | ^
+tests/syntax/threads/func_thread_poll_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `thread.poll` has 1 argument(s), expected 2.
+   5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+   6 |   LET missing AS Boolean = thread::poll()
+   7 |   LET missingTimeout AS Boolean = thread::poll(t)
+     | ^
 tests/syntax/threads/func_thread_poll_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missingTimeout` does not have a known type.
+   6 |   LET missing AS Boolean = thread::poll()
+   7 |   LET missingTimeout AS Boolean = thread::poll(t)
+   8 |   LET wrongThread AS Boolean = thread::poll(1, 0)
+     | ^
+tests/syntax/threads/func_thread_poll_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `thread.poll` has argument type(s) (Integer, Integer), expected Thread OF Msg TO Out, Integer.
    6 |   LET missing AS Boolean = thread::poll()
    7 |   LET missingTimeout AS Boolean = thread::poll(t)
    8 |   LET wrongThread AS Boolean = thread::poll(1, 0)
@@ -52,8 +40,20 @@ tests/syntax/threads/func_thread_poll_invalid/src/main.mfb:8 error[2-203-0043 TY
    8 |   LET wrongThread AS Boolean = thread::poll(1, 0)
    9 |   LET wrongTimeout AS Boolean = thread::poll(t, "bad")
      | ^
+tests/syntax/threads/func_thread_poll_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `thread.poll` has argument type(s) (Thread OF String TO Integer, String), expected Thread OF Msg TO Out, Integer.
+   7 |   LET missingTimeout AS Boolean = thread::poll(t)
+   8 |   LET wrongThread AS Boolean = thread::poll(1, 0)
+   9 |   LET wrongTimeout AS Boolean = thread::poll(t, "bad")
+     | ^
 tests/syntax/threads/func_thread_poll_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongTimeout` does not have a known type.
+   8 |   LET wrongThread AS Boolean = thread::poll(1, 0)
+   9 |   LET wrongTimeout AS Boolean = thread::poll(t, "bad")
+  10 |   LET tooMany AS Boolean = thread::poll(t, 0, 1)
+     | ^
+tests/syntax/threads/func_thread_poll_invalid/src/main.mfb:10 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `thread.poll` has 3 argument(s), expected 2.
    8 |   LET wrongThread AS Boolean = thread::poll(1, 0)
    9 |   LET wrongTimeout AS Boolean = thread::poll(t, "bad")
   10 |   LET tooMany AS Boolean = thread::poll(t, 0, 1)

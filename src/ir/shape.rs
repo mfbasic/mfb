@@ -30,7 +30,7 @@ use crate::hir::{
 };
 use crate::rules::PendingDiagnostic;
 use crate::types::ParameterType;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// Run the shape pass over `hir` and return its diagnostics in traversal
@@ -117,6 +117,23 @@ struct Walker<'a> {
     types: HashMap<String, TypeShape>,
     /// Project-relative path of the file being walked, for diagnostic paths.
     file: String,
+    /// Source line of the statement (or declaration) being walked, for the
+    /// expression-level rules that report at the statement.
+    current_line: usize,
+    /// Whether the call just checked is one the source checker typed
+    /// `Unknown` — a builtin whose count or argument types failed, or a
+    /// `thread.start` with a bad entry — so a binding of its value cascades
+    /// TYPE_UNKNOWN_VALUE. Set by `check_call_shape`, read by the Call arm.
+    call_typed_unknown: bool,
+    /// The verdict above per call expression (keyed by the HIR node's address,
+    /// stable for the walk), so a binding can ask about its initializer's
+    /// outermost call after the walk descended through it.
+    call_verdicts: HashMap<usize, bool>,
+    /// Locals bound by a plain `LET`/`MUT` (not `RES`) to a stateful resource:
+    /// the source checker kept a binding's `STATE` only on the `RES` axis, so
+    /// `.state` on such a local typed `Unknown` there (bug-376's displaced
+    /// error, pinned by its fixture).
+    state_dropped: HashSet<String>,
     diagnostics: Vec<PendingDiagnostic>,
     /// Every `LET`/`MUT`/`RES` binding's computed type in walk order — the
     /// seam-fidelity probe the unit tests compare against lowering's stamped
@@ -148,6 +165,13 @@ struct ShapeParam {
 struct TypeShape {
     id: usize,
     variants: Vec<String>,
+    /// A `TYPE` (record) — the one kind a constructor or `WITH` produces.
+    is_record: bool,
+    is_union: bool,
+    visibility: Visibility,
+    /// Declaring file (`PRIVATE` types are visible only there); empty for an
+    /// imported type.
+    file: String,
 }
 
 /// The `RES` element marker is an ownership-axis annotation, not a value type.
@@ -224,6 +248,40 @@ fn resolve_table_call_with_byte_literals(
     None
 }
 
+/// The source line a statement reports at.
+fn statement_line(statement: &HirStatement) -> usize {
+    match statement {
+        HirStatement::Let { line, .. }
+        | HirStatement::Return { line, .. }
+        | HirStatement::Exit { line, .. }
+        | HirStatement::Continue { line, .. }
+        | HirStatement::Fail { line, .. }
+        | HirStatement::Propagate { line, .. }
+        | HirStatement::Recover { line, .. }
+        | HirStatement::Assign { line, .. }
+        | HirStatement::StateAssign { line, .. }
+        | HirStatement::Expression { line, .. }
+        | HirStatement::If { line, .. }
+        | HirStatement::Match { line, .. }
+        | HirStatement::For { line, .. }
+        | HirStatement::ForEach { line, .. }
+        | HirStatement::While { line, .. }
+        | HirStatement::DoUntil { line, .. } => *line,
+    }
+}
+
+/// A compiler-owned record the language never constructs or updates from
+/// source (the checker's `read_only_record_type`).
+fn read_only_record(type_: &ParameterType) -> bool {
+    if matches!(type_, ParameterType::MapEntryOf(..)) {
+        return true;
+    }
+    let name = type_.name();
+    crate::codegen::builtins::term::is_read_only_record(&name)
+        || name == crate::codegen::builtins::net::ADDRESS_TYPE
+        || name == crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE
+}
+
 /// The call's argument values in source order.
 fn source_order(arguments: &[HirCallArg]) -> Vec<&HirExpression> {
     arguments
@@ -256,7 +314,17 @@ impl<'a> Walker<'a> {
                     } else {
                         Vec::new()
                     };
-                    types.insert(type_decl.name.clone(), TypeShape { id, variants });
+                    types.insert(
+                        type_decl.name.clone(),
+                        TypeShape {
+                            id,
+                            variants,
+                            is_record: type_decl.kind == crate::ast::TypeDeclKind::Type,
+                            is_union: type_decl.kind == crate::ast::TypeDeclKind::Union,
+                            visibility: type_decl.visibility,
+                            file: file.path.clone(),
+                        },
+                    );
                 }
             }
         }
@@ -271,7 +339,17 @@ impl<'a> Walker<'a> {
             } else {
                 Vec::new()
             };
-            types.insert(imported.name.clone(), TypeShape { id, variants });
+            types.insert(
+                imported.name.clone(),
+                TypeShape {
+                    id,
+                    variants,
+                    is_record: imported.kind == super::ImportedTypeKind::Record,
+                    is_union: imported.kind == super::ImportedTypeKind::Union,
+                    visibility: Visibility::Export,
+                    file: String::new(),
+                },
+            );
         }
         let mut functions = HashMap::new();
         for file in &hir.files {
@@ -311,6 +389,10 @@ impl<'a> Walker<'a> {
             astrings_imported,
             types,
             file: String::new(),
+            current_line: 0,
+            call_typed_unknown: false,
+            call_verdicts: HashMap::new(),
+            state_dropped: HashSet::new(),
             diagnostics: Vec::new(),
             #[cfg(test)]
             bound_types: Vec::new(),
@@ -332,7 +414,15 @@ impl<'a> Walker<'a> {
                 HirItem::Binding(binding) => {
                     if let Some(value) = &binding.value {
                         let locals = HashMap::new();
+                        self.current_line = binding.line;
                         self.walk_expression(value, &locals);
+                        self.check_initializer_known(
+                            &binding.name,
+                            value,
+                            &locals,
+                            binding.explicit_type.then_some(&binding.type_),
+                            binding.line,
+                        );
                     }
                 }
                 HirItem::Function(function) => self.walk_function(function),
@@ -358,12 +448,24 @@ impl<'a> Walker<'a> {
                 None => param.type_.clone(),
             };
             if let Some(default) = &param.default {
+                self.current_line = param.line;
                 self.walk_expression(default, &locals);
+                if self.checker_types_unknown(default, &locals, Some(&param.type_)) {
+                    self.emit(
+                        "TYPE_UNKNOWN_VALUE",
+                        format!(
+                            "Default value for `{}` does not have a known type.",
+                            param.name
+                        ),
+                        param.line,
+                    );
+                }
             }
             locals.insert(param.name.clone(), type_);
         }
         let previous_return_type = self.context.current_return_type.take();
         self.context.current_return_type = Some(lower::function_return_type(function));
+        self.state_dropped.clear();
         // The body's top-level locals stay visible to the function-level
         // TRAP body (bug-285), exactly as `lower_function_body` scopes them.
         let mut body_locals = locals.clone();
@@ -392,13 +494,16 @@ impl<'a> Walker<'a> {
         statement: &HirStatement,
         locals: &mut HashMap<String, ParameterType>,
     ) {
+        self.current_line = statement_line(statement);
         match statement {
             HirStatement::Let {
+                resource,
                 state_type,
                 name,
                 type_,
                 explicit_type,
                 value,
+                line,
                 ..
             } => {
                 let declared_type = explicit_type.then(|| type_.clone());
@@ -421,10 +526,18 @@ impl<'a> Walker<'a> {
                     };
                     self.walk_expression(expression, locals);
                     self.walk_handler(binding, handler, locals);
+                    // The checker typed the binding by the trapped call.
+                    self.check_initializer_known(
+                        name,
+                        expression,
+                        locals,
+                        declared_type.as_ref(),
+                        *line,
+                    );
                     self.bind(name, success_type, locals);
                     return;
                 }
-                let lowered_type = declared_type.unwrap_or_else(|| {
+                let lowered_type = declared_type.clone().unwrap_or_else(|| {
                     value
                         .as_ref()
                         .and_then(|value| lower::expression_type(value, locals, &self.context))
@@ -436,12 +549,35 @@ impl<'a> Walker<'a> {
                 };
                 if let Some(value) = value {
                     self.walk_expression(value, locals);
+                    self.check_initializer_known(
+                        name,
+                        value,
+                        locals,
+                        declared_type.as_ref(),
+                        *line,
+                    );
+                }
+                if !*resource && lowered_type.state().is_some() {
+                    self.state_dropped.insert(name.clone());
+                } else {
+                    self.state_dropped.remove(name);
                 }
                 self.bind(name, lowered_type, locals);
             }
-            HirStatement::Return { value, .. } => {
+            HirStatement::Return { value, line } => {
                 if let Some(value) = value {
                     self.walk_expression(value, locals);
+                    // TYPE_UNKNOWN_VALUE, the RETURN form (see
+                    // `check_initializer_known`); the declared return type is the
+                    // expectation the checker inferred the value under.
+                    let expected = self.context.current_return_type.clone();
+                    if self.checker_types_unknown(value, locals, expected.as_ref()) {
+                        self.emit(
+                            "TYPE_UNKNOWN_VALUE",
+                            "RETURN value does not have a known type.".to_string(),
+                            *line,
+                        );
+                    }
                 }
             }
             HirStatement::Exit { code, .. } => {
@@ -456,7 +592,38 @@ impl<'a> Walker<'a> {
                     self.walk_expression(value, locals);
                 }
             }
-            HirStatement::Assign { value, .. } | HirStatement::StateAssign { value, .. } => {
+            HirStatement::Assign { name, value, line } => {
+                // TYPE_UNKNOWN_VALUE, the assignment-target form: a target that
+                // is neither a local nor a top-level binding. Lowering emits an
+                // `AssignGlobal` for any non-local name, so the IR does not
+                // know the name resolved to nothing.
+                if !locals.contains_key(name) && self.context.binding_type(name).is_none() {
+                    self.emit(
+                        "TYPE_UNKNOWN_VALUE",
+                        format!("Assignment target `{name}` is not a local binding."),
+                        *line,
+                    );
+                }
+                self.walk_value(value, locals);
+            }
+            HirStatement::StateAssign {
+                resource,
+                value,
+                line,
+            } => {
+                // TYPE_UNKNOWN_VALUE, the state-assignment form: `res.state = …`
+                // needs a LOCAL resource binding (a file-PRIVATE top-level
+                // resource arrives mangled and is reported by its source name).
+                if !locals.contains_key(resource) {
+                    self.emit(
+                        "TYPE_UNKNOWN_VALUE",
+                        format!(
+                            "State assignment target `{}` is not a local binding.",
+                            crate::internal_name::display_name(resource)
+                        ),
+                        *line,
+                    );
+                }
                 self.walk_value(value, locals);
             }
             HirStatement::Expression { expression, .. } => {
@@ -593,10 +760,16 @@ impl<'a> Walker<'a> {
         let mut case_locals = locals.clone();
         // The matched local's name is irrelevant to the binding's TYPE (it only
         // names the extract's source); the pattern and scrutinee type decide it.
-        if let Some((binding, binding_type, _)) =
-            lower::match_case_binding(&case.pattern, "$match", matched_type)
-        {
-            case_locals.insert(binding, binding_type);
+        // The checker bound a variant pattern only when the scrutinee is a
+        // union declaring that variant (a `CASE Ok`/`CASE Error` arm, a
+        // non-union scrutinee or an unknown variant leaves the name unbound,
+        // so a read of it types `Unknown` — the cascade those fixtures pin).
+        if self.checker_binds_pattern(&case.pattern, matched_type) {
+            if let Some((binding, binding_type, _)) =
+                lower::match_case_binding(&case.pattern, "$match", matched_type)
+            {
+                case_locals.insert(binding, binding_type);
+            }
         }
         if let Some(guard) = &case.guard {
             self.walk_expression(guard, &case_locals);
@@ -630,7 +803,12 @@ impl<'a> Walker<'a> {
                 // walked — the source checker normalized the argument list
                 // before inferring any argument, so a nested call's rule follows
                 // the enclosing call's.
+                self.call_typed_unknown = false;
                 self.check_call_shape(callee, arguments, *line, locals);
+                self.call_verdicts.insert(
+                    expression as *const HirExpression as usize,
+                    self.call_typed_unknown,
+                );
                 for argument in arguments {
                     match argument {
                         HirCallArg::Positional(value) | HirCallArg::Named { value, .. } => {
@@ -639,12 +817,26 @@ impl<'a> Walker<'a> {
                     }
                 }
             }
-            HirExpression::Lambda { params, body, .. } => {
+            HirExpression::Lambda {
+                params,
+                body,
+                assign_target,
+            } => {
                 // Lambda parameters shadow the enclosing scope for the body
                 // (`expression_type`'s Lambda arm).
                 let mut nested = locals.clone();
                 for param in params {
                     nested.insert(param.name.clone(), param.type_.clone());
+                }
+                // TYPE_UNKNOWN_VALUE, the assignment-bodied lambda's target form.
+                if let Some(target) = assign_target {
+                    if !nested.contains_key(target) {
+                        self.emit(
+                            "TYPE_UNKNOWN_VALUE",
+                            format!("Assignment target `{target}` is not a local binding."),
+                            self.current_line,
+                        );
+                    }
                 }
                 self.walk_expression(body, &nested);
             }
@@ -811,6 +1003,7 @@ impl<'a> Walker<'a> {
     /// TYPE_CALL_ARGUMENT_MISMATCH, the `thread.start` entry form — a source
     /// fact (`self::` vs a bare name both lower to one `FunctionRef`).
     fn report_thread_entry(&mut self, line: usize) {
+        self.call_typed_unknown = true;
         self.emit(
             "TYPE_CALL_ARGUMENT_MISMATCH",
             "thread.start entry point must be an exported ISOLATED FUNC from an imported package."
@@ -871,7 +1064,7 @@ impl<'a> Walker<'a> {
                     return;
                 }
                 let detail = mismatch(&names, expected_overloads());
-                self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail, line);
+                self.emit_call_typed_unknown(detail, line);
             }
             return;
         }
@@ -896,13 +1089,13 @@ impl<'a> Walker<'a> {
                         let Some(predicate_type) = predicate_type else {
                             let detail =
                                 mismatch(&[collection, predicate.clone()], expected_overloads());
-                            self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail, line);
+                            self.emit_call_typed_unknown(detail, line);
                             return;
                         };
                         let trial = vec![collection, predicate_type];
                         if builtins::resolve_call_return_type(canonical, &trial, true).is_none() {
                             let detail = mismatch(&trial, expected_overloads());
-                            self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail, line);
+                            self.emit_call_typed_unknown(detail, line);
                         }
                         return;
                     }
@@ -913,13 +1106,15 @@ impl<'a> Walker<'a> {
             }
             if builtins::resolve_call_return_type(canonical, &names, true).is_none() {
                 let detail = mismatch(&names, expected_overloads());
-                self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail, line);
+                self.emit_call_typed_unknown(detail, line);
             }
             return;
         }
 
         if registry.owning_package(canonical) == Some("term") {
             if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
+                // `term` types by name alone, so a count failure leaves the call typed.
+                self.call_typed_unknown = false;
                 return;
             }
             // `term::drawText` additionally accepts an `AttributedString` at the
@@ -972,7 +1167,7 @@ impl<'a> Walker<'a> {
             }
             if builtins::resolve_call_return_type(canonical, &names, true).is_none() {
                 let detail = mismatch(&names, expected_overloads());
-                self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail, line);
+                self.emit_call_typed_unknown(detail, line);
             }
             return;
         }
@@ -984,7 +1179,7 @@ impl<'a> Walker<'a> {
         }
         if resolve_table_call_with_byte_literals(canonical, &names, normalized).is_none() {
             let detail = mismatch(&names, expected_overloads());
-            self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail, line);
+            self.emit_call_typed_unknown(detail, line);
         }
     }
 
@@ -1165,6 +1360,7 @@ impl<'a> Walker<'a> {
                 format!("Call to `{callee}` has {count} argument(s), expected {expected}."),
                 line,
             );
+            self.call_typed_unknown = true;
             return true;
         }
         false
@@ -1529,6 +1725,217 @@ impl<'a> Walker<'a> {
         }
     }
 
+    /// A builtin argument-type rejection after which the checker typed the
+    /// call `Unknown` (so a binding of it cascades TYPE_UNKNOWN_VALUE).
+    fn emit_call_typed_unknown(&mut self, detail: String, line: usize) {
+        self.call_typed_unknown = true;
+        self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail, line);
+    }
+
+    /// TYPE_UNKNOWN_VALUE, the initializer form — the source checker's cascade
+    /// for a binding whose initializer it could not type. Its evidence is the
+    /// checker's own typing verdict on the HIR: lowering stamps a lenient type
+    /// on a failed builtin call and fills a `$`-temp for a trapped one, so the
+    /// IR cannot tell the checker's `Unknown` from a typed value. `ir::verify`
+    /// keeps the cascade for the values ITS rules poison (a mismatched
+    /// operator, a bad constructor) — those the shape pass does not judge.
+    fn check_initializer_known(
+        &mut self,
+        name: &str,
+        value: &HirExpression,
+        locals: &HashMap<String, ParameterType>,
+        expected: Option<&ParameterType>,
+        line: usize,
+    ) {
+        if self.checker_types_unknown(value, locals, expected) {
+            self.emit(
+                "TYPE_UNKNOWN_VALUE",
+                format!("Initializer for binding `{name}` does not have a known type."),
+                line,
+            );
+        }
+    }
+
+    /// Whether the source checker would have typed `value` `Unknown` — its
+    /// cascade condition — reconstructed from lowering's seam plus the few
+    /// verdicts the checker made that the seam does not: a call its rules
+    /// typed `Unknown`, a constructor or `WITH` of something it would not
+    /// construct, an arithmetic on `Money` its lattice rejects or on a
+    /// value-less `SUB` call, `.state` on a plain `LET` of a stateful resource.
+    /// (`ir::verify` cascades for the operator misuses its own rules poison.)
+    fn checker_types_unknown(
+        &self,
+        value: &HirExpression,
+        locals: &HashMap<String, ParameterType>,
+        expected: Option<&ParameterType>,
+    ) -> bool {
+        match value {
+            HirExpression::Trapped { expression, .. } => {
+                return self.checker_types_unknown(expression, locals, expected);
+            }
+            // A bare general built-in predicate in a value position types from
+            // the expectation (`LET f AS FUNC(Integer) AS Boolean = isEven`,
+            // bug-368) — lowering's seam has no expectation to type it by.
+            HirExpression::Identifier(name)
+                if crate::codegen::builtins::general::builtin_function_id(name).is_some() =>
+            {
+                if let Some(ParameterType::Func(params, returns, _)) = expected {
+                    if params.len() == 1
+                        && **returns == ParameterType::Boolean
+                        && crate::codegen::builtins::general::filter_predicate_type(
+                            name,
+                            &params[0].name(),
+                        )
+                        .is_some()
+                    {
+                        return false;
+                    }
+                }
+            }
+            HirExpression::Constructor { type_, .. } => return !self.constructor_typed(type_),
+            HirExpression::WithUpdate { target, .. } => {
+                return !self.with_update_typed(target, locals);
+            }
+            HirExpression::Call { callee, .. } => {
+                if builtins::is_package_constant(&self.canonical_callee(callee)) {
+                    return false;
+                }
+                if self
+                    .call_verdicts
+                    .get(&(value as *const HirExpression as usize))
+                    .copied()
+                    .unwrap_or(false)
+                {
+                    return true;
+                }
+            }
+            HirExpression::Binary {
+                left,
+                operator,
+                right,
+                ..
+            } if matches!(
+                operator.as_str(),
+                "+" | "-" | "*" | "/" | "DIV" | "MOD" | "^"
+            ) =>
+            {
+                // A value-less (`SUB`) or untyped operand: the checker's
+                // promotion had nothing numeric to promote.
+                let (left, right) = (self.type_of(left, locals), self.type_of(right, locals));
+                if matches!(left, ParameterType::Nothing | ParameterType::Unknown)
+                    || matches!(right, ParameterType::Nothing | ParameterType::Unknown)
+                {
+                    return true;
+                }
+                let (left_money, right_money) = (
+                    matches!(left, ParameterType::Money),
+                    matches!(right, ParameterType::Money),
+                );
+                if (left_money || right_money)
+                    && crate::numeric::is_numeric(&left)
+                    && crate::numeric::is_numeric(&right)
+                    && crate::numeric::typed_money_result_type(operator, left_money, right_money)
+                        .is_none()
+                {
+                    return true;
+                }
+            }
+            HirExpression::MemberAccess { target, member } if member == "state" => {
+                if let HirExpression::Identifier(name) = target.as_ref() {
+                    if self.state_dropped.contains(name) {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
+        }
+        matches!(
+            lower::expression_type(value, locals, &self.context),
+            None | Some(ParameterType::Unknown)
+        )
+    }
+
+    /// Whether the checker typed a `T[…]` constructor: the three built-in
+    /// nominals (rejected as read-only but typed), else a visible declared
+    /// RECORD; `Ok`/`Result`, a compiler-owned record, a union, an enum or an
+    /// unknown name typed `Unknown`.
+    fn constructor_typed(&self, type_: &ParameterType) -> bool {
+        let name = type_.name();
+        match name.as_ref() {
+            "AttributedString" | "Error" | "ErrorLoc" => true,
+            "Ok" | "Result" => false,
+            _ => {
+                if read_only_record(type_) {
+                    return false;
+                }
+                self.types
+                    .get(name.as_ref())
+                    .is_some_and(|info| info.is_record && self.type_visible(info))
+            }
+        }
+    }
+
+    /// Whether the checker typed a `WITH target { … }`: a built-in nominal or a
+    /// map entry keeps its type (the read-only rejection is `ir::verify`'s);
+    /// otherwise the target must be a declared record that is not compiler-owned.
+    fn with_update_typed(
+        &self,
+        target: &HirExpression,
+        locals: &HashMap<String, ParameterType>,
+    ) -> bool {
+        let target_type = self.type_of(target, locals);
+        if matches!(target_type, ParameterType::MapEntryOf(..)) {
+            return true;
+        }
+        let ParameterType::Named(_) = &target_type else {
+            return false;
+        };
+        let name = target_type.name();
+        if matches!(
+            name.as_ref(),
+            "AttributedString" | "Error" | "ErrorLoc" | "Scalar"
+        ) {
+            return true;
+        }
+        if read_only_record(&target_type) {
+            return false;
+        }
+        self.types
+            .get(name.as_ref())
+            .is_some_and(|info| info.is_record)
+    }
+
+    /// The checker's visibility rule for a declared type: `PRIVATE` only from
+    /// its own file.
+    fn type_visible(&self, info: &TypeShape) -> bool {
+        match info.visibility {
+            Visibility::Export | Visibility::Public => true,
+            Visibility::Private => info.file == self.file,
+        }
+    }
+
+    /// Whether the checker bound a MATCH pattern's name (see `walk_match_case`).
+    fn checker_binds_pattern(
+        &self,
+        pattern: &crate::hir::HirMatchPattern,
+        matched_type: &ParameterType,
+    ) -> bool {
+        let crate::hir::HirMatchPattern::Union { type_, .. } = pattern else {
+            return false;
+        };
+        let variant = type_.name();
+        if matches!(variant.as_ref(), "Ok" | "Error" | "Err") {
+            return false;
+        }
+        let ParameterType::Named(_) = matched_type else {
+            return false;
+        };
+        let union = matched_type.without_state();
+        self.types
+            .get(union.name().as_ref())
+            .is_some_and(|info| info.is_union && info.variants.iter().any(|v| *v == variant))
+    }
+
     fn report_unknown_name(&mut self, callee: &str, name: &str, line: usize) {
         self.emit(
             "TYPE_UNKNOWN_ARGUMENT_NAME",
@@ -1585,8 +1992,12 @@ mod tests {
             name: "test".to_string(),
             files: vec![file],
         };
-        crate::resolver::augment_hir_project(&crate::hir::elaborate(&project))
-            .expect("builtin augmentation must succeed")
+        // The build's order: registry injection into the AST, then the generic
+        // HIR is monomorphized into the concrete program the pass walks.
+        let augmented =
+            crate::resolver::augment_project(&project).expect("builtin augmentation must succeed");
+        crate::monomorph::monomorphize_project(Path::new("."), &crate::hir::elaborate(&augmented))
+            .expect("test source must monomorphize")
     }
 
     /// The shape pass's rule codes for `src`, in traversal order.
@@ -1670,12 +2081,12 @@ mod tests {
                    \x20 FOR EACH item IN items\n\
                    \x20   LET e = item\n\
                    \x20 NEXT\n\
-                   \x20 LET s AS Shape = Point(1, 2)\n\
+                   \x20 LET s AS Shape = Point[1, 2]\n\
                    \x20 MATCH s\n\
                    \x20   CASE Point(p)\n\
                    \x20     LET f = p\n\
                    \x20 END MATCH\n\
-                   \x20 LET g = collections::map(items, LAMBDA(v AS Integer) -> v * 2.0)\n\
+                   \x20 LET g = collections::filter(items, LAMBDA(v AS Integer) -> v > 1)\n\
                    \x20 LET h = helper(a) TRAP(err)\n\
                    \x20   LET i2 = err\n\
                    \x20   RECOVER 0.0\n\
@@ -1691,9 +2102,14 @@ mod tests {
         let no_imports = HashMap::new();
         let mut walker = Walker::new(Path::new("/proj"), &facts, &hir, &[], &no_imports);
         walker.walk_project(&hir);
+        let emitted: Vec<_> = walker
+            .diagnostics
+            .iter()
+            .map(|d| format!("{}:{} {}", d.line, d.rule, d.detail))
+            .collect();
         assert!(
-            walker.diagnostics.is_empty(),
-            "a clean program emits nothing"
+            emitted.is_empty(),
+            "a clean program emits nothing: {emitted:?}"
         );
 
         let ir = lower::lower_augmented_project(&hir, None, &HashMap::new(), &[]);
@@ -1938,7 +2354,11 @@ mod tests {
         ));
         assert_eq!(
             codes,
-            ["TYPE_DUPLICATE_ARGUMENT_NAME", "TYPE_CALL_ARITY_MISMATCH"]
+            [
+                "TYPE_DUPLICATE_ARGUMENT_NAME",
+                "TYPE_CALL_ARITY_MISMATCH",
+                "TYPE_UNKNOWN_VALUE",
+            ]
         );
     }
 
@@ -2015,11 +2435,16 @@ mod tests {
             &HashMap::new(),
         );
         let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
-        assert_eq!(details.len(), 1, "{details:?}");
+        // The failed call types the binding Unknown: the cascade follows.
+        assert_eq!(details.len(), 2, "{details:?}");
         assert!(
             details[0]
                 .starts_with("Call to `math.pow` has argument type(s) (String, Integer), expected"),
             "{details:?}"
+        );
+        assert_eq!(
+            details[1],
+            "Initializer for binding `p` does not have a known type."
         );
     }
 
@@ -2044,10 +2469,14 @@ mod tests {
             &HashMap::new(),
         );
         let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
-        // The entry rejection ends the call's checks: no count or type form follows.
+        // The entry rejection ends the call's checks (no count or type form
+        // follows) and types the call Unknown, so the binding cascades.
         assert_eq!(
             details,
-            ["thread.start entry point must be an exported ISOLATED FUNC from an imported package."]
+            [
+                "thread.start entry point must be an exported ISOLATED FUNC from an imported package.",
+                "Initializer for binding `t` does not have a known type.",
+            ]
         );
     }
 

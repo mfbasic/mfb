@@ -1416,19 +1416,10 @@ impl<'a> SyntaxChecker<'a> {
             );
 
             if let Some(default) = &param.default {
-                let default_type =
-                    self.infer_expression(file, default, &mut locals, param.line, ExprMode::Read);
-                if matches!(default_type, Type::Unknown) {
-                    self.report(
-                        "TYPE_UNKNOWN_VALUE",
-                        &format!(
-                            "Default value for `{}` does not have a known type.",
-                            param.name
-                        ),
-                        file,
-                        param.line,
-                    );
-                }
+                // An untypable default is `ir::shape`'s cascade
+                // (TYPE_UNKNOWN_VALUE, plan-107-E); the inference runs for its
+                // own diagnostics.
+                self.infer_expression(file, default, &mut locals, param.line, ExprMode::Read);
             }
 
             let state_type = param.state_type.clone();

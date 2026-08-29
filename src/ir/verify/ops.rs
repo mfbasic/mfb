@@ -121,7 +121,10 @@ impl TypeEnv {
                         // fired for this very value, so a clean-but-untypable
                         // initializer (an external LINK call the lowering has
                         // no signature for) is never rejected.
-                        if self.value_type_poisoned(value, locals) {
+                        // A `$`-temp (the trap machinery's `$trap_res`, a stray
+                        // `$recover_stray`) is not a user binding: the checker
+                        // reported the user's binding, which `ir::shape` does.
+                        if !name.starts_with('$') && self.value_type_poisoned(value, locals) {
                             self.emit(
                                 "TYPE_UNKNOWN_VALUE",
                                 format!(

@@ -6,18 +6,6 @@ uses thread_workers - [Unsigned]
      | ^
 tests/syntax/threads/func_thread_cancel_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `thread.cancel` has 0 argument(s), expected 1.
-   3 | FUNC main AS Integer
-   4 |   LET missing AS Nothing = thread::cancel()
-   5 |   LET wrongType AS Nothing = thread::cancel(1)
-     | ^
-tests/syntax/threads/func_thread_cancel_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.cancel` has argument type(s) (Integer), expected Thread OF Msg TO Out.
-   4 |   LET missing AS Nothing = thread::cancel()
-   5 |   LET wrongType AS Nothing = thread::cancel(1)
-   6 |   LET tooMany AS Nothing = thread::cancel(1, 2)
-     | ^
-tests/syntax/threads/func_thread_cancel_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `thread.cancel` has 2 argument(s), expected 1.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing AS Nothing = thread::cancel()
@@ -28,8 +16,20 @@ tests/syntax/threads/func_thread_cancel_invalid/src/main.mfb:4 error[2-203-0043 
    4 |   LET missing AS Nothing = thread::cancel()
    5 |   LET wrongType AS Nothing = thread::cancel(1)
      | ^
+tests/syntax/threads/func_thread_cancel_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `thread.cancel` has argument type(s) (Integer), expected Thread OF Msg TO Out.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Nothing = thread::cancel()
+   5 |   LET wrongType AS Nothing = thread::cancel(1)
+     | ^
 tests/syntax/threads/func_thread_cancel_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongType` does not have a known type.
+   4 |   LET missing AS Nothing = thread::cancel()
+   5 |   LET wrongType AS Nothing = thread::cancel(1)
+   6 |   LET tooMany AS Nothing = thread::cancel(1, 2)
+     | ^
+tests/syntax/threads/func_thread_cancel_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `thread.cancel` has 2 argument(s), expected 1.
    4 |   LET missing AS Nothing = thread::cancel()
    5 |   LET wrongType AS Nothing = thread::cancel(1)
    6 |   LET tooMany AS Nothing = thread::cancel(1, 2)

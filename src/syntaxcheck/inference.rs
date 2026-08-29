@@ -1345,18 +1345,9 @@ impl<'a> SyntaxChecker<'a> {
                 // `name = <body>`: validate the assignment the same way the
                 // statement form does — the target must be a mutable binding and
                 // the body type must match it — then yield `Nothing`.
-                let target_type = match locals.get(target).cloned() {
-                    Some(local) => Some(local.type_),
-                    None => {
-                        self.report(
-                            "TYPE_UNKNOWN_VALUE",
-                            &format!("Assignment target `{target}` is not a local binding."),
-                            file,
-                            line,
-                        );
-                        None
-                    }
-                };
+                // An unknown target is `ir::shape`'s rejection
+                // (TYPE_UNKNOWN_VALUE, plan-107-E).
+                let target_type = locals.get(target).map(|local| local.type_.clone());
                 let _actual =
                     self.infer_expression(file, body, &mut locals, line, ExprMode::Transfer);
                 if let Some(target_type) = target_type {
