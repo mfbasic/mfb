@@ -1,0 +1,8 @@
+# plan-107 lowering perf baseline at main tip 2299b6326 (2026-08-29)
+# scripts/bench-lowering.sh (debug / release seconds), run alone on the host
+== plan-78 lowering benchmark ==
+  trivial      debug 0.62       release 0.35
+  one-regex    debug 31.80      release 7.26
+  acceptance   debug 362.71     release 65.36
+== inlined regex function size (pre-allocation) ==
+  regex fn: function instructions=869181 int_vregs=143493 fp_vregs=0
