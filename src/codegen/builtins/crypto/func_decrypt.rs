@@ -6,39 +6,43 @@
 //! pure-MFB `__crypto_decrypt` core (registered by [`super::helper_decrypt`]) — no
 //! platform library, no `AbiFunction`, so (like `hmac`/`hkdf`/`convert`) it is NOT in
 //! any backend's `runtime_calls`. It converts the recipient's Ed25519 seed to its
-//! X25519 scalar internally, recovers the ephemeral public key from the box, does the
-//! ECDH, re-derives the AEAD key/nonce, and fails closed with
-//! `ErrAuthenticationFailed` on any tamper / wrong key / wrong `aad`.
+//! X25519 scalar internally, splits `enc` off the front of the box, runs RFC 9180
+//! `Decap` and the base key schedule, opens the AEAD at sequence 0, and fails closed
+//! with `ErrAuthenticationFailed` on any tamper / wrong key / wrong `aad`.
 
 use super::{
     bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
 };
 
-const INTRO: &str = r#"Decrypt an X25519 sealed box with the recipient's private key, selected by a `crypto::AsymmetricCipher`."#;
+const INTRO: &str = r#"Decrypt an RFC 9180 HPKE box (`enc ‖ ct`) with the recipient's private key, selected by a `crypto::AsymmetricCipher`."#;
 const DESC: &str = r#"`crypto::decrypt(cipher, recipientPrivateKey, box)` recovers the plaintext of a box
-produced by `crypto::encrypt(cipher, …)`, returning it as a `List OF Byte`. Only the
-holder of the recipient's private key can decrypt.
+produced by `crypto::encrypt(cipher, …)` — or by any RFC 9180 HPKE implementation's
+single-shot base-mode `Seal` with the same ciphersuite, empty `info`, and this
+`aad` — returning it as a `List OF Byte`. Only the holder of the recipient's
+private key can decrypt.
 
 **Inputs.** `cipher` is the same `crypto::AsymmetricCipher` used to encrypt
-(`Ed25519_AES256GCM` or `Ed25519_CHACHA20POLY1305`). `recipientPrivateKey` is the
-recipient's 32-byte **Ed25519** private key (the seed from
+(`Ed25519_AES256GCM` = DHKEM(X25519, HKDF-SHA256) + HKDF-SHA256 + AES-256-GCM, or
+`Ed25519_CHACHA20POLY1305` = the same with ChaCha20Poly1305). `recipientPrivateKey`
+is the recipient's 32-byte **Ed25519** private key (the seed from
 `crypto::generate(Certificate.Ed25519)`), converted to its X25519 scalar
-internally. `box` is the self-contained
-`ephemeralPublicKey (32 bytes) ‖ ciphertext ‖ tag (16 bytes)` returned by
-`crypto::encrypt`.
+internally; another length raises `ErrInvalidArgument`. `box` is RFC 9180's
+`enc (32 bytes) ‖ ct` where `ct` is the AEAD `ciphertext ‖ tag (16 bytes)`.
 
-**How it works.** The 32-byte ephemeral public key is read from the front of the
-box, an X25519 ECDH (RFC 7748) is performed against it, `HKDF-SHA256` (RFC 5869)
-re-derives the same 32-byte key and 12-byte nonce, and the inner AEAD tag is
-verified in **constant time**.
+**How it works (RFC 9180 §6.1 `Open`).** The 32-byte `enc` is read from the front
+of the box; `Decap` computes `dh = X25519(skR, enc)` and the KEM shared secret
+`LabeledExpand(LabeledExtract("", "eae_prk", dh), "shared_secret", enc ‖ pkR, 32)`;
+the base-mode `KeySchedule` with empty `info` re-derives the same AEAD key and
+`base_nonce`; and the AEAD opens `ct` under the sequence-0 nonce, verifying the tag
+in **constant time**.
 
-**Fails closed.** A tampered or truncated box, a wrong recipient key, or a different
-`aad` than was encrypted raises `ErrAuthenticationFailed` and returns no plaintext.
-A box shorter than the 48-byte `ephemeralPublicKey ‖ tag` overhead is malformed and
-raises `ErrInvalidArgument`. The optional `aad` must match the `aad` supplied to
-`crypto::encrypt`; it defaults to the empty list. Both ends must use MFB's
-`crypto::encrypt` / `crypto::decrypt` — the box is a bespoke MFB format, not RFC
-9180 HPKE or the libsodium sealed box.
+**Fails closed.** A tampered or truncated box, a wrong recipient key, a different
+suite than was used to encrypt, a different `aad` than was encrypted, or a box in
+the pre-RFC `mfb-box-v1` format this construction replaced, raises
+`ErrAuthenticationFailed` and returns no plaintext. A box shorter than the 48-byte
+`enc ‖ tag` overhead, or an `enc` that is a low-order point (the X25519 output is
+all zeros), is malformed and raises `ErrInvalidArgument`. The optional `aad` must
+match the `aad` supplied to `crypto::encrypt`; it defaults to the empty list.
 
 **A successful decrypt does not authenticate the sender.** A valid tag proves the
 box was not modified, not *who* created it — a sealed box is anonymous, and anyone
@@ -47,10 +51,10 @@ have the sender sign it with `crypto::sign` and check the signature with
 `crypto::verify` in addition to decrypting.
 
 **Implementation.** X25519 (RFC 7748), the Ed25519→X25519 conversion (RFC 8032 /
-RFC 7748), HKDF-SHA256 (RFC 5869), and the inner AEAD are all pure MFBASIC software
-cores computed over the `bits` package — no platform cryptographic library — so
-decryption is byte-identical on every target (macOS, Linux, Windows; aarch64,
-x86-64)."#;
+RFC 7748), the HPKE labeled HKDF-SHA256 (RFC 9180 / RFC 5869), and the AEAD are
+all pure MFBASIC software cores computed over the `bits` package — no platform
+cryptographic library — so decryption is byte-identical on every target (macOS,
+Linux, Windows; aarch64, x86-64)."#;
 const EX: &str = r#"```
 IMPORT crypto
 
@@ -89,7 +93,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
                 Parameter {
                     name: "box",
-                    desc: "The self-contained box returned by `crypto::encrypt`.",
+                    desc: "The RFC 9180 `enc ‖ ct` value returned by `crypto::encrypt` (or any conformant HPKE seal with the same suite).",
                     aliases: &[],
                     ty: bytes(),
                     default: DefaultValue::None,

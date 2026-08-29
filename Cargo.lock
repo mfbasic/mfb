@@ -1848,9 +1848,11 @@ checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 name = "mfb"
 version = "0.1.0"
 dependencies = [
+ "curve25519-dalek",
  "icns",
  "image",
  "mfb_repository",
+ "ring",
  "rusqlite",
  "serde_json",
  "sha2 0.10.9",

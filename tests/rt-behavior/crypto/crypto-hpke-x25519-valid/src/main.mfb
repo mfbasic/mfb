@@ -1,0 +1,121 @@
+' RFC 9180 HPKE base mode, DHKEM(X25519, HKDF-SHA256) + AES-256-GCM / ChaCha20Poly1305
+' (plan-109-E): the `crypto::encrypt`/`decrypt` wire value is `enc || ct` (ct includes
+' the AEAD tag). The `independent-*` boxes were produced by an independent RFC 9180
+' implementation (Python over OpenSSL primitives, itself checked against the RFC's
+' Appendix A.1 vector: derived keys, shared secret, key-schedule context, key, base
+' nonce, exporter secret, ciphertext) for the RFC 8032 §7.1 test-1 Ed25519 recipient
+' (`d75a…511a`, converted to X25519 as `crypto::convert` does) — MFB must open every
+' one of them. The `legacy-*` boxes are real pre-plan-109-E `mfb-box-v1` sealed boxes
+' for the same recipient and must be rejected. Round trips use MFB's own random
+' ephemeral key; the two-way interop with the independent implementation is
+' `tests/rt_crypto_hpke_interop.rs`.
+IMPORT bits
+IMPORT collections
+IMPORT crypto
+IMPORT encoding
+IMPORT errorCode
+IMPORT io
+
+FUNC fill(n AS Integer, v AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    out = collections::append(out, toByte(v))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC flipBit(b AS List OF Byte, idx AS Integer) AS List OF Byte
+  RETURN collections::set(b, idx, toByte(bits::bxor(toInt(collections::get(b, idx)), 1)))
+END FUNC
+
+FUNC cat(a AS List OF Byte, b AS List OF Byte) AS List OF Byte
+  MUT out AS List OF Byte = a
+  MUT i AS Integer = 0
+  WHILE i < len(b)
+    out = collections::append(out, collections::get(b, i))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC code(err AS Error) AS String
+  IF err.code = errorCode::ErrInvalidArgument THEN
+    RETURN "ErrInvalidArgument"
+  END IF
+  IF err.code = errorCode::ErrAuthenticationFailed THEN
+    RETURN "ErrAuthenticationFailed"
+  END IF
+  RETURN "other=" & toString(err.code)
+END FUNC
+
+FUNC tryOpen(c AS AsymmetricCipher, seed AS List OF Byte, box AS List OF Byte, aad AS List OF Byte) AS String
+  LET pt AS List OF Byte = crypto::decrypt(c, seed, box, aad)
+  RETURN encoding::hexEncode(pt)
+  TRAP(err)
+    RETURN code(err)
+  END TRAP
+END FUNC
+
+FUNC tryOpenLen(c AS AsymmetricCipher, seed AS List OF Byte, box AS List OF Byte, aad AS List OF Byte) AS String
+  LET pt AS List OF Byte = crypto::decrypt(c, seed, box, aad)
+  RETURN toString(len(pt))
+  TRAP(err)
+    RETURN code(err)
+  END TRAP
+END FUNC
+
+FUNC trySeal(c AS AsymmetricCipher, pub AS List OF Byte, data AS List OF Byte) AS String
+  LET box AS List OF Byte = crypto::encrypt(c, pub, data)
+  RETURN toString(len(box))
+  TRAP(err)
+    RETURN code(err)
+  END TRAP
+END FUNC
+
+SUB main()
+  LET seed AS List OF Byte = encoding::hexDecode("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
+  LET pub AS List OF Byte = encoding::hexDecode("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
+  LET aad AS List OF Byte = encoding::utf8Encode("Count-0")
+  LET none AS List OF Byte = []
+  LET aes AS AsymmetricCipher = AsymmetricCipher.Ed25519_AES256GCM
+  LET chacha AS AsymmetricCipher = AsymmetricCipher.Ed25519_CHACHA20POLY1305
+  LET indAes AS List OF Byte = encoding::hexDecode("37fda3567bdbd628e88668c3c8d7e97d1d1253b6d4ea6d44c150f741f1bf44318b4e7fef3da1ed008893549594310057351928b05541418b3846130f890940fdcf0e3016ad953a04877686c920")
+  LET indChacha AS List OF Byte = encoding::hexDecode("d3e826a9e5c1e642b44f628eb2052cd8d020dd6cc50c54b65b4f9b5a142bb969b6141cbb64368c2082203d4441a4ddadeb6e4dca7512b5dad514181132cd0b13fe8745f9a41e36950df89d6a29")
+  LET indAesNoAad AS List OF Byte = encoding::hexDecode("37fda3567bdbd628e88668c3c8d7e97d1d1253b6d4ea6d44c150f741f1bf44318b4e7fef3da1ed008893549594310057351928b05541418b3846130f89e167bb633f73c8793d87b63ab692eab8")
+  LET indEmptyChacha AS List OF Byte = encoding::hexDecode("d3e826a9e5c1e642b44f628eb2052cd8d020dd6cc50c54b65b4f9b5a142bb969df57b0d01d443222263a1679b559d574")
+  io::print("edpub=" & encoding::hexEncode(pub))
+  io::print("independent-aes=" & encoding::hexEncode(indAes))
+  io::print("independent-chacha=" & encoding::hexEncode(indChacha))
+  io::print("independent-aes-noaad=" & encoding::hexEncode(indAesNoAad))
+  io::print("independent-empty-chacha=" & encoding::hexEncode(indEmptyChacha))
+  io::print("mfb-opens-aes=" & tryOpen(aes, seed, indAes, aad))
+  io::print("mfb-opens-chacha=" & tryOpen(chacha, seed, indChacha, aad))
+  io::print("mfb-opens-aes-noaad=" & tryOpen(aes, seed, indAesNoAad, none))
+  io::print("mfb-opens-empty-chacha=" & tryOpenLen(chacha, seed, indEmptyChacha, none))
+  io::print("mfb-wrong-aad=" & tryOpen(aes, seed, indAes, none))
+  LET pt AS List OF Byte = encoding::utf8Encode("Beauty is truth, truth beauty")
+  LET boxAes AS List OF Byte = crypto::encrypt(aes, pub, pt, aad)
+  LET boxChacha AS List OF Byte = crypto::encrypt(chacha, pub, pt, aad)
+  io::print("roundtrip-aes=" & toString(crypto::constantTimeEqual(crypto::decrypt(aes, seed, boxAes, aad), pt)))
+  io::print("roundtrip-chacha=" & toString(crypto::constantTimeEqual(crypto::decrypt(chacha, seed, boxChacha, aad), pt)))
+  LET boxText AS List OF Byte = crypto::encrypt(chacha, pub, "Beauty is truth, truth beauty", aad)
+  io::print("roundtrip-string=" & toString(crypto::constantTimeEqual(crypto::decrypt(chacha, seed, boxText, aad), pt)))
+  LET boxEmpty AS List OF Byte = crypto::encrypt(aes, pub, none)
+  io::print("roundtrip-empty=" & toString(len(crypto::decrypt(aes, seed, boxEmpty))))
+  io::print("box-len-empty=" & toString(len(boxEmpty)))
+  io::print("tamper-enc=" & tryOpen(aes, seed, flipBit(boxAes, 3), aad))
+  io::print("tamper-body=" & tryOpen(aes, seed, flipBit(boxAes, 40), aad))
+  io::print("tamper-tag=" & tryOpen(aes, seed, flipBit(boxAes, len(boxAes) - 1), aad))
+  LET other AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+  io::print("wrong-recipient=" & tryOpen(aes, other.privateKey, boxAes, aad))
+  io::print("cross-suite=" & tryOpen(chacha, seed, boxAes, aad))
+  io::print("short-47=" & tryOpen(aes, seed, collections::mid(boxEmpty, 0, 47), none))
+  io::print("short-0=" & tryOpen(aes, seed, none, none))
+  LET lowOrder AS List OF Byte = cat(fill(32, 0), collections::mid(boxAes, 32, len(boxAes) - 32))
+  io::print("low-order-enc=" & tryOpen(aes, seed, lowOrder, aad))
+  io::print("legacy-aes=" & tryOpen(aes, seed, encoding::hexDecode("371abfabd302a85e3b26ad1b7755b88cdc6bef40bdbc1d43f524243518b2a62d2b4228fcf060e60fb058e4caf929e677ab11a326eeba39cf50f5"), none))
+  io::print("legacy-chacha=" & tryOpen(chacha, seed, encoding::hexDecode("c78d573dcd7161973c1d97407fcc3975ff09aabbfb46926def82f881069a5712161e654993f296f18dd3064125b0f797b3c05fd6e8fe0959b98c"), none))
+  io::print("bad-pub-len=" & trySeal(aes, fill(31, 1), pt))
+END SUB

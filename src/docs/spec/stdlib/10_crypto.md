@@ -103,6 +103,22 @@ extensions); computation is portable-arithmetic only, identical across targets.
   generation returns a `KeyPair`.
   [[src/codegen/builtins/crypto/helper_ed448_decode.rs:BODY]]
   [[src/codegen/builtins/crypto/helper_ed448_sign.rs:BODY]]
+- **Public-key encryption** — `encrypt`/`decrypt` are **RFC 9180 HPKE**,
+  single-shot base mode (`mode_base`, no PSK, empty `info`, sequence number 0),
+  selected by `AsymmetricCipher`: `Ed25519_AES256GCM` = DHKEM(X25519,
+  HKDF-SHA256) `0x0020` / HKDF-SHA256 `0x0001` / AES-256-GCM `0x0002`, and
+  `Ed25519_CHACHA20POLY1305` = the same KEM/KDF with ChaCha20Poly1305 `0x0003`.
+  The recipient's Ed25519 key is mapped to X25519 by the `convert` maps; the
+  wire value is exactly `enc ‖ ct` (`Nenc` = 32, `ct` = ciphertext ‖ 16-byte
+  tag), so it interoperates with any conformant HPKE implementation and the
+  pre-RFC `mfb-box-v1` construction is no longer accepted. `decrypt` fails
+  closed: `ErrAuthenticationFailed` on any tamper / wrong key / wrong suite /
+  wrong `aad` / legacy box, `ErrInvalidArgument` on a box shorter than 48 bytes
+  or a low-order `enc`. Proven against the RFC's Appendix A vectors and both
+  ways against an independent implementation
+  (`tests/rt_crypto_hpke_interop.rs`).
+  [[src/codegen/builtins/crypto/helper_hpke_seal_with.rs:BODY]]
+  [[src/codegen/builtins/crypto/helper_hpke_key_schedule.rs:BODY]]
 - **Key agreement** — `Certificate.X25519` (RFC 7748, 32-byte keys) and
   `Certificate.X448` (RFC 7748, 56-byte keys; a 16 × 28-bit-limb
   GF(2^448−2^224−1) field and a 448-step ladder with a branch-free select swap)

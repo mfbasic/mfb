@@ -2,7 +2,7 @@
 //!
 //! The `String` `data` overload of `crypto::encrypt(cipher, recipientPublicKey,
 //! data[, aad])` rewrites to this shim: it UTF-8-encodes `data` and re-enters the
-//! `List OF Byte` `encrypt`, so a `String` argument reaches the same sealed-box
+//! `List OF Byte` `encrypt`, so a `String` argument reaches the same RFC 9180 HPKE
 //! construction as raw bytes (identical to the `hash`/`seal` `_text` shims).
 //!
 //! Registered via `add_helper`; renders in the helper section of the assembled

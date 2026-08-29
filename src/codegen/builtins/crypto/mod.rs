@@ -263,25 +263,25 @@ pub(crate) fn register(r: &mut Registry) {
             },
         ],
     });
-    // The asymmetric-cipher suite selector for `crypto::encrypt`/`crypto::decrypt`.
-    // Ordinals are declaration order (Ed25519_AES256GCM=0,
-    // Ed25519_CHACHA20POLY1305=1); the pure-MFB `__crypto_encrypt`/`__crypto_decrypt`
-    // cores branch on it (via `__crypto_asymAead`/`__crypto_asymInfo`) to pick the
-    // inner AEAD. Both are X25519-KEM sealed boxes that take Ed25519 keys (converted
-    // to X25519 internally). No P* (NIST-EC ECDH) variants — EC-ECDH isn't built.
+    // The asymmetric-cipher suite selector for `crypto::encrypt`/`crypto::decrypt`:
+    // an RFC 9180 HPKE ciphersuite (base mode). Ordinals are declaration order
+    // (Ed25519_AES256GCM=0, Ed25519_CHACHA20POLY1305=1); the pure-MFB
+    // `__crypto_hpke*` profile helpers read each value's KEM/KDF/AEAD ids by
+    // explicit property (never ordinal arithmetic). Both take Ed25519 recipient keys
+    // (converted to X25519 internally). No P* (NIST-EC ECDH) variants — EC-ECDH
+    // isn't built.
     pkg.add_enum(RegistryEnum {
         name: "AsymmetricCipher",
         export: true,
         variants: vec![
             EnumVariant {
                 name: "Ed25519_AES256GCM",
-                description: "X25519 sealed box (Ed25519 keys) with an AES-256-GCM inner AEAD.",
+                description: "RFC 9180 HPKE base mode: DHKEM(X25519, HKDF-SHA256) + HKDF-SHA256 + AES-256-GCM, over Ed25519 recipient keys (converted to X25519). Wire value `enc(32) ‖ ct`.",
                 advisory: None,
             },
             EnumVariant {
                 name: "Ed25519_CHACHA20POLY1305",
-                description:
-                    "X25519 sealed box (Ed25519 keys) with a ChaCha20-Poly1305 inner AEAD.",
+                description: "RFC 9180 HPKE base mode: DHKEM(X25519, HKDF-SHA256) + HKDF-SHA256 + ChaCha20Poly1305, over Ed25519 recipient keys (converted to X25519). Wire value `enc(32) ‖ ct`.",
                 advisory: None,
             },
         ],
@@ -543,13 +543,23 @@ pub(crate) fn register(r: &mut Registry) {
     helper_generate_ed448::register(&mut pkg);
     helper_ed448_sign::register(&mut pkg);
     helper_ed448_verify::register(&mut pkg);
-    // Asymmetric public-key encryption (X25519 sealed box over Ed25519 keys). Pure
-    // software over the X25519 ladder, the Ed25519→X25519 conversion helpers,
-    // `__crypto_hkdf`, and the unified `seal`/`open`; the suite→AEAD/info dispatch is
-    // `__crypto_asymAead`/`__crypto_asymInfo`. `__crypto_encrypt`/`__crypto_decrypt`
-    // back the `encrypt`/`decrypt` members; `__crypto_encryptText` is the String shim.
-    helper_asym_aead::register(&mut pkg);
-    helper_asym_info::register(&mut pkg);
+    // Asymmetric public-key encryption: RFC 9180 HPKE single-shot base mode
+    // (plan-109-E). Pure software over the X25519 ladder, the Ed25519→X25519
+    // conversion helpers, the hash-generic HMAC/HKDF-expand cores, and the unified
+    // `seal`/`open`: `__crypto_hpkeLabeledExtract`/`Expand` are the RFC labeled KDF,
+    // `__crypto_hpke{KemId,…,SuiteId}` the per-suite profile properties,
+    // `__crypto_hpke{Dh,Base,RecipientPub,RecipientPriv,ExtractAndExpand}` the DHKEM
+    // layer, `__crypto_hpkeKeySchedule` the base key schedule, and
+    // `__crypto_hpkeSealWith` the deterministic seal seam `__crypto_encrypt` feeds a
+    // fresh ephemeral key. `__crypto_encrypt`/`__crypto_decrypt` back the
+    // `encrypt`/`decrypt` members; `__crypto_encryptText` is the String shim.
+    helper_hpke_i2osp2::register(&mut pkg);
+    helper_hpke_labeled_extract::register(&mut pkg);
+    helper_hpke_labeled_expand::register(&mut pkg);
+    helper_hpke_profile::register(&mut pkg);
+    helper_hpke_kem::register(&mut pkg);
+    helper_hpke_key_schedule::register(&mut pkg);
+    helper_hpke_seal_with::register(&mut pkg);
     helper_encrypt::register(&mut pkg);
     helper_decrypt::register(&mut pkg);
     helper_encrypt_text::register(&mut pkg);
@@ -605,10 +615,11 @@ pub(crate) fn register(r: &mut Registry) {
     // X25519 / X448 Diffie-Hellman over the key-agreement `Certificate`s. Pure-MFB
     // rewrite onto `__crypto_exchange`.
     func_exchange::register(&mut pkg);
-    // Asymmetric public-key encryption. `encrypt`/`decrypt` are X25519 sealed boxes
-    // over Ed25519 recipient keys, selected by `AsymmetricCipher`. Pure-MFB rewrites
-    // onto `__crypto_encrypt`/`__crypto_decrypt` — no platform library, so (like
-    // `hmac`/`hkdf`/`convert`) they are NOT in any backend's `runtime_calls`.
+    // Asymmetric public-key encryption. `encrypt`/`decrypt` are RFC 9180 HPKE
+    // base-mode `Seal`/`Open` over Ed25519 recipient keys, selected by
+    // `AsymmetricCipher`. Pure-MFB rewrites onto `__crypto_encrypt`/`__crypto_decrypt`
+    // — no platform library, so (like `hmac`/`hkdf`/`convert`) they are NOT in any
+    // backend's `runtime_calls`.
     func_encrypt::register(&mut pkg);
     func_decrypt::register(&mut pkg);
     // Constant-time comparison (source).
@@ -659,8 +670,6 @@ mod helper_append_be_word;
 mod helper_append_be_word64;
 mod helper_append_le_lane;
 mod helper_append_le_word;
-mod helper_asym_aead;
-mod helper_asym_info;
 mod helper_be32;
 mod helper_be64;
 mod helper_be_word;
@@ -761,6 +770,13 @@ mod helper_hkdf;
 mod helper_hkdf_expand;
 mod helper_hmac;
 mod helper_hmac_text;
+mod helper_hpke_i2osp2;
+mod helper_hpke_kem;
+mod helper_hpke_key_schedule;
+mod helper_hpke_labeled_expand;
+mod helper_hpke_labeled_extract;
+mod helper_hpke_profile;
+mod helper_hpke_seal_with;
 mod helper_inv25519;
 mod helper_is_all_zero;
 mod helper_iv224;
@@ -888,7 +904,7 @@ mod tests {
         // `hmac`/`hkdf`/`pbkdf2(Hash, …)`, the SHAKE256 XOF `shake256`, `convert`
         // (Ed25519→X25519 / Ed448→X448 key conversion), `exchange` (X25519/X448
         // Diffie-Hellman), the `AsymmetricCipher`-selected `encrypt`/`decrypt`
-        // (X25519 sealed box), plus
+        // (RFC 9180 HPKE), plus
         // `randomBytes`/`randomInt`/`uuid4`/`uuid7`/`ulid`/`constantTimeEqual`. The
         // per-type generate/sign/verify/sha and per-digest `*Sha*`/per-cipher AEAD
         // members were all retired behind the unified surface.
