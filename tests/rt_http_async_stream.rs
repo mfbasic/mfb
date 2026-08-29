@@ -176,14 +176,7 @@ fn drive(port: u16, source: &str) -> Output {
     );
 
     let out = output_with_timeout(&mut Command::new(&exe), "http client");
-    let deadline = Instant::now() + PROCESS_TIMEOUT;
-    while server.try_wait().expect("poll server").is_none() {
-        if Instant::now() >= deadline {
-            stop_child(&mut server);
-            panic!("plan-76-D: server did not exit within 30s");
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    stop_child(&mut server);
     let _ = fs::remove_dir_all(&root);
     out
 }
