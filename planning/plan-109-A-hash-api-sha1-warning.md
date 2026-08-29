@@ -24,8 +24,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| no unfinished plan-109 implementation exists | `find planning -maxdepth 1 -name 'plan-109-*' -newer planning/plan-109-A-hash-api-sha1-warning.md` | MET at authoring; re-run |
-| existing crypto KAT passes before the rename | `cargo build --release --bin mfb && scripts/test-accept.sh target/release/mfb /tmp/plan109-a-base 'rt-behavior/crypto/crypto-kat-valid'` | re-verify at kickoff |
+| no unfinished plan-109 implementation exists | `rg -l 'SHA2_256\|SHA3_\|X448\|Ed448' src tests benchmark \| wc -l` → `0` | MET 2026-08-29 (0; the original `find -newer` command listed the sibling letters B–F because they were saved seconds after A — see Corrections) |
+| existing crypto KAT passes before the rename | `cargo build --release --bin mfb && scripts/test-accept.sh target/release/mfb /tmp/plan109-a-base 'rt-behavior/crypto/crypto-kat-valid'` | MET 2026-08-29 (`acceptance tests passed (1 test(s) ran)`) |
 
 Everything below assumes those checks pass. The Status column is a snapshot; the
 Command column is the truth and must be re-run before implementation.
@@ -117,27 +117,55 @@ format changes in this letter.
 
 ### Phase 1 — generic enum-value advisory seam
 
-- [ ] Add optional advisory metadata to `EnumVariant` in
-      `src/codegen/registry/mod.rs`, preserving `None` at every existing variant.
-- [ ] Thread registry enum/member lookup into the two user-HIR member-access
-      checking paths and emit one `report_warning` diagnostic.
-- [ ] Add the warning rule and severity to the diagnostics registry/spec, with
-      unit tests proving warning-not-error and no duplicate emission.
+- [x] Add optional advisory metadata to `EnumVariant` in
+      `src/codegen/registry/mod.rs`, preserving `None` at every existing variant
+      (`EnumAdvisory { rule, detail }`; 57 literal sites got `advisory: None`,
+      `rg -c 'advisory: None' src`; lookup `Registry::enum_variant_advisory`
+      keyed by owning package so a same-named user enum never inherits it).
+- [x] Thread registry enum/member lookup into the two user-HIR member-access
+      checking paths and emit one `report_warning` diagnostic — both paths
+      (expression and `MATCH` literal, via `check_match_pattern` →
+      `infer_expression`) resolve at the single enum arm of
+      `inference.rs:infer_member_access`, gated on `!file.internal`; see
+      `syntaxcheck/mod.rs:builtin_enum_member_advisory`.
+- [x] Add the warning rule and severity to the diagnostics registry/spec, with
+      unit tests proving warning-not-error and no duplicate emission
+      (`2-203-0136 CRYPTO_SHA1_INSECURE`, warn; `01_rule-codes.md` row + the
+      nine-warn-rules sentence; `builtin_enum_advisory_warns_once_per_user_occurrence`,
+      `builtin_enum_without_advisory_never_warns`,
+      `enum_variant_advisory_is_keyed_by_package_enum_and_member`).
+- [x] (added) Land `Hash.SHA1` + the SHA-1 core with the seam — the acceptance
+      below needs a *running* `Hash.SHA1` program, and a variant without a core
+      would silently fall through to the SHA-224 arm (see Corrections).
 
 Acceptance: a minimal `Hash.SHA1` fixture emits exactly one named warning and
 still produces/runs an executable; a non-advisory enum member emits none.
+VERIFIED 2026-08-29: `tests/rt-behavior/crypto/crypto-sha1-advisory-valid`
+build.log pins exactly one `warn[2-203-0136 CRYPTO_SHA1_INSECURE]` per
+occurrence (line 12 MATCH literal, line 22 expression), none for `Hash.SHA256`
+in the same two contexts, `[exit 0]`, and the run prints the FIPS 180-4 digest.
 Commit: —
 
 ### Phase 2 — rename SHA-2 and implement SHA-1
 
 - [ ] Rename the four enum variants and all 105 measured non-golden uses; update
       docs/examples/benchmarks, resolver tests, ordinal comments, and helpers.
-- [ ] Add pure-MFB SHA-1 schedule/compression/padding helpers and wire native
-      `hash` plus generic HMAC/HKDF/PBKDF2 size/dispatch helpers.
-- [ ] Add FIPS 180-4 KATs for empty, `abc`, and multi-block inputs and invalid
-      argument fixtures for each modified public overload.
-- [ ] Add a syntax fixture proving each removed old spelling is rejected and a
-      warning fixture proving SHA1 warns in normal and MATCH contexts.
+- [x] Add pure-MFB SHA-1 schedule/compression/padding helpers and wire native
+      `hash` plus generic HMAC/HKDF/PBKDF2 size/dispatch helpers (landed in the
+      Phase 1 commit: `helper_rotl32`/`helper_sha1_f`/`helper_sha1_k`/
+      `helper_sha1_schedule`/`helper_sha1_bytes`/`helper_sha1_text`, reusing
+      `__crypto_pad512`; `gen_hash` ordinal 0 arm; SHA1 arms in
+      `__crypto_sha{Digest,BlockSize,OutputLen}`).
+- [~] Add FIPS 180-4 KATs for empty, `abc`, and multi-block inputs and invalid
+      argument fixtures for each modified public overload — KATs landed in the
+      Phase 1 commit (`crypto-kat-valid`: SHA-1 §A.1/§A.2 + empty, both
+      overloads; HMAC-SHA1 RFC 2202 #2; HKDF-SHA1 RFC 5869 #4; PBKDF2-HMAC-SHA1
+      RFC 6070 #1/#2). Remaining: invalid-argument fixtures for the modified
+      overloads.
+- [~] Add a syntax fixture proving each removed old spelling is rejected and a
+      warning fixture proving SHA1 warns in normal and MATCH contexts — the
+      warning fixture is `crypto-sha1-advisory-valid` (Phase 1 commit).
+      Remaining: the removed-spelling syntax fixture (needs the rename).
 
 Acceptance: FIPS SHA-1/SHA-2 KAT bytes match; SHA-1 works through hash, HMAC,
 HKDF, and PBKDF2; old spellings fail; warning count is exact and non-fatal.
@@ -166,7 +194,31 @@ Commit: —
 
 ## Corrections
 
-None yet.
+- Prerequisite row 1's command (`find planning -maxdepth 1 -name 'plan-109-*' -newer
+  planning/plan-109-A-…`) is not a test for an unfinished implementation: it lists
+  B–F, which were saved seconds after A (`ls -la planning/plan-109-*`, all
+  `Aug 29 06:12`). Replaced with a source census for any plan-109 spelling
+  (`rg -l 'SHA2_256|SHA3_|X448|Ed448' src tests benchmark | wc -l` → 0), which
+  measures the property the row actually gates on.
+- The plan cites `src/docs/spec/diagnostics/02_error-codes.md` for compiler
+  advisories; that file is the RUNTIME `errorCode::` registry. Compiler rules
+  (severity `warn`/`error`) live in `src/rules/table.rs:RULES` and are pinned
+  to `src/docs/spec/diagnostics/01_rule-codes.md` by
+  `rules::tests` (`rules missing from src/docs/spec/diagnostics/01_rule-codes.md`).
+- Phase 1's acceptance ("a minimal `Hash.SHA1` fixture … still produces/runs an
+  executable") cannot be met by the seam alone: a `SHA1` variant whose ordinal
+  has no core would compile and silently return the SHA-224 digest
+  (`gen_hash::emit_dispatch` falls through on the unmatched ordinal). So the
+  SHA-1 core, its `hash`/HMAC/HKDF/PBKDF2 wiring, and the FIPS/RFC KATs moved
+  from Phase 2 into the Phase 1 commit; Phase 2 keeps the rename, the
+  removed-spelling fixture, the invalid-argument fixtures, and the doc sweep.
+  Ordinals shifted once here (SHA1=0 pushes the four SHA-2 ordinals to 1–4) and
+  the names change in Phase 2 — one golden regen per commit.
+- "The two user-HIR member-access checking paths" is one path: the `MATCH`
+  literal check (`check_match_pattern`) infers its literal through the same
+  `infer_member_access` enum arm as an expression, so the warning is emitted
+  at exactly one site and once-per-occurrence follows structurally (verified:
+  10 occurrences → 10 warnings in the probe, 2 → 2 in the fixture).
 
 ## Summary
 

@@ -17,6 +17,9 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 const BODY: &str =
 r#"' Hash-generic digest dispatch: route a `Hash` selector to its SHA `_bytes` core.
 FUNC __crypto_shaDigest(algo AS Hash, data AS List OF Byte) AS List OF Byte
+  IF algo = Hash.SHA1 THEN
+    RETURN __crypto_sha1_bytes(data)
+  END IF
   IF algo = Hash.SHA224 THEN
     RETURN __crypto_sha224_bytes(data)
   END IF

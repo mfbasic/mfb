@@ -27,8 +27,8 @@
 //! their `DOC` descriptions on the `RegistryRecord`/`RecordProp` `description` fields.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, EnumVariant, Implementation, Parameter, RecordProp, Registry, RegistryEnum,
-    RegistryFunction, RegistryPackage, RegistryRecord,
+    Body, DefaultValue, EnumAdvisory, EnumVariant, Implementation, Parameter, RecordProp, Registry,
+    RegistryEnum, RegistryFunction, RegistryPackage, RegistryRecord,
 };
 use crate::types::ParameterType;
 
@@ -118,22 +118,27 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "P256",
                 description: "NIST P-256 (secp256r1) ECDSA key pair.",
+                advisory: None,
             },
             EnumVariant {
                 name: "P384",
                 description: "NIST P-384 (secp384r1) ECDSA key pair.",
+                advisory: None,
             },
             EnumVariant {
                 name: "P521",
                 description: "NIST P-521 (secp521r1) ECDSA key pair.",
+                advisory: None,
             },
             EnumVariant {
                 name: "Ed25519",
                 description: "Ed25519 EdDSA key pair.",
+                advisory: None,
             },
             EnumVariant {
                 name: "X25519",
                 description: "X25519 (Curve25519 ECDH) key-agreement key pair — not a signing key. `crypto::encrypt`/`crypto::decrypt` take Ed25519 keys (converted internally), so a raw X25519 pair is an ECDH building block, not a direct input to another `crypto` member.",
+                advisory: None,
             },
         ],
     });
@@ -146,30 +151,47 @@ pub(crate) fn register(r: &mut Registry) {
         variants: vec![EnumVariant {
             name: "Ed25519ToX25519",
             description: "Convert an Ed25519 signing key pair to the matching X25519 (Curve25519 ECDH) key pair.",
+            advisory: None,
         }],
     });
-    // The hash-algorithm selector — every hash function `crypto` supports (the
-    // SHA-2 family). Ordinals are declaration order (SHA224=0, SHA256=1, SHA384=2,
-    // SHA512=3).
+    // The hash-algorithm selector — every hash function `crypto` supports (SHA-1
+    // and the SHA-2 family). Ordinals are declaration order (SHA1=0, SHA224=1,
+    // SHA256=2, SHA384=3, SHA512=4); `gen_hash`'s `ORD_*` constants and the
+    // `__crypto_sha{Digest,BlockSize,OutputLen}` dispatch helpers mirror this order.
+    // `SHA1` carries the registry's enum-value advisory: every user-source use
+    // reports `CRYPTO_SHA1_INSECURE` (warn, non-fatal) — the digest itself is the
+    // standard FIPS 180-4 value and stays usable for legacy interoperability.
     pkg.add_enum(RegistryEnum {
         name: "Hash",
         export: true,
         variants: vec![
             EnumVariant {
+                name: "SHA1",
+                description: "SHA-1 (FIPS 180-4, 160-bit digest). Not collision-resistant: every source use reports the `CRYPTO_SHA1_INSECURE` warning; select it only for legacy interoperability, never for new designs.",
+                advisory: Some(EnumAdvisory {
+                    rule: "CRYPTO_SHA1_INSECURE",
+                    detail: "`Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA256` or stronger for new designs.",
+                }),
+            },
+            EnumVariant {
                 name: "SHA224",
                 description: "SHA-224 (SHA-2 family, 224-bit digest).",
+                advisory: None,
             },
             EnumVariant {
                 name: "SHA256",
                 description: "SHA-256 (SHA-2 family, 256-bit digest).",
+                advisory: None,
             },
             EnumVariant {
                 name: "SHA384",
                 description: "SHA-384 (SHA-2 family, 384-bit digest).",
+                advisory: None,
             },
             EnumVariant {
                 name: "SHA512",
                 description: "SHA-512 (SHA-2 family, 512-bit digest).",
+                advisory: None,
             },
         ],
     });
@@ -183,10 +205,12 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "AES256GCM",
                 description: "AES-256 in Galois/Counter Mode (NIST SP 800-38D).",
+                advisory: None,
             },
             EnumVariant {
                 name: "CHACHA20POLY1305",
                 description: "ChaCha20-Poly1305 AEAD (RFC 8439).",
+                advisory: None,
             },
         ],
     });
@@ -203,11 +227,13 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "Ed25519_AES256GCM",
                 description: "X25519 sealed box (Ed25519 keys) with an AES-256-GCM inner AEAD.",
+                advisory: None,
             },
             EnumVariant {
                 name: "Ed25519_CHACHA20POLY1305",
                 description:
                     "X25519 sealed box (Ed25519 keys) with a ChaCha20-Poly1305 inner AEAD.",
+                advisory: None,
             },
         ],
     });
@@ -249,6 +275,15 @@ pub(crate) fn register(r: &mut Registry) {
     helper_sha256_text::register(&mut pkg);
     helper_sha224_bytes::register(&mut pkg);
     helper_sha224_text::register(&mut pkg);
+    // SHA-1 (FIPS 180-4 §6.1) over the same padded 512-bit blocks and masked 32-bit
+    // arithmetic as SHA-256; only the 80-word schedule, round function, and
+    // constants differ.
+    helper_rotl32::register(&mut pkg);
+    helper_sha1_f::register(&mut pkg);
+    helper_sha1_k::register(&mut pkg);
+    helper_sha1_schedule::register(&mut pkg);
+    helper_sha1_bytes::register(&mut pkg);
+    helper_sha1_text::register(&mut pkg);
     helper_add64::register(&mut pkg);
     helper_be_word64::register(&mut pkg);
     helper_be_words64::register(&mut pkg);
@@ -591,11 +626,17 @@ mod helper_rand62;
 mod helper_rand63;
 mod helper_random_int;
 mod helper_reduce;
+mod helper_rotl32;
 mod helper_rotr32;
 mod helper_scalar_below_l;
 mod helper_scalarbase;
 mod helper_scalarmult;
 mod helper_seal_text;
+mod helper_sha1_bytes;
+mod helper_sha1_f;
+mod helper_sha1_k;
+mod helper_sha1_schedule;
+mod helper_sha1_text;
 mod helper_sha224_bytes;
 mod helper_sha224_iv;
 mod helper_sha224_text;

@@ -1,8 +1,8 @@
 //! Shared clean-room codegen seam for the `Hash`-typed `AbiFunction` crypto members.
 //!
-//! `crypto::hash(Hash, data)` selects a SHA-2 digest by the `Hash` enum ordinal and
+//! `crypto::hash(Hash, data)` selects a digest by the `Hash` enum ordinal and
 //! branch-links to the always-emitted MFB software SHA core
-//! (`__crypto_sha{224,256,384,512}_{bytes,text}`). Unlike [`super::gen_cert`] (which
+//! (`__crypto_sha{1,224,256,384,512}_{bytes,text}`). Unlike [`super::gen_cert`] (which
 //! reproduces the platform key sequences and owns data objects), this seam emits **no**
 //! data objects and needs **no** platform imports — every arm just routes the single
 //! `data` argument into the core's first argument register and calls it, exactly how
@@ -21,12 +21,13 @@ use crate::target::shared::abi;
 // ---------------------------------------------------------------------------
 // Hash ordinals (must match the `Hash` enum declaration order in `crypto/mod.rs`).
 // ---------------------------------------------------------------------------
-// SHA-224 is the fall-through ordinal (never compared), but named for the contract.
+// SHA-1 is the fall-through ordinal (never compared), but named for the contract.
 #[allow(dead_code)]
-pub(crate) const ORD_SHA224: &str = "0";
-pub(crate) const ORD_SHA256: &str = "1";
-pub(crate) const ORD_SHA384: &str = "2";
-pub(crate) const ORD_SHA512: &str = "3";
+pub(crate) const ORD_SHA1: &str = "0";
+pub(crate) const ORD_SHA224: &str = "1";
+pub(crate) const ORD_SHA256: &str = "2";
+pub(crate) const ORD_SHA384: &str = "3";
+pub(crate) const ORD_SHA512: &str = "4";
 
 /// Emit the `Hash`-ordinal dispatch for `crypto::hash`: branch on `ord` to the SHA-2
 /// core matching the digest, routing the single `data` operand into the core's first
@@ -43,10 +44,13 @@ pub(crate) fn emit_dispatch(
     done: &str,
 ) -> Result<(), String> {
     let suffix = if is_text { "text" } else { "bytes" };
+    let sha224 = format!("{symbol}_{suffix}_sha224");
     let sha256 = format!("{symbol}_{suffix}_sha256");
     let sha384 = format!("{symbol}_{suffix}_sha384");
     let sha512 = format!("{symbol}_{suffix}_sha512");
     builder.instructions.extend([
+        abi::compare_immediate(ord, ORD_SHA224),
+        abi::branch_eq(&sha224),
         abi::compare_immediate(ord, ORD_SHA256),
         abi::branch_eq(&sha256),
         abi::compare_immediate(ord, ORD_SHA384),
@@ -54,7 +58,9 @@ pub(crate) fn emit_dispatch(
         abi::compare_immediate(ord, ORD_SHA512),
         abi::branch_eq(&sha512),
     ]);
-    // SHA-224 (ordinal 0) falls through here.
+    // SHA-1 (ordinal 0) falls through here.
+    emit_core(builder, "1", suffix, data_op.clone(), ctx, done)?;
+    builder.instructions.push(abi::label(&sha224));
     emit_core(builder, "224", suffix, data_op.clone(), ctx, done)?;
     builder.instructions.push(abi::label(&sha256));
     emit_core(builder, "256", suffix, data_op.clone(), ctx, done)?;

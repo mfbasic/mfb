@@ -1,7 +1,7 @@
 //! `__crypto_shaBlockSize` — shared private helper for the `crypto` package.
 //!
-//! The hash-generic HMAC block size `B` for a `crypto::Hash`: SHA-224/SHA-256 hash in
-//! 64-byte blocks, SHA-384/SHA-512 in 128-byte blocks. `__crypto_hmac` keys and pads to
+//! The hash-generic HMAC block size `B` for a `crypto::Hash`: SHA-1/SHA-224/SHA-256
+//! hash in 64-byte blocks, SHA-384/SHA-512 in 128-byte blocks. `__crypto_hmac` keys and pads to
 //! this width, so the construction stays written over an abstract hash `H` — a future
 //! `Hash` variant needs only one new arm here.
 //!
@@ -13,7 +13,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"' Hash-generic HMAC block size B: 64 for SHA-224/256, 128 for SHA-384/512.
+r#"' Hash-generic HMAC block size B: 64 for SHA-1/224/256, 128 for SHA-384/512.
 FUNC __crypto_shaBlockSize(algo AS Hash) AS Integer
   IF algo = Hash.SHA384 THEN
     RETURN 128

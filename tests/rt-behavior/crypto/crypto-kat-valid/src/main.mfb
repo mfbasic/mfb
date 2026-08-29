@@ -13,22 +13,38 @@ SUB main()
   io::print(encoding::hexEncode(crypto::hash(Hash.SHA512, "abc")))
   io::print(encoding::hexEncode(crypto::hash(Hash.SHA384, "abc")))
 
-  ' HMAC (RFC 4231 test case 2).
+  ' SHA-1 (FIPS 180-4 §A.1 one-block, empty message, §A.2 two-block message);
+  ' both the String and the List OF Byte overload. Each `Hash.SHA1` use reports
+  ' the non-fatal CRYPTO_SHA1_INSECURE advisory — pinned in build.log.
+  io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "abc")))
+  io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "")))
+  io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")))
+  LET abcBytes AS List OF Byte = encoding::utf8Encode("abc")
+  io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, abcBytes)))
+
+  ' HMAC (RFC 4231 test case 2; RFC 2202 test case 2 for HMAC-SHA1).
   LET jefe AS List OF Byte = encoding::utf8Encode("Jefe")
   io::print(encoding::hexEncode(crypto::hmac(Hash.SHA256, jefe, "what do ya want for nothing?")))
   io::print(encoding::hexEncode(crypto::hmac(Hash.SHA512, jefe, "what do ya want for nothing?")))
+  io::print(encoding::hexEncode(crypto::hmac(Hash.SHA1, jefe, "what do ya want for nothing?")))
 
-  ' HKDF (RFC 5869 test case 1).
+  ' HKDF (RFC 5869 test case 1; test case 4 for HKDF-SHA1 — same salt/info, 11-byte IKM).
   LET ikm AS List OF Byte = encoding::hexDecode("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b")
   LET salt AS List OF Byte = encoding::hexDecode("000102030405060708090a0b0c")
   LET info AS List OF Byte = encoding::hexDecode("f0f1f2f3f4f5f6f7f8f9")
   io::print(encoding::hexEncode(crypto::hkdf(Hash.SHA256, ikm, salt, info, 42)))
+  LET ikm1 AS List OF Byte = encoding::hexDecode("0b0b0b0b0b0b0b0b0b0b0b")
+  io::print(encoding::hexEncode(crypto::hkdf(Hash.SHA1, ikm1, salt, info, 42)))
 
-  ' PBKDF2-HMAC-SHA-256 (RFC 7914 vectors, low iteration counts).
+  ' PBKDF2-HMAC-SHA-256 (RFC 7914 vectors, low iteration counts);
+  ' PBKDF2-HMAC-SHA1 (RFC 6070 test cases 1 and 2).
   LET pw AS List OF Byte = encoding::utf8Encode("passwd")
   LET sa AS List OF Byte = encoding::utf8Encode("salt")
   io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA256, pw, sa, 1, 64)))
   io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA512, pw, sa, 1, 64)))
+  LET pw1 AS List OF Byte = encoding::utf8Encode("password")
+  io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA1, pw1, sa, 1, 20)))
+  io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA1, pw1, sa, 2, 20)))
 
   ' AES-256-GCM (McGrew & Viega test case 16).
   LET gkey AS List OF Byte = encoding::hexDecode("feffe9928665731c6d6a8f9467308308feffe9928665731c6d6a8f9467308308")

@@ -1,7 +1,7 @@
 //! `__crypto_shaOutputLen` — shared private helper for the `crypto` package.
 //!
-//! The hash-generic digest length `L` for a `crypto::Hash`: SHA224=28, SHA256=32,
-//! SHA384=48, SHA512=64. `__crypto_hkdf` uses it for the all-zero default salt and the
+//! The hash-generic digest length `L` for a `crypto::Hash`: SHA1=20, SHA224=28,
+//! SHA256=32, SHA384=48, SHA512=64. `__crypto_hkdf` uses it for the all-zero default salt and the
 //! `255 * L` output-length ceiling, so HKDF stays written over an abstract hash `H` — a
 //! future `Hash` variant needs only one new arm here.
 //!
@@ -13,8 +13,11 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"' Hash-generic digest length L: 28/32/48/64 for SHA-224/256/384/512.
+r#"' Hash-generic digest length L: 20/28/32/48/64 for SHA-1/224/256/384/512.
 FUNC __crypto_shaOutputLen(algo AS Hash) AS Integer
+  IF algo = Hash.SHA1 THEN
+    RETURN 20
+  END IF
   IF algo = Hash.SHA224 THEN
     RETURN 28
   END IF

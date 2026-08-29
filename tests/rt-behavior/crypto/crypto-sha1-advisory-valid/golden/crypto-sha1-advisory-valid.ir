@@ -1,7 +1,7 @@
 {
   "format": "mfb-ir",
   "version": 1,
-  "project": "crypto-aead-invalid",
+  "project": "crypto-sha1-advisory-valid",
   "entry": {
     "name": "main",
     "returns": "Nothing",
@@ -95,96 +95,62 @@
   ],
   "functions": [
   {
-    "name": "gcmTamperedTag",
-    "line": 11,
+    "name": "label",
+    "line": 10,
     "visibility": "public",
     "kind": "func",
     "params": [
+    { "name": "h", "line": 10, "type": "Hash", "default": null }
     ],
-    "returns": "Integer",
+    "returns": "String",
     "body": [
-    { "op": "bind", "line": 12, "mutable": false, "name": "key", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "feffe9928665731c6d6a8f9467308308feffe9928665731c6d6a8f9467308308" }] } },
-    { "op": "bind", "line": 13, "mutable": false, "name": "nonce", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "cafebabefacedbaddecaf888" }] } },
-    { "op": "bind", "line": 14, "mutable": false, "name": "pt", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_utf8Encode$String$AS$List$OF$Byte", "args": [{ "kind": "const", "type": "String", "value": "attack at dawn" }] } },
-    { "op": "bind", "line": 15, "mutable": false, "name": "box", "type": "Sealed", "value": { "kind": "call", "type": "Sealed", "target": "crypto.seal", "args": [{ "kind": "memberAccess", "type": "SymmetricCipher", "target": { "kind": "local", "name": "SymmetricCipher" }, "member": "AES256GCM" }, { "kind": "local", "name": "key" }, { "kind": "local", "name": "nonce" }, { "kind": "local", "name": "pt" }, { "kind": "list", "type": "List OF Byte", "values": [] }] } },
-    { "op": "bind", "line": 16, "mutable": false, "name": "badTag", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "collections.set", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "box" }, "member": "tag" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "box" }, "member": "tag" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }, { "kind": "const", "type": "Integer", "value": "1" }] }] }] } },
-    { "op": "bind", "line": 17, "mutable": false, "name": "back", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "crypto.open", "args": [{ "kind": "memberAccess", "type": "SymmetricCipher", "target": { "kind": "local", "name": "SymmetricCipher" }, "member": "AES256GCM" }, { "kind": "local", "name": "key" }, { "kind": "local", "name": "nonce" }, { "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "box" }, "member": "ciphertext" }, { "kind": "local", "name": "badTag" }, { "kind": "list", "type": "List OF Byte", "values": [] }] } },
-    { "op": "return", "line": 18, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "back" }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "$match0", "type": "Hash", "value": { "kind": "local", "name": "h" } },
     {
-      "op": "trap",
-      "line": 19,
-      "name": "err",
-      "body": [
-      { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "gcm-tamper-auth=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050016" } }] } }] } },
-      { "op": "return", "line": 21, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
-      ]
-    }
-    ]
-  },
-  {
-    "name": "chachaTamperedCiphertext",
-    "line": 25,
-    "visibility": "public",
-    "kind": "func",
-    "params": [
-    ],
-    "returns": "Integer",
-    "body": [
-    { "op": "bind", "line": 26, "mutable": false, "name": "key", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f" }] } },
-    { "op": "bind", "line": 27, "mutable": false, "name": "nonce", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "070000004041424344454647" }] } },
-    { "op": "bind", "line": 28, "mutable": false, "name": "pt", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_utf8Encode$String$AS$List$OF$Byte", "args": [{ "kind": "const", "type": "String", "value": "attack at dawn" }] } },
-    { "op": "bind", "line": 29, "mutable": false, "name": "box", "type": "Sealed", "value": { "kind": "call", "type": "Sealed", "target": "crypto.seal", "args": [{ "kind": "memberAccess", "type": "SymmetricCipher", "target": { "kind": "local", "name": "SymmetricCipher" }, "member": "CHACHA20POLY1305" }, { "kind": "local", "name": "key" }, { "kind": "local", "name": "nonce" }, { "kind": "local", "name": "pt" }, { "kind": "list", "type": "List OF Byte", "values": [] }] } },
-    { "op": "bind", "line": 30, "mutable": false, "name": "badCt", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "collections.set", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "box" }, "member": "ciphertext" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "box" }, "member": "ciphertext" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }, { "kind": "const", "type": "Integer", "value": "255" }] }] }] } },
-    { "op": "bind", "line": 31, "mutable": false, "name": "back", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "crypto.open", "args": [{ "kind": "memberAccess", "type": "SymmetricCipher", "target": { "kind": "local", "name": "SymmetricCipher" }, "member": "CHACHA20POLY1305" }, { "kind": "local", "name": "key" }, { "kind": "local", "name": "nonce" }, { "kind": "local", "name": "badCt" }, { "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "box" }, "member": "tag" }, { "kind": "list", "type": "List OF Byte", "values": [] }] } },
-    { "op": "return", "line": 32, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "back" }] } },
-    {
-      "op": "trap",
-      "line": 33,
-      "name": "err",
-      "body": [
-      { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "chacha-tamper-auth=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050016" } }] } }] } },
-      { "op": "return", "line": 35, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
-      ]
-    }
-    ]
-  },
-  {
-    "name": "gcmShortKey",
-    "line": 39,
-    "visibility": "public",
-    "kind": "func",
-    "params": [
-    ],
-    "returns": "Integer",
-    "body": [
-    { "op": "bind", "line": 40, "mutable": false, "name": "key", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "feffe9928665731c" }] } },
-    { "op": "bind", "line": 41, "mutable": false, "name": "nonce", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "cafebabefacedbaddecaf888" }] } },
-    { "op": "bind", "line": 42, "mutable": false, "name": "pt", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_utf8Encode$String$AS$List$OF$Byte", "args": [{ "kind": "const", "type": "String", "value": "x" }] } },
-    { "op": "bind", "line": 43, "mutable": false, "name": "box", "type": "Sealed", "value": { "kind": "call", "type": "Sealed", "target": "crypto.seal", "args": [{ "kind": "memberAccess", "type": "SymmetricCipher", "target": { "kind": "local", "name": "SymmetricCipher" }, "member": "AES256GCM" }, { "kind": "local", "name": "key" }, { "kind": "local", "name": "nonce" }, { "kind": "local", "name": "pt" }, { "kind": "list", "type": "List OF Byte", "values": [] }] } },
-    { "op": "return", "line": 44, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "box" }, "member": "tag" }] } },
-    {
-      "op": "trap",
-      "line": 45,
-      "name": "err",
-      "body": [
-      { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "gcm-short-key-invalid=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050002" } }] } }] } },
-      { "op": "return", "line": 47, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+      "op": "match",
+      "line": 11,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 12,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA1" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 13, "value": { "kind": "const", "type": "String", "value": "sha1" } }
+        ]
+      },
+      {
+        "line": 14,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA256" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 15, "value": { "kind": "const", "type": "String", "value": "sha256" } }
+        ]
+      },
+      {
+        "line": 16,
+        "pattern": { "kind": "else" },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 17, "value": { "kind": "const", "type": "String", "value": "other" } }
+        ]
+      }
       ]
     }
     ]
   },
   {
     "name": "main",
-    "line": 51,
+    "line": 21,
     "visibility": "public",
     "kind": "sub",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "r1=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "gcmTamperedTag", "args": [] }] } }] } },
-    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "r2=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "chachaTamperedCiphertext", "args": [] }] } }] } },
-    { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "r3=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "gcmShortKey", "args": [] }] } }] } }
+    { "op": "bind", "line": 22, "mutable": false, "name": "legacy", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA1" }, { "kind": "const", "type": "String", "value": "abc" }] } },
+    { "op": "bind", "line": 23, "mutable": false, "name": "modern", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA256" }, { "kind": "const", "type": "String", "value": "abc" }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "label", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA256" }] }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "local", "name": "modern" }] } }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "legacy=" }, "right": { "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "local", "name": "legacy" }] } }] } }
     ]
   },
   {
