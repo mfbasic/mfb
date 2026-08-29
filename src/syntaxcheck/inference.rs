@@ -142,29 +142,12 @@ impl<'a> SyntaxChecker<'a> {
                 // the pure-query/growth collection members, …) is *allowed*: it
                 // compiles and runs, and its handler is dead code — flagged by the
                 // advisory `TYPE_INLINE_TRAP_DEAD_HANDLER` warning, not an error.
-                match &trapped_callee {
-                    // A non-call or package-constant scrutinee is
-                    // TYPE_INLINE_TRAP_REQUIRES_FALLIBLE, `ir::verify`'s
-                    // (plan-107-A): the lowered `$trap_res` bind keeps the
-                    // scrutinee's shape.
-                    None => {}
-                    Some(canonical) if builtins::is_package_constant(canonical) => {}
-                    Some(canonical) if builtins::inline_builtin_is_infallible(canonical) => self
-                        .report_warning(
-                            "TYPE_INLINE_TRAP_DEAD_HANDLER",
-                            &format!(
-                                "Inline TRAP handler is unreachable — `{canonical}` cannot fail, so the handler is dead code."
-                            ),
-                            file,
-                            *trap_line,
-                        ),
-                    // Every other call — a fallible inline built-in (all now raw-
-                    // supported, plan-26-B), a runtime-helper built-in, or a user
-                    // FUNC/SUB — is trappable. (`inline_trap_unsupported` no longer
-                    // matches any inline target; the codegen backstop guards a
-                    // future built-in added without a raw/infallible lowering.)
-                    Some(_) => {}
-                }
+                // Both rules on the scrutinee — TYPE_INLINE_TRAP_REQUIRES_FALLIBLE
+                // (a non-call or package constant) and the advisory
+                // TYPE_INLINE_TRAP_DEAD_HANDLER (an infallible inline built-in) —
+                // are `ir::verify`'s (plan-107-A/B): the lowered `$trap_res` bind
+                // keeps the scrutinee's shape and the callee's canonical name.
+                let _ = (&trapped_callee, trap_line);
                 let mut handler_locals = locals.clone();
                 if let Some((name, info)) = send_failure_restore {
                     handler_locals.insert(name, info);
@@ -1858,15 +1841,8 @@ mod tests {
         assert!(accepts(src));
     }
 
-    #[test]
-    fn inline_trap_on_infallible_builtin_warns_dead_handler() {
-        // An infallible inline builtin under a TRAP compiles (plan-26-A): the
-        // handler is dead code, flagged by the advisory warning, not an error.
-        let src = "IMPORT collections\nFUNC main AS Integer\n  LET xs AS List OF Integer = [1, 2, 3]\n  LET n AS Integer = len(xs) TRAP(e)\n    RECOVER 0\n  END TRAP\n  RETURN n\nEND FUNC\n";
-        assert!(rejects_with(src, "TYPE_INLINE_TRAP_DEAD_HANDLER"));
-        assert!(!rejects_with(src, "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"));
-        assert!(!rejects_with(src, "TYPE_INLINE_TRAP_ON_INLINED_BUILTIN"));
-    }
+    // TYPE_INLINE_TRAP_DEAD_HANDLER moved to `ir::verify` (plan-107-B); its twin
+    // is `verify::tests::warns_dead_handler_on_an_infallible_inline_builtin`.
 
     // TYPE_INLINE_TRAP_REQUIRES_FALLIBLE moved to `ir::verify` (plan-107-A); its
     // twins are `verify::tests::rejects_inline_trap_on_a_non_call` and

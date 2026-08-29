@@ -8001,3 +8001,37 @@ fn accepts_a_sendable_thread_message() {
         "{got:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// plan-107-B — the general semantic cluster's package-path twins.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn warns_dead_handler_on_an_infallible_inline_builtin() {
+    // `len(xs) TRAP(e) … END TRAP`: `len` cannot fail, so the handler is dead
+    // code — an advisory warning (plan-26-A), not an error.
+    let scrutinee = IrValue::CallResult {
+        target: "len".to_string(),
+        args: vec![IrValue::Local("xs".to_string())],
+        type_: ParameterType::Integer,
+        loc: IrSourceLoc::default(),
+    };
+    let mut body = inline_trap_ops(scrutinee, vec![recover_zero()]);
+    body.insert(
+        0,
+        bind(
+            "xs",
+            "List OF Integer",
+            Some(IrValue::ListLiteral {
+                type_: ParameterType::list_of(ParameterType::Integer),
+                values: vec![int_const("1")],
+            }),
+            true,
+            false,
+        ),
+    );
+    expect_rule(
+        &project(vec![func("run", vec![], body)], vec![]),
+        "TYPE_INLINE_TRAP_DEAD_HANDLER",
+    );
+}

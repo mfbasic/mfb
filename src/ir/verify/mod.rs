@@ -174,6 +174,8 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_ISOLATED_NOT_VISIBLE",
     "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
     "TYPE_THREAD_NOT_SENDABLE",
+    // plan-107-B: the general semantic cluster.
+    "TYPE_INLINE_TRAP_DEAD_HANDLER",
 ];
 
 /// Diagnostic prefixes shared with the structural `verify_package` checks so a

@@ -625,6 +625,17 @@ impl TypeEnv {
                         "Inline TRAP requires a fallible call; a package constant is not a call."
                             .to_string(),
                     );
+                } else if builtins::inline_builtin_is_infallible(target) {
+                    // A provably-infallible inline built-in (`len`, `toString`,
+                    // every `bits::*`, …) under a TRAP compiles and runs; its
+                    // handler is dead code — an advisory warning, not an error
+                    // (plan-26-A).
+                    self.emit(
+                        "TYPE_INLINE_TRAP_DEAD_HANDLER",
+                        format!(
+                            "Inline TRAP handler is unreachable — `{target}` cannot fail, so the handler is dead code."
+                        ),
+                    );
                 }
             }
             _ => self.emit(

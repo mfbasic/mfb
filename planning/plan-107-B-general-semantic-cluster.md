@@ -19,7 +19,7 @@ See plan-107-A §Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-107-A complete | verdict table has no hypothesis rows; 3 pilots landed | NOT MET until A lands |
+| plan-107-A complete | verdict table has no hypothesis rows; 3 pilots landed | MET 2026-08-29 — archived as `planning/completed/plan-107-A-relocation-audit-pilot.md` (`5f1f05b43`); pilots `ef53fcef3`, `2f7067fd4`, `cad6c8964` |
 
 ## 1. Goal
 
@@ -93,7 +93,10 @@ Per plan-107-A (order re-pins only).
       (`mod.rs:1576,1623`) and the two syntaxcheck-only tests; the resolver
       keeps the rule and the goldens
 - [x] ~~TYPE_INLINE_TRAP_REQUIRES_FALLIBLE~~ — moot here: A's pilot 2 (`2f7067fd4`)
-- [ ] TYPE_INLINE_TRAP_DEAD_HANDLER
+- [x] TYPE_INLINE_TRAP_DEAD_HANDLER — an arm on A's `check_inline_trap_scrutinee`
+      (`inline_builtin_is_infallible(target)`); corpus `518 same, 0 reordered,
+      0 set-diff` (its one fixture is warning-only); twin
+      `warns_dead_handler_on_an_infallible_inline_builtin`.
 - [ ] TYPE_TRAP_FALLTHROUGH (second form ported)
 - [ ] TYPE_COLLECTION_OWNERSHIP_VIOLATION (thread arms ported)
 - [x] ~~TYPE_READ_ONLY_RECORD_CONSTRUCTOR~~ — moot here: split (V/S), moved
