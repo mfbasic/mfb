@@ -52,9 +52,9 @@ jobs:
   # Uninstrumented unit/integration suite across every supported host family.
   # The native GitHub runners cover x86-64/glibc, AArch64/glibc, Win64, and
   # macOS/AArch64. The x86-64/musl row uses Rust's musl target on the native
-  # Linux runner, while the riscv64/glibc row cross-links against Debian's
-  # riscv64 sysroot and executes each test binary through qemu-user. Each matrix
-  # row recompiles under the test profile (separate from build's binary).
+  # Linux runner. The riscv64/glibc row runs natively on a RISE-managed runner.
+  # Each matrix row recompiles under the test profile (separate from build's
+  # binary).
   test:
     needs: build
     name: Test (${{ matrix.name }})
@@ -75,8 +75,8 @@ jobs:
             runner: ubuntu-24.04-arm
             rust_target: native
           - name: linux-riscv64-glibc
-            runner: ubuntu-24.04
-            rust_target: riscv64gc-unknown-linux-gnu
+            runner: ubuntu-24.04-riscv
+            rust_target: native
           - name: windows-x86_64
             runner: windows-2025
             rust_target: native
@@ -98,11 +98,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes musl-tools
-      - name: Install RISC-V linker and emulator
-        if: matrix.rust_target == 'riscv64gc-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes gcc-riscv64-linux-gnu qemu-user
       - name: Cargo test (native)
         if: matrix.rust_target == 'native'
         run: cargo test --workspace
@@ -111,14 +106,6 @@ jobs:
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
         run: cargo test --workspace --target x86_64-unknown-linux-musl
-      - name: Cargo test (RISC-V glibc under QEMU)
-        if: matrix.rust_target == 'riscv64gc-unknown-linux-gnu'
-        env:
-          CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
-          CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_RUNNER: qemu-riscv64 -L /usr/riscv64-linux-gnu
-          MFB_TEST_RUNNER: qemu-riscv64 -L /usr/riscv64-linux-gnu
-        run: cargo test --workspace --target riscv64gc-unknown-linux-gnu
-
   # Acceptance: reuses the compiled binary (no recompile). test-accept.sh uses
   # bash arrays + process substitution, so it must run under bash (not sh).
   acceptance:
