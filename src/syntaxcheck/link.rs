@@ -569,35 +569,8 @@ impl<'a> SyntaxChecker<'a> {
         // `RETURN <expr>`, a `Nothing` wrapper with one — are `ir::verify`'s
         // (plan-107-C).
 
-        // Every wrapper parameter must be consumed: by an ABI slot of the same
-        // name, by a `BIND IN` field that binds it (plan-50-E — a parameter
-        // feeding a struct field has no slot of its own), or by a `BUFFER … SIZE`
-        // expression (plan-58-B — a parameter that only sizes an OUT CBuffer,
-        // e.g. `BUFFER buf SIZE pairs * 2`, likewise has no slot of its own).
-        for param in &function.params {
-            let by_slot = function.abi.slots.iter().any(|s| s.name == param.name);
-            let by_bind = function.bind_in.iter().any(|b| {
-                b.fields.iter().any(|f| {
-                    matches!(&f.value, crate::ast::Expression::Identifier(n) if *n == param.name)
-                })
-            });
-            let by_buffer_size = function.buffers.iter().any(|b| {
-                let mut names = Vec::new();
-                link_expr_idents(&b.size, &mut names);
-                names.contains(&param.name)
-            });
-            if !by_slot && !by_bind && !by_buffer_size {
-                self.report(
-                    "NATIVE_ABI_UNBOUND_PARAM",
-                    &format!(
-                        "Native function `{}` parameter `{}` has no matching ABI slot and no BIND IN field.",
-                        function.name, param.name
-                    ),
-                    file,
-                    param.line,
-                );
-            }
-        }
+        // Every wrapper parameter must be consumed (by a slot, a `BIND IN`
+        // field or a `BUFFER … SIZE` read) — `ir::verify`'s rule (plan-107-C).
 
         // plan-50-G: a CONST pin must fold to an immediate. Until now an
         // unrecognized expression silently pinned **0** (`eval_link_const`'s
@@ -1653,11 +1626,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_ABI_UNBOUND_PARAM"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]

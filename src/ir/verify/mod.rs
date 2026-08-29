@@ -182,6 +182,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     // plan-107-C: the native LINK/ABI family.
     "NATIVE_ABI_NO_RESULT",
     "NATIVE_ABI_RESULT_MARKER",
+    "NATIVE_ABI_UNBOUND_PARAM",
 ];
 
 /// Diagnostic prefixes shared with the structural `verify_package` checks so a

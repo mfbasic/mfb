@@ -2018,14 +2018,9 @@ mod checker_tests {
         ));
     }
 
-    #[test]
-    fn link_unbound_param_rejected() {
-        // A wrapper param with no matching ABI slot.
-        assert!(rejects_with(
-            &link_wrap("  FUNC exec(RES db AS Db, extra AS Integer) AS Nothing\n    SYMBOL \"demo_exec\"\n    ABI (db CPtr) AS status CInt32\n    SUCCESS_ON status = 0\n  END FUNC\n"),
-            "NATIVE_ABI_UNBOUND_PARAM"
-        ));
-    }
+    // The unbound-parameter rejection moved to `ir::verify` (plan-107-C); twin
+    // `verify::tests::rejects_link_unbound_param`, fixture
+    // `tests/syntax/native/native-abi-unbound-param-invalid`.
 
     // The value-returning-wrapper-without-RETURN rejection moved to `ir::verify`
     // (plan-107-C); its twins are `verify::tests::rejects_link_no_result` and
