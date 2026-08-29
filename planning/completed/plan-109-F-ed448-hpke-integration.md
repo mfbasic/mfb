@@ -1,6 +1,6 @@
 # plan-109-F: X448 HPKE suites, full crypto integration, docs, and goldens
 
-Last updated: 2026-08-27
+Last updated: 2026-08-29
 Effort: large (3h–1d)
 Depends on: plan-109-E
 
@@ -162,15 +162,43 @@ Commit: 70e479f3f
       Ed448 arm) — fixed in `helper_convert.rs` (32-byte check →
       `ErrInvalidArgument`), documented in `func_convert.rs`/`10_crypto.md`,
       covered by the new `expectTrap`.
-- [ ] Regenerate only expected AST/IR/ncode/ncodesum drift after normalized diffs;
+- [x] Regenerate only expected AST/IR/ncode/ncodesum drift after normalized diffs;
       inspect one fixture per distinct drift class before accepting.
-- [ ] Run the complete validation ledger and archive each plan-109 letter only
-      after its own acceptance is recorded.
+      VERIFIED 2026-08-29: two drift classes, both expected. (1) `.ir` of every
+      crypto importer (19 fixtures via `sync-goldens.sh`): inspected
+      `crypto-aead-invalid.ir` — uniform `line` shifts of the embedded package
+      (+2 for the two appended `AsymmetricCipher` variants, +3 for the convert
+      length check), the two new enum variants, and the new/rewritten
+      `__crypto_hpke*`/`__crypto_convert` bodies; no user-code IR changed.
+      (2) `.ncodesum` of `byte-identity/crypto` (5 targets, `regen-ncodesum.sh`)
+      and `crypto-ec-valid` (4 targets, hand regen) — the package body changed,
+      so every crypto target's bytes change, as the plan predicted ("all crypto
+      targets are expected to change"); no non-crypto golden moved (`git status`
+      after regen: only `tests/**/crypto/**` + `bug96_audit_tls_http_crypto`),
+      and the standalone artifact gate then reports 0 diffs across 1748 goldens.
+- [x] Run the complete validation ledger and archive each plan-109 letter only
+      after its own acceptance is recorded. VERIFIED 2026-08-29: ledger below,
+      measured on the merged tree; A–D were archived at `b48ad824b`/`84db74365`
+      with their own ledgers, E at this letter's closeout (its ledger was filled
+      at `dfff39d14`'s predecessor commit `70e479f3f`), F itself with this
+      commit. Remote runtime matrix (`.ai/remote_systems.md` boxes; `/tmp/p109-remote.sh`
+      cross-builds the eight crypto exact-vector fixtures with `-target`, scp's
+      them, runs them, and diffs stdout against the macOS golden output):
+      linux-x86_64 glibc (:2228) 8/8, linux-x86_64 musl (:2227) 8/8,
+      linux-aarch64 glibc (:2223) 8/8, linux-riscv64 musl (:2229) 8/8,
+      windows-x86_64 (:2230) 8/8 — 40/40 byte-identical (SHA-1/SHA-2/SHA-3/SHAKE
+      KATs, X448, Ed448, both HPKE profiles' oracle boxes, the SHA-1 advisory
+      program, and the platform-ECDSA `crypto-ec-valid`). Boxes :2222, :2224,
+      :2226, :2231, :2232 refused the connection (`ssh: connect … Connection
+      refused`) and were skipped; every supported target/libc pair is still
+      covered by at least one box.
 
 Acceptance: no old API/stale-format claims remain (`rg` commands return 0), every
 requested behavior has runtime or diagnostic proof, full suite/gates pass, and
-rendered man/spec accurately state algorithms and wire sizes.
-Commit: —
+rendered man/spec accurately state algorithms and wire sizes. VERIFIED (boxes
+above + ledger).
+Commit: dfff39d14 (fixtures, sweep, convert fix) + 12b41236c (main merge) + the
+closeout commit that archives this file (see `git log -- planning/completed/plan-109-F-*`).
 
 ## Validation Plan
 
@@ -187,6 +215,24 @@ Commit: —
   filtered new-fixture release acceptance followed by the project's full accepted
   gate discipline; `scripts/artifact-gate.sh target/release/mfb all`; supported
   remote runtime matrix. Never run cargo concurrently with artifact/acceptance.
+
+### Validation ledger (2026-08-29, whole plan, on the merged tree `12b41236c`+)
+
+| Check | Command | Result |
+|---|---|---|
+| Interop, four profiles both ways + RFC pins | `cargo test --release --test rt_crypto_hpke_interop` | 5 passed (A.1, A.6.1, RFC 7748 X448, FIPS 202 SHAKE256, both-ways ×4) |
+| Oracle vs official X448 vectors | `python3 /tmp/p109-a6-check.py` | `ALL_INTERMEDIATES_MATCH` for AES-128-GCM, AES-256-GCM, ChaCha20Poly1305 |
+| X448 fixture vs oracle | `crypto-hpke-x448-valid` release output `diff /tmp/p109-hpke448-expected.txt` | `ALL_MATCH` (26 lines) |
+| Unit tests | `cargo test --bin mfb` (pre-merge) | 3820 passed |
+| Acceptance TESTING app | `target/release/mfb test tests/acceptance` (pre-merge) | `Tests: 732  Pass: 732  Fail: 0` |
+| Filtered fixtures | `scripts/test-accept.sh target/release/mfb /tmp/accept-out-p109 'rt-behavior/crypto/*' 'byte-identity/crypto' 'syntax/crypto/*' 'rt-error/crypto/*' 'syntax/security/bug96_audit_tls_http_crypto'` | 19 ran, passed |
+| Man/spec renders | `mfb man crypto --all`, `mfb spec stdlib crypto` | 0 `[[`; SHA1 advisory, shake256, exchange, Ed448_* suites present |
+| Full Rust suite (merged tree) | `cargo test --no-fail-fast` | every target ok (bin 3820 passed, mfb_repository 318 + 21, all integration targets) except `golden::artifact_gate_all`, which failed in 0.20s on the peer-held gate lock ("Another artifact-gate (pid 7499) is running"); re-run standalone below |
+| All-target artifact gate | `cargo test --test golden` (= `artifact-gate.sh target/release/mfb all`, standalone) | `1267 tests, 1414 build(s), 1748 golden(s) checked, 0 diff(s)` — ok in 203.8s |
+| Full acceptance harness | `scripts/test-accept.sh target/release/mfb /tmp/accept-out-p109` | `acceptance tests passed (1283 test(s) ran)` |
+| Acceptance TESTING app (merged tree) | `target/release/mfb test tests/acceptance` | `Tests: 732  Pass: 732  Fail: 0` |
+| Remote runtime matrix | `bash /tmp/p109-remote.sh <port> <target> <suffix>` ×5 boxes | 40/40 PASS (see the box-4 note) |
+| rustfmt pair | `cargo fmt --all` + `cargo fmt --all --manifest-path repository/Cargo.toml` | clean (no churn) |
 
 ## Open Decisions
 
@@ -232,6 +278,26 @@ Commit: —
   from-scratch Rust implementation (own X448 on RFC 7748 §5.2/§6.2, own SHAKE256
   on FIPS 202 KATs, `ring` HKDF/AEAD) — satisfying both halves of the Open
   Decisions row.
+- **Two of the three first-run failures of the extended acceptance suite were
+  my expectations, one was a real fail-open.** (1) `verify(Ed448, 56-byte key,
+  …)` returns `FALSE`, not `ErrInvalidArgument` — that is the documented contract
+  shared with Ed25519 (`func_verify.rs` DESC: "a wrong-length key or signature is
+  simply FALSE"; only the NIST curves raise); the test now asserts `FALSE`, and the
+  file's header comment, which stated the NIST rule for all curves, was
+  corrected. (2) A 58-byte X25519 box under an `Ed448_*` suite is below the
+  72-byte overhead → `ErrInvalidArgument`; the test now covers both a short (58)
+  and a long (77-byte) cross-curve box (`ErrAuthenticationFailed`). (3)
+  `convert(KeyConvert.Ed25519ToX25519, <Ed448 pair>)` returned a KeyPair: the
+  Ed25519 arm had no length check while the Ed448 arm did, and
+  `func_convert`'s "beyond the length check" wording implied one existed for
+  both. Fixed (32-byte check → `ErrInvalidArgument`), documented, and covered.
+- **`main` advanced during the plan** (fork `2299b6326` → `5f17afd7c`, "retire
+  the last package.mfb companions — registry-modeled enums" for `term`/`strings`).
+  Merged into `worktree-P-109` at `12b41236c`: no textual conflicts (main only
+  deleted `.mfb` companions this branch never touched), but its 13 new
+  `EnumVariant` literals in `term/mod.rs` predate plan-109-A's `advisory` field
+  and needed `advisory: None` to compile. The full validation ledger below is
+  measured on the merged tree.
 - **The Rust harness cannot import a raw X448/X25519 private key through
   `ring`** (its agreement API only generates ephemeral keys), so both DH
   functions in the harness are written out (X25519 via `curve25519-dalek`
