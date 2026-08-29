@@ -115,7 +115,7 @@ VERIFIED 2026-08-29: fixture `diff` clean against the oracle on the first run
 ladder, swap, addition, scalar reduction, big-int multiply, prune, and clamp
 contain no `IF`, and that the field multiply/sub/inverse/sqrt/pack branch only
 on loop counters.
-Commit: —
+Commit: ce772e7a1
 
 ### Phase 2 — Certificate integration
 
@@ -139,7 +139,7 @@ VERIFIED 2026-08-29: `ed448-gen-roundtrip-{empty,short,long}=TRUE`,
 `ed448-deterministic=TRUE`, and the RFC §7.4 signatures verify (`ed448-verify-*`)
 in the same fixture; the signatures MFB produces are byte-identical to
 OpenSSL's for the same seeds/messages.
-Commit: —
+Commit: ce772e7a1
 
 ## Validation Plan
 
@@ -148,6 +148,16 @@ Exercise wrong length, non-canonical point/scalar, altered message, wrong key, a
 X-curve rejection. Run full `cargo test`, release acceptance, all-target artifact
 gate with justified regeneration, supported-target execution, doc renders, and
 the required root/repository rustfmt passes.
+
+## Validation ledger (2026-08-29)
+
+- rustfmt root + `repository/`: run. Fresh release build; `cargo test --bin mfb`
+  3820 passed at D's commit.
+- Full `cargo test --no-fail-fast` + all-target `artifact-gate` after D:
+  `CARGO_EXIT=0`, 64 targets ok, **1265 tests, 1412 builds, 1744 goldens
+  checked, 0 diffs**.
+- Filtered release acceptance on every crypto importer: 17 ran, green.
+- Remote runtime matrix: plan-F's closeout item (see C's ledger).
 
 ## Open Decisions
 

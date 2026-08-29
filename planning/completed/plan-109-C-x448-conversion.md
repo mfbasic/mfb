@@ -110,7 +110,7 @@ Acceptance: fixed Ed448 seed/public vectors convert to oracle X448 bytes, and
 every arithmetic bound test stays below `2^63`.
 VERIFIED 2026-08-29: `crypto-x448-valid` `convert-pub-{1,2}` equal the oracle
 bytes and `convert-invariant-{1,2}=TRUE`; the bound test passes.
-Commit: —
+Commit: 1a2402d89
 
 ### Phase 2 — X448 and API wiring
 
@@ -143,7 +143,7 @@ VERIFIED 2026-08-29: fixture `diff` clean against the oracle (`ALL_MATCH`):
 iteration-1, Alice/Bob public keys and shared secret both ways, generated-pair
 and converted-pair ECDH agreement, `u = 0`/`u = 1`/wrong-length/signing-cert
 inputs → `ErrInvalidArgument`.
-Commit: —
+Commit: 1a2402d89
 
 ## Validation Plan
 
@@ -153,6 +153,19 @@ Linux x86-64/aarch64/riscv64 per `.ai/remote_systems.md` when implementation run
 run Win64 execution because artifact bytes alone are not correctness. Finish with
 fresh release, full `cargo test`, acceptance/artifact gates, doc render, and both
 rustfmt commands.
+
+## Validation ledger (2026-08-29)
+
+- rustfmt root + `repository/`: run. Fresh release build; `cargo test --bin mfb`
+  3819 passed at C's commit.
+- Full `cargo test --no-fail-fast` + all-target `artifact-gate` ran once after
+  D: `CARGO_EXIT=0`, 64 targets ok, **1265 tests, 1412 builds, 1744 goldens
+  checked, 0 diffs** (cross-target codegen of every new helper compiles for
+  linux-x86_64/aarch64/riscv64 and windows-x86_64 through the `.ncodesum` rows).
+- Filtered release acceptance on every crypto importer: 16 ran, green.
+- Remote runtime rows (Linux x86-64/aarch64/riscv64, Win64 execution): not run
+  from this session — the plan-wide remote matrix is plan-F's closeout item.
+- `mfb man crypto exchange` / `mfb spec stdlib crypto`: no leaked citations.
 
 ## Open Decisions
 

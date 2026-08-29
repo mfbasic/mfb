@@ -108,7 +108,7 @@ VERIFIED 2026-08-29: fixture output `diff`s clean against the hashlib oracle
 round/permutation/lane helpers contain no `IF`/`EXIT`/`TRAP`, the sponge's only
 conditional is `len(out) < outLen`, and no state list is indexed by another
 state list's contents (only `__CRYPTO_KECCAK_RHO`/`PI` by the loop counter).
-Commit: —
+Commit: 54cc2878c
 
 ### Phase 2 — public SHA-3 dispatch
 
@@ -132,7 +132,7 @@ outputs.
 VERIFIED 2026-08-29: same fixture `diff` (the 200×0xa3 message is NIST's
 1600-bit SHA-3 example; `hashlib` reproduces the published digests
 `9376816a…`/`79f38ade…`/`1881de2c…`/`e76dfad2…`).
-Commit: —
+Commit: 54cc2878c
 
 ## Validation Plan
 
@@ -140,6 +140,16 @@ Run the release runtime KAT, differential outputs against NIST examples, full
 `cargo test`, filtered acceptance, then the full artifact gate after regenerating
 only proven importer/helper drift. Run the mandated two rustfmt commands. Render
 `mfb man crypto --all` and `mfb spec stdlib crypto` with no leaked citations.
+
+## Validation ledger (2026-08-29)
+
+- rustfmt root + `repository/`: run. Fresh release build; `cargo test --bin mfb`
+  3818 passed at B's commit.
+- Full `cargo test --no-fail-fast` + all-target `artifact-gate` ran once after
+  D (`54cc2878c`..`ce772e7a1` inclusive): `CARGO_EXIT=0`, 64 targets ok,
+  **1265 tests, 1412 builds, 1744 goldens checked, 0 diffs**.
+- Filtered release acceptance on every crypto importer: 15 ran, green.
+- `mfb man crypto shake256` / `mfb spec stdlib crypto`: no leaked citations.
 
 ## Open Decisions
 
