@@ -5,7 +5,7 @@ impl TypeEnv {
     // ===========================================================================
 
     /// Reject a read of a resource binding after it was moved (closed, returned)
-    /// — `syntaxcheck`'s `TYPE_USE_AFTER_MOVE`. On decoded package IR a
+    /// — the former source checker's `TYPE_USE_AFTER_MOVE`. On decoded package IR a
     /// use-after-move is a use-after-free / double-free: the resource's backing
     /// handle is released by the move, so a later read hands codegen a dangling
     /// handle. Conservative straight-line dataflow: a move is only tracked
@@ -46,7 +46,7 @@ impl TypeEnv {
             seen
         }
         // A branch that always leaves the function never reaches the join, so
-        // its moves must not leak past it (syntaxcheck merges only fall-through
+        // its moves must not leak past it (the former source checker merges only fall-through
         // branches). Top-level test is enough: a mid-block Return makes the
         // rest unreachable anyway.
         fn diverges(ops: &[IrOp]) -> bool {
@@ -58,7 +58,7 @@ impl TypeEnv {
             })
         }
         // Run `body` as a branch: fresh scope, then merge the new moves of a
-        // fall-through branch back into the outer set (syntaxcheck's MaybeMoved —
+        // fall-through branch back into the outer set (the former source checker's MaybeMoved —
         // moved on *some* path means unusable after the join).
         let run_branch = |body: &[IrOp],
                           locals: &HashMap<String, ParameterType>,
@@ -269,7 +269,7 @@ impl TypeEnv {
     }
 
     /// Whether the just-checked value's type is undeterminable the way
-    /// syntaxcheck's inference would see it: either a poisoning rule fired and
+    /// the former source checker's inference would see it: either a poisoning rule fired and
     /// the value's own result rides on the failed node (a Binary/Unary chain,
     /// where lowering stamps a nominal type the failure invalidates), or the
     /// type simply cannot be reconstructed *and* something was reported. The
@@ -314,7 +314,7 @@ impl TypeEnv {
             .unwrap_or_else(|| crate::codegen::resource::is_builtin_sendable_resource_type(base))
     }
 
-    /// Whether a value of `type_` copies freely (syntaxcheck's
+    /// Whether a value of `type_` copies freely (the former source checker's
     /// `is_copyable_type`): primitives, the built-in nominals, FUNC values and
     /// a `RES`-marked element (a pointer) yes; collections and `Result` by their
     /// elements; a thread handle and a resource never; a record by every field,
@@ -374,7 +374,7 @@ impl TypeEnv {
     }
 
     /// A resource type: a registered resource, a `RES`-marked element, or a
-    /// resource union (every variant a resource) — syntaxcheck's `is_resource_type`.
+    /// resource union (every variant a resource) — the former source checker's `is_resource_type`.
     pub(super) fn is_resource_type(&self, type_: &ParameterType) -> bool {
         match type_ {
             ParameterType::Res(inner) => self.is_resource_type(inner),
@@ -392,7 +392,7 @@ impl TypeEnv {
         }
     }
 
-    /// Whether a value of `type_` may cross a thread boundary (syntaxcheck's
+    /// Whether a value of `type_` may cross a thread boundary (the former source checker's
     /// `is_thread_sendable_type`): primitives and the built-in nominals yes;
     /// collections and `Result` by their elements; a `RES`-marked element, a
     /// FUNC and a thread handle never; a resource by its declared sendability; a
@@ -474,7 +474,7 @@ impl TypeEnv {
         }
     }
 
-    /// The thread-handle arm of syntaxcheck's declared-type walk
+    /// The thread-handle arm of the former source checker's declared-type walk
     /// (`check_type_reference`): every `Thread OF M [RES R [STATE S]] TO O`
     /// nested anywhere in a declared type (a collection element, a Map key or
     /// value, a FUNC signature, a `RES` element) must name sendable planes, and
@@ -531,12 +531,12 @@ impl TypeEnv {
         }
     }
 
-    /// syntaxcheck's `check_thread_boundary_sendability`: the values that cross
+    /// the former source checker's `check_thread_boundary_sendability`: the values that cross
     /// at `thread::start` (the input and the new handle's planes),
     /// `thread::send` (the message) and `thread::transfer`/`accept` (the
     /// resource plane and its STATE). Runs only for a call that resolved (its
     /// lowered type is known): an unresolvable call is an arity/argument
-    /// rejection, and syntaxcheck never reached the boundary rules for it.
+    /// rejection, and the former source checker never reached the boundary rules for it.
     pub(super) fn check_thread_boundary_sendability(
         &self,
         target: &str,
@@ -563,7 +563,7 @@ impl TypeEnv {
             .collect();
         match target {
             "thread.start" => {
-                // syntaxcheck reaches the boundary rules only for an entry point
+                // the former source checker reaches the boundary rules only for an entry point
                 // that is an imported package's exported ISOLATED FUNC; a local
                 // function or a lambda was already rejected as the argument.
                 let imported_entry = matches!(
@@ -650,7 +650,7 @@ impl TypeEnv {
         }
     }
 
-    /// syntaxcheck's TYPE_INLINE_TRAP_REQUIRES_FALLIBLE on the lowered
+    /// the former source checker's TYPE_INLINE_TRAP_REQUIRES_FALLIBLE on the lowered
     /// inline-TRAP shape: `Bind $trap_resN = <scrutinee>` then
     /// `If ResultIsOk($trap_resN)`. The scrutinee survives as the temp's bind
     /// value — a `CallResult` when the source trapped a call, anything else when
@@ -658,7 +658,7 @@ impl TypeEnv {
     /// which is not a runtime call) are both readable here.
     ///
     /// `expectTrap`/`expectNTrap` desugar (`testing::desugar`) into this same
-    /// shape, but syntaxcheck saw them as assertion calls with their own rule
+    /// shape, but the former source checker saw them as assertion calls with their own rule
     /// (`TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE`), so a handler that sets an
     /// `$expect_` temp is skipped.
     pub(super) fn check_inline_trap_scrutinee(
@@ -782,14 +782,14 @@ impl TypeEnv {
             //
             // Same stance the RES axis takes a few hundred lines up: only a
             // POSITIVELY known type rejects, because an unknown name may be an
-            // external package's. A typo cannot ride in on it — syntaxcheck rejects
+            // external package's. A typo cannot ride in on it — the former source checker rejects
             // an unresolvable name with `SYMBOL_UNKNOWN_TYPE` before this matters.
             //
             // The PACKAGE path keeps rejecting: there the merged IR carries the full
             // type table and every name is decoded from an id that must exist in it
             // (`decode_type_name` errors on an unknown id), so a miss is genuine
             // absence — and ir::verify is the sole rejecter for decoded `.mfp`, with
-            // no syntaxcheck behind it.
+            // no the former source checker behind it.
             None => self.imported_types_unknown,
         };
         seen.remove(type_name.as_ref());
@@ -797,7 +797,7 @@ impl TypeEnv {
     }
 
     /// Whether every path through `ops` leaves the function (mirrors
-    /// syntaxcheck's `Flow::AlwaysReturns`): a Return/Fail/ExitProgram op, an If
+    /// the former source checker's `Flow::AlwaysReturns`): a Return/Fail/ExitProgram op, an If
     /// whose both branches return, a MATCH with an unguarded CASE ELSE whose
     /// every arm returns, or a TRAP whose body returns. Loops never count
     /// (they may run zero times).

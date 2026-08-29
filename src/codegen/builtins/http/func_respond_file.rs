@@ -1,6 +1,6 @@
 //! `http::respondFile` — descriptor entry (source-backed, body
 //! `__http_respondFile`). Consumes the `RES fs::File` it serves (see
-//! `syntaxcheck::builtins::http_consumes_argument`).
+//! the former source checker's `builtins::http_consumes_argument`).
 
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;

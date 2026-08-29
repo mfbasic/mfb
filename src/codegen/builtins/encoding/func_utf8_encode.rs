@@ -70,7 +70,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             // Return-type overload: the pre-monomorph default is `List OF Byte`; the
             // `List OF Integer` form is selected by the call-site expected type in
-            // syntaxcheck and mangled by the monomorphizer.
+            // the former source checker and mangled by the monomorphizer.
             return_type: ParameterType::list_of(ParameterType::Byte),
             errors: vec![],
             // `Body::Intrinsic` carries no registry rewrite target, so IR lowering

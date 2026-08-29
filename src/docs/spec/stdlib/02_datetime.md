@@ -3,7 +3,7 @@
 The `datetime::` package is a built-in source package: all calendar math,
 formatting, and parsing are written in MFBASIC as internal `__datetime_*`
 functions, and only the OS clock and the local-zone table are platform state.
-A compiler seam owns registration, syntaxcheck metadata, and the rewrite from
+A compiler seam owns registration, the checkers' metadata, and the rewrite from
 each public `datetime::` call onto its internal implementation; the MFBASIC
 source owns the algorithm. [[src/codegen/builtins/datetime/mod.rs:implementation_name]] This topic specifies the
 **model** — the record shapes, the civil-calendar math, the clock/zone seam, and

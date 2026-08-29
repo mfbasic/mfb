@@ -254,6 +254,12 @@ pub struct BinaryReprTypeExport {
 pub struct BinaryReprTypeField {
     pub name: String,
     pub type_: String,
+    /// The field's declared visibility, as the table records it. Not read by the
+    /// compiler since plan-107-D: member visibility is enforced per TYPE by
+    /// `ir::verify` (`type_decl_info`), and an imported record's fields are
+    /// presented through `ir::ImportedTypeField` without it. Kept so the decoded
+    /// row is not a lossy copy of the table.
+    #[allow(dead_code)]
     pub visibility: BinaryReprTypeVisibility,
 }
 
@@ -274,7 +280,7 @@ pub enum BinaryReprTypeVisibility {
 /// (the return element of [`read_package_resources`]).
 ///
 /// `native` distinguishes native (`LINK`) resources from standard ones; it is
-/// read when `syntaxcheck` registers an imported package's resource types
+/// read when the former source checker registers an imported package's resource types
 /// (every field is consumed there), so no field is dead.
 pub struct BinaryReprResourceExport {
     pub type_name: String,
@@ -283,6 +289,11 @@ pub struct BinaryReprResourceExport {
     /// id cannot be resolved.
     pub close_function: Option<String>,
     pub sendable: bool,
+    /// Whether the close op can fail, as the table records it. Not read by the
+    /// compiler since plan-107-D: drop-time cleanup derives the same fact from
+    /// the close wrapper's `SUCCESS ON` (`lower_link::native_resources`). Kept so
+    /// the decoded row is not a lossy copy of the table.
+    #[allow(dead_code)]
     pub close_may_fail: bool,
     pub native: bool,
 }

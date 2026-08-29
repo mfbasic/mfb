@@ -29,7 +29,7 @@
 //! `TermSize` (`columns`/`rows` `Integer`) are registered via [`add_record`] — they are
 //! **read-only** (the runtime allocates them; a program may neither construct nor
 //! WITH-update one — see [`is_read_only_record`], consulted by
-//! `ir::verify`/`syntaxcheck`). Their binary-repr wire ids stay the reserved high-band
+//! `ir::verify`/the former source checker). Their binary-repr wire ids stay the reserved high-band
 //! `TYPE_TERM_COLOR`/`TYPE_TERM_SIZE` (name-keyed in `binary_repr::sections`). The two
 //! source-companion enums `LineStyle` (the box-drawing weight) and `FillStyle` (the
 //! block/shade glyph) are declared with their `DOC` blocks in the injected companion
@@ -92,7 +92,7 @@ pub(crate) const TERM_SIZE_TYPE: &str = "TermSize";
 /// Whether `type_name` is one of `term`'s compiler-owned, read-only record types
 /// (`TermColor`/`TermSize`): the runtime allocates them, so a program may neither
 /// construct nor WITH-update one. Consulted by `ir::verify::read_only_record_type` and
-/// `syntaxcheck::helpers::read_only_record_type`.
+/// the former source checker's `helpers::read_only_record_type`.
 pub(crate) fn is_read_only_record(type_name: &str) -> bool {
     type_name == TERM_COLOR_TYPE || type_name == TERM_SIZE_TYPE
 }

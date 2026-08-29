@@ -309,7 +309,7 @@ fn resource_closers_from_files(packages: &[PathBuf]) -> Vec<ir::ImportedResource
         };
         for resource in resources {
             // A built-in is authoritative and already seeded; a package's table
-            // merely references it (`syntaxcheck::collect_package_resources`). A
+            // merely references it (the former source checker's `collect_package_resources`). A
             // referenced builtin may be recorded by its bare base name (`File`) even
             // though the builtin's own identity is package-qualified (`fs.File`,
             // plan-97), so recognize it by bare name.
@@ -330,7 +330,7 @@ fn resource_closers_from_files(packages: &[PathBuf]) -> Vec<ir::ImportedResource
                 close_function
             };
             // Source names the type bare or as `<binding>.<Type>`; register both,
-            // as `syntaxcheck`'s registry does. The sendable bit rides along so
+            // as the former source checker's registry does. The sendable bit rides along so
             // verify's thread-boundary rules see an imported resource exactly as
             // the exporting package declared it.
             closers.push(ir::ImportedResource {
@@ -433,7 +433,7 @@ pub(crate) fn external_package_function_types_from_files(
 /// so IR lowering can type accesses to their fields. Reads the installed `.mfp`s
 /// named by the manifest; a package whose metadata cannot be read is skipped
 /// (a lossy read, like `external_package_function_types`) — the build's own
-/// syntaxcheck pass reports an unreadable dependency. Built-in packages contribute
+/// the former source checker pass reports an unreadable dependency. Built-in packages contribute
 /// nothing here: their types reach `TypeIndex` through the AST.
 pub(crate) fn imported_type_defs(
     project_dir: &Path,

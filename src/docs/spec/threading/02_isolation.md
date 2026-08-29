@@ -9,7 +9,7 @@ enforces this at declaration time, reporting `ISOLATED function `<name>` must be
 project-visible FUNC declaration (PUBLIC — the default — or EXPORT, not PRIVATE).`
 for a
 violation. This is independent of the call-site check in `thread::start`, which
-additionally requires the entry to come from an *imported* package. [[src/syntaxcheck/builtins.rs:check_thread_builtin_call]]
+additionally requires the entry to come from an *imported* package. [[src/ir/shape.rs:check_builtin_call]]
 
 An isolated worker may still call:
 

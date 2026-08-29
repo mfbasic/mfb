@@ -21,7 +21,6 @@ use crate::manifest::{build_mode_is_app, icon_path};
 use crate::monomorph;
 use crate::resolver;
 use crate::rules;
-use crate::syntaxcheck;
 use crate::target;
 
 /// How much human-facing progress `mfb build` prints (plan-36). Never reaches
@@ -354,7 +353,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // plan-106-D: every pass from here down consumes `&concrete_hir` directly.
     // This is where the compile path used to turn around — `deelaborate` rendered
     // the concrete HIR back to an AST for `resolve_augmented`, entry validation
-    // and `syntaxcheck`, and that render was the last backward edge in the
+    // and the former source checker, and that render was the last backward edge in the
     // compiler (and the last thing depending on `parse`↔`name` byte-exactness).
     //
     // Skip DOC validation on the post-monomorph pass: monomorphization renames
@@ -374,17 +373,19 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         }),
         None => validate_entry_point(&options.location, &manifest, &concrete_hir)?,
     };
-    // plan-20-Z cutover: the semantic rules are split across two passes that
-    // both run to completion (neither short-circuits the other) so a program
-    // with errors of both kinds reports all of them:
-    //   - `syntaxcheck` rejects the source-syntax rules — constructs total
-    //     lowering erases (named arguments, EXIT flavors, inline-trap
-    //     boundaries), which therefore cannot exist in IR or packages;
+    // The semantic rules are split across two passes that both run to
+    // completion (neither short-circuits the other) so a program with errors of
+    // both kinds reports all of them (plan-107):
+    //   - `ir::shape` walks the concrete HIR for the rules whose evidence
+    //     lowering ERASES — named arguments, EXIT flavors, inline-trap
+    //     boundaries, literal spellings, the TESTING assertions, native CONST
+    //     pins and FREE signatures — each with a justification line naming
+    //     the erased fact; its stream renders first;
     //   - `ir::verify` runs on the source-lowered IR and is the sole rejecter
-    //     for every rule ported off `syntaxcheck` — the same implementation that
-    //     guards decoded package IR, so source and package are checked once.
-    // Lowering is total (plan-20-D), so it is safe to run even when syntaxcheck
-    // found errors.
+    //     for every other rule — the same implementation that guards decoded
+    //     package IR, so source and package are checked once.
+    // Lowering is total (plan-20-D), so it is safe to run even when the shape
+    // pass found errors.
     //
     // Empty external maps for everything EXCEPT imported resource producers
     // (bug-377). An inferred binding takes its type from the initializer, so
@@ -406,12 +407,9 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // registry rows to interpret. Signature and definition arrive together, and
     // no other inference shifts.
     //
-    // Both checkers collect (rather than print) so their diagnostics can be
-    // merged and rendered in a single line-ordered pass; otherwise every
-    // relocated `ir::verify` rule would print after all of syntaxcheck's,
-    // scrambling the source-order sequence the goldens record (plan-20-Z).
-    let syntaxcheck_diagnostics =
-        syntaxcheck::check_project_collect(&options.location, &concrete_hir);
+    // Both passes collect (rather than print) so their diagnostics can be
+    // merged and rendered in a single line-ordered pass, in the stream order
+    // the goldens record (plan-20-Z).
     // bug-377: the source IR names an imported resource's type but carries no
     // record that it *is* a resource, so verify's resource rules need the
     // imported packages' `RESOURCE_TABLE` rows handed to them explicitly.
@@ -458,7 +456,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         &imported_types,
     );
     // plan-107-C: the LINK declarations' source spans, so verify's native-ABI
-    // rules report at the slot/parameter/field lines syntaxcheck did.
+    // rules report at the slot/parameter/field lines the former source checker did.
     let link_spans = ir::link_spans(&concrete_hir);
     let verify_diagnostics = ir::verify_source_diagnostics(
         &source_ir,
@@ -466,11 +464,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         &imported_resources,
         &link_spans,
     );
-    let Ok(syntaxcheck_diagnostics) = syntaxcheck_diagnostics else {
-        return Err(());
-    };
     let mut diagnostics = shape_diagnostics;
-    diagnostics.extend(syntaxcheck_diagnostics);
     diagnostics.extend(verify_diagnostics);
     // EXPORT is only valid in a package project (it is the `.mfp` export flag);
     // in an executable a top-level EXPORT is an error. Checked here because the

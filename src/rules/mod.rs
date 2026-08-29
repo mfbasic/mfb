@@ -2,11 +2,11 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// A rejection collected but not yet rendered. The source-path checkers
-/// (`syntaxcheck` for not-yet-relocated rules, `ir::verify` for relocated ones)
-/// each return these so the caller can merge both streams and render them in a
-/// single source-order pass — otherwise a relocated rule would print after all
-/// of syntaxcheck's, breaking the line-ordered diagnostic sequence (plan-20-Z).
+/// A rejection collected but not yet rendered. The source-path passes
+/// (`ir::shape` over the concrete HIR, `ir::verify` over the lowered IR) each
+/// return these so the caller can merge both streams and render them in a
+/// single pass in stream order — the sequence the goldens record (plan-20-Z,
+/// plan-107).
 pub struct PendingDiagnostic {
     pub rule: String,
     pub detail: String,
@@ -15,10 +15,9 @@ pub struct PendingDiagnostic {
 }
 
 /// Render `diagnostics` in the order given. The caller concatenates
-/// `syntaxcheck`'s stream (not-yet-relocated rules, in its traversal order) with
-/// `ir::verify`'s relocated stream, matching the sequence the goldens record
-/// and the eventual single-checker (ir::verify traversal) end state — not a
-/// line sort, which neither checker produces (plan-20-Z).
+/// `ir::shape`'s stream (its HIR walk order) with `ir::verify`'s (its IR
+/// traversal order), matching the sequence the goldens record — not a line
+/// sort, which neither pass produces (plan-20-Z, plan-107).
 pub fn render_pending(diagnostics: Vec<PendingDiagnostic>) {
     for d in &diagnostics {
         show_diagnostic(&d.rule, &d.detail, &d.path, d.line, 1, 1);

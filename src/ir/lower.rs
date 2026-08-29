@@ -1655,7 +1655,7 @@ fn statement_can_terminate(statement: &HirStatement) -> bool {
 }
 
 /// Whether a statement always diverges or recovers (ends its enclosing handler
-/// path). Mirrors the syntaxcheck flow analysis for the constructs an inline-trap
+/// path). Mirrors the former source checker's flow analysis for the constructs an inline-trap
 /// handler may contain.
 fn statement_terminates(statement: &HirStatement) -> bool {
     match statement {
@@ -1742,7 +1742,7 @@ fn lower_match_case(
     context: &mut LowerContext<'_>,
     trap_name: Option<&str>,
 ) -> IrMatchCase {
-    // The case arm's own span (syntaxcheck reports match-arm rules at the case
+    // The case arm's own span (the former source checker reports match-arm rules at the case
     // line); captured locally since the body block re-sets the context copy.
     let loc = IrSourceLoc {
         line: case.line as u32,
@@ -2530,7 +2530,7 @@ fn normalize_builtin_call_arguments<'a>(
 }
 
 /// Order the arguments of a call to a builtin with a per-overload parameter-name
-/// table, mirroring `syntaxcheck`'s selection so both agree on which parameter a
+/// table, mirroring the former source checker's selection so both agree on which parameter a
 /// name binds to. An unresolvable call was already rejected by the type checker;
 /// keep its source order so lowering has something well-formed to walk.
 fn normalize_overloaded_builtin_call_arguments<'a>(
@@ -2714,7 +2714,7 @@ fn registry_record_constant(name: &str) -> Option<IrValue> {
 /// position, when `expected` is a concrete unary Boolean function type it
 /// accepts (bug-368).
 ///
-/// Mirrors `syntaxcheck`'s `builtin_predicate_value_type`: both consult
+/// Mirrors the former source checker's `builtin_predicate_value_type`: both consult
 /// `filter_predicate_type`, so the type the checker assigns and the type the
 /// `FunctionRef` carries cannot diverge. A divergence would emit a wrapper under
 /// one symbol and reference another.
@@ -3201,7 +3201,7 @@ fn lower_expression_with_expected(
             IrValue::Call {
                 // The resource plane reuses the proven data-channel runtime:
                 // `thread::transfer`/`accept` lower exactly like `send`/`receive`
-                // (syntaxcheck already enforced their resource semantics).
+                // (the former source checker already enforced their resource semantics).
                 target: thread_resource_plane_target(&resolved_target).to_string(),
                 args,
                 type_: result_type.clone(),
@@ -3245,7 +3245,7 @@ fn lower_expression_with_expected(
                 .iter()
                 .map(|capture| nonescaping && context.mutable_locals.contains(&capture.name))
                 .collect::<Vec<_>>();
-            // Lambdas carry the enclosing statement's span (syntaxcheck reports
+            // Lambdas carry the enclosing statement's span (the former source checker reports
             // lambda rules at the threaded statement line).
             let loc = context.current_loc;
             let mut lambda_locals = HashMap::new();

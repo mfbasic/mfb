@@ -1854,7 +1854,7 @@ impl<'a> Walker<'a> {
         );
     }
 
-    /// The builtin-call family on the source path — syntaxcheck's
+    /// The builtin-call family on the source path — the former source checker's
     /// `check_builtin_call` over the HIR argument list: the count against the
     /// registry's arity range, then the argument types through the same
     /// arg-typed overload resolution the checker used (the `general`,
@@ -2192,7 +2192,7 @@ impl<'a> Walker<'a> {
     }
 
     /// Whether a type is an `=`-comparable operand, as the source checker
-    /// judged it (`syntaxcheck::is_comparable_with_seen`): primitives,
+    /// judged it (the former source checker's `is_comparable_with_seen`): primitives,
     /// `Error`/`ErrorLoc`/`Scalar`, enums, records of comparable fields, and any
     /// nominal it cannot resolve; never a collection, a callable, a result, a
     /// thread handle, a resource, a union or `AttributedString`.
@@ -2253,15 +2253,18 @@ impl<'a> Walker<'a> {
     /// The checker's resource registry: builtin resources plus the native and
     /// imported ones this project declares/imports (an imported resource is
     /// spelled `binding.Type` in source; its table row carries the bare name).
+    /// A stateful resource carries its ` STATE T` clause inside the spelling
+    /// (`SoundFile STATE SoundInfo`); recognition keys on the base name.
     fn is_resource_type(&self, name: &str) -> bool {
-        crate::codegen::resource::builtin_resource_close_function(name).is_some()
-            || self.resource_types.contains(name)
-            || name
+        let base = crate::codegen::resource::base_resource_name(name);
+        crate::codegen::resource::builtin_resource_close_function(base).is_some()
+            || self.resource_types.contains(base)
+            || base
                 .rsplit_once('.')
                 .is_some_and(|(_, bare)| self.resource_types.contains(bare))
     }
 
-    /// Type compatibility as the source checker judged it (`syntaxcheck::compatible`):
+    /// Type compatibility as the source checker judged it (the former source checker's `compatible`):
     /// `Unknown` on either side is compatible; the `RES` marker is stripped;
     /// containers, thread handles and callable types recurse (parameters
     /// contravariant); a union accepts any of its variants; a qualified nominal
@@ -2358,7 +2361,7 @@ impl<'a> Walker<'a> {
         }
     }
 
-    /// `syntaxcheck::expression_compatible`: `compatible`, plus the literal
+    /// the former source checker's `expression_compatible`: `compatible`, plus the literal
     /// coercions a constant argument enjoys — an in-range integer literal into
     /// `Byte`, a numeric literal (negated or not) into `Fixed`/`Money`, and a
     /// list literal of such literals into a list of them.
@@ -3748,6 +3751,23 @@ mod tests {
                 validate(&mut walker, &accepted).is_empty(),
                 "{}",
                 accepted.name()
+            );
+        }
+        // An imported package's stateful resource (`Db STATE DbInfo`, as a
+        // signature spells it) is a resource, not an unknown type — the
+        // libsnd / native-resource-state fixtures build clean.
+        let mut walker = Walker::new(
+            Path::new("/proj"),
+            &facts,
+            &hir,
+            &[],
+            &no_imports,
+            &["Db".to_string()],
+        );
+        for spelled in ["Db", "Db STATE DbInfo", "pkg.Db STATE DbInfo"] {
+            assert!(
+                validate(&mut walker, &ParameterType::parse(spelled)).is_empty(),
+                "{spelled}"
             );
         }
         // A union whose variant record carries an unknown field type reports it.

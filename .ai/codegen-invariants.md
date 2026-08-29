@@ -15,7 +15,7 @@ The deliberate STRING boundaries that remain — render `name()` at these sinks,
 
 ## `ParameterType::parse` is the ONLY type-grammar implementation (plan-105-B)
 
-`src/types.rs` owns the type grammar. The only other legitimate parser is the **source-language** one in `src/ast/` (tokenizer-side, produces the AST). Everything else — resolver, monomorph, syntaxcheck, IR, codegen — MATCHES on `ParameterType` variants; it does not re-implement the grammar. The private `strip_prefix("List OF ")`-style cascades that used to live in `monomorph::helpers` (`user_template_parts`, `func_type_parts`, `split_top_level_to`, `split_top_level_commas`), `resolver::resolution` and `syntaxcheck` are deleted.
+`src/types.rs` owns the type grammar. The only other legitimate parser is the **source-language** one in `src/ast/` (tokenizer-side, produces the AST). Everything else — resolver, monomorph, the shape pass, IR lowering, `ir::verify`, codegen — MATCHES on `ParameterType` variants; it does not re-implement the grammar. The private `strip_prefix("List OF ")`-style cascades that used to live in `monomorph::helpers` (`user_template_parts`, `func_type_parts`, `split_top_level_to`, `split_top_level_commas`), `resolver::resolution` and `syntaxcheck` are deleted.
 
 Two traps this cost real time to learn:
 
@@ -149,7 +149,7 @@ Rule: `2-203-0135 TYPE_INSTANTIATION_BUDGET_EXCEEDED`. Threat model is DoS on an
 
 ## A rename fix can leak a mangled name into a diagnostic
 
-Sweeping a previously-skipped reference through the file-PRIVATE `rename` map (`src/ast/scope_privates.rs`) is only half the fix when a downstream diagnostic interpolates that name. Before the fix, `g.state = v` on a PRIVATE `g` left `StateAssign.resource` bare, so the resolver reported a bogus `SYMBOL_UNKNOWN_IDENTIFIER` on `g`. After sweeping `resource`, the name reaches the checker mangled (`#<hash>$g`), and `syntaxcheck/checking.rs`'s `TYPE_UNKNOWN_VALUE` arm interpolated it raw — so the "fix" would have leaked the untypeable internal spelling into the user-facing message (arguably worse than the original wrong diagnostic).
+Sweeping a previously-skipped reference through the file-PRIVATE `rename` map (`src/ast/scope_privates.rs`) is only half the fix when a downstream diagnostic interpolates that name. Before the fix, `g.state = v` on a PRIVATE `g` left `StateAssign.resource` bare, so the resolver reported a bogus `SYMBOL_UNKNOWN_IDENTIFIER` on `g`. After sweeping `resource`, the name reaches the checker mangled (`#<hash>$g`), and the checker's `TYPE_UNKNOWN_VALUE` arm (today `ir::shape`'s `check_initializer_known`) interpolated it raw — so the "fix" would have leaked the untypeable internal spelling into the user-facing message (arguably worse than the original wrong diagnostic).
 
 Why: `mangle_private` produces `#<hash>$name`; user-facing diagnostics must never show the sigil form. `crate::internal_name::display_name(name)` demangles `#<hash>$name` → `name` (and `#pkg_helper` → `__pkg_helper`) and is a no-op on non-internal names.
 

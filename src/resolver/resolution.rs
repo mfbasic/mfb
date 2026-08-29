@@ -652,7 +652,7 @@ impl Resolver<'_> {
             for param in &function.params {
                 if let Some(type_name) = &param.type_name {
                     // A raw C ABI type in a wrapper signature is reported by
-                    // syntaxcheck as NATIVE_CPTR_ESCAPE; don't double-report it here
+                    // the former source checker as NATIVE_CPTR_ESCAPE; don't double-report it here
                     // as an unknown type.
                     if is_c_abi_type(type_name) {
                         continue;
@@ -1488,7 +1488,7 @@ impl Resolver<'_> {
 /// Split a `Map`/`MapEntry` body `K TO V` on the top-level ` TO ` separating the
 /// outer key from its value. A leftmost `split_once(" TO ")` mis-parses a key
 /// that itself carries a top-level ` TO ` (a nested `Map`/`Thread`/`FUNC`-typed
-/// key, bug-108.2). Mirrors `syntaxcheck::types::split_map_body`: separators
+/// key, bug-108.2). Mirrors the former source checker's `types::split_map_body`: separators
 /// inside parenthesized / `FUNC(...)` groups and those owned by nested
 /// `Map`/`MapEntry`/`Thread`/`ThreadWorker` sub-types are skipped.
 

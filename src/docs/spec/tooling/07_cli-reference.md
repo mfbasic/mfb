@@ -198,7 +198,7 @@ implement yet yields ``unknown -O level `<n>` (available: 0, 1)``. An unknown
 [location]`. The location defaults to `.`; the target defaults to the host.
 
 `build` runs the pipeline parse → resolve → monomorphize → resolve (no DOC
-re-validation) → validate entry point → syntaxcheck before emitting any artifact;
+re-validation) → validate entry point → shape pass + IR verifier before emitting any artifact;
 any stage failure exits `1`.[[src/cli/build/mod.rs:build_project]] Build-mode and
 build-flag *semantics* live in `./mfb spec architecture commands`.
 

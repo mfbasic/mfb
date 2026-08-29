@@ -2,7 +2,7 @@
 //! (`Socket` / `Listener` / `UdpSocket`) as three overloads, all returning
 //! `Nothing` and all lowering to `net.close` (the datetime/tls idiom, no custom
 //! resolver). `close` consumes the handle it is given (see
-//! `syntaxcheck::builtins::net_consumes_argument`). Docs in
+//! the former source checker's `builtins::net_consumes_argument`). Docs in
 //! `src/docs/man/builtins/net/close.md`.
 
 use crate::codegen::registry::{Implementation, Parameter, RegistryFunction, RegistryPackage};

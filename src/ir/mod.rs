@@ -80,7 +80,7 @@ pub(crate) use link::{
     BufferSlotsView, CLayout, IrAbiSlot, IrBindIn, IrBindInField, IrBuffer, IrCStruct,
     IrCStructField, IrFree, IrLinkExpr, IrLinkFunction, IrNativeResource, StructSlotView,
 };
-// The byte-list spelling's last non-test reader (syntaxcheck's buffer-rule
+// The byte-list spelling's last non-test reader (the former source checker's buffer-rule
 // view) moved into `ir::verify`, which reads `link::BYTE_LIST_TYPE` directly;
 // the codegen and IR corpus tests still spell it through this path.
 #[cfg(test)]

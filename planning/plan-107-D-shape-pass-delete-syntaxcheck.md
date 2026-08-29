@@ -253,28 +253,94 @@ Commit: `f2d52f271` (control-flow group + E's seam fixup); `794eada94`
 
 ### Phase 2 — delete src/syntaxcheck + the split machinery
 
-- [ ] Delete `src/syntaxcheck/` and all call sites; relocate any straggler
+- [x] Delete `src/syntaxcheck/` and all call sites; relocate any straggler
       helper some other module used (explicitly, with a note here).
-- [ ] Delete `RELOCATED_TO_IR_VERIFY`, the `syntaxcheck::report` skip logic,
+      (`git rm -r src/syntaxcheck` (14 files); `mod syntaxcheck` gone from
+      `main.rs`; the build seam merges `ir::shape` + `ir::verify` only; the
+      audit seam keeps `ir::shape::check_project` and drops the checker's
+      call. Stragglers: the pipeline test oracle (`testutil::check_src` /
+      `accepts` / `rejects_with`) had no consumer left outside the module
+      and is deleted — `ir::shape` and `ir::verify` tests use their own
+      per-pass oracles and the diagnostic corpus is the pipeline-level truth;
+      the checker-only helpers surfaced as dead code and went with it:
+      `codegen::resource::{ResourceRegistry, ResourceInfo, ResourceKind::
+      {Imported, Native}}` (its four tests rewritten over the clean-room
+      registry's descriptors and the free predicates), `builtins::
+      package_constant_type_name` (the registry half stays — lowering uses
+      it); the HIR-domain augmentation chain (`resolver::augment_hir_project`
+      + the three `augmented_hir_project`) is `#[cfg(test)]` (its remaining
+      callers are the in-process tests that monomorphize a bare project); the
+      two decoded wire fields nothing reads any more
+      (`BinaryReprTypeField.visibility`, `BinaryReprResourceExport.
+      close_may_fail`) keep a targeted allow with the reason.)
+- [x] Delete `RELOCATED_TO_IR_VERIFY`, the `syntaxcheck::report` skip logic,
       the `collect_source_diagnostics` filter, the `rules/mod.rs` split
       references and the parity test's list dependency; replace
       `build/mod.rs:373`'s split comment with the shape-pass rationale.
-- [ ] Tests: full suite; the whole diagnostic corpus; `artifact-gate all`.
+      (All done; the filter's removal exposed one thing it had been hiding —
+      C-structural-filter. The NATIVE parity test
+      (`native_rule_sets_agree_between_syntaxcheck_and_verify`) is deleted
+      with its premise; `collect_source_diagnostics_filters_relocated` became
+      `collect_source_diagnostics_maps_rules_to_pending`. Every remaining
+      mention of the module in `src/` (161 lines of comments across 42
+      files) reworded: `rg -n 'syntaxcheck|RELOCATED_TO_IR_VERIFY' src/` → 0.)
+- [x] Tests: full suite; the whole diagnostic corpus; `artifact-gate all`.
+      (bin unit suite `cargo test --bin mfb --no-fail-fast`: 3370 passed, the
+      one failure being the spec citation drift Phase 3's docs pass repairs
+      (landed in the same commit, so the tree is never red); corpus 524 same /
+      0 reordered / 0 set-diff after the structural filter; `artifact-gate
+      all`: 1734 goldens, 0 diffs. The full workspace suite and the
+      acceptance sweep run at the letter's end — recorded under Phase 3.)
 
 Acceptance: `rg -n 'syntaxcheck\|RELOCATED_TO_IR_VERIFY' src/` → 0; corpus
 set-equal; gate byte-identical; full suite green.
-Commit: —
+Commit: — (one commit with Phase 3's docs pass: the spec's `[[src/syntaxcheck/…]]`
+citations fail `spec_citations_resolve` the moment the module is gone)
 
 ### Phase 3 — docs pass + closing census
 
-- [ ] `.ai/compiler.md` (checking topology: shape + verify),
+- [x] `.ai/compiler.md` (checking topology: shape + verify),
       `.ai/testing-gates.md` (check-pass topology + the harness),
       `.ai/resources-packages.md` (LINK validation home), spec
       `02_frontend.md` — the review's "syntaxcheck" descriptions replaced;
       `AGENTS.md`/memory index references checked.
-- [ ] Closing census recorded here: rule count in `ir::shape` (each with its
+      (Done, and wider than listed because `spec_citations_resolve` fails on
+      any `[[src/syntaxcheck/…]]` citation: every spec/man page citing or
+      describing the module was repointed at the live home — `02_frontend`
+      (the shape-pass section replaces the checker's), `09_modules` (rows),
+      `04_ir`, `12_monomorphization`, `22_type-inference` (recast over
+      `ir::lower::expression_type` / `ir::verify::compat` / `ir::shape`),
+      tooling `04_audit-format` + `07_cli-reference`, language `04_types`,
+      `06_functions`, `07_subs`, `12_collections`, `13_modules-and-packages`,
+      `14_memory-semantics`, `16_threads`, `17_native-libraries`, threading
+      `01_source-model`, `02_isolation`, `08_queue-semantics`, stdlib
+      `02_datetime`, `09_vector`, `man/link/package`; `.ai/collections.md`,
+      `.ai/codegen-invariants.md`, `.ai/resources-packages.md` (the
+      augmentation-chain and `ARGUMENT_CHECKED_PACKAGES` guidance),
+      `.ai/compiler.md` + `.ai/testing-gates.md` gained the topology and
+      `diag-set-diff.sh` paragraphs; `AGENTS.md` never named the module; the
+      memory index line and four memory files updated/annotated. Verified:
+      `rg -n 'syntaxcheck|RELOCATED_TO_IR_VERIFY' .ai AGENTS.md src/docs` → 0;
+      `cargo test --bin mfb docs::` 26 passed.)
+- [x] Closing census recorded here: rule count in `ir::shape` (each with its
       justification line), rule count in verify, zero elsewhere; the
       plan-20-Z era formally closed.
+      (`/tmp/p107-census.sh` — rule names extracted from every `emit(` site:
+      **`ir::shape` emits 24 rules**, 14 of them shape-only
+      (EXIT_FUNC_FORBIDDEN, EXIT_SUB_IN_FUNC, MONEY_INEXACT_FLOAT_LITERAL,
+      PACKAGE_INVALID, the six TESTING_EXPECT_*, TYPE_DUPLICATE_ARGUMENT_NAME,
+      TYPE_INLINE_TRAP_FALLS_THROUGH, TYPE_RECOVER_OUTSIDE_INLINE_TRAP,
+      TYPE_UNKNOWN_ARGUMENT_NAME) and 10 split with verify by form
+      (NATIVE_CONST_UNKNOWN_SLOT, NATIVE_FREE_INVALID, SUB_RETURN_FORBIDDEN,
+      TYPE_CALL_ARGUMENT_MISMATCH, TYPE_CALL_ARITY_MISMATCH,
+      TYPE_DUPLICATE_FIELD, TYPE_READ_ONLY_RECORD_CONSTRUCTOR,
+      TYPE_RECOVER_TYPE_MISMATCH, TYPE_UNKNOWN_VALUE, UNREACHABLE_AFTER_EXIT);
+      every shape emission sits under a comment naming the erased fact.
+      **`ir::verify` emits 93 rules** plus its 2 package-path structural
+      guards. **Zero source rules anywhere else**: `src/syntaxcheck/` is gone
+      and `rg syntaxcheck src/` is empty. The plan-20-Z relocation era — one
+      checker per rule, a register of who owns what — is closed: there is no
+      register, because there is nothing left to register.)
 
 Acceptance: docs updated; census recorded; full suite; gate; test-accept; fmt
 both crates.
@@ -360,6 +426,28 @@ Commit: —
   already resolves foreign types into each package's own export list, so
   the only program that can tell is one whose package metadata references a
   type its own tables do not carry — a malformed package either way.
+- **C-structural-filter (2026-08-29, Phase 2).** Deleting the
+  `RELOCATED_TO_IR_VERIFY` filter from `collect_source_diagnostics` let
+  verify's two package-path STRUCTURAL rules
+  (`PACKAGE_BINARY_REPRESENTATION_VERIFY_{TYPE,MATCH}`, not in the source rule
+  table) reach the source stream: `syntax/match/control-flow-match-pattern-
+  invalid` gained a `0-000-0000 UNKNOWN_RULE` line ("`Rect` is not a variant
+  of union `Shape`") beside its TYPE_MATCH_PATTERN_MISMATCH — the list had been
+  filtering them implicitly. The source stream now filters exactly those two
+  by name (a source program's equivalent defect is reported by its source
+  rule); everything else verify holds is its own to emit on both paths.
+- **C-stateful-resource (2026-08-29, Phase 2 — row 20 follow-up).** The
+  Phase-1 gate (not the corpus) caught a false PACKAGE_INVALID from the new
+  package walk on `rt-behavior/native/libsnd-load-sound-rt` and
+  `native-resource-state-import-rt`: an imported signature spells a stateful
+  resource `SoundFile STATE SoundInfo`, and `is_resource_type` compared the
+  whole spelling against the bare table name. It now keys on
+  `base_resource_name` (the STATE clause stripped), as every other resource
+  lookup does. Lesson recorded: `diag-set-diff.sh` runs only the fixtures
+  whose golden already carries a diagnostic, so a NEW error on a clean
+  fixture is invisible to it — the gate / test-accept are the only sweeps
+  that see one; a relocation that touches package or resource typing must
+  run the gate before its landing, not at the letter's end.
 - **C-harness-test-verb (2026-08-29, Phase 1).** `scripts/diag-set-diff.sh`
   re-ran `.testrun` goldens as `mfb test -q …`, but `mfb test` has no `-q`
   (usage error, exit 2) — the harness reported `testing-assert-invalid` as a

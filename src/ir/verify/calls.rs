@@ -5,7 +5,7 @@ impl TypeEnv {
     // 10. Call arity/arg types, thread + STATE agreement
     // ===========================================================================
 
-    /// The unary counterpart of `check_binary_operands` (`syntaxcheck`'s
+    /// The unary counterpart of `check_binary_operands` (the former source checker's
     /// `infer_unary` / `TYPE_UNARY_OPERATOR_MISMATCH`): `NOT` requires a Boolean
     /// operand, unary `-` a numeric one. Same memory-safety rationale — codegen
     /// picks the instruction from the operand type. `Unknown` never rejects.
@@ -68,7 +68,7 @@ impl TypeEnv {
         argc: usize,
         locals: &HashMap<String, ParameterType>,
     ) {
-        // Calling something that is not a function — syntaxcheck's
+        // Calling something that is not a function — the former source checker's
         // SYMBOL_NOT_CALLABLE: a package constant (`math.pi()`), or a local
         // binding/parameter of a known non-function type.
         if builtins::is_package_constant(target) {
@@ -131,7 +131,7 @@ impl TypeEnv {
     }
 
     /// A function value's callable type carries no defaults, so the call
-    /// supplies exactly its parameter count (syntaxcheck's
+    /// supplies exactly its parameter count (the former source checker's
     /// `check_function_value_call`). Package path only, like every count rule:
     /// the source-written count is `ir::shape`'s.
     fn check_function_value_arity(&self, target: &str, argc: usize, expected: usize) {
@@ -144,7 +144,7 @@ impl TypeEnv {
     }
 
     /// Reject a call to a known user function whose argument types are
-    /// incompatible with the declared parameter types (`syntaxcheck`'s
+    /// incompatible with the declared parameter types (the former source checker's
     /// `TYPE_CALL_ARGUMENT_MISMATCH`). On decoded package IR this is an ABI-level
     /// type confusion: codegen marshals each argument by its declared parameter
     /// type, so a crafted `String` passed where an `Integer` is expected is read
@@ -159,7 +159,7 @@ impl TypeEnv {
     ) {
         // A function value (a local or global of FUNC type) has no named
         // signature; its callable type gives the per-position parameter types
-        // (syntaxcheck's `check_function_value_call`). A local shadows a global.
+        // (the former source checker's `check_function_value_call`). A local shadows a global.
         let function_value = match locals.get(target) {
             Some(t) => Some(t),
             None if self.functions.contains_key(target) => None,

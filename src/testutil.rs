@@ -69,29 +69,3 @@ pub fn lower_src(source: &str) -> IrProject {
     let project = project_from_src(source);
     ir::lower_project_with_external_functions(&project, None, &HashMap::new(), &[])
 }
-
-/// Run the syntax checker over `src` and return the emitted diagnostic rule
-/// codes (in traversal order). An empty vector means the program is accepted.
-pub fn check_src(source: &str) -> Vec<String> {
-    // One source-diagnostic oracle for every unit test (plan-107-E): the build
-    // path's three checkers — `ir::shape`, `syntaxcheck`, `ir::verify` on the
-    // lowered IR — over the monomorphized program, in the build's stream order.
-    crate::syntaxcheck::testutil::check_src(source)
-}
-
-/// True when the checker accepts `src` with zero diagnostics.
-pub fn accepts(source: &str) -> bool {
-    check_src(source).is_empty()
-}
-
-/// True when the SOURCE checker alone emits nothing for `src` — for a test that
-/// walks one of its inference arms on a program `ir::verify` rejects.
-pub fn syntaxcheck_accepts(source: &str) -> bool {
-    crate::syntaxcheck::testutil::syntaxcheck_accepts(source)
-}
-
-/// True when the checker rejects `src` with at least one diagnostic whose rule
-/// code equals `rule`.
-pub fn rejects_with(source: &str, rule: &str) -> bool {
-    check_src(source).iter().any(|r| r == rule)
-}

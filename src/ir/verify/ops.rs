@@ -82,7 +82,7 @@ impl TypeEnv {
                 self.current_muts.replace(muts.clone());
             }
             // Anything after an EXIT/CONTINUE in the same block is unreachable
-            // (syntaxcheck reports each following statement, then stops).
+            // (the former source checker reports each following statement, then stops).
             if let Some(exit_index) = exited_at {
                 if op_index > exit_index {
                     self.emit(
@@ -115,7 +115,7 @@ impl TypeEnv {
                         }
                         self.check_value(value, locals);
                         self.allow_sub_call.set(false);
-                        // syntaxcheck's cascade: an initializer whose type could
+                        // the former source checker's cascade: an initializer whose type could
                         // not be determined *because it is erroneous* also gets
                         // TYPE_UNKNOWN_VALUE. Gate on a poisoning rule having
                         // fired for this very value, so a clean-but-untypable
@@ -136,7 +136,7 @@ impl TypeEnv {
                             self.check_literal_range_errored(&resource_base_type(type_), value);
                         // Only an explicit `AS T` annotation can disagree with
                         // the initializer; an inferred type is the initializer's
-                        // type by construction (matches syntaxcheck).
+                        // type by construction (matches the former source checker).
                         if !range_errored && *explicit_type {
                             self.check_binding_type(name, type_, value, locals);
                         }
@@ -152,7 +152,7 @@ impl TypeEnv {
                             self.check_thread_sendability(&state);
                         }
                     }
-                    // The RES ownership axis (syntaxcheck's
+                    // The RES ownership axis (the former source checker's
                     // check_resource_declaration): a resource-typed binding
                     // must be RES-declared (else its close obligation is
                     // untracked — a leak/UAF on decoded IR), and RES may only
@@ -265,7 +265,7 @@ impl TypeEnv {
                     // whichever scope ends up owning it.
                     // An initializer-less binding must be annotated, immutable
                     // ones must have a value, and MUT needs a defaultable type
-                    // (syntaxcheck's check_binding_shape None-value arms).
+                    // (the former source checker's check_binding_shape None-value arms).
                     // Synthesized `$` temps are the compiler's own.
                     if value.is_none() && !name.starts_with('$') {
                         if !*explicit_type {
@@ -289,7 +289,7 @@ impl TypeEnv {
                     }
                     locals.insert(name.clone(), type_.clone());
                     // A capture bind's `mutable` reflects the by-ref/non-escaping
-                    // proof, not the outer binding's MUTness — syntaxcheck judges
+                    // proof, not the outer binding's MUTness — the former source checker judges
                     // assignments to captures at the lambda site (as
                     // TYPE_LAMBDA_CAPTURE_UNSUPPORTED when escaping), so leave
                     // the capture's mutability unknown here.
@@ -459,7 +459,7 @@ impl TypeEnv {
                     self.check_value(value, locals);
                     // `PROPAGATE` outside a TRAP lowers to `Fail(Local("$error"))`
                     // with the sentinel unbound; inside a trap the real error
-                    // binding is used (syntaxcheck's TYPE_PROPAGATE_REQUIRES_TRAP).
+                    // binding is used (the former source checker's TYPE_PROPAGATE_REQUIRES_TRAP).
                     if matches!(value, IrValue::Local(n) if n == "$error")
                         && !locals.contains_key("$error")
                     {
@@ -468,7 +468,7 @@ impl TypeEnv {
                             "PROPAGATE is valid only inside a TRAP.".to_string(),
                         );
                     } else if let Some(actual) = self.infer_type(value, locals) {
-                        // FAIL carries an Error (syntaxcheck's TYPE_FAIL_REQUIRES_ERROR).
+                        // FAIL carries an Error (the former source checker's TYPE_FAIL_REQUIRES_ERROR).
                         if !self.compatible(&ParameterType::named("Error"), &actual) {
                             self.emit(
                                 "TYPE_FAIL_REQUIRES_ERROR",
@@ -555,7 +555,7 @@ impl TypeEnv {
                     // The lowered inline-TRAP branch: its scrutinee was bound to
                     // the `$trap_res` temp just above (in `temp_consts`), and the
                     // rule reports before the handler's own diagnostics, as
-                    // syntaxcheck did.
+                    // the former source checker did.
                     self.check_inline_trap_scrutinee(condition, else_body, &temp_consts);
                     self.check_ops_in_branch(then_body, locals, muts, closure_slots, depth);
                     self.check_ops_in_branch(else_body, locals, muts, closure_slots, depth);
@@ -690,7 +690,7 @@ impl TypeEnv {
                         }
                     }
                     // A literal STEP of zero never advances the counter (a
-                    // non-literal step is left alone, matching syntaxcheck).
+                    // non-literal step is left alone, matching the former source checker).
                     if resolve(step, &temp_consts).is_some_and(numeric_literal_is_zero) {
                         self.emit(
                             "TYPE_FOR_STEP_ZERO",
@@ -700,7 +700,7 @@ impl TypeEnv {
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
                     branch.insert(name.clone(), type_.clone());
-                    // The loop counter is immutable inside the body (syntaxcheck
+                    // The loop counter is immutable inside the body (the former source checker
                     // registers it `mutable: false`).
                     branch_muts.insert(name.clone(), false);
                     self.loop_stack.borrow_mut().push(crate::ast::LoopKind::For);
@@ -792,7 +792,7 @@ impl TypeEnv {
                         depth + 1,
                     );
                     // A function-level TRAP block must leave the function on
-                    // every path (syntaxcheck's TYPE_TRAP_FALLTHROUGH).
+                    // every path (the former source checker's TYPE_TRAP_FALLTHROUGH).
                     self.current_line.set(line);
                     // A bare `TRAP` synthesizes a `#`-sentinel name the user
                     // never wrote; keep it out of diagnostics.

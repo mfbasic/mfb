@@ -88,7 +88,7 @@ single supported `OUT return` slot. A value-returning wrapper must expose exactl
 one result with `return` or a `RESULT` expression. The current compiler does not
 support multiple `OUT` slots or `RETURN_OUT`; any `OUT` slot other than
 `return` is rejected as an unbound ABI slot. [[src/ast/link_items.rs:parse_link_function]]
-[[src/syntaxcheck/mod.rs]]
+[[src/ir/verify/link.rs]]
 
 ## Result gates
 
@@ -140,7 +140,7 @@ The ABI type names below are the names the marshaling backend acts on:
 
 Raw C ABI types may not appear in a wrapper's MFBASIC-facing signature. Exposing
 `CPtr`, `CString`, or fixed C integer types as ordinary source API is rejected;
-wrap native handles in `RESOURCE` types instead. [[src/syntaxcheck/helpers.rs:is_c_abi_type]]
+wrap native handles in `RESOURCE` types instead. [[src/resolver/mod.rs:is_c_abi_type]]
 
 ## Diagnostics
 

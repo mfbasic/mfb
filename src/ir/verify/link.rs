@@ -4,14 +4,14 @@ impl TypeEnv {
     // 8. Native LINK (cstructs + functions) + resource classification
     // ===========================================================================
     //
-    // syntaxcheck's `check_link_block`, on the IR. The walk order mirrors the
+    // the former source checker's `check_link_block`, on the IR. The walk order mirrors the
     // front end's — per LINK block: CSTRUCT declarations (duplicates + layout
     // faults), CSTRUCT escape, then per function: the signature/ABI rules, the
     // struct-slot and BIND IN rules, the buffer rules — so a relocated rule
     // reorders only across streams, never within the family.
     //
     // Locations come from `link_spans` (plan-107-C): on the source path every
-    // emission points at the slot/parameter/field/declaration line syntaxcheck
+    // emission points at the slot/parameter/field/declaration line the former source checker
     // used; a decoded package has no spans and reports unlocated (file `""`,
     // line 0 — the `<generated>` form), as the package path always has.
     //
@@ -72,7 +72,7 @@ impl TypeEnv {
     /// Validate one LINK block's `CSTRUCT` declarations (plan-50-B §4.4): a
     /// duplicate name would make slot resolution ambiguous, and every layout
     /// fault the shared `check_cstruct` reports (pointed at the offending field
-    /// where the message names one, as syntaxcheck does).
+    /// where the message names one, as the former source checker does).
     fn check_cstruct_decls(&self, project: &IrProject, alias: &str) {
         let names: Vec<String> = project
             .link_cstructs
@@ -160,7 +160,7 @@ impl TypeEnv {
         }
     }
 
-    /// The signature/ABI rules of one wrapper (syntaxcheck's
+    /// The signature/ABI rules of one wrapper (the former source checker's
     /// `check_link_function_in`): C ABI types may not escape into the wrapper
     /// signature, the slot ctype namespace is closed, every slot binds to a
     /// parameter / CONST pin / BIND IN block or is OUT, expressions read real
@@ -172,7 +172,7 @@ impl TypeEnv {
         // a wrapper's MFB-facing parameter or return type is a `NATIVE_CPTR_ESCAPE`
         // (C types belong only in `ABI` slots). It deliberately INCLUDES `CVoid`,
         // making it a defensive superset of the spec's ABI-slot allow-list
-        // (`syntaxcheck::helpers::is_c_abi_type`, which omits `CVoid` per
+        // (the former source checker's `helpers::is_c_abi_type`, which omits `CVoid` per
         // `17_native-libraries.md:92`). The two are NOT contradictory: they serve
         // different purposes — an allow-list for what may sit in an ABI slot vs. a
         // reject-list for what must never leak into an MFB signature — and on the
@@ -521,7 +521,7 @@ impl TypeEnv {
     }
 
     /// A wrapper's struct slots and `BIND IN` blocks (plan-50-E §4.6;
-    /// syntaxcheck's `check_struct_slots`). A crafted `.mfp` never ran the front
+    /// the former source checker's `check_struct_slots`). A crafted `.mfp` never ran the front
     /// end, so without this the package path would be the weaker of the two.
     fn check_struct_slots(&self, project: &IrProject, function: &crate::ir::IrLinkFunction) {
         let spans = self.function_spans(function);
@@ -805,7 +805,7 @@ impl TypeEnv {
     }
 
     /// Whether a type contains a resource or thread handle anywhere (mirrors
-    /// syntaxcheck's `contains_resource_or_thread` on type strings).
+    /// the former source checker's `contains_resource_or_thread` on type strings).
     /// plan-106-B: structural. The `Thread`/`ThreadWorker` prefix test is the
     /// [`ThreadHandle`](ParameterType::ThreadHandle) variant, and the `List OF `/
     /// `Map OF ` descent is a variant match; the resource and record-field
@@ -836,7 +836,7 @@ impl TypeEnv {
         contained
     }
 
-    /// Whether a type transitively contains a thread handle — syntaxcheck's
+    /// Whether a type transitively contains a thread handle — the former source checker's
     /// `contains_thread`. Threads may never live in a collection; resources may
     /// (as pointers, §15.6), so a collection ELEMENT and a `Map` VALUE use this
     /// rather than the combined resource-or-thread predicate.
@@ -869,7 +869,7 @@ impl TypeEnv {
     }
 
     /// `pred` over every field of record `name`, or over every variant's fields
-    /// when `name` is a union (syntaxcheck's `type_infos` walk covers both
+    /// when `name` is a union (the former source checker's `type_infos` walk covers both
     /// kinds; the union arm is what a Map key of a thread-carrying union needs).
     fn any_field_of(&self, name: &str, mut pred: impl FnMut(&ParameterType) -> bool) -> bool {
         if let Some(fields) = self.record_field_lists.get(name) {
@@ -944,7 +944,7 @@ impl TypeEnv {
             // here. On the failure path of `transfer(...) TRAP(e)` ownership
             // returns to the sender so the handler may close the resource — a
             // straight-line detector cannot see that and would false-reject the
-            // valid recover pattern. syntaxcheck models the restore explicitly;
+            // valid recover pattern. The former source checker models the restore explicitly;
             // the IR checker stays conservative and only tracks close/return.
             // A registered close op consumes the resource at arg 0.
             let IrValue::Local(name) = args.first()? else {

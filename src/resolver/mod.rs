@@ -190,6 +190,11 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
 /// one decision procedure — `codegen::registry::ProjectView` gates the injection
 /// from either domain — so the two chains cannot drift apart the way two copies
 /// of the gate logic would have.
+///
+/// Test-only since plan-107-D: the build path augments the pre-monomorph AST
+/// once and every later pass consumes that concrete HIR; the in-process tests
+/// that monomorphize a BARE project are the chain's remaining callers.
+#[cfg(test)]
 pub fn augment_hir_project(hir: &HirProject) -> Result<HirProject, ()> {
     let augmented = crate::codegen::registry::registry().augment_hir_project(hir)?;
     let augmented = crate::codegen::builtins::http::augmented_hir_project(&augmented)?;
@@ -233,7 +238,7 @@ fn call_arg_value(argument: &crate::hir::HirCallArg) -> &HirExpression {
     }
 }
 
-/// Whether `type_name` is a raw C ABI type (mirrors `syntaxcheck::is_c_abi_type`),
+/// Whether `type_name` is a raw C ABI type (mirrors the former source checker's `is_c_abi_type`),
 /// which may appear only inside ABI slots (plan-link-update.md §5/§11).
 fn is_c_abi_type(type_name: &str) -> bool {
     matches!(

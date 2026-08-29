@@ -293,7 +293,7 @@ Commit: `f70a3919f` (TYPE_CALL_ARITY_MISMATCH); `4199d19e9` +
 
 Acceptance: shape/verify-only; corpus set-equal.
 Commit: `6ff122464`; the two false cascades its gate exposed are repaired in
-the commit that opens D's Phase 1 (C-override-typing; hash recorded there).
+`f2d52f271` (D's first commit, C-override-typing).
 
 ## Validation Plan
 

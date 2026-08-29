@@ -51,7 +51,7 @@ fn is_byte_literal(value: &IrValue) -> bool {
 
 /// Resolve a table-driven builtin call, retrying with `Integer`-literal
 /// arguments coerced to `Byte` when the exact-typed resolution fails
-/// (syntaxcheck's `resolve_table_call_with_byte_literals`): the table arm
+/// (the former source checker's `resolve_table_call_with_byte_literals`): the table arm
 /// resolves by exact argument-type match, which rejects an integer literal
 /// passed to a `Byte` parameter (`astrings::foreground(255, 0, 0)`). Each
 /// subset of the eligible positions is tried, so a literal that is validly
@@ -249,7 +249,7 @@ impl TypeEnv {
         }
     }
 
-    /// The builtin-call family — syntaxcheck's `check_builtin_call` transcribed
+    /// The builtin-call family — the former source checker's `check_builtin_call` transcribed
     /// over the lowered call (plan-107-E): `TYPE_CALL_ARITY_MISMATCH` and
     /// `TYPE_CALL_ARGUMENT_MISMATCH` for every builtin whose arguments the
     /// checker validated (`builtins::checks_call_arguments`), in the checker's
@@ -481,7 +481,7 @@ impl TypeEnv {
     }
 
     /// `collections` element searches compare elements for equality, so the
-    /// list's element type must be comparable — syntaxcheck's
+    /// list's element type must be comparable — the former source checker's
     /// `check_general_builtin_comparability` (TYPE_REQUIRES_COMPARABLE), run
     /// only after the call resolved, as the checker did.
     fn check_builtin_comparability(&self, target: &str, member: &str, arg_types: &[ParameterType]) {
@@ -504,7 +504,7 @@ impl TypeEnv {
     // 12. Compatibility + typed statement checks
     // ===========================================================================
 
-    /// Type compatibility (`syntaxcheck::compatible`). `Unknown` on either side is
+    /// Type compatibility (the former source checker's `compatible`). `Unknown` on either side is
     /// compatible; the `RES` ownership marker is stripped; container types
     /// recurse; a union accepts any of its variants.
     ///
@@ -558,7 +558,7 @@ impl TypeEnv {
         false
     }
 
-    /// `syntaxcheck::expression_compatible`: `compatible`, plus the literal
+    /// the former source checker's `expression_compatible`: `compatible`, plus the literal
     /// coercions that the AST checker allows for constant arguments — a `Byte`
     /// parameter accepts an in-range `Integer` literal, `Fixed` accepts an
     /// `Integer`/`Float` literal. The `Const` node carries the literal type and
@@ -599,7 +599,7 @@ impl TypeEnv {
     }
 
     /// Reject a `RETURN <value>` whose value type is incompatible with the
-    /// function's declared return type (`syntaxcheck`'s `TYPE_RETURN_MISMATCH`).
+    /// function's declared return type (the former source checker's `TYPE_RETURN_MISMATCH`).
     /// Codegen places the return value into the ABI return slot by the declared
     /// type, so a crafted mismatch is a type confusion at the return boundary.
     pub(super) fn check_return_type(
@@ -625,9 +625,9 @@ impl TypeEnv {
     }
 
     /// Reject a binding whose initializer type is incompatible with its declared
-    /// type — `syntaxcheck`'s `TYPE_BINDING_MISMATCH`. The caller suppresses this
+    /// type — the former source checker's `TYPE_BINDING_MISMATCH`. The caller suppresses this
     /// when a literal-range error already fired for the same binding (matching
-    /// syntaxcheck's `!reported_range_error` guard), so a single out-of-range
+    /// the former source checker's `!reported_range_error` guard), so a single out-of-range
     /// literal is reported once, as the more specific range error.
     pub(super) fn check_binding_type(
         &self,
@@ -662,7 +662,7 @@ impl TypeEnv {
     }
 
     /// Reject a control-flow condition (IF/WHILE/LOOP UNTIL/WHEN guard) whose
-    /// type is provably not Boolean — `syntaxcheck`'s
+    /// type is provably not Boolean — the former source checker's
     /// `TYPE_CONDITION_REQUIRES_BOOLEAN`. `what` is the statement-specific
     /// message prefix (`"IF condition"`, `"WHEN guard"`, …).
     pub(super) fn check_condition_boolean(
@@ -683,9 +683,9 @@ impl TypeEnv {
     }
 
     /// Reject an assignment whose value type is incompatible with the target
-    /// binding's settled type — `syntaxcheck`'s `TYPE_ASSIGNMENT_MISMATCH`. The
+    /// binding's settled type — the former source checker's `TYPE_ASSIGNMENT_MISMATCH`. The
     /// caller suppresses this when a literal-range error already fired
-    /// (syntaxcheck's `!reported_range_error` guard). Unlike `TYPE_BINDING_MISMATCH`
+    /// (the former source checker's `!reported_range_error` guard). Unlike `TYPE_BINDING_MISMATCH`
     /// no explicit-annotation gate applies: by assignment time the binding's
     /// type is settled regardless of how it was declared.
     pub(super) fn check_assignment_type(
@@ -713,7 +713,7 @@ impl TypeEnv {
         }
     }
 
-    /// The syntaxcheck constructor rules on a lowered `Constructor` value: the
+    /// The former source checker's constructor rules on a lowered `Constructor` value: the
     /// name must be a record TYPE (`TYPE_CONSTRUCTOR_REQUIRES_RECORD`), the
     /// argument count must equal the field count exactly — records have no
     /// field defaults — (`TYPE_CONSTRUCTOR_ARITY_MISMATCH`), and each argument
@@ -726,7 +726,7 @@ impl TypeEnv {
         args: &[IrValue],
         locals: &HashMap<String, ParameterType>,
     ) {
-        // `Ok`/`Result` are compiler-owned (syntaxcheck's TYPE_RESULT_IS_IMPLICIT).
+        // `Ok`/`Result` are compiler-owned (the former source checker's TYPE_RESULT_IS_IMPLICIT).
         if matches!(type_name, "Ok" | "Result") {
             self.emit(
                 "TYPE_RESULT_IS_IMPLICIT",
@@ -775,7 +775,7 @@ impl TypeEnv {
             return;
         }
         // A private type (or one with hidden fields) may only be constructed
-        // from its declaring file (syntaxcheck's TYPE_MEMBER_NOT_VISIBLE arms).
+        // from its declaring file (the former source checker's TYPE_MEMBER_NOT_VISIBLE arms).
         if let Some((file, visibility)) = self.type_decl_info.get(type_name) {
             if visibility == "private" && !file.is_empty() && *file != *self.current_file.borrow() {
                 self.emit(
@@ -904,7 +904,7 @@ impl TypeEnv {
         }
     }
 
-    /// syntaxcheck's TYPE_LAMBDA_CAPTURE_UNSUPPORTED at the `Closure` use site.
+    /// the former source checker's TYPE_LAMBDA_CAPTURE_UNSUPPORTED at the `Closure` use site.
     /// Lowering's capture list is the front end's (`captured_locals` + the
     /// assignment target, in that order), and the licence a capture was given
     /// survives as its SHAPE: a `LocalRef` is the compiler-proven non-escaping

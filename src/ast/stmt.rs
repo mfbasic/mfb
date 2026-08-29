@@ -733,7 +733,7 @@ impl<'a> FileParser<'a> {
         // Every nested control-flow body (IF/FOR/WHILE/DO/MATCH) re-enters here
         // through `parse_statement`, so bounding this single funnel bounds the whole
         // native-frame chain — and the equally-recursive AST re-walks in resolver /
-        // syntaxcheck / monomorph / ir::lower that run before `ir::verify`'s own
+        // the former source checker / monomorph / ir::lower that run before `ir::verify`'s own
         // `MAX_DEPTH` backstop (audit-2 FE-03 / bug-183). Past the cap we stop
         // recursing and let the block unwind with a reported error rather than
         // overflowing the stack with no diagnostic.

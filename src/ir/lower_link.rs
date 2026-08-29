@@ -263,7 +263,7 @@ pub(super) fn link_aliases(hir: &crate::hir::HirProject) -> Vec<(String, String)
 /// error: until plan-50-G this ended in `_ => 0`, silently pinning **0** for any
 /// unrecognized expression — the same "default rather than diagnose" mistake as
 /// the unvalidated slot ctype (plan-50-A) and the nameless link-expr `Var`
-/// (plan-50-I). `syntaxcheck` rejects an unfoldable pin, so by lowering the form
+/// (plan-50-I). The former source checker rejects an unfoldable pin, so by lowering the form
 /// is already known-good.
 fn eval_link_const_opt(expr: &Expression, cstructs: &[crate::ast::CStructDecl]) -> Option<i64> {
     match expr {
@@ -298,7 +298,7 @@ fn eval_link_const_opt(expr: &Expression, cstructs: &[crate::ast::CStructDecl]) 
 
 /// The pin's immediate, or `0` for a form that cannot be folded.
 ///
-/// The `0` is NOT a silent default: `syntaxcheck` rejects an unfoldable pin
+/// The `0` is NOT a silent default: the former source checker rejects an unfoldable pin
 /// (`NATIVE_CONST_UNKNOWN_SLOT`), so the build fails and the lowered value is
 /// never reached. It runs *after* lowering in this pipeline, which is why this
 /// must return something rather than assert — the diagnostic still wins, but

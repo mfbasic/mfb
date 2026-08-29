@@ -2,7 +2,7 @@
 //!
 //! A compiled package (`.mfp`) carries hand-serializable IR that a consumer
 //! decodes and lowers to native code. Only the source front end runs the AST
-//! type checker (`src/syntaxcheck/`); the decoded package IR is otherwise trusted
+//! type checker (`src/the former source checker/`); the decoded package IR is otherwise trusted
 //! to be well typed. A crafted `.mfp` can therefore ship type-confused IR — a
 //! `MemberAccess` on an `Integer`, a `Capture` index past the closure's slots, a
 //! call with the wrong argument count — that codegen turns into memory-unsafe
@@ -73,196 +73,6 @@ pub struct ImportedResource {
     pub close_function: String,
     pub sendable: bool,
 }
-
-/// Rules for which `ir::verify` is the sole rejecter (plan-20-Z). On the
-/// **source** path `ir::verify` emits ONLY these (syntaxcheck still owns every
-/// other rule, so emitting a non-relocated rule here would duplicate it); on
-/// the **package** path there is no syntaxcheck, so `ir::verify` emits all of its
-/// checks regardless. `syntaxcheck::report` skips this same set. A rule appears
-/// here only once `ir::verify` reproduces it completely (verified against every
-/// `*-invalid` fixture).
-///
-/// The pre-lowering shape pass's rules (`ir::shape`, plan-107-E) are listed
-/// here too: the list is the single "no longer syntaxcheck's" register that the
-/// `syntaxcheck::report` guard reads, and `ir::verify` never emits them, so the
-/// source-path filter is unaffected.
-pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
-    // ir::shape (plan-107-E): lowering normalizes named arguments away, so the
-    // name the source wrote survives only in the HIR.
-    "TYPE_UNKNOWN_ARGUMENT_NAME",
-    "TYPE_DUPLICATE_ARGUMENT_NAME",
-    // plan-107-E: builtin and function-value forms in ir::verify; the user-FUNC
-    // form is ir::shape's on the source path (lowering normalizes the argument
-    // list — extras dropped, defaults filled — so the count is erased) and
-    // verify's on the package path; the named-argument omission forms are
-    // ir::shape's.
-    "TYPE_CALL_ARITY_MISMATCH",
-    // plan-107-E: the argument-TYPE forms (declared FUNC, function value, every
-    // builtin arm) are ir::verify's on both paths; the three source-only forms
-    // — named arguments on a function value, thread.start's entry, term's
-    // drawText(AttributedString) without IMPORT astrings — are ir::shape's.
-    "TYPE_CALL_ARGUMENT_MISMATCH",
-    // plan-107-E: the cascade — ir::shape's for an initializer/RETURN/default
-    // the checker could not type (lowering's seam has no type, or the shape's
-    // own call rules typed the call Unknown) and for the two not-a-local-binding
-    // target forms; ir::verify's for a typed node its own rules poisoned.
-    "TYPE_UNKNOWN_VALUE",
-    // plan-107-D: ir::shape's — `EXIT FUNC` lowers to nothing and `EXIT SUB` to
-    // a bare Return, so neither statement exists as such in the IR.
-    "EXIT_FUNC_FORBIDDEN",
-    "EXIT_SUB_IN_FUNC",
-    // plan-107-D: ir::shape's — the bare-RETURN-in-a-SUB form (verify keeps
-    // the valued form), a stray RECOVER (lowered to a `$recover_stray` temp),
-    // RECOVER's two count forms (verify keeps the value-type form), the inline
-    // handler's fall-through edge, and EXIT SUB/FUNC/PROGRAM's unreachable tail
-    // (verify keeps the loop-exit forms).
-    "SUB_RETURN_FORBIDDEN",
-    "TYPE_RECOVER_OUTSIDE_INLINE_TRAP",
-    "TYPE_RECOVER_TYPE_MISMATCH",
-    "TYPE_INLINE_TRAP_FALLS_THROUGH",
-    "UNREACHABLE_AFTER_EXIT",
-    // plan-107-D: ir::shape's — the assertion builtins' argument rules; lowering
-    // expands `expectX(...)` into comparisons + FAIL or a trap guard.
-    "TESTING_EXPECT_ARITY",
-    "TESTING_EXPECT_TYPE_MISMATCH",
-    "TESTING_EXPECT_INCOMPARABLE",
-    "TESTING_EXPECT_NOT_PRINTABLE",
-    "TESTING_EXPECT_CODE_TYPE",
-    "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE",
-    // plan-107-D: ir::shape's — the literal's SPELLING (`1.08` vs `1.08f`) is the
-    // evidence, and lowering stamps both as the same Float const.
-    "MONEY_INEXACT_FLOAT_LITERAL",
-    // plan-107-D: ir::shape's constructor form (lowering reorders named
-    // arguments into field order, so the repetition is gone); verify keeps the
-    // WITH form.
-    "TYPE_DUPLICATE_FIELD",
-    // plan-107-D: split with ir::shape — shape holds the "not a constant the
-    // compiler can fold" CONST form (lowering folds the pin) and the FREE
-    // deallocator-signature form (`IrFree` keeps slot + symbol only); verify
-    // keeps the unknown-slot, `AS RES` producer and empty-symbol forms.
-    "NATIVE_CONST_UNKNOWN_SLOT",
-    "NATIVE_FREE_INVALID",
-    // plan-107-D: split — ir::shape holds the `Error`/`ErrorLoc` form (lowering
-    // synthesizes `Constructor{Error}` itself); verify the compiler-owned and
-    // `AttributedString` forms.
-    "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
-    // plan-107-D: ir::shape's import walk (the (I) relocation of the checker's
-    // package-metadata validation).
-    "PACKAGE_INVALID",
-    "TYPE_BINARY_OPERATOR_MISMATCH",
-    "TYPE_UNARY_OPERATOR_MISMATCH",
-    "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
-    "TYPE_UNKNOWN_FIELD",
-    "TYPE_RETURN_MISMATCH",
-    "TYPE_LIST_ELEMENT_MISMATCH",
-    "TYPE_SET_ELEMENT_MISMATCH",
-    "TYPE_MAP_KEY_MISMATCH",
-    "TYPE_MAP_VALUE_MISMATCH",
-    "TYPE_RESOURCE_FIELD_FORBIDDEN",
-    "TYPE_MIXED_RESOURCE_UNION",
-    "TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION",
-    "TYPE_BYTE_LITERAL_OVERFLOW",
-    "TYPE_BYTE_LITERAL_UNDERFLOW",
-    "TYPE_INTEGER_LITERAL_OVERFLOW",
-    "TYPE_FLOAT_LITERAL_OVERFLOW",
-    "TYPE_FLOAT_LITERAL_UNDERFLOW",
-    "TYPE_FIXED_LITERAL_OVERFLOW",
-    "TYPE_FIXED_LITERAL_UNDERFLOW",
-    "TYPE_MONEY_LITERAL_OVERFLOW",
-    "TYPE_MONEY_LITERAL_UNDERFLOW",
-    "TYPE_MONEY_LITERAL_PRECISION",
-    "TYPE_MONEY_OPERATION_INVALID",
-    "TYPE_UNARY_OPERATOR_UNKNOWN",
-    "TYPE_UNION_INCLUDE_REQUIRES_UNION",
-    "TYPE_UNION_MEMBER_REQUIRES_TYPE",
-    "TYPE_ENUM_REQUIRES_MEMBER",
-    "TYPE_DUPLICATE_VARIANT",
-    "TYPE_BINDING_MISMATCH",
-    "TYPE_ASSIGN_REQUIRES_MUT",
-    "TYPE_ASSIGNMENT_MISMATCH",
-    "TYPE_FOR_STEP_ZERO",
-    "TYPE_CONDITION_REQUIRES_BOOLEAN",
-    "TYPE_FOR_REQUIRES_NUMERIC",
-    "TYPE_FOR_EACH_REQUIRES_COLLECTION",
-    "TYPE_CONSTRUCTOR_REQUIRES_RECORD",
-    "TYPE_CONSTRUCTOR_ARITY_MISMATCH",
-    "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
-    "TYPE_DEFAULT_VALUE_MISMATCH",
-    "TYPE_READ_ONLY_RECORD_UPDATE",
-    "TYPE_MATCH_PATTERN_MISMATCH",
-    "TYPE_REQUIRES_COMPARABLE",
-    "TYPE_MATCH_NOT_EXHAUSTIVE",
-    "TYPE_USE_AFTER_MOVE",
-    "TYPE_UNKNOWN_ENUM_MEMBER",
-    "SYMBOL_NOT_CALLABLE",
-    "TYPE_BINDING_REQUIRES_TYPE_OR_VALUE",
-    "TYPE_LET_REQUIRES_VALUE",
-    "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
-    "TYPE_DEFAULT_ARG_ORDER",
-    "TYPE_PARAM_REQUIRES_TYPE",
-    "TYPE_FUNC_REQUIRES_RETURN_TYPE",
-    "EXIT_NO_MATCHING_LOOP",
-    "CONTINUE_NO_MATCHING_LOOP",
-    "TYPE_EXIT_PROGRAM_REQUIRES_INTEGER",
-    "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
-    "TYPE_SUB_HAS_NO_VALUE",
-    "TYPE_FUNC_MISSING_RETURN",
-    "TYPE_FAIL_REQUIRES_ERROR",
-    "TYPE_PROPAGATE_REQUIRES_TRAP",
-    "TYPE_RESOURCE_REQUIRES_RES",
-    "TYPE_RES_REQUIRES_RESOURCE",
-    "TYPE_STATE_INVALID",
-    // plan-74 retired TYPE_UNION_STATE_FORBIDDEN (a resource union may carry
-    // uniform STATE); it is no longer emitted, so it leaves this located-rules list.
-    // ir::verify is the SOLE implementer of the STATE-agreement rule (plan-52-C/D)
-    // — syntaxcheck has no twin of it to duplicate — so it is relocated from birth
-    // rather than after a reproduction pass. Without this entry the source path
-    // filters it out and it surfaces only via the package path's `check()`, which
-    // renders unlocated (`error: TYPE_STATE_MISMATCH: …`, no file:line).
-    "TYPE_STATE_MISMATCH",
-    // plan-59-C: the opaque-narrowing rule is the STATE-agreement rule's sibling
-    // and is likewise implemented only here — it needs the function's parameter
-    // list to tell an opaque value from a stateless one, which syntaxcheck does
-    // not track. Same reasoning as TYPE_STATE_MISMATCH above; without this entry
-    // it renders unlocated.
-    "TYPE_STATE_OPAQUE_NARROWING",
-    // Likewise ir::verify is the sole implementer of the BIND STATE validation
-    // (plan-53-B) — syntaxcheck never inspects a `LINK` function's BIND STATE.
-    "NATIVE_BIND_STATE_INVALID",
-    "TYPE_RESULT_NOT_MATCHABLE",
-    "TYPE_RESULT_IS_IMPLICIT",
-    "TYPE_THREAD_RESULT_REMOVED",
-    "TYPE_MEMBER_NOT_VISIBLE",
-    // ir::verify is the sole implementer: the condition is knowable only from
-    // escape analysis' ownership decision, which syntaxcheck does not compute
-    // (bug-291).
-    "TYPE_RESOURCE_RETURN_ORDER",
-    // plan-107-A pilots (decl-level / expression-level / inference-fact port).
-    "TYPE_ISOLATED_NOT_VISIBLE",
-    "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
-    "TYPE_THREAD_NOT_SENDABLE",
-    // plan-107-B: the general semantic cluster.
-    "TYPE_INLINE_TRAP_DEAD_HANDLER",
-    "TYPE_TRAP_FALLTHROUGH",
-    "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
-    "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
-    // plan-107-C: the native LINK/ABI family.
-    "NATIVE_ABI_NO_RESULT",
-    "NATIVE_ABI_RESULT_MARKER",
-    "NATIVE_ABI_UNBOUND_PARAM",
-    "NATIVE_BIND_IN_INVALID",
-    "NATIVE_CSTRUCT_ESCAPE",
-    // The eight the shared `ir::link` fault helpers also produce, listed
-    // together with the removal of syntaxcheck's fault loops.
-    "NATIVE_ABI_UNBOUND_SLOT",
-    "NATIVE_ABI_UNKNOWN_CTYPE",
-    "NATIVE_CONST_OUT",
-    "NATIVE_CPTR_ESCAPE",
-    "NATIVE_CSTRUCT_INVALID",
-    "NATIVE_STRUCT_FIELD_MISMATCH",
-    "NATIVE_BUFFER_INVALID",
-    "NATIVE_CSTRUCT_TOO_LARGE",
-];
 
 /// Diagnostic prefixes shared with the structural `verify_package` checks so a
 /// rejection surfaces as a `PACKAGE_BINARY_REPRESENTATION_*` diagnostic. Forward
@@ -432,7 +242,7 @@ fn collect_diagnostics_with(
                 env.check_thread_sendability(&state);
             }
             // Every parameter must declare an `AS` type (lambda parameters
-            // included — syntaxcheck checks both forms with this rule).
+            // included — the former source checker checks both forms with this rule).
             if param.type_ == ParameterType::Unknown {
                 env.emit(
                     "TYPE_PARAM_REQUIRES_TYPE",
@@ -452,7 +262,7 @@ fn collect_diagnostics_with(
                     ),
                 );
             }
-            // Parameters are immutable (syntaxcheck registers them
+            // Parameters are immutable (the former source checker registers them
             // `mutable: false`), so assigning one is TYPE_ASSIGN_REQUIRES_MUT.
             muts.insert(param.name.clone(), false);
             if let Some(default) = &param.default {
@@ -462,7 +272,7 @@ fn collect_diagnostics_with(
                 env.check_value_captures(default, None);
                 env.check_value(default, &locals);
                 // A parameter default must match the declared parameter type —
-                // syntaxcheck's TYPE_DEFAULT_VALUE_MISMATCH (skip-if-unknown).
+                // the former source checker's TYPE_DEFAULT_VALUE_MISMATCH (skip-if-unknown).
                 let expected = resource_base_type(&param.type_);
                 if !matches!(expected, ParameterType::Unknown | ParameterType::Nothing)
                     && !expected.name().is_empty()
@@ -493,7 +303,7 @@ fn collect_diagnostics_with(
         );
         // Resource use-after-move is a separate dataflow pass (straight-line
         // within a block; moves on any fall-through branch propagate past the
-        // join, mirroring syntaxcheck's MaybeMoved).
+        // join, mirroring the former source checker's MaybeMoved).
         let mut non_owning: HashSet<String> = function
             .params
             .iter()
@@ -614,9 +424,10 @@ pub fn check(project: &IrProject) -> Result<(), String> {
 }
 
 /// The relocated source-path diagnostics as unrendered `PendingDiagnostic`s, so
-/// `build` can merge them with `syntaxcheck`'s stream and render both in one
-/// line-ordered pass (plan-20-Z). Only rules in `RELOCATED_TO_IR_VERIFY` are
-/// ir::verify's to emit on the source path; the rest are still syntaxcheck's.
+/// `build` can merge them with the former source checker's stream and render both in one
+/// line-ordered pass (plan-20-Z). Every rule verify holds is its own to emit
+/// on the source path (plan-107-D: the source checker is gone; the source
+/// rules whose evidence lowering erases run in `ir::shape` ahead of it).
 ///
 /// `imported_resources` carries the `(type, close op)` rows of every imported
 /// package's `RESOURCE_TABLE` (bug-377). A decoded package contributes no
@@ -630,7 +441,12 @@ pub fn collect_source_diagnostics(
 ) -> Vec<crate::rules::PendingDiagnostic> {
     collect_diagnostics_with(project, true, imported_resources, link_spans, true)
         .into_iter()
-        .filter(|d| RELOCATED_TO_IR_VERIFY.contains(&d.rule.as_str()))
+        // The two structural rules are the package path's guard against a
+        // malformed decoded IR (`PACKAGE_BINARY_REPRESENTATION_VERIFY_*`, not
+        // in the source rule table): a source program's equivalent defect is
+        // reported by its source rule (e.g. TYPE_MATCH_PATTERN_MISMATCH beside
+        // a `CASE` naming a non-variant), so they would only duplicate it here.
+        .filter(|d| d.rule != VERIFY_TYPE && d.rule != VERIFY_MATCH)
         .map(|d| crate::rules::PendingDiagnostic {
             rule: d.rule,
             detail: d.detail,
@@ -711,7 +527,7 @@ struct TypeEnv {
     /// member-access type inference.
     field_types: HashMap<String, HashMap<String, ParameterType>>,
     /// Record type name → its direct fields as ordered (name, type) pairs, for
-    /// positional constructor checking (mirrors syntaxcheck's `TypeInfo.fields`,
+    /// positional constructor checking (mirrors the former source checker's `TypeInfo.fields`,
     /// which is declaration-ordered and not include-expanded).
     record_field_lists: HashMap<String, Vec<(String, ParameterType)>>,
     /// Enum type name → its complete member-name set, for MATCH exhaustiveness.
@@ -739,11 +555,11 @@ struct TypeEnv {
     /// `MUT` local is the "mutable capture" rejection).
     current_muts: RefCell<HashMap<String, bool>>,
     /// Whether a type-poisoning rule fired while checking the current value —
-    /// syntaxcheck's inference yields `Unknown` after an operator/constructor
+    /// the former source checker's inference yields `Unknown` after an operator/constructor
     /// failure, cascading a TYPE_UNKNOWN_VALUE at the consuming statement even
     /// where lowering stamped a nominal result type. Reset per checked value.
     poisoned: Cell<bool>,
-    /// Whether this walk is the source path (build: `syntaxcheck` and
+    /// Whether this walk is the source path (build: the former source checker and
     /// `ir::shape` run beside it) rather than the package path (`check`, where
     /// verify is the only checker). A rule whose evidence lowering erases on
     /// the source path — the user-FUNC call arity — is `ir::shape`'s there and
@@ -763,7 +579,7 @@ struct TypeEnv {
     /// kind present here. Checking is sequential, so a RefCell stack suffices.
     loop_stack: RefCell<Vec<crate::ast::LoopKind>>,
     /// Whether the value about to be checked sits in statement position, where
-    /// a value-less SUB call is legal (syntaxcheck's `allow_value_less_call`).
+    /// a value-less SUB call is legal (the former source checker's `allow_value_less_call`).
     /// Consumed (reset) by the first Call node checked.
     allow_sub_call: Cell<bool>,
     /// The RES-declared binding names of the function currently being checked
@@ -787,7 +603,7 @@ struct TypeEnv {
 }
 
 /// Rules whose failure leaves the failing expression's type undeterminable in
-/// syntaxcheck (its `infer_*` returns `Unknown` after reporting them).
+/// the former source checker (its `infer_*` returns `Unknown` after reporting them).
 const POISONING_RULES: &[&str] = &[
     "TYPE_BINARY_OPERATOR_MISMATCH",
     "TYPE_UNARY_OPERATOR_MISMATCH",
@@ -1254,7 +1070,7 @@ fn usable_type(annotated: Option<ParameterType>) -> Option<ParameterType> {
 }
 
 /// Whether an IR value is a numeric literal equal to zero (possibly negated) —
-/// mirrors `syntaxcheck::helpers::numeric_literal_is_zero` on the IR shape.
+/// mirrors the former source checker's `helpers::numeric_literal_is_zero` on the IR shape.
 fn numeric_literal_is_zero(value: &IrValue) -> bool {
     match value {
         IrValue::Const { type_, value }
@@ -1311,7 +1127,7 @@ fn fold_match_coverage(
 }
 
 /// The integer value of a constant expression (possibly negated) — mirrors
-/// `syntaxcheck::helpers::integer_constant_value` on the IR shape.
+/// the former source checker's `helpers::integer_constant_value` on the IR shape.
 fn integer_constant_value(value: &IrValue) -> Option<i128> {
     match value {
         IrValue::Const { type_, value }
@@ -1335,7 +1151,7 @@ fn integer_constant_value(value: &IrValue) -> Option<i128> {
 }
 
 /// Whether an IR value is a `collections.get`/`getOr` call — a *pointer* to a
-/// collection element (mirrors `syntaxcheck::helpers::is_resource_element_pointer`).
+/// collection element (mirrors the former source checker's `helpers::is_resource_element_pointer`).
 pub(crate) fn is_resource_element_pointer(value: &IrValue) -> bool {
     matches!(
         value,
@@ -1348,7 +1164,7 @@ pub(crate) fn is_resource_element_pointer(value: &IrValue) -> bool {
 }
 
 /// Compiler-owned record types users may neither construct nor WITH-update —
-/// mirrors `syntaxcheck::helpers::read_only_record_type`.
+/// mirrors the former source checker's `helpers::read_only_record_type`.
 fn read_only_record_type(type_: &ParameterType) -> bool {
     // A `MapEntry OF K TO V` is read-only structurally; the rest are nominal
     // lookups into per-package read-only tables, which are keyed by NAME.

@@ -728,7 +728,8 @@ pub(crate) struct RegistryResource {
     /// bit — mirrors [`crate::codegen::resource::ResourceInfo::sendable`]).
     pub(crate) sendable: bool,
     /// Whether the close op can fail (mirrors
-    /// [`crate::codegen::resource::ResourceInfo::close_may_fail`]).
+    /// the drop-time cleanup derives the same fact from the close wrapper's
+    /// `SUCCESS ON`).
     pub(crate) close_may_fail: bool,
     /// Provenance of the registration (`Builtin` for a native package resource).
     pub(crate) kind: crate::codegen::resource::ResourceKind,
@@ -832,7 +833,7 @@ pub(crate) struct RegistryPackage {
     source_types: Vec<&'static str>,
     /// Compile-time package constants (scalar folds + record-constructor inlines) the
     /// package owns — the registry home of the `math`/`errorcode`/`vector` constant
-    /// hand tables. Queried by the [`is_package_constant`] / [`constant_type_name`] /
+    /// hand tables. Queried by the [`is_package_constant`] / [`constant_type`] /
     /// [`constant_value`] / [`constant_components`] boundary fns.
     constants: Vec<RegistryConstant>,
     /// General-builtin overrides (`toString`, …) this package provides for its value
@@ -1255,7 +1256,7 @@ impl Registry {
         Ok(augmented)
     }
 
-    /// The same injection, onto the elaborated project syntaxcheck consumes
+    /// The same injection, onto the elaborated project the former source checker consumes
     /// (plan-106-D). One decision procedure, two thin adapters — the synthetic
     /// files are parsed from source and elaborated, exactly as the AST pipeline's
     /// are parsed and then elaborated downstream.
@@ -1617,12 +1618,12 @@ pub(crate) fn is_package_constant(qualified: &str) -> bool {
 }
 
 /// The type name the migrated constant `qualified` evaluates to (scalar type or record
-/// type), or `None` — the registry half of `builtins::package_constant_type_name`.
+/// type), or `None`.
 pub(crate) fn constant_type_name(qualified: &str) -> Option<&'static str> {
     find_constant(qualified).map(|constant| constant.type_name)
 }
 
-/// The typed twin of [`constant_type_name`] (plan-106-A), for the type checker
+/// The typed twin of [`constant_type_name`] (plan-106-A), for the checkers
 /// and IR lowering.
 ///
 /// [`RegistryConstant::type_name`] is a `&'static str` *descriptor literal*, so
@@ -2634,7 +2635,7 @@ pub(crate) fn default_argument_padding(
 /// program `IMPORT`s, and which call callees it names.
 ///
 /// plan-106-D: both pipelines inject the same builtin sources — the AST one
-/// (`resolver::augment_project`, before monomorphization) and syntaxcheck's HIR
+/// (`resolver::augment_project`, before monomorphization) and the former source checker's HIR
 /// one — and the gates read exactly these two things. Collecting them once, from
 /// either domain, is what lets ONE injector serve both. The alternative was a
 /// second copy of `is_imported_by` plus the ~100-line `references_any` AST walk
@@ -2727,7 +2728,7 @@ pub(crate) fn inject_late_pass(
     }
 }
 
-/// The same injection onto the elaborated project syntaxcheck consumes.
+/// The same injection onto the elaborated project the former source checker consumes.
 pub(crate) fn inject_late_pass_hir(
     hir: &crate::hir::HirProject,
     package: &str,

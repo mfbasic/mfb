@@ -137,7 +137,7 @@ impl TypeEnv {
                 // (bug-404).
                 self.check_with_update_type(type_, target, locals);
                 // Compiler/runtime-owned records may never be updated —
-                // syntaxcheck's TYPE_READ_ONLY_RECORD_UPDATE (message differs for
+                // the former source checker's TYPE_READ_ONLY_RECORD_UPDATE (message differs for
                 // the Error pair vs the compiler-owned handle records). When
                 // lowering could not stamp the update's type (e.g. the target
                 // is a member access it didn't resolve), infer the target here.
@@ -168,7 +168,7 @@ impl TypeEnv {
                     );
                 }
                 // Each WITH update must match its field's declared type —
-                // syntaxcheck's WITH arm of TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH.
+                // the former source checker's WITH arm of TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH.
                 let fields = self
                     .field_types
                     .get(resource_base_type(type_).name().as_ref());
@@ -205,7 +205,7 @@ impl TypeEnv {
                     self.check_value_depth(v, locals, depth + 1);
                 }
                 // The literal's element type is checked like a declared one
-                // (syntaxcheck's `infer_list_literal`): no thread handles.
+                // (the former source checker's `infer_list_literal`): no thread handles.
                 if let ParameterType::ListOf(element) = type_ {
                     self.check_collection_element_thread_free(element, "element");
                 }
@@ -238,7 +238,7 @@ impl TypeEnv {
                     self.check_value_depth(v, locals, depth + 1);
                 }
                 // A `Set` element behaves like a Map key: it may carry neither a
-                // resource nor a thread (syntaxcheck's `infer_set_literal`).
+                // resource nor a thread (the former source checker's `infer_set_literal`).
                 if let ParameterType::SetOf(element) = type_ {
                     self.check_collection_element_ownership(element, "element");
                 }
@@ -388,7 +388,7 @@ impl TypeEnv {
     }
 
     /// Check a numeric literal in a position that expects `expected` against
-    /// that type's range (`syntaxcheck`'s TYPE_*_LITERAL_OVERFLOW/UNDERFLOW).
+    /// that type's range (the former source checker's TYPE_*_LITERAL_OVERFLOW/UNDERFLOW).
     /// The check is contextual — keyed on the *expected* type, not the literal
     /// node's own type — because lowering does not push the expected type
     /// through a `-` negation (`-1` into `Byte` lowers to `Unary("-",
@@ -597,7 +597,7 @@ impl TypeEnv {
     ) {
         // `Enum.Member` selection: the target is the bare enum TYPE name (no
         // local shadows it), so the member must be one of the enum's declared
-        // members — syntaxcheck's TYPE_UNKNOWN_ENUM_MEMBER.
+        // members — the former source checker's TYPE_UNKNOWN_ENUM_MEMBER.
         if let IrValue::Local(name) = target {
             if !locals.contains_key(name) {
                 if let Some(members) = self.enums.get(name) {
@@ -649,7 +649,7 @@ impl TypeEnv {
             return;
         }
         // The `t.result` field is removed; worker outcomes come only through
-        // `thread::waitFor(t)` (syntaxcheck's TYPE_THREAD_RESULT_REMOVED).
+        // `thread::waitFor(t)` (the former source checker's TYPE_THREAD_RESULT_REMOVED).
         if is_thread_type(&resource_base_type(&target_type)) && member == "result" {
             self.emit(
                 "TYPE_THREAD_RESULT_REMOVED",
@@ -685,7 +685,7 @@ impl TypeEnv {
     }
 
     /// Whether `member` of `type_name` is explicitly private and the current
-    /// file is not the type's declaring file (syntaxcheck's `visible_from`).
+    /// file is not the type's declaring file (the former source checker's `visible_from`).
     pub(super) fn hidden_from_here(&self, type_name: &str, member: &str) -> bool {
         if !self
             .private_fields
@@ -704,7 +704,7 @@ impl TypeEnv {
     // ===========================================================================
 
     /// Reject a binary operator applied to operands whose types it cannot
-    /// accept — the IR-level counterpart of `syntaxcheck`'s `infer_binary`
+    /// accept — the IR-level counterpart of the former source checker's `infer_binary`
     /// operand rule (`TYPE_BINARY_OPERATOR_MISMATCH` / `TYPE_REQUIRES_COMPARABLE`).
     /// On decoded package IR this is a memory-safety gate: codegen selects the
     /// machine instruction from the operand *types*, so a crafted `String - Integer`
@@ -863,7 +863,7 @@ impl TypeEnv {
     }
 
     /// Whether a value of type `type_` can be compared for equality
-    /// (`syntaxcheck::is_comparable`): primitives/enums yes; collections,
+    /// (the former source checker's `is_comparable`): primitives/enums yes; collections,
     /// functions, results, resources, and unions no; a record only if every
     /// field is comparable. `Unknown` is comparable (never a false rejection).
     pub(super) fn is_comparable(&self, type_: &ParameterType) -> bool {
@@ -871,7 +871,7 @@ impl TypeEnv {
     }
 
     /// Every `Map OF K TO V` nested anywhere in `type_` must have a comparable
-    /// key — `syntaxcheck`'s map-key arm of `TYPE_REQUIRES_COMPARABLE` (an
+    /// key — the former source checker's map-key arm of `TYPE_REQUIRES_COMPARABLE` (an
     /// incomparable key breaks the map's hash/equality contract at runtime).
     pub(super) fn check_map_key_comparable(&self, type_: &ParameterType) {
         let t = resource_base_type(type_);
@@ -879,7 +879,7 @@ impl TypeEnv {
             ParameterType::ListOf(inner) => {
                 self.check_map_key_comparable(inner);
                 // A `List` element may be a resource pointer (§15.6); only a
-                // thread handle is forbidden — syntaxcheck's
+                // thread handle is forbidden — the former source checker's
                 // TYPE_COLLECTION_OWNERSHIP_VIOLATION element arm.
                 self.check_collection_element_thread_free(inner, "element");
             }
@@ -893,7 +893,7 @@ impl TypeEnv {
             ParameterType::MapOf(key, value) => {
                 // A resource/thread may never be a Map key (handles are not
                 // comparable and ordinary collections cannot own them) —
-                // syntaxcheck's TYPE_COLLECTION_OWNERSHIP_VIOLATION key arm.
+                // the former source checker's TYPE_COLLECTION_OWNERSHIP_VIOLATION key arm.
                 self.check_collection_element_comparable(key, "key");
                 self.check_map_key_comparable(key);
                 self.check_map_key_comparable(value);
@@ -998,7 +998,7 @@ impl TypeEnv {
             return true;
         }
         // `AttributedString` wraps a list overlay (like `List`): not comparable
-        // (syntaxcheck's rule; without it an `=` on two attributed strings
+        // (the former source checker's rule; without it an `=` on two attributed strings
         // reached codegen, which cannot compare a `List OF AttrSpan`).
         if name == "AttributedString" {
             return false;

@@ -4984,9 +4984,8 @@ fn rejects_global_byte_overflow() {
 // --- source diagnostics filter ---------------------------------------------
 
 #[test]
-fn collect_source_diagnostics_filters_relocated() {
+fn collect_source_diagnostics_maps_rules_to_pending() {
     use std::path::Path;
-    // TYPE_BINARY_OPERATOR_MISMATCH is relocated; UNREACHABLE_AFTER_EXIT is not.
     let body = vec![ret(binary(
         "-",
         const_of("String", "a"),
@@ -7394,7 +7393,7 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
 // LINK rule parity (bug-325)
 // ---------------------------------------------------------------------------
 
-/// `syntaxcheck::check_link_function_in` and `verify::check_link_functions` are
+/// the former source checker's `check_link_function_in` and `verify::check_link_functions` are
 /// two independently-maintained ~320-line bodies validating the same LINK ABI
 /// facts. They are kept in sync by hand, and adding a `NATIVE_*` rule to one
 /// side and forgetting the other is silent — this test makes it loud.
@@ -7402,77 +7401,6 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
 /// The invariant, with `ir::verify` as the sole rejecter for every relocated
 /// rule (plan-20):
 ///
-/// ```text
-/// syntaxcheck's NATIVE_* set  ∪  (RELOCATED_TO_IR_VERIFY ∩ NATIVE_*)  ==  verify's NATIVE_* set
-/// ```
-///
-/// The two sets are extracted as text from the sources via `include_str!`, so
-/// the test is a pure textual invariant with no coupling to either body's
-/// structure. The asymmetric name is sourced from `RELOCATED_TO_IR_VERIFY`
-/// rather than hardcoded, so relocating another rule updates both sides at once.
-#[test]
-fn native_rule_sets_agree_between_syntaxcheck_and_verify() {
-    use std::collections::BTreeSet;
-
-    fn native_names(source: &str) -> BTreeSet<String> {
-        let mut names = BTreeSet::new();
-        let mut rest = source;
-        while let Some(at) = rest.find("\"NATIVE_") {
-            rest = &rest[at + 1..];
-            if let Some(end) = rest.find('"') {
-                let name = &rest[..end];
-                if name
-                    .chars()
-                    .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
-                {
-                    names.insert(name.to_string());
-                }
-            }
-        }
-        names
-    }
-
-    // The native-LINK rule emitters live in each layer's `link.rs` topic module
-    // (bug-327 T2-6 / T2-1 extracted them from the module roots); scan both files
-    // per layer so this parity guard covers where the rules now live.
-    let syntaxcheck = native_names(&format!(
-        "{}{}",
-        include_str!("../../syntaxcheck/mod.rs"),
-        include_str!("../../syntaxcheck/link.rs"),
-    ));
-    let verify = native_names(&format!(
-        "{}{}",
-        include_str!("mod.rs"),
-        include_str!("link.rs"),
-    ));
-    assert!(
-        !syntaxcheck.is_empty() && !verify.is_empty(),
-        "extraction found no NATIVE_* names — the test itself is broken, \
-         not the rule sets (syntaxcheck={syntaxcheck:?}, verify={verify:?})"
-    );
-
-    let relocated: BTreeSet<String> = super::RELOCATED_TO_IR_VERIFY
-        .iter()
-        .filter(|rule| rule.starts_with("NATIVE_"))
-        .map(|rule| rule.to_string())
-        .collect();
-
-    let expected: BTreeSet<String> = syntaxcheck.union(&relocated).cloned().collect();
-    let missing_in_verify: Vec<_> = expected.difference(&verify).collect();
-    let missing_in_syntaxcheck: Vec<_> = verify.difference(&expected).collect();
-    assert!(
-        missing_in_verify.is_empty(),
-        "ir::verify is missing NATIVE_* rule(s) {missing_in_verify:?} that syntaxcheck emits — \
-         add them to check_link_functions (src/ir/verify/mod.rs)"
-    );
-    assert!(
-        missing_in_syntaxcheck.is_empty(),
-        "syntaxcheck is missing NATIVE_* rule(s) {missing_in_syntaxcheck:?} that ir::verify emits — \
-         add them to check_link_function_in (src/syntaxcheck/mod.rs), or, if verify is meant to be \
-         the sole rejecter, add them to RELOCATED_TO_IR_VERIFY"
-    );
-}
-
 // --- plan-58-A: CBuffer position rules on the PACKAGE path -----------------
 //
 // One twin per `check_buffer_slots` rule. These are the reason the checker is a
@@ -7774,7 +7702,7 @@ fn truncated_thread_spelling_still_counts_as_a_thread() {
 // ---------------------------------------------------------------------------
 // plan-107-A pilots — the package-path twins of the relocated rules. A crafted
 // `.mfp` gets exactly the source-path treatment; these prove the rule fires on
-// decoded IR, where no syntaxcheck ever ran.
+// decoded IR, where no the former source checker ever ran.
 // ---------------------------------------------------------------------------
 
 #[test]

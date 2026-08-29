@@ -4,7 +4,7 @@ impl TypeEnv {
     // 6. Type declarations, union includes, record cycles
     // ===========================================================================
 
-    /// Structural well-formedness of the type table (`syntaxcheck`'s
+    /// Structural well-formedness of the type table (the former source checker's
     /// `check_type_decl`), checkable directly on the IR. On decoded package IR
     /// these guard codegen's layout and drop assumptions: a record that owns a
     /// resource field, a union mixing data and resource variants (tag-dependent
@@ -111,7 +111,7 @@ impl TypeEnv {
     }
 
     /// The full member-name set of `union_name`, expanding every `INCLUDES`d
-    /// union transitively (cycle-guarded). Mirrors `syntaxcheck`'s
+    /// union transitively (cycle-guarded). Mirrors the former source checker's
     /// `expanded_union_variants`, but names only — dup detection needs no fields.
     pub(super) fn expanded_union_variant_names(
         &self,
@@ -132,7 +132,7 @@ impl TypeEnv {
         names
     }
 
-    /// `syntaxcheck::report_expanded_union_member_conflicts` on the IR: a union
+    /// the former source checker's `report_expanded_union_member_conflicts` on the IR: a union
     /// member may not be provided by two different includes, nor by both an
     /// include and a local declaration. On decoded package IR a duplicated
     /// variant is an ambiguous tag → mis-dispatch, so this must run here too.

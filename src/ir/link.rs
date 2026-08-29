@@ -2,7 +2,7 @@
 /// `ABI (...)` slot or the ABI return (plan-50-A).
 ///
 /// This is the **slot** namespace. It is deliberately distinct from
-/// `is_c_abi_type` (`syntaxcheck::helpers` / `ir::verify`), which answers the
+/// `is_c_abi_type` (the former source checker's `helpers` / `ir::verify`), which answers the
 /// opposite question — which names are *banned* from a wrapper's MFBASIC-facing
 /// signature (`NATIVE_CPTR_ESCAPE`) — and which excludes `CBool`/`CByte`/`CVoid`
 /// on purpose. Do not merge the two lists.
@@ -295,7 +295,7 @@ pub(crate) fn check_struct_slot(view: &StructSlotView) -> Vec<CStructFault> {
 
 /// Validate one `CSTRUCT` declaration and return every fault found.
 ///
-/// Shared verbatim by the source path (`syntaxcheck`) and the package path
+/// Shared verbatim by the source path (the former source checker) and the package path
 /// (`ir::verify`) so a crafted `.mfp` cannot get a weaker check than source —
 /// deliberately unlike `IrFree`, whose ctypes are dropped at lowering, leaving
 /// the package path able to check strictly less than the frontend.
@@ -501,7 +501,7 @@ pub(crate) const BYTE_LIST_TYPE: &str = "List OF Byte";
 /// (plan-58-A §4.3).
 ///
 /// Carries *pre-extracted primitives* rather than the caller's expression type:
-/// `syntaxcheck` holds `ast::Expression` and `ir::verify` holds [`IrLinkExpr`],
+/// the former source checker holds `ast::Expression` and `ir::verify` holds [`IrLinkExpr`],
 /// and the rules need only two things from an expression — the identifiers it
 /// reads, and whether `RETURN` is a bare slot reference. Extracting those at each
 /// call site keeps one checker instead of two, which is the whole point (the two
@@ -536,7 +536,7 @@ pub(crate) struct BufferSlotsView<'a> {
 /// Validate every `CBuffer` slot and `BUFFER` clause, returning each fault found
 /// (plan-58-A §4.3).
 ///
-/// Shared by the source path (`syntaxcheck`) and the package path (`ir::verify`)
+/// Shared by the source path (the former source checker) and the package path (`ir::verify`)
 /// so a crafted `.mfp` cannot get a weaker check than source — the same shape as
 /// [`check_cstruct`] / [`check_struct_slot`].
 ///

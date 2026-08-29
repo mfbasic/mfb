@@ -133,7 +133,7 @@ pub(crate) mod helpers {
 /// type checker rejects them before lowering; once the checker moves onto the
 /// IR (plan-20-Z) lowering runs first, so it must survive them. This test
 /// drives every `*-invalid` fixture through parse → resolve → monomorph →
-/// **lower** (skipping syntaxcheck) and asserts lowering does not panic. Fixtures
+/// **lower** (skipping the former source checker) and asserts lowering does not panic. Fixtures
 /// that fail before lowering (parse/resolve/monomorph errors — also pre-lowering
 /// rejections) are skipped; the assertion is purely "if it reaches lowering, it
 /// does not panic".
@@ -230,7 +230,7 @@ mod lowering_totality_tests {
         assert!(
             reached > 50,
             "only {reached} invalid fixtures reached lowering; expected the \
-             syntaxcheck-invalid majority — the pipeline wiring may be broken"
+             source-checked majority — the pipeline wiring may be broken"
         );
     }
 }

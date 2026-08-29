@@ -15,12 +15,12 @@ may share a name when their parameter lists differ by arity or by parameter type
 A `SUB` still has an error channel — it can `FAIL`, auto-propagate, and drop
 resources on the way out — but it produces nothing on success. `EXIT SUB` is the
 value-less early success exit, and fall-through to `END SUB` succeeds. `RETURN`
-and `RETURN NOTHING` are compile errors in a `SUB` (`SUB_RETURN_FORBIDDEN`); [[src/syntaxcheck/checking.rs]] `RETURN` is for value-producing `FUNC` bodies, and `EXIT
+and `RETURN NOTHING` are compile errors in a `SUB` (`SUB_RETURN_FORBIDDEN`); [[src/ir/shape.rs:walk_statement]] `RETURN` is for value-producing `FUNC` bodies, and `EXIT
 SUB` outside a `SUB` is `EXIT_SUB_IN_FUNC`. A `SUB` call may not be used in value
 position: `LET x = aSub()` is a compile error (the call site checks the callee's
 sub kind against value-less-call permission).
 
-For first-class function typing, a `SUB(A, B, ...)` is compatible with `FUNC(A, B, ...) AS Nothing`. The compiler records a `SUB`'s signature with return type `Nothing`, [[src/syntaxcheck/mod.rs:collect_functions]] so naming a `SUB` yields a `FUNC(...) AS Nothing` value directly. This lets effect-only callbacks work without wrapper functions:
+For first-class function typing, a `SUB(A, B, ...)` is compatible with `FUNC(A, B, ...) AS Nothing`. The compiler records a `SUB`'s signature with return type `Nothing`, [[src/ir/lower.rs:function_return_type]] so naming a `SUB` yields a `FUNC(...) AS Nothing` value directly. This lets effect-only callbacks work without wrapper functions:
 
 ```basic
 SUB printItem(x AS Integer)
