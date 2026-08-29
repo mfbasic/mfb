@@ -475,9 +475,9 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // EXPORT is only valid in a package project (it is the `.mfp` export flag);
     // in an executable a top-level EXPORT is an error. Checked here because the
     // manifest `kind` is known at the build boundary (see
-    // `syntaxcheck::export_in_executable_diagnostics`).
+    // `ir::shape::export_in_executable_diagnostics`).
     let is_package = crate::manifest::project_kind(&manifest) == "package";
-    diagnostics.extend(syntaxcheck::export_in_executable_diagnostics(
+    diagnostics.extend(ir::shape::export_in_executable_diagnostics(
         is_package, &ast,
     ));
     diagnostics.extend(scope_diagnostics);

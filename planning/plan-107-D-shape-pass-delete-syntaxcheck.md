@@ -227,7 +227,10 @@ moves; split rules re-pin (listed).
       source path); syntaxcheck's three sites reduced to inference. Corpus:
       522 same, 2 reordered (`functions/func_typesystem_error_invalid`,
       `term/func_term_terminalSize_invalid` — pure moves), 0 set-diff.
-      Remaining: rows 5 and 20.)
+      Row 5 landed: `export_in_executable_diagnostics` (+ its three tests)
+      moved verbatim to `ir::shape`; the build calls it there, still over the
+      original AST at the same point in the stream. Corpus 524 same.
+      Remaining: row 20.)
 - [ ] Tests: corpus set-equal per commit; full suite.
 
 Acceptance: every (S) rule fires from `ir::shape`; syntaxcheck's copies
@@ -235,7 +238,7 @@ deleted; corpus set-equal (order-identical for pure-(S) moves).
 Commit: `f2d52f271` (control-flow group + E's seam fixup); `794eada94`
 (TESTING_EXPECT_*); `d77dd17fd` (MONEY_INEXACT_FLOAT_LITERAL);
 `37f5c0f27` (TYPE_DUPLICATE_FIELD); `480c8e37a` (NATIVE_* halves);
-TYPE_READ_ONLY_RECORD_CONSTRUCTOR —
+`ac9c9af95` (TYPE_READ_ONLY_RECORD_CONSTRUCTOR); EXPORT_IN_EXECUTABLE —
 
 ### Phase 2 — delete src/syntaxcheck + the split machinery
 

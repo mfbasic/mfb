@@ -176,6 +176,56 @@ struct ShapeParam {
     has_default: bool,
 }
 
+/// `EXPORT` is only meaningful in a package project — it is the flag that writes a
+/// symbol into the compiled `.mfp` public API. An executable produces no `.mfp`,
+/// so a top-level `EXPORT` declaration there is an error (`EXPORT_IN_EXECUTABLE`);
+/// project-wide visibility inside an executable is `PUBLIC` (the default). This
+/// runs in the build pipeline, where the manifest `kind` is known — beside the
+/// shape pass, whose stream it follows (plan-107-D), but over the original AST
+/// rather than the concrete HIR the pass walks.
+pub(crate) fn export_in_executable_diagnostics(
+    is_package: bool,
+    ast: &crate::ast::AstProject,
+) -> Vec<crate::rules::PendingDiagnostic> {
+    // Reads the ORIGINAL source AST at the build boundary, before elaboration —
+    // `EXPORT` placement is a source-syntax fact, and the pre-monomorph AST is
+    // where the user's own declarations still are.
+    use crate::ast::Item;
+    if is_package {
+        return Vec::new();
+    }
+    let mut diagnostics = Vec::new();
+    for file in &ast.files {
+        // Skip toolchain-provided source: injected builtin packages
+        // (`HirFile::internal`) and the synthetic prelude (`<builtin …>` path),
+        // which legitimately carry EXPORT declarations.
+        if file.internal || file.path.starts_with('<') {
+            continue;
+        }
+        for item in &file.items {
+            let (visibility, line) = match item {
+                Item::Binding(binding) => (binding.visibility, binding.line),
+                Item::Function(function) => (function.visibility, function.line),
+                Item::Type(type_decl) => (type_decl.visibility, type_decl.line),
+                Item::Resource(resource) => (resource.visibility, resource.line),
+                Item::FuncAlias(alias) => (alias.visibility, alias.line),
+                Item::Link(_) | Item::Doc(_) | Item::Testing(_) => continue,
+            };
+            if matches!(visibility, Visibility::Export) {
+                diagnostics.push(crate::rules::PendingDiagnostic {
+                    rule: "EXPORT_IN_EXECUTABLE".to_string(),
+                    detail: "EXPORT is only valid in a package project; use PUBLIC (the \
+                             default) in an executable."
+                        .to_string(),
+                    path: std::path::PathBuf::from(&file.path),
+                    line,
+                });
+            }
+        }
+    }
+    diagnostics
+}
+
 /// One declared or imported type as the compatibility rule needs it: its
 /// identity (so two distinct declarations sharing a bare name never unify)
 /// and, for a union, its variant names.
@@ -3284,6 +3334,51 @@ mod tests {
         assert!(accepts(
             "IMPORT net\nTYPE Circle\n  r AS Integer\nEND TYPE\nUNION Shape\n  Circle\nEND UNION\nUNION Extra INCLUDES Shape\n  Circle\nEND UNION\nFUNC score(s AS Extra) AS Integer\n  MATCH s\n    CASE Circle(c)\n      RETURN c.r + 1\n  END MATCH\nEND FUNC\nFUNC main AS Integer\n  LET u AS net::Url = net::toUrl(\"http://x/\")\n  LET rendered AS String = toString(u)\n  RETURN len(rendered)\nEND FUNC\n"
         ));
+    }
+
+    // ---- export_in_executable_diagnostics (build-pipeline entry point) ------
+
+    #[test]
+    fn export_in_executable_flags_each_item_kind() {
+        use crate::ast::{parse_source, AstProject};
+        // Cover every item kind the visibility match walks: binding, type,
+        // function, resource (HirItem::Resource arm), and func alias (HirItem::FuncAlias
+        // arm). The resource/alias targets need only parse — this entry point runs
+        // before import resolution.
+        let src = "EXPORT LET g AS Integer = 5\nEXPORT TYPE Rec\n  x AS Integer\nEND TYPE\nEXPORT FUNC f() AS Integer\n  RETURN 1\nEND FUNC\nEXPORT RESOURCE Db CLOSE BY x::close\nEXPORT FUNC ff AS x::gg\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let file = parse_source(Path::new("main.mfb"), "main.mfb", src).expect("parse");
+        let project = AstProject {
+            name: "t".to_string(),
+            files: vec![file],
+        };
+        let diags = export_in_executable_diagnostics(false, &project);
+        assert!(diags.iter().all(|d| d.rule == "EXPORT_IN_EXECUTABLE"));
+        assert!(diags.len() >= 5, "expected an EXPORT diagnostic per item");
+    }
+
+    #[test]
+    fn export_in_executable_empty_for_package_project() {
+        use crate::ast::{parse_source, AstProject};
+        let src = "EXPORT FUNC f() AS Integer\n  RETURN 1\nEND FUNC\n";
+        let file = parse_source(Path::new("main.mfb"), "main.mfb", src).expect("parse");
+        let project = AstProject {
+            name: "t".to_string(),
+            files: vec![file],
+        };
+        // A package project never flags EXPORT (that is its purpose).
+        assert!(export_in_executable_diagnostics(true, &project).is_empty());
+    }
+
+    #[test]
+    fn export_in_executable_no_export_no_diagnostic() {
+        use crate::ast::{parse_source, AstProject};
+        let src = "FUNC f() AS Integer\n  RETURN 1\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let file = parse_source(Path::new("main.mfb"), "main.mfb", src).expect("parse");
+        let project = AstProject {
+            name: "t".to_string(),
+            files: vec![file],
+        };
+        assert!(export_in_executable_diagnostics(false, &project).is_empty());
     }
 
     // ---- native LINK facts lowering folds away ---------------------------
