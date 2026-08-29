@@ -229,7 +229,6 @@ struct SyntaxChecker<'a> {
     user_types: HashSet<String>,
     user_type_kinds: HashMap<String, TypeDeclKind>,
     type_infos: HashMap<String, TypeInfo>,
-    had_error: bool,
     /// Rejections collected in traversal (source) order, rendered by the caller
     /// after merging with `ir::verify`'s relocated diagnostics (plan-20-Z).
     diagnostics: Vec<crate::rules::PendingDiagnostic>,
@@ -304,7 +303,6 @@ impl<'a> SyntaxChecker<'a> {
             user_types: HashSet::new(),
             user_type_kinds: HashMap::new(),
             type_infos: HashMap::new(),
-            had_error: false,
             diagnostics: Vec::new(),
             current_return: Type::Nothing,
             current_is_sub: false,
@@ -401,34 +399,16 @@ impl<'a> SyntaxChecker<'a> {
                 if !package_file.is_file() {
                     continue;
                 }
+                // PACKAGE_INVALID — unreadable tables and the metadata type
+                // walk — is `ir::shape`'s (plan-107-D); this collector only
+                // installs what it can read.
                 let Ok(type_exports) = binary_repr::read_package_type_exports(&package_file) else {
-                    self.report(
-                        "PACKAGE_INVALID",
-                        &format!(
-                            "Imported package `{package}` has unreadable or invalid type metadata."
-                        ),
-                        file,
-                        import.line,
-                    );
                     continue;
                 };
-                for type_export in &type_exports {
-                    self.install_package_type_info(&package_file, type_export.clone());
-                }
                 for type_export in type_exports {
-                    self.validate_imported_package_type(
-                        file,
-                        import.line,
-                        &package_file,
-                        &type_export,
-                    );
+                    self.install_package_type_info(&package_file, type_export);
                 }
-                self.collect_package_resources(
-                    file,
-                    import.binding_name(),
-                    import.line,
-                    &package_file,
-                );
+                self.collect_package_resources(import.binding_name(), &package_file);
             }
         }
     }
@@ -438,27 +418,9 @@ impl<'a> SyntaxChecker<'a> {
     /// are driven by package metadata rather than hardcoded names. Entries are
     /// keyed by the importer-facing qualified name `binding.Type` (how the type
     /// appears in source), so `RES db AS sqlite::Db` is recognized as a resource.
-    pub(super) fn collect_package_resources(
-        &mut self,
-        file: &HirFile,
-        binding: &str,
-        line: usize,
-        package_file: &Path,
-    ) {
-        let resources = match binary_repr::read_package_resources(package_file) {
-            Ok(resources) => resources,
-            Err(_) => {
-                self.report(
-                    "PACKAGE_INVALID",
-                    &format!(
-                        "Imported package `{}` has an unreadable resource table.",
-                        package_file.display()
-                    ),
-                    file,
-                    line,
-                );
-                return;
-            }
+    pub(super) fn collect_package_resources(&mut self, binding: &str, package_file: &Path) {
+        let Ok(resources) = binary_repr::read_package_resources(package_file) else {
+            return;
         };
         for resource in resources {
             // Built-in resources are authoritative: a package's table merely
@@ -497,230 +459,6 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 
-    pub(super) fn validate_imported_package_type(
-        &mut self,
-        file: &HirFile,
-        line: usize,
-        package_file: &Path,
-        type_export: &BinaryReprTypeExport,
-    ) {
-        let mut seen = HashSet::new();
-        match type_export.kind {
-            BinaryReprExportKind::Type => {
-                let type_ = Type::named(&type_export.name);
-                self.validate_package_metadata_type(
-                    file,
-                    line,
-                    package_file,
-                    &type_,
-                    &format!("exported type `{}`", type_export.name),
-                    &mut seen,
-                );
-            }
-            BinaryReprExportKind::Union => {
-                let type_ = Type::named(&type_export.name);
-                self.validate_package_metadata_type(
-                    file,
-                    line,
-                    package_file,
-                    &type_,
-                    &format!("exported union `{}`", type_export.name),
-                    &mut seen,
-                );
-            }
-            BinaryReprExportKind::Enum => {}
-            BinaryReprExportKind::Func | BinaryReprExportKind::Sub => {}
-        }
-    }
-
-    pub(super) fn validate_package_metadata_type(
-        &mut self,
-        file: &HirFile,
-        line: usize,
-        package_file: &Path,
-        type_: &Type,
-        context: &str,
-        seen: &mut HashSet<String>,
-    ) {
-        match type_ {
-            Type::ListOf(element)
-            | Type::SetOf(element)
-            | Type::ResultOf(element)
-            | Type::Res(element) => {
-                self.validate_package_metadata_type(
-                    file,
-                    line,
-                    package_file,
-                    element,
-                    context,
-                    seen,
-                );
-            }
-            Type::MapOf(key, value) => {
-                self.validate_package_metadata_type(file, line, package_file, key, context, seen);
-                self.validate_package_metadata_type(file, line, package_file, value, context, seen);
-                if !self.is_comparable(key) {
-                    self.report(
-                        "PACKAGE_INVALID",
-                        &format!(
-                            "Imported package `{}` has {context} with non-comparable map key type `{}`.",
-                            package_file.display(),
-                            self.type_name(key)
-                        ),
-                        file,
-                        line,
-                    );
-                }
-            }
-            Type::Func(params, return_type, _) => {
-                for param in params {
-                    self.validate_package_metadata_type(
-                        file,
-                        line,
-                        package_file,
-                        param,
-                        context,
-                        seen,
-                    );
-                }
-                self.validate_package_metadata_type(
-                    file,
-                    line,
-                    package_file,
-                    return_type,
-                    context,
-                    seen,
-                );
-            }
-            Type::ThreadHandle {
-                msg: message,
-                res: resource,
-                out: output,
-                ..
-            } => {
-                self.validate_package_metadata_type(
-                    file,
-                    line,
-                    package_file,
-                    message,
-                    context,
-                    seen,
-                );
-                // plan-106-C rung 2e: an absent resource plane is `Nothing`, and
-                // the plane's ` STATE T` rides inside its spelling — so the two
-                // walks the separate `res_state` slot used to need become one
-                // `split_state` here.
-                let (plane_resource, plane_state) = resource.split_state();
-                if !matches!(plane_resource, Type::Nothing) {
-                    self.validate_package_metadata_type(
-                        file,
-                        line,
-                        package_file,
-                        &plane_resource,
-                        context,
-                        seen,
-                    );
-                }
-                if let Some(plane_state) = &plane_state {
-                    self.validate_package_metadata_type(
-                        file,
-                        line,
-                        package_file,
-                        plane_state,
-                        context,
-                        seen,
-                    );
-                }
-                self.validate_package_metadata_type(
-                    file,
-                    line,
-                    package_file,
-                    output,
-                    context,
-                    seen,
-                );
-            }
-            // A built-in nominal (`Error`, `Scalar`, …) is always in scope and
-            // declares no fields, so there is nothing to walk and nothing to
-            // report — it was one of the four inert `=> {}` variants before rung
-            // 2d. Checked BEFORE the general `Named` arm, which would otherwise
-            // report it as a type the package references but does not declare.
-            Type::Named(name) if is_builtin_nominal(name.resolve()) => {}
-            Type::Named(name) => {
-                let name = name.resolve();
-                if self.resource_registry.is_resource(name) || !seen.insert(name.to_string()) {
-                    return;
-                }
-                let Some(info) = self.type_infos.get(name).cloned() else {
-                    self.report(
-                        "PACKAGE_INVALID",
-                        &format!(
-                            "Imported package `{}` has {context} that references unknown type `{name}`.",
-                            package_file.display()
-                        ),
-                        file,
-                        line,
-                    );
-                    return;
-                };
-                match info.kind {
-                    TypeDeclKind::Enum => {}
-                    TypeDeclKind::Type => {
-                        for field in &info.fields {
-                            self.validate_package_metadata_type(
-                                file,
-                                line,
-                                package_file,
-                                &field.type_,
-                                context,
-                                seen,
-                            );
-                        }
-                    }
-                    TypeDeclKind::Union => {
-                        for variant in &info.variants {
-                            for field in &variant.fields {
-                                self.validate_package_metadata_type(
-                                    file,
-                                    line,
-                                    package_file,
-                                    &field.type_,
-                                    context,
-                                    seen,
-                                );
-                            }
-                        }
-                    }
-                }
-                seen.remove(name);
-            }
-            Type::Boolean
-            | Type::Byte
-            | Type::Fixed
-            | Type::Float
-            | Type::Integer
-            | Type::Money
-            | Type::Nothing
-            | Type::String
-            | Type::Unknown => {}
-            // `ParameterType` carries variants syntaxcheck's own parser never
-            // produces (`Var`, `Arg`, `UserOf`, `MapEntryOf`, `AttributeString`);
-            // a decoded package signature can still hold one. Before plan-106-C
-            // rung 2e each arrived spelled out as `Type::User(<spelling>)` and so
-            // took the NOMINAL arm above — routing the render back through it
-            // reproduces that exactly, rather than guessing a new answer for a
-            // shape this checker has never had to answer for.
-            other => self.validate_package_metadata_type(
-                file,
-                line,
-                package_file,
-                &Type::named(&other.name()),
-                context,
-                seen,
-            ),
-        }
-    }
-
     pub(super) fn collect_package_functions(&mut self) {
         let mut seen = HashSet::new();
         for file in &self.hir.files {
@@ -750,14 +488,6 @@ impl<'a> SyntaxChecker<'a> {
                     continue;
                 }
                 let Ok(exports) = binary_repr::read_package_exports(&package_file) else {
-                    self.report(
-                        "PACKAGE_INVALID",
-                        &format!(
-                            "Imported package `{package}` has unreadable or invalid function metadata."
-                        ),
-                        file,
-                        import.line,
-                    );
                     continue;
                 };
                 for export in exports {
@@ -784,13 +514,8 @@ impl<'a> SyntaxChecker<'a> {
                         visibility: Visibility::Export,
                         owner_file_path: package_file.display().to_string(),
                     };
-                    self.validate_imported_function_signature(
-                        file,
-                        import.line,
-                        &package_file,
-                        &export.name,
-                        &sig,
-                    );
+                    // The signature's metadata type walk is `ir::shape`'s
+                    // (PACKAGE_INVALID, plan-107-D).
                     self.functions
                         .entry(format!("{binding}.{}", export.name))
                         .or_default()
@@ -849,38 +574,6 @@ impl<'a> SyntaxChecker<'a> {
                     });
             }
         }
-    }
-
-    pub(super) fn validate_imported_function_signature(
-        &mut self,
-        file: &HirFile,
-        line: usize,
-        package_file: &Path,
-        function_name: &str,
-        sig: &FunctionSig,
-    ) {
-        let mut seen = HashSet::new();
-        for param in &sig.params {
-            self.validate_package_metadata_type(
-                file,
-                line,
-                package_file,
-                &param.type_,
-                &format!(
-                    "exported function `{function_name}` parameter `{}`",
-                    param.name
-                ),
-                &mut seen,
-            );
-        }
-        self.validate_package_metadata_type(
-            file,
-            line,
-            package_file,
-            &sig.return_type,
-            &format!("exported function `{function_name}` return type"),
-            &mut seen,
-        );
     }
 
     pub(super) fn install_package_type_info(
@@ -1515,25 +1208,6 @@ impl<'a> SyntaxChecker<'a> {
     pub(super) fn type_name(&self, type_: &Type) -> String {
         type_.name().into_owned()
     }
-
-    pub(super) fn report(&mut self, rule: &str, detail: &str, file: &HirFile, line: usize) {
-        // plan-20-Z: every relocated rule's emission site has been DELETED from
-        // `syntaxcheck` — `ir::verify` is the single source of truth for them.
-        // This function now carries only the erased-syntax rules (constructs
-        // total lowering removes, which no IR checker can see) and elaboration
-        // stays untouched.
-        debug_assert!(
-            !crate::ir::RELOCATED_TO_IR_VERIFY.contains(&rule),
-            "rule {rule} is relocated to ir::verify; syntaxcheck must not emit it"
-        );
-        self.had_error = true;
-        self.diagnostics.push(crate::rules::PendingDiagnostic {
-            rule: rule.to_string(),
-            detail: detail.to_string(),
-            path: self.project_dir.join(&file.path),
-            line,
-        });
-    }
 }
 
 /// Shared test harness for the source-diagnostic unit tests. Builds a
@@ -2066,232 +1740,6 @@ mod checker_tests {
         }
     }
 
-    // A corrupt `.mfp` on an imported package drives the PACKAGE_INVALID error
-    // paths in collect_package_types / collect_package_resources /
-    // collect_package_functions.
-    #[test]
-    fn corrupt_package_metadata_rejected() {
-        use crate::ast::{parse_source, AstProject};
-        use std::fs;
-
-        let dir = std::env::temp_dir().join(format!("mfb_sc_pkg_{}", std::process::id()));
-        let pkgs = dir.join("packages");
-        fs::create_dir_all(&pkgs).unwrap();
-        fs::write(pkgs.join("brokenpkg.mfp"), b"not a valid mfp container").unwrap();
-
-        let file = parse_source(
-            Path::new("main.mfb"),
-            "main.mfb",
-            "IMPORT brokenpkg\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
-        )
-        .unwrap();
-        let project = crate::hir::elaborate(&AstProject {
-            name: "t".into(),
-            files: vec![file],
-        });
-        let diags = super::check_project_collect(&dir, &project).unwrap();
-        let _ = fs::remove_dir_all(&dir);
-        assert!(
-            diags.iter().any(|d| d.rule == "PACKAGE_INVALID"),
-            "expected PACKAGE_INVALID, got {:?}",
-            diags.iter().map(|d| &d.rule).collect::<Vec<_>>()
-        );
-    }
-
-    // The imported-package metadata validators (`validate_package_metadata_type`,
-    // `validate_imported_package_type`, `collect_package_resources`,
-    // `install_package_type_info`, `package_field_info`) are driven directly with
-    // synthetic `Type`/`BinaryRepr*` values. Building the equivalent `.mfp`
-    // containers on disk for the Map / Function / Thread-state / unknown-type /
-    // Enum / Public+Export-field arms is impractical, so we call the `pub(super)`
-    // methods on a freshly constructed checker instead. These arms are reachable
-    // in production from a decoded package whose metadata carries these shapes.
-    #[test]
-    fn package_metadata_validator_arms_direct() {
-        use super::{
-            BinaryReprExportKind, BinaryReprTypeExport, BinaryReprTypeField,
-            BinaryReprTypeVisibility, SyntaxChecker, Type, TypeDeclKind, TypeInfo, Visibility,
-        };
-        use crate::ast::{parse_source, AstProject};
-        use std::collections::HashSet;
-        use std::path::PathBuf;
-
-        let file = parse_source(
-            Path::new("main.mfb"),
-            "main.mfb",
-            "FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
-        )
-        .unwrap();
-        let project = crate::hir::elaborate(&AstProject {
-            name: "t".into(),
-            files: vec![file],
-        });
-        let dir = Path::new(".");
-        let mut checker = SyntaxChecker::new(dir, &project);
-        let file_ref = &project.files[0];
-        let pkg = PathBuf::from("packages/fake.mfp");
-
-        // Map with a non-comparable (List) key AND a `Res` value: exercises the
-        // Map arm's key/value recursion, the `is_comparable` rejection, and the
-        // `List | Set | Result | Res` element-recursion arm.
-        let mut seen = HashSet::new();
-        let map_ty = Type::MapOf(
-            Box::new(Type::ListOf(Box::new(Type::Integer))),
-            Box::new(Type::Res(Box::new(Type::String))),
-        );
-        checker.validate_package_metadata_type(file_ref, 1, &pkg, &map_ty, "ctx", &mut seen);
-
-        // The remaining single-element wrappers (`Set`, `Result`) share the same
-        // recursion arm as `List`/`Res` but are distinct pattern alternatives.
-        for element_ty in [
-            Type::SetOf(Box::new(Type::Integer)),
-            Type::ResultOf(Box::new(Type::String)),
-        ] {
-            checker.validate_package_metadata_type(
-                file_ref,
-                1,
-                &pkg,
-                &element_ty,
-                "ctx",
-                &mut seen,
-            );
-        }
-
-        // Function type: parameter list + return-type recursion.
-        let fn_ty = Type::Func(
-            vec![Type::Integer, Type::String],
-            Box::new(Type::Boolean),
-            false,
-        );
-        checker.validate_package_metadata_type(file_ref, 1, &pkg, &fn_ty, "ctx", &mut seen);
-
-        // Thread carrying resource + resource STATE + output: both branches of
-        // the plane's `split_state`, plus the message/output recursion.
-        // plan-106-C rung 2e: the STATE rides inside the plane's spelling.
-        let thread_ty = Type::ThreadHandle {
-            worker: false,
-            msg: Box::new(Type::Integer),
-            res: Box::new(Type::String.with_state(&Type::Boolean)),
-            out: Box::new(Type::Float),
-        };
-        checker.validate_package_metadata_type(file_ref, 1, &pkg, &thread_ty, "ctx", &mut seen);
-
-        // ThreadWorker with no resource plane: the same arm, `Nothing` branch.
-        let worker_ty = Type::ThreadHandle {
-            worker: true,
-            msg: Box::new(Type::Integer),
-            res: Box::new(Type::Nothing),
-            out: Box::new(Type::Nothing),
-        };
-        checker.validate_package_metadata_type(file_ref, 1, &pkg, &worker_ty, "ctx", &mut seen);
-
-        // A `User` type not present in `type_infos` and not a resource: the
-        // "references unknown type" report.
-        checker.validate_package_metadata_type(
-            file_ref,
-            1,
-            &pkg,
-            &Type::named("Nope"),
-            "ctx",
-            &mut seen,
-        );
-
-        // A `User` type that resolves to an Enum: the empty `Enum` arm of the
-        // known-type match.
-        checker.type_infos.insert(
-            "MyEnum".into(),
-            TypeInfo {
-                kind: TypeDeclKind::Enum,
-                visibility: Visibility::Export,
-                file_path: String::new(),
-                fields: Vec::new(),
-                variants: Vec::new(),
-                members: HashSet::new(),
-            },
-        );
-        let mut seen2 = HashSet::new();
-        checker.validate_package_metadata_type(
-            file_ref,
-            1,
-            &pkg,
-            &Type::named("MyEnum"),
-            "ctx",
-            &mut seen2,
-        );
-
-        // `validate_imported_package_type`: the Enum and Func/Sub export kinds are
-        // no-ops (their type is not metadata-validated).
-        for kind in [
-            BinaryReprExportKind::Enum,
-            BinaryReprExportKind::Func,
-            BinaryReprExportKind::Sub,
-        ] {
-            let export = BinaryReprTypeExport {
-                name: "E".into(),
-                kind,
-                fields: Vec::new(),
-                variants: Vec::new(),
-                members: Vec::new(),
-                foreign_owner: None,
-            };
-            checker.validate_imported_package_type(file_ref, 1, &pkg, &export);
-        }
-
-        // `install_package_type_info`: the Enum kind maps to `TypeDeclKind::Enum`;
-        // a Func/Sub "type export" is a defensive `return`.
-        let enum_export = BinaryReprTypeExport {
-            name: "InstalledEnum".into(),
-            kind: BinaryReprExportKind::Enum,
-            fields: Vec::new(),
-            variants: Vec::new(),
-            members: vec!["A".into(), "B".into()],
-            foreign_owner: None,
-        };
-        checker.install_package_type_info(&pkg, enum_export);
-        assert_eq!(
-            checker.user_type_kinds.get("InstalledEnum"),
-            Some(&TypeDeclKind::Enum)
-        );
-        let func_export = BinaryReprTypeExport {
-            name: "NotAType".into(),
-            kind: BinaryReprExportKind::Func,
-            fields: Vec::new(),
-            variants: Vec::new(),
-            members: Vec::new(),
-            foreign_owner: None,
-        };
-        checker.install_package_type_info(&pkg, func_export);
-
-        // `package_field_info`: every field-visibility mapping.
-        for vis in [
-            BinaryReprTypeVisibility::Private,
-            BinaryReprTypeVisibility::Public,
-            BinaryReprTypeVisibility::Export,
-        ] {
-            let info = checker.package_field_info(BinaryReprTypeField {
-                name: "x".into(),
-                type_: "Integer".into(),
-                visibility: vis,
-            });
-            assert_eq!(info.name, "x");
-        }
-
-        // `collect_package_resources` over an unreadable/absent `.mfp`: the
-        // read-error report + early return.
-        checker.collect_package_resources(file_ref, "bind", 1, &pkg);
-
-        // Two `PACKAGE_INVALID`s at minimum: the non-comparable map key and the
-        // unknown `User` type (plus the unreadable resource table).
-        assert!(
-            checker
-                .diagnostics
-                .iter()
-                .filter(|d| d.rule == "PACKAGE_INVALID")
-                .count()
-                >= 3
-        );
-    }
-
     // An import of a non-builtin package with no `.mfp` on disk drives the
     // `!package_file.is_file()` early-continue in both `collect_package_types`
     // and `collect_package_functions`.
@@ -2334,32 +1782,6 @@ mod checker_tests {
             files: vec![file],
         });
         assert!(super::check_project(Path::new("."), &project).is_ok());
-    }
-
-    // Exercises the standalone `check_project` render wrapper (reject path).
-    #[test]
-    fn check_project_wrapper_rejects() {
-        use crate::ast::{parse_source, AstProject};
-        // Every source rule has left this checker (plan-107-D); the one
-        // rejection it still owns is PACKAGE_INVALID on an imported package's
-        // unreadable metadata, so that is what drives the wrapper's `Err`.
-        let dir = std::env::temp_dir().join(format!("mfb_sc_wrap_{}", std::process::id()));
-        let pkgs = dir.join("packages");
-        std::fs::create_dir_all(&pkgs).unwrap();
-        std::fs::write(pkgs.join("brokenpkg.mfp"), b"not a valid mfp container").unwrap();
-        let file = parse_source(
-            Path::new("main.mfb"),
-            "main.mfb",
-            "IMPORT brokenpkg\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
-        )
-        .unwrap();
-        let project = crate::hir::elaborate(&AstProject {
-            name: "t".into(),
-            files: vec![file],
-        });
-        let rejected = super::check_project(&dir, &project).is_err();
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(rejected);
     }
 
     // ---- return-type overload disambiguation (lookup_visible_call_sig) -----

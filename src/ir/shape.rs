@@ -238,6 +238,9 @@ struct TypeShape {
     is_enum: bool,
     /// A record's field types, for the `=`-comparability rule.
     fields: Vec<ParameterType>,
+    /// A union's referenced types — its variant records (declared) or its
+    /// variants' field types (imported) — for the package-metadata walk.
+    variant_types: Vec<ParameterType>,
     /// An `ENUM`'s member names, for MATCH exhaustiveness.
     members: Vec<String>,
     visibility: Visibility,
@@ -517,6 +520,11 @@ impl<'a> Walker<'a> {
                                 .iter()
                                 .map(|field| field.type_.clone())
                                 .collect(),
+                            variant_types: type_decl
+                                .variants
+                                .iter()
+                                .map(|variant| ParameterType::named(&variant.name))
+                                .collect(),
                             members: type_decl
                                 .members
                                 .iter()
@@ -551,6 +559,12 @@ impl<'a> Walker<'a> {
                     fields: imported
                         .fields
                         .iter()
+                        .map(|field| ParameterType::parse(&field.type_))
+                        .collect(),
+                    variant_types: imported
+                        .variants
+                        .iter()
+                        .flat_map(|variant| variant.fields.iter())
                         .map(|field| ParameterType::parse(&field.type_))
                         .collect(),
                     members: imported.members.clone(),
@@ -612,8 +626,252 @@ impl<'a> Walker<'a> {
     }
 
     fn walk_project(&mut self, hir: &HirProject) {
+        self.check_imported_packages(hir);
         for file in &hir.files {
             self.walk_file(file);
+        }
+    }
+
+    /// PACKAGE_INVALID (plan-107-D row 20, an (I) relocation from the source
+    /// checker's package collectors): an imported package's three metadata
+    /// tables must decode, and every type its exported records/unions reference
+    /// must be declared — here or in an imported package — with comparable map
+    /// keys. The container as a whole is verified at the decode boundary
+    /// (`verify_and_report_packages`, before any checker runs), so what the
+    /// three read checks catch is an unreadable TABLE inside a well-formed
+    /// container. The type walk lives here rather than at that boundary because
+    /// it needs the full type table and resource registry this pass already
+    /// owns (`is_comparable`). The checker walked types + resources per import
+    /// and the function signatures in a second pass; the order is kept.
+    fn check_imported_packages(&mut self, hir: &HirProject) {
+        let mut seen_packages = HashSet::new();
+        for file in &hir.files {
+            self.file = file.path.clone();
+            for import in &file.imports {
+                let package = import.package_name();
+                if package == crate::ast::SELF_IMPORT
+                    || builtins::is_builtin_import(package)
+                    || !seen_packages.insert(package.to_string())
+                {
+                    continue;
+                }
+                let package_file = self
+                    .project_dir
+                    .join("packages")
+                    .join(format!("{package}.mfp"));
+                if !package_file.is_file() {
+                    continue;
+                }
+                match crate::binary_repr::read_package_type_exports(&package_file) {
+                    Ok(type_exports) => {
+                        for export in &type_exports {
+                            let context = match export.kind {
+                                crate::binary_repr::BinaryReprExportKind::Type => {
+                                    format!("exported type `{}`", export.name)
+                                }
+                                crate::binary_repr::BinaryReprExportKind::Union => {
+                                    format!("exported union `{}`", export.name)
+                                }
+                                _ => continue,
+                            };
+                            self.validate_package_type(
+                                &package_file,
+                                &ParameterType::named(&export.name),
+                                &context,
+                                import.line,
+                                &mut HashSet::new(),
+                            );
+                        }
+                    }
+                    Err(_) => self.emit(
+                        "PACKAGE_INVALID",
+                        format!(
+                            "Imported package `{package}` has unreadable or invalid type metadata."
+                        ),
+                        import.line,
+                    ),
+                }
+                if crate::binary_repr::read_package_resources(&package_file).is_err() {
+                    self.emit(
+                        "PACKAGE_INVALID",
+                        format!(
+                            "Imported package `{}` has an unreadable resource table.",
+                            package_file.display()
+                        ),
+                        import.line,
+                    );
+                }
+            }
+        }
+        let mut seen_bindings = HashSet::new();
+        for file in &hir.files {
+            self.file = file.path.clone();
+            for import in &file.imports {
+                let package = import.package_name();
+                if package == crate::ast::SELF_IMPORT
+                    || builtins::is_builtin_import(package)
+                    || !seen_bindings.insert(import.binding_name().to_string())
+                {
+                    continue;
+                }
+                let package_file = self
+                    .project_dir
+                    .join("packages")
+                    .join(format!("{package}.mfp"));
+                if !package_file.is_file() {
+                    continue;
+                }
+                match crate::binary_repr::read_package_exports(&package_file) {
+                    Ok(exports) => {
+                        for export in &exports {
+                            if !matches!(
+                                export.kind,
+                                crate::binary_repr::BinaryReprExportKind::Func
+                                    | crate::binary_repr::BinaryReprExportKind::Sub
+                            ) {
+                                continue;
+                            }
+                            // Every exported function's parameter and return
+                            // types (the checker's
+                            // `validate_imported_function_signature`).
+                            let mut seen = HashSet::new();
+                            for param in &export.params {
+                                self.validate_package_type(
+                                    &package_file,
+                                    &ParameterType::parse(&param.type_),
+                                    &format!(
+                                        "exported function `{}` parameter `{}`",
+                                        export.name, param.name
+                                    ),
+                                    import.line,
+                                    &mut seen,
+                                );
+                            }
+                            self.validate_package_type(
+                                &package_file,
+                                &ParameterType::parse(&export.return_type),
+                                &format!("exported function `{}` return type", export.name),
+                                import.line,
+                                &mut seen,
+                            );
+                        }
+                    }
+                    Err(_) => self.emit(
+                        "PACKAGE_INVALID",
+                        format!(
+                            "Imported package `{package}` has unreadable or invalid function metadata."
+                        ),
+                        import.line,
+                    ),
+                }
+            }
+        }
+    }
+
+    /// The checker's `validate_package_metadata_type`: every nominal a package
+    /// type reaches must be declared (a resource or a built-in nominal is always
+    /// in scope), and a map key must be comparable.
+    fn validate_package_type(
+        &mut self,
+        package_file: &Path,
+        type_: &ParameterType,
+        context: &str,
+        line: usize,
+        seen: &mut HashSet<String>,
+    ) {
+        match type_ {
+            ParameterType::ListOf(element)
+            | ParameterType::SetOf(element)
+            | ParameterType::ResultOf(element)
+            | ParameterType::Res(element) => {
+                self.validate_package_type(package_file, element, context, line, seen);
+            }
+            ParameterType::MapOf(key, value) => {
+                self.validate_package_type(package_file, key, context, line, seen);
+                self.validate_package_type(package_file, value, context, line, seen);
+                if !self.is_comparable(key) {
+                    self.emit(
+                        "PACKAGE_INVALID",
+                        format!(
+                            "Imported package `{}` has {context} with non-comparable map key type `{}`.",
+                            package_file.display(),
+                            key.name()
+                        ),
+                        line,
+                    );
+                }
+            }
+            ParameterType::Func(params, return_type, _) => {
+                for param in params {
+                    self.validate_package_type(package_file, param, context, line, seen);
+                }
+                self.validate_package_type(package_file, return_type, context, line, seen);
+            }
+            ParameterType::ThreadHandle { msg, res, out, .. } => {
+                self.validate_package_type(package_file, msg, context, line, seen);
+                // An absent resource plane is `Nothing`; the plane's ` STATE T`
+                // rides inside its spelling (plan-106-C rung 2e).
+                let (plane_resource, plane_state) = res.split_state();
+                if !matches!(plane_resource, ParameterType::Nothing) {
+                    self.validate_package_type(package_file, &plane_resource, context, line, seen);
+                }
+                if let Some(plane_state) = &plane_state {
+                    self.validate_package_type(package_file, plane_state, context, line, seen);
+                }
+                self.validate_package_type(package_file, out, context, line, seen);
+            }
+            ParameterType::Named(_) => {
+                let name = type_.name().into_owned();
+                // A built-in nominal is always in scope and declares no fields.
+                if matches!(
+                    name.as_str(),
+                    "AttributedString" | "Error" | "ErrorLoc" | "Scalar"
+                ) {
+                    return;
+                }
+                if self.is_resource_type(&name) || !seen.insert(name.clone()) {
+                    return;
+                }
+                let Some(shape) = self.types.get(&name) else {
+                    self.emit(
+                        "PACKAGE_INVALID",
+                        format!(
+                            "Imported package `{}` has {context} that references unknown type `{name}`.",
+                            package_file.display()
+                        ),
+                        line,
+                    );
+                    return;
+                };
+                let referenced = if shape.is_record {
+                    shape.fields.clone()
+                } else if shape.is_union {
+                    shape.variant_types.clone()
+                } else {
+                    Vec::new()
+                };
+                for referenced in &referenced {
+                    self.validate_package_type(package_file, referenced, context, line, seen);
+                }
+                seen.remove(&name);
+            }
+            ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::Fixed
+            | ParameterType::Float
+            | ParameterType::Integer
+            | ParameterType::Money
+            | ParameterType::Nothing
+            | ParameterType::String
+            | ParameterType::Unknown => {}
+            // Every other spelling took the checker's nominal arm.
+            other => self.validate_package_type(
+                package_file,
+                &ParameterType::named(&other.name()),
+                context,
+                line,
+                seen,
+            ),
         }
     }
 
@@ -3379,6 +3637,133 @@ mod tests {
             files: vec![file],
         };
         assert!(export_in_executable_diagnostics(false, &project).is_empty());
+    }
+
+    // ---- imported package metadata ---------------------------------------
+
+    #[test]
+    fn corrupt_package_tables_are_package_invalid() {
+        // A garbage `.mfp` reaches this pass only when the decode boundary is
+        // bypassed (as a unit test does); each of the three table reads
+        // reports, in the checker's order: types, resources, then functions.
+        let dir = std::env::temp_dir().join(format!("mfb_shape_pkg_{}", std::process::id()));
+        let pkgs = dir.join("packages");
+        std::fs::create_dir_all(&pkgs).unwrap();
+        std::fs::write(pkgs.join("brokenpkg.mfp"), b"not a valid mfp container").unwrap();
+        let file = crate::ast::parse_source(
+            Path::new("main.mfb"),
+            "main.mfb",
+            "IMPORT brokenpkg\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+        )
+        .unwrap();
+        let hir = crate::hir::elaborate(&crate::ast::AstProject {
+            name: "t".into(),
+            files: vec![file],
+        });
+        let diagnostics = collect_diagnostics(&dir, &hir, &[], &HashMap::new(), &[]);
+        let _ = std::fs::remove_dir_all(&dir);
+        let details: Vec<_> = diagnostics
+            .iter()
+            .map(|d| (d.rule.as_str(), d.detail.as_str(), d.line))
+            .collect();
+        assert_eq!(details.len(), 3, "{details:?}");
+        assert!(details
+            .iter()
+            .all(|(rule, _, line)| *rule == "PACKAGE_INVALID" && *line == 1));
+        assert!(details[0]
+            .1
+            .ends_with("has unreadable or invalid type metadata."));
+        assert!(details[1].1.ends_with("has an unreadable resource table."));
+        assert!(details[2]
+            .1
+            .ends_with("has unreadable or invalid function metadata."));
+    }
+
+    #[test]
+    fn package_type_validation_arms() {
+        let src = "ENUM Color\n  Red, Green\nEND ENUM\nTYPE Point\n  x AS Integer\nEND TYPE\nUNION Shape\n  Point\nEND UNION\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let hir = hir_from(src);
+        let facts = lower::lower_facts(&hir, &HashMap::new(), &[]);
+        let no_imports = HashMap::new();
+        let mut walker = Walker::new(Path::new("/proj"), &facts, &hir, &[], &no_imports, &[]);
+        let pkg = Path::new("packages/fake.mfp");
+        let validate = |walker: &mut Walker, type_: &ParameterType| {
+            walker.validate_package_type(pkg, type_, "ctx", 7, &mut HashSet::new());
+            walker
+                .diagnostics
+                .drain(..)
+                .map(|d| d.detail)
+                .collect::<Vec<_>>()
+        };
+        // A map keyed by a List is not comparable; its Res value recurses silently.
+        let map = ParameterType::MapOf(
+            Box::new(ParameterType::ListOf(Box::new(ParameterType::Integer))),
+            Box::new(ParameterType::Res(Box::new(ParameterType::String))),
+        );
+        assert_eq!(
+            validate(&mut walker, &map),
+            ["Imported package `packages/fake.mfp` has ctx with non-comparable map key type `List OF Integer`."]
+        );
+        // An undeclared nominal, directly and through a wrapper.
+        assert_eq!(
+            validate(&mut walker, &ParameterType::named("Nope")),
+            ["Imported package `packages/fake.mfp` has ctx that references unknown type `Nope`."]
+        );
+        assert_eq!(
+            validate(
+                &mut walker,
+                &ParameterType::SetOf(Box::new(ParameterType::named("Nope")))
+            )
+            .len(),
+            1
+        );
+        // Declared enum / record / union, built-in nominals, resources, and the
+        // structural shapes all walk silently.
+        for accepted in [
+            ParameterType::named("Color"),
+            ParameterType::named("Point"),
+            ParameterType::named("Shape"),
+            ParameterType::named("Error"),
+            ParameterType::named("net.Socket"),
+            ParameterType::ResultOf(Box::new(ParameterType::Money)),
+            ParameterType::Func(
+                vec![ParameterType::Integer, ParameterType::String],
+                Box::new(ParameterType::Boolean),
+                false,
+            ),
+            ParameterType::ThreadHandle {
+                worker: false,
+                msg: Box::new(ParameterType::Integer),
+                res: Box::new(ParameterType::String.with_state(&ParameterType::Boolean)),
+                out: Box::new(ParameterType::Float),
+            },
+            ParameterType::ThreadHandle {
+                worker: true,
+                msg: Box::new(ParameterType::Integer),
+                res: Box::new(ParameterType::Nothing),
+                out: Box::new(ParameterType::Nothing),
+            },
+        ] {
+            assert!(
+                validate(&mut walker, &accepted).is_empty(),
+                "{}",
+                accepted.name()
+            );
+        }
+        // A union whose variant record carries an unknown field type reports it.
+        assert_eq!(
+            validate(
+                &mut walker,
+                &ParameterType::ThreadHandle {
+                    worker: false,
+                    msg: Box::new(ParameterType::named("Ghost")),
+                    res: Box::new(ParameterType::Nothing),
+                    out: Box::new(ParameterType::Nothing),
+                }
+            )
+            .len(),
+            1
+        );
     }
 
     // ---- native LINK facts lowering folds away ---------------------------

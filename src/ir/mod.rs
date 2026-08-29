@@ -106,4 +106,4 @@ pub use types::{ExternalFunctionParam, ExternalSignature, IrProject};
 pub(crate) use value::{IrMatchCase, IrMatchPattern, IrValue};
 pub use verify::check as verify_semantics;
 pub use verify::collect_source_diagnostics as verify_source_diagnostics;
-pub use verify::{ImportedResource, RELOCATED_TO_IR_VERIFY};
+pub use verify::ImportedResource;

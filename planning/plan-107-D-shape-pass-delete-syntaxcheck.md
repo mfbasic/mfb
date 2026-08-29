@@ -211,7 +211,7 @@ moves; split rules re-pin (listed).
       source path. Corpus: 522 same, 1 reordered (the new fixture: shape's
       constructor form, then verify's Bind-order ARITY + WITH; same three
       records), 0 set-diff.)
-- [~] (I) relocations: `export_in_executable_diagnostics` moved beside the
+- [x] (I) relocations: `export_in_executable_diagnostics` moved beside the
       pass; `PACKAGE_INVALID` metadata validation moved to the decode boundary
       with its unit tests (prove which sites the resolver already shadows —
       moot with evidence for those).
@@ -230,7 +230,17 @@ moves; split rules re-pin (listed).
       Row 5 landed: `export_in_executable_diagnostics` (+ its three tests)
       moved verbatim to `ir::shape`; the build calls it there, still over the
       original AST at the same point in the stream. Corpus 524 same.
-      Remaining: row 20.)
+      Row 20 landed — into the shape pass's import walk rather than the decode
+      boundary (C-package-invalid-home): `Walker::check_imported_packages` +
+      `validate_package_type` carry the checker's six PACKAGE_INVALID sites
+      (three unreadable-table forms; the unknown-type and non-comparable-map-
+      key walks over every exported type/union and every exported function
+      signature). No site was moot: the decode boundary rejects an unreadable
+      CONTAINER (probe: a garbage `packages/badpkg.mfp` for a declared
+      dependency → `[Tampered]` + PACKAGE_INVALID before any checker), but an
+      unreadable TABLE inside a well-formed container and the semantic type
+      walk had only the checker. With it syntaxcheck's `report` had no caller
+      left and is deleted: the module emits NOTHING. Corpus 524 same.)
 - [ ] Tests: corpus set-equal per commit; full suite.
 
 Acceptance: every (S) rule fires from `ir::shape`; syntaxcheck's copies
@@ -238,7 +248,8 @@ deleted; corpus set-equal (order-identical for pure-(S) moves).
 Commit: `f2d52f271` (control-flow group + E's seam fixup); `794eada94`
 (TESTING_EXPECT_*); `d77dd17fd` (MONEY_INEXACT_FLOAT_LITERAL);
 `37f5c0f27` (TYPE_DUPLICATE_FIELD); `480c8e37a` (NATIVE_* halves);
-`ac9c9af95` (TYPE_READ_ONLY_RECORD_CONSTRUCTOR); EXPORT_IN_EXECUTABLE —
+`ac9c9af95` (TYPE_READ_ONLY_RECORD_CONSTRUCTOR); `32cd106e0`
+(EXPORT_IN_EXECUTABLE); PACKAGE_INVALID —
 
 ### Phase 2 — delete src/syntaxcheck + the split machinery
 
@@ -328,6 +339,27 @@ Commit: —
   (`verify::tests::rejects_recover_literal_lowered_into_a_byte_slot_out_of_range`,
   `syntaxcheck::types::types_tests::byte_recover_rejects_out_of_range_radix_literal`
   through the pipeline oracle).
+- **C-package-invalid-home (2026-08-29, Phase 1 — row 20).** The plan sent
+  PACKAGE_INVALID's metadata validation to "the decode boundary
+  (`cli/build/packages.rs` / `manifest::package`)". It landed in the shape
+  pass's import walk instead. Why: the semantic half (an exported type or
+  function signature referencing an undeclared type; a non-comparable map
+  key) needs the full type table — the project's own declarations plus every
+  imported package's — and the resource registry, exactly what
+  `Walker.types` / `is_comparable` / `is_resource_type` already are; a copy
+  at the decode boundary would have been the third `is_comparable`. The
+  decode boundary keeps what it had: `verify_and_report_packages` rejects an
+  unreadable container before any checker runs (measured with
+  `/tmp/p107-probe-pkg.sh`: `[Tampered]` + PACKAGE_INVALID, exit 1). The
+  unreadable-TABLE forms (a well-formed container whose type/resource/export
+  table fails to decode) had only the checker, so they moved with the walk.
+  One deliberate difference: the checker validated each package's types
+  right after installing that package's exports, so a type reaching a
+  package imported LATER in source order was "unknown" at that moment; the
+  pass validates against the complete table. `read_package_type_exports`
+  already resolves foreign types into each package's own export list, so
+  the only program that can tell is one whose package metadata references a
+  type its own tables do not carry — a malformed package either way.
 - **C-harness-test-verb (2026-08-29, Phase 1).** `scripts/diag-set-diff.sh`
   re-ran `.testrun` goldens as `mfb test -q …`, but `mfb test` has no `-q`
   (usage error, exit 2) — the harness reported `testing-assert-invalid` as a

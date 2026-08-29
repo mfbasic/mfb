@@ -146,6 +146,9 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     // synthesizes `Constructor{Error}` itself); verify the compiler-owned and
     // `AttributedString` forms.
     "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
+    // plan-107-D: ir::shape's import walk (the (I) relocation of the checker's
+    // package-metadata validation).
+    "PACKAGE_INVALID",
     "TYPE_BINARY_OPERATOR_MISMATCH",
     "TYPE_UNARY_OPERATOR_MISMATCH",
     "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
