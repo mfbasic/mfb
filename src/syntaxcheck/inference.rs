@@ -143,18 +143,12 @@ impl<'a> SyntaxChecker<'a> {
                 // compiles and runs, and its handler is dead code — flagged by the
                 // advisory `TYPE_INLINE_TRAP_DEAD_HANDLER` warning, not an error.
                 match &trapped_callee {
-                    None => self.report(
-                        "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
-                        "Inline TRAP requires a call to trap; this expression is not a call.",
-                        file,
-                        *trap_line,
-                    ),
-                    Some(canonical) if builtins::is_package_constant(canonical) => self.report(
-                        "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
-                        "Inline TRAP requires a fallible call; a package constant is not a call.",
-                        file,
-                        *trap_line,
-                    ),
+                    // A non-call or package-constant scrutinee is
+                    // TYPE_INLINE_TRAP_REQUIRES_FALLIBLE, `ir::verify`'s
+                    // (plan-107-A): the lowered `$trap_res` bind keeps the
+                    // scrutinee's shape.
+                    None => {}
+                    Some(canonical) if builtins::is_package_constant(canonical) => {}
                     Some(canonical) if builtins::inline_builtin_is_infallible(canonical) => self
                         .report_warning(
                             "TYPE_INLINE_TRAP_DEAD_HANDLER",
@@ -1874,19 +1868,9 @@ mod tests {
         assert!(!rejects_with(src, "TYPE_INLINE_TRAP_ON_INLINED_BUILTIN"));
     }
 
-    #[test]
-    fn inline_trap_requires_fallible_rejected() {
-        // A non-call scrutinee still has nothing to trap.
-        let src = "FUNC main AS Integer\n  LET a AS Integer = 5 TRAP(e)\n    RECOVER 0\n  END TRAP\n  RETURN a\nEND FUNC\n";
-        assert!(rejects_with(src, "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"));
-    }
-
-    #[test]
-    fn inline_trap_on_package_constant_rejected() {
-        // A package constant is not a runtime call — still rejected.
-        let src = "IMPORT math\nFUNC main AS Float\n  LET a AS Float = math::pi() TRAP(e)\n    RECOVER 0.0\n  END TRAP\n  RETURN a\nEND FUNC\n";
-        assert!(rejects_with(src, "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"));
-    }
+    // TYPE_INLINE_TRAP_REQUIRES_FALLIBLE moved to `ir::verify` (plan-107-A); its
+    // twins are `verify::tests::rejects_inline_trap_on_a_non_call` and
+    // `rejects_inline_trap_on_a_package_constant`.
 
     #[test]
     fn lambda_mut_capture_rejected() {

@@ -172,6 +172,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_RESOURCE_RETURN_ORDER",
     // plan-107-A pilots (decl-level / expression-level / inference-fact port).
     "TYPE_ISOLATED_NOT_VISIBLE",
+    "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
 ];
 
 /// Diagnostic prefixes shared with the structural `verify_package` checks so a

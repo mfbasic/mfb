@@ -312,8 +312,13 @@ Commit: 6dd04364c
   - [x] `TYPE_ISOLATED_NOT_VISIBLE` (decl-level): 12 lines in verify's
         function loop; corpus `518 same, 0 reordered, 0 set-diff` (its one
         fixture trips only this rule, so no reorder — as predicted).
-  - [ ] `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` (expression-level; replaces
-        `TYPE_UNKNOWN_VALUE`, see Corrections C-pilot-swap).
+  - [x] `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` (expression-level; replaces
+        `TYPE_UNKNOWN_VALUE`, see Corrections C-pilot-swap): ~45 lines keyed on
+        the lowered `$trap_res` temp at the inline-trap `If`, with the
+        `$expect_` desugar guard; corpus `517 same, 1 reordered, 0 set-diff` —
+        the reorder is `tests/syntax/trap/inline-trap-infallible-builtin-invalid`
+        (verify's `SYMBOL_NOT_CALLABLE` now precedes the rule at line 13, both
+        in one stream); golden re-pinned in the commit.
   - [ ] `TYPE_THREAD_NOT_SENDABLE` (inference-fact port: sendability + the
         imported sendable bit).
 - [~] Tests: full corpus via the harness; package-path (verify unit) test for
