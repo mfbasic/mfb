@@ -107,20 +107,20 @@ pub fn lower_project_with_external_functions(
         .augment_project(ast)
         .expect("clean-room registry package source must parse");
 
-    // `term`'s source companion (`package.mfb` — the `LineStyle`/`FillStyle` enums)
+    // `term`'s injected source (the registry-modeled `LineStyle`/`FillStyle` enums)
     // and the `term`↔`astrings` `drawText(AttributedString)` bridge are injected by
-    // the clean-room `registry::augment_project` above (the companion as an `Always`
-    // helper on the migrated `term` package, the bridge as a `WhenImported("astrings")`
-    // gated helper).
-    // `astrings`' source companion (`package.mfb`) is injected by the clean-room
-    // `registry::augment_project` above (plan-99 PART C), as an `Always` helper on
-    // the migrated `astrings` package — emitted whenever a program `IMPORT astrings`.
+    // the clean-room `registry::augment_project` above (the package's `get_mfb`
+    // assembly, and the bridge as a `WhenBothImported("term", "astrings")` gated
+    // helper chunk).
+    // `astrings`' injected source is emitted by the clean-room
+    // `registry::augment_project` above (plan-99 PART C) whenever a program
+    // `IMPORT astrings`.
     // app + datetime + money source is injected by the clean-room
     // `registry::augment_project` above.
     // `vector` source (its nine `TYPE`s + `__vector_*` FUNC bodies) is injected by the
     // clean-room `registry::augment_project` above.
-    // `http` before `net`: `http_package.mfb` imports `net`, so net's late pass must
-    // run after http's to see the transitive `IMPORT net` (plan-03-http.md Phase 4).
+    // `http` before `net`: http's injected source imports `net`, so net's late pass
+    // must run after http's to see the transitive `IMPORT net` (plan-03-http.md Phase 4).
     let augmented = crate::codegen::builtins::http::augmented_project(&augmented)
         .expect("built-in http package source must parse");
     let augmented = crate::codegen::builtins::net::augmented_project(&augmented)
@@ -132,7 +132,7 @@ pub fn lower_project_with_external_functions(
     // clean-room `registry::augment_project` above.
     // `crypto` source is injected by the clean-room `registry::augment_project` above
     // (before the `strings`/`encoding` late passes, so `encoding::uses_package` still
-    // sees `crypto_package.mfb`'s `IMPORT encoding`).
+    // sees crypto's injected `IMPORT encoding`).
     // `strings`' scalar-seam companion (which `IMPORT encoding`s, plan-41-D) is
     // injected by the clean-room `registry::augment_project` above (plan-99 PART B),
     // as a `WhenUsed` gated helper — before this `encoding` late pass, so

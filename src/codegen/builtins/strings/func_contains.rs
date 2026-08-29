@@ -8,6 +8,64 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
+const INTRO: &str = r#"Test whether a string contains another string."#;
+
+const DESC: &str = r#"`strings::contains` returns `TRUE` when `needle` occurs as a contiguous
+substring of `value`, and `FALSE` otherwise. The bytes of `needle` are compared
+against `value` at each successive byte offset, and the scan returns `TRUE` at
+the first offset where the whole needle matches.
+
+No normalization, case folding, or other transformation is applied to either
+operand. Because both are well-formed UTF-8 and UTF-8 is self-synchronizing, a
+matching byte run is always also a whole-scalar substring — a match can never
+land mid-scalar.
+
+The empty `needle` occurs at every position and returns `TRUE` for any `value`,
+including the empty string. A `needle` longer than `value` returns `FALSE`, and
+searching a non-empty `needle` in an empty `value` returns `FALSE`. Neither
+operand is modified and the call never fails.
+
+`contains` answers only *whether* the needle is present. Use `strings::find` to
+get the position of the first occurrence — and note that `find` raises
+`ErrNotFound` on absence, so guarding it with `contains` is the idiomatic way to
+treat absence as an ordinary outcome. Use `strings::count` for the number of
+occurrences.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors)."#;
+
+const EX: &str = r#"Test for a substring, including a multi-byte one:
+
+```
+IMPORT io
+IMPORT strings
+
+FUNC main() AS Integer
+  io::print(toString(strings::contains("Hello", "ell")))
+  io::print(toString(strings::contains("Hello 😀", "😀")))
+  io::print(toString(strings::contains("Hello", "xyz")))
+  RETURN 0
+END FUNC
+```
+
+Guard `find` with `contains` when absence is expected:
+
+```
+IMPORT io
+IMPORT strings
+
+FUNC main() AS Integer
+  LET text AS String = "hello world"
+  IF strings::contains(text, "world") THEN
+    io::print(toString(strings::find(text, "world")))
+  ELSE
+    io::print("absent")
+  END IF
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -75,23 +133,23 @@ pub(crate) fn lower(
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "contains",
-        intro: "",
-        desc: "",
-        example: "",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
         expected_arguments: None,
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The string to search within. May be empty.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "needle",
-                    desc: "",
+                    desc: "The substring to look for anywhere in `value`. May be empty, in which case the result is always `TRUE`.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,

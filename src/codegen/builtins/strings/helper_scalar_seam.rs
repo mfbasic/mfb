@@ -1,4 +1,32 @@
-REM MFBASIC strings scalar companion (plan-41-D). Internal helpers backing the
+//! The scalar-seam source chunk (plan-41-D): `__strings_toScalars` /
+//! `__strings_fromScalars` and the five classification predicates
+//! (`__strings_isLetter`/`isDigit`/`isWhitespace`/`isUpper`/`isLower`), backing the
+//! seven `Body::Rewrite` members, plus the Unicode general-category table appended
+//! at registration (`__regex_genCat` renamed to `__strings_genCat`).
+//!
+//! Why this is a gated helper chunk and not seven `Body::mfb` bodies on the member
+//! descriptors: the predicates depend on the 4099-arm `__strings_genCat` table, and
+//! a `Body::Mfb` body renders into `get_mfb` for EVERY `IMPORT strings` program —
+//! the `WhenUsed` gate exists precisely so that table is compiled only when a
+//! program references the seam members. A gated chunk is its own synthetic file
+//! (`<builtin-strings>`) and injected FUNCs are file-local, so the seam, the
+//! predicates, and the table must stay together in one chunk. A second gate — same
+//! body, deduped by the shared `"strings"` name — rides the seam in whenever
+//! `astrings` is imported, because the injected `astrings` companion calls the seam
+//! after this generic pass has run (plan-99 PART B). Body byte-significant; do not
+//! reformat.
+
+use crate::codegen::registry::{HelperGate, RegistryHelper, RegistryPackage};
+
+/// The Unicode general-category table, `__regex_genCat` renamed to `__strings_genCat`
+/// so `strings`' file-local copy never collides with `regex`' when both are imported
+/// (bug-339 B1: one SOURCE of truth, one COMPILED copy per package — language-mandated
+/// because an injected builtin source is one file whose FUNCs are file-local).
+const GENCAT_TABLE: &str = include_str!("../../string/unicode/unicode_gencat.mfb");
+
+#[rustfmt::skip]
+const SEAM: &str =
+r#"REM MFBASIC strings scalar companion (plan-41-D). Internal helpers backing the
 REM native strings::toScalars / strings::fromScalars seam and the five scalar
 REM classification predicates. The Unicode general-category table
 REM (__strings_genCat) is appended from unicode_gencat.mfb at build time with its
@@ -98,4 +126,40 @@ FUNC __strings_isLower(sc AS Scalar) AS Boolean
     RETURN cp >= 97 AND cp <= 122
   END IF
   RETURN __strings_genCat(cp) = "Ll"
-END FUNC
+END FUNC"#;
+
+/// The seam members whose reference opens the `WhenUsed` gate.
+const SEAM_MEMBERS: &[&str] = &[
+    "toScalars",
+    "fromScalars",
+    "isLetter",
+    "isDigit",
+    "isWhitespace",
+    "isUpper",
+    "isLower",
+];
+
+pub(crate) fn register(pkg: &mut RegistryPackage) {
+    // The registry is built once behind a `OnceLock`, so the leak is a bounded
+    // one-time allocation (the concatenated seam + renamed table).
+    let body: &'static str = Box::leak(
+        format!(
+            "{}\n{}",
+            SEAM,
+            GENCAT_TABLE.replace("__regex_genCat", "__strings_genCat"),
+        )
+        .into_boxed_str(),
+    );
+    pkg.add_helper(RegistryHelper {
+        name: "strings",
+        gate: HelperGate::WhenUsed(SEAM_MEMBERS),
+        body: Some(body),
+        import_name: None,
+    });
+    pkg.add_helper(RegistryHelper {
+        name: "strings",
+        gate: HelperGate::WhenImported("astrings"),
+        body: Some(body),
+        import_name: None,
+    });
+}

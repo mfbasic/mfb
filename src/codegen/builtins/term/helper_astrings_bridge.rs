@@ -1,4 +1,22 @@
-' ===========================================================================
+//! The `term`↔`astrings` `drawText(AttributedString)` bridge — `__term_drawTextAttr`
+//! plus its private `__TermStyle` record and color/style helpers, as ONE gated
+//! source chunk.
+//!
+//! Why this is a helper chunk and not a `Body::mfb` overload on `func_draw_text.rs`:
+//! the body references `AttributedString`/`astrings::` (undefined unless `astrings`
+//! is imported), so it must inject only when BOTH `term` and `astrings` are imported
+//! (`HelperGate::WhenBothImported`, the legacy `term::bridge_uses_package`) — a
+//! `Body::Mfb` body renders into `get_mfb` unconditionally. The gated chunk is its
+//! own synthetic file (`<builtin-term_astrings_bridge>`), and injected FUNCs are
+//! file-local, so its FUNC/SUB/TYPE members must stay together in one chunk. The
+//! `strings` scalar seam the bridge calls rides in through `strings`' own
+//! `WhenImported("astrings")` gate. Body byte-significant; do not reformat.
+
+use crate::codegen::registry::{HelperGate, RegistryHelper, RegistryPackage};
+
+#[rustfmt::skip]
+const BODY: &str =
+r#"' ===========================================================================
 ' term ↔ astrings bridge: term::drawText(x, y, text AS AttributedString)
 '
 ' The native drawing callables know nothing of the `astrings` attribute overlay,
@@ -136,4 +154,13 @@ SUB __term_drawTextAttr(x AS Integer, y AS Integer, value AS AttributedString)
     term::setForeground(saveFg.r, saveFg.g, saveFg.b)
     term::setBackground(saveBg.r, saveBg.g, saveBg.b)
   END IF
-END SUB
+END SUB"#;
+
+pub(crate) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_helper(RegistryHelper {
+        name: "term_astrings_bridge",
+        gate: HelperGate::WhenBothImported("term", "astrings"),
+        body: Some(BODY),
+        import_name: None,
+    });
+}

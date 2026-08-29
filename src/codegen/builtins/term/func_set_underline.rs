@@ -11,6 +11,46 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
+const INTRO: &str = r#"Turn the underline attribute on or off for subsequently drawn text"#;
+
+const DESC: &str = r#"`term::setUnderline` sets whether text drawn through the `term::` surface from now
+on is underlined. It takes exactly one `Boolean`: `TRUE` enables the attribute,
+`FALSE` disables it.
+
+The flag is stored in the module's current-attribute state and **no escape
+sequence is emitted**. Like every other drawing operation on this retained
+surface, the change becomes visible only when `term::sync` presents the frame.
+
+Underlining is per cell, not global. Each cell of the grid records the foreground,
+background, bold, and underline that were current when its glyph was written, so
+this call affects text drawn *after* it; text already in the back buffer keeps the
+attributes it was drawn with and is not restyled.
+
+The setting persists until the next `term::setUnderline` or the next `term::on`,
+which resets underline to off. It is independent of the foreground and background
+colours and of bold, so changing it leaves those alone, and the current value can
+be read back with `term::getUnderline`. Setting the same value twice is harmless —
+the state is a flag, not a toggle.
+
+The call is gated: while TUI mode is off it does nothing and reports no error."#;
+
+const EX: &str = r#"Underline one label, then continue normally:
+
+```
+IMPORT term
+IMPORT io
+
+SUB main()
+  term::on()
+  term::setUnderline(TRUE)
+  io::print("Name")
+  term::setUnderline(FALSE)
+  io::print("Ada Lovelace")
+  term::sync()
+  term::off()
+END SUB
+```"#;
+
 /// `abi_function` body for `term::set_underline` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the
 /// app-vs-console dispatch and the heavy per-member emitters live in the shared code
@@ -39,15 +79,15 @@ pub(crate) fn lower_set_underline(
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "setUnderline",
-        intro: "",
-        desc: "",
-        example: "",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
         expected_arguments: Some("Boolean"),
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "enabled",
-                desc: "",
+                desc: "`TRUE` to draw subsequent text underlined, `FALSE` to draw it without an underline.",
                 aliases: &[],
                 ty: ParameterType::Boolean,
                 default: DefaultValue::None,
