@@ -21,12 +21,15 @@ mod common;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::Mutex;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const PORT_ASYNC: u16 = 18473;
 const PORT_BLOCKING: u16 = 18474;
 const EXPECT_BODY: &str = "hello-async-stream-BODY";
+const PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
+static DRIVE_LOCK: Mutex<()> = Mutex::new(());
 
 fn nonce() -> u128 {
     SystemTime::now()
@@ -73,6 +76,36 @@ conn.close()
 srv.close()
 "#;
 
+fn output_with_timeout(command: &mut Command, phase: &str) -> Output {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .unwrap_or_else(|err| panic!("{phase}: {err}"));
+    let deadline = Instant::now() + PROCESS_TIMEOUT;
+    loop {
+        match child.try_wait().expect("poll child") {
+            Some(_) => return child.wait_with_output().expect("collect child output"),
+            None if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            None => {
+                let _ = child.kill();
+                let output = child
+                    .wait_with_output()
+                    .expect("collect timed-out child output");
+                panic!(
+                    "plan-76-D: {phase} did not finish within 30s\nstdout:\n{}\nstderr:\n{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+        }
+    }
+}
+
+fn stop_child(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 fn build_client(root: &Path, source: &str) -> std::path::PathBuf {
     fs::create_dir_all(root.join("src")).expect("create src dir");
     fs::write(
@@ -81,11 +114,10 @@ fn build_client(root: &Path, source: &str) -> std::path::PathBuf {
     )
     .expect("write project.json");
     fs::write(root.join("src/main.mfb"), source).expect("write source");
-    let output = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg(root)
-        .output()
-        .expect("run mfb build");
+    let output = output_with_timeout(
+        Command::new(common::mfb_exe()).arg("build").arg(root),
+        "mfb build",
+    );
     assert!(
         output.status.success(),
         "client build failed:\nstdout:\n{}\nstderr:\n{}",
@@ -103,6 +135,7 @@ fn build_client(root: &Path, source: &str) -> std::path::PathBuf {
 /// Build `source`, start the one-shot server on `port`, run the client with a hard
 /// deadline, and return its process output. Panics (not hangs) on timeout.
 fn drive(port: u16, source: &str) -> Output {
+    let _guard = DRIVE_LOCK.lock().unwrap_or_else(|err| err.into_inner());
     let root = std::env::temp_dir().join(format!("mfb_p76d_{}_{}", port, nonce()));
     fs::create_dir_all(&root).expect("create temp root");
     let py = root.join("server.py");
@@ -116,38 +149,41 @@ fn drive(port: u16, source: &str) -> Output {
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn python http server");
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
     {
         let out = server.stdout.take().expect("server stdout");
-        let mut rdr = BufReader::new(out);
-        let mut line = String::new();
-        rdr.read_line(&mut line).expect("read server READY");
-        assert!(
-            line.starts_with("READY"),
-            "server did not report READY: {line:?}"
-        );
+        std::thread::spawn(move || {
+            let mut rdr = BufReader::new(out);
+            let mut line = String::new();
+            let result = rdr.read_line(&mut line).map(|_| line);
+            let _ = ready_tx.send(result);
+        });
     }
-
-    let server_pid = server.id();
-    let (tx, rx) = std::sync::mpsc::channel();
-    let worker = std::thread::spawn(move || {
-        let out = Command::new(&exe).output().expect("run http client");
-        let _ = tx.send(out);
-    });
-
-    let out = match rx.recv_timeout(Duration::from_secs(30)) {
-        Ok(out) => {
-            let _ = worker.join();
-            let _ = server.wait();
-            out
+    let ready = match ready_rx.recv_timeout(PROCESS_TIMEOUT) {
+        Ok(Ok(line)) => line,
+        Ok(Err(err)) => {
+            stop_child(&mut server);
+            panic!("failed to read server READY: {err}");
         }
         Err(_) => {
-            let _ = Command::new("kill")
-                .args(["-9", &server_pid.to_string()])
-                .status();
-            let _ = fs::remove_dir_all(&root);
-            panic!("plan-76-D: http client did not finish within 30s (loop hung)");
+            stop_child(&mut server);
+            panic!("plan-76-D: server did not become ready within 30s");
         }
     };
+    assert!(
+        ready.starts_with("READY"),
+        "server did not report READY: {ready:?}"
+    );
+
+    let out = output_with_timeout(&mut Command::new(&exe), "http client");
+    let deadline = Instant::now() + PROCESS_TIMEOUT;
+    while server.try_wait().expect("poll server").is_none() {
+        if Instant::now() >= deadline {
+            stop_child(&mut server);
+            panic!("plan-76-D: server did not exit within 30s");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
     let _ = fs::remove_dir_all(&root);
     out
 }
