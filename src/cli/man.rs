@@ -827,6 +827,7 @@ mod tests {
             variants: vec![EnumVariant {
                 name: "StdOut",
                 description: "standard output",
+                advisory: None,
             }],
         });
         package.add_resource(RegistryResource {

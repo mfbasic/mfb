@@ -1,0 +1,252 @@
+{
+  "project": "crypto-hpke-x448-valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "bits", "line": 11 },
+    { "module": "collections", "line": 12 },
+    { "module": "crypto", "line": 13 },
+    { "module": "encoding", "line": 14 },
+    { "module": "errorCode", "line": 15 },
+    { "module": "io", "line": 16 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "fill",
+      "line": 18,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 18 },
+      { "name": "v", "type": "Integer", "default": null, "line": 18 }
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 19 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 20 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "identifier", "value": "n" } },
+        "line": 21,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "out" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "v" }] }] }, "line": 22 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 23 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "out" }, "line": 25 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "flipBit",
+      "line": 28,
+      "params": [
+      { "name": "b", "type": "List OF Byte", "default": null, "line": 28 },
+      { "name": "idx", "type": "Integer", "default": null, "line": 28 }
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "identifier", "value": "b" }, { "kind": "identifier", "value": "idx" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "call", "callee": "bits.bxor", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "b" }, { "kind": "identifier", "value": "idx" }] }] }, { "kind": "number", "value": "1" }] }] }] }, "line": 29 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "cat",
+      "line": 32,
+      "params": [
+      { "name": "a", "type": "List OF Byte", "default": null, "line": 32 },
+      { "name": "b", "type": "List OF Byte", "default": null, "line": 32 }
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": "List OF Byte", "value": { "kind": "identifier", "value": "a" }, "line": 33 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 34 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "b" }] } },
+        "line": 35,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "out" }, { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "b" }, { "kind": "identifier", "value": "i" }] }] }, "line": 36 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 37 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "out" }, "line": 39 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "code",
+      "line": 42,
+      "params": [
+      { "name": "err", "type": "Error", "default": null, "line": 42 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } },
+        "line": 43,
+        "then": [
+        { "kind": "return", "value": { "kind": "string", "value": "ErrInvalidArgument" }, "line": 44 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrAuthenticationFailed" } },
+        "line": 46,
+        "then": [
+        { "kind": "return", "value": { "kind": "string", "value": "ErrAuthenticationFailed" }, "line": 47 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "other=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 49 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "tryOpen",
+      "line": 52,
+      "params": [
+      { "name": "c", "type": "AsymmetricCipher", "default": null, "line": 52 },
+      { "name": "seed", "type": "List OF Byte", "default": null, "line": 52 },
+      { "name": "box", "type": "List OF Byte", "default": null, "line": 52 },
+      { "name": "aad", "type": "List OF Byte", "default": null, "line": 52 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "pt", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.decrypt", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "box" }, { "kind": "identifier", "value": "aad" }] }, "line": 53 },
+      { "kind": "return", "value": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "pt" }] }, "line": 54 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 55,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "code", "arguments": [{ "kind": "identifier", "value": "err" }] }, "line": 56 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "tryOpenLen",
+      "line": 60,
+      "params": [
+      { "name": "c", "type": "AsymmetricCipher", "default": null, "line": 60 },
+      { "name": "seed", "type": "List OF Byte", "default": null, "line": 60 },
+      { "name": "box", "type": "List OF Byte", "default": null, "line": 60 },
+      { "name": "aad", "type": "List OF Byte", "default": null, "line": 60 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "pt", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.decrypt", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "box" }, { "kind": "identifier", "value": "aad" }] }, "line": 61 },
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "pt" }] }] }, "line": 62 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 63,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "code", "arguments": [{ "kind": "identifier", "value": "err" }] }, "line": 64 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "trySeal",
+      "line": 68,
+      "params": [
+      { "name": "c", "type": "AsymmetricCipher", "default": null, "line": 68 },
+      { "name": "pub", "type": "List OF Byte", "default": null, "line": 68 },
+      { "name": "data", "type": "List OF Byte", "default": null, "line": 68 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "box", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.encrypt", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "identifier", "value": "pub" }, { "kind": "identifier", "value": "data" }] }, "line": 69 },
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "box" }] }] }, "line": 70 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 71,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "code", "arguments": [{ "kind": "identifier", "value": "err" }] }, "line": 72 }
+      ]
+    }
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 76,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "seed", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "6c82a562cb808d10d632be89c8513ebf6c929f34ddfa8c9f63c9960ef6e348a3528c8a3fcc2f044e39a3fc5b94492f8f032e7549a20098f95b" }] }, "line": 77 },
+      { "kind": "binding", "mutable": false, "name": "pub", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "5fd7449b59b461fd2ce787ec616ad46a1da1342485a70e1f8a0ea75d80e96778edf124769b46c7061bd6783df1e50f6cd1fa1abeafe8256180" }] }, "line": 78 },
+      { "kind": "binding", "mutable": false, "name": "aad", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "Count-0" }] }, "line": 79 },
+      { "kind": "binding", "mutable": false, "name": "none", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 80 },
+      { "kind": "binding", "mutable": false, "name": "aes", "type": "AsymmetricCipher", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "AsymmetricCipher" }, "member": "Ed448_AES256GCM" }, "line": 81 },
+      { "kind": "binding", "mutable": false, "name": "chacha", "type": "AsymmetricCipher", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "AsymmetricCipher" }, "member": "Ed448_CHACHA20POLY1305" }, "line": 82 },
+      { "kind": "binding", "mutable": false, "name": "indAes", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "9b08f7cc31b7e3e67d22d5aea121074a273bd2b83de09c63faa73d2c22c5d9bbc836647241d953d40c5b12da88120d53177f80e532c41fa07cc3fbdc4148bfccf6dbb2ecf745fd47dc5b6373dc56b7c3614ceabfbbaeb9caf24388b8a1fea9da116a33a375" }] }, "line": 83 },
+      { "kind": "binding", "mutable": false, "name": "indChacha", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "3eb7a829b0cd20f5bcfc0b599b6feccf6da4627107bdb0d4f345b43027d8b972fc3e34fb4232a13ca706dcb57aec3dae07bdc1c67bf33609c952ecd2e7cab70a827a7097ec6917732a99b635a6212ad397734b907e655724ec735d9cd16f615706a52f5f8f" }] }, "line": 84 },
+      { "kind": "binding", "mutable": false, "name": "indAesNoAad", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "9b08f7cc31b7e3e67d22d5aea121074a273bd2b83de09c63faa73d2c22c5d9bbc836647241d953d40c5b12da88120d53177f80e532c41fa07cc3fbdc4148bfccf6dbb2ecf745fd47dc5b6373dc56b7c3614ceabfbbe8c15ccfac5b1ce09ed184ab8e5a0fb1" }] }, "line": 85 },
+      { "kind": "binding", "mutable": false, "name": "indEmptyChacha", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "3eb7a829b0cd20f5bcfc0b599b6feccf6da4627107bdb0d4f345b43027d8b972fc3e34fb4232a13ca706dcb57aec3dae07bdc1c67bf3360926418c221d2efc051aaab68a7fa79dc5" }] }, "line": 86 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "edpub=" }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "pub" }] } }] }, "line": 87 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "independent-aes=" }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "indAes" }] } }] }, "line": 88 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "independent-chacha=" }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "indChacha" }] } }] }, "line": 89 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "independent-aes-noaad=" }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "indAesNoAad" }] } }] }, "line": 90 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "independent-empty-chacha=" }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "indEmptyChacha" }] } }] }, "line": 91 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mfb-opens-aes=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "indAes" }, { "kind": "identifier", "value": "aad" }] } }] }, "line": 92 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mfb-opens-chacha=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "chacha" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "indChacha" }, { "kind": "identifier", "value": "aad" }] } }] }, "line": 93 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mfb-opens-aes-noaad=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "indAesNoAad" }, { "kind": "identifier", "value": "none" }] } }] }, "line": 94 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mfb-opens-empty-chacha=" }, "right": { "kind": "call", "callee": "tryOpenLen", "arguments": [{ "kind": "identifier", "value": "chacha" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "indEmptyChacha" }, { "kind": "identifier", "value": "none" }] } }] }, "line": 95 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mfb-wrong-aad=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "indAes" }, { "kind": "identifier", "value": "none" }] } }] }, "line": 96 },
+      { "kind": "binding", "mutable": false, "name": "pt", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "Beauty is truth, truth beauty" }] }, "line": 97 },
+      { "kind": "binding", "mutable": false, "name": "boxAes", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.encrypt", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "pub" }, { "kind": "identifier", "value": "pt" }, { "kind": "identifier", "value": "aad" }] }, "line": 98 },
+      { "kind": "binding", "mutable": false, "name": "boxChacha", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.encrypt", "arguments": [{ "kind": "identifier", "value": "chacha" }, { "kind": "identifier", "value": "pub" }, { "kind": "identifier", "value": "pt" }, { "kind": "identifier", "value": "aad" }] }, "line": 99 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "roundtrip-aes=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.constantTimeEqual", "arguments": [{ "kind": "call", "callee": "crypto.decrypt", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "boxAes" }, { "kind": "identifier", "value": "aad" }] }, { "kind": "identifier", "value": "pt" }] }] } }] }, "line": 100 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "roundtrip-chacha=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.constantTimeEqual", "arguments": [{ "kind": "call", "callee": "crypto.decrypt", "arguments": [{ "kind": "identifier", "value": "chacha" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "boxChacha" }, { "kind": "identifier", "value": "aad" }] }, { "kind": "identifier", "value": "pt" }] }] } }] }, "line": 101 },
+      { "kind": "binding", "mutable": false, "name": "boxText", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.encrypt", "arguments": [{ "kind": "identifier", "value": "chacha" }, { "kind": "identifier", "value": "pub" }, { "kind": "string", "value": "Beauty is truth, truth beauty" }, { "kind": "identifier", "value": "aad" }] }, "line": 102 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "roundtrip-string=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.constantTimeEqual", "arguments": [{ "kind": "call", "callee": "crypto.decrypt", "arguments": [{ "kind": "identifier", "value": "chacha" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "boxText" }, { "kind": "identifier", "value": "aad" }] }, { "kind": "identifier", "value": "pt" }] }] } }] }, "line": 103 },
+      { "kind": "binding", "mutable": false, "name": "boxEmpty", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.encrypt", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "pub" }, { "kind": "identifier", "value": "none" }] }, "line": 104 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "roundtrip-empty=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "crypto.decrypt", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "boxEmpty" }] }] }] } }] }, "line": 105 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "box-len-empty=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "boxEmpty" }] }] } }] }, "line": 106 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tamper-enc=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "call", "callee": "flipBit", "arguments": [{ "kind": "identifier", "value": "boxAes" }, { "kind": "number", "value": "3" }] }, { "kind": "identifier", "value": "aad" }] } }] }, "line": 107 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tamper-body=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "call", "callee": "flipBit", "arguments": [{ "kind": "identifier", "value": "boxAes" }, { "kind": "number", "value": "60" }] }, { "kind": "identifier", "value": "aad" }] } }] }, "line": 108 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tamper-tag=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "call", "callee": "flipBit", "arguments": [{ "kind": "identifier", "value": "boxAes" }, { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "boxAes" }] }, "right": { "kind": "number", "value": "1" } }] }, { "kind": "identifier", "value": "aad" }] } }] }, "line": 109 },
+      { "kind": "binding", "mutable": false, "name": "other", "type": "KeyPair", "value": { "kind": "call", "callee": "crypto.generate", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Certificate" }, "member": "Ed448" }] }, "line": 110 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "wrong-recipient=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "other" }, "member": "privateKey" }, { "kind": "identifier", "value": "boxAes" }, { "kind": "identifier", "value": "aad" }] } }] }, "line": 111 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cross-suite=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "chacha" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "boxAes" }, { "kind": "identifier", "value": "aad" }] } }] }, "line": 112 },
+      { "kind": "binding", "mutable": false, "name": "ed25519", "type": "KeyPair", "value": { "kind": "call", "callee": "crypto.generate", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Certificate" }, "member": "Ed25519" }] }, "line": 113 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cross-curve-aes=" }, "right": { "kind": "call", "callee": "trySeal", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "ed25519" }, "member": "publicKey" }, { "kind": "identifier", "value": "pt" }] } }] }, "line": 114 },
+      { "kind": "binding", "mutable": false, "name": "box25519", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.encrypt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "AsymmetricCipher" }, "member": "Ed25519_AES256GCM" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "ed25519" }, "member": "publicKey" }, { "kind": "identifier", "value": "pt" }, { "kind": "identifier", "value": "aad" }] }, "line": 115 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cross-curve-open=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "box25519" }, { "kind": "identifier", "value": "aad" }] } }] }, "line": 116 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "short-71=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "call", "callee": "collections.mid", "arguments": [{ "kind": "identifier", "value": "boxEmpty" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "71" }] }, { "kind": "identifier", "value": "none" }] } }] }, "line": 117 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "short-0=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "none" }, { "kind": "identifier", "value": "none" }] } }] }, "line": 118 },
+      { "kind": "binding", "mutable": false, "name": "lowOrder", "type": "List OF Byte", "value": { "kind": "call", "callee": "cat", "arguments": [{ "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "56" }, { "kind": "number", "value": "0" }] }, { "kind": "call", "callee": "collections.mid", "arguments": [{ "kind": "identifier", "value": "boxAes" }, { "kind": "number", "value": "56" }, { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "boxAes" }] }, "right": { "kind": "number", "value": "56" } }] }] }, "line": 119 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "low-order-enc=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "lowOrder" }, { "kind": "identifier", "value": "aad" }] } }] }, "line": 120 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bad-pub-len=" }, "right": { "kind": "call", "callee": "trySeal", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "32" }, { "kind": "number", "value": "1" }] }, { "kind": "identifier", "value": "pt" }] } }] }, "line": 121 }
+      ]
+    }
+    ]
+  }
+  ]
+}

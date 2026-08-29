@@ -46,9 +46,9 @@ FUNC main AS Integer
   io::print("ed-malleated=" & toString(crypto::verify(Certificate.Ed25519, kp.publicKey, msg, mal)))
 
   ' CRY-03: constantTimeEqual across equal, unequal-same-length, and unequal-length.
-  LET a AS List OF Byte = crypto::hash(Hash.SHA256, "abc")
-  LET b AS List OF Byte = crypto::hash(Hash.SHA256, "abc")
-  LET c AS List OF Byte = crypto::hash(Hash.SHA256, "abd")
+  LET a AS List OF Byte = crypto::hash(Hash.SHA2_256, "abc")
+  LET b AS List OF Byte = crypto::hash(Hash.SHA2_256, "abc")
+  LET c AS List OF Byte = crypto::hash(Hash.SHA2_256, "abd")
   LET short AS List OF Byte = encoding::hexDecode("0102")
   io::print("cteq-equal=" & toString(crypto::constantTimeEqual(a, b)))
   io::print("cteq-diff=" & toString(crypto::constantTimeEqual(a, c)))

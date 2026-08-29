@@ -1,0 +1,86 @@
+' Known-answer vectors for the SHA-3 family and SHAKE256 (FIPS 202, plan-109-B).
+' Every expected line in golden/build.log was produced by an independent oracle
+' (Python hashlib sha3_*/shake_256, hmac, pbkdf2_hmac; HKDF per RFC 5869 over
+' hmac) — never by this implementation. Coverage: every Hash.SHA3_* selector
+' through both `hash` overloads on the empty message, `abc`, the NIST 1600-bit
+' message (200 × 0xa3, two blocks at every rate) and the pad10*1 boundaries
+' rate−1 / rate / rate+1 (a padding-only block vs. a message-then-pad block);
+' SHAKE256 empty / `abc` / multi-block squeeze / absorb boundaries / prefix
+' property; HMAC, HKDF, and PBKDF2 over every SHA-3 selector.
+IMPORT collections
+IMPORT crypto
+IMPORT encoding
+IMPORT io
+
+FUNC fill(n AS Integer, v AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    out = collections::append(out, toByte(v))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+SUB show(label AS String, d AS List OF Byte)
+  io::print(label & "=" & encoding::hexEncode(d))
+END SUB
+
+SUB main()
+  LET a3 AS List OF Byte = fill(200, 163)
+  show("sha3_224-empty", crypto::hash(Hash.SHA3_224, ""))
+  show("sha3_224-abc", crypto::hash(Hash.SHA3_224, "abc"))
+  show("sha3_224-a3", crypto::hash(Hash.SHA3_224, a3))
+  show("sha3_256-empty", crypto::hash(Hash.SHA3_256, ""))
+  show("sha3_256-abc", crypto::hash(Hash.SHA3_256, "abc"))
+  show("sha3_256-a3", crypto::hash(Hash.SHA3_256, a3))
+  show("sha3_384-empty", crypto::hash(Hash.SHA3_384, ""))
+  show("sha3_384-abc", crypto::hash(Hash.SHA3_384, "abc"))
+  show("sha3_384-a3", crypto::hash(Hash.SHA3_384, a3))
+  show("sha3_512-empty", crypto::hash(Hash.SHA3_512, ""))
+  show("sha3_512-abc", crypto::hash(Hash.SHA3_512, "abc"))
+  show("sha3_512-a3", crypto::hash(Hash.SHA3_512, a3))
+  show("sha3_224-143", crypto::hash(Hash.SHA3_224, fill(143, 120)))
+  show("sha3_224-144", crypto::hash(Hash.SHA3_224, fill(144, 120)))
+  show("sha3_224-145", crypto::hash(Hash.SHA3_224, fill(145, 120)))
+  show("sha3_256-135", crypto::hash(Hash.SHA3_256, fill(135, 120)))
+  show("sha3_256-136", crypto::hash(Hash.SHA3_256, fill(136, 120)))
+  show("sha3_256-137", crypto::hash(Hash.SHA3_256, fill(137, 120)))
+  show("sha3_384-103", crypto::hash(Hash.SHA3_384, fill(103, 120)))
+  show("sha3_384-104", crypto::hash(Hash.SHA3_384, fill(104, 120)))
+  show("sha3_384-105", crypto::hash(Hash.SHA3_384, fill(105, 120)))
+  show("sha3_512-71", crypto::hash(Hash.SHA3_512, fill(71, 120)))
+  show("sha3_512-72", crypto::hash(Hash.SHA3_512, fill(72, 120)))
+  show("sha3_512-73", crypto::hash(Hash.SHA3_512, fill(73, 120)))
+  show("shake256-empty-32", crypto::shake256("", 32))
+  show("shake256-abc-64", crypto::shake256("abc", 64))
+  show("shake256-abc-300", crypto::shake256("abc", 300))
+  show("shake256-135-136", crypto::shake256(fill(135, 120), 136))
+  show("shake256-136-137", crypto::shake256(fill(136, 120), 137))
+  show("shake256-137-1", crypto::shake256(fill(137, 120), 1))
+  show("shake256-a3-272", crypto::shake256(a3, 272))
+  LET short AS List OF Byte = crypto::shake256("abc", 16)
+  LET long AS List OF Byte = crypto::shake256("abc", 64)
+  io::print("shake256-prefix=" & toString(encoding::hexEncode(short) = encoding::hexEncode(collections::mid(long, 0, 16))))
+  LET jefe AS List OF Byte = encoding::utf8Encode("Jefe")
+  LET what AS List OF Byte = encoding::utf8Encode("what do ya want for nothing?")
+  show("hmac-sha3_224", crypto::hmac(Hash.SHA3_224, jefe, "what do ya want for nothing?"))
+  show("hmac-sha3_256", crypto::hmac(Hash.SHA3_256, jefe, "what do ya want for nothing?"))
+  show("hmac-sha3_384", crypto::hmac(Hash.SHA3_384, jefe, what))
+  show("hmac-sha3_512", crypto::hmac(Hash.SHA3_512, jefe, what))
+  show("hmac-sha3_224-longkey", crypto::hmac(Hash.SHA3_224, fill(200, 170), what))
+  show("hmac-sha3_512-longkey", crypto::hmac(Hash.SHA3_512, fill(200, 170), "what do ya want for nothing?"))
+  LET ikm AS List OF Byte = encoding::hexDecode("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b")
+  LET salt AS List OF Byte = encoding::hexDecode("000102030405060708090a0b0c")
+  LET info AS List OF Byte = encoding::hexDecode("f0f1f2f3f4f5f6f7f8f9")
+  show("hkdf-sha3_224", crypto::hkdf(Hash.SHA3_224, ikm, salt, info, 42))
+  show("hkdf-sha3_256", crypto::hkdf(Hash.SHA3_256, ikm, salt, info, 42))
+  show("hkdf-sha3_384", crypto::hkdf(Hash.SHA3_384, ikm, [], info, 42))
+  show("hkdf-sha3_512", crypto::hkdf(Hash.SHA3_512, ikm, salt, [], 100))
+  LET pw AS List OF Byte = encoding::utf8Encode("password")
+  LET sa AS List OF Byte = encoding::utf8Encode("salt")
+  show("pbkdf2-sha3_224", crypto::pbkdf2(Hash.SHA3_224, pw, sa, 2, 40))
+  show("pbkdf2-sha3_256", crypto::pbkdf2(Hash.SHA3_256, pw, sa, 2, 40))
+  show("pbkdf2-sha3_384", crypto::pbkdf2(Hash.SHA3_384, pw, sa, 3, 20))
+  show("pbkdf2-sha3_512", crypto::pbkdf2(Hash.SHA3_512, pw, sa, 1, 64))
+END SUB

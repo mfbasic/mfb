@@ -2496,7 +2496,7 @@ mod lower_tests {
         let ir = lower_src(
             "IMPORT crypto\n\
              FUNC run() AS List OF Byte\n\
-               RETURN crypto::hash(Hash.SHA256, \"data\")\n\
+               RETURN crypto::hash(Hash.SHA2_256, \"data\")\n\
              END FUNC\n\
              SUB main\nEND SUB\n",
         );
@@ -5381,7 +5381,7 @@ FUNC main AS Integer
   LET s AS String = json::stringify(v)
   LET rows AS List OF List OF String = csv::parse("a,b")
   LET back AS String = csv::stringify(rows)
-  LET digest AS List OF Byte = crypto::hash(Hash.SHA256, "abc")
+  LET digest AS List OF Byte = crypto::hash(Hash.SHA2_256, "abc")
   LET hexed AS String = encoding::hexEncode(digest)
   LET u AS net::Url = net::toUrl("http://example.com/")
   RETURN 0
@@ -5708,7 +5708,7 @@ FUNC main AS Integer
   LET js = json::stringify(v)
   LET rows = csv::parse("a,b")
   LET back = csv::stringify(rows)
-  LET dig = crypto::hash(Hash.SHA256, "abc")
+  LET dig = crypto::hash(Hash.SHA2_256, "abc")
   LET hexed = encoding::hexEncode(dig)
   LET u = net::toUrl("http://x/")
   LET m = regex::match("abc", "a.c")
@@ -5733,7 +5733,7 @@ IMPORT crypto
 FUNC main AS Integer
   LET matched AS Boolean = regex::match("abc", "a.c")
   LET dt AS DateTime = datetime::parse("2024-01-02")
-  LET key AS List OF Byte = crypto::hash(Hash.SHA256, "k")
+  LET key AS List OF Byte = crypto::hash(Hash.SHA2_256, "k")
   RETURN 0
 END FUNC
 "#,

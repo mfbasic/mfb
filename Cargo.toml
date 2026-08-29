@@ -43,6 +43,13 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(perf)'] }
 [dev-dependencies]
 tempfile = "3"
 serde_json = "1"
+# plan-109-E/F: the RFC 9180 HPKE interop harness (`tests/rt_crypto_hpke_interop.rs`)
+# needs an implementation independent of the MFB package — X25519 from
+# curve25519-dalek and HKDF/AES-256-GCM/ChaCha20Poly1305 from ring. Both are
+# already in the lockfile through the repository crate's rustls/ed25519 deps,
+# so they resolve offline and add no new compiled code.
+ring = "0.17"
+curve25519-dalek = "4"
 # The repository acceptance test needs to age a `package_blobs` row to exercise
 # `mfb-repo gc`'s 24h grace period (plan-49 §3.1) without waiting a day. Same
 # version/features as the repository crate's, so it reuses the compiled SQLite.

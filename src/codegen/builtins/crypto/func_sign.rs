@@ -1404,14 +1404,17 @@ pub(crate) fn lower_sign(
 
     let done = format!("{symbol}_done");
     let ed25519 = format!("{symbol}_ed25519");
+    let ed448 = format!("{symbol}_ed448");
     let x25519_reject = format!("{symbol}_x25519_reject");
     let imports = ctx.platform_imports;
     let platform = ctx.platform;
 
-    // X25519 is a key-agreement (ECDH) key, not a signing key: reject it up front
-    // rather than fall through to the P-256 sequence.
+    // X25519 and X448 are key-agreement (ECDH) keys, not signing keys: reject them
+    // up front rather than fall through to the P-256 sequence.
     builder.instructions.extend([
         abi::compare_immediate(&ord, gen_cert::ORD_X25519),
+        abi::branch_eq(&x25519_reject),
+        abi::compare_immediate(&ord, gen_cert::ORD_X448),
         abi::branch_eq(&x25519_reject),
     ]);
 
@@ -1426,6 +1429,8 @@ pub(crate) fn lower_sign(
                 abi::branch_eq(&p521),
                 abi::compare_immediate(&ord, gen_cert::ORD_ED25519),
                 abi::branch_eq(&ed25519),
+                abi::compare_immediate(&ord, gen_cert::ORD_ED448),
+                abi::branch_eq(&ed448),
             ]);
             // P-256 (ordinal 0) falls through here.
             emit_macos_sign(
@@ -1477,6 +1482,8 @@ pub(crate) fn lower_sign(
                 abi::branch_eq(&p521),
                 abi::compare_immediate(&ord, gen_cert::ORD_ED25519),
                 abi::branch_eq(&ed25519),
+                abi::compare_immediate(&ord, gen_cert::ORD_ED448),
+                abi::branch_eq(&ed448),
             ]);
             emit_linux_sign(
                 SignCurve::P256,
@@ -1527,6 +1534,8 @@ pub(crate) fn lower_sign(
                 abi::branch_eq(&p521),
                 abi::compare_immediate(&ord, gen_cert::ORD_ED25519),
                 abi::branch_eq(&ed25519),
+                abi::compare_immediate(&ord, gen_cert::ORD_ED448),
+                abi::branch_eq(&ed448),
             ]);
             emit_windows_sign(
                 SignCurve::P256,
@@ -1574,6 +1583,8 @@ pub(crate) fn lower_sign(
     // helper (always emitted with the crypto package). It leaves the 64-byte raw
     // signature `List OF Byte` in the result registers, so fall through to `done`.
     builder.instructions.push(abi::label(&ed25519));
+    let priv_op_ed448 = priv_op.clone();
+    let msg_op_ed448 = msg_op.clone();
     builder.instructions.extend([
         abi::move_register(abi::argument_register(0)?, priv_op),
         abi::move_register(abi::argument_register(1)?, msg_op),
@@ -1590,7 +1601,25 @@ pub(crate) fn lower_sign(
     }
     builder.instructions.push(abi::branch(&done));
 
-    // X25519 keys cannot sign.
+    // Ed448 dispatch (all platforms): the same (privateKey, message) routing into
+    // the software `__crypto_ed448Sign` MFB helper, which leaves the 114-byte raw
+    // `R‖S` signature in the result registers.
+    builder.instructions.push(abi::label(&ed448));
+    builder.instructions.extend([
+        abi::move_register(abi::argument_register(0)?, priv_op_ed448),
+        abi::move_register(abi::argument_register(1)?, msg_op_ed448),
+    ]);
+    let ed448_symbol = crate::target::shared::nir::function_symbol("#crypto_ed448Sign");
+    if win64 {
+        builder.instructions.push(abi::subtract_stack(0x20));
+    }
+    builder.emit_symbol_call(&ed448_symbol);
+    if win64 {
+        builder.instructions.push(abi::add_stack(0x20));
+    }
+    builder.instructions.push(abi::branch(&done));
+
+    // X25519 / X448 keys cannot sign.
     builder.instructions.push(abi::label(&x25519_reject));
     emit_fail(
         &symbol,
@@ -1614,12 +1643,13 @@ pub(crate) fn lower_sign(
 
 const INTRO: &str = r#"Sign a message with a private key of the given certificate type."#;
 const DESC: &str = r#"`crypto::sign(type, privateKey, message)` produces a digital signature over the
-raw bytes of `message` using `privateKey`, for the NIST prime curve or `Ed25519`
-selected by `type` (a `crypto::Certificate`), and returns it as a `List OF Byte`.
-`privateKey` is the exact `privateKey` field of the `crypto::KeyPair` that
-`crypto::generate(type)` returned for the same `type` — for the NIST curves the
-SEC1 uncompressed point followed by the secret scalar (`0x04‖X‖Y‖d`, 97/145/199
-bytes for `P256`/`P384`/`P521`), and for `Ed25519` the 32-byte seed.
+raw bytes of `message` using `privateKey`, for the NIST prime curve, `Ed25519`, or
+`Ed448` selected by `type` (a `crypto::Certificate`), and returns it as a
+`List OF Byte`. `privateKey` is the exact `privateKey` field of the `crypto::KeyPair`
+that `crypto::generate(type)` returned for the same `type` — for the NIST curves
+the SEC1 uncompressed point followed by the secret scalar (`0x04‖X‖Y‖d`,
+97/145/199 bytes for `P256`/`P384`/`P521`), for `Ed25519` the 32-byte seed, and
+for `Ed448` the 57-byte seed.
 
 For the NIST curves this is **FIPS 186-4 ECDSA** with the curve's mandated digest
 (**SHA-256** for `P256`, **SHA-384** for `P384`, **SHA-512** for `P521`) over the
@@ -1633,14 +1663,18 @@ DER can be re-serialized — this implementation does not enforce a canonical lo
 form. Never treat a signature's bytes (or a hash of them) as a unique identifier,
 and never use them for replay protection or deduplication. For `Ed25519` this is
 **RFC 8032 PureEdDSA** (deterministic; the message is hashed with SHA-512
-internally) and the result is the fixed **64-byte** raw `R‖S`. Either is
-verifiable with `crypto::verify(type, …)` for the same `type`.
+internally) and the result is the fixed **64-byte** raw `R‖S`. For `Ed448` it is
+**RFC 8032 PureEd448** with the empty context (deterministic; SHAKE256 with the
+`dom4` prefix internally) and the result is the fixed **114-byte** raw `R‖S`
+(57 + 57). Any of them is verifiable with `crypto::verify(type, …)` for the same
+`type`.
 
 **Boundary and errors.** A `privateKey` whose length is not the exact SEC1 size
-for the chosen curve, or an `Ed25519` key that is not 32 bytes, or an otherwise
+for the chosen curve, or an `Ed25519` key that is not 32 bytes, or an `Ed448` key
+that is not 57 bytes, or an otherwise
 malformed key the platform import rejects, raises `ErrInvalidArgument`; `message`
-may be any length, including empty. `X25519` is a key-agreement key and cannot
-sign — it raises `ErrInvalidArgument`. A platform-library or system failure raises
+may be any length, including empty. `X25519` and `X448` are key-agreement keys and
+cannot sign — they raise `ErrInvalidArgument`. A platform-library or system failure raises
 `ErrUnknown`, and an allocation failure raises `ErrOutOfMemory`. The private key
 material is zeroed from the working buffers before return.
 
@@ -1652,9 +1686,12 @@ OpenSSL `libcrypto` `EVP_DigestSignInit` + one-shot `EVP_DigestSign`
 (`EVP_sha256/384/512`), the SEC1 key spliced into a PKCS#8 template and decoded
 with `d2i_AutoPrivateKey`; on **Windows** via CNG `bcrypt.dll`
 `BCryptImportKeyPair` (`ECCPRIVATEBLOB`) + `BCryptHash` + `BCryptSignHash`, whose
-fixed `r‖s` output is re-encoded to ASN.1 DER here. `Ed25519` is a pure in-process
-MFBASIC software core (RFC 8032) with **no platform library**, so it is
-byte-identical on every OS. Signatures are wire-compatible across platforms."#;
+fixed `r‖s` output is re-encoded to ASN.1 DER here. `Ed25519` and `Ed448` are pure
+in-process MFBASIC software cores (RFC 8032) with **no platform library** — the
+Ed448 scalar multiplication is a fixed 448-step ladder with a branch-free swap and
+its scalar reduction is fixed-length limb arithmetic, so no control flow depends
+on the key — and are byte-identical on every OS. Signatures are wire-compatible
+across platforms."#;
 const EX: &str = r#"```
 IMPORT crypto
 IMPORT strings

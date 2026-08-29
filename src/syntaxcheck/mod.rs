@@ -1530,6 +1530,24 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 
+    /// The advisory a builtin-package enum value carries, if the enum declared in
+    /// `owner_file_path` is an injected builtin (`builtins/<pkg>.mfb`, the
+    /// `relative_path` `Registry::synthetic_files` parses each package under) and
+    /// the registry attaches one to `type_name.member`. A user-declared enum lives
+    /// in a project file, never under `builtins/`, so it can never resolve here —
+    /// even one that shares a builtin enum's name.
+    pub(super) fn builtin_enum_member_advisory(
+        &self,
+        owner_file_path: &str,
+        type_name: &str,
+        member: &str,
+    ) -> Option<crate::codegen::registry::EnumAdvisory> {
+        let import_name = owner_file_path
+            .strip_prefix("builtins/")?
+            .strip_suffix(".mfb")?;
+        crate::codegen::registry::registry().enum_variant_advisory(import_name, type_name, member)
+    }
+
     pub(super) fn visible_from(
         &self,
         file: &HirFile,

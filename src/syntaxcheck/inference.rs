@@ -844,6 +844,21 @@ impl<'a> SyntaxChecker<'a> {
                     if !info.members.contains(member) {
                         return Type::Unknown;
                     }
+                    // A registry enum value may carry a compile-time advisory
+                    // (`EnumVariant::advisory`): report it once per user-authored
+                    // occurrence. This is the single resolution point for an enum
+                    // member in both an expression and a `MATCH` literal
+                    // (`check_match_pattern` infers the literal through here), so
+                    // one occurrence yields exactly one warning. Injected builtin
+                    // source is exempt — a package's own dispatch helpers compare
+                    // against every value of their selector.
+                    if !file.internal {
+                        if let Some(advisory) =
+                            self.builtin_enum_member_advisory(&info.file_path, type_name, member)
+                        {
+                            self.report_warning(advisory.rule, advisory.detail, file, line);
+                        }
+                    }
                     return Type::named(type_name);
                 }
             }
@@ -2733,6 +2748,58 @@ END FUNC
             "{:?}",
             check_src(src)
         );
+    }
+
+    #[test]
+    fn builtin_enum_advisory_warns_once_per_user_occurrence() {
+        // `infer_member_access`: a registry enum value carrying an
+        // `EnumVariant::advisory` reports its warn-severity rule exactly once per
+        // user-source occurrence — an expression AND a `MATCH` literal both resolve
+        // through the same member-access arm — and rejects nothing. The injected
+        // crypto source compares its `Hash` selector against `Hash.SHA1` in its own
+        // dispatch helpers; those `internal` occurrences must not count.
+        let src = "\
+IMPORT crypto
+FUNC pick(h AS Hash) AS Integer
+  MATCH h
+    CASE Hash.SHA1
+      RETURN 1
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+FUNC main AS Integer
+  LET d AS List OF Byte = crypto::hash(Hash.SHA1, \"legacy\")
+  RETURN len(d) + pick(Hash.SHA2_256)
+END FUNC
+";
+        let rules = check_src(src);
+        let warnings = rules
+            .iter()
+            .filter(|r| *r == "CRYPTO_SHA1_INSECURE")
+            .count();
+        assert_eq!(warnings, 2, "{rules:?}");
+        assert!(
+            rules.iter().all(|r| !crate::rules::is_error(r)),
+            "advisory must not reject the program: {rules:?}"
+        );
+    }
+
+    #[test]
+    fn builtin_enum_without_advisory_never_warns() {
+        let src = "\
+IMPORT crypto
+FUNC main AS Integer
+  LET d AS List OF Byte = crypto::hash(Hash.SHA2_256, \"data\")
+  MATCH Hash.SHA2_512
+    CASE Hash.SHA2_512
+      RETURN len(d)
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     #[test]

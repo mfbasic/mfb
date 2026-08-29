@@ -731,6 +731,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "inline TRAP handler is unreachable — the guarded call cannot fail",
     },
     Rule {
+        code: "2-203-0136",
+        name: "CRYPTO_SHA1_INSECURE",
+        severity: Severity::Warn,
+        message: "SHA-1 is not collision-resistant; use it only for legacy interoperability",
+    },
+    Rule {
         code: "2-203-0103",
         name: "EXPORT_IN_EXECUTABLE",
         severity: Severity::Error,

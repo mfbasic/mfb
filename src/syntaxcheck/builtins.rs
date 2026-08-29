@@ -2395,7 +2395,7 @@ mod builtins_tests {
             "TYPE_CALL_ARITY_MISMATCH"
         ));
         assert!(rejects_with(
-            &wrap_import("crypto", "  LET x = crypto::hash(Hash.SHA256, TRUE)"),
+            &wrap_import("crypto", "  LET x = crypto::hash(Hash.SHA2_256, TRUE)"),
             "TYPE_CALL_ARGUMENT_MISMATCH"
         ));
     }

@@ -347,14 +347,17 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "Utc",
                 description: "Coordinated Universal Time (offset 0).",
+                advisory: None,
             },
             EnumVariant {
                 name: "FixedOffset",
                 description: "A constant offset from UTC.",
+                advisory: None,
             },
             EnumVariant {
                 name: "Local",
                 description: "The host system's local time zone.",
+                advisory: None,
             },
         ],
     });
@@ -365,30 +368,37 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "Monday",
                 description: "Monday.",
+                advisory: None,
             },
             EnumVariant {
                 name: "Tuesday",
                 description: "Tuesday.",
+                advisory: None,
             },
             EnumVariant {
                 name: "Wednesday",
                 description: "Wednesday.",
+                advisory: None,
             },
             EnumVariant {
                 name: "Thursday",
                 description: "Thursday.",
+                advisory: None,
             },
             EnumVariant {
                 name: "Friday",
                 description: "Friday.",
+                advisory: None,
             },
             EnumVariant {
                 name: "Saturday",
                 description: "Saturday.",
+                advisory: None,
             },
             EnumVariant {
                 name: "Sunday",
                 description: "Sunday.",
+                advisory: None,
             },
         ],
     });
@@ -399,50 +409,62 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "January",
                 description: "January.",
+                advisory: None,
             },
             EnumVariant {
                 name: "February",
                 description: "February.",
+                advisory: None,
             },
             EnumVariant {
                 name: "March",
                 description: "March.",
+                advisory: None,
             },
             EnumVariant {
                 name: "April",
                 description: "April.",
+                advisory: None,
             },
             EnumVariant {
                 name: "May",
                 description: "May.",
+                advisory: None,
             },
             EnumVariant {
                 name: "June",
                 description: "June.",
+                advisory: None,
             },
             EnumVariant {
                 name: "July",
                 description: "July.",
+                advisory: None,
             },
             EnumVariant {
                 name: "August",
                 description: "August.",
+                advisory: None,
             },
             EnumVariant {
                 name: "September",
                 description: "September.",
+                advisory: None,
             },
             EnumVariant {
                 name: "October",
                 description: "October.",
+                advisory: None,
             },
             EnumVariant {
                 name: "November",
                 description: "November.",
+                advisory: None,
             },
             EnumVariant {
                 name: "December",
                 description: "December.",
+                advisory: None,
             },
         ],
     });
