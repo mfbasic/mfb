@@ -448,6 +448,21 @@ Commit: —
   fixture is invisible to it — the gate / test-accept are the only sweeps
   that see one; a relocation that touches package or resource typing must
   run the gate before its landing, not at the letter's end.
+- **C-merge-advisory (2026-08-29, finish).** `main` advanced while D ran
+  (plan-109 landed) and its `5f17afd7c`/`f27f3f343` added ONE new rule to the
+  source checker this letter deletes: plan-109-A's enum-value advisory
+  (`EnumVariant::advisory` → `CRYPTO_SHA1_INSECURE`, warn once per
+  user-authored `Hash.SHA1`, injected builtin source exempt). Merging `main`
+  into `worktree-P-107` therefore hit delete/modify conflicts on three
+  checker files; the module stays deleted and the rule is relocated into
+  `ir::verify`'s enum member-access arm (`check_enum_member_advisory`): the
+  evidence survives lowering (an `Enum.Member` access, in an expression or a
+  `MATCH` literal, is one `MemberAccess` value), the injected-source
+  exemption keys on the `builtins/<pkg>.mfb` file the IR still records, and
+  the rule is source-path only (a decoded package was never source-checked).
+  main's two checker tests moved to `ir::tests` over a restored pipeline
+  oracle (`testutil::check_src` / `accepts` — deleted in Phase 2 for lack of
+  consumers, and back now that it has two).
 - **C-harness-test-verb (2026-08-29, Phase 1).** `scripts/diag-set-diff.sh`
   re-ran `.testrun` goldens as `mfb test -q …`, but `mfb test` has no `-q`
   (usage error, exit 2) — the harness reported `testing-assert-invalid` as a

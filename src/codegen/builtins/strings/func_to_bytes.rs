@@ -12,6 +12,60 @@ use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
+const INTRO: &str = r#"Return the raw UTF-8 bytes backing a string, one element per byte."#;
+
+const DESC: &str = r#"`strings::toBytes` returns the UTF-8 octets that back `value` as a
+`List OF Byte`, one element per byte, in encoding order. It is the byte-level
+view of a string: no decoding, validation, or transformation is performed, and
+the bytes are copied verbatim into a freshly built list.
+
+The result length is exactly `strings::byteLen(value)`, which is generally larger
+than `len(value)`: an ASCII scalar contributes one element, while a non-ASCII
+scalar contributes the two, three, or four bytes of its UTF-8 encoding. For
+`"héllo"` the list has six elements, because `é` encodes as the two bytes `195`
+and `169`. The empty string yields the empty list.
+
+`toBytes` is the inverse of `toString(List OF Byte)` and the foundation the
+`encoding` package's Unicode codecs are built on; `encoding::utf8EncodeBytes`
+produces the same octets for the same string. When `value` is a compile-time
+constant, the list is folded at build time from the literal's bytes rather than
+built at run time — the observable result is identical.
+
+`value` is not mutated. The returned `List OF Byte` is a fresh owned value, so
+mutating it does not affect the string it came from.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors)."#;
+
+const EX: &str = r#"A non-ASCII scalar contributes more than one byte:
+
+```
+IMPORT io
+IMPORT strings
+IMPORT collections
+
+FUNC main() AS Integer
+  LET bytes AS List OF Byte = strings::toBytes("héllo")
+  io::print(toString(len(bytes)))
+  io::print(toString(collections::get(bytes, 1)))
+  RETURN 0
+END FUNC
+```
+
+Round-trip a string through its bytes:
+
+```
+IMPORT io
+IMPORT strings
+
+FUNC main() AS Integer
+  LET bytes AS List OF Byte = strings::toBytes("hi")
+  io::print(toString(bytes))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -203,15 +257,15 @@ pub(crate) fn lower(
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "toBytes",
-        intro: "",
-        desc: "",
-        example: "",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
         expected_arguments: None,
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",
-                desc: "",
+                desc: "The string whose UTF-8 storage is returned. Any `String` is accepted, including the empty string.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

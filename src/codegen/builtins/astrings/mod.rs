@@ -315,22 +315,27 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "Bold",
                 description: "Bold weight.",
+                advisory: None,
             },
             EnumVariant {
                 name: "Italic",
                 description: "Italic slant.",
+                advisory: None,
             },
             EnumVariant {
                 name: "Underline",
                 description: "Underlined text.",
+                advisory: None,
             },
             EnumVariant {
                 name: "Strike",
                 description: "Struck-through text.",
+                advisory: None,
             },
             EnumVariant {
                 name: "Overline",
                 description: "Overlined text.",
+                advisory: None,
             },
         ],
     });
@@ -341,6 +346,7 @@ pub(crate) fn register(r: &mut Registry) {
         variants: vec![EnumVariant {
             name: "Font",
             description: "The font family name.",
+            advisory: None,
         }],
     });
     // A styling attribute whose value is an Integer (e.g. a font size, or a packed
@@ -352,14 +358,17 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "FontSize",
                 description: "The font size in points.",
+                advisory: None,
             },
             EnumVariant {
                 name: "Foreground",
                 description: "The text color, packed `0xRRGGBB`.",
+                advisory: None,
             },
             EnumVariant {
                 name: "Background",
                 description: "The background color, packed `0xRRGGBB`.",
+                advisory: None,
             },
         ],
     });

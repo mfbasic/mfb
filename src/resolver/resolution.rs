@@ -1598,7 +1598,7 @@ mod tests {
             );
         }
         for ok in [
-            "crypto::hash(Hash.SHA256, crypto::randomBytes(4))",
+            "crypto::hash(Hash.SHA2_256, crypto::randomBytes(4))",
             "crypto::sign(Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8))",
             "crypto::verify(Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8), crypto::randomBytes(64))",
         ] {

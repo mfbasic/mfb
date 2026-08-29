@@ -10,6 +10,65 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
+const INTRO: &str = r#"Normalize a string to Unicode Normalization Form C."#;
+
+const DESC: &str = r#"`strings::normalizeNfc` returns a new `String` holding the Normalization Form C
+(NFC) of `value`. NFC canonically decomposes each scalar, reorders combining
+marks by canonical combining class, and then recomposes, so combining sequences
+collapse into precomposed scalars wherever a canonical composition exists. Hangul
+is composed algorithmically rather than from the table.
+
+NFC is the canonical form to use when storing, comparing, or transmitting text:
+two strings that are canonically equivalent but encoded differently become
+byte-for-byte equal once both are normalized. A base letter followed by
+`U+0301` COMBINING ACUTE ACCENT recomposes to the single scalar `U+00E9` `é`, and
+`"A"` followed by `U+030A` recomposes to `Å`. Scalars already in composed form,
+and scalars with no canonical composition, are carried through unchanged.
+
+NFC applies canonical equivalence only. It performs no compatibility
+decomposition, so ligatures, full-width forms, and superscripts are preserved
+rather than expanded. Normalization can change the length of the string in both
+scalars and bytes, since a base scalar plus its combining marks may collapse into
+one scalar.
+
+Normalization is independent of case: it neither folds nor changes case, so apply
+`strings::caseFold` in addition when matching must ignore both normalization and
+case. The transformation is deterministic and locale-independent. `value` is not
+mutated; the result is a new owned `String`.
+
+`value` may also be an `astrings::AttributedString`: it returns an
+`AttributedString` whose text is transformed as above, but **attributes are
+dropped** — the mapping changes the scalar count within a span, so the overlay
+cannot be remapped."#;
+
+const EX: &str = r#"A decomposed and a precomposed spelling normalize to the same value:
+
+```
+IMPORT io
+IMPORT strings
+
+FUNC main() AS Integer
+  LET decomposed AS String = "e" & "́"
+  LET precomposed AS String = "é"
+  io::print(toString(strings::normalizeNfc(decomposed) = strings::normalizeNfc(precomposed)))
+  RETURN 0
+END FUNC
+```
+
+Normalization can shorten the scalar count:
+
+```
+IMPORT io
+IMPORT strings
+
+FUNC main() AS Integer
+  LET decomposed AS String = "Cafe" & "́"
+  io::print(toString(len(decomposed)))
+  io::print(toString(len(strings::normalizeNfc(decomposed))))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -513,15 +572,15 @@ pub(crate) fn lower(
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "normalizeNfc",
-        intro: "",
-        desc: "",
-        example: "",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
         expected_arguments: None,
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",
-                desc: "",
+                desc: "The string to normalize. Any `String` is accepted, including the empty string.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

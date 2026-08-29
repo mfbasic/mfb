@@ -31,7 +31,7 @@
   },
   {
     "kind": "enum",
-    "line": 43,
+    "line": 12,
     "visibility": "export",
     "name": "LineStyle",
     "members": [
@@ -46,7 +46,7 @@
   },
   {
     "kind": "enum",
-    "line": 64,
+    "line": 22,
     "visibility": "export",
     "name": "FillStyle",
     "members": [

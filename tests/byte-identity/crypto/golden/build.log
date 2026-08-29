@@ -1,4 +1,22 @@
 $ mfb build -ast -ir tests/byte-identity/crypto
+  29 |   io::print(toString(len(crypto::hash(Hash.SHA3_512, s))))
+  30 |   ' SHA-1 is legacy: selecting it is the 2-203-0136 advisory warning (build.log).
+  31 |   io::print(toString(len(crypto::hash(Hash.SHA1, msg))))
+     | ^
+tests/byte-identity/crypto/src/main.mfb:31 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
+               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+  30 |   ' SHA-1 is legacy: selecting it is the 2-203-0136 advisory warning (build.log).
+  31 |   io::print(toString(len(crypto::hash(Hash.SHA1, msg))))
+  32 |   io::print(toString(len(crypto::hash(Hash.SHA1, s))))
+     | ^
+tests/byte-identity/crypto/src/main.mfb:32 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
+               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+  43 |   io::print(toString(len(crypto::hmac(Hash.SHA2_512, macKey, s))))
+  44 |   io::print(toString(len(crypto::hmac(Hash.SHA3_256, macKey, msg))))
+  45 |   io::print(toString(len(crypto::hmac(Hash.SHA1, macKey, s))))
+     | ^
+tests/byte-identity/crypto/src/main.mfb:45 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
+               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
 Wrote AST to tests/byte-identity/crypto/crypto_codegen_cover_rt.ast
 Wrote IR to tests/byte-identity/crypto/crypto_codegen_cover_rt.ir
 [exit 0]

@@ -11,6 +11,46 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
+const INTRO: &str = r#"Turn the bold attribute on or off for subsequently drawn text"#;
+
+const DESC: &str = r#"`term::setBold` sets whether text drawn through the `term::` surface from now on
+is bold. It takes exactly one `Boolean`: `TRUE` enables the attribute, `FALSE`
+disables it.
+
+The flag is stored in the module's current-attribute state and **no escape
+sequence is emitted**. Like every other drawing operation on this retained
+surface, the change becomes visible only when `term::sync` presents the frame.
+
+Boldness is per cell, not global. Each cell of the grid records the foreground,
+background, bold, and underline that were current when its glyph was written, so
+this call affects text drawn *after* it; text already in the back buffer keeps the
+attributes it was drawn with and is not restyled.
+
+The setting persists until the next `term::setBold` or the next `term::on`, which
+resets bold to off. It is independent of the foreground and background colours and
+of underline, so changing it leaves those alone, and the current value can be read
+back with `term::getBold`. Setting the same value twice is harmless — the state is
+a flag, not a toggle.
+
+The call is gated: while TUI mode is off it does nothing and reports no error."#;
+
+const EX: &str = r#"Draw a bold heading above plain body text:
+
+```
+IMPORT term
+IMPORT io
+
+SUB main()
+  term::on()
+  term::setBold(TRUE)
+  io::print("Heading")
+  term::setBold(FALSE)
+  io::print("body text")
+  term::sync()
+  term::off()
+END SUB
+```"#;
+
 /// `abi_function` body for `term::set_bold` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the
 /// app-vs-console dispatch and the heavy per-member emitters live in the shared code
@@ -39,15 +79,15 @@ pub(crate) fn lower_set_bold(
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "setBold",
-        intro: "",
-        desc: "",
-        example: "",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
         expected_arguments: Some("Boolean"),
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "enabled",
-                desc: "",
+                desc: "`TRUE` to draw subsequent text bold, `FALSE` to draw it normally.",
                 aliases: &[],
                 ty: ParameterType::Boolean,
                 default: DefaultValue::None,

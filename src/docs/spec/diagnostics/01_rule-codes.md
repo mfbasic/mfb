@@ -247,14 +247,21 @@ severity is `error`.
 
 The low block (`0001`-`0016`) validates `project.json`; the high block
 (`0100`/`0101`) reports orchestration failures. Note `2-200-0010` is the
-registry's only `info`, and `2-200-0009` one of exactly eight `warn` rules
+registry's only `info`, and `2-200-0009` one of exactly nine `warn` rules
 (with `2-200-0012 PROJECT_JSON_UNKNOWN_MODE`,
 `2-201-0017 PRIVATE_SHADOWS_PUBLIC`,
 `2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER`,
 `2-203-0108 TYPE_MONEY_LITERAL_PRECISION`,
 `2-203-0109 MONEY_INEXACT_FLOAT_LITERAL`,
-`2-203-0115 NATIVE_LIBRARY_TARGET_UNCOVERED`, and
-`2-203-0117 NATIVE_LIBRARY_UNUSED`); every other rule is `error`.
+`2-203-0115 NATIVE_LIBRARY_TARGET_UNCOVERED`,
+`2-203-0117 NATIVE_LIBRARY_UNUSED`, and
+`2-203-0136 CRYPTO_SHA1_INSECURE`); every other rule is `error`.
+`CRYPTO_SHA1_INSECURE` is the registry's enum-value advisory: a builtin enum
+variant may carry an `EnumVariant::advisory`, and every user-source occurrence
+of that value — an expression or a `MATCH` literal — reports it once, while the
+program still compiles and runs. Injected builtin source is exempt.
+[[src/codegen/registry/mod.rs:EnumAdvisory]]
+[[src/syntaxcheck/mod.rs:builtin_enum_member_advisory]]
 [[src/rules/table.rs:RULES]]
 
 | code | NAME | severity | message |
@@ -436,6 +443,7 @@ Scheme*).
 | `2-203-0133` | `TYPE_STATE_OPAQUE_NARROWING` | error | an opaque resource STATE cannot be narrowed to a concrete STATE type |
 | `2-203-0134` | `RESOURCE_SHADOWS_BUILTIN` | error | **reserved — retired by package-qualified built-in resources (a bare user `RESOURCE File` no longer shadows `fs::File`); never emitted, never recycled** |
 | `2-203-0135` | `TYPE_INSTANTIATION_BUDGET_EXCEEDED` | error | generic instantiation fans out past the total-instantiation budget |
+| `2-203-0136` | `CRYPTO_SHA1_INSECURE` | warn | SHA-1 is not collision-resistant; use it only for legacy interoperability |
 | `2-203-0089` | `RESOURCE_CLOSE_NOT_NATIVE` | error | a resource's CLOSE BY op must be a native LINK function |
 | `2-203-0090` | `RESOURCE_CLOSE_MISSING` | error | a resource's CLOSE BY op names no function in its LINK block |
 | `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | error | a close op must consume exactly one RES parameter of its resource |

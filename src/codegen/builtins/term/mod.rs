@@ -31,23 +31,23 @@
 //! WITH-update one — see [`is_read_only_record`], consulted by
 //! `ir::verify`/the former source checker). Their binary-repr wire ids stay the reserved high-band
 //! `TYPE_TERM_COLOR`/`TYPE_TERM_SIZE` (name-keyed in `binary_repr::sections`). The two
-//! source-companion enums `LineStyle` (the box-drawing weight) and `FillStyle` (the
-//! block/shade glyph) are declared with their `DOC` blocks in the injected companion
-//! (`package.mfb`) and registered by name via [`add_source_types`].
+//! enums `LineStyle` (the box-drawing weight) and `FillStyle` (the block/shade glyph)
+//! are registry-modeled via [`RegistryPackage::add_enum`] and rendered into the
+//! injected `<builtin-term>` source by `get_mfb` (their variant docs surface on the
+//! man `types` page).
 //!
-//! The companion (`package.mfb`) is injected on IMPORT as an `Always` helper named
-//! exactly `"term"`, deriving the legacy `<builtin-term>` label. The `term`↔`astrings`
-//! `drawText(AttributedString)` bridge (`term_astrings_bridge.mfb`, carrying
-//! `__term_drawTextAttr`) is injected as a `WhenImported("astrings")` gated helper
-//! named `"term_astrings_bridge"` — its body references `AttributedString`, so it is
-//! injected only when `astrings` is imported. The `drawText(String)` vs
-//! `drawText(AttributedString)` overload selection is a co-located IR-level rewrite
-//! (the audio/strings idiom), read by `ir::lower` keyed on [`DRAW_TEXT`], NOT the
-//! registry matcher (`AttributedString` is `astrings`' still-hardcoded type).
+//! The `term`↔`astrings` `drawText(AttributedString)` bridge (`helper_astrings_bridge.rs`,
+//! carrying `__term_drawTextAttr`) is injected as a `WhenBothImported("term", "astrings")`
+//! gated helper chunk named `"term_astrings_bridge"` — its body references
+//! `AttributedString`, so it is injected only when both packages are imported. The
+//! `drawText(String)` vs `drawText(AttributedString)` overload selection is a
+//! co-located IR-level rewrite (the audio/strings idiom), read by `ir::lower` keyed on
+//! [`DRAW_TEXT`], NOT the registry matcher (`AttributedString` is `astrings`'
+//! still-hardcoded type).
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::registry::{
-    HelperGate, RecordProp, Registry, RegistryHelper, RegistryPackage, RegistryRecord,
+    EnumVariant, RecordProp, Registry, RegistryEnum, RegistryPackage, RegistryRecord,
 };
 use crate::types::ParameterType;
 
@@ -76,6 +76,8 @@ mod func_show_cursor;
 mod func_sync;
 mod func_terminal_size;
 
+mod helper_astrings_bridge;
+
 mod gen_shared;
 
 /// The `term::drawText` qualified call name — the co-located IR-level rewrite key for
@@ -98,21 +100,74 @@ pub(crate) fn is_read_only_record(type_name: &str) -> bool {
 }
 
 /// One-line package intro (historically empty; the man page is the doc authority).
-const INTRO: &str = "";
+const INTRO: &str = r#"Full-screen terminal TUI surface: cursor, colors, attributes, and clearing"#;
 /// Package-overview description (historically empty).
-const DESC: &str = "";
+const DESC: &str = r#"The `term` package gives a program a structured, full-screen terminal surface
+for text user interfaces: it moves the cursor, sets the foreground and
+background colors and the bold and underline attributes, clears the screen,
+shows or hides the cursor, reports the surface size, and reports whether the
+surface was resized (`term::didResize`). The same surface is
+rendered on the console backend (using the terminal's alternate screen and ANSI
+sequences) and in windowed app mode (`mfb build --app`), so a program draws the
+same way on both.
 
-/// The source companion — the `LineStyle`/`FillStyle` enum declarations (with their
-/// `DOC` blocks). Injected verbatim on IMPORT as an `Always` helper named `"term"`, so
-/// its synthetic file derives the legacy `<builtin-term>` label (byte-identical to the
-/// pre-migration `package_source_glue!` `include_str!`).
-const COMPANION_SOURCE: &str = include_str!("package.mfb");
+`term::on` is the gate for the whole module. It switches the terminal into TUI
+mode and resets all `term::` state to its defaults (white foreground, black
+background, bold and underline off, cursor visible, screen cleared, cursor at
+the home position). Every other `term::` call except `term::isOn` is a no-op
+while TUI mode is off, so a program must call `term::on` before any cursor,
+color, attribute, or clear call takes effect, and `term::off` later leaves TUI
+mode and restores the user's previous screen. `term::isOn` reports whether TUI
+mode is currently on and works whether or not it is.
 
-/// The `term`↔`astrings` `drawText(AttributedString)` bridge (`__term_drawTextAttr` +
-/// its `__TermStyle`/color helpers). Injected as its own synthetic file only when a
-/// program imports `astrings` (its body references `AttributedString`, undefined
-/// otherwise); its label derives from the helper name as `<builtin-term_astrings_bridge>`.
-const BRIDGE_SOURCE: &str = include_str!("term_astrings_bridge.mfb");
+While TUI mode is on the surface is **retained** and **double-buffered**: drawing
+calls (including `io::print`/`io::write`) mutate an in-memory cell grid rather
+than the terminal, and nothing appears until the program calls `term::sync`, the
+one operation that presents a frame. The console backend presents by writing only
+the cells that changed since the previous frame, so a program that repaints every
+frame shows no flicker and emits output proportional to what actually changed; in
+app mode `term::sync` coalesces the frame into a single redraw. `term::off`
+performs a final `term::sync` before restoring the screen, so the last frame is
+always shown. A program that draws without a following `term::sync` displays
+nothing - the canonical shape is to compose a whole frame, call `term::sync`
+once, then read input.
+
+Coordinates are zero-based and measured from the top-left corner of the surface:
+row 0 is the topmost line and column 0 is the leftmost column, so (0, 0) is the
+home position. The first coordinate is always the row (vertical) and the second
+the column (horizontal). Negative coordinates are clamped to 0; in app mode they
+are also clamped at the high end to the last valid cell. Colors are 24-bit RGB
+triples of three `Byte` channels (red, green, blue), each 0 to 255. Color and
+attribute changes take effect immediately for subsequently drawn text and do not
+alter text already on the screen; each setting is independent, so changing one
+leaves the others untouched, and the matching get function reads the current
+value back.
+
+Beyond text, the surface can draw box-drawing rules: `term::drawHLine` stamps a
+horizontal run of a box-drawing glyph across a row, `term::drawVLine` stamps a
+vertical run down a column, and `term::drawBox` draws a whole rectangle (four
+edges plus matching corners) between two opposite points — all using the colours
+and attributes in effect and all presented on the next `term::sync`. The glyph
+weight is chosen with the `LineStyle` enum (`Light`, `Heavy`, `LightDash`,
+`HeavyDash`, `LightDot`, `HeavyDot`, `Double`); each variant has a horizontal form
+for `drawHLine` and a vertical form for `drawVLine`, and `drawBox` pairs the edge
+glyphs with the matching corner glyphs (dash/dot styles reuse the Light or Heavy
+corners). `term::fillRect` fills a rectangular region with a block or shade glyph
+chosen by the `FillStyle` enum (`Filled`, `Light`, `Medium`, `Dark`, `Checker`,
+`CheckerAlt`) — the region-filling counterpart to `clear`. `term::drawText` stamps
+a string at an absolute position (without moving the cursor), and
+`term::drawGlyph` stamps a single scalar by code point.
+
+The package defines two built-in record types and two enums. `TermColor` has three
+`Byte` fields `r`, `g`, and `b` holding the red, green, and blue channels of a
+color, and is returned by `term::getForeground` and `term::getBackground`.
+`TermSize` has two `Integer` fields `columns` (the width of the surface in
+character cells) and `rows` (its height), and is returned by `term::terminalSize`;
+the surface size can change between calls (for example when the terminal window is
+resized), so a program that depends on it should query it again rather than caching
+the result. `LineStyle` selects the box-drawing weight for `term::drawHLine`,
+`term::drawVLine`, and `term::drawBox`; `FillStyle` selects the block or shade
+glyph for `term::fillRect`."#;
 
 /// Register the `term` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
@@ -162,10 +217,89 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
-    // The `LineStyle`/`FillStyle` enums are declared (with `DOC` blocks) in the injected
-    // companion source; register their names so the type system recognizes them as
-    // term-owned value types (the datetime idiom — source-declared, name-registered).
-    pkg.add_source_types(&["LineStyle", "FillStyle"]);
+    // The box-drawing weight `term::drawHLine`/`drawVLine`/`drawBox` stamp. Each
+    // variant has a horizontal form (drawHLine) and a vertical form (drawVLine); the
+    // discriminants are the 0-based positions native codegen uses to select the
+    // glyph (`Light = 0` … `Double = 6`).
+    pkg.add_enum(RegistryEnum {
+        name: "LineStyle",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Light",
+                description: "Thin single line (─ │).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Heavy",
+                description: "Thick single line (━ ┃).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "LightDash",
+                description: "Thin triple-dash line (┄ ┆).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "HeavyDash",
+                description: "Thick triple-dash line (┅ ┇).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "LightDot",
+                description: "Thin quadruple-dot line (┈ ┊).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "HeavyDot",
+                description: "Thick quadruple-dot line (┉ ┋).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Double",
+                description: "Double line (═ ║).",
+                advisory: None,
+            },
+        ],
+    });
+    // The block or shade glyph `term::fillRect` stamps into every cell of a
+    // rectangular region (`Filled = 0` … `CheckerAlt = 5`).
+    pkg.add_enum(RegistryEnum {
+        name: "FillStyle",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Filled",
+                description: "Solid full block (█).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Light",
+                description: "Light shade (░).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Medium",
+                description: "Medium shade (▒).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Dark",
+                description: "Dark shade (▓).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Checker",
+                description: "Upper-left + lower-right quadrants (▚).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "CheckerAlt",
+                description: "Upper-right + lower-left quadrants (▞).",
+                advisory: None,
+            },
+        ],
+    });
 
     // The native members (each registers the shared `abi_function` body over the
     // shared terminal codegen carrier).
@@ -194,22 +328,10 @@ pub(crate) fn register(r: &mut Registry) {
     func_terminal_size::register(&mut pkg);
     func_did_resize::register(&mut pkg);
 
-    // The source companion (enums + DOC), injected on IMPORT. Named exactly `"term"` so
-    // its synthetic file derives the legacy `<builtin-term>` label.
-    pkg.add_helper(RegistryHelper::always("term", COMPANION_SOURCE));
-
-    // The `term`↔`astrings` `drawText(AttributedString)` bridge — a cross-package gated
-    // helper injected only when BOTH `term` and `astrings` are imported (its body
-    // references `term::`/`TermColor` AND `AttributedString`/`astrings::`, so gating on
-    // either alone would over-inject it as dead code, matching the legacy
-    // `term::bridge_uses_package`). The `strings` scalar seam the bridge calls rides in
-    // through `strings`' own `WhenImported("astrings")` gate.
-    pkg.add_helper(RegistryHelper {
-        name: "term_astrings_bridge",
-        gate: HelperGate::WhenBothImported("term", "astrings"),
-        body: Some(BRIDGE_SOURCE),
-        import_name: None,
-    });
+    // The `term`↔`astrings` `drawText(AttributedString)` bridge — a cross-package
+    // gated helper chunk (see `helper_astrings_bridge.rs` for why it is not a
+    // `Body::mfb` overload).
+    helper_astrings_bridge::register(&mut pkg);
 
     r.add_package(pkg);
 }

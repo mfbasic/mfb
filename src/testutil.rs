@@ -69,3 +69,45 @@ pub fn lower_src(source: &str) -> IrProject {
     let project = project_from_src(source);
     ir::lower_project_with_external_functions(&project, None, &HashMap::new(), &[])
 }
+
+/// Run the build path's two checkers over `src` and return the emitted
+/// diagnostic rule codes (in stream order). An empty vector means the program
+/// is accepted.
+pub fn check_src(source: &str) -> Vec<String> {
+    // One source-diagnostic oracle for a pipeline-level test (plan-107):
+    // `ir::shape` over the concrete HIR, then `ir::verify` over the lowered IR —
+    // exactly the build's order. The registry's package sources are injected
+    // into the AST and the generic HIR is monomorphized first (every overloaded
+    // or generic call rewritten to its mangled symbol), so the checkers see the
+    // CONCRETE program the build checks. Panics on a lex/parse failure
+    // (test-author error).
+    let file = parse_source(Path::new("main.mfb"), "main.mfb", source)
+        .expect("test source must lex+parse");
+    let project = AstProject {
+        name: "test".to_string(),
+        files: vec![file],
+    };
+    let project_dir = Path::new(".");
+    let augmented =
+        crate::resolver::augment_project(&project).expect("builtin augmentation must succeed");
+    let concrete =
+        crate::monomorph::monomorphize_project(project_dir, &crate::hir::elaborate(&augmented))
+            .expect("test source must monomorphize");
+    let no_signatures = HashMap::new();
+    let mut diagnostics =
+        crate::ir::shape::collect_diagnostics(project_dir, &concrete, &[], &no_signatures, &[]);
+    let lowered = crate::ir::lower_augmented_project(&concrete, None, &no_signatures, &[]);
+    let link_spans = crate::ir::link_spans(&concrete);
+    diagnostics.extend(crate::ir::verify_source_diagnostics(
+        &lowered,
+        project_dir,
+        &[],
+        &link_spans,
+    ));
+    diagnostics.into_iter().map(|d| d.rule).collect()
+}
+
+/// True when the pipeline accepts `src` with zero diagnostics.
+pub fn accepts(source: &str) -> bool {
+    check_src(source).is_empty()
+}

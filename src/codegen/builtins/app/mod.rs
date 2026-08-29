@@ -76,10 +76,12 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "Console",
                 description: "The terminal-in-a-window surface (the default).",
+                advisory: None,
             },
             EnumVariant {
                 name: "None",
                 description: "Windowless — no surface is presented.",
+                advisory: None,
             },
         ],
     });

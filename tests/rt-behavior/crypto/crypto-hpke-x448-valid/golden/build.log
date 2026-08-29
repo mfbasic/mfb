@@ -1,0 +1,35 @@
+$ mfb build -ast -ir tests/rt-behavior/crypto/crypto-hpke-x448-valid
+Wrote AST to tests/rt-behavior/crypto/crypto-hpke-x448-valid/crypto-hpke-x448-valid.ast
+Wrote IR to tests/rt-behavior/crypto/crypto-hpke-x448-valid/crypto-hpke-x448-valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/crypto/crypto-hpke-x448-valid
+Wrote executable to tests/rt-behavior/crypto/crypto-hpke-x448-valid/build/crypto-hpke-x448-valid.out
+[exit 0]
+$ tests/rt-behavior/crypto/crypto-hpke-x448-valid/build/crypto-hpke-x448-valid.out
+edpub=5fd7449b59b461fd2ce787ec616ad46a1da1342485a70e1f8a0ea75d80e96778edf124769b46c7061bd6783df1e50f6cd1fa1abeafe8256180
+independent-aes=9b08f7cc31b7e3e67d22d5aea121074a273bd2b83de09c63faa73d2c22c5d9bbc836647241d953d40c5b12da88120d53177f80e532c41fa07cc3fbdc4148bfccf6dbb2ecf745fd47dc5b6373dc56b7c3614ceabfbbaeb9caf24388b8a1fea9da116a33a375
+independent-chacha=3eb7a829b0cd20f5bcfc0b599b6feccf6da4627107bdb0d4f345b43027d8b972fc3e34fb4232a13ca706dcb57aec3dae07bdc1c67bf33609c952ecd2e7cab70a827a7097ec6917732a99b635a6212ad397734b907e655724ec735d9cd16f615706a52f5f8f
+independent-aes-noaad=9b08f7cc31b7e3e67d22d5aea121074a273bd2b83de09c63faa73d2c22c5d9bbc836647241d953d40c5b12da88120d53177f80e532c41fa07cc3fbdc4148bfccf6dbb2ecf745fd47dc5b6373dc56b7c3614ceabfbbe8c15ccfac5b1ce09ed184ab8e5a0fb1
+independent-empty-chacha=3eb7a829b0cd20f5bcfc0b599b6feccf6da4627107bdb0d4f345b43027d8b972fc3e34fb4232a13ca706dcb57aec3dae07bdc1c67bf3360926418c221d2efc051aaab68a7fa79dc5
+mfb-opens-aes=4265617574792069732074727574682c20747275746820626561757479
+mfb-opens-chacha=4265617574792069732074727574682c20747275746820626561757479
+mfb-opens-aes-noaad=4265617574792069732074727574682c20747275746820626561757479
+mfb-opens-empty-chacha=0
+mfb-wrong-aad=ErrAuthenticationFailed
+roundtrip-aes=TRUE
+roundtrip-chacha=TRUE
+roundtrip-string=TRUE
+roundtrip-empty=0
+box-len-empty=72
+tamper-enc=ErrAuthenticationFailed
+tamper-body=ErrAuthenticationFailed
+tamper-tag=ErrAuthenticationFailed
+wrong-recipient=ErrAuthenticationFailed
+cross-suite=ErrAuthenticationFailed
+cross-curve-aes=ErrInvalidArgument
+cross-curve-open=ErrAuthenticationFailed
+short-71=ErrInvalidArgument
+short-0=ErrInvalidArgument
+low-order-enc=ErrInvalidArgument
+bad-pub-len=ErrInvalidArgument
+[exit 0]

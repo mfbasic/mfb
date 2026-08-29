@@ -152,10 +152,12 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "StdOut",
                 description: "The child's standard output.",
+                advisory: None,
             },
             EnumVariant {
                 name: "StdErr",
                 description: "The child's standard error.",
+                advisory: None,
             },
         ],
     });
@@ -167,18 +169,22 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "None",
                 description:
                     "No signal (a no-op to send; \"exited normally / still running\" to read).",
+                advisory: None,
             },
             EnumVariant {
                 name: "Kill",
                 description: "Forced, uncatchable termination (SIGKILL).",
+                advisory: None,
             },
             EnumVariant {
                 name: "Terminate",
                 description: "A polite \"please stop\" (SIGTERM and the other catchable stops).",
+                advisory: None,
             },
             EnumVariant {
                 name: "Error",
                 description: "An abnormal-fault termination (SIGABRT/SIGSEGV/SIGFPE/…).",
+                advisory: None,
             },
         ],
     });

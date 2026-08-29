@@ -587,6 +587,38 @@ impl TypeEnv {
     // 4. Member access + visibility
     // ===========================================================================
 
+    /// A registry enum value may carry a compile-time advisory
+    /// (`EnumVariant::advisory`, plan-109-A — `Hash.SHA1` → CRYPTO_SHA1_INSECURE):
+    /// report it once per user-authored occurrence. An expression and a `MATCH`
+    /// literal both reach the member-access arm exactly once, so one occurrence
+    /// yields exactly one warning. Injected builtin source is exempt (a package's
+    /// own dispatch helpers compare against every value of their selector), and
+    /// so is the package path (a decoded package was never source-checked; the
+    /// advisory is for the author writing the value). The enum must be a builtin
+    /// package's — declared in the injected `builtins/<pkg>.mfb` — so a user enum
+    /// sharing a builtin's name never resolves here.
+    fn check_enum_member_advisory(&self, enum_name: &str, member: &str) {
+        if !self.source_path.get() || self.current_file.borrow().starts_with("builtins/") {
+            return;
+        }
+        let Some((owner_file, _)) = self.type_decl_info.get(enum_name) else {
+            return;
+        };
+        let Some(import_name) = owner_file
+            .strip_prefix("builtins/")
+            .and_then(|file| file.strip_suffix(".mfb"))
+        else {
+            return;
+        };
+        if let Some(advisory) = crate::codegen::registry::registry().enum_variant_advisory(
+            import_name,
+            enum_name,
+            member,
+        ) {
+            self.emit(advisory.rule, advisory.detail.to_string());
+        }
+    }
+
     /// Reject a `MemberAccess` whose target provably cannot carry the member: a
     /// primitive-typed target, or a known record that does not declare it.
     pub(super) fn check_member_access(
@@ -606,6 +638,8 @@ impl TypeEnv {
                             "TYPE_UNKNOWN_ENUM_MEMBER",
                             format!("ENUM `{name}` has no member `{member}`."),
                         );
+                    } else {
+                        self.check_enum_member_advisory(name, member);
                     }
                     return;
                 }

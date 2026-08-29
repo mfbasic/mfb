@@ -11,6 +11,61 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
+const INTRO: &str = r#"Set the foreground colour used for subsequently drawn text"#;
+
+const DESC: &str = r#"`term::setForeground` sets the 24-bit RGB colour that subsequent text drawn
+through the `term::` surface will be written in. The three channels — red, green,
+blue — are each a `Byte` from 0 to 255, so (0, 0, 0) is black, (255, 255, 255) is
+white, and (255, 0, 0) is pure red. Exactly three arguments are required.
+
+The colour is packed into the module's current-attribute state and **no escape
+sequence is emitted**. Like every other drawing operation on this retained
+surface, the effect becomes visible only when `term::sync` presents the frame.
+
+Colour is per cell, not global. Each cell of the grid records the foreground,
+background, bold, and underline that were current when its glyph was written, so
+changing the foreground affects only text drawn *after* the call — text already in
+the back buffer keeps the colour it was drawn with, and is not restyled.
+
+The setting persists until the next `term::setForeground` or the next
+`term::on`, which resets the foreground to white (255, 255, 255). The background
+colour and the bold and underline attributes are independent and are left
+untouched; the current value can be read back with `term::getForeground`.
+
+The call is gated: while TUI mode is off it does nothing and reports no error."#;
+
+const EX: &str = r#"Draw red text and present the frame:
+
+```
+IMPORT term
+IMPORT io
+
+SUB main()
+  term::on()
+  term::setForeground(255, 0, 0)
+  io::print("hello in red")
+  term::sync()
+  term::off()
+END SUB
+```
+
+Two colours in one frame — the first line keeps its colour:
+
+```
+IMPORT term
+IMPORT io
+
+SUB main()
+  term::on()
+  term::setForeground(0, 255, 0)
+  io::print("green")
+  term::setForeground(0, 128, 255)
+  io::print("blue")
+  term::sync()
+  term::off()
+END SUB
+```"#;
+
 /// `abi_function` body for `term::set_foreground` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the
 /// app-vs-console dispatch and the heavy per-member emitters live in the shared code
@@ -39,30 +94,30 @@ pub(crate) fn lower_set_foreground(
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "setForeground",
-        intro: "",
-        desc: "",
-        example: "",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
         expected_arguments: Some("Byte, Byte, Byte"),
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
                 Parameter {
                     name: "r",
-                    desc: "",
+                    desc: "Red channel, 0 to 255.",
                     aliases: &[],
                     ty: ParameterType::Byte,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "g",
-                    desc: "",
+                    desc: "Green channel, 0 to 255.",
                     aliases: &[],
                     ty: ParameterType::Byte,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "b",
-                    desc: "",
+                    desc: "Blue channel, 0 to 255.",
                     aliases: &[],
                     ty: ParameterType::Byte,
                     default: DefaultValue::None,

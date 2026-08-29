@@ -1,0 +1,120 @@
+' Ed448 (RFC 8032 §5.2 PureEd448, empty context) known-answer and adversarial
+' vectors (plan-109-D). Every expected line in golden/build.log comes from an
+' independent oracle — OpenSSL via Python `cryptography` (public keys,
+' deterministic signatures, verdicts; `ed448-pub-1`, `ed448-sig-blank`, and
+' `ed448-sig-1oct` are the RFC 8032 §7.4 published test vectors) — never from
+' this implementation. The malformed inputs follow RFC 8032's decoding rules and
+' the strict-verifier conventions: S ≥ L, a top S byte, a non-canonical y (p+1),
+' unused sign-byte bits, a small-order public key (the identity, whose trivial
+' signature R = identity / S = 0 would otherwise verify), and an off-curve point.
+IMPORT bits
+IMPORT collections
+IMPORT crypto
+IMPORT encoding
+IMPORT errorCode
+IMPORT io
+
+FUNC fill(n AS Integer, v AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    out = collections::append(out, toByte(v))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC flipBit(b AS List OF Byte, idx AS Integer) AS List OF Byte
+  RETURN collections::set(b, idx, toByte(bits::bxor(toInt(collections::get(b, idx)), 1)))
+END FUNC
+
+FUNC code(err AS Error) AS String
+  IF err.code = errorCode::ErrInvalidArgument THEN
+    RETURN "ErrInvalidArgument"
+  END IF
+  RETURN "other=" & toString(err.code)
+END FUNC
+
+FUNC trySign(priv AS List OF Byte, msg AS List OF Byte) AS String
+  LET s AS List OF Byte = crypto::sign(Certificate.Ed448, priv, msg)
+  RETURN encoding::hexEncode(s)
+  TRAP(err)
+    RETURN code(err)
+  END TRAP
+END FUNC
+
+FUNC tryExchange(priv AS List OF Byte, pub AS List OF Byte) AS String
+  LET s AS List OF Byte = crypto::exchange(Certificate.Ed448, priv, pub)
+  RETURN encoding::hexEncode(s)
+  TRAP(err)
+    RETURN code(err)
+  END TRAP
+END FUNC
+
+FUNC v(pub AS List OF Byte, msg AS List OF Byte, sig AS List OF Byte) AS String
+  RETURN toString(crypto::verify(Certificate.Ed448, pub, msg, sig))
+END FUNC
+
+SUB main()
+  LET seed1 AS List OF Byte = encoding::hexDecode("6c82a562cb808d10d632be89c8513ebf6c929f34ddfa8c9f63c9960ef6e348a3528c8a3fcc2f044e39a3fc5b94492f8f032e7549a20098f95b")
+  LET seed2 AS List OF Byte = encoding::hexDecode("c4eab05d357007c632f3dbb48489924d552b08fe0c353a0d4a1f00acda2c463afbea67c5e8d2877c5e3bc397a659949ef8021e954e0a12274e")
+  LET a3 AS List OF Byte = fill(300, 163)
+  LET empty AS List OF Byte = []
+  LET one AS List OF Byte = encoding::hexDecode("03")
+  LET pub1 AS List OF Byte = encoding::hexDecode("5fd7449b59b461fd2ce787ec616ad46a1da1342485a70e1f8a0ea75d80e96778edf124769b46c7061bd6783df1e50f6cd1fa1abeafe8256180")
+  LET pub2 AS List OF Byte = encoding::hexDecode("43ba28f430cdff456ae531545f7ecd0ac834a55d9358c0372bfa0c6c6798c0866aea01eb00742802b8438ea4cb82169c235160627b4c3a9480")
+  LET sigBlank AS List OF Byte = crypto::sign(Certificate.Ed448, seed1, empty)
+  LET sig1 AS List OF Byte = crypto::sign(Certificate.Ed448, seed2, one)
+  LET sigMb AS List OF Byte = crypto::sign(Certificate.Ed448, seed1, a3)
+  io::print("ed448-pub-1=" & encoding::hexEncode(pub1))
+  io::print("ed448-pub-2=" & encoding::hexEncode(pub2))
+  io::print("ed448-sig-blank=" & encoding::hexEncode(sigBlank))
+  io::print("ed448-sig-1oct=" & encoding::hexEncode(sig1))
+  io::print("ed448-sig-multiblock=" & encoding::hexEncode(sigMb))
+  io::print("ed448-verify-blank=" & v(pub1, empty, sigBlank))
+  io::print("ed448-verify-1oct=" & v(pub2, one, sig1))
+  io::print("ed448-verify-multiblock=" & v(pub1, a3, sigMb))
+  io::print("ed448-deterministic=" & toString(crypto::constantTimeEqual(sigBlank, crypto::sign(Certificate.Ed448, seed1, empty))))
+  LET g AS crypto::KeyPair = crypto::generate(Certificate.Ed448)
+  io::print("ed448-gen-len=" & toString(len(g.privateKey)) & "/" & toString(len(g.publicKey)))
+  LET gEmpty AS List OF Byte = crypto::sign(Certificate.Ed448, g.privateKey, empty)
+  LET gShort AS List OF Byte = crypto::sign(Certificate.Ed448, g.privateKey, one)
+  LET gLong AS List OF Byte = crypto::sign(Certificate.Ed448, g.privateKey, a3)
+  io::print("ed448-gen-roundtrip-empty=" & v(g.publicKey, empty, gEmpty))
+  io::print("ed448-gen-roundtrip-short=" & v(g.publicKey, one, gShort))
+  io::print("ed448-gen-roundtrip-long=" & v(g.publicKey, a3, gLong))
+  io::print("ed448-gen-sig-len=" & toString(len(gLong)))
+  io::print("ed448-altered-msg=" & v(pub1, one, sigBlank))
+  io::print("ed448-altered-r=" & v(pub1, empty, flipBit(sigBlank, 0)))
+  io::print("ed448-altered-s=" & v(pub1, empty, flipBit(sigBlank, 57)))
+  io::print("ed448-wrong-key=" & v(pub2, empty, sigBlank))
+  io::print("ed448-sig-len-113=" & v(pub1, empty, collections::mid(sigBlank, 0, 113)))
+  io::print("ed448-sig-len-115=" & v(pub1, empty, collections::append(sigBlank, toByte(0))))
+  io::print("ed448-pub-len-56=" & v(collections::mid(pub1, 0, 56), empty, sigBlank))
+  io::print("ed448-pub-len-58=" & v(collections::append(pub1, toByte(0)), empty, sigBlank))
+  LET sPlusL AS List OF Byte = encoding::hexDecode("f34458ab92c27823558fc58d72c26c219036d6ae49db4ec4e923ca7cffffffffffffffffffffffffffffffffffffffffffffffffffffff3f00")
+  MUT sBig AS List OF Byte = collections::mid(sigBlank, 0, 57)
+  MUT carry AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 57
+    LET sum AS Integer = toInt(collections::get(sigBlank, 57 + i)) + toInt(collections::get(sPlusL, i)) + carry
+    sBig = collections::append(sBig, toByte(bits::band(sum, 255)))
+    carry = bits::sr(sum, 8)
+    i = i + 1
+  END WHILE
+  io::print("ed448-s-plus-l=" & v(pub1, empty, sBig))
+  io::print("ed448-s-topbyte=" & v(pub1, empty, collections::set(sigBlank, 113, toByte(1))))
+  LET nonCanonical AS List OF Byte = encoding::hexDecode("00000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff00")
+  io::print("ed448-noncanonical-y=" & v(nonCanonical, empty, sigBlank))
+  io::print("ed448-sign-byte-bits=" & v(collections::set(pub1, 56, toByte(bits::bor(toInt(collections::get(pub1, 56)), 1))), empty, sigBlank))
+  LET identity AS List OF Byte = collections::set(fill(57, 0), 0, toByte(1))
+  LET zeroSig AS List OF Byte = collections::set(fill(114, 0), 0, toByte(1))
+  io::print("ed448-low-order-pub=" & v(identity, empty, zeroSig))
+  LET offCurve AS List OF Byte = collections::set(fill(57, 2), 56, toByte(0))
+  io::print("ed448-not-on-curve=" & v(offCurve, empty, sigBlank))
+  io::print("ed448-sign-badlen=" & trySign(fill(32, 1), empty))
+  io::print("ed448-exchange-reject=" & tryExchange(g.privateKey, g.publicKey))
+  LET x AS crypto::KeyPair = crypto::convert(KeyConvert.Ed448ToX448, g)
+  LET base AS List OF Byte = collections::set(fill(56, 0), 0, toByte(5))
+  io::print("ed448-convert-invariant=" & toString(crypto::constantTimeEqual(crypto::exchange(Certificate.X448, x.privateKey, base), x.publicKey)))
+END SUB
