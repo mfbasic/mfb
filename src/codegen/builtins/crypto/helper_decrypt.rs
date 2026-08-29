@@ -4,7 +4,7 @@
 //! aad)`: RFC 9180 HPKE single-shot base-mode `Open`. The box must be at least
 //! `Nenc + 16` bytes (`ErrInvalidArgument` otherwise); `enc` is its first `Nenc`
 //! bytes and the rest is the AEAD ciphertext ending in the 16-byte tag. The
-//! recipient's Ed25519 seed is mapped to the KEM private key
+//! recipient's Ed25519 or Ed448 seed is mapped to the KEM private key
 //! (`__crypto_hpkeRecipientPriv`), `Decap` recomputes `dh = DH(skR, enc)` — an
 //! all-zero output (a low-order `enc`) fails closed with `ErrInvalidArgument` —
 //! and `shared_secret = ExtractAndExpand(dh, enc ‖ pkR)`; the same key schedule
@@ -19,7 +19,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"' RFC 9180 HPKE base-mode Open of enc || ct by an Ed25519 recipient.
+r#"' RFC 9180 HPKE base-mode Open of enc || ct by an Ed25519/Ed448 recipient.
 FUNC __crypto_decrypt(cipher AS AsymmetricCipher, recipientPrivateKey AS List OF Byte, box AS List OF Byte, aad AS List OF Byte) AS List OF Byte
   LET nenc AS Integer = __crypto_hpkeNenc(cipher)
   LET total AS Integer = len(box)

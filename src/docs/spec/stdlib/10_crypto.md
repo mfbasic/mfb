@@ -105,18 +105,24 @@ extensions); computation is portable-arithmetic only, identical across targets.
   [[src/codegen/builtins/crypto/helper_ed448_sign.rs:BODY]]
 - **Public-key encryption** — `encrypt`/`decrypt` are **RFC 9180 HPKE**,
   single-shot base mode (`mode_base`, no PSK, empty `info`, sequence number 0),
-  selected by `AsymmetricCipher`: `Ed25519_AES256GCM` = DHKEM(X25519,
-  HKDF-SHA256) `0x0020` / HKDF-SHA256 `0x0001` / AES-256-GCM `0x0002`, and
-  `Ed25519_CHACHA20POLY1305` = the same KEM/KDF with ChaCha20Poly1305 `0x0003`.
-  The recipient's Ed25519 key is mapped to X25519 by the `convert` maps; the
-  wire value is exactly `enc ‖ ct` (`Nenc` = 32, `ct` = ciphertext ‖ 16-byte
-  tag), so it interoperates with any conformant HPKE implementation and the
-  pre-RFC `mfb-box-v1` construction is no longer accepted. `decrypt` fails
-  closed: `ErrAuthenticationFailed` on any tamper / wrong key / wrong suite /
-  wrong `aad` / legacy box, `ErrInvalidArgument` on a box shorter than 48 bytes
+  selected by `AsymmetricCipher`: the `Ed25519_*` suites are DHKEM(X25519,
+  HKDF-SHA256) `0x0020` / HKDF-SHA256 `0x0001` (`Nenc` = 32, `Nsecret` = 32),
+  the `Ed448_*` suites DHKEM(X448, HKDF-SHA512) `0x0021` / HKDF-SHA512 `0x0003`
+  (`Nenc` = 56, `Nsecret` = 64), each with AES-256-GCM `0x0002`
+  (`*_AES256GCM`) or ChaCha20Poly1305 `0x0003` (`*_CHACHA20POLY1305`). The
+  profile is read by explicit property of the selector (`__crypto_hpkeIsX448`,
+  `__crypto_hpkeIsAesGcm`), never by ordinal arithmetic. The recipient's
+  Ed25519/Ed448 signing key is mapped to X25519/X448 by the `convert` maps; the
+  wire value is exactly `enc ‖ ct` (`ct` = ciphertext ‖ 16-byte tag), so it
+  interoperates with any conformant HPKE implementation and the pre-RFC
+  `mfb-box-v1` construction is no longer accepted. `decrypt` fails closed:
+  `ErrAuthenticationFailed` on any tamper / wrong key / wrong suite (including
+  the other curve's suite) / wrong `aad` / legacy box, `ErrInvalidArgument` on
+  a box shorter than `Nenc` + 16 bytes (48 / 72), a wrong-length recipient key,
   or a low-order `enc`. Proven against the RFC's Appendix A vectors and both
-  ways against an independent implementation
+  ways, for all four profiles, against an independent implementation
   (`tests/rt_crypto_hpke_interop.rs`).
+  [[src/codegen/builtins/crypto/helper_hpke_profile.rs:BODY]]
   [[src/codegen/builtins/crypto/helper_hpke_seal_with.rs:BODY]]
   [[src/codegen/builtins/crypto/helper_hpke_key_schedule.rs:BODY]]
 - **Key agreement** — `Certificate.X25519` (RFC 7748, 32-byte keys) and
@@ -177,7 +183,7 @@ lets an intermediate cross `2^63`. Poly1305 uses a 5 × 26-bit limb representati
   `toString` / diagnostics are not security boundaries. Never log a `KeyPair`.
 - **Determinism.** Key generation is random and ECDSA signatures are
   non-deterministic (fresh nonce per call), so those outputs are not reproducible
-  across runs; only Ed25519 signing is. Verification of a given
+  across runs; only Ed25519 and Ed448 signing are. Verification of a given
   `(key, message, signature)` is total and identical everywhere.
 
 ## See Also

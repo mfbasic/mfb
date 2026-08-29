@@ -140,14 +140,14 @@ pub(crate) fn register(r: &mut Registry) {
             },
             EnumVariant {
                 name: "X25519",
-                description: "X25519 (Curve25519 ECDH, RFC 7748) key-agreement key pair (32-byte keys) — not a signing key; use it with `crypto::exchange`. `crypto::encrypt`/`crypto::decrypt` take Ed25519 keys (converted internally).",
+                description: "X25519 (Curve25519 ECDH, RFC 7748) key-agreement key pair (32-byte keys) — not a signing key; use it with `crypto::exchange`. `crypto::encrypt`/`crypto::decrypt` take Ed25519 (or Ed448) keys, converted internally.",
                 advisory: None,
             },
             // Curve448 (plan-109-C): appended after X25519 so the earlier ordinals stay
             // fixed (X448=5).
             EnumVariant {
                 name: "X448",
-                description: "X448 (Curve448 ECDH, RFC 7748) key-agreement key pair (56-byte keys) — not a signing key; use it with `crypto::exchange`. `KeyConvert.Ed448ToX448` derives one from an Ed448 pair.",
+                description: "X448 (Curve448 ECDH, RFC 7748) key-agreement key pair (56-byte keys) — not a signing key; use it with `crypto::exchange`. `KeyConvert.Ed448ToX448` derives one from an Ed448 pair; the `Ed448_*` suites of `crypto::encrypt`/`crypto::decrypt` do that conversion internally.",
                 advisory: None,
             },
             // Ed448 (plan-109-D): appended after X448 (Ed448=6).
@@ -265,11 +265,12 @@ pub(crate) fn register(r: &mut Registry) {
     });
     // The asymmetric-cipher suite selector for `crypto::encrypt`/`crypto::decrypt`:
     // an RFC 9180 HPKE ciphersuite (base mode). Ordinals are declaration order
-    // (Ed25519_AES256GCM=0, Ed25519_CHACHA20POLY1305=1); the pure-MFB
-    // `__crypto_hpke*` profile helpers read each value's KEM/KDF/AEAD ids by
-    // explicit property (never ordinal arithmetic). Both take Ed25519 recipient keys
-    // (converted to X25519 internally). No P* (NIST-EC ECDH) variants — EC-ECDH
-    // isn't built.
+    // (Ed25519_AES256GCM=0, Ed25519_CHACHA20POLY1305=1, Ed448_AES256GCM=2,
+    // Ed448_CHACHA20POLY1305=3); the pure-MFB `__crypto_hpke*` profile helpers read
+    // each value's KEM/KDF/AEAD ids by explicit property (never ordinal
+    // arithmetic). The `Ed25519_*` suites take Ed25519 recipient keys (converted to
+    // X25519), the `Ed448_*` suites Ed448 keys (converted to X448). No P* (NIST-EC
+    // ECDH) variants — EC-ECDH isn't built.
     pkg.add_enum(RegistryEnum {
         name: "AsymmetricCipher",
         export: true,
@@ -282,6 +283,17 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "Ed25519_CHACHA20POLY1305",
                 description: "RFC 9180 HPKE base mode: DHKEM(X25519, HKDF-SHA256) + HKDF-SHA256 + ChaCha20Poly1305, over Ed25519 recipient keys (converted to X25519). Wire value `enc(32) ‖ ct`.",
+                advisory: None,
+            },
+            // X448 suites (plan-109-F): appended so the X25519 ordinals stay fixed.
+            EnumVariant {
+                name: "Ed448_AES256GCM",
+                description: "RFC 9180 HPKE base mode: DHKEM(X448, HKDF-SHA512) + HKDF-SHA512 + AES-256-GCM, over Ed448 recipient keys (converted to X448). Wire value `enc(56) ‖ ct`.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Ed448_CHACHA20POLY1305",
+                description: "RFC 9180 HPKE base mode: DHKEM(X448, HKDF-SHA512) + HKDF-SHA512 + ChaCha20Poly1305, over Ed448 recipient keys (converted to X448). Wire value `enc(56) ‖ ct`.",
                 advisory: None,
             },
         ],
@@ -544,10 +556,11 @@ pub(crate) fn register(r: &mut Registry) {
     helper_ed448_sign::register(&mut pkg);
     helper_ed448_verify::register(&mut pkg);
     // Asymmetric public-key encryption: RFC 9180 HPKE single-shot base mode
-    // (plan-109-E). Pure software over the X25519 ladder, the Ed25519→X25519
-    // conversion helpers, the hash-generic HMAC/HKDF-expand cores, and the unified
-    // `seal`/`open`: `__crypto_hpkeLabeledExtract`/`Expand` are the RFC labeled KDF,
-    // `__crypto_hpke{KemId,…,SuiteId}` the per-suite profile properties,
+    // (plan-109-E, X448 suites plan-109-F). Pure software over the X25519/X448
+    // ladders, the Ed25519→X25519 / Ed448→X448 conversion helpers, the hash-generic
+    // HMAC/HKDF-expand cores, and the unified `seal`/`open`:
+    // `__crypto_hpkeLabeledExtract`/`Expand` are the RFC labeled KDF,
+    // `__crypto_hpke{IsX448,IsAesGcm,KemId,…,SuiteId}` the per-suite profile properties,
     // `__crypto_hpke{Dh,Base,RecipientPub,RecipientPriv,ExtractAndExpand}` the DHKEM
     // layer, `__crypto_hpkeKeySchedule` the base key schedule, and
     // `__crypto_hpkeSealWith` the deterministic seal seam `__crypto_encrypt` feeds a
@@ -616,7 +629,7 @@ pub(crate) fn register(r: &mut Registry) {
     // rewrite onto `__crypto_exchange`.
     func_exchange::register(&mut pkg);
     // Asymmetric public-key encryption. `encrypt`/`decrypt` are RFC 9180 HPKE
-    // base-mode `Seal`/`Open` over Ed25519 recipient keys, selected by
+    // base-mode `Seal`/`Open` over Ed25519 or Ed448 recipient keys, selected by
     // `AsymmetricCipher`. Pure-MFB rewrites onto `__crypto_encrypt`/`__crypto_decrypt`
     // — no platform library, so (like `hmac`/`hkdf`/`convert`) they are NOT in any
     // backend's `runtime_calls`.

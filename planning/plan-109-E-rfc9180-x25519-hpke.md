@@ -116,7 +116,7 @@ VERIFIED 2026-08-29 at the oracle layer (A.1: derived `skE`/`pkE`/`skR`/`pkR`,
 `ct` — all byte-exact in the Python oracle; `pkE`, `ct`, and `Open` in the Rust
 oracle); MFB's intermediates are exercised through the oracle-produced
 `independent-*` boxes it opens (any wrong intermediate fails the AEAD open).
-Commit: —
+Commit: 8098e81f8
 
 ### Phase 2 — public one-shot replacement and interop
 
@@ -147,7 +147,8 @@ output; tamper and legacy boxes fail closed with the documented errors.
 VERIFIED 2026-08-29: fixture `diff` clean against the oracle (`ALL_MATCH`);
 `cargo test --test rt_crypto_hpke_interop`: 2 passed (both directions, both
 suites).
-Commit: —
+Commit: 8098e81f8 (both phases landed in one commit; the letter's boxes were
+ticked in it, the hashes recorded here in the next commit per the skill's rule)
 
 ## Validation Plan
 
@@ -157,6 +158,18 @@ lengths, corrupt enc/tag/body, wrong recipient, and all-zero DH. Then full
 `cargo test`, release runtime acceptance, all-target artifact gate with proven
 regen, supported-target execution, doc render/citation checks, and both mandated
 rustfmt passes.
+
+### Validation ledger (2026-08-29, at `8098e81f8`)
+
+| Check | Command | Result |
+|---|---|---|
+| Oracle pinned to the RFC | `python3 /tmp/p109-hpke-oracle.py` (A.1 every intermediate; A.2 ct) | all asserts pass |
+| Rust oracle pinned to the RFC | `cargo test --test rt_crypto_hpke_interop hpke_rust_side_reproduces_rfc9180_a1` | ok |
+| MFB opens/produces interoperable boxes | `cargo test --test rt_crypto_hpke_interop` | 2 passed |
+| Fixture vs oracle | `tests/rt-behavior/crypto/crypto-hpke-x25519-valid` release output `diff /tmp/p109-hpke-expected.txt` | `ALL_MATCH` (26 lines incl. `legacy-aes`/`legacy-chacha` → `ErrAuthenticationFailed`) |
+| Unit tests | `cargo test --bin mfb` | all passed (registry census 20 functions, 4 `AsymmetricCipher` after F) |
+| Goldens | `scripts/sync-goldens.sh target/release/mfb 'rt-behavior/crypto/*' 'byte-identity/crypto' 'rt-error/crypto/*' 'syntax/crypto/*' 'syntax/security/bug96_audit_tls_http_crypto'` + `regen-ncodesum.sh` + `/tmp/p109-regen-ec.sh` | synced; filtered `test-accept.sh` 0 mismatches |
+| Whole-plan gates | `cargo test --no-fail-fast`, `artifact-gate.sh target/release/mfb all`, full `test-accept.sh`, `mfb test tests/acceptance` | recorded in plan-109-F's ledger (closeout letter) |
 
 ## Open Decisions
 

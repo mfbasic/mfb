@@ -1553,10 +1553,10 @@ EdDSA) — are usable with `crypto::sign(type, …)` and `crypto::verify(type, �
 that same `type`. `X25519` and `X448` produce Curve25519 / Curve448 ECDH key-agreement
 pairs (RFC 7748) for `crypto::exchange`; they are **not** signing keys, so
 `sign`/`verify` reject them with `ErrInvalidArgument`. Note that
-`crypto::encrypt`/`crypto::decrypt` take **Ed25519** keys (converting them to X25519
-internally, as `crypto::convert` does), so a directly generated `X25519`/`X448` pair
-is the raw Diffie-Hellman building block for `crypto::exchange` rather than a direct
-input to the asymmetric-encryption members.
+`crypto::encrypt`/`crypto::decrypt` take **Ed25519** or **Ed448** keys (converting
+them to X25519 / X448 internally, as `crypto::convert` does), so a directly
+generated `X25519`/`X448` pair is the raw Diffie-Hellman building block for
+`crypto::exchange` rather than a direct input to the asymmetric-encryption members.
 
 **Encodings and sizes.** Every field is raw big-endian bytes — no PEM, no
 base64, no DER wrapper on the key material itself. For the NIST curves the
