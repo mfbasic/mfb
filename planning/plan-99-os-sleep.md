@@ -394,53 +394,108 @@ macOS/Linux. **MET** — box 2230 `os_sleep_negative_rt.exe` now prints
 `Error: 7-705-0002` then the message (was `Error: ` then the message); macOS host
 prints the same with `[exit 255]`, and `linux-x86_64` glibc re-ran 4/4 green after
 the change.
-Commit: ac231d499 (Phase 1) + this one
+Commit: 9332abd4b
 
 ### Phase 2 — Remove `thread::sleep` + migrate (largest blast radius last)
 
-- [ ] Rewrite every Phase-0 caller to `os::sleep`.
-- [ ] Delete the `thread::sleep` source surface, direction split, dispatch arms,
-      and both specs (§4.4).
-- [ ] Migrate `thread-sleep-negative-rt` → covered by `os-sleep-negative-rt`
-      (remove the old fixture); migrate `thread-sleep-worker-cancel-rt` →
-      `os-sleep-worker-cancel-rt` (remove the old). Update any golden that named
-      `thread.sleep`/`thread.sleepWorker`.
-- [ ] Add a compile-error fixture: `thread::sleep(t, 1)` → unknown member.
-- [ ] Docs: remove `src/docs/man/builtins/thread/sleep.md`; add
-      `src/docs/man/builtins/os/sleep.md` (per `.ai/man_template.md`, via
-      `scripts/update_man.sh`). Update the `thread` and `os` package overview pages.
-- [ ] Spec: in `memory/04_arenas.md` change `+8 reserved` → `+8 workerThread`
-      (TCB back-pointer, 0 on the main thread); remove the sleep entries from
-      `threading/06_thread-runtime-helpers.md`; add `os::sleep` to
-      `stdlib/14_os.md`. Update the `thread` man overview + error table.
+- [x] Rewrite every Phase-0 caller to `os::sleep`: the two
+      `tools/thread-package-sources` package sources (`thread_runtime_workers`'s
+      `sleepThenReturn`/`sleepUntilCancel`, `thread_cover_worker`'s coverage row),
+      `tests/byte-identity/thread/src/main.mfb`, and the embedded program in
+      `tests/codegen_thread_c_return_x86_64.rs`. Re-ran
+      `scripts/sync-package-mfp.sh target/release/mfb` for the committed `.mfp`
+      copies (see Correction 7).
+- [x] Delete the `thread::sleep` source surface (`thread/mod.rs` member +
+      `sleep_params`), the `builder_values` direction split, the `sleepWorker`
+      companion-symbol emission in `builder/mod.rs`, the `Nothing`-return entry in
+      `builder_value_semantics.rs`, both helper bodies
+      (`lower_thread_sleep_helper`, `lower_thread_sleep_worker_helper`) and
+      `lowering::lower_sleep`, the per-target import arms, and the
+      `thread.sleep`/`thread.sleepWorker` rows in all three runtime-call surfaces.
+      No specs to delete — they are derived (Correction 1).
+- [x] Migrate the fixtures: the four `thread-sleep-*` rt fixtures are removed
+      (`tests/rt-behavior/threads/thread-sleep-{parent,worker,worker-cancel}-rt`,
+      `tests/rt-error/threads/thread-sleep-negative-rt`), each covered by its
+      Phase-1 `os` counterpart. `func_thread_sleep_valid` +
+      `func_thread_sleep_worker_valid` merge into `tests/syntax/os/func_os_sleep_valid`
+      (one spelling, both contexts) and `func_thread_sleep_invalid` splits into
+      `tests/syntax/os/func_os_sleep_invalid` (arity/type negatives) and the
+      unknown-member fixture below. Goldens regenerated with `sync-goldens.sh`.
+- [x] Add a compile-error fixture: `tests/syntax/threads/func_thread_sleep_removed`
+      calls `thread::sleep` on a parent AND a worker handle; both produce
+      `SYMBOL_UNKNOWN_IDENTIFIER: Built-in package `thread` does not export
+      `thread.sleep``.
+- [x] ~~Docs: remove `src/docs/man/builtins/thread/sleep.md`; add
+      `src/docs/man/builtins/os/sleep.md` via `scripts/update_man.sh`~~ — moot:
+      that tree and script are retired (Correction 1). The man page IS the
+      descriptor: `os::sleep`'s intro/desc/example live in `func_sleep.rs`, and
+      `mfb man os sleep` renders them.
+- [x] Spec: `memory/04_arenas.md` `+8 reserved` → `+8 workerThread` with a
+      paragraph on why the pinned current-thread register cannot serve;
+      `threading/06_thread-runtime-helpers.md` drops both sleep symbols, the
+      direction-split row, and the `thread::sleep` section, gaining a
+      "Sleeping inside a worker" section; `language/16_threads.md` drops both
+      signatures and re-states the semantics on `os::sleep` (including the
+      cancellation-point list); `language/18_builtin-functions.md` moves `sleep`
+      from the `thread` list to the `os` list; `stdlib/14_os.md` gains a
+      "Blocking the calling thread (sleep)" section and two error-table rows.
 
-Acceptance: `rg 'thread\.sleep\|thread::sleep\|sleepWorker' src/ tests/ src/docs`
+Acceptance: `rg 'thread\.sleep|thread::sleep|sleepWorker' src/ tests/ src/docs`
 returns only intentional history/removal references; `mfb man thread` shows no
-`sleep`; `mfb man os sleep` renders; full `cargo test` + acceptance suite green
-on all four targets.
+`sleep`; `mfb man os sleep` renders; full `cargo test` + acceptance suite green on
+all four targets. **MET:**
+
+- Census after removal (`rg -n 'thread\.sleep|thread::sleep|sleepWorker' src/ tests/`):
+  the only hits are the deliberate ones — the `func_thread_sleep_removed` fixture
+  (its source and its golden diagnostic), the `thread/tests.rs` assertions that
+  `thread.sleep`/`thread.sleepWorker` resolve to nothing, and the prose in
+  `threading/06_thread-runtime-helpers.md` / `language/16_threads.md` that says the
+  call no longer exists.
+- `mfb man thread | grep -i sleep` → no match; `mfb man os | grep -i sleep` →
+  `os::sleep  Block the calling thread for a number of milliseconds`;
+  `mfb man os sleep` renders the full page.
+- `cargo test --no-fail-fast` — see Validation Plan.
+- `scripts/test-accept.sh` and `scripts/artifact-gate.sh all` — see Validation Plan.
+
 Commit: —
 
 ## Validation Plan
 
-- Tests: three new `os` fixtures (main delay, worker cancel, negative arg); a new
-  unknown-member compile-error fixture for `thread::sleep`; removal of the two old
-  `thread`-sleep fixtures. Unit tests in `os.rs` for `os.sleep` resolution
-  (`rt(SLEEP, &["Integer"]) == Some("Nothing")`, arity/type negatives), mirroring
-  the deleted `resolve_sleep_both_handle_sides`.
-- Coverage check: the new `os.sleep` helper is exercised by the release-subprocess
-  rt fixtures (per `coverage-measurement-mechanics` — integration coverage comes
-  from the uncaptured release binary, not `--bin mfb` unit tests); confirm the
-  fixtures are in the acceptance denominator.
-- Runtime proof: a program that `os::sleep(100)`s on the main thread and prints
-  monotonic elapsed ≥ 100 ms; a second that spawns a worker sleeping 5 s, cancels
-  after 50 ms, and observes `ErrInterrupted` promptly.
-- Doc sync: `mfb man os sleep`, `mfb man thread` (no sleep), `mfb spec memory
-  arenas` (+8 role), `mfb spec threading`, `mfb spec stdlib` os. Run
-  `.ai/specifications.md` sync + `scripts/update_man.sh`.
-- Acceptance: full `cargo test` (never a single module — AGENTS.md), the
-  byte-identity/acceptance golden harness on all four targets (expect and review
-  the diffs named in §3), and `rustup run 1.96.0 cargo fmt --all` + the
-  `repository/` fmt at session end.
+Everything below was run; the results are recorded inline.
+
+- **Tests.** Four new `os` fixtures (main delay, worker completes, worker cancel,
+  negative arg) replacing the four `thread-sleep-*` ones; `func_os_sleep_valid` /
+  `func_os_sleep_invalid` replacing the three `thread` sleep syntax fixtures; a new
+  `func_thread_sleep_removed` unknown-member fixture; and the unit test
+  `codegen::builtins::os::tests::sleep_resolves_handle_free` replacing the deleted
+  `resolve_sleep_both_handle_sides`, with `thread/tests.rs` now asserting that
+  `thread.sleep`/`thread.sleepWorker` resolve to nothing.
+- **Coverage.** The `os.sleep` body is exercised by the release-subprocess rt
+  fixtures, which are in the acceptance denominator (`test-accept.sh` ran all four;
+  the harness reports `1275 test(s) ran`).
+- **Runtime proof.** `os-sleep-main-rt` prints `slept ok` only when a monotonic
+  clock shows ≥ 40 ms elapsed for a 50 ms sleep; `os-sleep-worker-rt` proves an
+  uncancelled 200 ms worker sleep runs to completion; `os-sleep-worker-cancel-rt`
+  cancels a 5000 ms worker sleep after ~50 ms and requires `ErrInterrupted`.
+  Cross-target results are in the Phase 1 table (macOS host, linux-x86_64
+  glibc+musl, linux-riscv64 musl, windows-x86_64 on box 2230). Diagnostic timings
+  measured on box 2230 after the Win64 shim fixes: main `os::sleep(1500)` → 1505 ms,
+  main `os::sleep(50)` → 51 ms, worker `os::sleep(200)` → 205 ms.
+- **Doc sync.** `mfb man os sleep` renders the authored page; `mfb man thread |
+  grep -i sleep` → no match; `mfb man os | grep -i sleep` → the summary row.
+  `mfb spec memory arenas` documents `+8 workerThread`; `mfb spec threading` has
+  the "Sleeping inside a worker" section and no sleep helper symbols;
+  `mfb spec stdlib os` has the sleep section and two error rows;
+  `mfb spec language threads` / `builtin-functions` re-point to `os::sleep`.
+  `cargo test --bin mfb citation` (spec citations resolve) — 5 passed.
+- **Acceptance.** `scripts/test-accept.sh target/release/mfb /tmp/p99-accept2` →
+  `acceptance tests passed (1275 test(s) ran)`, 0 mismatches.
+- **Byte identity.** `scripts/artifact-gate.sh target/release/mfb all` →
+  `1259 tests, 1406 build(s), 1732 golden(s) checked, 0 diff(s)`. The 125 diffs it
+  reported before regeneration were classified against a main-tip baseline run of
+  the same command (`0 diff(s)`), so every one was this plan's (Correction 7).
+- **Full suite.** `cargo test --no-fail-fast` — green (see Phase 2 commit).
+- **Formatting.** `rustup run 1.96.0 cargo fmt --all` plus the `repository/` pass.
 
 ## Open Decisions
 
@@ -540,6 +595,30 @@ Commit: —
    pre-existing and unrelated to sleep at main tip 5f17afd7c (the untouched
    `thread-sleep-negative-rt`, built by the main-tip compiler, prints the same on box
    2230). Tracked as its own defect — see Phase 1.5.
+
+7. **Two golden-regeneration steps the plan never mentions, both required.**
+
+   - **Committed `.mfp` copies.** Editing a `tools/thread-package-sources/*`
+     package source leaves every consumer's committed `.mfp` stale, and a stale
+     `.mfp` is silently mis-lowered. `scripts/sync-package-mfp.sh
+     target/release/mfb` updated **26** copies for this plan. It also updated 3
+     that were ALREADY stale at main tip — `regex_thread_workers`,
+     `union_xfer_workers`, `union_xfer_stateless_workers`. Verified pre-existing by
+     running the same script in the main-tip worktree (`updated 3, unchanged 113`);
+     they are kept regenerated rather than reverted, since a knowingly-stale
+     committed artifact is the bug that memo warns about. The script's 6
+     `build-failed` rows are identical at main tip (negative fixtures).
+   - **`.ncode`/`.ncodesum` goldens outside `tests/byte-identity/`.**
+     `scripts/regen-ncodesum.sh` only sweeps `tests/byte-identity/*/golden/`, so
+     the 8 diffs under `rt-behavior/crypto/crypto-ec-valid` and
+     `syntax/app/macos-app-mode-*` stayed red after a full regen. Added
+     `scripts/regen-outside-ncode.sh` (same contract, handles the `--app` target
+     suffix) so the next codegen change does not rediscover this.
+
+   Diff classification, per `.ai/testing-gates.md`: the gate was run at main tip
+   first — `artifact-gate.sh all` → **0 diff(s)** — so all 125 diffs on this branch
+   are this plan's, and regenerating them is correct rather than masking drift. The
+   bulk are the Phase-1.5 entry-stub instruction swap, which every binary carries.
 
 ## Summary
 

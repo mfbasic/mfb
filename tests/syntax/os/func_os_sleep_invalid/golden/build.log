@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/os/func_os_sleep_invalid
+   4 | 
+   5 | FUNC main AS Integer
+   6 |   os::sleep()
+     | ^
+tests/syntax/os/func_os_sleep_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `os.sleep` has 0 argument(s), expected 1.
+   5 | FUNC main AS Integer
+   6 |   os::sleep()
+   7 |   os::sleep("bad")
+     | ^
+tests/syntax/os/func_os_sleep_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `os.sleep` has argument type(s) (String), expected Integer.
+   6 |   os::sleep()
+   7 |   os::sleep("bad")
+   8 |   os::sleep(0, 1)
+     | ^
+tests/syntax/os/func_os_sleep_invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `os.sleep` has 2 argument(s), expected 1.
+[exit 1]

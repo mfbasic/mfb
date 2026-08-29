@@ -49,7 +49,7 @@ static LEGACY_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     // `_mfb_rt_strings_*` helper is ever emitted, bug-120.1). The dead spec
     // table that used to sit beside this comment is gone (bug-326-A1).
     // `thread` is migrated: its specs (the 13 descriptor members plus the
-    // `emit`/`read`/`sleepWorker`/`*Resource`/`drop` `os_aliases`) are DERIVED from
+    // `emit`/`read`/`*Resource`/`drop` `os_aliases`) are DERIVED from
     // the registry (`registry::runtime_specs`) and merged in by
     // `supported_helper_specs`, so no hand-written `THREAD_*_SPEC` rows here.
     // `net` is migrated: its specs (including the `connectTcpAddr`/`pollList` code
@@ -147,7 +147,7 @@ mod tests {
         // resolve them during code emission and object planning.
         const CODE_LAYER_ONLY_CALLS: &[&str] = &[
             // `thread`'s worker/parent + resource-plane code forms (`emit`/`read`/
-            // `sleepWorker`/`transferResource`/`acceptResource`/`emitResource`/
+            // `transferResource`/`acceptResource`/`emitResource`/
             // `readResource`) and the `drop` scope-cleanup op are NOT listed: since the
             // migration to `Body::abi_function`/`abi_function_aliased` they are registered
             // `os_aliases` of an `abi_function` member (`emit`→`send`, `read`→`receive`,

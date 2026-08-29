@@ -1,0 +1,44 @@
+{
+  "project": "func_os_sleep_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "os", "line": 6 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "worker",
+      "line": 8,
+      "params": [
+      { "name": "t", "type": "ThreadWorker OF Nothing TO Integer", "default": null, "line": 8 },
+      { "name": "seed", "type": "Integer", "default": null, "line": 8 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.sleep", "arguments": [{ "kind": "number", "value": "50" }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "seed" }, "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.sleep", "arguments": [{ "kind": "number", "value": "50" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.sleep", "arguments": [{ "kind": "number", "value": "0" }] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
+      ]
+    }
+    ]
+  }
+  ]
+}

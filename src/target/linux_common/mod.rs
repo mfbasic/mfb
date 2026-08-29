@@ -220,7 +220,6 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "thread.cancel",
     "thread.send",
     "thread.poll",
-    "thread.sleep",
     "thread.receive",
     "thread.transferResource",
     "thread.acceptResource",

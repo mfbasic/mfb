@@ -1,3 +1,4 @@
+IMPORT os
 IMPORT thread
 IMPORT fs
 
@@ -28,8 +29,9 @@ EXPORT ISOLATED FUNC coverWorker(w AS ThreadWorker OF String RES fs::File TO Int
   thread::send(w, "alpha")
   thread::send(w, "beta", 0)
 
-  ' sleep worker overload — a plain wall-clock delay on the worker handle.
-  thread::sleep(w, 0)
+  ' plan-99: sleeping is `os::sleep(ms)` — handle-free, so it is not a `thread::`
+  ' overload any more and needs no coverage row here beyond the call itself.
+  os::sleep(0)
 
   ' accept worker overloads (2) — each yields an owned File on the resource plane.
   RES af1 AS fs::File = thread::accept(w)

@@ -46,9 +46,10 @@ const THREAD_WORKERS_MFP: &str =
 // `thread::start` with both queue limits emits the spawn path (pthread_attr_init /
 // setstacksize / create, plus pthread_mutex_init + pthread_cond_init per queue),
 // the timed `receive` emits the pthread_cond_timedwait deadline loop, and
-// `thread::sleep` emits nanosleep.
+// `os::sleep` emits nanosleep.
 const SOURCE: &str = "\
 IMPORT io\n\
+IMPORT os\n\
 IMPORT thread\n\
 IMPORT thread_runtime_workers\n\
 \n\
@@ -56,7 +57,7 @@ FUNC main AS Integer\n\
 \x20 LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::emitThreeBuffered, \"seed\", 1, 3)\n\
 \x20 LET first AS String = thread::receive(t, 1000)\n\
 \x20 io::print(first)\n\
-\x20 thread::sleep(t, 1)\n\
+\x20 os::sleep(1)\n\
 \x20 RETURN 0\n\
 END FUNC\n";
 

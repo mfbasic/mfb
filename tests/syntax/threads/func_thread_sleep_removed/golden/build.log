@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/syntax/threads/func_thread_sleep_removed
+uses thread_workers - [Unsigned]
+   8 | 
+   9 | ISOLATED FUNC worker(w AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer
+  10 |   thread::sleep(w, 50)
+     | ^
+tests/syntax/threads/func_thread_sleep_removed/src/main.mfb:10 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `thread` does not export `thread.sleep`.
+  14 | FUNC main AS Integer
+  15 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+  16 |   thread::sleep(t, 50)
+     | ^
+tests/syntax/threads/func_thread_sleep_removed/src/main.mfb:16 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `thread` does not export `thread.sleep`.
+[exit 1]

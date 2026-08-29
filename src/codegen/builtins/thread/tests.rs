@@ -17,7 +17,6 @@ const ALL_CALLS: &[&str] = &[
     "thread.cancel",
     "thread.send",
     "thread.poll",
-    "thread.sleep",
     "thread.receive",
     "thread.isCancelled",
     "thread.transfer",
@@ -31,7 +30,7 @@ fn registered_on_the_clean_room_registry() {
     let pkg = registry()
         .resolve_package("thread")
         .expect("thread package");
-    assert_eq!(pkg.functions().len(), 13);
+    assert_eq!(pkg.functions().len(), 12);
 }
 
 #[test]
@@ -44,7 +43,6 @@ fn membership_via_generic_registry() {
     for n in [
         "thread.emit",
         "thread.read",
-        "thread.sleepWorker",
         "thread.transferResource",
         "thread.acceptResource",
         "thread.emitResource",
@@ -155,10 +153,13 @@ fn send_receive_sleep_either_kind() {
     );
     assert_eq!(rt("thread.receive", &[t, "String"]), None);
 
-    assert_eq!(rt("thread.sleep", &[t, "Integer"]), Some("Nothing".into()));
-    assert_eq!(rt("thread.sleep", &[w, "Integer"]), Some("Nothing".into()));
-    assert_eq!(rt("thread.sleep", &[t, "String"]), None);
-    assert_eq!(rt("thread.sleep", &[t]), None);
+    // plan-99: `thread::sleep` is gone — the handle-free `os::sleep` replaced both
+    // handle sides. It resolves as an unknown member on either side and at every
+    // arity, which is what makes a stale `thread::sleep(t, ms)` a compile error.
+    assert_eq!(rt("thread.sleep", &[t, "Integer"]), None);
+    assert_eq!(rt("thread.sleep", &[w, "Integer"]), None);
+    assert!(registry().owning_package("thread.sleep").is_none());
+    assert!(registry().owning_package("thread.sleepWorker").is_none());
 }
 
 #[test]

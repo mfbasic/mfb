@@ -1,6 +1,7 @@
 IMPORT fs
 IMPORT io
 IMPORT strings
+IMPORT os
 IMPORT thread
 
 EXPORT TYPE ReturnItem
@@ -191,16 +192,17 @@ EXPORT ISOLATED FUNC failWithError(t AS ThreadWorker OF String TO Integer, seed 
   FAIL error(77050099, "worker boom")
 END FUNC
 
-' plan-91-B: worker-side thread::sleep. `sleepThenReturn` runs the sleep to
-' completion (no cancellation) and returns a sentinel. `sleepUntilCancel` starts a
-' long sleep the parent cancels mid-flight; the worker-side sleep wakes early and
+' plan-99: worker-side sleeping is `os::sleep(ms)` — handle-free, and
+' cancellation-aware because it runs inside a worker. `sleepThenReturn` runs the
+' sleep to completion (no cancellation) and returns a sentinel. `sleepUntilCancel`
+' starts a long sleep the parent cancels mid-flight; the sleep wakes early and
 ' raises ErrInterrupted (77050009), which propagates as the worker's outcome.
 EXPORT ISOLATED FUNC sleepThenReturn(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
-  thread::sleep(t, 200)
+  os::sleep(200)
   RETURN 5
 END FUNC
 
 EXPORT ISOLATED FUNC sleepUntilCancel(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
-  thread::sleep(t, 5000)
+  os::sleep(5000)
   RETURN 0
 END FUNC

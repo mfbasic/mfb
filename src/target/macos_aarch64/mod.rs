@@ -145,7 +145,6 @@ impl NativeBackend for Backend {
                 "thread.cancel",
                 "thread.send",
                 "thread.poll",
-                "thread.sleep",
                 "thread.receive",
                 "thread.transferResource",
                 "thread.acceptResource",

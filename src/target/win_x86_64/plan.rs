@@ -448,8 +448,9 @@ impl NativePlanPlatform for Platform {
                     import("SleepConditionVariableSRW", KERNEL32, required_by),
                     import("SwitchToThread", KERNEL32, required_by),
                     import("GetSystemTimePreciseAsFileTime", KERNEL32, required_by),
-                    // plan-91-A: the parent `thread::sleep` helper maps nanosleep
-                    // to Sleep(dwMilliseconds).
+                    // The thread set keeps `Sleep`: `emit_windows_thread_call`
+                    // reaches it from the shared relative-`nanosleep` block, and
+                    // the queue helpers' backoff uses it directly.
                     import("Sleep", KERNEL32, required_by),
                     // `thread::openStdIn`/`closeStdIn` drive the same stdin-broadcast
                     // log as `io.input` (they share the broadcast machinery). Its
