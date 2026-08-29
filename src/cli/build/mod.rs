@@ -694,7 +694,10 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     // Host run: execute the freshly linked binary, then remove
                     // the whole temp directory regardless of outcome.
                     let status = match host_test_executable(&executable_paths) {
-                        Some(path) => run_test_binary(path),
+                        Some(path) => {
+                            let runner = std::env::var("MFB_TEST_RUNNER").ok();
+                            run_test_binary(path, runner.as_deref())
+                        }
                         None => {
                             eprintln!("error: mfb test produced no executable to run");
                             Err(())
@@ -2261,11 +2264,11 @@ mod tests {
     #[cfg(unix)]
     fn run_test_binary_maps_every_exit_status() {
         // Exit 0 -> Ok (the success arm).
-        assert!(run_test_binary(Path::new("/usr/bin/true")).is_ok());
+        assert!(run_test_binary(Path::new("/usr/bin/true"), None).is_ok());
         // Non-zero exit -> Err (the `Ok(_) => Err(())` arm).
-        assert!(run_test_binary(Path::new("/usr/bin/false")).is_err());
+        assert!(run_test_binary(Path::new("/usr/bin/false"), None).is_err());
         // Spawn failure on a nonexistent path -> Err (the `Err(err)` arm).
-        assert!(run_test_binary(Path::new("/no/such/binary-xyzzy-42")).is_err());
+        assert!(run_test_binary(Path::new("/no/such/binary-xyzzy-42"), None).is_err());
     }
 
     /// An empty project directory has no `coverage.covmap.json`, so `read_covmap`

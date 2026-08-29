@@ -74,9 +74,9 @@ pub(super) fn host_test_executable(paths: &[PathBuf]) -> Option<&Path> {
 
 /// Run the freshly built test executable, inheriting its stdio, and map its exit
 /// status to `mfb test`'s result: success (all cases passed) or failure.
-pub(super) fn run_test_binary(path: &Path) -> Result<(), ()> {
-    let mut command = match std::env::var("MFB_TEST_RUNNER") {
-        Ok(runner) => {
+pub(super) fn run_test_binary(path: &Path, runner: Option<&str>) -> Result<(), ()> {
+    let mut command = match runner {
+        Some(runner) => {
             let mut parts = runner.split_ascii_whitespace();
             let Some(program) = parts.next() else {
                 eprintln!("error: MFB_TEST_RUNNER is empty");
@@ -86,7 +86,7 @@ pub(super) fn run_test_binary(path: &Path) -> Result<(), ()> {
             command.args(parts).arg(path);
             command
         }
-        Err(_) => std::process::Command::new(path),
+        None => std::process::Command::new(path),
     };
     match command.status() {
         Ok(status) if status.success() => Ok(()),
