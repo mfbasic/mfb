@@ -311,6 +311,26 @@ fn read_only_record(type_: &ParameterType) -> bool {
         || name == crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE
 }
 
+/// A CONST pin expression the compiler folds to an immediate (plan-50-G): an
+/// integer or boolean literal, `NOTHING`, `SIZEOF <CStruct>` of a struct the
+/// owning LINK declares, or a sign applied to one of those.
+fn link_const_foldable(expression: &crate::ast::Expression, cstructs: &[&str]) -> bool {
+    use crate::ast::Expression;
+    match expression {
+        Expression::Number(_) | Expression::Boolean(_) => true,
+        Expression::Identifier(name) => name == "NOTHING",
+        Expression::Unary {
+            operator, operand, ..
+        } if operator == "SIZEOF" => {
+            matches!(operand.as_ref(), Expression::Identifier(name) if cstructs.contains(&name.as_str()))
+        }
+        Expression::Unary {
+            operator, operand, ..
+        } if operator == "-" || operator == "+" => link_const_foldable(operand, cstructs),
+        _ => false,
+    }
+}
+
 /// An unsuffixed decimal literal that classifies as `Float` (a suffixed
 /// `1.08f`/`1.08F`/`1.08m` is intrinsically typed and never the culprit); a
 /// negated one counts.
@@ -568,12 +588,12 @@ impl<'a> Walker<'a> {
                     }
                 }
                 HirItem::Function(function) => self.walk_function(function),
+                HirItem::Link(link) => self.walk_link(link),
                 // Declarations without executable bodies: their rules are
                 // `ir::verify`'s (types, LINK blocks, resources) or the parser's.
                 HirItem::Type(_)
                 | HirItem::Resource(_)
                 | HirItem::FuncAlias(_)
-                | HirItem::Link(_)
                 | HirItem::Doc(_)
                 | HirItem::Testing(_) => {}
             }
@@ -619,6 +639,64 @@ impl<'a> Walker<'a> {
             self.walk_block(&trap.body, &trap_locals);
         }
         self.context.current_return_type = previous_return_type;
+    }
+
+    /// The two native-ABI facts lowering erases from a `LINK` block (every
+    /// other native rule is `ir::verify`'s, plan-107-C):
+    ///
+    /// - NATIVE_CONST_UNKNOWN_SLOT, the "not a constant the compiler can fold"
+    ///   form: lowering folds a CONST pin's expression to its immediate
+    ///   (`eval_link_const`), so the IR holds a number where the source held
+    ///   `"literal"` or `1 + 1`. (The unknown-slot form is verify's.)
+    /// - NATIVE_FREE_INVALID, the deallocator-signature form: `IrFree` keeps
+    ///   only the freed slot and the symbol; the `RETURN`ed slot, the return
+    ///   ctype and the deallocator's parameter/return ctypes are gone. (The
+    ///   `AS RES` producer form and the empty-symbol form are verify's — both
+    ///   end the checker's FREE check, so neither doubles with this one.)
+    fn walk_link(&mut self, link: &crate::ast::LinkBlock) {
+        let cstructs: Vec<&str> = link.cstructs.iter().map(|c| c.name.as_str()).collect();
+        for function in &link.functions {
+            for pin in &function.consts {
+                if !link_const_foldable(&pin.value, &cstructs) {
+                    self.emit(
+                        "NATIVE_CONST_UNKNOWN_SLOT",
+                        format!(
+                            "Native function `{}` CONST pin `{}` is not a constant the compiler can fold: it must be an integer or boolean literal, NOTHING, or SIZEOF <CStruct>.",
+                            function.name, pin.slot
+                        ),
+                        pin.line,
+                    );
+                }
+            }
+            let Some(free) = &function.free else {
+                continue;
+            };
+            if function.return_resource || free.symbol.is_empty() {
+                continue;
+            }
+            // The freed slot must be the C return, that return must be what
+            // `RETURN` surfaces, it must be a CPtr copied into an owned wrapper
+            // value, and the deallocator takes one CPtr and returns CVoid.
+            let returns_the_c_value = matches!(
+                &function.result,
+                Some(crate::ast::Expression::Identifier(name)) if *name == function.abi.return_name
+            );
+            let well_formed = free.slot == function.abi.return_name
+                && returns_the_c_value
+                && function.abi.return_ctype == "CPtr"
+                && free.param_ctype == "CPtr"
+                && free.return_ctype == "CVoid";
+            if !well_formed {
+                self.emit(
+                    "NATIVE_FREE_INVALID",
+                    format!(
+                        "Native function `{}` has a malformed FREE block: it must name the CPtr produced slot that `RETURN` surfaces, and its deallocator must take one CPtr parameter and return CVoid.",
+                        function.name
+                    ),
+                    free.line,
+                );
+            }
+        }
     }
 
     /// Walk a block in a scope of its own — `lower_statement_block` clones the
@@ -3190,6 +3268,64 @@ mod tests {
         assert!(accepts(
             "IMPORT net\nTYPE Circle\n  r AS Integer\nEND TYPE\nUNION Shape\n  Circle\nEND UNION\nUNION Extra INCLUDES Shape\n  Circle\nEND UNION\nFUNC score(s AS Extra) AS Integer\n  MATCH s\n    CASE Circle(c)\n      RETURN c.r + 1\n  END MATCH\nEND FUNC\nFUNC main AS Integer\n  LET u AS net::Url = net::toUrl(\"http://x/\")\n  LET rendered AS String = toString(u)\n  RETURN len(rendered)\nEND FUNC\n"
         ));
+    }
+
+    // ---- native LINK facts lowering folds away ---------------------------
+
+    fn link_project(body: &str) -> String {
+        format!(
+            "RESOURCE Handle CLOSE BY demoLink::release\nLINK \"demo\" AS demoLink\n  FUNC release(RES h AS Handle) AS Nothing\n    SYMBOL \"demo_release\"\n    ABI (h CPtr) AS status CInt32\n    SUCCESS_ON status = 0\n  END FUNC\n{body}END LINK\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n"
+        )
+    }
+
+    #[test]
+    fn const_pin_must_fold_to_an_immediate() {
+        let src = link_project(
+            "  FUNC f(n AS Integer) AS Integer\n    SYMBOL \"demo_f\"\n    ABI (n CInt32, s CInt32, t CInt32, u CInt32, value OUT CInt32) AS status CInt32\n    CONST s = \"literal\"\n    CONST t = 1 + 1\n    CONST u = -1\n    RETURN value\n    SUCCESS_ON status = 0\n  END FUNC\n",
+        );
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(&src),
+            &[],
+            &HashMap::new(),
+            &[],
+        );
+        let lines: Vec<_> = diagnostics
+            .iter()
+            .map(|d| (d.rule.as_str(), d.line))
+            .collect();
+        // `s` and `t` are unfoldable; the negated literal `u` folds.
+        assert_eq!(
+            lines,
+            [
+                ("NATIVE_CONST_UNKNOWN_SLOT", 11),
+                ("NATIVE_CONST_UNKNOWN_SLOT", 12)
+            ]
+        );
+    }
+
+    #[test]
+    fn free_deallocator_signature() {
+        let describe = |abi: &str| {
+            link_project(&format!(
+                "  FUNC describe(RES h AS Handle) AS String\n    SYMBOL \"demo_describe\"\n    ABI (h CPtr) AS text CPtr\n    RETURN text\n    FREE text\n      SYMBOL \"demo_free\"\n      ABI {abi}\n    END FREE\n  END FUNC\n"
+            ))
+        };
+        assert!(accepts(&describe("(ptr CPtr) AS CVoid")));
+        for malformed in ["(ptr CInt32) AS CVoid", "(ptr CPtr) AS CInt32"] {
+            let diagnostics = collect_diagnostics(
+                Path::new("/proj"),
+                &hir_from(&describe(malformed)),
+                &[],
+                &HashMap::new(),
+                &[],
+            );
+            let lines: Vec<_> = diagnostics
+                .iter()
+                .map(|d| (d.rule.as_str(), d.line))
+                .collect();
+            assert_eq!(lines, [("NATIVE_FREE_INVALID", 12)], "{malformed}");
+        }
     }
 
     // ---- record constructors ---------------------------------------------

@@ -170,6 +170,13 @@ moves; split rules re-pin (listed).
       goldens regenerated with the pre-port binary; 41: moot, see C-41-moot;
       31: `tests/syntax/types/types-duplicate-field-invalid` carries both
       forms (constructor + WITH), golden generated with the pre-port binary.)
+- [x] (added) Fixture for row 18's deallocator-signature form — the two
+      NATIVE_FREE_INVALID fixtures the residue counted are the parser's
+      (`bug90_free_missing_symbol`) and verify's `AS RES` form; the existing
+      `native-free-invalid` fixture is a PARSE error (its `RETURN` sits inside
+      the FREE block) and never reached the checker. Added
+      `tests/syntax/native/native-free-deallocator-invalid` (`ABI (ptr CInt32)
+      AS CVoid`), golden from the pre-port binary.
 - [~] Pure-(S) rules, one commit each (rows 3, 4, 6, 23–28, 33, 38, 41), each
       with its erased-evidence doc line; corpus SAME (order-neutral) per
       commit.
@@ -204,17 +211,24 @@ moves; split rules re-pin (listed).
       source path. Corpus: 522 same, 1 reordered (the new fixture: shape's
       constructor form, then verify's Bind-order ARITY + WITH; same three
       records), 0 set-diff.)
-- [ ] (I) relocations: `export_in_executable_diagnostics` moved beside the
+- [~] (I) relocations: `export_in_executable_diagnostics` moved beside the
       pass; `PACKAGE_INVALID` metadata validation moved to the decode boundary
       with its unit tests (prove which sites the resolver already shadows —
       moot with evidence for those).
+      (Rows 14 + 18 (the NATIVE halves) landed first: `Walker::walk_link`
+      holds the CONST "not foldable" form (`link_const_foldable`, the
+      checker's `foldable`) and the FREE deallocator-signature form, skipping
+      exactly the two conditions verify reports (`AS RES` producer, empty
+      symbol) so nothing doubles; syntaxcheck's `check_link_block`/
+      `check_link_function_in` deleted. Corpus 524 same. Remaining: rows 5
+      and 20.)
 - [ ] Tests: corpus set-equal per commit; full suite.
 
 Acceptance: every (S) rule fires from `ir::shape`; syntaxcheck's copies
 deleted; corpus set-equal (order-identical for pure-(S) moves).
 Commit: `f2d52f271` (control-flow group + E's seam fixup); `794eada94`
 (TESTING_EXPECT_*); `d77dd17fd` (MONEY_INEXACT_FLOAT_LITERAL);
-TYPE_DUPLICATE_FIELD —
+`37f5c0f27` (TYPE_DUPLICATE_FIELD); NATIVE_* halves —
 
 ### Phase 2 — delete src/syntaxcheck + the split machinery
 

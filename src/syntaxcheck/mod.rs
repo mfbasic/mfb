@@ -1277,7 +1277,9 @@ impl<'a> SyntaxChecker<'a> {
                     // against package-qualified built-in keys and could not fire
                     // since plan-97 — retired (plan-107-B).
                     HirItem::Resource(_) => {}
-                    HirItem::Link(link) => self.check_link_block(file, link),
+                    // The native-ABI rules are `ir::verify`'s and `ir::shape`'s
+                    // (plan-107-C/D).
+                    HirItem::Link(_) => {}
                     // A re-export alias carries no body to check; its target was
                     // validated during resolve (plan-link-update.md §5a).
                     HirItem::FuncAlias(_) => {}

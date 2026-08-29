@@ -136,6 +136,12 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     // arguments into field order, so the repetition is gone); verify keeps the
     // WITH form.
     "TYPE_DUPLICATE_FIELD",
+    // plan-107-D: split with ir::shape — shape holds the "not a constant the
+    // compiler can fold" CONST form (lowering folds the pin) and the FREE
+    // deallocator-signature form (`IrFree` keeps slot + symbol only); verify
+    // keeps the unknown-slot, `AS RES` producer and empty-symbol forms.
+    "NATIVE_CONST_UNKNOWN_SLOT",
+    "NATIVE_FREE_INVALID",
     "TYPE_BINARY_OPERATOR_MISMATCH",
     "TYPE_UNARY_OPERATOR_MISMATCH",
     "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
