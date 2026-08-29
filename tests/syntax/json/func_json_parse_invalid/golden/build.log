@@ -1,4 +1,10 @@
 $ mfb build -ast -ir tests/syntax/json/func_json_parse_invalid
+   5 |   LET wrongType AS Json = json::parse(TRUE)
+   6 |   LET tooMany AS Json = json::parse("{}", "{}")
+   7 |   LET badName AS Json = json::parse(textValue := "{}")
+     | ^
+tests/syntax/json/func_json_parse_invalid/src/main.mfb:7 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `json.parse` does not have a parameter named `textValue`.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing AS Json = json::parse()
@@ -35,12 +41,6 @@ tests/syntax/json/func_json_parse_invalid/src/main.mfb:6 error[2-203-0022 TYPE_C
      | ^
 tests/syntax/json/func_json_parse_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
-   5 |   LET wrongType AS Json = json::parse(TRUE)
-   6 |   LET tooMany AS Json = json::parse("{}", "{}")
-   7 |   LET badName AS Json = json::parse(textValue := "{}")
-     | ^
-tests/syntax/json/func_json_parse_invalid/src/main.mfb:7 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
-               Call to `json.parse` does not have a parameter named `textValue`.
    5 |   LET wrongType AS Json = json::parse(TRUE)
    6 |   LET tooMany AS Json = json::parse("{}", "{}")
    7 |   LET badName AS Json = json::parse(textValue := "{}")

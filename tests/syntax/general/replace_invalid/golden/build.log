@@ -1,4 +1,10 @@
 $ mfb build -ast -ir tests/syntax/general/replace_invalid
+   6 |   LET wrongNew AS String = strings::replace("hello", "l", 1)
+   7 |   LET tooMany AS String = strings::replace("hello", "l", "x", "extra")
+   8 |   LET badName AS String = strings::replace(source := "hello", old := "l", new := "x")
+     | ^
+tests/syntax/general/replace_invalid/src/main.mfb:8 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `strings.replace` does not have a parameter named `source`.
    1 | IMPORT strings
    2 | FUNC main AS Integer
    3 |   LET missing AS String = strings::replace()
@@ -59,12 +65,6 @@ tests/syntax/general/replace_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_A
      | ^
 tests/syntax/general/replace_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
-   6 |   LET wrongNew AS String = strings::replace("hello", "l", 1)
-   7 |   LET tooMany AS String = strings::replace("hello", "l", "x", "extra")
-   8 |   LET badName AS String = strings::replace(source := "hello", old := "l", new := "x")
-     | ^
-tests/syntax/general/replace_invalid/src/main.mfb:8 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
-               Call to `strings.replace` does not have a parameter named `source`.
    6 |   LET wrongNew AS String = strings::replace("hello", "l", 1)
    7 |   LET tooMany AS String = strings::replace("hello", "l", "x", "extra")
    8 |   LET badName AS String = strings::replace(source := "hello", old := "l", new := "x")

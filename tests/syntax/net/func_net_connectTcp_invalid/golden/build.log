@@ -1,4 +1,10 @@
 $ mfb build -ast -ir tests/syntax/net/func_net_connectTcp_invalid
+   9 |   ' this omits `port` and is an arity error, not a connection to port 5000.
+  10 |   RES timeoutAsPort = net::connectTcp(host := "h", timeoutMs := 5000)
+  11 |   RES unknownName = net::connectTcp(host := "h", port := 80, deadline := 1)
+     | ^
+tests/syntax/net/func_net_connectTcp_invalid/src/main.mfb:11 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `net.connectTcp` does not have a parameter named `deadline`.
    2 | 
    3 | FUNC main AS Integer
    4 |   RES missing = net::connectTcp()
@@ -53,12 +59,6 @@ tests/syntax/net/func_net_connectTcp_invalid/src/main.mfb:7 error[2-203-0043 TYP
      | ^
 tests/syntax/net/func_net_connectTcp_invalid/src/main.mfb:10 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `net.connectTcp` omits parameter `port` before a later supplied argument.
-   9 |   ' this omits `port` and is an arity error, not a connection to port 5000.
-  10 |   RES timeoutAsPort = net::connectTcp(host := "h", timeoutMs := 5000)
-  11 |   RES unknownName = net::connectTcp(host := "h", port := 80, deadline := 1)
-     | ^
-tests/syntax/net/func_net_connectTcp_invalid/src/main.mfb:11 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
-               Call to `net.connectTcp` does not have a parameter named `deadline`.
   10 |   RES timeoutAsPort = net::connectTcp(host := "h", timeoutMs := 5000)
   11 |   RES unknownName = net::connectTcp(host := "h", port := 80, deadline := 1)
   12 |   RES duplicateName = net::connectTcp(host := "h", host := "h2", port := 80)

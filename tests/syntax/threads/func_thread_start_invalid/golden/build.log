@@ -1,5 +1,11 @@
 $ mfb build -ast -ir tests/syntax/threads/func_thread_start_invalid
 uses thread_workers - [Unsigned]
+  22 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
+  23 |   LET missing AS Thread OF String TO Integer = thread::start()
+  24 |   LET badName AS Thread OF String TO Integer = thread::start(worker := thread_workers::echoText, data := "a")
+     | ^
+tests/syntax/threads/func_thread_start_invalid/src/main.mfb:24 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `thread.start` does not have a parameter named `worker`.
   15 | 
   16 | FUNC main AS Integer
   17 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
@@ -84,12 +90,6 @@ tests/syntax/threads/func_thread_start_invalid/src/main.mfb:23 error[2-203-0021 
      | ^
 tests/syntax/threads/func_thread_start_invalid/src/main.mfb:23 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
-  22 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
-  23 |   LET missing AS Thread OF String TO Integer = thread::start()
-  24 |   LET badName AS Thread OF String TO Integer = thread::start(worker := thread_workers::echoText, data := "a")
-     | ^
-tests/syntax/threads/func_thread_start_invalid/src/main.mfb:24 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
-               Call to `thread.start` does not have a parameter named `worker`.
   22 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
   23 |   LET missing AS Thread OF String TO Integer = thread::start()
   24 |   LET badName AS Thread OF String TO Integer = thread::start(worker := thread_workers::echoText, data := "a")

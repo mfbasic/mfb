@@ -81,7 +81,15 @@ pub struct ImportedResource {
 /// checks regardless. `syntaxcheck::report` skips this same set. A rule appears
 /// here only once `ir::verify` reproduces it completely (verified against every
 /// `*-invalid` fixture).
+///
+/// The pre-lowering shape pass's rules (`ir::shape`, plan-107-E) are listed
+/// here too: the list is the single "no longer syntaxcheck's" register that the
+/// `syntaxcheck::report` guard reads, and `ir::verify` never emits them, so the
+/// source-path filter is unaffected.
 pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
+    // ir::shape (plan-107-E): lowering normalizes named arguments away, so the
+    // name the source wrote survives only in the HIR.
+    "TYPE_UNKNOWN_ARGUMENT_NAME",
     "TYPE_BINARY_OPERATOR_MISMATCH",
     "TYPE_UNARY_OPERATOR_MISMATCH",
     "TYPE_FIELD_ACCESS_REQUIRES_RECORD",

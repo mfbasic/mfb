@@ -432,15 +432,21 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     };
     let source_external_signatures: HashMap<String, ir::ExternalSignature> =
         all_external_signatures
-            .into_iter()
+            .iter()
             .filter(|(_, signature)| returns_imported_resource(signature))
+            .map(|(name, signature)| (name.clone(), signature.clone()))
             .collect();
     let imported_types = imported_type_defs(&options.location, &manifest);
     // plan-107-E: the pre-lowering shape pass — the source rules whose evidence
     // lowering erases — runs over the same HIR, with the same signature and
     // type inputs, that lowering is about to consume. Its stream comes first.
-    let shape_diagnostics =
-        ir::shape::collect_diagnostics(&concrete_hir, &source_external_signatures, &imported_types);
+    let shape_diagnostics = ir::shape::collect_diagnostics(
+        &options.location,
+        &concrete_hir,
+        &source_external_signatures,
+        &imported_types,
+        &all_external_signatures,
+    );
     let source_ir = ir::lower_augmented_project(
         &concrete_hir,
         entry.clone(),

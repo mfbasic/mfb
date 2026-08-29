@@ -1,4 +1,10 @@
 $ mfb build -ast -ir tests/syntax/regex/func_regex_replace_invalid
+   5 |   LET tooMany AS String = regex::replace("a", "b", "c", "d")
+   6 |   LET wrongType AS String = regex::replace("a", "b", 5)
+   7 |   LET badName AS String = regex::replace("a", "b", replacementText := "c")
+     | ^
+tests/syntax/regex/func_regex_replace_invalid/src/main.mfb:7 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `regex.replace` does not have a parameter named `replacementText`.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing AS String = regex::replace("a", "b")
@@ -35,12 +41,6 @@ tests/syntax/regex/func_regex_replace_invalid/src/main.mfb:6 error[2-203-0021 TY
      | ^
 tests/syntax/regex/func_regex_replace_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongType` does not have a known type.
-   5 |   LET tooMany AS String = regex::replace("a", "b", "c", "d")
-   6 |   LET wrongType AS String = regex::replace("a", "b", 5)
-   7 |   LET badName AS String = regex::replace("a", "b", replacementText := "c")
-     | ^
-tests/syntax/regex/func_regex_replace_invalid/src/main.mfb:7 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
-               Call to `regex.replace` does not have a parameter named `replacementText`.
    5 |   LET tooMany AS String = regex::replace("a", "b", "c", "d")
    6 |   LET wrongType AS String = regex::replace("a", "b", 5)
    7 |   LET badName AS String = regex::replace("a", "b", replacementText := "c")

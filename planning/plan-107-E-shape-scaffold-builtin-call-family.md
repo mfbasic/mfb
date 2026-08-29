@@ -184,12 +184,24 @@ None to codegen/wire. Diagnostic order re-pins on the 283/273-fixture family
       queued on the baseline checkout behind C's.)
 
 Acceptance: pass wired, zero corpus change.
-Commit: —
+Commit: `c2e865703`
 
 ### Phase 2 — named-argument cluster
 
-- [ ] TYPE_UNKNOWN_ARGUMENT_NAME → shape (justification line; every callee
+- [x] TYPE_UNKNOWN_ARGUMENT_NAME → shape (justification line; every callee
       class: user, imported, builtin, overloaded builtin); list; delete.
+      (`Walker::check_named_arguments` + `callee_params`, which resolves the
+      call target in the source checker's order — TESTING call / package
+      constant / builtin (canonical name, and only the arms whose argument
+      list the checker normalized: `syntaxcheck::checks_builtin_call_arguments`)
+      / visible declared FUNC / imported `.mfp` FUNC via the file's import
+      binding. The imported table is the UNFILTERED `all_external_signatures`
+      (lowering's own is resource-returning only), threaded through
+      `collect_diagnostics`; `mfb audit` computes it from the manifest.
+      Corpus: 503 same, 18 reordered (exactly the 18 fixtures carrying the
+      rule — the shape stream now prints first), 0 set-diff; every regenerated
+      golden is a pure line move (`/tmp/p107-movecheck.sh`: sorted old ==
+      sorted new).)
 - [ ] TYPE_DUPLICATE_ARGUMENT_NAME → shape; list; delete.
 - [ ] Tests: corpus + harness per commit (18 + 2 fixtures); unit tests.
 

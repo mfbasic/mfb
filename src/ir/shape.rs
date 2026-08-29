@@ -22,6 +22,8 @@
 
 use super::lower::{self, LowerContext, LowerFacts};
 use super::{ExternalSignature, ImportedTypeDef};
+use crate::ast::Visibility;
+use crate::codegen::builtins;
 use crate::hir::{
     HirCallArg, HirConstructorArg, HirExpression, HirFile, HirFunction, HirItem, HirMatchCase,
     HirProject, HirStatement,
@@ -29,27 +31,37 @@ use crate::hir::{
 use crate::rules::PendingDiagnostic;
 use crate::types::ParameterType;
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Run the shape pass over `hir` and return its diagnostics in traversal
 /// (source) order, un-rendered, for the build path to merge with the other
 /// streams. `external_signatures` and `imported_types` are the same inputs the
 /// build path hands `lower_augmented_project`, so the typing seam sees exactly
-/// the tables lowering will.
+/// the tables lowering will; `imported_signatures` is the UNFILTERED signature
+/// table of every imported `.mfp` (the parameter-name source for a call into
+/// an imported package — lowering keeps only the resource-returning subset).
 pub(crate) fn collect_diagnostics(
+    project_dir: &Path,
     hir: &HirProject,
     external_signatures: &HashMap<String, ExternalSignature>,
     imported_types: &[ImportedTypeDef],
+    imported_signatures: &HashMap<String, ExternalSignature>,
 ) -> Vec<PendingDiagnostic> {
     let facts = lower::lower_facts(hir, external_signatures, imported_types);
-    let mut walker = Walker::new(&facts);
+    let mut walker = Walker::new(project_dir, &facts, hir, imported_signatures);
     walker.walk_project(hir);
     walker.diagnostics
 }
 
 /// Standalone form for callers that render rather than merge (`mfb audit`):
 /// prints the diagnostics and reports whether any was an error.
-pub(crate) fn check_project(hir: &HirProject) -> Result<(), ()> {
-    let diagnostics = collect_diagnostics(hir, &HashMap::new(), &[]);
+pub(crate) fn check_project(
+    project_dir: &Path,
+    hir: &HirProject,
+    imported_signatures: &HashMap<String, ExternalSignature>,
+) -> Result<(), ()> {
+    let diagnostics =
+        collect_diagnostics(project_dir, hir, &HashMap::new(), &[], imported_signatures);
     let had_error = diagnostics.iter().any(|d| crate::rules::is_error(&d.rule));
     crate::rules::render_pending(diagnostics);
     if had_error {
@@ -59,10 +71,34 @@ pub(crate) fn check_project(hir: &HirProject) -> Result<(), ()> {
     }
 }
 
+/// A callee's parameter names as a rule needs them: the declared user/imported
+/// function's list, or a builtin's per-position alias table.
+enum CalleeParams {
+    /// A user-declared or imported-package function: one name per position.
+    Declared(Vec<String>),
+    /// A builtin with a merged per-position alias table.
+    Builtin(Vec<Vec<&'static str>>),
+    /// A builtin whose overloads place a name at different positions, listed
+    /// one overload at a time.
+    BuiltinOverloads(Vec<Vec<&'static str>>),
+    /// A builtin with no parameter-name metadata: names cannot bind at all.
+    BuiltinUnnamed,
+}
+
 /// The walk state: lowering's context (positioned per file / per function
-/// exactly as lowering positions it) and the diagnostics collected so far.
+/// exactly as lowering positions it), the project's own function visibility
+/// table, and the diagnostics collected so far.
 struct Walker<'a> {
+    project_dir: &'a Path,
     context: LowerContext<'a>,
+    /// Every declared function's parameter names, visibility and owner file —
+    /// the visibility filter the source checker applied to a call target
+    /// (`PRIVATE` is callable from its own file only; an invisible target is
+    /// simply not a function call to it).
+    functions: HashMap<String, DeclaredFunction>,
+    imported_signatures: &'a HashMap<String, ExternalSignature>,
+    /// Project-relative path of the file being walked, for diagnostic paths.
+    file: String,
     diagnostics: Vec<PendingDiagnostic>,
     /// Every `LET`/`MUT`/`RES` binding's computed type in walk order — the
     /// seam-fidelity probe the unit tests compare against lowering's stamped
@@ -71,10 +107,44 @@ struct Walker<'a> {
     bound_types: Vec<(String, ParameterType)>,
 }
 
+struct DeclaredFunction {
+    params: Vec<String>,
+    visibility: Visibility,
+    owner_file: String,
+}
+
 impl<'a> Walker<'a> {
-    fn new(facts: &'a LowerFacts) -> Self {
+    fn new(
+        project_dir: &'a Path,
+        facts: &'a LowerFacts,
+        hir: &HirProject,
+        imported_signatures: &'a HashMap<String, ExternalSignature>,
+    ) -> Self {
+        let mut functions = HashMap::new();
+        for file in &hir.files {
+            for item in &file.items {
+                if let HirItem::Function(function) = item {
+                    functions.insert(
+                        function.name.clone(),
+                        DeclaredFunction {
+                            params: function
+                                .params
+                                .iter()
+                                .map(|param| param.name.clone())
+                                .collect(),
+                            visibility: function.visibility,
+                            owner_file: file.path.clone(),
+                        },
+                    );
+                }
+            }
+        }
         Walker {
+            project_dir,
             context: facts.context(),
+            functions,
+            imported_signatures,
+            file: String::new(),
             diagnostics: Vec::new(),
             #[cfg(test)]
             bound_types: Vec::new(),
@@ -90,6 +160,7 @@ impl<'a> Walker<'a> {
     fn walk_file(&mut self, file: &HirFile) {
         self.context.current_imports = file.import_bindings();
         self.context.current_file = file.path.clone();
+        self.file = file.path.clone();
         for item in &file.items {
             match item {
                 HirItem::Binding(binding) => {
@@ -378,7 +449,14 @@ impl<'a> Walker<'a> {
                 self.walk_expression(right, locals);
             }
             HirExpression::Unary { operand, .. } => self.walk_expression(operand, locals),
-            HirExpression::Call { arguments, .. } => {
+            HirExpression::Call {
+                callee, arguments, ..
+            } => {
+                // The call's own shape rules report before its arguments are
+                // walked — the source checker normalized the argument list
+                // before inferring any argument, so a nested call's rule follows
+                // the enclosing call's.
+                self.check_named_arguments(callee, arguments);
                 for argument in arguments {
                     match argument {
                         HirCallArg::Positional(value) | HirCallArg::Named { value, .. } => {
@@ -436,6 +514,195 @@ impl<'a> Walker<'a> {
         }
     }
 
+    /// The parameter names of the function a call names, resolved the way the
+    /// source checker resolved a call target: a TESTING expectation or a package
+    /// constant is not a function call; a builtin (by canonical name) comes
+    /// before any declared function; a declared function must be visible from
+    /// the calling file; an imported package's function is looked up under its
+    /// canonical `package.member` name. Anything else (a function value, an
+    /// unresolved dotted name) has no parameter names to bind against.
+    fn callee_params(&self, callee: &str) -> Option<CalleeParams> {
+        if crate::codegen::builtins_testing::is_testing_call(callee) {
+            return None;
+        }
+        let (binding, member) = match callee.split_once('.') {
+            Some((binding, member)) => (Some(binding), member),
+            None => (None, callee),
+        };
+        let resolved_package =
+            binding.and_then(|binding| self.context.current_imports.get(binding));
+        let canonical = match (resolved_package, binding) {
+            // `IMPORT self` binds the package's own exports under their bare names.
+            (Some(package), _) if package == crate::ast::SELF_IMPORT => member.to_string(),
+            (Some(package), _) => format!("{package}.{member}"),
+            _ => callee.to_string(),
+        };
+        if builtins::is_package_constant(&canonical) {
+            return None;
+        }
+        if builtins::is_builtin_call(&canonical) {
+            if !crate::syntaxcheck::checks_builtin_call_arguments(&canonical) {
+                return None;
+            }
+            if let Some(overloads) = builtins::call_param_name_overloads(&canonical) {
+                return Some(CalleeParams::BuiltinOverloads(overloads));
+            }
+            return Some(match builtins::call_param_names(&canonical) {
+                Some(names) => CalleeParams::Builtin(names),
+                None => CalleeParams::BuiltinUnnamed,
+            });
+        }
+        let declared = self
+            .functions
+            .get(callee)
+            .or_else(|| self.functions.get(&canonical))
+            .filter(|function| match function.visibility {
+                Visibility::Export | Visibility::Public => true,
+                Visibility::Private => function.owner_file == self.file,
+            });
+        if let Some(function) = declared {
+            return Some(CalleeParams::Declared(function.params.clone()));
+        }
+        // An imported package's function: only through an import binding of
+        // this file (a dotted name whose prefix is not an import is not a call
+        // into a package, whatever the dependency table happens to hold).
+        if resolved_package.is_some() {
+            if let Some(signature) = self.imported_signatures.get(&canonical) {
+                return Some(CalleeParams::Declared(
+                    signature
+                        .params
+                        .iter()
+                        .map(|param| param.name.clone())
+                        .collect(),
+                ));
+            }
+        }
+        None
+    }
+
+    /// TYPE_UNKNOWN_ARGUMENT_NAME / TYPE_DUPLICATE_ARGUMENT_NAME.
+    ///
+    /// Shape-pass rules: lowering normalizes named arguments into positional
+    /// order and silently drops a name that binds to no parameter (or binds a
+    /// parameter twice), so the lowered `IrValue::Call` carries no trace of the
+    /// name the source wrote — the evidence exists only in the HIR.
+    fn check_named_arguments(&mut self, callee: &str, arguments: &[HirCallArg]) {
+        if !arguments
+            .iter()
+            .any(|argument| matches!(argument, HirCallArg::Named { .. }))
+        {
+            return;
+        }
+        let Some(params) = self.callee_params(callee) else {
+            return;
+        };
+        match params {
+            CalleeParams::BuiltinUnnamed => {
+                // No parameter-name metadata: a name cannot bind at all (bug-173 B).
+                for argument in arguments {
+                    if let HirCallArg::Named { name, line, .. } = argument {
+                        self.report_unknown_name(callee, name, *line);
+                    }
+                }
+            }
+            CalleeParams::BuiltinOverloads(overloads) => {
+                // Overload selection needs a well-formed name set: the first
+                // duplicate, else the first unknown name, ends the check.
+                let named: Vec<(&String, usize)> = arguments
+                    .iter()
+                    .filter_map(|argument| match argument {
+                        HirCallArg::Named { name, line, .. } => Some((name, *line)),
+                        HirCallArg::Positional(_) => None,
+                    })
+                    .collect();
+                // (The duplicate itself is still the source checker's
+                // TYPE_DUPLICATE_ARGUMENT_NAME until its own landing.)
+                for (index, (name, _)) in named.iter().enumerate() {
+                    if named[..index].iter().any(|(earlier, _)| earlier == name) {
+                        return;
+                    }
+                }
+                if let Some((name, line)) = named.iter().find(|(name, _)| {
+                    !overloads
+                        .iter()
+                        .any(|params| params.contains(&name.as_str()))
+                }) {
+                    self.report_unknown_name(callee, name, *line);
+                }
+            }
+            CalleeParams::Builtin(aliases) => {
+                let mut ordered = vec![false; aliases.len()];
+                let mut next_positional = 0usize;
+                for argument in arguments {
+                    match argument {
+                        HirCallArg::Positional(_) => {
+                            while next_positional < ordered.len() && ordered[next_positional] {
+                                next_positional += 1;
+                            }
+                            if next_positional < ordered.len() {
+                                ordered[next_positional] = true;
+                                next_positional += 1;
+                            }
+                        }
+                        HirCallArg::Named { name, line, .. } => {
+                            let Some(index) = aliases
+                                .iter()
+                                .position(|aliases| aliases.iter().any(|alias| alias == name))
+                            else {
+                                self.report_unknown_name(callee, name, *line);
+                                continue;
+                            };
+                            if ordered[index] {
+                                // A duplicate is still the source checker's
+                                // TYPE_DUPLICATE_ARGUMENT_NAME until its own landing.
+                                continue;
+                            }
+                            ordered[index] = true;
+                        }
+                    }
+                }
+            }
+            CalleeParams::Declared(params) => {
+                let mut ordered = vec![false; params.len()];
+                let mut next_positional = 0usize;
+                for argument in arguments {
+                    match argument {
+                        HirCallArg::Positional(_) => {
+                            while next_positional < ordered.len() && ordered[next_positional] {
+                                next_positional += 1;
+                            }
+                            if next_positional >= ordered.len() {
+                                continue;
+                            }
+                            ordered[next_positional] = true;
+                            next_positional += 1;
+                        }
+                        HirCallArg::Named { name, line, .. } => {
+                            let Some(index) = params.iter().position(|param| param == name) else {
+                                self.report_unknown_name(callee, name, *line);
+                                continue;
+                            };
+                            if ordered[index] {
+                                // A duplicate is still the source checker's
+                                // TYPE_DUPLICATE_ARGUMENT_NAME until its own landing.
+                                continue;
+                            }
+                            ordered[index] = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn report_unknown_name(&mut self, callee: &str, name: &str, line: usize) {
+        self.emit(
+            "TYPE_UNKNOWN_ARGUMENT_NAME",
+            format!("Call to `{callee}` does not have a parameter named `{name}`."),
+            line,
+        );
+    }
+
     /// Bind `name` in `locals` at `type_`, exactly where lowering emits its
     /// `IrOp::Bind` for the same binding.
     fn bind(
@@ -448,6 +715,16 @@ impl<'a> Walker<'a> {
         self.bound_types.push((name.to_string(), type_.clone()));
         locals.insert(name.to_string(), type_);
     }
+
+    /// Record a diagnostic at `line` of the current file.
+    fn emit(&mut self, rule: &str, detail: String, line: usize) {
+        self.diagnostics.push(PendingDiagnostic {
+            rule: rule.to_string(),
+            detail,
+            path: self.project_dir.join(&self.file),
+            line,
+        });
+    }
 }
 
 #[cfg(test)]
@@ -455,7 +732,6 @@ mod tests {
     use super::*;
     use crate::ast::{parse_source, AstProject};
     use crate::ir::IrOp;
-    use std::path::Path;
 
     /// Parse `src` as `main.mfb`, augment it with the builtin package sources
     /// (the same chain the build path runs before lowering), and return the
@@ -469,6 +745,32 @@ mod tests {
         };
         crate::resolver::augment_hir_project(&crate::hir::elaborate(&project))
             .expect("builtin augmentation must succeed")
+    }
+
+    /// The shape pass's rule codes for `src`, in traversal order.
+    fn shape_codes(src: &str) -> Vec<String> {
+        collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(src),
+            &HashMap::new(),
+            &[],
+            &HashMap::new(),
+        )
+        .into_iter()
+        .map(|d| d.rule)
+        .collect()
+    }
+
+    fn rejects_with(src: &str, rule: &str) -> bool {
+        shape_codes(src).iter().any(|r| r == rule)
+    }
+
+    fn accepts(src: &str) -> bool {
+        shape_codes(src).is_empty()
+    }
+
+    fn wrap_import(import: &str, body: &str) -> String {
+        format!("IMPORT {import}\nFUNC main AS Integer\n{body}\n  RETURN 0\nEND FUNC\n")
     }
 
     /// Every named `Bind` in the lowered IR (the `$` temps lowering mints have
@@ -550,9 +852,13 @@ mod tests {
                    END FUNC\n";
         let hir = hir_from(src);
         let facts = lower::lower_facts(&hir, &HashMap::new(), &[]);
-        let mut walker = Walker::new(&facts);
+        let no_imports = HashMap::new();
+        let mut walker = Walker::new(Path::new("/proj"), &facts, &hir, &no_imports);
         walker.walk_project(&hir);
-        assert!(walker.diagnostics.is_empty(), "the scaffold emits nothing");
+        assert!(
+            walker.diagnostics.is_empty(),
+            "a clean program emits nothing"
+        );
 
         let ir = lower::lower_augmented_project(&hir, None, &HashMap::new(), &[]);
         let mut lowered = Vec::new();
@@ -594,6 +900,200 @@ mod tests {
     #[test]
     fn check_project_accepts_clean_source() {
         let hir = hir_from("FUNC main AS Integer\n  RETURN 0\nEND FUNC\n");
-        assert!(check_project(&hir).is_ok());
+        assert!(check_project(Path::new("/proj"), &hir, &HashMap::new()).is_ok());
+    }
+
+    // ---- named arguments: user functions ----------------------------------
+
+    #[test]
+    fn user_named_argument_valid() {
+        assert!(accepts(
+            "FUNC g(a AS Integer, b AS Integer) AS Integer\n  RETURN a + b\nEND FUNC\nFUNC main AS Integer\n  RETURN g(b := 2, a := 1)\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn user_named_argument_unknown_name() {
+        assert!(rejects_with(
+            "FUNC g(a AS Integer) AS Integer\n  RETURN a\nEND FUNC\nFUNC main AS Integer\n  RETURN g(z := 1)\nEND FUNC\n",
+            "TYPE_UNKNOWN_ARGUMENT_NAME"
+        ));
+    }
+
+    #[test]
+    fn user_named_positional_after_named_walk() {
+        // A positional after a named argument fills the first free slot.
+        assert!(accepts(
+            "FUNC g(a AS Integer, b AS Integer) AS Integer\n  RETURN a + b\nEND FUNC\nFUNC main AS Integer\n  RETURN g(b := 2, 1)\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn user_private_function_in_another_file_is_not_a_call_target() {
+        // The source checker never bound names against a function invisible
+        // from the calling file; the rule stays silent there too.
+        let main = parse_source(
+            Path::new("main.mfb"),
+            "main.mfb",
+            "FUNC main AS Integer\n  RETURN g(z := 1)\nEND FUNC\n",
+        )
+        .expect("parses");
+        let other = parse_source(
+            Path::new("other.mfb"),
+            "other.mfb",
+            "PRIVATE FUNC g(a AS Integer) AS Integer\n  RETURN a\nEND FUNC\n",
+        )
+        .expect("parses");
+        let project = AstProject {
+            name: "test".to_string(),
+            files: vec![main, other],
+        };
+        let hir = crate::resolver::augment_hir_project(&crate::hir::elaborate(&project))
+            .expect("augments");
+        let codes: Vec<_> = collect_diagnostics(
+            Path::new("/proj"),
+            &hir,
+            &HashMap::new(),
+            &[],
+            &HashMap::new(),
+        )
+        .into_iter()
+        .map(|d| d.rule)
+        .collect();
+        assert!(codes.is_empty(), "{codes:?}");
+    }
+
+    #[test]
+    fn imported_package_function_named_arguments() {
+        // A `.mfp` function's parameter names come from the imported-signature
+        // table; the call is spelled through the file's import binding.
+        let mut imported = HashMap::new();
+        imported.insert(
+            "shapes.area".to_string(),
+            ExternalSignature {
+                params: vec![
+                    crate::ir::ExternalFunctionParam {
+                        name: "width".to_string(),
+                        type_: ParameterType::Integer,
+                    },
+                    crate::ir::ExternalFunctionParam {
+                        name: "height".to_string(),
+                        type_: ParameterType::Integer,
+                    },
+                ],
+                returns: ParameterType::Integer,
+                isolated: false,
+            },
+        );
+        let src = "IMPORT shapes AS sh\nFUNC main AS Integer\n  LET a = sh::area(width := 1, depth := 2)\n  RETURN a\nEND FUNC\n";
+        let file = parse_source(Path::new("main.mfb"), "main.mfb", src).expect("parses");
+        let project = AstProject {
+            name: "test".to_string(),
+            files: vec![file],
+        };
+        let hir = crate::hir::elaborate(&project);
+        let diagnostics =
+            collect_diagnostics(Path::new("/proj"), &hir, &HashMap::new(), &[], &imported);
+        let codes: Vec<_> = diagnostics.iter().map(|d| d.rule.as_str()).collect();
+        assert_eq!(codes, ["TYPE_UNKNOWN_ARGUMENT_NAME"]);
+        assert_eq!(
+            diagnostics[0].detail,
+            "Call to `sh.area` does not have a parameter named `depth`."
+        );
+        assert_eq!(diagnostics[0].line, 3);
+        assert_eq!(diagnostics[0].path, Path::new("/proj/main.mfb"));
+    }
+
+    // ---- named arguments: builtins ----------------------------------------
+
+    #[test]
+    fn builtin_named_argument_valid() {
+        assert!(accepts(
+            "IMPORT json\nIMPORT io\nFUNC main AS Integer\n  io::print(json::stringify(json::parse(value := \"null\")))\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn builtin_named_argument_unknown_name() {
+        assert!(rejects_with(
+            "IMPORT json\nFUNC main AS Integer\n  LET x = json::parse(nope := \"null\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_UNKNOWN_ARGUMENT_NAME"
+        ));
+    }
+
+    #[test]
+    fn builtin_named_argument_matching_parameter_name_accepted() {
+        // Every registry builtin carries its parameter names (`math::abs`'s is
+        // `value`), so a matching name binds; the source checker's old test of
+        // this call assumed a name-less fallback that no builtin reaches today.
+        assert!(accepts(
+            "IMPORT math\nFUNC main AS Integer\n  LET x = math::abs(value := -1)\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn builtin_named_then_positional_reorders() {
+        assert!(accepts(
+            "IMPORT strings\nFUNC main AS Integer\n  LET b = strings::startsWith(prefix := \"a\", \"abc\")\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn builtin_general_call_named_argument() {
+        // `general` members dispatch through their own arm in the source
+        // checker; the rule reaches them all the same.
+        assert!(rejects_with(
+            "FUNC main AS Integer\n  LET s = toString(v := 1)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_UNKNOWN_ARGUMENT_NAME"
+        ));
+    }
+
+    #[test]
+    fn overloaded_named_unknown_argument_rejected() {
+        assert!(rejects_with(
+            &wrap_import("datetime", "  LET z = datetime::fixedOffset(bogus := 1)"),
+            "TYPE_UNKNOWN_ARGUMENT_NAME"
+        ));
+    }
+
+    #[test]
+    fn overloaded_duplicate_ends_the_check_before_unknown_names() {
+        // A duplicate (the source checker's rule for now) ends overload
+        // selection before any unknown name is considered.
+        let codes = shape_codes(&wrap_import(
+            "datetime",
+            "  LET z = datetime::fixedOffset(hours := 1, hours := 2, bogus := 3)",
+        ));
+        assert!(codes.is_empty(), "{codes:?}");
+    }
+
+    #[test]
+    fn overloaded_named_valid_selection_accepted() {
+        assert!(accepts(&wrap_import(
+            "datetime",
+            "  LET z = datetime::fixedOffset(hours := 1, mins := 2)",
+        )));
+    }
+
+    #[test]
+    fn nested_call_rule_follows_enclosing_call_rule() {
+        // Outer `g(z := ...)` reports before the inner `g(y := 1)` argument.
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(
+                "FUNC g(a AS Integer) AS Integer\n  RETURN a\nEND FUNC\nFUNC main AS Integer\n  RETURN g(z := g(y := 1))\nEND FUNC\n",
+            ),
+            &HashMap::new(),
+            &[],
+            &HashMap::new(),
+        );
+        let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
+        assert_eq!(
+            details,
+            [
+                "Call to `g` does not have a parameter named `z`.",
+                "Call to `g` does not have a parameter named `y`.",
+            ]
+        );
     }
 }

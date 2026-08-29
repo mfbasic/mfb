@@ -1,4 +1,10 @@
 $ mfb build -ast -ir tests/syntax/regex/func_regex_findAll_invalid
+   5 |   LET tooMany AS List OF Integer = regex::findAll("a", "b", 0, 1)
+   6 |   LET wrongType AS List OF Integer = regex::findAll("a", "b", "c")
+   7 |   LET badName AS List OF Integer = regex::findAll("a", "b", begin := 0)
+     | ^
+tests/syntax/regex/func_regex_findAll_invalid/src/main.mfb:7 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `regex.findAll` does not have a parameter named `begin`.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing AS List OF Integer = regex::findAll("a")
@@ -35,10 +41,4 @@ tests/syntax/regex/func_regex_findAll_invalid/src/main.mfb:6 error[2-203-0021 TY
      | ^
 tests/syntax/regex/func_regex_findAll_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongType` does not have a known type.
-   5 |   LET tooMany AS List OF Integer = regex::findAll("a", "b", 0, 1)
-   6 |   LET wrongType AS List OF Integer = regex::findAll("a", "b", "c")
-   7 |   LET badName AS List OF Integer = regex::findAll("a", "b", begin := 0)
-     | ^
-tests/syntax/regex/func_regex_findAll_invalid/src/main.mfb:7 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
-               Call to `regex.findAll` does not have a parameter named `begin`.
 [exit 1]

@@ -254,6 +254,24 @@ fn builtin_arg_mode(package: &str) -> Option<ArgMode> {
         .map(|entry| entry.args)
 }
 
+/// Whether a builtin call (canonical `package.member` name) reaches one of the
+/// argument checkers — the four bespoke arms or the package table — and so has
+/// its argument list normalized. A builtin outside every arm falls through
+/// `check_builtin_call`'s tail with its arguments merely inferred, so its named
+/// arguments are never bound; `ir::shape` asks this to apply the same boundary
+/// to the relocated named-argument rules (plan-107-E).
+pub(crate) fn checks_builtin_call_arguments(callee: &str) -> bool {
+    crate::codegen::builtins::general::is_general_call(callee)
+        || matches!(
+            crate::codegen::registry::registry().owning_package(callee),
+            Some("collections") | Some("term")
+        )
+        || crate::codegen::builtins::thread::is_thread_call(callee)
+        || builtins::builtin_package_name(callee)
+            .and_then(builtin_arg_mode)
+            .is_some()
+}
+
 impl<'a> SyntaxChecker<'a> {
     #[allow(clippy::too_many_arguments)]
     /// Dispatch a builtin call to its package checker.
@@ -950,20 +968,8 @@ impl<'a> SyntaxChecker<'a> {
         }
         let Some(param_names) = builtins::call_param_names(callee) else {
             // No param-name metadata for this builtin: named arguments cannot be
-            // bound by name, so reject them rather than silently binding by source
-            // order (bug-173 B), mirroring the unknown-name path below.
-            for argument in arguments {
-                if let HirCallArg::Named { name, line, .. } = argument {
-                    self.report(
-                        "TYPE_UNKNOWN_ARGUMENT_NAME",
-                        &format!(
-                            "Call to `{display_callee}` does not have a parameter named `{name}`."
-                        ),
-                        file,
-                        *line,
-                    );
-                }
-            }
+            // bound by name (rejected by the shape pass, TYPE_UNKNOWN_ARGUMENT_NAME,
+            // plan-107-E); the arguments stay in source order.
             return arguments
                 .iter()
                 .map(|argument| call_arg_value(argument).clone())
@@ -991,14 +997,9 @@ impl<'a> SyntaxChecker<'a> {
                         .iter()
                         .position(|aliases| aliases.iter().any(|alias| alias == name))
                     else {
-                        self.report(
-                            "TYPE_UNKNOWN_ARGUMENT_NAME",
-                            &format!(
-                                "Call to `{display_callee}` does not have a parameter named `{name}`."
-                            ),
-                            file,
-                            *line,
-                        );
+                        // The unknown name itself is the shape pass's rejection
+                        // (TYPE_UNKNOWN_ARGUMENT_NAME, plan-107-E); it still
+                        // disarms the omission check below.
                         saw_unknown_named = true;
                         continue;
                     };
@@ -1096,17 +1097,13 @@ impl<'a> SyntaxChecker<'a> {
                 return fallback();
             }
         }
-        if let Some((name, _, named_line)) = named.iter().find(|(name, _, _)| {
+        // An unknown name is the shape pass's rejection
+        // (TYPE_UNKNOWN_ARGUMENT_NAME, plan-107-E); no overload can be selected.
+        if named.iter().any(|(name, _, _)| {
             !overloads
                 .iter()
                 .any(|params| params.contains(&name.as_str()))
         }) {
-            self.report(
-                "TYPE_UNKNOWN_ARGUMENT_NAME",
-                &format!("Call to `{display_callee}` does not have a parameter named `{name}`."),
-                file,
-                *named_line,
-            );
             return fallback();
         }
 
@@ -1194,15 +1191,9 @@ impl<'a> SyntaxChecker<'a> {
                     supplied += 1;
                 }
                 HirCallArg::Named { name, value, line } => {
+                    // An unknown name is the shape pass's rejection
+                    // (TYPE_UNKNOWN_ARGUMENT_NAME, plan-107-E).
                     let Some(index) = params.iter().position(|param| param.name == *name) else {
-                        self.report(
-                            "TYPE_UNKNOWN_ARGUMENT_NAME",
-                            &format!(
-                                "Call to `{callee}` does not have a parameter named `{name}`."
-                            ),
-                            file,
-                            *line,
-                        );
                         continue;
                     };
                     if ordered[index].is_some() {
@@ -1644,14 +1635,6 @@ mod builtins_tests {
         // A builtin with named args that resolve to its parameter names.
         assert!(accepts(
             "IMPORT json\nIMPORT io\nFUNC main AS Integer\n  io::print(json::stringify(json::parse(value := \"null\")))\n  RETURN 0\nEND FUNC\n"
-        ));
-    }
-
-    #[test]
-    fn named_argument_unknown_name() {
-        assert!(rejects_with(
-            "IMPORT json\nFUNC main AS Integer\n  LET x = json::parse(nope := \"null\")\n  RETURN 0\nEND FUNC\n",
-            "TYPE_UNKNOWN_ARGUMENT_NAME"
         ));
     }
 
@@ -2419,14 +2402,6 @@ mod builtins_tests {
                 "  LET z = datetime::fixedOffset(hours := 1, hours := 2)"
             ),
             "TYPE_DUPLICATE_ARGUMENT_NAME"
-        ));
-    }
-
-    #[test]
-    fn overloaded_named_unknown_argument_rejected() {
-        assert!(rejects_with(
-            &wrap_import("datetime", "  LET z = datetime::fixedOffset(bogus := 1)"),
-            "TYPE_UNKNOWN_ARGUMENT_NAME"
         ));
     }
 

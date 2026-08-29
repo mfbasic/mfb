@@ -16,6 +16,7 @@ use std::path::Path;
 
 #[path = "builtins.rs"]
 mod builtins_check;
+pub(crate) use builtins_check::checks_builtin_call_arguments;
 mod checking;
 mod helpers;
 mod inference;
@@ -2414,14 +2415,6 @@ mod checker_tests {
     fn user_named_argument_out_of_order_valid() {
         assert!(accepts(
             "FUNC g(a AS Integer, b AS Integer) AS Integer\n  RETURN a + b\nEND FUNC\nFUNC main AS Integer\n  RETURN g(b := 2, a := 1)\nEND FUNC\n"
-        ));
-    }
-
-    #[test]
-    fn user_named_argument_unknown_name() {
-        assert!(rejects_with(
-            "FUNC g(a AS Integer) AS Integer\n  RETURN a\nEND FUNC\nFUNC main AS Integer\n  RETURN g(z := 1)\nEND FUNC\n",
-            "TYPE_UNKNOWN_ARGUMENT_NAME"
         ));
     }
 
