@@ -96,8 +96,8 @@ extensions); computation is portable-arithmetic only, identical across targets.
 The software cores keep 32-bit arithmetic masked to `0..2^32-1` (a sum of two such
 values is at most `2^33-2`, within the trapping 63-bit `+`, and is masked back);
 SHA-1 shares SHA-256's 512-bit padding and masked-32-bit model, differing only in
-its 80-word schedule, round function, and constants
-[[src/codegen/builtins/crypto/helper_sha1_bytes.rs:BODY]].
+its 80-word schedule, round function, and constants.
+[[src/codegen/builtins/crypto/helper_sha1_bytes.rs:BODY]]
 SHA-512's 64-bit modular addition is done through a limb-split helper that never
 lets an intermediate cross `2^63`. Poly1305 uses a 5 × 26-bit limb representation
 (poly1305-donna) with explicit carry propagation. Ed25519 field elements use
