@@ -5,12 +5,6 @@ $ mfb build -ast -ir tests/syntax/term/func_term_drawBox_invalid
      | ^
 tests/syntax/term/func_term_drawBox_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `term.drawBox` has 4 argument(s), expected 5.
-   5 |   term::drawBox(0, 0, 0, 0, 0)
-   6 |   term::drawBox(LineStyle.Light, "a", 0, 0, 0)
-   7 |   term::drawBox(LineStyle.Light, 0, 0, 0, 0, 0)
-     | ^
-tests/syntax/term/func_term_drawBox_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `term.drawBox` has 6 argument(s), expected 5.
    3 | FUNC main AS Integer
    4 |   term::drawBox(LineStyle.Light, 0, 0, 0)
    5 |   term::drawBox(0, 0, 0, 0, 0)
@@ -23,4 +17,10 @@ tests/syntax/term/func_term_drawBox_invalid/src/main.mfb:5 error[2-203-0021 TYPE
      | ^
 tests/syntax/term/func_term_drawBox_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `term.drawBox` has argument type(s) (LineStyle, String, Integer, Integer, Integer), expected LineStyle, Integer, Integer, Integer, Integer.
+   5 |   term::drawBox(0, 0, 0, 0, 0)
+   6 |   term::drawBox(LineStyle.Light, "a", 0, 0, 0)
+   7 |   term::drawBox(LineStyle.Light, 0, 0, 0, 0, 0)
+     | ^
+tests/syntax/term/func_term_drawBox_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `term.drawBox` has 6 argument(s), expected 5.
 [exit 1]

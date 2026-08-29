@@ -267,7 +267,6 @@ impl<'a> SyntaxChecker<'a> {
     pub(super) fn check_builtin_call(
         &mut self,
         file: &HirFile,
-        display_callee: &str,
         callee: &str,
         arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
@@ -275,14 +274,7 @@ impl<'a> SyntaxChecker<'a> {
         expected: Option<&Type>,
     ) -> Type {
         if crate::codegen::builtins::general::is_general_call(callee) {
-            return self.check_general_builtin_call(
-                file,
-                display_callee,
-                callee,
-                arguments,
-                locals,
-                line,
-            );
+            return self.check_general_builtin_call(file, callee, arguments, locals, line);
         }
         if crate::codegen::registry::registry().owning_package(callee) == Some("collections") {
             // Every collections member — native (`get`, …) and source-generic
@@ -290,45 +282,17 @@ impl<'a> SyntaxChecker<'a> {
             // the collections checker so a wrong-arg call is validated instead of
             // falling through to the unchecked generic tail and silently compiling
             // (bug-443).
-            return self.check_collections_builtin_call(
-                file,
-                display_callee,
-                callee,
-                arguments,
-                locals,
-                line,
-            );
+            return self.check_collections_builtin_call(file, callee, arguments, locals, line);
         }
         if crate::codegen::registry::registry().owning_package(callee) == Some("term") {
-            return self.check_term_builtin_call(
-                file,
-                display_callee,
-                callee,
-                arguments,
-                locals,
-                line,
-            );
+            return self.check_term_builtin_call(file, callee, arguments, locals, line);
         }
         if crate::codegen::builtins::thread::is_thread_call(callee) {
-            return self.check_thread_builtin_call(
-                file,
-                display_callee,
-                callee,
-                arguments,
-                locals,
-                line,
-            );
+            return self.check_thread_builtin_call(file, callee, arguments, locals, line);
         }
         if let Some(args) = builtins::builtin_package_name(callee).and_then(builtin_arg_mode) {
-            let resolved = self.check_table_builtin_call(
-                args,
-                file,
-                display_callee,
-                callee,
-                arguments,
-                locals,
-                line,
-            );
+            let resolved =
+                self.check_table_builtin_call(args, file, callee, arguments, locals, line);
             // `encoding.utf8Encode` is a return-type overload
             // (List OF Byte | List OF Integer). With a contextual expected type
             // of either, adopt it; otherwise keep the resolved default
@@ -366,7 +330,6 @@ impl<'a> SyntaxChecker<'a> {
         &mut self,
         args: ArgMode,
         file: &HirFile,
-        display_callee: &str,
         callee: &str,
         arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
@@ -404,17 +367,8 @@ impl<'a> SyntaxChecker<'a> {
         let Some(return_type) =
             resolve_table_call_with_byte_literals(callee, &arg_types, &arguments)
         else {
-            let expected = builtins::expected_arguments(callee)
-                .unwrap_or_else(|| "supported overload".to_string());
-            self.report(
-                "TYPE_CALL_ARGUMENT_MISMATCH",
-                &format!(
-                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
-                    arg_types.join(", ")
-                ),
-                file,
-                line,
-            );
+            // The mismatch is `ir::verify`'s (TYPE_CALL_ARGUMENT_MISMATCH,
+            // plan-107-E); the call types as Unknown here.
             return Type::Unknown;
         };
 
@@ -424,7 +378,6 @@ impl<'a> SyntaxChecker<'a> {
     pub(super) fn check_term_builtin_call(
         &mut self,
         file: &HirFile,
-        display_callee: &str,
         callee: &str,
         arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
@@ -444,81 +397,13 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        let arg_types = arguments
-            .iter()
-            .map(|argument| self.infer_expression(file, argument, locals, line, ExprMode::Read))
-            .collect::<Vec<_>>();
-
-        // `term::drawText` additionally accepts an `AttributedString` at the text
-        // position; the source-companion overload honours its bold/underline
-        // attributes (the native `String` overload stays for a `String` argument).
-        // Its other positions are unchanged, so only the third expected type flips.
-        // The overload's body lives in a bridge source injected only when the
-        // project imports `astrings` (`term::bridge_uses_package`); require that
-        // import here so the call cannot route to an uninjected `#term_drawTextAttr`
-        // (`AttributedString` is always in scope, so a value can reach this call
-        // without `IMPORT astrings`).
-        let third_is_attributed = callee == crate::codegen::builtins::term::DRAW_TEXT
-            && arg_types.len() == 3
-            && self.type_name(&arg_types[2]) == "AttributedString";
-        if third_is_attributed {
-            let astrings_imported = self.hir.files.iter().any(|file| {
-                file.imports
-                    .iter()
-                    .any(|import| import.package_name() == "astrings")
-            });
-            if !astrings_imported {
-                self.report(
-                    "TYPE_CALL_ARGUMENT_MISMATCH",
-                    &format!(
-                        "Call to `{display_callee}` with an `AttributedString` requires `IMPORT astrings`."
-                    ),
-                    file,
-                    line,
-                );
-                return self.term_return_type(callee);
-            }
+        // The arguments are inferred for their own diagnostics; the per-position
+        // signature check is `ir::verify`'s and the `drawText(AttributedString)`
+        // import requirement `ir::shape`'s (TYPE_CALL_ARGUMENT_MISMATCH,
+        // plan-107-E). `term`'s return type is a function of the name alone.
+        for argument in &arguments {
+            self.infer_expression(file, argument, locals, line, ExprMode::Read);
         }
-        let param_types: Vec<String> = if third_is_attributed {
-            vec![
-                "Integer".to_string(),
-                "Integer".to_string(),
-                "AttributedString".to_string(),
-            ]
-        } else {
-            builtins::argument_types(callee).unwrap_or_default()
-        };
-
-        let mut mismatch = false;
-        for ((expected_name, actual), argument) in param_types
-            .iter()
-            .zip(arg_types.iter())
-            .zip(arguments.iter())
-        {
-            let expected = self.parse_type(expected_name);
-            if !self.expression_compatible(&expected, actual, Some(argument)) {
-                mismatch = true;
-            }
-        }
-
-        if mismatch {
-            let expected =
-                builtins::expected_arguments(callee).unwrap_or_else(|| "no arguments".to_string());
-            let actual = arg_types
-                .iter()
-                .map(|type_| self.type_name(type_))
-                .collect::<Vec<_>>()
-                .join(", ");
-            self.report(
-                "TYPE_CALL_ARGUMENT_MISMATCH",
-                &format!(
-                    "Call to `{display_callee}` has argument type(s) ({actual}), expected {expected}."
-                ),
-                file,
-                line,
-            );
-        }
-
         self.term_return_type(callee)
     }
 
@@ -537,7 +422,6 @@ impl<'a> SyntaxChecker<'a> {
     pub(super) fn check_thread_builtin_call(
         &mut self,
         file: &HirFile,
-        display_callee: &str,
         callee: &str,
         arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
@@ -577,12 +461,8 @@ impl<'a> SyntaxChecker<'a> {
                 _ => false,
             };
             if !valid_entry {
-                self.report(
-                    "TYPE_CALL_ARGUMENT_MISMATCH",
-                    "thread.start entry point must be an exported ISOLATED FUNC from an imported package.",
-                    file,
-                    line,
-                );
+                // The entry rejection is `ir::shape`'s (TYPE_CALL_ARGUMENT_MISMATCH,
+                // plan-107-E); the call types as Unknown here.
                 return Type::Unknown;
             }
         }
@@ -598,17 +478,8 @@ impl<'a> SyntaxChecker<'a> {
         let Some(resolved_return) =
             builtins::resolve_call_return_type(callee, &arg_type_names, true)
         else {
-            let expected = builtins::expected_arguments(callee)
-                .unwrap_or_else(|| "supported overload".to_string());
-            self.report(
-                "TYPE_CALL_ARGUMENT_MISMATCH",
-                &format!(
-                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
-                    arg_type_names.join(", ")
-                ),
-                file,
-                line,
-            );
+            // The mismatch is `ir::verify`'s (TYPE_CALL_ARGUMENT_MISMATCH,
+            // plan-107-E); the call types as Unknown here.
             return Type::Unknown;
         };
 
@@ -619,7 +490,6 @@ impl<'a> SyntaxChecker<'a> {
     pub(super) fn check_general_builtin_call(
         &mut self,
         file: &HirFile,
-        display_callee: &str,
         callee: &str,
         arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
@@ -672,21 +542,10 @@ impl<'a> SyntaxChecker<'a> {
                         .unwrap_or("Unknown"),
                 );
             }
-            let expected = builtins::expected_arguments(callee)
-                .unwrap_or_else(|| "supported overload".to_string());
-            self.report(
-                "TYPE_CALL_ARGUMENT_MISMATCH",
-                &format!(
-                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
-                    arg_type_names.join(", ")
-                ),
-                file,
-                line,
-            );
+            // The mismatch is `ir::verify`'s (TYPE_CALL_ARGUMENT_MISMATCH,
+            // plan-107-E); the call types as Unknown here.
             return Type::Unknown;
         };
-
-        self.check_general_builtin_comparability(file, display_callee, callee, &arg_types, line);
 
         self.parse_type(&resolved_return)
     }
@@ -697,7 +556,6 @@ impl<'a> SyntaxChecker<'a> {
     pub(super) fn check_collections_builtin_call(
         &mut self,
         file: &HirFile,
-        display_callee: &str,
         callee: &str,
         arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
@@ -732,17 +590,9 @@ impl<'a> SyntaxChecker<'a> {
                             _ => None,
                         };
 
+                    // Both rejections are `ir::verify`'s (TYPE_CALL_ARGUMENT_MISMATCH,
+                    // plan-107-E); the call types as Unknown here.
                     let Some(predicate_type) = predicate_type else {
-                        self.report(
-                            "TYPE_CALL_ARGUMENT_MISMATCH",
-                            &format!(
-                                "Call to `{display_callee}` has argument type(s) ({collection_type_name}, {predicate}), expected {}.",
-                                builtins::expected_arguments(callee)
-                                    .unwrap_or_else(|| "supported overload".to_string())
-                            ),
-                            file,
-                            line,
-                        );
                         return Type::Unknown;
                     };
 
@@ -750,17 +600,6 @@ impl<'a> SyntaxChecker<'a> {
                     let Some(resolved_return) =
                         builtins::resolve_call_return_type(callee, &arg_types, true)
                     else {
-                        self.report(
-                            "TYPE_CALL_ARGUMENT_MISMATCH",
-                            &format!(
-                                "Call to `{display_callee}` has argument type(s) ({}), expected {}.",
-                                arg_types.join(", "),
-                                builtins::expected_arguments(callee)
-                                    .unwrap_or_else(|| "supported overload".to_string())
-                            ),
-                            file,
-                            line,
-                        );
                         return Type::Unknown;
                     };
 
@@ -801,60 +640,12 @@ impl<'a> SyntaxChecker<'a> {
         let Some(resolved_return) =
             builtins::resolve_call_return_type(callee, &arg_type_names, true)
         else {
-            let expected = builtins::expected_arguments(callee)
-                .unwrap_or_else(|| "supported overload".to_string());
-            self.report(
-                "TYPE_CALL_ARGUMENT_MISMATCH",
-                &format!(
-                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
-                    arg_type_names.join(", ")
-                ),
-                file,
-                line,
-            );
+            // The mismatch is `ir::verify`'s (TYPE_CALL_ARGUMENT_MISMATCH,
+            // plan-107-E); the call types as Unknown here.
             return Type::Unknown;
         };
 
-        self.check_general_builtin_comparability(file, display_callee, member, &arg_types, line);
-
         self.parse_type(&resolved_return)
-    }
-
-    pub(super) fn check_general_builtin_comparability(
-        &mut self,
-        file: &HirFile,
-        display_callee: &str,
-        callee: &str,
-        arg_types: &[Type],
-        line: usize,
-    ) {
-        match callee {
-            "contains" | "replace" => {
-                let Some(Type::ListOf(element)) = arg_types.first() else {
-                    return;
-                };
-                self.require_comparable_type(
-                    file,
-                    line,
-                    &format!("Call to `{display_callee}`"),
-                    element,
-                );
-            }
-            "find" => {
-                let Some(first) = arg_types.first() else {
-                    return;
-                };
-                if let Type::ListOf(element) = first {
-                    self.require_comparable_type(
-                        file,
-                        line,
-                        &format!("Call to `{display_callee}`"),
-                        element,
-                    );
-                }
-            }
-            _ => {}
-        }
     }
 
     /// Bind a builtin call's arguments to its parameter positions. Every

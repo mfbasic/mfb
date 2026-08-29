@@ -5,18 +5,18 @@ $ mfb build -ast -ir tests/syntax/tls/poll_list_invalid
      | ^
 tests/syntax/tls/poll_list_invalid/src/main.mfb:10 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `tls.poll` has argument type(s) (String), expected TlsSocket, Integer or List OF RES TlsSocket, Integer.
-   8 |   RES pickBare AS tls::TlsSocket = tls::poll(bare)
-   9 |   ' Neither tls::TlsSocket nor List OF RES tls::TlsSocket.
-  10 |   LET pickStr = tls::poll("nope")
-     | ^
-tests/syntax/tls/poll_list_invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `pickStr` does not have a known type.
   11 |   ' Wrong timeout type on the list overload.
   12 |   MUT socks AS List OF RES tls::TlsSocket = []
   13 |   RES pickBad AS tls::TlsSocket = tls::poll(socks, "later")
      | ^
 tests/syntax/tls/poll_list_invalid/src/main.mfb:13 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `tls.poll` has argument type(s) (List OF RES tls.TlsSocket, String), expected TlsSocket, Integer or List OF RES TlsSocket, Integer.
+   8 |   RES pickBare AS tls::TlsSocket = tls::poll(bare)
+   9 |   ' Neither tls::TlsSocket nor List OF RES tls::TlsSocket.
+  10 |   LET pickStr = tls::poll("nope")
+     | ^
+tests/syntax/tls/poll_list_invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `pickStr` does not have a known type.
   11 |   ' Wrong timeout type on the list overload.
   12 |   MUT socks AS List OF RES tls::TlsSocket = []
   13 |   RES pickBad AS tls::TlsSocket = tls::poll(socks, "later")

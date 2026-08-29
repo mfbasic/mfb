@@ -1,4 +1,10 @@
 $ mfb build -ast -ir tests/syntax/strings/helpers
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET a AS Boolean = strings::startsWithAny("abc", "a")
+     | ^
+tests/syntax/strings/helpers/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `strings.startsWithAny` has argument type(s) (String, String), expected String, List OF String.
    3 | FUNC main AS Integer
    4 |   LET a AS Boolean = strings::startsWithAny("abc", "a")
    5 |   LET b AS String = strings::left("abc")
@@ -17,12 +23,12 @@ tests/syntax/strings/helpers/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MIS
      | ^
 tests/syntax/strings/helpers/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `strings.graphemesCount` has 2 argument(s), expected 1.
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   LET a AS Boolean = strings::startsWithAny("abc", "a")
+   6 |   LET c AS String = strings::padLeft("abc", 5, "x", "y")
+   7 |   LET d AS Integer = strings::graphemesCount("abc", 1)
+   8 |   LET e AS String = strings::repeat("abc", "x")
      | ^
-tests/syntax/strings/helpers/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `strings.startsWithAny` has argument type(s) (String, String), expected String, List OF String.
+tests/syntax/strings/helpers/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `strings.repeat` has argument type(s) (String, String), expected String, Integer.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET a AS Boolean = strings::startsWithAny("abc", "a")
@@ -47,12 +53,6 @@ tests/syntax/strings/helpers/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]
      | ^
 tests/syntax/strings/helpers/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `d` does not have a known type.
-   6 |   LET c AS String = strings::padLeft("abc", 5, "x", "y")
-   7 |   LET d AS Integer = strings::graphemesCount("abc", 1)
-   8 |   LET e AS String = strings::repeat("abc", "x")
-     | ^
-tests/syntax/strings/helpers/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `strings.repeat` has argument type(s) (String, String), expected String, Integer.
    6 |   LET c AS String = strings::padLeft("abc", 5, "x", "y")
    7 |   LET d AS Integer = strings::graphemesCount("abc", 1)
    8 |   LET e AS String = strings::repeat("abc", "x")

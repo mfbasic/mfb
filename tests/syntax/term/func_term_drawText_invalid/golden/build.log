@@ -5,12 +5,6 @@ $ mfb build -ast -ir tests/syntax/term/func_term_drawText_invalid
      | ^
 tests/syntax/term/func_term_drawText_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `term.drawText` has 2 argument(s), expected 3.
-   5 |   term::drawText("a", 0, "hi")
-   6 |   term::drawText(0, 0, 5)
-   7 |   term::drawText(0, 0, "hi", 0)
-     | ^
-tests/syntax/term/func_term_drawText_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `term.drawText` has 4 argument(s), expected 3.
    3 | FUNC main AS Integer
    4 |   term::drawText(0, 0)
    5 |   term::drawText("a", 0, "hi")
@@ -23,4 +17,10 @@ tests/syntax/term/func_term_drawText_invalid/src/main.mfb:5 error[2-203-0021 TYP
      | ^
 tests/syntax/term/func_term_drawText_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `term.drawText` has argument type(s) (Integer, Integer, Integer), expected Integer, Integer, String.
+   5 |   term::drawText("a", 0, "hi")
+   6 |   term::drawText(0, 0, 5)
+   7 |   term::drawText(0, 0, "hi", 0)
+     | ^
+tests/syntax/term/func_term_drawText_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `term.drawText` has 4 argument(s), expected 3.
 [exit 1]

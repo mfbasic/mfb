@@ -5,6 +5,24 @@ $ mfb build -ast -ir tests/syntax/general/replace_invalid
      | ^
 tests/syntax/general/replace_invalid/src/main.mfb:3 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `strings.replace` has 0 argument(s), expected 3.
+   2 | FUNC main AS Integer
+   3 |   LET missing AS String = strings::replace()
+   4 |   LET wrongValue AS String = strings::replace(42, "l", "x")
+     | ^
+tests/syntax/general/replace_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `strings.replace` has argument type(s) (Integer, String, String), expected String, String, String.
+   3 |   LET missing AS String = strings::replace()
+   4 |   LET wrongValue AS String = strings::replace(42, "l", "x")
+   5 |   LET wrongOld AS String = strings::replace("hello", 1, "x")
+     | ^
+tests/syntax/general/replace_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `strings.replace` has argument type(s) (String, Integer, String), expected String, String, String.
+   4 |   LET wrongValue AS String = strings::replace(42, "l", "x")
+   5 |   LET wrongOld AS String = strings::replace("hello", 1, "x")
+   6 |   LET wrongNew AS String = strings::replace("hello", "l", 1)
+     | ^
+tests/syntax/general/replace_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `strings.replace` has argument type(s) (String, String, Integer), expected String, String, String.
    5 |   LET wrongOld AS String = strings::replace("hello", 1, "x")
    6 |   LET wrongNew AS String = strings::replace("hello", "l", 1)
    7 |   LET tooMany AS String = strings::replace("hello", "l", "x", "extra")
@@ -33,32 +51,14 @@ tests/syntax/general/replace_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOW
    3 |   LET missing AS String = strings::replace()
    4 |   LET wrongValue AS String = strings::replace(42, "l", "x")
      | ^
-tests/syntax/general/replace_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `strings.replace` has argument type(s) (Integer, String, String), expected String, String, String.
-   2 | FUNC main AS Integer
-   3 |   LET missing AS String = strings::replace()
-   4 |   LET wrongValue AS String = strings::replace(42, "l", "x")
-     | ^
 tests/syntax/general/replace_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongValue` does not have a known type.
    3 |   LET missing AS String = strings::replace()
    4 |   LET wrongValue AS String = strings::replace(42, "l", "x")
    5 |   LET wrongOld AS String = strings::replace("hello", 1, "x")
      | ^
-tests/syntax/general/replace_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `strings.replace` has argument type(s) (String, Integer, String), expected String, String, String.
-   3 |   LET missing AS String = strings::replace()
-   4 |   LET wrongValue AS String = strings::replace(42, "l", "x")
-   5 |   LET wrongOld AS String = strings::replace("hello", 1, "x")
-     | ^
 tests/syntax/general/replace_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongOld` does not have a known type.
-   4 |   LET wrongValue AS String = strings::replace(42, "l", "x")
-   5 |   LET wrongOld AS String = strings::replace("hello", 1, "x")
-   6 |   LET wrongNew AS String = strings::replace("hello", "l", 1)
-     | ^
-tests/syntax/general/replace_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `strings.replace` has argument type(s) (String, String, Integer), expected String, String, String.
    4 |   LET wrongValue AS String = strings::replace(42, "l", "x")
    5 |   LET wrongOld AS String = strings::replace("hello", 1, "x")
    6 |   LET wrongNew AS String = strings::replace("hello", "l", 1)

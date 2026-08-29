@@ -5,6 +5,12 @@ $ mfb build -ast -ir tests/syntax/process/isRunning_invalid
      | ^
 tests/syntax/process/isRunning_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `process.isRunning` has 0 argument(s), expected 1.
+   7 |   LET a = process::isRunning()
+   8 |   ' Wrong receiver type: a String is not a Process.
+   9 |   LET b = process::isRunning("child")
+     | ^
+tests/syntax/process/isRunning_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `process.isRunning` has argument type(s) (String), expected process.Process.
    9 |   LET b = process::isRunning("child")
   10 |   ' Too many arguments.
   11 |   LET c = process::isRunning(5, 6)
@@ -17,12 +23,6 @@ tests/syntax/process/isRunning_invalid/src/main.mfb:11 error[2-203-0022 TYPE_CAL
      | ^
 tests/syntax/process/isRunning_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `a` does not have a known type.
-   7 |   LET a = process::isRunning()
-   8 |   ' Wrong receiver type: a String is not a Process.
-   9 |   LET b = process::isRunning("child")
-     | ^
-tests/syntax/process/isRunning_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `process.isRunning` has argument type(s) (String), expected process.Process.
    7 |   LET a = process::isRunning()
    8 |   ' Wrong receiver type: a String is not a Process.
    9 |   LET b = process::isRunning("child")

@@ -11,6 +11,18 @@ tests/syntax/tls/listen_invalid/src/main.mfb:10 error[2-203-0022 TYPE_CALL_ARITY
      | ^
 tests/syntax/tls/listen_invalid/src/main.mfb:11 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `tls.listen` has 3 argument(s), expected 4 to 5.
+  11 |   LET tooFew = tls::listen("host", 443, "cert.pem")
+  12 |   ' Wrong argument types: port must be Integer, cert/key must be String.
+  13 |   LET badPort = tls::listen("host", "443", "cert.pem", "key.pem")
+     | ^
+tests/syntax/tls/listen_invalid/src/main.mfb:13 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `tls.listen` has argument type(s) (String, String, String, String), expected String, Integer, String, String, Integer.
+  12 |   ' Wrong argument types: port must be Integer, cert/key must be String.
+  13 |   LET badPort = tls::listen("host", "443", "cert.pem", "key.pem")
+  14 |   LET badCert = tls::listen("host", 443, 1, "key.pem")
+     | ^
+tests/syntax/tls/listen_invalid/src/main.mfb:14 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `tls.listen` has argument type(s) (String, Integer, Integer, String), expected String, Integer, String, String, Integer.
   14 |   LET badCert = tls::listen("host", 443, 1, "key.pem")
   15 |   ' Too many arguments (listen takes at most 5).
   16 |   LET tooMany = tls::listen("host", 443, "cert.pem", "key.pem", 10, 20)
@@ -33,20 +45,8 @@ tests/syntax/tls/listen_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VA
   12 |   ' Wrong argument types: port must be Integer, cert/key must be String.
   13 |   LET badPort = tls::listen("host", "443", "cert.pem", "key.pem")
      | ^
-tests/syntax/tls/listen_invalid/src/main.mfb:13 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tls.listen` has argument type(s) (String, String, String, String), expected String, Integer, String, String, Integer.
-  11 |   LET tooFew = tls::listen("host", 443, "cert.pem")
-  12 |   ' Wrong argument types: port must be Integer, cert/key must be String.
-  13 |   LET badPort = tls::listen("host", "443", "cert.pem", "key.pem")
-     | ^
 tests/syntax/tls/listen_invalid/src/main.mfb:13 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badPort` does not have a known type.
-  12 |   ' Wrong argument types: port must be Integer, cert/key must be String.
-  13 |   LET badPort = tls::listen("host", "443", "cert.pem", "key.pem")
-  14 |   LET badCert = tls::listen("host", 443, 1, "key.pem")
-     | ^
-tests/syntax/tls/listen_invalid/src/main.mfb:14 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tls.listen` has argument type(s) (String, Integer, Integer, String), expected String, Integer, String, String, Integer.
   12 |   ' Wrong argument types: port must be Integer, cert/key must be String.
   13 |   LET badPort = tls::listen("host", "443", "cert.pem", "key.pem")
   14 |   LET badCert = tls::listen("host", 443, 1, "key.pem")

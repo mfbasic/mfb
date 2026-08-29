@@ -1655,13 +1655,8 @@ pub(crate) mod testutil {
             crate::monomorph::monomorphize_project(project_dir, &crate::hir::elaborate(&augmented))
                 .expect("test source must monomorphize");
         let no_signatures = HashMap::new();
-        let mut diagnostics = crate::ir::shape::collect_diagnostics(
-            project_dir,
-            &concrete,
-            &no_signatures,
-            &[],
-            &no_signatures,
-        );
+        let mut diagnostics =
+            crate::ir::shape::collect_diagnostics(project_dir, &concrete, &[], &no_signatures);
         let checked = augment_for_check(&concrete).expect("late-pass augmentation must succeed");
         let mut checker = SyntaxChecker::new(project_dir, &checked);
         checker.check();

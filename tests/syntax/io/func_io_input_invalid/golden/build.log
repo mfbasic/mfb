@@ -1,4 +1,10 @@
 $ mfb build -ast -ir tests/syntax/io/func_io_input_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET wrongType AS String = io::input(1)
+     | ^
+tests/syntax/io/func_io_input_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `io.input` has argument type(s) (Integer), expected String.
    3 | FUNC main AS Integer
    4 |   LET wrongType AS String = io::input(1)
    5 |   LET tooMany AS String = io::input("a", "b")
@@ -11,12 +17,6 @@ tests/syntax/io/func_io_input_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_
      | ^
 tests/syntax/io/func_io_input_invalid/src/main.mfb:6 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
                Call to `io.input` does not have a parameter named `message`.
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   LET wrongType AS String = io::input(1)
-     | ^
-tests/syntax/io/func_io_input_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `io.input` has argument type(s) (Integer), expected String.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET wrongType AS String = io::input(1)

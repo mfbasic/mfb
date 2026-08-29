@@ -5,6 +5,18 @@ $ mfb build -ast -ir tests/syntax/math/func_math_cos_invalid
      | ^
 tests/syntax/math/func_math_cos_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `math.cos` has 0 argument(s), expected 1.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Float = math::cos()
+   5 |   LET integerArg AS Float = math::cos(1)
+     | ^
+tests/syntax/math/func_math_cos_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `math.cos` has argument type(s) (Integer), expected Float | Fixed.
+   4 |   LET missing AS Float = math::cos()
+   5 |   LET integerArg AS Float = math::cos(1)
+   6 |   LET wrongType AS Float = math::cos(TRUE)
+     | ^
+tests/syntax/math/func_math_cos_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `math.cos` has argument type(s) (Boolean), expected Float | Fixed.
    5 |   LET integerArg AS Float = math::cos(1)
    6 |   LET wrongType AS Float = math::cos(TRUE)
    7 |   LET tooMany AS Float = math::cos(1.0, 2.0)
@@ -21,20 +33,8 @@ tests/syntax/math/func_math_cos_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNK
    4 |   LET missing AS Float = math::cos()
    5 |   LET integerArg AS Float = math::cos(1)
      | ^
-tests/syntax/math/func_math_cos_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `math.cos` has argument type(s) (Integer), expected Float | Fixed.
-   3 | FUNC main AS Integer
-   4 |   LET missing AS Float = math::cos()
-   5 |   LET integerArg AS Float = math::cos(1)
-     | ^
 tests/syntax/math/func_math_cos_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `integerArg` does not have a known type.
-   4 |   LET missing AS Float = math::cos()
-   5 |   LET integerArg AS Float = math::cos(1)
-   6 |   LET wrongType AS Float = math::cos(TRUE)
-     | ^
-tests/syntax/math/func_math_cos_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `math.cos` has argument type(s) (Boolean), expected Float | Fixed.
    4 |   LET missing AS Float = math::cos()
    5 |   LET integerArg AS Float = math::cos(1)
    6 |   LET wrongType AS Float = math::cos(TRUE)

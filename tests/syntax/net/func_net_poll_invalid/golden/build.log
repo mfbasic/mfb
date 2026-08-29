@@ -5,6 +5,12 @@ $ mfb build -ast -ir tests/syntax/net/func_net_poll_invalid
      | ^
 tests/syntax/net/func_net_poll_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `net.poll` has 0 argument(s), expected 1 to 2.
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::poll()
+   5 |   LET wrongType = net::poll(1, 0)
+     | ^
+tests/syntax/net/func_net_poll_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `net.poll` has argument type(s) (Integer, Integer), expected Socket, Integer or List OF RES Socket, Integer.
    4 |   LET missing = net::poll()
    5 |   LET wrongType = net::poll(1, 0)
    6 |   LET tooMany = net::poll(1, 2, 3)
@@ -17,12 +23,6 @@ tests/syntax/net/func_net_poll_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL
      | ^
 tests/syntax/net/func_net_poll_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
-   3 | FUNC main AS Integer
-   4 |   LET missing = net::poll()
-   5 |   LET wrongType = net::poll(1, 0)
-     | ^
-tests/syntax/net/func_net_poll_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `net.poll` has argument type(s) (Integer, Integer), expected Socket, Integer or List OF RES Socket, Integer.
    3 | FUNC main AS Integer
    4 |   LET missing = net::poll()
    5 |   LET wrongType = net::poll(1, 0)

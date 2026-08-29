@@ -5,6 +5,12 @@ $ mfb build -ast -ir tests/syntax/process/shell_invalid
      | ^
 tests/syntax/process/shell_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `process.shell` has 0 argument(s), expected 1.
+   7 |   RES a = process::shell()
+   8 |   ' Wrong argument type: an Integer is not a String.
+   9 |   RES b = process::shell(42)
+     | ^
+tests/syntax/process/shell_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `process.shell` has argument type(s) (Integer), expected String.
    9 |   RES b = process::shell(42)
   10 |   ' Too many arguments.
   11 |   RES c = process::shell("echo hi", "extra")
@@ -17,12 +23,6 @@ tests/syntax/process/shell_invalid/src/main.mfb:11 error[2-203-0022 TYPE_CALL_AR
      | ^
 tests/syntax/process/shell_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `a` does not have a known type.
-   7 |   RES a = process::shell()
-   8 |   ' Wrong argument type: an Integer is not a String.
-   9 |   RES b = process::shell(42)
-     | ^
-tests/syntax/process/shell_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `process.shell` has argument type(s) (Integer), expected String.
    7 |   RES a = process::shell()
    8 |   ' Wrong argument type: an Integer is not a String.
    9 |   RES b = process::shell(42)

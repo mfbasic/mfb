@@ -236,15 +236,37 @@ Commit: `ecd3601cd` (TYPE_UNKNOWN_ARGUMENT_NAME); TYPE_DUPLICATE_ARGUMENT_NAME �
       `registry::rewrite_owner`). syntaxcheck's 10 ARITY report sites deleted,
       its argument normalizers reduced to binding. Corpus: 302 same, 219
       reordered, 0 set-diff; all 219 goldens regenerated as pure line moves.)
-- [ ] TYPE_CALL_ARGUMENT_MISMATCH: verify + shape (named-on-function-value);
+- [x] TYPE_CALL_ARGUMENT_MISMATCH: verify + shape (named-on-function-value);
       package-path tests; list; delete; remove `syntaxcheck/builtins.rs`'s
       checker and `inference.rs` call checks.
-- [ ] Tests: corpus + harness (all 283/273 fixtures classified; every REORDER
+      (Landed with the split Corrections C-args-erased describes: on the
+      source path EVERY argument-type form is `ir::shape`'s — the five builtin
+      arms transcribed over the HIR argument list with lowering's
+      `expression_type` (`Walker::check_builtin_call`, incl. the byte-literal
+      retry, the collections predicate form, term's per-position check and
+      the `IMPORT astrings` requirement, thread's entry), the declared-FUNC
+      per-position form over the SUPPLIED arguments, the function-value
+      per-position and named forms — with `syntaxcheck::compatible` /
+      `expression_compatible` ported (`Walker::compatible`, union variants and
+      same-declaration identity from the HIR + imported type table).
+      `ir::verify`'s IR-level forms stay for the package path only
+      (`emit_argument_mismatch`). The shape pass's typing seam now uses the
+      UNFILTERED imported-signature table (a `pkg::worker` reference types as
+      its ISOLATED FUNC, as the checker typed it) and strips a resource
+      local's `STATE` before comparing, as the checker did. syntaxcheck's 12
+      report sites deleted (the builtin arms keep only their return-type
+      inference; `check_function_value_call` / `check_call` infer arguments
+      only). Corpus: 281 same, 240 reordered, 0 set-diff; all 240 goldens
+      regenerated as pure line moves.)
+- [~] Tests: corpus + harness (all 283/273 fixtures classified; every REORDER
       listed in the commit; zero SETDIFF); `artifact-gate all`; full suite.
+      (Corpus zero SETDIFF at both landings — 219 then 240 REORDER, all pure
+      moves; unit tests: `ir::shape` (58), `syntaxcheck`, `ir::` green.
+      Remaining: the artifact gate and the full suite at the ARGUMENT commit.)
 
 Acceptance: both codes verify/shape-only; syntaxcheck's builtin checker gone;
 corpus set-equal; gate byte-identical.
-Commit: — (per rule)
+Commit: `f70a3919f` (TYPE_CALL_ARITY_MISMATCH); TYPE_CALL_ARGUMENT_MISMATCH —
 
 ## Validation Plan
 
@@ -282,6 +304,25 @@ Commit: — (per rule)
   since there is no HIR there. The named-argument omission forms were already
   shape's. Only the argument TYPES of a builtin call survive lowering and are
   verify's.
+- **C-args-erased (2026-08-29, Phase 3).** A's "argument TYPES survive
+  lowering" is false for the diagnostic the checker produced. Listing
+  TYPE_CALL_ARGUMENT_MISMATCH with verify's IR-level forms on the source path
+  left 24 SETDIFF fixtures (`/tmp/p107-phase-E3b.log`, first run): lowering
+  pads a builtin's optional trailing arguments with defaults (`csv.parse(TRUE)`
+  reports `(Boolean, String, String)`, `tls.connect()` `(Integer, String)`),
+  coerces a literal argument to the parameter's type before the IR exists
+  (`fs.appendBytes(1, [1, 2])` reports `List OF Byte`, `term.setForeground("x",
+  1, 2)` reports `Byte, Byte`; `fs.pathJoin([1, 2])` becomes a
+  TYPE_LIST_ELEMENT_MISMATCH pair with no ARGUMENT at all), fills a declared
+  function's defaults (an ill-typed default then reports as a call argument —
+  `user-function-default-args-invalid`, `types-default-value-invalid`),
+  lowers `error(code, message)` to record constructors and
+  `thread::transfer` to the send plane (no call to judge), and drops a
+  duplicate-named argument (`net.connectTcp`'s line 12). Consequence: the
+  source-path argument-type forms are shape rules over the HIR, and verify's
+  are package-path only — the same split the counts took. The plan's
+  "verify checks both paths" holds for the package path's ABI defense, not
+  for source-path parity.
 - **C-rewritten-targets (2026-08-29, Phase 3).** A source-bodied builtin
   member (`Body::Mfb`/`Body::Rewrite`, the `astrings` Tier-B transforms, the
   `term::drawText(AttributedString)` bridge) lowers to a call whose target is

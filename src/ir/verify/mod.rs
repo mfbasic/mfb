@@ -97,6 +97,11 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     // verify's on the package path; the named-argument omission forms are
     // ir::shape's.
     "TYPE_CALL_ARITY_MISMATCH",
+    // plan-107-E: the argument-TYPE forms (declared FUNC, function value, every
+    // builtin arm) are ir::verify's on both paths; the three source-only forms
+    // — named arguments on a function value, thread.start's entry, term's
+    // drawText(AttributedString) without IMPORT astrings — are ir::shape's.
+    "TYPE_CALL_ARGUMENT_MISMATCH",
     "TYPE_BINARY_OPERATOR_MISMATCH",
     "TYPE_UNARY_OPERATOR_MISMATCH",
     "TYPE_FIELD_ACCESS_REQUIRES_RECORD",

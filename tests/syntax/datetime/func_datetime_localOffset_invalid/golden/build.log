@@ -11,6 +11,12 @@ tests/syntax/datetime/func_datetime_localOffset_invalid/src/main.mfb:6 error[2-2
      | ^
 tests/syntax/datetime/func_datetime_localOffset_invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `datetime.localOffset` has 2 argument(s), expected 1.
+   8 |   LET b AS Integer = datetime::localOffset(0, 1)
+   9 |   ' Wrong argument type (String, not Integer).
+  10 |   LET c AS Integer = datetime::localOffset("noon")
+     | ^
+tests/syntax/datetime/func_datetime_localOffset_invalid/src/main.mfb:10 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `datetime.localOffset` has argument type(s) (String), expected Integer.
    4 |   ' datetime::localOffset has one overload: (epochSeconds AS Integer) AS Integer.
    5 |   ' Missing argument (wrong arity).
    6 |   LET a AS Integer = datetime::localOffset()
@@ -23,12 +29,6 @@ tests/syntax/datetime/func_datetime_localOffset_invalid/src/main.mfb:6 error[2-2
      | ^
 tests/syntax/datetime/func_datetime_localOffset_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `b` does not have a known type.
-   8 |   LET b AS Integer = datetime::localOffset(0, 1)
-   9 |   ' Wrong argument type (String, not Integer).
-  10 |   LET c AS Integer = datetime::localOffset("noon")
-     | ^
-tests/syntax/datetime/func_datetime_localOffset_invalid/src/main.mfb:10 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `datetime.localOffset` has argument type(s) (String), expected Integer.
    8 |   LET b AS Integer = datetime::localOffset(0, 1)
    9 |   ' Wrong argument type (String, not Integer).
   10 |   LET c AS Integer = datetime::localOffset("noon")

@@ -443,7 +443,6 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let shape_diagnostics = ir::shape::collect_diagnostics(
         &options.location,
         &concrete_hir,
-        &source_external_signatures,
         &imported_types,
         &all_external_signatures,
     );

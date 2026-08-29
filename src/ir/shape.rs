@@ -35,20 +35,29 @@ use std::path::Path;
 
 /// Run the shape pass over `hir` and return its diagnostics in traversal
 /// (source) order, un-rendered, for the build path to merge with the other
-/// streams. `external_signatures` and `imported_types` are the same inputs the
-/// build path hands `lower_augmented_project`, so the typing seam sees exactly
-/// the tables lowering will; `imported_signatures` is the UNFILTERED signature
-/// table of every imported `.mfp` (the parameter-name source for a call into
-/// an imported package — lowering keeps only the resource-returning subset).
+/// streams. `imported_types` is the same input the build path hands
+/// `lower_augmented_project`; `imported_signatures` is the UNFILTERED signature
+/// table of every imported `.mfp` (the parameter-name and callable-type source
+/// for a call into an imported package).
 pub(crate) fn collect_diagnostics(
     project_dir: &Path,
     hir: &HirProject,
-    external_signatures: &HashMap<String, ExternalSignature>,
     imported_types: &[ImportedTypeDef],
     imported_signatures: &HashMap<String, ExternalSignature>,
 ) -> Vec<PendingDiagnostic> {
-    let facts = lower::lower_facts(hir, external_signatures, imported_types);
-    let mut walker = Walker::new(project_dir, &facts, hir, imported_signatures);
+    // The typing seam is built over the UNFILTERED imported-signature table:
+    // the source checker typed a reference to an imported function by its
+    // `.mfp` signature, so a `thread::start(pkg::worker, …)` argument must type
+    // as that ISOLATED FUNC here too. (Lowering's own facts keep only the
+    // resource-returning subset for `ir::verify`'s sake.)
+    let facts = lower::lower_facts(hir, imported_signatures, imported_types);
+    let mut walker = Walker::new(
+        project_dir,
+        &facts,
+        hir,
+        imported_types,
+        imported_signatures,
+    );
     walker.walk_project(hir);
     walker.diagnostics
 }
@@ -60,8 +69,7 @@ pub(crate) fn check_project(
     hir: &HirProject,
     imported_signatures: &HashMap<String, ExternalSignature>,
 ) -> Result<(), ()> {
-    let diagnostics =
-        collect_diagnostics(project_dir, hir, &HashMap::new(), &[], imported_signatures);
+    let diagnostics = collect_diagnostics(project_dir, hir, &[], imported_signatures);
     let had_error = diagnostics.iter().any(|d| crate::rules::is_error(&d.rule));
     crate::rules::render_pending(diagnostics);
     if had_error {
@@ -85,7 +93,7 @@ enum CalleeParams {
     BuiltinUnnamed,
     /// A local or global binding of FUNC type: the callable type carries a
     /// parameter count but no names.
-    FunctionValue(usize),
+    FunctionValue(Vec<ParameterType>),
 }
 
 /// The walk state: lowering's context (positioned per file / per function
@@ -100,6 +108,13 @@ struct Walker<'a> {
     /// simply not a function call to it).
     functions: HashMap<String, DeclaredFunction>,
     imported_signatures: &'a HashMap<String, ExternalSignature>,
+    /// Whether any file of the project imports `astrings` — the gate for the
+    /// `term::drawText(AttributedString)` bridge body, which is injected only
+    /// then.
+    astrings_imported: bool,
+    /// Every declared and imported type, for the compatibility rule's union
+    /// and same-declaration questions.
+    types: HashMap<String, TypeShape>,
     /// Project-relative path of the file being walked, for diagnostic paths.
     file: String,
     diagnostics: Vec<PendingDiagnostic>,
@@ -123,7 +138,100 @@ struct DeclaredFunction {
 #[derive(Clone)]
 struct ShapeParam {
     name: String,
+    type_: ParameterType,
     has_default: bool,
+}
+
+/// One declared or imported type as the compatibility rule needs it: its
+/// identity (so two distinct declarations sharing a bare name never unify)
+/// and, for a union, its variant names.
+struct TypeShape {
+    id: usize,
+    variants: Vec<String>,
+}
+
+/// The `RES` element marker is an ownership-axis annotation, not a value type.
+fn strip_res(type_: &ParameterType) -> &ParameterType {
+    match type_ {
+        ParameterType::Res(inner) => inner,
+        other => other,
+    }
+}
+
+/// The type a numeric literal (negated or not) carries, for list-literal
+/// element coercion; `None` for anything else.
+fn numeric_literal_type(expression: &HirExpression) -> Option<ParameterType> {
+    match expression {
+        HirExpression::Number(number) => Some(match crate::numeric::classify_literal(number).1 {
+            crate::numeric::LiteralType::Integer => ParameterType::Integer,
+            crate::numeric::LiteralType::Float => ParameterType::Float,
+            crate::numeric::LiteralType::Fixed => ParameterType::Fixed,
+            crate::numeric::LiteralType::Money => ParameterType::Money,
+        }),
+        HirExpression::Unary {
+            operator, operand, ..
+        } if operator == "-" && matches!(operand.as_ref(), HirExpression::Number(_)) => {
+            numeric_literal_type(operand)
+        }
+        _ => None,
+    }
+}
+
+/// Whether an argument is a non-negative integer literal that fits in a `Byte`.
+fn expr_is_byte_literal(expression: &HirExpression) -> bool {
+    matches!(expression, HirExpression::Number(text)
+        if text.parse::<u16>().is_ok_and(|n| n <= u8::MAX as u16))
+}
+
+/// Resolve a table-driven builtin call, retrying with `Integer`-literal
+/// arguments coerced to `Byte` when the exact-typed resolution fails (the
+/// checker's `resolve_table_call_with_byte_literals`): each subset of the
+/// eligible positions is tried, so a literal that is validly either `Integer`
+/// or `Byte` resolves against whichever the overload expects.
+fn resolve_table_call_with_byte_literals(
+    callee: &str,
+    arg_types: &[String],
+    arguments: &[&HirExpression],
+) -> Option<String> {
+    if let Some(return_type) = builtins::resolve_call_return_type(callee, arg_types, true) {
+        return Some(return_type);
+    }
+    let eligible: Vec<usize> = arg_types
+        .iter()
+        .enumerate()
+        .filter(|(index, type_name)| {
+            type_name.as_str() == "Integer"
+                && arguments
+                    .get(*index)
+                    .is_some_and(|argument| expr_is_byte_literal(argument))
+        })
+        .map(|(index, _)| index)
+        .collect();
+    if eligible.is_empty() || eligible.len() > 6 {
+        return None;
+    }
+    for mask in 1u32..(1u32 << eligible.len()) {
+        let mut trial: Vec<String> = arg_types.to_vec();
+        for (bit, &index) in eligible.iter().enumerate() {
+            if mask & (1 << bit) != 0 {
+                trial[index] = "Byte".to_string();
+            }
+        }
+        if let Some(return_type) = builtins::resolve_call_return_type(callee, &trial, true) {
+            return Some(return_type);
+        }
+    }
+    None
+}
+
+/// The call's argument values in source order.
+fn source_order(arguments: &[HirCallArg]) -> Vec<&HirExpression> {
+    arguments
+        .iter()
+        .map(|argument| match argument {
+            HirCallArg::Positional(value) | HirCallArg::Named { value, .. } => value,
+        })
+        .collect()
 }
 
 impl<'a> Walker<'a> {
@@ -131,8 +239,40 @@ impl<'a> Walker<'a> {
         project_dir: &'a Path,
         facts: &'a LowerFacts,
         hir: &HirProject,
+        imported_types: &[ImportedTypeDef],
         imported_signatures: &'a HashMap<String, ExternalSignature>,
     ) -> Self {
+        let mut types = HashMap::new();
+        for file in &hir.files {
+            for item in &file.items {
+                if let HirItem::Type(type_decl) = item {
+                    let id = types.len();
+                    let variants = if type_decl.kind == crate::ast::TypeDeclKind::Union {
+                        type_decl
+                            .variants
+                            .iter()
+                            .map(|variant| variant.name.clone())
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    types.insert(type_decl.name.clone(), TypeShape { id, variants });
+                }
+            }
+        }
+        for imported in imported_types {
+            let id = types.len();
+            let variants = if imported.kind == super::ImportedTypeKind::Union {
+                imported
+                    .variants
+                    .iter()
+                    .map(|variant| variant.name.clone())
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            types.insert(imported.name.clone(), TypeShape { id, variants });
+        }
         let mut functions = HashMap::new();
         for file in &hir.files {
             for item in &file.items {
@@ -145,6 +285,7 @@ impl<'a> Walker<'a> {
                                 .iter()
                                 .map(|param| ShapeParam {
                                     name: param.name.clone(),
+                                    type_: param.type_.clone(),
                                     has_default: param.default.is_some(),
                                 })
                                 .collect(),
@@ -157,11 +298,18 @@ impl<'a> Walker<'a> {
                 }
             }
         }
+        let astrings_imported = hir.files.iter().any(|file| {
+            file.imports
+                .iter()
+                .any(|import| import.package_name() == "astrings")
+        });
         Walker {
             project_dir,
             context: facts.context(),
             functions,
             imported_signatures,
+            astrings_imported,
+            types,
             file: String::new(),
             diagnostics: Vec::new(),
             #[cfg(test)]
@@ -592,6 +740,7 @@ impl<'a> Walker<'a> {
                         .iter()
                         .map(|param| ShapeParam {
                             name: param.name.clone(),
+                            type_: param.type_.clone(),
                             has_default: param.has_default,
                         })
                         .collect(),
@@ -606,7 +755,7 @@ impl<'a> Walker<'a> {
             .get(callee)
             .or_else(|| self.context.binding_type(callee))?;
         match value_type {
-            ParameterType::Func(params, _, _) => Some(CalleeParams::FunctionValue(params.len())),
+            ParameterType::Func(params, _, _) => Some(CalleeParams::FunctionValue(params.clone())),
             _ => None,
         }
     }
@@ -654,12 +803,348 @@ impl<'a> Walker<'a> {
         }
     }
 
+    /// TYPE_CALL_ARGUMENT_MISMATCH, the `thread.start` entry form — a source
+    /// fact (`self::` vs a bare name both lower to one `FunctionRef`).
+    fn report_thread_entry(&mut self, line: usize) {
+        self.emit(
+            "TYPE_CALL_ARGUMENT_MISMATCH",
+            "thread.start entry point must be an exported ISOLATED FUNC from an imported package."
+                .to_string(),
+            line,
+        );
+    }
+
+    /// The builtin-call family on the source path — syntaxcheck's
+    /// `check_builtin_call` over the HIR argument list: the count against the
+    /// registry's arity range, then the argument types through the same
+    /// arg-typed overload resolution the checker used (the `general`,
+    /// `collections`, `term` and `thread` arms ahead of the package table).
+    /// Every type here is lowering's `expression_type` of the argument the
+    /// SOURCE wrote — the list lowering then pads with defaults and coerces
+    /// literal by literal, which is why the IR cannot report this form with
+    /// the checker's wording (`ir::verify` keeps the IR-level check for the
+    /// package path).
+    fn check_builtin_call(
+        &mut self,
+        callee: &str,
+        canonical: &str,
+        normalized: &[&HirExpression],
+        line: usize,
+        locals: &HashMap<String, ParameterType>,
+    ) {
+        let registry = crate::codegen::registry::registry();
+        let arg_types: Vec<ParameterType> = normalized
+            .iter()
+            .map(|argument| self.type_of(argument, locals).without_state())
+            .collect();
+        let names: Vec<String> = arg_types
+            .iter()
+            .map(|type_| type_.name().into_owned())
+            .collect();
+        let expected_overloads = || {
+            builtins::expected_arguments(canonical)
+                .unwrap_or_else(|| "supported overload".to_string())
+        };
+        let mismatch = |names: &[String], expected: String| {
+            format!(
+                "Call to `{callee}` has argument type(s) ({}), expected {expected}.",
+                names.join(", ")
+            )
+        };
+
+        if crate::codegen::builtins::general::is_general_call(canonical) {
+            if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
+                return;
+            }
+            if builtins::resolve_call_return_type(canonical, &names, true).is_none() {
+                // A package-provided override may accept what the built-in
+                // rejects (plan-01-overload §A.3.2) — never reject those.
+                if crate::codegen::builtins::general::is_overridable(canonical)
+                    && names.len() == 1
+                    && builtins::general_override_target(canonical, &names[0]).is_some()
+                {
+                    return;
+                }
+                let detail = mismatch(&names, expected_overloads());
+                self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail, line);
+            }
+            return;
+        }
+
+        if registry.owning_package(canonical) == Some("collections") {
+            // A bare general built-in predicate in the callback position
+            // (bug-368): its type derives from the list's element type, and the
+            // diagnostic quotes the predicate's NAME.
+            if crate::codegen::registry::callback_member(canonical) && normalized.len() == 2 {
+                if let HirExpression::Identifier(predicate) = normalized[1] {
+                    if crate::codegen::builtins::general::builtin_function_id(predicate).is_some() {
+                        let collection = names[0].clone();
+                        let predicate_type = match &arg_types[0] {
+                            ParameterType::ListOf(element) => {
+                                crate::codegen::builtins::general::filter_predicate_type(
+                                    predicate,
+                                    &element.name(),
+                                )
+                            }
+                            _ => None,
+                        };
+                        let Some(predicate_type) = predicate_type else {
+                            let detail =
+                                mismatch(&[collection, predicate.clone()], expected_overloads());
+                            self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail, line);
+                            return;
+                        };
+                        let trial = vec![collection, predicate_type];
+                        if builtins::resolve_call_return_type(canonical, &trial, true).is_none() {
+                            let detail = mismatch(&trial, expected_overloads());
+                            self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail, line);
+                        }
+                        return;
+                    }
+                }
+            }
+            if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
+                return;
+            }
+            if builtins::resolve_call_return_type(canonical, &names, true).is_none() {
+                let detail = mismatch(&names, expected_overloads());
+                self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail, line);
+            }
+            return;
+        }
+
+        if registry.owning_package(canonical) == Some("term") {
+            if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
+                return;
+            }
+            // `term::drawText` additionally accepts an `AttributedString` at the
+            // text position; the source-companion overload honours its
+            // attributes. Its body lives in a bridge injected only when the
+            // project imports `astrings`, so the import is required here — a
+            // source fact the IR does not keep.
+            let third_is_attributed = canonical == crate::codegen::builtins::term::DRAW_TEXT
+                && names.len() == 3
+                && names[2] == "AttributedString";
+            if third_is_attributed && !self.astrings_imported {
+                self.emit(
+                    "TYPE_CALL_ARGUMENT_MISMATCH",
+                    format!(
+                        "Call to `{callee}` with an `AttributedString` requires `IMPORT astrings`."
+                    ),
+                    line,
+                );
+                return;
+            }
+            let param_types: Vec<String> = if third_is_attributed {
+                vec![
+                    "Integer".to_string(),
+                    "Integer".to_string(),
+                    "AttributedString".to_string(),
+                ]
+            } else {
+                builtins::argument_types(canonical).unwrap_or_default()
+            };
+            let mismatched = param_types
+                .iter()
+                .zip(arg_types.iter())
+                .zip(normalized.iter())
+                .any(|((expected_name, actual), argument)| {
+                    let expected = ParameterType::parse(expected_name);
+                    !self.expression_compatible(&expected, actual, argument)
+                });
+            if mismatched {
+                let expected = builtins::expected_arguments(canonical)
+                    .unwrap_or_else(|| "no arguments".to_string());
+                let detail = mismatch(&names, expected);
+                self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail, line);
+            }
+            return;
+        }
+
+        if crate::codegen::builtins::thread::is_thread_call(canonical) {
+            if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
+                return;
+            }
+            if builtins::resolve_call_return_type(canonical, &names, true).is_none() {
+                let detail = mismatch(&names, expected_overloads());
+                self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail, line);
+            }
+            return;
+        }
+
+        // The shared package table: arity, then arg-typed overload resolution
+        // with the literal→`Byte` retry the checker gave the table packages.
+        if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
+            return;
+        }
+        if resolve_table_call_with_byte_literals(canonical, &names, normalized).is_none() {
+            let detail = mismatch(&names, expected_overloads());
+            self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail, line);
+        }
+    }
+
+    /// Lowering's type for an argument the source wrote; `Unknown` when it
+    /// has none — the checker's own spelling for it. Callers strip a resource
+    /// local's `STATE T` clause (`without_state`): the checker compared and
+    /// printed the bare resource type, as the parameter tables spell it.
+    fn type_of(
+        &self,
+        expression: &HirExpression,
+        locals: &HashMap<String, ParameterType>,
+    ) -> ParameterType {
+        lower::expression_type(expression, locals, &self.context).unwrap_or(ParameterType::Unknown)
+    }
+
+    /// Type compatibility as the source checker judged it (`syntaxcheck::compatible`):
+    /// `Unknown` on either side is compatible; the `RES` marker is stripped;
+    /// containers, thread handles and callable types recurse (parameters
+    /// contravariant); a union accepts any of its variants; a qualified nominal
+    /// equates to its bare form unless both name distinct declarations.
+    fn compatible(&self, expected: &ParameterType, actual: &ParameterType) -> bool {
+        if matches!(expected, ParameterType::Unknown) || matches!(actual, ParameterType::Unknown) {
+            return true;
+        }
+        let (expected, actual) = (strip_res(expected), strip_res(actual));
+        match (expected, actual) {
+            (ParameterType::ListOf(expected), ParameterType::ListOf(actual))
+            | (ParameterType::SetOf(expected), ParameterType::SetOf(actual))
+            | (ParameterType::ResultOf(expected), ParameterType::ResultOf(actual)) => {
+                self.compatible(expected, actual)
+            }
+            (
+                ParameterType::MapOf(expected_key, expected_value),
+                ParameterType::MapOf(actual_key, actual_value),
+            ) => {
+                self.compatible(expected_key, actual_key)
+                    && self.compatible(expected_value, actual_value)
+            }
+            (
+                ParameterType::ThreadHandle {
+                    worker: expected_worker,
+                    msg: expected_message,
+                    res: expected_resource,
+                    out: expected_output,
+                },
+                ParameterType::ThreadHandle {
+                    worker: actual_worker,
+                    msg: actual_message,
+                    res: actual_resource,
+                    out: actual_output,
+                },
+            ) => {
+                expected_worker == actual_worker
+                    && self.compatible(expected_message, actual_message)
+                    && self.compatible(expected_resource, actual_resource)
+                    && self.compatible(expected_output, actual_output)
+            }
+            (
+                ParameterType::Func(expected_params, expected_return, expected_isolated),
+                ParameterType::Func(actual_params, actual_return, actual_isolated),
+            ) => {
+                (!expected_isolated || *actual_isolated)
+                    && expected_params.len() == actual_params.len()
+                    && expected_params
+                        .iter()
+                        .zip(actual_params.iter())
+                        // Parameters are contravariant (bug-173 A).
+                        .all(|(expected, actual)| self.compatible(actual, expected))
+                    && self.compatible(expected_return, actual_return)
+            }
+            (ParameterType::Named(_), ParameterType::Named(_)) => {
+                let (expected_name, actual_name) = (expected.name(), actual.name());
+                if expected_name == actual_name {
+                    return true;
+                }
+                let expected_bare = expected_name.rsplit('.').next().unwrap_or(&expected_name);
+                let actual_bare = actual_name.rsplit('.').next().unwrap_or(&actual_name);
+                let expected_info = self
+                    .types
+                    .get(expected_name.as_ref())
+                    .or_else(|| self.types.get(expected_bare));
+                // A union accepts any of its variant values; a variant may be
+                // spelled qualified (`fs.File`) or bare.
+                if expected_info.is_some_and(|info| {
+                    info.variants
+                        .iter()
+                        .any(|variant| variant == actual_name.as_ref() || variant == actual_bare)
+                }) {
+                    return true;
+                }
+                if expected_bare != actual_bare {
+                    return false;
+                }
+                // Shared bare names unify only when both resolve to the SAME
+                // declaration (bug-41), or when either side is unregistered (a
+                // built-in nominal such as `net.Url`).
+                let actual_info = self
+                    .types
+                    .get(actual_name.as_ref())
+                    .or_else(|| self.types.get(actual_bare));
+                match (expected_info, actual_info) {
+                    (Some(expected_info), Some(actual_info)) => expected_info.id == actual_info.id,
+                    _ => true,
+                }
+            }
+            _ => expected == actual,
+        }
+    }
+
+    /// `syntaxcheck::expression_compatible`: `compatible`, plus the literal
+    /// coercions a constant argument enjoys — an in-range integer literal into
+    /// `Byte`, a numeric literal (negated or not) into `Fixed`/`Money`, and a
+    /// list literal of such literals into a list of them.
+    fn expression_compatible(
+        &self,
+        expected: &ParameterType,
+        actual: &ParameterType,
+        expression: &HirExpression,
+    ) -> bool {
+        if self.compatible(expected, actual) {
+            return true;
+        }
+        match (expected, actual, expression) {
+            (ParameterType::Byte, ParameterType::Integer, HirExpression::Number(value)) => value
+                .parse::<u16>()
+                .is_ok_and(|number| number <= u8::MAX as u16),
+            (
+                ParameterType::Fixed | ParameterType::Money,
+                ParameterType::Integer | ParameterType::Float,
+                HirExpression::Number(_),
+            ) => true,
+            (
+                ParameterType::Fixed | ParameterType::Money,
+                ParameterType::Integer | ParameterType::Float,
+                HirExpression::Unary {
+                    operator, operand, ..
+                },
+            ) if operator == "-" && matches!(operand.as_ref(), HirExpression::Number(_)) => true,
+            (
+                ParameterType::ListOf(expected_element),
+                ParameterType::ListOf(_),
+                HirExpression::ListLiteral(values),
+            ) => values.iter().all(|value| {
+                let Some(actual_element) = numeric_literal_type(value) else {
+                    return false;
+                };
+                self.expression_compatible(expected_element, &actual_element, value)
+            }),
+            _ => false,
+        }
+    }
+
     /// TYPE_CALL_ARITY_MISMATCH, the builtin count form: the checker counted
     /// the normalized argument list (names bound, unknown names dropped,
-    /// extras kept) against the registry's arity range.
-    fn check_builtin_arity(&mut self, callee: &str, canonical: &str, count: usize, line: usize) {
+    /// extras kept) against the registry's arity range. True when the count
+    /// was out of range (the checker ended the call's checks there).
+    fn check_builtin_arity(
+        &mut self,
+        callee: &str,
+        canonical: &str,
+        count: usize,
+        line: usize,
+    ) -> bool {
         let Some((min, max)) = builtins::arity(canonical) else {
-            return;
+            return false;
         };
         if count < min || count > max {
             let expected = if min == max {
@@ -672,7 +1157,9 @@ impl<'a> Walker<'a> {
                 format!("Call to `{callee}` has {count} argument(s), expected {expected}."),
                 line,
             );
+            return true;
         }
+        false
     }
 
     /// The call-shape rules — the ones lowering's argument normalization
@@ -709,17 +1196,51 @@ impl<'a> Walker<'a> {
         // The builtin count rule reads the canonical name's arity table.
         let canonical = self.canonical_callee(callee);
         match params {
-            CalleeParams::FunctionValue(expected) => {
-                // A callable type carries no defaults: exactly its count.
-                if arguments.len() != expected {
+            CalleeParams::FunctionValue(params) => {
+                // TYPE_CALL_ARGUMENT_MISMATCH, the function-value named form: a
+                // callable type keeps no parameter names, so a name cannot bind
+                // — and lowering discards the name, so only the HIR shows it.
+                if has_named {
                     self.emit(
-                        "TYPE_CALL_ARITY_MISMATCH",
+                        "TYPE_CALL_ARGUMENT_MISMATCH",
                         format!(
-                            "Call to `{callee}` has {} argument(s), expected {expected}.",
-                            arguments.len()
+                            "Call to function value `{callee}` cannot use named arguments because the callable type does not preserve parameter names."
                         ),
                         line,
                     );
+                }
+                // A callable type carries no defaults: exactly its count.
+                if arguments.len() != params.len() {
+                    self.emit(
+                        "TYPE_CALL_ARITY_MISMATCH",
+                        format!(
+                            "Call to `{callee}` has {} argument(s), expected {}.",
+                            arguments.len(),
+                            params.len()
+                        ),
+                        line,
+                    );
+                }
+                for (index, argument) in arguments.iter().enumerate() {
+                    let value = match argument {
+                        HirCallArg::Positional(value) | HirCallArg::Named { value, .. } => value,
+                    };
+                    let Some(expected) = params.get(index) else {
+                        continue;
+                    };
+                    let actual = self.type_of(value, locals).without_state();
+                    if !self.expression_compatible(expected, &actual, value) {
+                        self.emit(
+                            "TYPE_CALL_ARGUMENT_MISMATCH",
+                            format!(
+                                "Argument {} for `{callee}` has type {}, expected {}.",
+                                index + 1,
+                                actual.name(),
+                                expected.name()
+                            ),
+                            line,
+                        );
+                    }
                 }
             }
             CalleeParams::BuiltinUnnamed => {
@@ -730,11 +1251,16 @@ impl<'a> Walker<'a> {
                         self.report_unknown_name(callee, name, *line);
                     }
                 }
-                self.check_builtin_arity(callee, &canonical, arguments.len(), line);
+                let source_order = source_order(arguments);
+                self.check_builtin_call(callee, &canonical, &source_order, line, locals);
             }
             CalleeParams::BuiltinOverloads(overloads) => {
+                // Whichever way selection ends, the checker's normalized list has
+                // every argument — bound in overload order when an overload is
+                // selected, else left in source order.
+                let source_order = source_order(arguments);
                 if !has_named {
-                    self.check_builtin_arity(callee, &canonical, arguments.len(), line);
+                    self.check_builtin_call(callee, &canonical, &source_order, line, locals);
                     return;
                 }
                 // Overload selection needs a well-formed name set: the first
@@ -746,14 +1272,10 @@ impl<'a> Walker<'a> {
                         HirCallArg::Positional(_) => None,
                     })
                     .collect();
-                // Whichever way selection ends, the checker's normalized list
-                // has every argument (bound in overload order, or left in
-                // source order), so the count is the source's.
-                let count = arguments.len();
                 for (index, (name, arg_line)) in named.iter().enumerate() {
                     if named[..index].iter().any(|(earlier, _)| earlier == name) {
                         self.report_duplicate_name(callee, name, *arg_line);
-                        self.check_builtin_arity(callee, &canonical, count, line);
+                        self.check_builtin_call(callee, &canonical, &source_order, line, locals);
                         return;
                     }
                 }
@@ -763,16 +1285,39 @@ impl<'a> Walker<'a> {
                         .any(|params| params.contains(&name.as_str()))
                 }) {
                     self.report_unknown_name(callee, name, *arg_line);
-                    self.check_builtin_arity(callee, &canonical, count, line);
+                    self.check_builtin_call(callee, &canonical, &source_order, line, locals);
                     return;
                 }
                 let positionals = arguments.len() - named.len();
                 let supplied_names: Vec<&str> =
                     named.iter().map(|(name, _)| name.as_str()).collect();
-                if builtins::select_param_name_overload(&overloads, positionals, &supplied_names)
-                    .is_some()
+                if let Some(params) =
+                    builtins::select_param_name_overload(&overloads, positionals, &supplied_names)
                 {
-                    self.check_builtin_arity(callee, &canonical, count, line);
+                    let positional_values: Vec<&HirExpression> = arguments
+                        .iter()
+                        .filter_map(|argument| match argument {
+                            HirCallArg::Positional(value) => Some(value),
+                            HirCallArg::Named { .. } => None,
+                        })
+                        .collect();
+                    let ordered: Vec<&HirExpression> = params
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, param)| {
+                            if index < positionals {
+                                positional_values.get(index).copied()
+                            } else {
+                                arguments.iter().find_map(|argument| match argument {
+                                    HirCallArg::Named { name, value, .. } if name == param => {
+                                        Some(value)
+                                    }
+                                    _ => None,
+                                })
+                            }
+                        })
+                        .collect();
+                    self.check_builtin_call(callee, &canonical, &ordered, line, locals);
                     return;
                 }
                 // Every supplied name exists, but no overload's arity and layout
@@ -795,7 +1340,7 @@ impl<'a> Walker<'a> {
                             ),
                             line,
                         );
-                        self.check_builtin_arity(callee, &canonical, count, line);
+                        self.check_builtin_call(callee, &canonical, &source_order, line, locals);
                         return;
                     }
                 }
@@ -804,25 +1349,27 @@ impl<'a> Walker<'a> {
                     format!("Call to `{callee}` has no overload taking these arguments."),
                     line,
                 );
-                self.check_builtin_arity(callee, &canonical, count, line);
+                self.check_builtin_call(callee, &canonical, &source_order, line, locals);
             }
             CalleeParams::Builtin(aliases) => {
                 if !has_named {
-                    // `thread::start`'s entry check precedes its count (the
-                    // checker returned on a bad entry); the entry itself is the
-                    // ARGUMENT rule's.
-                    if canonical == "thread.start"
-                        && !self.thread_start_entry_valid(arguments.first().map(|argument| {
-                            match argument {
-                                HirCallArg::Positional(value) | HirCallArg::Named { value, .. } => {
-                                    value
-                                }
+                    let normalized: Vec<&HirExpression> = arguments
+                        .iter()
+                        .map(|argument| match argument {
+                            HirCallArg::Positional(value) | HirCallArg::Named { value, .. } => {
+                                value
                             }
-                        }))
+                        })
+                        .collect();
+                    // `thread::start`'s entry check precedes its count (the
+                    // checker ended the call's checks on a bad entry).
+                    if canonical == "thread.start"
+                        && !self.thread_start_entry_valid(normalized.first().copied())
                     {
+                        self.report_thread_entry(line);
                         return;
                     }
-                    self.check_builtin_arity(callee, &canonical, arguments.len(), line);
+                    self.check_builtin_call(callee, &canonical, &normalized, line, locals);
                     return;
                 }
                 let mut ordered: Vec<Option<&HirExpression>> = vec![None; aliases.len()];
@@ -890,40 +1437,43 @@ impl<'a> Walker<'a> {
                 if canonical == "thread.start"
                     && !self.thread_start_entry_valid(normalized.first().copied())
                 {
+                    self.report_thread_entry(line);
                     return;
                 }
-                self.check_builtin_arity(callee, &canonical, normalized.len(), line);
+                self.check_builtin_call(callee, &canonical, &normalized, line, locals);
             }
             CalleeParams::Declared(params) => {
-                let mut ordered = vec![false; params.len()];
+                let mut ordered: Vec<Option<&HirExpression>> = vec![None; params.len()];
                 let mut next_positional = 0usize;
                 let mut supplied = 0usize;
                 let mut arity_error = false;
                 for argument in arguments {
                     match argument {
-                        HirCallArg::Positional(_) => {
-                            while next_positional < ordered.len() && ordered[next_positional] {
+                        HirCallArg::Positional(value) => {
+                            while next_positional < ordered.len()
+                                && ordered[next_positional].is_some()
+                            {
                                 next_positional += 1;
                             }
                             if next_positional >= ordered.len() {
                                 arity_error = true;
                                 continue;
                             }
-                            ordered[next_positional] = true;
+                            ordered[next_positional] = Some(value);
                             next_positional += 1;
                             supplied += 1;
                         }
-                        HirCallArg::Named { name, line, .. } => {
+                        HirCallArg::Named { name, value, line } => {
                             let Some(index) = params.iter().position(|param| param.name == *name)
                             else {
                                 self.report_unknown_name(callee, name, *line);
                                 continue;
                             };
-                            if ordered[index] {
+                            if ordered[index].is_some() {
                                 self.report_duplicate_name(callee, name, *line);
                                 continue;
                             }
-                            ordered[index] = true;
+                            ordered[index] = Some(value);
                             supplied += 1;
                         }
                     }
@@ -932,7 +1482,7 @@ impl<'a> Walker<'a> {
                 let missing_required = ordered
                     .iter()
                     .zip(params.iter())
-                    .any(|(filled, param)| !filled && !param.has_default);
+                    .any(|(slot, param)| slot.is_none() && !param.has_default);
                 if arity_error || supplied < required || supplied > params.len() || missing_required
                 {
                     self.emit(
@@ -943,6 +1493,29 @@ impl<'a> Walker<'a> {
                         ),
                         line,
                     );
+                }
+                // TYPE_CALL_ARGUMENT_MISMATCH, the declared-function form over
+                // the SUPPLIED arguments only: lowering fills every omitted slot
+                // from its default, so the IR cannot tell a supplied argument
+                // from a filled one (and a literal supplied argument is coerced
+                // to the parameter type before the IR sees it).
+                for (index, slot) in ordered.iter().enumerate() {
+                    let Some(argument) = slot else {
+                        continue;
+                    };
+                    let actual = self.type_of(argument, locals).without_state();
+                    if !self.expression_compatible(&params[index].type_, &actual, argument) {
+                        self.emit(
+                            "TYPE_CALL_ARGUMENT_MISMATCH",
+                            format!(
+                                "Argument {} for `{callee}` has type {}, expected {}.",
+                                index + 1,
+                                actual.name(),
+                                params[index].type_.name()
+                            ),
+                            line,
+                        );
+                    }
                 }
             }
         }
@@ -1010,16 +1583,10 @@ mod tests {
 
     /// The shape pass's rule codes for `src`, in traversal order.
     fn shape_codes(src: &str) -> Vec<String> {
-        collect_diagnostics(
-            Path::new("/proj"),
-            &hir_from(src),
-            &HashMap::new(),
-            &[],
-            &HashMap::new(),
-        )
-        .into_iter()
-        .map(|d| d.rule)
-        .collect()
+        collect_diagnostics(Path::new("/proj"), &hir_from(src), &[], &HashMap::new())
+            .into_iter()
+            .map(|d| d.rule)
+            .collect()
     }
 
     fn rejects_with(src: &str, rule: &str) -> bool {
@@ -1114,7 +1681,7 @@ mod tests {
         let hir = hir_from(src);
         let facts = lower::lower_facts(&hir, &HashMap::new(), &[]);
         let no_imports = HashMap::new();
-        let mut walker = Walker::new(Path::new("/proj"), &facts, &hir, &no_imports);
+        let mut walker = Walker::new(Path::new("/proj"), &facts, &hir, &[], &no_imports);
         walker.walk_project(&hir);
         assert!(
             walker.diagnostics.is_empty(),
@@ -1220,16 +1787,10 @@ mod tests {
         };
         let hir = crate::resolver::augment_hir_project(&crate::hir::elaborate(&project))
             .expect("augments");
-        let codes: Vec<_> = collect_diagnostics(
-            Path::new("/proj"),
-            &hir,
-            &HashMap::new(),
-            &[],
-            &HashMap::new(),
-        )
-        .into_iter()
-        .map(|d| d.rule)
-        .collect();
+        let codes: Vec<_> = collect_diagnostics(Path::new("/proj"), &hir, &[], &HashMap::new())
+            .into_iter()
+            .map(|d| d.rule)
+            .collect();
         assert!(codes.is_empty(), "{codes:?}");
     }
 
@@ -1265,8 +1826,7 @@ mod tests {
             files: vec![file],
         };
         let hir = crate::hir::elaborate(&project);
-        let diagnostics =
-            collect_diagnostics(Path::new("/proj"), &hir, &HashMap::new(), &[], &imported);
+        let diagnostics = collect_diagnostics(Path::new("/proj"), &hir, &[], &imported);
         let codes: Vec<_> = diagnostics.iter().map(|d| d.rule.as_str()).collect();
         // Line 3 supplies one bindable name of two required parameters, so the
         // arity rule follows the unknown name; line 4's duplicate leaves `height`
@@ -1399,17 +1959,107 @@ mod tests {
             &crate::hir::elaborate(&augmented),
         )
         .expect("monomorphizes");
-        let codes: Vec<_> = collect_diagnostics(
+        let codes: Vec<_> =
+            collect_diagnostics(Path::new("/proj"), &concrete, &[], &HashMap::new())
+                .into_iter()
+                .map(|d| d.rule)
+                .collect();
+        assert_eq!(codes, ["TYPE_CALL_ARITY_MISMATCH"]);
+    }
+
+    // ---- argument types: the source-path forms ----------------------------
+
+    #[test]
+    fn declared_function_argument_type_mismatch() {
+        let diagnostics = collect_diagnostics(
             Path::new("/proj"),
-            &concrete,
-            &HashMap::new(),
+            &hir_from(
+                "FUNC g(a AS Integer, b AS String = \"x\") AS Integer\n  RETURN a\nEND FUNC\nFUNC main AS Integer\n  RETURN g(\"no\")\nEND FUNC\n",
+            ),
             &[],
             &HashMap::new(),
-        )
-        .into_iter()
-        .map(|d| d.rule)
-        .collect();
-        assert_eq!(codes, ["TYPE_CALL_ARITY_MISMATCH"]);
+        );
+        let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
+        // Only the SUPPLIED argument is judged; the defaulted `b` is not.
+        assert_eq!(
+            details,
+            ["Argument 1 for `g` has type String, expected Integer."]
+        );
+    }
+
+    #[test]
+    fn declared_function_literal_coercions_accepted() {
+        // A `Byte`/`Fixed` parameter accepts a fitting literal, and a list of
+        // literals coerces element by element (the checker's rules).
+        assert!(accepts(
+            "FUNC g(a AS Byte, b AS Fixed, c AS List OF Fixed) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN g(200, -1, [1, 2.5])\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn builtin_table_argument_type_mismatch() {
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(
+                "IMPORT math\nFUNC main AS Integer\n  LET p = math::pow(\"a\", 2)\n  RETURN 0\nEND FUNC\n",
+            ),
+            &[],
+            &HashMap::new(),
+        );
+        let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
+        assert_eq!(details.len(), 1, "{details:?}");
+        assert!(
+            details[0]
+                .starts_with("Call to `math.pow` has argument type(s) (String, Integer), expected"),
+            "{details:?}"
+        );
+    }
+
+    #[test]
+    fn general_error_call_argument_mismatch() {
+        // `error(code, message)` lowers to record constructors, so only the
+        // shape pass can judge its arguments.
+        assert!(rejects_with(
+            "FUNC main AS Integer\n  LET e = error(1)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn thread_start_entry_must_be_imported_isolated_func() {
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(
+                "IMPORT thread\nFUNC main AS Integer\n  LET t = thread::start(main, \"x\", 1, 1)\n  RETURN 0\nEND FUNC\n",
+            ),
+            &[],
+            &HashMap::new(),
+        );
+        let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
+        // The entry rejection ends the call's checks: no count or type form follows.
+        assert_eq!(
+            details,
+            ["thread.start entry point must be an exported ISOLATED FUNC from an imported package."]
+        );
+    }
+
+    #[test]
+    fn term_draw_text_attributed_requires_astrings_import() {
+        // An `AttributedString` value reaches the call through a parameter
+        // without any `IMPORT astrings`, so the bridge body is not injected.
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(
+                "IMPORT term\nFUNC show(a AS AttributedString) AS Integer\n  term::drawText(1, 1, a)\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+            ),
+            &[],
+            &HashMap::new(),
+        );
+        let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
+        assert_eq!(
+            details,
+            ["Call to `term.drawText` with an `AttributedString` requires `IMPORT astrings`."]
+        );
     }
 
     #[test]
@@ -1420,9 +2070,7 @@ mod tests {
             &hir_from(
                 "FUNC g(a AS Integer) AS Integer\n  RETURN a\nEND FUNC\nFUNC main AS Integer\n  RETURN g(z := g(y := 1))\nEND FUNC\n",
             ),
-            &HashMap::new(),
-            &[],
-            &HashMap::new(),
+            &[], &HashMap::new(),
         );
         let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
         assert_eq!(

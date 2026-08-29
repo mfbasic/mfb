@@ -322,14 +322,11 @@ impl TypeEnv {
                 {
                     return;
                 }
-                self.emit(
-                    "TYPE_CALL_ARGUMENT_MISMATCH",
-                    format!(
-                        "Call to `{target}` has argument type(s) ({}), expected {}.",
-                        arg_type_names(),
-                        expected_overloads()
-                    ),
-                );
+                self.emit_argument_mismatch(format!(
+                    "Call to `{target}` has argument type(s) ({}), expected {}.",
+                    arg_type_names(),
+                    expected_overloads()
+                ));
                 return;
             }
             self.check_builtin_comparability(target, target, &arg_types);
@@ -356,9 +353,7 @@ impl TypeEnv {
                         _ => None,
                     };
                     let Some(predicate_type) = predicate_type else {
-                        self.emit(
-                            "TYPE_CALL_ARGUMENT_MISMATCH",
-                            format!(
+                        self.emit_argument_mismatch(format!(
                                 "Call to `{target}` has argument type(s) ({collection_type_name}, {predicate}), expected {}.",
                                 expected_overloads()
                             ),
@@ -367,9 +362,7 @@ impl TypeEnv {
                     };
                     let trial = vec![arg_types[0].clone(), ParameterType::parse(&predicate_type)];
                     if builtins::resolve_call_return_type_typed(target, &trial, true).is_none() {
-                        self.emit(
-                            "TYPE_CALL_ARGUMENT_MISMATCH",
-                            format!(
+                        self.emit_argument_mismatch(format!(
                                 "Call to `{target}` has argument type(s) ({collection_type_name}, {predicate_type}), expected {}.",
                                 expected_overloads()
                             ),
@@ -384,14 +377,11 @@ impl TypeEnv {
                 }
             }
             if builtins::resolve_call_return_type_typed(target, &arg_types, true).is_none() {
-                self.emit(
-                    "TYPE_CALL_ARGUMENT_MISMATCH",
-                    format!(
-                        "Call to `{target}` has argument type(s) ({}), expected {}.",
-                        arg_type_names(),
-                        expected_overloads()
-                    ),
-                );
+                self.emit_argument_mismatch(format!(
+                    "Call to `{target}` has argument type(s) ({}), expected {}.",
+                    arg_type_names(),
+                    expected_overloads()
+                ));
                 return;
             }
             self.check_builtin_comparability(target, member, &arg_types);
@@ -426,13 +416,10 @@ impl TypeEnv {
             if mismatch {
                 let expected = builtins::expected_arguments(target)
                     .unwrap_or_else(|| "no arguments".to_string());
-                self.emit(
-                    "TYPE_CALL_ARGUMENT_MISMATCH",
-                    format!(
-                        "Call to `{target}` has argument type(s) ({}), expected {expected}.",
-                        arg_type_names()
-                    ),
-                );
+                self.emit_argument_mismatch(format!(
+                    "Call to `{target}` has argument type(s) ({}), expected {expected}.",
+                    arg_type_names()
+                ));
             }
             return;
         }
@@ -456,9 +443,7 @@ impl TypeEnv {
                 );
                 if !entry_is_isolated_ref {
                     if !self.source_path.get() {
-                        self.emit(
-                            "TYPE_CALL_ARGUMENT_MISMATCH",
-                            "thread.start entry point must be an exported ISOLATED FUNC from an imported package.".to_string(),
+                        self.emit_argument_mismatch("thread.start entry point must be an exported ISOLATED FUNC from an imported package.".to_string(),
                         );
                     }
                     return;
@@ -470,14 +455,11 @@ impl TypeEnv {
                 }
             }
             if builtins::resolve_call_return_type_typed(target, &arg_types, true).is_none() {
-                self.emit(
-                    "TYPE_CALL_ARGUMENT_MISMATCH",
-                    format!(
-                        "Call to `{target}` has argument type(s) ({}), expected {}.",
-                        arg_type_names(),
-                        expected_overloads()
-                    ),
-                );
+                self.emit_argument_mismatch(format!(
+                    "Call to `{target}` has argument type(s) ({}), expected {}.",
+                    arg_type_names(),
+                    expected_overloads()
+                ));
             }
             return;
         }
@@ -490,14 +472,11 @@ impl TypeEnv {
             }
         }
         if resolve_table_call_with_byte_literals(target, &arg_types, args).is_none() {
-            self.emit(
-                "TYPE_CALL_ARGUMENT_MISMATCH",
-                format!(
-                    "Call to `{target}` has argument type(s) ({}), expected {}.",
-                    arg_type_names(),
-                    expected_overloads()
-                ),
-            );
+            self.emit_argument_mismatch(format!(
+                "Call to `{target}` has argument type(s) ({}), expected {}.",
+                arg_type_names(),
+                expected_overloads()
+            ));
         }
     }
 

@@ -119,6 +119,17 @@ impl TypeEnv {
         }
     }
 
+    /// `TYPE_CALL_ARGUMENT_MISMATCH`, package path only: on the source path
+    /// the argument list the source wrote is `ir::shape`'s to judge — lowering
+    /// pads a builtin's optional arguments, fills a declared function's
+    /// defaults and coerces literal arguments to the parameter type before the
+    /// IR is checked, so the IR-level check would report a different list.
+    pub(super) fn emit_argument_mismatch(&self, detail: String) {
+        if !self.source_path.get() {
+            self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail);
+        }
+    }
+
     /// A function value's callable type carries no defaults, so the call
     /// supplies exactly its parameter count (syntaxcheck's
     /// `check_function_value_call`). Package path only, like every count rule:
@@ -162,13 +173,10 @@ impl TypeEnv {
                     };
                     if !self.expression_compatible(expected, &actual, arg) {
                         let (actual, expected) = (actual.name(), expected.name());
-                        self.emit(
-                            "TYPE_CALL_ARGUMENT_MISMATCH",
-                            format!(
-                                "Argument {} for `{target}` has type {actual}, expected {expected}.",
-                                index + 1
-                            ),
-                        );
+                        self.emit_argument_mismatch(format!(
+                            "Argument {} for `{target}` has type {actual}, expected {expected}.",
+                            index + 1
+                        ));
                     }
                 }
             }
@@ -200,13 +208,10 @@ impl TypeEnv {
             self.check_literal_range(&param_type, arg);
             if !self.expression_compatible(&param_type, &actual, arg) {
                 let (actual, param_type) = (actual.name(), param_type.name());
-                self.emit(
-                    "TYPE_CALL_ARGUMENT_MISMATCH",
-                    format!(
-                        "Argument {} for `{target}` has type {actual}, expected {param_type}.",
-                        index + 1
-                    ),
-                );
+                self.emit_argument_mismatch(format!(
+                    "Argument {} for `{target}` has type {actual}, expected {param_type}.",
+                    index + 1
+                ));
             }
         }
     }

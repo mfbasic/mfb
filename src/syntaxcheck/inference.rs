@@ -247,7 +247,6 @@ impl<'a> SyntaxChecker<'a> {
                 if builtins::is_builtin_call(&canonical_callee) {
                     return self.check_builtin_call(
                         file,
-                        callee,
                         &canonical_callee,
                         arguments,
                         locals,
@@ -284,7 +283,6 @@ impl<'a> SyntaxChecker<'a> {
                 if let Some(local) = locals.get(callee).cloned() {
                     return self.check_function_value_call(
                         file,
-                        callee,
                         &local.type_,
                         arguments,
                         locals,
@@ -302,7 +300,6 @@ impl<'a> SyntaxChecker<'a> {
                 {
                     return self.check_function_value_call(
                         file,
-                        callee,
                         &binding_type,
                         arguments,
                         locals,
@@ -1265,40 +1262,26 @@ impl<'a> SyntaxChecker<'a> {
     ) {
         let arguments = self.normalize_named_arguments(arguments, &sig.params);
 
+        // The arguments are inferred for their own diagnostics and ownership
+        // modes; the per-position type check is `ir::verify`'s
+        // (TYPE_CALL_ARGUMENT_MISMATCH, plan-107-E).
         for (index, argument) in arguments.iter().enumerate() {
             let Some(argument) = argument else {
                 continue;
             };
-            let actual = self.infer_expression(
+            self.infer_expression(
                 file,
                 argument,
                 locals,
                 line,
                 self.call_argument_mode(callee, index, sig),
             );
-            let Some(param) = sig.params.get(index) else {
-                continue;
-            };
-            if !self.expression_compatible(&param.type_, &actual, Some(argument)) {
-                self.report(
-                    "TYPE_CALL_ARGUMENT_MISMATCH",
-                    &format!(
-                        "Argument {} for `{callee}` has type {}, expected {}.",
-                        index + 1,
-                        self.type_name(&actual),
-                        self.type_name(&param.type_)
-                    ),
-                    file,
-                    line,
-                );
-            }
         }
     }
 
     pub(super) fn check_function_value_call(
         &mut self,
         file: &HirFile,
-        callee: &str,
         type_: &Type,
         arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
@@ -1311,47 +1294,18 @@ impl<'a> SyntaxChecker<'a> {
             return Type::Unknown;
         };
 
-        if arguments
-            .iter()
-            .any(|argument| matches!(argument, HirCallArg::Named { .. }))
-        {
-            self.report(
-                "TYPE_CALL_ARGUMENT_MISMATCH",
-                &format!(
-                    "Call to function value `{callee}` cannot use named arguments because the callable type does not preserve parameter names."
-                ),
-                file,
-                line,
-            );
-        }
-
-        // The argument count is `ir::verify`'s (TYPE_CALL_ARITY_MISMATCH,
-        // plan-107-E).
+        // The named-argument form and the count are `ir::shape`'s, the
+        // per-position type check `ir::verify`'s (plan-107-E); the arguments
+        // are inferred for their own diagnostics and ownership modes.
         for (index, argument) in arguments.iter().enumerate() {
             let argument = call_arg_value(argument);
-            let actual = self.infer_expression(
+            self.infer_expression(
                 file,
                 argument,
                 locals,
                 line,
                 self.argument_mode_for_type(&params.get(index)),
             );
-            let Some(expected) = params.get(index) else {
-                continue;
-            };
-            if !self.expression_compatible(expected, &actual, Some(argument)) {
-                self.report(
-                    "TYPE_CALL_ARGUMENT_MISMATCH",
-                    &format!(
-                        "Argument {} for `{callee}` has type {}, expected {}.",
-                        index + 1,
-                        self.type_name(&actual),
-                        self.type_name(expected)
-                    ),
-                    file,
-                    line,
-                );
-            }
         }
 
         *return_type.clone()
