@@ -632,16 +632,53 @@ impl TypeEnv {
         if !seen.insert(t_name.clone().into_owned()) {
             return false;
         }
-        let contained = self
-            .record_field_lists
-            .get(t_name.as_ref())
-            .is_some_and(|fields| {
-                fields
-                    .iter()
-                    .any(|(_, ft)| self.contains_resource_or_thread(ft, seen))
-            });
+        let contained = self.any_field_of(&t_name, |ft| self.contains_resource_or_thread(ft, seen));
         seen.remove(t_name.as_ref());
         contained
+    }
+
+    /// Whether a type transitively contains a thread handle — syntaxcheck's
+    /// `contains_thread`. Threads may never live in a collection; resources may
+    /// (as pointers, §15.6), so a collection ELEMENT and a `Map` VALUE use this
+    /// rather than the combined resource-or-thread predicate.
+    pub(super) fn contains_thread(&self, type_: &ParameterType, seen: &mut HashSet<String>) -> bool {
+        let t = resource_base_type(type_);
+        if is_thread_type(&t) {
+            return true;
+        }
+        match &t {
+            ParameterType::ListOf(e) | ParameterType::SetOf(e) | ParameterType::ResultOf(e) => {
+                return self.contains_thread(e, seen);
+            }
+            ParameterType::MapOf(k, v) => {
+                return self.contains_thread(k, seen) || self.contains_thread(v, seen);
+            }
+            ParameterType::Res(inner) => return self.contains_thread(inner, seen),
+            _ => {}
+        }
+        let t_name = t.name();
+        if !seen.insert(t_name.clone().into_owned()) {
+            return false;
+        }
+        let contained = self.any_field_of(&t_name, |ft| self.contains_thread(ft, seen));
+        seen.remove(t_name.as_ref());
+        contained
+    }
+
+    /// `pred` over every field of record `name`, or over every variant's fields
+    /// when `name` is a union (syntaxcheck's `type_infos` walk covers both
+    /// kinds; the union arm is what a Map key of a thread-carrying union needs).
+    fn any_field_of(&self, name: &str, mut pred: impl FnMut(&ParameterType) -> bool) -> bool {
+        if let Some(fields) = self.record_field_lists.get(name) {
+            return fields.iter().any(|(_, ft)| pred(ft));
+        }
+        self.unions.get(name).is_some_and(|union| {
+            union.variant_order.iter().any(|variant| {
+                self.record_field_lists
+                    .get(variant)
+                    .is_some_and(|fields| fields.iter().any(|(_, ft)| pred(ft)))
+            })
+        })
     }
 
     /// Whether `base` is positively a non-resource data type: a primitive, a

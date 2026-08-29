@@ -511,10 +511,9 @@ impl<'a> SyntaxChecker<'a> {
         line: usize,
         expected: Option<&Type>,
     ) -> Type {
+        // The collection ownership rejections at literals are `ir::verify`'s
+        // (plan-107-B, on the literal's lowered type).
         if let Some(Type::ListOf(expected_element)) = expected {
-            if self.contains_thread(expected_element) {
-                self.report_invalid_collection_element(file, line, "element", expected_element);
-            }
             for value in values {
                 let mode = self.collection_element_mode(value, locals);
                 self.infer_expression_with_expected(
@@ -534,9 +533,6 @@ impl<'a> SyntaxChecker<'a> {
         };
         let first_mode = self.collection_element_mode(first, locals);
         let element_type = self.infer_expression(file, first, locals, line, first_mode);
-        if self.contains_thread(&element_type) {
-            self.report_invalid_collection_element(file, line, "element", &element_type);
-        }
         for value in values.iter().skip(1) {
             let mode = self.collection_element_mode(value, locals);
             self.infer_expression(file, value, locals, line, mode);
@@ -556,9 +552,6 @@ impl<'a> SyntaxChecker<'a> {
         // may not carry a resource/thread (§15.6).
         let element_type = self.normalize_type(element_type);
         self.check_type_reference(file, &element_type, line);
-        if self.contains_resource_or_thread(&element_type) {
-            self.report_invalid_collection_element(file, line, "element", &element_type);
-        }
         self.require_comparable_type(file, line, "Set element type", &element_type);
         for value in elements {
             self.infer_expression(file, value, locals, line, ExprMode::Transfer);
@@ -581,13 +574,7 @@ impl<'a> SyntaxChecker<'a> {
         let value_type = self.normalize_type(value_type);
         self.check_type_reference(file, &key_type, line);
         self.check_type_reference(file, strip_res(&value_type), line);
-        if self.contains_resource_or_thread(&key_type) {
-            self.report_invalid_collection_element(file, line, "key", &key_type);
-        }
         self.require_comparable_type(file, line, "Map key type", &key_type);
-        if self.contains_thread(&value_type) {
-            self.report_invalid_collection_element(file, line, "value", &value_type);
-        }
         for (key, value) in entries {
             self.infer_expression(file, key, locals, line, ExprMode::Transfer);
             let value_mode = self.collection_element_mode(value, locals);

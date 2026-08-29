@@ -104,7 +104,17 @@ Per plan-107-A (order re-pins only).
       at line 5 now precedes the rule at line 9, one stream); twins
       `rejects_trap_fallthrough` (pre-existing), `rejects_normal_flow_reaching_the_trap`,
       `accepts_a_body_that_returns_before_its_trap`, `a_stray_recover_counts_as_diverging`.
-- [ ] TYPE_COLLECTION_OWNERSHIP_VIOLATION (thread arms ported)
+- [x] TYPE_COLLECTION_OWNERSHIP_VIOLATION — List-element and Map-value
+      thread arms ported (`contains_thread` + `check_collection_element_thread_free`),
+      the literal sites (List/Set/Map literals) mirrored, and verify's
+      `contains_resource_or_thread` fixed to walk a union's variant fields
+      (it stopped at the union name — a Map key of a thread-carrying union
+      passed); corpus `516 same, 2 reordered, 0 set-diff`; reorders:
+      `tests/syntax/resources/bug231_resource_union_map_key_invalid`,
+      `resource-collection-map-key-invalid` (the rule's two lines now follow
+      verify's two `TYPE_REQUIRES_COMPARABLE` lines); twins
+      `rejects_a_thread_handle_as_a_list_element`, `…_as_a_map_value`,
+      `rejects_a_resource_in_a_set_literal`, `rejects_a_thread_carrying_union_as_a_map_key`.
 - [x] ~~TYPE_READ_ONLY_RECORD_CONSTRUCTOR~~ — moot here: split (V/S), moved
       to D (A Corrections C-split-49)
 - [ ] Tests: corpus + harness per commit; package-path (verify unit) test per

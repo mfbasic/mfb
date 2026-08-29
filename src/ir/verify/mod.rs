@@ -177,6 +177,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     // plan-107-B: the general semantic cluster.
     "TYPE_INLINE_TRAP_DEAD_HANDLER",
     "TYPE_TRAP_FALLTHROUGH",
+    "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
 ];
 
 /// Diagnostic prefixes shared with the structural `verify_package` checks so a

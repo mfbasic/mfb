@@ -8081,6 +8081,103 @@ fn a_stray_recover_counts_as_diverging() {
 }
 
 #[test]
+fn rejects_a_thread_handle_as_a_list_element() {
+    let f = func(
+        "run",
+        vec![param("xs", "List OF Thread OF Integer TO Integer", None)],
+        vec![ret(int_const("0"))],
+    );
+    expect_rule(
+        &project(vec![f], vec![]),
+        "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+    );
+}
+
+#[test]
+fn rejects_a_thread_handle_as_a_map_value() {
+    let f = func(
+        "run",
+        vec![param("m", "Map OF String TO Thread OF Integer TO Integer", None)],
+        vec![ret(int_const("0"))],
+    );
+    expect_rule(
+        &project(vec![f], vec![]),
+        "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+    );
+}
+
+#[test]
+fn rejects_a_resource_in_a_set_literal() {
+    let literal = IrValue::SetLiteral {
+        type_: ParameterType::set_of(ParameterType::named("fs.File")),
+        values: vec![],
+    };
+    let body = vec![
+        bind("s", "Set OF fs.File", Some(literal), true, false),
+        ret(int_const("0")),
+    ];
+    let got = rules(&project(vec![func("run", vec![], body)], vec![]));
+    // Once for the declared type, once for the literal — as the front end did.
+    assert_eq!(
+        got.iter()
+            .filter(|r| *r == "TYPE_COLLECTION_OWNERSHIP_VIOLATION")
+            .count(),
+        2,
+        "{got:?}"
+    );
+}
+
+#[test]
+fn rejects_a_thread_carrying_union_as_a_map_key() {
+    // A union whose variant holds a thread handle: the front end's walk reached
+    // the variant's fields; verify's predicate used to stop at the union name.
+    let mut holder = record_typed("Holder", &[("t", "Thread OF Integer TO Integer")]);
+    holder.visibility = "public".to_string();
+    let plain = record_typed("Plain", &[("n", "Integer")]);
+    let union = IrType {
+        kind: "union".to_string(),
+        visibility: "export".to_string(),
+        name: "Either".to_string(),
+        fields: vec![],
+        includes: vec![],
+        variants: vec![
+            IrVariant {
+                name: "Holder".to_string(),
+                fields: vec![IrField {
+                    visibility: None,
+                    name: "t".to_string(),
+                    type_: ParameterType::parse("Thread OF Integer TO Integer"),
+                    loc: IrSourceLoc::default(),
+                }],
+                loc: IrSourceLoc::default(),
+            },
+            IrVariant {
+                name: "Plain".to_string(),
+                fields: vec![IrField {
+                    visibility: None,
+                    name: "n".to_string(),
+                    type_: ParameterType::Integer,
+                    loc: IrSourceLoc::default(),
+                }],
+                loc: IrSourceLoc::default(),
+            },
+        ],
+        members: vec![],
+        loc: IrSourceLoc::default(),
+        file: String::new(),
+    };
+    let f = func(
+        "run",
+        vec![param("m", "Map OF Either TO Integer", None)],
+        vec![ret(int_const("0"))],
+    );
+    expect_rule(
+        &project(vec![f], vec![holder, plain, union]),
+        "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+    );
+}
+
+#[test]
 fn accepts_a_body_that_returns_before_its_trap() {
     let body = vec![
         ret(int_const("1")),

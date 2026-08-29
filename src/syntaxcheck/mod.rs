@@ -1510,34 +1510,19 @@ impl<'a> SyntaxChecker<'a> {
             Type::ListOf(element) => {
                 let inner = strip_res(element);
                 self.check_type_reference(file, inner, line);
-                // A `List` element may be a resource pointer (§15.6); only thread
-                // handles are forbidden in collections.
-                if self.contains_thread(inner) {
-                    self.report_invalid_collection_element(file, line, "element", inner);
-                }
             }
+            // The collection ownership rejections
+            // (TYPE_COLLECTION_OWNERSHIP_VIOLATION) are `ir::verify`'s
+            // (plan-107-B); only the type-reference walk into the element,
+            // key and value positions remains here.
             Type::SetOf(element) => {
                 self.check_type_reference(file, element, line);
-                // A `Set` element must be comparable, so it can be neither a
-                // resource nor a thread handle (plan-63); the element-comparability
-                // rejection itself lives in ir::verify.
-                if self.contains_resource_or_thread(element) {
-                    self.report_invalid_collection_element(file, line, "element", element);
-                }
             }
             Type::MapOf(key, value) => {
                 let value_inner = strip_res(value);
                 self.check_type_reference(file, key, line);
                 self.check_type_reference(file, value_inner, line);
-                // A resource may not be a `Map` key (handles are not comparable),
-                // but a `Map` *value* may be a resource pointer (§15.6).
-                if self.contains_resource_or_thread(key) {
-                    self.report_invalid_collection_element(file, line, "key", key);
-                }
                 self.require_comparable_type(file, line, "Map key type", key);
-                if self.contains_thread(value_inner) {
-                    self.report_invalid_collection_element(file, line, "value", value_inner);
-                }
             }
             Type::Res(inner) => self.check_type_reference(file, inner, line),
             Type::Func(params, return_type, _) => {
@@ -1954,12 +1939,8 @@ mod checker_tests {
 
     // ---- type references ----------------------------------------------------
 
-    #[test]
-    fn map_resource_key_rejected() {
-        // A resource may not be a Map key.
-        let src = "IMPORT fs\nFUNC main AS Integer\n  LET m AS Map OF fs::File TO Integer = Map OF fs::File TO Integer {}\n  RETURN 0\nEND FUNC\n";
-        assert!(!accepts(src));
-    }
+    // `map_resource_key_rejected` moved with TYPE_COLLECTION_OWNERSHIP_VIOLATION to
+    // `ir::verify` (plan-107-B; the map-key twins pre-date it there).
 
     #[test]
     fn thread_resource_message_rejected() {
@@ -1971,19 +1952,11 @@ mod checker_tests {
         let _ = check_src(src);
     }
 
-    #[test]
-    fn list_of_thread_rejected() {
-        // A thread handle may never live in a collection.
-        let src = "IMPORT thread\nFUNC main AS Integer\n  LET xs AS List OF Thread OF Integer TO Integer = []\n  RETURN 0\nEND FUNC\n";
-        assert!(rejects_with(src, "TYPE_COLLECTION_OWNERSHIP_VIOLATION"));
-    }
-
-    #[test]
-    fn map_value_thread_rejected() {
-        // A thread in a Map value position is forbidden.
-        let src = "IMPORT thread\nFUNC main AS Integer\n  LET m AS Map OF String TO Thread OF Integer TO Integer = Map OF String TO Thread OF Integer TO Integer {}\n  RETURN 0\nEND FUNC\n";
-        assert!(rejects_with(src, "TYPE_COLLECTION_OWNERSHIP_VIOLATION"));
-    }
+    // TYPE_COLLECTION_OWNERSHIP_VIOLATION moved to `ir::verify` (plan-107-B); its
+    // twins are `verify::tests::rejects_a_thread_handle_as_a_list_element`,
+    // `rejects_a_thread_handle_as_a_map_value`, `rejects_a_resource_in_a_set_literal`,
+    // `rejects_a_thread_carrying_union_as_a_map_key` and the pre-existing map-key
+    // twins.
 
     #[test]
     fn res_return_and_param_with_state_walk() {
@@ -2738,9 +2711,9 @@ END FUNC
     }
 
     #[test]
-    fn set_of_resource_element_is_rejected() {
-        // mod.rs:1444-1445 — check_type_reference's Set arm rejects a resource
-        // (non-comparable, ownership-bearing) element type.
+    fn set_of_resource_element_walks() {
+        // check_type_reference's Set arm walks the element type; the ownership
+        // rejection itself is `ir::verify`'s (plan-107-B).
         let src = "\
 IMPORT fs
 
@@ -2751,11 +2724,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "TYPE_COLLECTION_OWNERSHIP_VIOLATION"),
-            "{:?}",
-            check_src(src)
-        );
+        let _ = check_src(src);
     }
 
     #[test]

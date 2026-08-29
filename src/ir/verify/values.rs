@@ -203,6 +203,11 @@ impl TypeEnv {
                 for v in values {
                     self.check_value_depth(v, locals, depth + 1);
                 }
+                // The literal's element type is checked like a declared one
+                // (syntaxcheck's `infer_list_literal`): no thread handles.
+                if let ParameterType::ListOf(element) = type_ {
+                    self.check_collection_element_thread_free(element, "element");
+                }
                 // plan-59-E: storing a non-`RES`-binding in a resource collection
                 // used to be rejected here (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`,
                 // retired). Under scope ownership the collection holds pointers to
@@ -230,6 +235,11 @@ impl TypeEnv {
             IrValue::SetLiteral { type_, values } => {
                 for v in values {
                     self.check_value_depth(v, locals, depth + 1);
+                }
+                // A `Set` element behaves like a Map key: it may carry neither a
+                // resource nor a thread (syntaxcheck's `infer_set_literal`).
+                if let ParameterType::SetOf(element) = type_ {
+                    self.check_collection_element_ownership(element, "element");
                 }
                 // A `Set OF T` element is laid out and read uniformly by the
                 // declared element type, so a crafted mismatch is a type
@@ -865,7 +875,13 @@ impl TypeEnv {
     pub(super) fn check_map_key_comparable(&self, type_: &ParameterType) {
         let t = resource_base_type(type_);
         match &t {
-            ParameterType::ListOf(inner) => self.check_map_key_comparable(inner),
+            ParameterType::ListOf(inner) => {
+                self.check_map_key_comparable(inner);
+                // A `List` element may be a resource pointer (§15.6); only a
+                // thread handle is forbidden — syntaxcheck's
+                // TYPE_COLLECTION_OWNERSHIP_VIOLATION element arm.
+                self.check_collection_element_thread_free(inner, "element");
+            }
             // A `Set OF T` element must be comparable — it is the Set's hash/equality
             // key exactly as a Map key is (plan-63, §4.2). Same diagnostic *code* as
             // the map-key check (`TYPE_REQUIRES_COMPARABLE`), distinct message.
@@ -880,8 +896,44 @@ impl TypeEnv {
                 self.check_collection_element_comparable(key, "key");
                 self.check_map_key_comparable(key);
                 self.check_map_key_comparable(value);
+                // A `Map` value may be a resource pointer (§15.6) but never a
+                // thread handle — the rule's value arm.
+                self.check_collection_element_thread_free(value, "value");
             }
             _ => {}
+        }
+    }
+
+    /// The thread-only half of the collection ownership rule, for the positions
+    /// that MAY hold a resource pointer (a `List` element, a `Map` value): a
+    /// thread handle may never live in a collection. `role` selects the wording.
+    pub(super) fn check_collection_element_thread_free(&self, type_: &ParameterType, role: &str) {
+        let element = match type_ {
+            ParameterType::Res(inner) => inner.as_ref(),
+            other => other,
+        };
+        if self.contains_thread(element, &mut HashSet::new()) {
+            self.emit(
+                "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+                format!(
+                    "Ordinary collections cannot store {role} values of type `{}` because they contain a resource or thread handle.",
+                    element.name()
+                ),
+            );
+        }
+    }
+
+    /// The resource-or-thread half of the collection ownership rule, for the
+    /// positions that may hold neither (a `Set` element, a `Map` key).
+    fn check_collection_element_ownership(&self, type_: &ParameterType, role: &str) {
+        if self.contains_resource_or_thread(type_, &mut HashSet::new()) {
+            self.emit(
+                "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+                format!(
+                    "Ordinary collections cannot store {role} values of type `{}` because they contain a resource or thread handle.",
+                    type_.name()
+                ),
+            );
         }
     }
 
@@ -896,14 +948,7 @@ impl TypeEnv {
         if name.is_empty() || matches!(type_, ParameterType::Unknown) {
             return;
         }
-        if self.contains_resource_or_thread(type_, &mut HashSet::new()) {
-            self.emit(
-                "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
-                format!(
-                    "Ordinary collections cannot store {role} values of type `{name}` because they contain a resource or thread handle."
-                ),
-            );
-        }
+        self.check_collection_element_ownership(type_, role);
         if !self.is_comparable(type_) {
             let subject = if role == "element" {
                 "Set element type"
