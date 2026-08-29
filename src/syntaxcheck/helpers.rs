@@ -101,31 +101,6 @@ pub(super) fn strip_res(type_: &Type) -> &Type {
     }
 }
 
-/// Whether an expression reads a single element out of a collection (`get` /
-/// `getOr`). Of resource type, the result is a non-owning pointer that may not be `RES`-bound
-/// (§15.6).
-/// Whether `type_name` is a raw C ABI type that may appear only inside an
-/// `ABI (...)` slot, never in a wrapper's MFBASIC-facing signature
-/// (plan-link-update.md §5/§11). `CPtr` is the resource representation; the
-/// others are scalar marshaling types.
-pub(super) fn is_c_abi_type(type_name: &str) -> bool {
-    matches!(
-        type_name,
-        "CPtr"
-            | "CString"
-            | "CInt8"
-            | "CInt16"
-            | "CInt32"
-            | "CInt64"
-            | "CUInt8"
-            | "CUInt16"
-            | "CUInt32"
-            | "CUInt64"
-            | "CFloat"
-            | "CDouble"
-    )
-}
-
 pub(super) fn numeric_literal_type(expression: &HirExpression) -> Option<Type> {
     match expression {
         HirExpression::Number(number) => Some(match numeric::classify_literal(number).1 {
@@ -478,11 +453,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_CPTR_ESCAPE"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -501,11 +473,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_CPTR_ESCAPE"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     // ----- numeric_literal_type (List OF <numeric> literal compatibility) ---

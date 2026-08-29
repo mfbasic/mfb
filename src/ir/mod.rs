@@ -78,8 +78,12 @@ pub(crate) use link::{
     check_struct_slot, compute_c_layout, link_compare_op_valid, link_expr_var_names, AbiDirection,
     BufferSlotsView, CLayout, IrAbiSlot, IrBindIn, IrBindInField, IrBuffer, IrCStruct,
     IrCStructField, IrFree, IrLinkExpr, IrLinkFunction, IrNativeResource, StructSlotView,
-    BYTE_LIST_TYPE,
 };
+// The byte-list spelling's last non-test reader (syntaxcheck's buffer-rule
+// view) moved into `ir::verify`, which reads `link::BYTE_LIST_TYPE` directly;
+// the codegen and IR corpus tests still spell it through this path.
+#[cfg(test)]
+pub(crate) use link::BYTE_LIST_TYPE;
 #[cfg(test)]
 pub use lower::lower_monomorphized_project;
 #[cfg(test)]

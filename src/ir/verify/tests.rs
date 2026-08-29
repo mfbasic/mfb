@@ -8303,7 +8303,9 @@ fn accepts_a_copyable_immutable_capture() {
 
 /// A project with `CSTRUCT S AS Rec { a CInt32 }`, record `Rec { a AS Integer }`
 /// and one wrapper whose ABI has a single struct slot `s` of `direction`.
-fn struct_slot_project(direction: crate::ir::AbiDirection) -> (IrProject, crate::ir::IrLinkFunction) {
+fn struct_slot_project(
+    direction: crate::ir::AbiDirection,
+) -> (IrProject, crate::ir::IrLinkFunction) {
     let mut p = project_with_cstructs(vec![cstruct("S", &[("a", "CInt32")])]);
     p.types = vec![record_typed("Rec", &[("a", "Integer")])];
     let mut f = link_fn();
@@ -8404,10 +8406,7 @@ fn accepts_a_bound_in_struct_slot() {
     f.bind_in = vec![bind_in("s", &[("a", None, Some(1))])];
     p.link_functions = vec![f];
     let got = rules(&p);
-    assert!(
-        !got.iter().any(|r| r.starts_with("NATIVE_")),
-        "{got:?}"
-    );
+    assert!(!got.iter().any(|r| r.starts_with("NATIVE_")), "{got:?}");
 }
 
 #[test]

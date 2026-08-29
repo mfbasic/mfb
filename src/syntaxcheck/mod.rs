@@ -159,27 +159,6 @@ enum ExprMode {
 /// `ir::verify`'s relocated diagnostics and renders both in one line-ordered
 /// pass (plan-20-Z). An `Err` is a pre-check augmentation failure that already
 /// reported itself.
-/// Every identifier a LINK clause expression reads, in source order.
-///
-/// One copy, shared by the `SUCCESS_ON`/`RETURN` resolution check, the
-/// `BUFFER … SIZE` rule-9 check, and the unbound-parameter check. It was three
-/// nested `fn idents` before plan-58-B; a walker that three rules disagree about
-/// is how a name gets treated as "read" by one check and unread by another.
-///
-/// `HirExpression::Identifier` carries no line of its own, which is why every caller
-/// reports at the `ABI` line rather than the expression's.
-fn link_expr_idents(expr: &crate::ast::Expression, out: &mut Vec<String>) {
-    match expr {
-        crate::ast::Expression::Identifier(name) => out.push(name.clone()),
-        crate::ast::Expression::Binary { left, right, .. } => {
-            link_expr_idents(left, out);
-            link_expr_idents(right, out);
-        }
-        crate::ast::Expression::Unary { operand, .. } => link_expr_idents(operand, out),
-        _ => {}
-    }
-}
-
 pub fn check_project_collect(
     project_dir: &Path,
     hir: &crate::hir::HirProject,
@@ -1954,29 +1933,9 @@ mod checker_tests {
         assert!(accepts(&link_wrap("")));
     }
 
-    #[test]
-    fn link_cptr_escape_param() {
-        assert!(rejects_with(
-            &link_wrap("  FUNC leak(handle AS CPtr) AS Nothing\n    SYMBOL \"demo_leak\"\n    ABI (handle CPtr) AS status CInt32\n    SUCCESS_ON status = 0\n  END FUNC\n"),
-            "NATIVE_CPTR_ESCAPE"
-        ));
-    }
-
-    #[test]
-    fn link_cptr_escape_return() {
-        assert!(rejects_with(
-            &link_wrap("  FUNC leak() AS CPtr\n    SYMBOL \"demo_leak\"\n    ABI () AS produced CPtr\n  END FUNC\n"),
-            "NATIVE_CPTR_ESCAPE"
-        ));
-    }
-
-    #[test]
-    fn link_unbound_slot() {
-        assert!(rejects_with(
-            &link_wrap("  FUNC opn(RES db AS Db) AS Nothing\n    SYMBOL \"demo_open\"\n    ABI (db CPtr, mystery CInt32) AS status CInt32\n    SUCCESS_ON status = 0\n  END FUNC\n"),
-            "NATIVE_ABI_UNBOUND_SLOT"
-        ));
-    }
+    // The CPtr-escape and unbound-slot rejections moved to `ir::verify`
+    // (plan-107-C); their twins are the pre-existing NATIVE_* package-path
+    // tests in `verify::tests`.
 
     #[test]
     fn link_free_invalid() {
@@ -2000,14 +1959,6 @@ mod checker_tests {
         assert!(accepts(&link_wrap(
             "  FUNC opn(statement AS String) AS RES Db\n    SYMBOL \"demo_open\"\n    ABI (statement CString, produced OUT CPtr) AS status CInt32\n    RETURN produced\n    SUCCESS_ON status = 0\n  END FUNC\n"
         )));
-    }
-
-    #[test]
-    fn link_const_on_out_rejected() {
-        assert!(rejects_with(
-            &link_wrap("  FUNC opn(statement AS String) AS RES Db\n    SYMBOL \"demo_open\"\n    ABI (statement CString, slot OUT CPtr) AS status CInt32\n    CONST slot = -1\n    SUCCESS_ON status = 0\n  END FUNC\n"),
-            "NATIVE_CONST_OUT"
-        ));
     }
 
     #[test]

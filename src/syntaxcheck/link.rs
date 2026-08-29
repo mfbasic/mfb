@@ -48,217 +48,13 @@ impl<'a> SyntaxChecker<'a> {
     /// Native-specific checks on a `LINK` block: `CPtr` containment and ABI
     /// slot/parameter consistency (plan-link-update.md §5b/§5c/§11/§12).
     pub(super) fn check_link_block(&mut self, file: &HirFile, link: &crate::ast::LinkBlock) {
-        self.check_link_cstructs(file, link);
-        // CSTRUCT-name escape into a wrapper signature is `ir::verify`'s
-        // (plan-107-C).
+        // Every native-ABI rule but two is `ir::verify`'s (plan-107-C); what
+        // remains here reads facts lowering erases — a CONST pin's unfoldable
+        // expression and a FREE block's deallocator signature — until the shape
+        // pass takes them (plan-107-D).
         let cstructs: Vec<String> = link.cstructs.iter().map(|c| c.name.clone()).collect();
         for function in &link.functions {
             self.check_link_function_in(file, function, &cstructs);
-            self.check_struct_slots(file, link, function);
-            self.check_buffer_slots(file, function);
-        }
-    }
-
-    /// `CBuffer` slot and `BUFFER … SIZE` clause position rules (plan-58-A §4.3),
-    /// shared verbatim with the package path via `ir::check_buffer_slots`.
-    ///
-    /// Spans are the `ABI` line rather than the individual slot line: the shared
-    /// `CStructFault` carries only `(rule, message)`, and every message already
-    /// names the offending slot. See the plan's Corrections — buying slot-level
-    /// spans means widening a carrier four landed rules also use.
-    fn check_buffer_slots(&mut self, file: &HirFile, function: &crate::ast::LinkFunction) {
-        // Nothing to check unless the function actually uses the feature. The
-        // `List OF Byte` return rule (rule 8) is the exception — it fires on a
-        // function with no CBuffer and no BUFFER clause at all, which is precisely
-        // the pre-existing garbage-codegen hole (§2.3) — so it must not be skipped.
-        let uses_buffers = !function.buffers.is_empty()
-            || function.abi.slots.iter().any(|s| s.ctype == "CBuffer")
-            || function.abi.return_ctype == "CBuffer"
-            || function.return_type.as_deref() == Some(crate::ir::BYTE_LIST_TYPE)
-            || function.result_length.is_some();
-        if !uses_buffers {
-            return;
-        }
-
-        let size_reads: Vec<Vec<String>> = function
-            .buffers
-            .iter()
-            .map(|b| {
-                let mut names = Vec::new();
-                link_expr_idents(&b.size, &mut names);
-                names
-            })
-            .collect();
-        let length_names: Option<Vec<String>> = function.result_length.as_ref().map(|expr| {
-            let mut names = Vec::new();
-            link_expr_idents(expr, &mut names);
-            names
-        });
-        let view = crate::ir::BufferSlotsView {
-            function: &function.name,
-            slots: function
-                .abi
-                .slots
-                .iter()
-                .map(|s| (s.name.as_str(), s.ctype.as_str(), s.direction))
-                .collect(),
-            buffers: function
-                .buffers
-                .iter()
-                .zip(size_reads.iter())
-                .map(|(b, reads)| (b.slot.as_str(), reads.iter().map(String::as_str).collect()))
-                .collect(),
-            const_slots: function.consts.iter().map(|c| c.slot.as_str()).collect(),
-            param_names: function.params.iter().map(|p| p.name.as_str()).collect(),
-            return_type: function.return_type.as_deref().unwrap_or("Nothing"),
-            abi_return_name: &function.abi.return_name,
-            abi_return_ctype: &function.abi.return_ctype,
-            // A bare `RETURN buf` names a slot; a computed `RETURN status = 0`
-            // names none. Same extraction `check_struct_slots` uses.
-            result_slot: match &function.result {
-                Some(crate::ast::Expression::Identifier(name)) => Some(name.as_str()),
-                _ => None,
-            },
-            length_reads: length_names
-                .as_ref()
-                .map(|names| names.iter().map(String::as_str).collect::<Vec<&str>>()),
-        };
-        for fault in crate::ir::check_buffer_slots(&view) {
-            self.report(fault.rule, &fault.message, file, function.abi.line);
-        }
-    }
-
-    /// The `(name, type)` fields of a user record `TYPE`, or `None` when the name
-    /// is not a record (a union/enum/unknown cannot back a `CSTRUCT`).
-    fn record_fields_of(&self, name: &str) -> Option<Vec<(String, String)>> {
-        for file in &self.hir.files {
-            for item in &file.items {
-                if let HirItem::Type(decl) = item {
-                    if decl.name == name && decl.kind == crate::ast::TypeDeclKind::Type {
-                        return Some(
-                            decl.fields
-                                .iter()
-                                // `ir::check_struct_slot` compares a CSTRUCT field's
-                                // C type against the record field's declared SPELLING,
-                                // which is the ABI seam's own vocabulary.
-                                .map(|f| (f.name.clone(), f.type_.name().into_owned()))
-                                .collect(),
-                        );
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    /// Validate a wrapper's struct slots and `BIND IN` blocks (plan-50-E §4.6).
-    fn check_struct_slots(
-        &mut self,
-        file: &HirFile,
-        link: &crate::ast::LinkBlock,
-        function: &crate::ast::LinkFunction,
-    ) {
-        let find_cstruct = |name: &str| link.cstructs.iter().find(|c| c.name == name);
-
-        for slot in &function.abi.slots {
-            let Some(decl) = find_cstruct(&slot.ctype) else {
-                // A non-struct slot marked INOUT has nothing to be in/out *of*:
-                // a scalar slot is either a C argument or a produced value.
-                if slot.direction == crate::ir::AbiDirection::InOut {
-                    self.report(
-                        "NATIVE_ABI_UNKNOWN_CTYPE",
-                        &format!(
-                            "Native function `{}` ABI slot `{}` is INOUT but `{}` is not a CSTRUCT; INOUT is meaningful only for a struct.",
-                            function.name, slot.name, slot.ctype
-                        ),
-                        file,
-                        slot.line,
-                    );
-                }
-                continue;
-            };
-            // The record it maps to must exist and be a record.
-            let Some(record) = self.record_fields_of(&decl.maps_to) else {
-                self.report(
-                    "NATIVE_STRUCT_FIELD_MISMATCH",
-                    &format!(
-                        "CSTRUCT `{}` maps to `{}`, which is not a record type.",
-                        decl.name, decl.maps_to
-                    ),
-                    file,
-                    decl.line,
-                );
-                continue;
-            };
-            let cfields: Vec<(String, String)> = decl
-                .fields
-                .iter()
-                .map(|f| (f.name.clone(), f.ctype.clone()))
-                .collect();
-            let view = crate::ir::StructSlotView {
-                cfields: &cfields,
-                record: &record,
-                cstruct_name: &decl.name,
-                maps_to: &decl.maps_to,
-            };
-            // plan-50-E marshals scalar fields only; plan-50-F lifts CString.
-            for fault in crate::ir::check_struct_slot(&view) {
-                self.report(fault.rule, &fault.message, file, slot.line);
-            }
-            // A wrapper returning this struct must declare the mapped record.
-            // (Returning an IN slot is the result-marker rule, `ir::verify`'s
-            // since plan-107-C.)
-            if matches!(&function.result, Some(crate::ast::Expression::Identifier(n)) if *n == slot.name)
-            {
-                if function.return_type.as_deref() != Some(decl.maps_to.as_str()) {
-                    self.report(
-                        "NATIVE_STRUCT_FIELD_MISMATCH",
-                        &format!(
-                            "Native function `{}` returns struct slot `{}`, so it must return `{}` (the CSTRUCT's mapped record).",
-                            function.name, slot.name, decl.maps_to
-                        ),
-                        file,
-                        function.line,
-                    );
-                }
-            }
-        }
-    }
-
-    /// Validate the block's `CSTRUCT` declarations (plan-50-B §4.4).
-    ///
-    /// Shares `ir::check_cstruct` with the package path so the two cannot drift;
-    /// this side adds the per-declaration span and the duplicate-name check.
-    fn check_link_cstructs(&mut self, file: &HirFile, link: &crate::ast::LinkBlock) {
-        let names: Vec<String> = link.cstructs.iter().map(|c| c.name.clone()).collect();
-        for (index, decl) in link.cstructs.iter().enumerate() {
-            if link.cstructs[..index].iter().any(|p| p.name == decl.name) {
-                self.report(
-                    "NATIVE_CSTRUCT_INVALID",
-                    &format!(
-                        "LINK alias `{}` declares CSTRUCT `{}` more than once.",
-                        link.alias, decl.name
-                    ),
-                    file,
-                    decl.line,
-                );
-            }
-            let fields: Vec<(String, String)> = decl
-                .fields
-                .iter()
-                .map(|f| (f.name.clone(), f.ctype.clone()))
-                .collect();
-            // Every supported target is LP64 and agrees on the layout table.
-            for fault in crate::ir::check_cstruct(&decl.name, &fields, &names, "") {
-                // Point at the offending field where we can; the declaration line
-                // otherwise.
-                let line = decl
-                    .fields
-                    .iter()
-                    .find(|f| fault.message.contains(&format!("`{}`", f.name)))
-                    .map_or(decl.line, |f| f.line);
-                self.report(fault.rule, &fault.message, file, line);
-            }
         }
     }
 
@@ -270,176 +66,6 @@ impl<'a> SyntaxChecker<'a> {
         function: &crate::ast::LinkFunction,
         cstructs: &[String],
     ) {
-        // `CPtr` (and other raw C ABI types) may never appear in a wrapper's
-        // MFBASIC-facing signature — only inside `ABI (...)` slots. A wrapper
-        // param or return typed as a C type would let a raw pointer escape into an
-        // ordinary API (plan-link-update.md §5/§11).
-        for param in &function.params {
-            if let Some(type_name) = &param.type_name {
-                if is_c_abi_type(type_name) {
-                    self.report(
-                        "NATIVE_CPTR_ESCAPE",
-                        &format!(
-                            "Native function `{}` parameter `{}` uses C ABI type `{}`; raw C types may appear only in ABI slots.",
-                            function.name, param.name, type_name
-                        ),
-                        file,
-                        param.line,
-                    );
-                }
-            }
-        }
-        if let Some(return_type) = &function.return_type {
-            if is_c_abi_type(return_type) {
-                self.report(
-                    "NATIVE_CPTR_ESCAPE",
-                    &format!(
-                        "Native function `{}` returns C ABI type `{}`; raw C types may appear only in ABI slots.",
-                        function.name, return_type
-                    ),
-                    file,
-                    function.line,
-                );
-            }
-        }
-
-        // Every ABI slot must be satisfied by exactly one of: a wrapper parameter
-        // (matched by name), the OUT/return result marker, or a CONST pin
-        // (plan-link-update.md §5c).
-        let const_slots: HashSet<&str> = function
-            .consts
-            .iter()
-            .map(|pin| pin.slot.as_str())
-            .collect();
-        let param_names: HashSet<&str> = function
-            .params
-            .iter()
-            .map(|param| param.name.as_str())
-            .collect();
-
-        // plan-50-A: the slot ctype namespace is closed. An unknown name used to
-        // fall through to a raw 64-bit marshal in the thunk's default arm, so a
-        // typo compiled clean and silently moved the wrong width.
-        if !crate::ir::abi_ctype_valid_as_return(&function.abi.return_ctype) {
-            self.report(
-                "NATIVE_ABI_UNKNOWN_CTYPE",
-                &format!(
-                    "Native function `{}` ABI return `{}` uses C type `{}`, which is not a valid ABI return type.",
-                    function.name, function.abi.return_name, function.abi.return_ctype
-                ),
-                file,
-                function.abi.line,
-            );
-        }
-        for slot in &function.abi.slots {
-            // A slot may name a CSTRUCT declared in this LINK block; the struct
-            // rules then apply instead of the scalar ctype table (plan-50-E).
-            if cstructs.contains(&slot.ctype) {
-                continue;
-            }
-            // An OUT slot is a produced *value*, so it carries a return-shaped
-            // ctype; an ordinary slot is a C argument.
-            let ok = if slot.direction.writes_back() {
-                crate::ir::abi_ctype_valid_as_return(&slot.ctype)
-            } else {
-                crate::ir::abi_ctype_valid_as_argument(&slot.ctype)
-            };
-            if !ok {
-                self.report(
-                    "NATIVE_ABI_UNKNOWN_CTYPE",
-                    &format!(
-                        "Native function `{}` ABI slot `{}` uses C type `{}`, which is not valid in that position.",
-                        function.name, slot.name, slot.ctype
-                    ),
-                    file,
-                    slot.line,
-                );
-            }
-        }
-
-        // plan-50-H: the result is named by `RETURN <expr>`. Both magic-name
-        // checks are gone — a slot named `return` no longer parses, and the ABI
-        // return is an ordinary name.
-        for slot in &function.abi.slots {
-            // A CONST pin satisfies the slot and is input-only.
-            if const_slots.contains(slot.name.as_str()) {
-                if slot.direction.writes_back() {
-                    self.report(
-                        "NATIVE_CONST_OUT",
-                        &format!(
-                            "Native function `{}` pins ABI slot `{}` with CONST, which cannot also be OUT.",
-                            function.name, slot.name
-                        ),
-                        file,
-                        slot.line,
-                    );
-                }
-                continue;
-            }
-            // An OUT slot is native storage the callee fills; it needs no wrapper
-            // parameter. It is surfaced (if at all) by naming it in `RETURN`.
-            if slot.direction.writes_back() {
-                continue;
-            }
-            // An IN struct slot is satisfied by its `BIND IN` block: its fields
-            // carry the inputs, and everything unbound is zero (plan-50-E).
-            if function.bind_in.iter().any(|b| b.slot == slot.name) {
-                continue;
-            }
-            // An ordinary input slot must bind to a wrapper parameter by name.
-            if !param_names.contains(slot.name.as_str()) {
-                self.report(
-                    "NATIVE_ABI_UNBOUND_SLOT",
-                    &format!(
-                        "Native function `{}` ABI slot `{}` does not bind to a parameter, CONST pin, or an OUT buffer.",
-                        function.name, slot.name
-                    ),
-                    file,
-                    slot.line,
-                );
-            }
-        }
-
-        // plan-50-I: an identifier in a SUCCESS_ON/ERROR_ON/RETURN expression must
-        // name a real ABI slot (or the ABI return). Before I, `lower_link_expr`
-        // mapped EVERY identifier onto one nameless "native return" variable, so
-        // `SUCCESS_ON typo = 0` silently meant `status = 0`, and an expression
-        // could not read any other slot despite the spec saying it could.
-        {
-            let mut names: Vec<String> = Vec::new();
-            for expr in [&function.success_on, &function.result]
-                .into_iter()
-                .flatten()
-            {
-                link_expr_idents(expr, &mut names);
-            }
-            for name in names {
-                // `NOTHING` is a literal, not a slot.
-                if name == "NOTHING"
-                    || name == function.abi.return_name
-                    || function.abi.slots.iter().any(|slot| slot.name == name)
-                {
-                    continue;
-                }
-                self.report(
-                    "NATIVE_ABI_UNBOUND_SLOT",
-                    &format!(
-                        "Native function `{}` SUCCESS_ON/RETURN expression reads `{name}`, which is not an ABI slot or the ABI return.",
-                        function.name
-                    ),
-                    file,
-                    function.abi.line,
-                );
-            }
-        }
-
-        // The result-marker rules — a value-returning wrapper with no
-        // `RETURN <expr>`, a `Nothing` wrapper with one — are `ir::verify`'s
-        // (plan-107-C).
-
-        // Every wrapper parameter must be consumed (by a slot, a `BIND IN`
-        // field or a `BUFFER … SIZE` read) — `ir::verify`'s rule (plan-107-C).
-
         // plan-50-G: a CONST pin must fold to an immediate. Until now an
         // unrecognized expression silently pinned **0** (`eval_link_const`'s
         // `_ => 0`) — the same "default rather than diagnose" mistake as the
@@ -732,11 +358,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_CSTRUCT_INVALID"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -817,11 +440,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_ABI_UNKNOWN_CTYPE"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     // ----- struct slots / BIND IN -------------------------------------------
@@ -842,11 +462,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_ABI_UNKNOWN_CTYPE"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -874,11 +491,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_STRUCT_FIELD_MISMATCH"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -941,11 +555,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_STRUCT_FIELD_MISMATCH"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -973,11 +584,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_STRUCT_FIELD_MISMATCH"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -1221,11 +829,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_CPTR_ESCAPE"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -1244,11 +849,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_ABI_UNKNOWN_CTYPE"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -1268,11 +870,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_ABI_UNKNOWN_CTYPE"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     // ----- CONST pins -------------------------------------------------------
@@ -1294,11 +893,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_CONST_OUT"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -1401,11 +997,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_ABI_UNBOUND_SLOT"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -1425,11 +1018,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_ABI_UNBOUND_SLOT"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]

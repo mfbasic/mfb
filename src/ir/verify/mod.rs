@@ -185,6 +185,16 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "NATIVE_ABI_UNBOUND_PARAM",
     "NATIVE_BIND_IN_INVALID",
     "NATIVE_CSTRUCT_ESCAPE",
+    // The eight the shared `ir::link` fault helpers also produce, listed
+    // together with the removal of syntaxcheck's fault loops.
+    "NATIVE_ABI_UNBOUND_SLOT",
+    "NATIVE_ABI_UNKNOWN_CTYPE",
+    "NATIVE_CONST_OUT",
+    "NATIVE_CPTR_ESCAPE",
+    "NATIVE_CSTRUCT_INVALID",
+    "NATIVE_STRUCT_FIELD_MISMATCH",
+    "NATIVE_BUFFER_INVALID",
+    "NATIVE_CSTRUCT_TOO_LARGE",
 ];
 
 /// Diagnostic prefixes shared with the structural `verify_package` checks so a
