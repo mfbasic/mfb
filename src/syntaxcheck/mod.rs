@@ -2419,14 +2419,6 @@ mod checker_tests {
     }
 
     #[test]
-    fn user_named_argument_duplicate() {
-        assert!(rejects_with(
-            "FUNC g(a AS Integer) AS Integer\n  RETURN a\nEND FUNC\nFUNC main AS Integer\n  RETURN g(1, a := 2)\nEND FUNC\n",
-            "TYPE_DUPLICATE_ARGUMENT_NAME"
-        ));
-    }
-
-    #[test]
     fn user_named_argument_arity() {
         assert!(rejects_with(
             "FUNC g(a AS Integer) AS Integer\n  RETURN a\nEND FUNC\nFUNC main AS Integer\n  RETURN g(1, 2, 3)\nEND FUNC\n",

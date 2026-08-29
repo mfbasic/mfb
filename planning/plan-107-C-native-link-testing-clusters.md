@@ -251,7 +251,9 @@ with the artifact gate reported 2 mismatches — both `missing actual` for one
 fixture's `.ast`/`.ir` (`rt-error/vector/reject_zero_rt`); the fixture passes
 standalone and in the serial sweep, so the miss was the two harnesses racing
 over the same build outputs, not a C regression. Never run the gate and the
-sweep together. Full suite: see the archive note below.
+sweep together. Full suite (`rustup run 1.96.0 cargo test --no-fail-fast` on
+a detached checkout at `3dbf86592`, `/tmp/p107-suite-C.log`): 64 suites
+`ok`, 0 failed, exit 0.
 
 ## Open Decisions
 

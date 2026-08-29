@@ -615,10 +615,9 @@ impl<'a> Walker<'a> {
                         HirCallArg::Positional(_) => None,
                     })
                     .collect();
-                // (The duplicate itself is still the source checker's
-                // TYPE_DUPLICATE_ARGUMENT_NAME until its own landing.)
-                for (index, (name, _)) in named.iter().enumerate() {
+                for (index, (name, line)) in named.iter().enumerate() {
                     if named[..index].iter().any(|(earlier, _)| earlier == name) {
+                        self.report_duplicate_name(callee, name, *line);
                         return;
                     }
                 }
@@ -653,8 +652,9 @@ impl<'a> Walker<'a> {
                                 continue;
                             };
                             if ordered[index] {
-                                // A duplicate is still the source checker's
-                                // TYPE_DUPLICATE_ARGUMENT_NAME until its own landing.
+                                // Reported under the parameter's canonical
+                                // (first) alias, whichever alias the call wrote.
+                                self.report_duplicate_name(callee, aliases[index][0], *line);
                                 continue;
                             }
                             ordered[index] = true;
@@ -683,8 +683,7 @@ impl<'a> Walker<'a> {
                                 continue;
                             };
                             if ordered[index] {
-                                // A duplicate is still the source checker's
-                                // TYPE_DUPLICATE_ARGUMENT_NAME until its own landing.
+                                self.report_duplicate_name(callee, name, *line);
                                 continue;
                             }
                             ordered[index] = true;
@@ -699,6 +698,14 @@ impl<'a> Walker<'a> {
         self.emit(
             "TYPE_UNKNOWN_ARGUMENT_NAME",
             format!("Call to `{callee}` does not have a parameter named `{name}`."),
+            line,
+        );
+    }
+
+    fn report_duplicate_name(&mut self, callee: &str, name: &str, line: usize) {
+        self.emit(
+            "TYPE_DUPLICATE_ARGUMENT_NAME",
+            format!("Call to `{callee}` supplies parameter `{name}` more than once."),
             line,
         );
     }
@@ -921,6 +928,15 @@ mod tests {
     }
 
     #[test]
+    fn user_named_argument_duplicate() {
+        // `g(1, a := 2)`: the positional already filled `a`.
+        assert!(rejects_with(
+            "FUNC g(a AS Integer) AS Integer\n  RETURN a\nEND FUNC\nFUNC main AS Integer\n  RETURN g(1, a := 2)\nEND FUNC\n",
+            "TYPE_DUPLICATE_ARGUMENT_NAME"
+        ));
+    }
+
+    #[test]
     fn user_named_positional_after_named_walk() {
         // A positional after a named argument fills the first free slot.
         assert!(accepts(
@@ -985,7 +1001,7 @@ mod tests {
                 isolated: false,
             },
         );
-        let src = "IMPORT shapes AS sh\nFUNC main AS Integer\n  LET a = sh::area(width := 1, depth := 2)\n  RETURN a\nEND FUNC\n";
+        let src = "IMPORT shapes AS sh\nFUNC main AS Integer\n  LET a = sh::area(width := 1, depth := 2)\n  LET b = sh::area(1, width := 2)\n  RETURN a + b\nEND FUNC\n";
         let file = parse_source(Path::new("main.mfb"), "main.mfb", src).expect("parses");
         let project = AstProject {
             name: "test".to_string(),
@@ -995,7 +1011,10 @@ mod tests {
         let diagnostics =
             collect_diagnostics(Path::new("/proj"), &hir, &HashMap::new(), &[], &imported);
         let codes: Vec<_> = diagnostics.iter().map(|d| d.rule.as_str()).collect();
-        assert_eq!(codes, ["TYPE_UNKNOWN_ARGUMENT_NAME"]);
+        assert_eq!(
+            codes,
+            ["TYPE_UNKNOWN_ARGUMENT_NAME", "TYPE_DUPLICATE_ARGUMENT_NAME"]
+        );
         assert_eq!(
             diagnostics[0].detail,
             "Call to `sh.area` does not have a parameter named `depth`."
@@ -1032,6 +1051,14 @@ mod tests {
     }
 
     #[test]
+    fn builtin_named_argument_duplicate() {
+        assert!(rejects_with(
+            "IMPORT json\nFUNC main AS Integer\n  LET x = json::parse(\"a\", value := \"b\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_DUPLICATE_ARGUMENT_NAME"
+        ));
+    }
+
+    #[test]
     fn builtin_named_then_positional_reorders() {
         assert!(accepts(
             "IMPORT strings\nFUNC main AS Integer\n  LET b = strings::startsWith(prefix := \"a\", \"abc\")\n  RETURN 0\nEND FUNC\n"
@@ -1057,14 +1084,25 @@ mod tests {
     }
 
     #[test]
-    fn overloaded_duplicate_ends_the_check_before_unknown_names() {
-        // A duplicate (the source checker's rule for now) ends overload
-        // selection before any unknown name is considered.
+    fn overloaded_named_duplicate_argument_rejected() {
+        assert!(rejects_with(
+            &wrap_import(
+                "datetime",
+                "  LET z = datetime::fixedOffset(hours := 1, hours := 2)"
+            ),
+            "TYPE_DUPLICATE_ARGUMENT_NAME"
+        ));
+    }
+
+    #[test]
+    fn overloaded_duplicate_reported_once_and_before_unknown_names() {
+        // A duplicate ends overload selection before any unknown name is
+        // considered, and only the first duplicate is reported.
         let codes = shape_codes(&wrap_import(
             "datetime",
-            "  LET z = datetime::fixedOffset(hours := 1, hours := 2, bogus := 3)",
+            "  LET z = datetime::fixedOffset(hours := 1, hours := 2, bogus := 3, bogus := 4)",
         ));
-        assert!(codes.is_empty(), "{codes:?}");
+        assert_eq!(codes, ["TYPE_DUPLICATE_ARGUMENT_NAME"]);
     }
 
     #[test]

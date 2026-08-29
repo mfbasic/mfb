@@ -992,7 +992,7 @@ impl<'a> SyntaxChecker<'a> {
                         extras.push(value.clone());
                     }
                 }
-                HirCallArg::Named { name, value, line } => {
+                HirCallArg::Named { name, value, .. } => {
                     let Some(index) = param_names
                         .iter()
                         .position(|aliases| aliases.iter().any(|alias| alias == name))
@@ -1004,15 +1004,8 @@ impl<'a> SyntaxChecker<'a> {
                         continue;
                     };
                     if ordered[index].is_some() {
-                        self.report(
-                            "TYPE_DUPLICATE_ARGUMENT_NAME",
-                            &format!(
-                                "Call to `{display_callee}` supplies parameter `{}` more than once.",
-                                param_names[index][0]
-                            ),
-                            file,
-                            *line,
-                        );
+                        // The duplicate is the shape pass's rejection
+                        // (TYPE_DUPLICATE_ARGUMENT_NAME, plan-107-E).
                         continue;
                     }
                     ordered[index] = Some(value.clone());
@@ -1084,16 +1077,10 @@ impl<'a> SyntaxChecker<'a> {
                 .collect::<Vec<_>>()
         };
 
-        for (index, (name, _, named_line)) in named.iter().enumerate() {
+        // A duplicate name is the shape pass's rejection
+        // (TYPE_DUPLICATE_ARGUMENT_NAME, plan-107-E); no overload can be selected.
+        for (index, (name, _, _)) in named.iter().enumerate() {
             if named[..index].iter().any(|(earlier, _, _)| earlier == name) {
-                self.report(
-                    "TYPE_DUPLICATE_ARGUMENT_NAME",
-                    &format!(
-                        "Call to `{display_callee}` supplies parameter `{name}` more than once."
-                    ),
-                    file,
-                    *named_line,
-                );
                 return fallback();
             }
         }
@@ -1190,21 +1177,15 @@ impl<'a> SyntaxChecker<'a> {
                     next_positional += 1;
                     supplied += 1;
                 }
-                HirCallArg::Named { name, value, line } => {
+                HirCallArg::Named { name, value, .. } => {
                     // An unknown name is the shape pass's rejection
                     // (TYPE_UNKNOWN_ARGUMENT_NAME, plan-107-E).
                     let Some(index) = params.iter().position(|param| param.name == *name) else {
                         continue;
                     };
                     if ordered[index].is_some() {
-                        self.report(
-                            "TYPE_DUPLICATE_ARGUMENT_NAME",
-                            &format!(
-                                "Call to `{callee}` supplies parameter `{name}` more than once."
-                            ),
-                            file,
-                            *line,
-                        );
+                        // The duplicate is the shape pass's rejection
+                        // (TYPE_DUPLICATE_ARGUMENT_NAME, plan-107-E).
                         continue;
                     }
                     ordered[index] = Some(value.clone());
@@ -1635,14 +1616,6 @@ mod builtins_tests {
         // A builtin with named args that resolve to its parameter names.
         assert!(accepts(
             "IMPORT json\nIMPORT io\nFUNC main AS Integer\n  io::print(json::stringify(json::parse(value := \"null\")))\n  RETURN 0\nEND FUNC\n"
-        ));
-    }
-
-    #[test]
-    fn named_argument_duplicate() {
-        assert!(rejects_with(
-            "IMPORT json\nFUNC main AS Integer\n  LET x = json::parse(\"a\", value := \"b\")\n  RETURN 0\nEND FUNC\n",
-            "TYPE_DUPLICATE_ARGUMENT_NAME"
         ));
     }
 
@@ -2393,17 +2366,6 @@ mod builtins_tests {
     }
 
     // ---- overloaded-named-argument normalization (net/datetime) -------------
-
-    #[test]
-    fn overloaded_named_duplicate_argument_rejected() {
-        assert!(rejects_with(
-            &wrap_import(
-                "datetime",
-                "  LET z = datetime::fixedOffset(hours := 1, hours := 2)"
-            ),
-            "TYPE_DUPLICATE_ARGUMENT_NAME"
-        ));
-    }
 
     #[test]
     fn overloaded_named_omitted_prefix_rejected() {

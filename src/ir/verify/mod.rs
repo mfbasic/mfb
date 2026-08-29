@@ -90,6 +90,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     // ir::shape (plan-107-E): lowering normalizes named arguments away, so the
     // name the source wrote survives only in the HIR.
     "TYPE_UNKNOWN_ARGUMENT_NAME",
+    "TYPE_DUPLICATE_ARGUMENT_NAME",
     "TYPE_BINARY_OPERATOR_MISMATCH",
     "TYPE_UNARY_OPERATOR_MISMATCH",
     "TYPE_FIELD_ACCESS_REQUIRES_RECORD",

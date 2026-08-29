@@ -202,11 +202,21 @@ Commit: `c2e865703`
       rule — the shape stream now prints first), 0 set-diff; every regenerated
       golden is a pure line move (`/tmp/p107-movecheck.sh`: sorted old ==
       sorted new).)
-- [ ] TYPE_DUPLICATE_ARGUMENT_NAME → shape; list; delete.
-- [ ] Tests: corpus + harness per commit (18 + 2 fixtures); unit tests.
+- [x] TYPE_DUPLICATE_ARGUMENT_NAME → shape; list; delete.
+      (Same walker; the overloaded-builtin form reports only the first
+      duplicate and ends the check before unknown names, the per-position
+      forms report under the parameter's canonical alias — both exactly as
+      syntaxcheck did. Corpus: 519 same, 2 reordered (`func_net_connectTcp_
+      invalid`, `project-entry-func-named-args-invalid` — the 2 fixtures
+      carrying the rule), 0 set-diff; both regenerated goldens pure moves.)
+- [x] Tests: corpus + harness per commit (18 + 2 fixtures); unit tests.
+      (`ir::shape::tests`: user / builtin / overloaded-builtin / imported-`.mfp`
+      / `general`-arm callee classes, positional-after-named slot walk, the
+      private-other-file non-target, nested-call ordering, first-duplicate-only;
+      the 6 syntaxcheck twins deleted.)
 
 Acceptance: both codes shape-only; corpus set-equal.
-Commit: — (per rule)
+Commit: `ecd3601cd` (TYPE_UNKNOWN_ARGUMENT_NAME); TYPE_DUPLICATE_ARGUMENT_NAME —
 
 ### Phase 3 — builtin-call typing family
 
