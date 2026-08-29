@@ -2870,7 +2870,8 @@ impl<'a> Walker<'a> {
                 return !self.with_update_typed(target, locals);
             }
             HirExpression::Call { callee, .. } => {
-                if builtins::is_package_constant(&self.canonical_callee(callee)) {
+                let canonical = self.canonical_callee(callee);
+                if builtins::is_package_constant(&canonical) {
                     return false;
                 }
                 if self
@@ -2880,6 +2881,16 @@ impl<'a> Walker<'a> {
                     .unwrap_or(false)
                 {
                     return true;
+                }
+                // A package-table builtin call the argument checker matched is
+                // typed by the overload's DECLARED return type, even when an
+                // argument's own type is unknown (`crypto::hash(Hash.Nope, s)`:
+                // the unknown member is its own rule, and `Unknown` is
+                // compatible with the `Hash` slot) — where lowering's exact
+                // registry resolution answers `Unknown` and would cascade.
+                if builtins::is_builtin_call(&canonical) && builtins::table_checked_call(&canonical)
+                {
+                    return false;
                 }
             }
             HirExpression::Binary {
@@ -3640,6 +3651,16 @@ mod tests {
             files: vec![file],
         };
         assert!(export_in_executable_diagnostics(false, &project).is_empty());
+    }
+
+    #[test]
+    fn matched_table_builtin_call_with_an_unknown_argument_is_typed() {
+        // `Hash.SHA224` is an unknown enum member (verify's
+        // TYPE_UNKNOWN_ENUM_MEMBER); the checker still typed the matched
+        // `crypto::hash` overload by its declared return type, so the binding
+        // does not cascade.
+        let src = "IMPORT crypto\nFUNC main AS Integer\n  LET a AS List OF Byte = crypto::hash(Hash.SHA224, \"abc\")\n  RETURN len(a)\nEND FUNC\n";
+        assert_eq!(shape_codes(src), Vec::<String>::new());
     }
 
     // ---- imported package metadata ---------------------------------------

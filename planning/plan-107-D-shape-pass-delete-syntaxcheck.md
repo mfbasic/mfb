@@ -463,6 +463,19 @@ Commit: —
   main's two checker tests moved to `ir::tests` over a restored pipeline
   oracle (`testutil::check_src` / `accepts` — deleted in Phase 2 for lack of
   consumers, and back now that it has two).
+- **C-table-call-verdict (2026-08-29, finish).** main's new fixture
+  `syntax/crypto/hash-removed-spellings-invalid` (a renamed enum member used
+  as a builtin-call argument, `crypto::hash(Hash.SHA224, s)`) showed one
+  cascade the E-era census had no fixture for: the checker's package-table
+  arm typed a MATCHED call by the overload's declared return type even when
+  an argument's own type was `Unknown` (`Unknown` is compatible with the
+  `Hash` slot), so the binding did not cascade TYPE_UNKNOWN_VALUE; lowering's
+  exact registry resolution answers `Unknown` for the same call and the
+  shape pass's fallback cascaded (4 extra diagnostics). `checker_types_unknown`
+  now answers "typed" for a table-checked builtin call whose verdict was not
+  Unknown (`builtins::table_checked_call`); corpus 529 same / 0 set-diff on
+  the merged tree (`ir::shape::tests::matched_table_builtin_call_with_an_
+  unknown_argument_is_typed`).
 - **C-harness-test-verb (2026-08-29, Phase 1).** `scripts/diag-set-diff.sh`
   re-ran `.testrun` goldens as `mfb test -q …`, but `mfb test` has no `-q`
   (usage error, exit 2) — the harness reported `testing-assert-invalid` as a

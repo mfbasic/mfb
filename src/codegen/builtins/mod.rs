@@ -467,6 +467,16 @@ const ARGUMENT_CHECKED_PACKAGES: &[&str] = &[
     "process", "io", "json", "csv", "regex", "datetime", "money", "app", "http", "vector",
 ];
 
+/// Whether a builtin call (canonical `package.member` name) is checked by the
+/// package TABLE arm (`expected_arguments` overloads) — as opposed to the four
+/// bespoke arms. The table arm types a matched call by the overload's declared
+/// return type even when an argument's own type is unknown.
+pub(crate) fn table_checked_call(callee: &str) -> bool {
+    crate::codegen::registry::registry()
+        .owning_package(callee)
+        .is_some_and(|package| ARGUMENT_CHECKED_PACKAGES.contains(&package))
+}
+
 /// Whether a builtin call (canonical `package.member` name) reaches one of the
 /// argument checkers — the four bespoke arms or the package table — and so has
 /// its argument list normalized and validated.
