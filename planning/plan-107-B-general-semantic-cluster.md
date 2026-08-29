@@ -158,6 +158,12 @@ Commit: `18390eb35` (LAMBDA_CAPTURE)
 - Doc sync: none (D owns it).
 - Acceptance: full suite; gate; test-accept; fmt both crates.
 
+Letter-end results (2026-08-29): `test-accept.sh target/release/mfb
+/tmp/p107-accept` → `acceptance tests passed (1275 test(s) ran)` after the two
+Corrections fixes (the first sweep's 2 mismatches, both root-caused above);
+`artifact-gate all` runs inside the full suite's `golden.rs` (recorded on
+archive); `cargo fmt --all` applied.
+
 ## Open Decisions
 
 - None — decisions live in A's verdicts; a new fork discovered mid-cluster is

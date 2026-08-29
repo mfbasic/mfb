@@ -166,22 +166,54 @@ Commit: —
 
 ### Phase 1 — package-path tests (the gap made visible)
 
-- [ ] For each of the 13 rules: a verify unit test per sub-form whose IR
-      violates the rule; record which sub-forms currently pass UNGUARDED
-      through the package path (expected: the 5 missing forms in §2).
-- [ ] Source fixtures for the two zero-fixture rules
-      (`NATIVE_ABI_NO_RESULT`, `NATIVE_ABI_UNBOUND_PARAM`).
+- [x] For each of the 13 rules: a verify unit test per sub-form whose IR
+      violates the rule. Pre-state (the two implementations read side by
+      side, §2 + Corrections): every code already had a twin for at least
+      one form; the forms that passed UNGUARDED on the package path were the
+      six Phase 0 ported — INOUT on a non-CSTRUCT slot, `RETURN` of an IN
+      struct slot, a returned struct slot whose wrapper declares another type,
+      `BIND IN` on an OUT slot, a `BIND IN` field set twice, a field bound to
+      an unmarshalable value — plus the unbound-IN-struct-slot gap. Twins:
+      `rejects_inout_on_a_non_cstruct_slot`, `rejects_returning_an_in_struct_slot`,
+      `rejects_returning_a_struct_slot_as_another_type`,
+      `rejects_bind_in_on_an_out_slot`, `rejects_bind_in_setting_a_field_twice`,
+      `rejects_bind_in_field_bound_to_nothing`, `rejects_an_unbound_in_struct_slot`,
+      `accepts_a_bound_in_struct_slot` — GREEN against the Phase-0 tree (the
+      gap was closed in the commit that made it visible).
+- [x] Source fixtures for the three zero-fixture rules —
+      `tests/syntax/native/native-abi-no-result-invalid` (line 12),
+      `native-abi-unbound-param-invalid` (line 13),
+      `native-cstruct-too-large-invalid` (129 × CInt64 = 1032 bytes, line 8)
+      — goldens seeded from the pre-relocation (syntaxcheck) output.
 
 Acceptance: per-rule package tests exist with recorded pre-state.
-Commit: —
+Commit: `0292de3b5`
 
 ### Phase 2 — relocate the family
 
 - [ ] One rule per commit into `verify/link.rs` (recipe); Phase-1 tests
       flip to firing on the package path; syntaxcheck `link.rs` copies
-      deleted.
-- [ ] Execute the TESTING-family verdict: record the formal hand-off to D
-      here (rows 23–28 are (S); D's Phase 1 lists them).
+      deleted. Grouping forced by the shared fault helpers: the five codes
+      syntaxcheck emits only from its own strings — `NATIVE_ABI_NO_RESULT`,
+      `NATIVE_ABI_RESULT_MARKER`, `NATIVE_ABI_UNBOUND_PARAM`,
+      `NATIVE_BIND_IN_INVALID`, `NATIVE_CSTRUCT_ESCAPE` — land one per commit;
+      the eight that `ir::check_cstruct`/`check_struct_slot`/`check_buffer_slots`
+      also produce through syntaxcheck's fault loops — `NATIVE_ABI_UNBOUND_SLOT`,
+      `NATIVE_ABI_UNKNOWN_CTYPE`, `NATIVE_CONST_OUT`, `NATIVE_CPTR_ESCAPE`,
+      `NATIVE_CSTRUCT_INVALID`, `NATIVE_STRUCT_FIELD_MISMATCH`,
+      `NATIVE_BUFFER_INVALID`, `NATIVE_CSTRUCT_TOO_LARGE` — land in ONE commit
+      together with those loops, because a fault loop can only go when every
+      code it can emit is listed (listing one earlier double-emits it in a
+      release build). `NATIVE_CONST_UNKNOWN_SLOT` and `NATIVE_FREE_INVALID`
+      are split (V/S) and land in D.
+- [x] Execute the TESTING-family verdict: **handed off to D.** A's audit
+      (rows 23–28) verdicted all six `TESTING_EXPECT_*` codes (S): the
+      assertions are desugared by `testing::desugar::expand_expect` during
+      lowering (a missing operand even makes the desugar EMPTY), only exist
+      under `mfb test`, and four of the six need operand types. D's Phase 1
+      lists them with `mfb test` fixtures (`test.log` goldens; the harness
+      already replays `$ mfb test` sections). Nothing in this letter touches
+      them.
 - [ ] Tests: corpus + harness per commit; the package tests; the parity test
       is retired in the final commit (with syntaxcheck's `link.rs` gone there
       is no second set to agree with).

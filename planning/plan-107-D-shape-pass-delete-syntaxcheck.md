@@ -98,6 +98,8 @@ rules. Its size at D's kickoff is the first measurement.
 | 39 | TYPE_RECOVER_TYPE_MISMATCH | the two arity forms (verify keeps mismatch) | yes (success type is Nothing?) | 1 |
 | 46 | UNREACHABLE_AFTER_EXIT | after EXIT SUB / EXIT FUNC (verify keeps loop + PROGRAM forms) | no | 3 |
 | 49 | TYPE_READ_ONLY_RECORD_CONSTRUCTOR | the `Error`/`ErrorLoc` constructor form (lowering synthesizes `Constructor{Error}` itself; A Corrections C-split-49); verify keeps the compiler-owned form and gains the `AttributedString` form | no | 4 |
+| 14 | NATIVE_CONST_UNKNOWN_SLOT | the "not a constant the compiler can fold" form — the pin's expression is folded away by lowering (C Corrections); verify keeps the unknown-slot form | no | 1 (`native-const-unfoldable-invalid`) |
+| 18 | NATIVE_FREE_INVALID | the deallocator-signature sub-condition of the "malformed FREE" form — `IrFree` carries slot + symbol only (C Corrections); verify keeps the `AS RES` producer form and the empty-symbol form | no | 2 |
 | 5 | EXPORT_IN_EXECUTABLE | (I) the build-boundary fn moves beside the pass, unchanged | no | 1 |
 | 20 | PACKAGE_INVALID | (I) metadata validation → decode boundary (`cli/build/packages.rs` / `manifest::package`) | — | 0 (unit tests) |
 | 1, 2, 34 | AUGMENTATION_FAILED, CARGO_MANIFEST_DIR, TYPE_INLINE_TRAP_ON_INLINED_BUILTIN | (I) test-only strings; die with syntaxcheck's tests | — | 0 |
