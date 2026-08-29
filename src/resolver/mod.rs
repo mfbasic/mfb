@@ -150,21 +150,20 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // registry-driven augmentation.
     let augmented = crate::codegen::registry::registry().augment_project(ast)?;
 
-    // `term`'s source companion (`package.mfb` — the `LineStyle`/`FillStyle` enums)
+    // `term`'s injected source (the registry-modeled `LineStyle`/`FillStyle` enums)
     // and the `term`↔`astrings` `drawText(AttributedString)` bridge are injected by
-    // the clean-room `registry::augment_project` above (an `Always` helper on the
-    // migrated `term` package and a `WhenImported("astrings")` gated helper).
-    // `astrings`' source companion (`package.mfb`) is injected by the generic
-    // clean-room `registry::augment_project` above (plan-99 PART C), as an `Always`
-    // helper on the migrated `astrings` package — emitted whenever a program
+    // the clean-room `registry::augment_project` above (the package's `get_mfb`
+    // assembly and a `WhenBothImported("term", "astrings")` gated helper chunk).
+    // `astrings`' injected source is emitted by the generic clean-room
+    // `registry::augment_project` above (plan-99 PART C) whenever a program
     // `IMPORT astrings`.
     // app + datetime + money source is injected by the clean-room
     // `registry::augment_project` above.
     // `vector` source is injected by the clean-room `registry::augment_project` above
     // (it imports only the intrinsic `math` package, so it has no source-ordering
     // dependency).
-    // `http` is injected before `net`: `http_package.mfb` imports `net`, so the
-    // net source companion must be added only after http's source is present for
+    // `http` is injected before `net`: http's injected source imports `net`, so the
+    // net source must be added only after http's source is present for
     // `net::uses_package` to see the dependency (plan-03-http.md Phase 4).
     let augmented = crate::codegen::builtins::http::augmented_project(&augmented)?;
     let augmented = crate::codegen::builtins::net::augmented_project(&augmented)?;
@@ -174,7 +173,7 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // clean-room `registry::augment_project` above.
     // `crypto` source is injected by the generic clean-room `registry::augment_project`
     // above; it runs before the `strings`/`encoding` late passes, so
-    // `encoding::uses_package` still sees `crypto_package.mfb`'s `IMPORT encoding`
+    // `encoding::uses_package` still sees crypto's injected `IMPORT encoding`
     // (mirrors `http` before `net`; plan-04-crypto.md Part C).
     // `strings`' scalar-seam companion (which `IMPORT encoding`s) is injected by the
     // generic clean-room `registry::augment_project` above as a `WhenUsed` gated

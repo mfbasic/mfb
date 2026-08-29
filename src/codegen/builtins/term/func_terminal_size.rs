@@ -8,6 +8,72 @@
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
+
+const INTRO: &str = r#"Report the current size of the terminal surface as a `TermSize`"#;
+
+const DESC: &str = r#"`term::terminalSize` returns the size of the drawing surface as a freshly
+allocated `TermSize` record with two `Integer` fields: `columns`, the width in
+character cells, and `rows`, the height. Both are counts of whole cells, never
+pixels. Valid cursor positions are rows `0` through `rows-1` and columns `0`
+through `columns-1`. It takes no arguments.
+
+**This is the one `term::` read that is not silently inert while TUI mode is
+off.** There is no meaningful default size to report, so calling it before
+`term::on` or after `term::off` raises `ErrUnsupported` rather than returning
+something invented. Guard with `term::isOn` if the call site may run outside TUI
+mode.
+
+While TUI mode is on, the size is read live from the terminal with a `TIOCGWINSZ`
+query on standard output, so it reflects the terminal as it is at the moment of
+the call. If that query fails — standard output is not a terminal, or the host
+does not answer — or if it reports zero rows or zero columns, the call raises
+`ErrUnsupported`.
+
+Because the query is live, the answer can change between calls when the user
+resizes the window. A program that lays out, centres, or bounds-checks against
+these dimensions should ask again rather than cache the first answer. The
+drawing grid itself is reflowed to a new size by `term::sync`, which re-reads the
+terminal on entry and, when the size changed, allocates a new grid preserving the
+top-left overlap and forces a full repaint — so immediately after a resize and
+before the next `term::sync`, this call can report the new size while the grid is
+still the old one.
+
+Apart from the allocation, the call has no side effects: it draws nothing, moves
+no cursor, and changes no `term::` state.
+
+In app mode (`mfb build --app`) the size comes from the application's terminal
+view rather than an ioctl, and the same `ErrUnsupported` is raised when TUI mode
+is off or no view is attached."#;
+
+const EX: &str = r#"Report the surface dimensions:
+
+```
+IMPORT term
+IMPORT io
+
+SUB main()
+  term::on()
+  LET size AS TermSize = term::terminalSize()
+  term::off()
+  io::print(toString(size.columns) & "x" & toString(size.rows))
+END SUB
+```
+
+Draw near the centre of the surface:
+
+```
+IMPORT term
+IMPORT io
+
+SUB main()
+  term::on()
+  LET size AS TermSize = term::terminalSize()
+  term::moveTo(size.rows / 2, size.columns / 2)
+  io::write("middle")
+  term::sync()
+  term::off()
+END SUB
+```"#;
 /// `abi_function` body for `term::terminal_size` — delegates to the shared family-generic
 /// [`super::gen_shared::lower_term_helper`] with its own runtime-call name (the
 /// app-vs-console dispatch and the heavy per-member emitters live in the shared code
@@ -36,9 +102,9 @@ pub(crate) fn lower_terminal_size(
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "terminalSize",
-        intro: "",
-        desc: "",
-        example: "",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
         expected_arguments: Some("no arguments"),
         internal_only: false,
         implementations: vec![Implementation {

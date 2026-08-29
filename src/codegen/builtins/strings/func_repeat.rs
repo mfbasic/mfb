@@ -9,6 +9,57 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
+const INTRO: &str = r#"Concatenate a string with itself a given number of times."#;
+
+const DESC: &str = r#"`strings::repeat` returns a new `String` made of `times` consecutive copies of
+`value`, written end to end with nothing inserted between them.
+
+Copying works on the raw UTF-8 bytes of `value`, so every multi-byte scalar and
+every grapheme cluster is reproduced intact in each copy — `repeat` never splits
+a character. The byte length of the result is exactly
+`strings::byteLen(value) * times`.
+
+A `times` of `0` returns the empty string regardless of `value`, and a `times` of
+`1` returns a copy equal to `value`. Repeating the empty string yields the empty
+string for any valid `times`. A negative `times` is rejected with
+`ErrInvalidArgument`.
+
+The total size is computed with overflow checks. A `byteLen(value) * times`
+product, or the string header added to it, that cannot be represented in 64 bits
+raises the same `ErrInvalidArgument` rather than allocating short and writing
+past the buffer.
+
+`value` is not mutated; the result is a new owned `String`.
+
+`value` may also be an `astrings::AttributedString`: it returns an
+`AttributedString` whose text is transformed exactly as the `String` overload's
+and whose attribute spans are remapped by the same edit."#;
+
+const EX: &str = r#"Repeat a short string; zero copies yields the empty string:
+
+```
+IMPORT io
+IMPORT strings
+
+FUNC main() AS Integer
+  io::print(strings::repeat("ab", 3))
+  io::print("[" & strings::repeat("x", 0) & "]")
+  RETURN 0
+END FUNC
+```
+
+Build a horizontal rule:
+
+```
+IMPORT io
+IMPORT strings
+
+FUNC main() AS Integer
+  io::print(strings::repeat("-", 40))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -140,23 +191,23 @@ pub(crate) fn lower(
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "repeat",
-        intro: "",
-        desc: "",
-        example: "",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
         expected_arguments: None,
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The string to repeat. Any `String`, including the empty one.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "times",
-                    desc: "",
+                    desc: "The number of copies to concatenate. Must be `0` or greater. `0` yields `\"\"` and `1` yields a copy of `value`.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

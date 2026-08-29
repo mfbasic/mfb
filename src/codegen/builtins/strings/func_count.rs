@@ -9,6 +9,59 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
+const INTRO: &str = r#"Count the non-overlapping occurrences of a substring."#;
+
+const DESC: &str = r#"`strings::count` returns the number of non-overlapping occurrences of `needle`
+within `value`. The scan starts at the first byte of `value` and compares the
+bytes of `needle` at the current offset. On a match the count is incremented and
+the cursor advances past the whole matched needle; on a mismatch the cursor
+advances by a single byte. The scan ends once fewer than `byteLen(needle)` bytes
+remain.
+
+The non-overlapping rule matters for self-similar needles. Counting `"aa"` in
+`"aaa"` yields `1`, not `2`, because after the match at offset `0` the cursor
+jumps to offset `2`. Counting `"a"` in `"aaa"` yields `3`.
+
+Matching is an exact byte comparison with no normalization and no case folding.
+Because both operands are well-formed UTF-8 and UTF-8 is self-synchronizing, a
+multi-byte needle is only ever reported where its complete byte sequence appears,
+so a match can never land mid-scalar.
+
+A `needle` longer than `value` yields `0`, as does an empty `value`. The empty
+`needle` has no well-defined occurrence count and is rejected with
+`ErrInvalidArgument` — note that this differs from `strings::contains` and
+`strings::find`, which both accept an empty needle. Neither operand is modified.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors)."#;
+
+const EX: &str = r#"Count a repeated substring:
+
+```
+IMPORT io
+IMPORT strings
+
+FUNC main() AS Integer
+  io::print(toString(strings::count("abcabc", "bc")))
+  io::print(toString(strings::count("xyz", "a")))
+  RETURN 0
+END FUNC
+```
+
+Matches never overlap:
+
+```
+IMPORT io
+IMPORT strings
+
+FUNC main() AS Integer
+  io::print(toString(strings::count("aaa", "a")))
+  io::print(toString(strings::count("aaa", "aa")))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -101,23 +154,23 @@ pub(crate) fn lower(
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "count",
-        intro: "",
-        desc: "",
-        example: "",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
         expected_arguments: None,
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The string to scan. May be empty, in which case the result is `0`.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "needle",
-                    desc: "",
+                    desc: "The substring to count. Must be non-empty.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,
