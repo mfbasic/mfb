@@ -2392,21 +2392,26 @@ mod checker_tests {
     #[test]
     fn check_project_wrapper_rejects() {
         use crate::ast::{parse_source, AstProject};
-        // Constructing `Error` directly is a syntaxcheck-owned rejection
-        // (TYPE_READ_ONLY_RECORD_CONSTRUCTOR's Error form), so the wrapper's
-        // `Err` comes from this checker rather than a rule that has since
-        // moved out of it.
+        // Every source rule has left this checker (plan-107-D); the one
+        // rejection it still owns is PACKAGE_INVALID on an imported package's
+        // unreadable metadata, so that is what drives the wrapper's `Err`.
+        let dir = std::env::temp_dir().join(format!("mfb_sc_wrap_{}", std::process::id()));
+        let pkgs = dir.join("packages");
+        std::fs::create_dir_all(&pkgs).unwrap();
+        std::fs::write(pkgs.join("brokenpkg.mfp"), b"not a valid mfp container").unwrap();
         let file = parse_source(
             Path::new("main.mfb"),
             "main.mfb",
-            "FUNC main AS Integer\n  LET e = Error[1, \"boom\"]\n  RETURN 0\nEND FUNC\n",
+            "IMPORT brokenpkg\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
         )
         .unwrap();
         let project = crate::hir::elaborate(&AstProject {
             name: "t".into(),
             files: vec![file],
         });
-        assert!(super::check_project(Path::new("."), &project).is_err());
+        let rejected = super::check_project(&dir, &project).is_err();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(rejected);
     }
 
     // ---- return-type overload disambiguation (lookup_visible_call_sig) -----

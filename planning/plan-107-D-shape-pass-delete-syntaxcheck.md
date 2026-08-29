@@ -220,15 +220,22 @@ moves; split rules re-pin (listed).
       checker's `foldable`) and the FREE deallocator-signature form, skipping
       exactly the two conditions verify reports (`AS RES` producer, empty
       symbol) so nothing doubles; syntaxcheck's `check_link_block`/
-      `check_link_function_in` deleted. Corpus 524 same. Remaining: rows 5
-      and 20.)
+      `check_link_function_in` deleted. Corpus 524 same. Row 49 landed: the
+      `Error`/`ErrorLoc` form is shape's (lowering synthesizes
+      `Constructor{Error}` itself), verify's `check_constructor` gained the
+      `AttributedString` form (and its compiler-owned form now reaches the
+      source path); syntaxcheck's three sites reduced to inference. Corpus:
+      522 same, 2 reordered (`functions/func_typesystem_error_invalid`,
+      `term/func_term_terminalSize_invalid` — pure moves), 0 set-diff.
+      Remaining: rows 5 and 20.)
 - [ ] Tests: corpus set-equal per commit; full suite.
 
 Acceptance: every (S) rule fires from `ir::shape`; syntaxcheck's copies
 deleted; corpus set-equal (order-identical for pure-(S) moves).
 Commit: `f2d52f271` (control-flow group + E's seam fixup); `794eada94`
 (TESTING_EXPECT_*); `d77dd17fd` (MONEY_INEXACT_FLOAT_LITERAL);
-`37f5c0f27` (TYPE_DUPLICATE_FIELD); NATIVE_* halves —
+`37f5c0f27` (TYPE_DUPLICATE_FIELD); `480c8e37a` (NATIVE_* halves);
+TYPE_READ_ONLY_RECORD_CONSTRUCTOR —
 
 ### Phase 2 — delete src/syntaxcheck + the split machinery
 

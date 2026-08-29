@@ -1840,6 +1840,42 @@ fn rejects_recover_literal_lowered_into_a_byte_slot_out_of_range() {
     }
 }
 
+#[test]
+fn rejects_attributed_string_constructor() {
+    // `AttributedString[...]` never lowers to anything but a Constructor of the
+    // opaque nominal; it is created with `astrings::fromString`.
+    let body = vec![IrOp::Bind {
+        mutable: false,
+        name: "a".to_string(),
+        type_: ParameterType::parse("AttributedString"),
+        value: Some(IrValue::Constructor {
+            type_: ParameterType::parse("AttributedString"),
+            args: vec![IrValue::Const {
+                type_: ParameterType::String,
+                value: "hi".to_string(),
+            }],
+        }),
+        loc: IrSourceLoc::default(),
+        explicit_type: true,
+    }];
+    let diagnostics = collect_diagnostics(&project(
+        vec![func_returns("run", "Nothing", vec![], body)],
+        vec![],
+    ));
+    // (The package path's own TYPE_UNKNOWN_VALUE cascade follows; the source
+    // path narrows that to operator nodes and leaves it to ir::shape.)
+    let first = diagnostics
+        .first()
+        .map(|d| (d.rule.as_str(), d.detail.as_str()));
+    assert_eq!(
+        first,
+        Some((
+            "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
+            "`AttributedString` is an opaque built-in type and cannot be constructed; use `astrings::fromString(text)` to create one."
+        ))
+    );
+}
+
 // --- if / while / do-until conditions --------------------------------------
 
 #[test]

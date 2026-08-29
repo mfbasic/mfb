@@ -142,6 +142,10 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     // keeps the unknown-slot, `AS RES` producer and empty-symbol forms.
     "NATIVE_CONST_UNKNOWN_SLOT",
     "NATIVE_FREE_INVALID",
+    // plan-107-D: split — ir::shape holds the `Error`/`ErrorLoc` form (lowering
+    // synthesizes `Constructor{Error}` itself); verify the compiler-owned and
+    // `AttributedString` forms.
+    "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
     "TYPE_BINARY_OPERATOR_MISMATCH",
     "TYPE_UNARY_OPERATOR_MISMATCH",
     "TYPE_FIELD_ACCESS_REQUIRES_RECORD",

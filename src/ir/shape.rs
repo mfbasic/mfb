@@ -1334,6 +1334,22 @@ impl<'a> Walker<'a> {
                 self.walk_expression(body, &nested);
             }
             HirExpression::Constructor { type_, arguments } => {
+                // TYPE_READ_ONLY_RECORD_CONSTRUCTOR, the `Error`/`ErrorLoc` form:
+                // lowering itself emits `Constructor{Error}` for the `error()`
+                // builtin and the trap machinery, so on the IR a user `Error[..]`
+                // is indistinguishable from a legitimate synthesized one (A
+                // Corrections C-split-49). verify keeps the compiler-owned form
+                // and the `AttributedString` form.
+                let type_name = type_.name();
+                if matches!(type_name.as_ref(), "Error" | "ErrorLoc") {
+                    self.emit(
+                        "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
+                        format!(
+                            "`{type_name}` is a read-only built-in record and cannot be constructed; use `error(code, message)` to create an Error."
+                        ),
+                        self.current_line,
+                    );
+                }
                 // TYPE_DUPLICATE_FIELD, the constructor form: lowering reorders
                 // the named arguments into field order (the last spelling of a
                 // repeated field wins), so the IR holds one value per field and
@@ -3329,6 +3345,40 @@ mod tests {
     }
 
     // ---- record constructors ---------------------------------------------
+
+    #[test]
+    fn error_records_cannot_be_constructed() {
+        let src = "FUNC main AS Integer\n  LET e = Error[1, \"boom\"]\n  LET l = ErrorLoc[\"f\", 1]\n  RETURN 0\nEND FUNC\n";
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(src),
+            &[],
+            &HashMap::new(),
+            &[],
+        );
+        let details: Vec<_> = diagnostics
+            .iter()
+            .map(|d| (d.rule.as_str(), d.detail.as_str(), d.line))
+            .collect();
+        assert_eq!(
+            details,
+            [
+                (
+                    "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
+                    "`Error` is a read-only built-in record and cannot be constructed; use `error(code, message)` to create an Error.",
+                    2
+                ),
+                (
+                    "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
+                    "`ErrorLoc` is a read-only built-in record and cannot be constructed; use `error(code, message)` to create an Error.",
+                    3
+                ),
+            ]
+        );
+        // The `AttributedString` and compiler-owned forms are verify's.
+        let src = "FUNC main AS Integer\n  LET a AS AttributedString = AttributedString[\"hi\"]\n  RETURN 0\nEND FUNC\n";
+        assert!(!rejects_with(src, "TYPE_READ_ONLY_RECORD_CONSTRUCTOR"));
+    }
 
     #[test]
     fn constructor_named_field_set_twice() {

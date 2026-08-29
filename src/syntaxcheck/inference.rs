@@ -584,13 +584,10 @@ impl<'a> SyntaxChecker<'a> {
         // `AttributedString` is an opaque built-in with no user-visible fields
         // (plan-89-A): it cannot be constructed with `AttributedString[...]`; it is
         // created with `astrings::fromString(text)`.
+        // TYPE_READ_ONLY_RECORD_CONSTRUCTOR: the `AttributedString` and
+        // compiler-owned forms are `ir::verify`'s, the `Error`/`ErrorLoc` form
+        // `ir::shape`'s (plan-107-D); inference only here.
         if type_name == "AttributedString" {
-            self.report(
-                "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
-                "`AttributedString` is an opaque built-in type and cannot be constructed; use `astrings::fromString(text)` to create one.",
-                file,
-                line,
-            );
             for argument in arguments {
                 self.infer_expression(
                     file,
@@ -607,14 +604,6 @@ impl<'a> SyntaxChecker<'a> {
         // Direct construction is rejected; user errors are created with the
         // `error(code, message)` built-in instead.
         if matches!(type_name, "Error" | "ErrorLoc") {
-            self.report(
-                "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
-                &format!(
-                    "`{type_name}` is a read-only built-in record and cannot be constructed; use `error(code, message)` to create an Error."
-                ),
-                file,
-                line,
-            );
             for argument in arguments {
                 self.infer_expression(
                     file,
@@ -645,12 +634,6 @@ impl<'a> SyntaxChecker<'a> {
         }
 
         if read_only_record_type(constructed) {
-            self.report(
-                "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
-                &format!("TYPE `{type_name}` is compiler-owned and cannot be constructed."),
-                file,
-                line,
-            );
             for argument in arguments {
                 self.infer_expression(
                     file,

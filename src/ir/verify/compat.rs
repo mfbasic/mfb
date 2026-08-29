@@ -734,9 +734,19 @@ impl TypeEnv {
             );
             return;
         }
-        // Compiler-owned records may never be user-constructed (syntaxcheck's
-        // TYPE_READ_ONLY_RECORD_CONSTRUCTOR). The Error/ErrorLoc arm of that
-        // rule stays in syntaxcheck: lowering itself emits `Constructor{Error}`
+        // `AttributedString` is an opaque built-in with no user-visible fields
+        // (plan-89-A): it is created with `astrings::fromString(text)`, never
+        // with `AttributedString[...]` (the source checker's arm, plan-107-D).
+        if type_name == "AttributedString" {
+            self.emit(
+                "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
+                "`AttributedString` is an opaque built-in type and cannot be constructed; use `astrings::fromString(text)` to create one.".to_string(),
+            );
+            return;
+        }
+        // Compiler-owned records may never be user-constructed
+        // (TYPE_READ_ONLY_RECORD_CONSTRUCTOR). The Error/ErrorLoc arm of that
+        // rule is `ir::shape`'s: lowering itself emits `Constructor{Error}`
         // for the `error()` builtin and trap machinery, so on the IR a user
         // `Error[..]` is indistinguishable from a legitimate synthesized one.
         if read_only_record_type(&ParameterType::parse(type_name)) {
