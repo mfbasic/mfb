@@ -78,6 +78,9 @@ impl TypeEnv {
         for (op_index, op) in ops.iter().enumerate() {
             let line = op.loc().line;
             self.current_line.set(line);
+            if super::op_carries_closure(op) {
+                self.current_muts.replace(muts.clone());
+            }
             // Anything after an EXIT/CONTINUE in the same block is unreachable
             // (syntaxcheck reports each following statement, then stops).
             if let Some(exit_index) = exited_at {

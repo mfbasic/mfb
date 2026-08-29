@@ -305,9 +305,68 @@ impl TypeEnv {
             .unwrap_or_else(|| crate::codegen::resource::is_builtin_sendable_resource_type(base))
     }
 
+    /// Whether a value of `type_` copies freely (syntaxcheck's
+    /// `is_copyable_type`): primitives, the built-in nominals, FUNC values and
+    /// a `RES`-marked element (a pointer) yes; collections and `Result` by their
+    /// elements; a thread handle and a resource never; a record by every field,
+    /// a union by every variant (a resource variant is not copyable, bug-231);
+    /// enums and names the tables do not know yes.
+    pub(super) fn is_copyable(&self, type_: &ParameterType, seen: &mut HashSet<String>) -> bool {
+        match type_ {
+            ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::Fixed
+            | ParameterType::Float
+            | ParameterType::Integer
+            | ParameterType::Money
+            | ParameterType::Nothing
+            | ParameterType::String
+            | ParameterType::Unknown => true,
+            ParameterType::Res(_) | ParameterType::Func(..) => true,
+            ParameterType::ListOf(element) | ParameterType::SetOf(element) => {
+                self.is_copyable(element, seen)
+            }
+            ParameterType::MapOf(key, value) => {
+                self.is_copyable(key, seen) && self.is_copyable(value, seen)
+            }
+            ParameterType::ResultOf(success) => self.is_copyable(success, seen),
+            ParameterType::ThreadHandle { .. } => false,
+            other => {
+                let name = other.name();
+                let name = name.as_ref();
+                if matches!(name, "AttributedString" | "Error" | "ErrorLoc" | "Scalar") {
+                    return true;
+                }
+                if self.close_op_for(name).is_some() {
+                    return false;
+                }
+                if !seen.insert(name.to_string()) {
+                    return true;
+                }
+                let result = match self.unions.get(name) {
+                    Some(union) => union.variant_order.iter().all(|variant| {
+                        self.close_op_for(variant).is_none()
+                            && self.record_fields_copyable(variant, seen)
+                    }),
+                    None => self.record_fields_copyable(name, seen),
+                };
+                seen.remove(name);
+                result
+            }
+        }
+    }
+
+    fn record_fields_copyable(&self, name: &str, seen: &mut HashSet<String>) -> bool {
+        self.record_field_lists.get(name).is_none_or(|fields| {
+            fields
+                .iter()
+                .all(|(_, field_type)| self.is_copyable(field_type, seen))
+        })
+    }
+
     /// A resource type: a registered resource, a `RES`-marked element, or a
     /// resource union (every variant a resource) — syntaxcheck's `is_resource_type`.
-    fn is_resource_type(&self, type_: &ParameterType) -> bool {
+    pub(super) fn is_resource_type(&self, type_: &ParameterType) -> bool {
         match type_ {
             ParameterType::Res(inner) => self.is_resource_type(inner),
             other => {

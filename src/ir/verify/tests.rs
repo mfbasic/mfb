@@ -8052,10 +8052,7 @@ fn rejects_normal_flow_reaching_the_trap() {
     ];
     let f = func("run", vec![], body);
     let got = rules(&project(vec![f], vec![]));
-    assert!(
-        got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"),
-        "{got:?}"
-    );
+    assert!(got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"), "{got:?}");
 }
 
 #[test]
@@ -8068,16 +8065,19 @@ fn a_stray_recover_counts_as_diverging() {
         ret(int_const("1")),
         IrOp::Trap {
             name: "e".to_string(),
-            body: vec![bind("$recover_stray0", "Unknown", Some(int_const("0")), false, false)],
+            body: vec![bind(
+                "$recover_stray0",
+                "Unknown",
+                Some(int_const("0")),
+                false,
+                false,
+            )],
             loc: IrSourceLoc::default(),
         },
     ];
     let f = func("run", vec![], body);
     let got = rules(&project(vec![f], vec![]));
-    assert!(
-        !got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"),
-        "{got:?}"
-    );
+    assert!(!got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"), "{got:?}");
 }
 
 #[test]
@@ -8097,7 +8097,11 @@ fn rejects_a_thread_handle_as_a_list_element() {
 fn rejects_a_thread_handle_as_a_map_value() {
     let f = func(
         "run",
-        vec![param("m", "Map OF String TO Thread OF Integer TO Integer", None)],
+        vec![param(
+            "m",
+            "Map OF String TO Thread OF Integer TO Integer",
+            None,
+        )],
         vec![ret(int_const("0"))],
     );
     expect_rule(
@@ -8177,6 +8181,110 @@ fn rejects_a_thread_carrying_union_as_a_map_key() {
     );
 }
 
+/// `LET f AS FUNC(Integer) AS Integer = LAMBDA(v AS Integer) -> v + <capture>`
+/// as lowering shapes it: the closure value binds the lambda by name with its
+/// capture list; `by_ref` captures arrive as `LocalRef`.
+fn closure_bind(captures: Vec<IrValue>) -> IrOp {
+    bind(
+        "f",
+        "FUNC(Integer) AS Integer",
+        Some(IrValue::Closure {
+            name: "$lambda0".to_string(),
+            type_: ParameterType::parse("FUNC(Integer) AS Integer"),
+            captures,
+        }),
+        true,
+        false,
+    )
+}
+
+#[test]
+fn rejects_a_by_value_capture_of_a_mut_local() {
+    let body = vec![
+        bind("offset", "Integer", Some(int_const("1")), true, true),
+        closure_bind(vec![IrValue::Local("offset".to_string())]),
+        ret(int_const("0")),
+    ];
+    expect_rule(
+        &project(vec![func("run", vec![], body)], vec![]),
+        "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
+    );
+}
+
+#[test]
+fn accepts_a_by_ref_capture_of_a_mut_local() {
+    // The compiler-proven non-escaping position (`forEach`'s action) captures a
+    // MUT local by slot reference — lowering's `LocalRef`.
+    let body = vec![
+        bind("total", "Integer", Some(int_const("0")), true, true),
+        closure_bind(vec![IrValue::LocalRef {
+            name: "total".to_string(),
+            type_: ParameterType::Integer,
+        }]),
+        ret(int_const("0")),
+    ];
+    let got = rules(&project(vec![func("run", vec![], body)], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_LAMBDA_CAPTURE_UNSUPPORTED"),
+        "{got:?}"
+    );
+}
+
+#[test]
+fn rejects_a_resource_capture_in_either_shape() {
+    for capture in [
+        IrValue::Local("handle".to_string()),
+        IrValue::LocalRef {
+            name: "handle".to_string(),
+            type_: ParameterType::named("fs.File"),
+        },
+    ] {
+        let body = vec![
+            bind("handle", "fs.File", Some(int_const("0")), true, true),
+            closure_bind(vec![capture]),
+            ret(int_const("0")),
+        ];
+        expect_rule(
+            &project(vec![func("run", vec![], body)], vec![]),
+            "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
+        );
+    }
+}
+
+#[test]
+fn rejects_a_non_copyable_capture() {
+    // A thread handle is neither a resource nor copyable.
+    let body = vec![
+        bind(
+            "t",
+            "Thread OF Integer TO Integer",
+            Some(int_const("0")),
+            true,
+            false,
+        ),
+        closure_bind(vec![IrValue::Local("t".to_string())]),
+        ret(int_const("0")),
+    ];
+    expect_rule(
+        &project(vec![func("run", vec![], body)], vec![]),
+        "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
+    );
+}
+
+#[test]
+fn accepts_a_copyable_immutable_capture() {
+    let body = vec![
+        bind("offset", "Integer", Some(int_const("1")), true, false),
+        closure_bind(vec![IrValue::Local("offset".to_string())]),
+        ret(int_const("0")),
+    ];
+    let got = rules(&project(vec![func("run", vec![], body)], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_LAMBDA_CAPTURE_UNSUPPORTED"),
+        "{got:?}"
+    );
+}
+
 #[test]
 fn accepts_a_body_that_returns_before_its_trap() {
     let body = vec![
@@ -8189,8 +8297,5 @@ fn accepts_a_body_that_returns_before_its_trap() {
     ];
     let f = func("run", vec![], body);
     let got = rules(&project(vec![f], vec![]));
-    assert!(
-        !got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"),
-        "{got:?}"
-    );
+    assert!(!got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"), "{got:?}");
 }

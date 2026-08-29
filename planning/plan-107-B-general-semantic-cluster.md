@@ -128,9 +128,20 @@ Commit: — (one hash per rule, recorded against its checkbox)
 
 ### Phase 2 — gap-bearing rules
 
-- [ ] Port `is_copyable_type` into verify (unit-tested), then relocate
-      TYPE_LAMBDA_CAPTURE_UNSUPPORTED (the `by_ref`/`muts` derivation per
-      A §2 row 37).
+- [x] Port `is_copyable_type` into verify (`is_copyable`, exercised by the
+      twins), then relocate TYPE_LAMBDA_CAPTURE_UNSUPPORTED: checked at the
+      `Closure` use site, where lowering's capture list arrives with the
+      non-escaping licence encoded as a `LocalRef` (vs `Local`) and the
+      enclosing scope's mutability comes from a `current_muts` snapshot taken
+      only for ops that carry a closure; corpus `517 same, 1 reordered, 0
+      set-diff`; reorder: `tests/syntax/functions/lambda-mut-capture-invalid`
+      (the rule's four lines now render after syntaxcheck's argument/unknown
+      lines); twins `rejects_a_by_value_capture_of_a_mut_local`,
+      `accepts_a_by_ref_capture_of_a_mut_local`,
+      `rejects_a_resource_capture_in_either_shape`, `rejects_a_non_copyable_capture`,
+      `accepts_a_copyable_immutable_capture`. syntaxcheck's capture machinery
+      (`captured_locals`, `CapturedLocal`, the `nonescaping_callback` licence)
+      lost its only consumer and is deleted.
 - [ ] Tests: as Phase 1 + the inference-fact units.
 
 Acceptance: the general cluster fully relocated; syntaxcheck's copies deleted;

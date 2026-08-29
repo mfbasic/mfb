@@ -826,19 +826,16 @@ impl<'a> SyntaxChecker<'a> {
             .iter()
             .enumerate()
             .map(|(index, argument)| {
-                // License a `MUT` by-ref capture for a lambda in a non-escaping callback
-                // position (e.g. `forEach`'s action). `infer_lambda` consumes it;
-                // reset afterward so a non-lambda argument never carries it.
-                self.nonescaping_callback = builtins::is_nonescaping_callback_arg(member, index);
-                let arg_type = self.infer_expression(
+                // The non-escaping callback licence (a `MUT` by-ref capture for
+                // `forEach`'s action) is lowering's to grant and `ir::verify`'s to
+                // check (plan-107-B); nothing here consumes it any more.
+                self.infer_expression(
                     file,
                     argument,
                     locals,
                     line,
                     self.general_argument_mode(member, index),
-                );
-                self.nonescaping_callback = false;
-                arg_type
+                )
             })
             .collect::<Vec<_>>();
         let arg_type_names = arg_types

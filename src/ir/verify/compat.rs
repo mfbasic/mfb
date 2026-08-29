@@ -775,6 +775,56 @@ impl TypeEnv {
         }
     }
 
+    /// syntaxcheck's TYPE_LAMBDA_CAPTURE_UNSUPPORTED at the `Closure` use site.
+    /// Lowering's capture list is the front end's (`captured_locals` + the
+    /// assignment target, in that order), and the licence a capture was given
+    /// survives as its SHAPE: a `LocalRef` is the compiler-proven non-escaping
+    /// `MUT` by-ref capture, a `Local` is an ordinary by-value copy. So a
+    /// by-value capture of a `MUT` local is the "mutable capture" rejection, a
+    /// resource is rejected in either shape (§12.4), and a by-value capture must
+    /// be copyable.
+    pub(super) fn check_closure_captures(
+        &self,
+        captures: &[IrValue],
+        locals: &HashMap<String, ParameterType>,
+    ) {
+        let muts = self.current_muts.borrow();
+        for capture in captures {
+            let (name, by_ref) = match capture {
+                IrValue::Local(name) => (name, false),
+                IrValue::LocalRef { name, .. } => (name, true),
+                _ => continue,
+            };
+            let Some(type_) = locals.get(name) else {
+                continue;
+            };
+            let mutable = muts.get(name).copied().unwrap_or(false);
+            if mutable && !by_ref {
+                self.emit(
+                    "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
+                    format!(
+                        "Lambda captures mutable local `{name}`; mutable captures are invalid."
+                    ),
+                );
+            } else if self.is_resource_type(type_) {
+                self.emit(
+                    "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
+                    format!(
+                        "Lambda captures resource local `{name}`; resource captures are invalid."
+                    ),
+                );
+            } else if !mutable && !self.is_copyable(type_, &mut HashSet::new()) {
+                self.emit(
+                    "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
+                    format!(
+                        "Lambda captures non-copyable local `{name}` of type `{}`; non-copyable captures are invalid.",
+                        type_.name()
+                    ),
+                );
+            }
+        }
+    }
+
     /// Verify every `Capture` in a value addresses a slot within the enclosing
     /// closure's captured-slot count. Skipped only when the function is never used
     /// as a closure body, so it has no environment to index at all.

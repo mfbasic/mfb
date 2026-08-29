@@ -90,6 +90,7 @@ impl TypeEnv {
                 for capture in captures {
                     self.check_value_depth(capture, locals, depth + 1);
                 }
+                self.check_closure_captures(captures, locals);
             }
             IrValue::UnionExtract { type_, value } => {
                 self.check_value_depth(value, locals, depth + 1);

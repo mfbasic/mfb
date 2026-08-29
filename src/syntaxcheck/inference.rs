@@ -1394,86 +1394,10 @@ impl<'a> SyntaxChecker<'a> {
             );
             param_types.push(type_);
         }
-        // Consume the non-escaping callback licence so it applies only to this
-        // lambda, never to a lambda nested inside its body.
-        let nonescaping = self.nonescaping_callback;
-        self.nonescaping_callback = false;
-        let param_names = params
-            .iter()
-            .map(|param| param.name.clone())
-            .collect::<HashSet<_>>();
-        let mut captures = captured_locals(body, outer_locals, &param_names);
-        // An assignment-bodied lambda mutates its target, so the target is a
-        // capture too even when it never appears on the right-hand side (e.g.
-        // `LAMBDA(x) -> total = x`). A target that is a lambda parameter is an
-        // ordinary local, not a capture, and is rejected below as immutable.
-        if let Some(target) = assign_target {
-            if !param_names.contains(target)
-                && !captures.iter().any(|capture| capture.name == target)
-            {
-                if let Some(local) = outer_locals.get(target) {
-                    captures.push(CapturedLocal {
-                        name: target.to_string(),
-                        type_: local.type_.clone(),
-                        mutable: local.mutable,
-                    });
-                }
-            }
-        }
-        for capture in &captures {
-            if capture.mutable && !nonescaping {
-                // `MUT` capture is rejected by default: an ordinary closure would
-                // observe a frozen copy, never the live binding. The
-                // sole exception is a compiler-proven non-escaping callback
-                // position, handled below.
-                self.report(
-                    "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
-                    &format!(
-                        "Lambda captures mutable local `{}`; mutable captures are invalid.",
-                        capture.name
-                    ),
-                    file,
-                    line,
-                );
-            } else if capture.mutable && self.is_resource_type(&capture.type_) {
-                // A non-escaping callback may capture a `MUT` binding by-ref, but never a
-                // resource: resource ownership rules are unchanged (§12.4).
-                self.report(
-                    "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
-                    &format!(
-                        "Lambda captures resource local `{}`; resource captures are invalid.",
-                        capture.name
-                    ),
-                    file,
-                    line,
-                );
-            } else if capture.mutable {
-                // A permitted non-escaping `MUT` by-ref capture: the binding is loaned to
-                // the callback for the duration of the synchronous call and is the
-                // outer binding's again once it returns.
-            } else if self.is_resource_type(&capture.type_) {
-                self.report(
-                    "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
-                    &format!(
-                        "Lambda captures resource local `{}`; resource captures are invalid.",
-                        capture.name
-                    ),
-                    file,
-                    line,
-                );
-            } else if !self.is_copyable_type(&capture.type_) {
-                self.report(
-                    "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
-                    &format!(
-                        "Lambda captures non-copyable local `{}` of type `{}`; non-copyable captures are invalid.",
-                        capture.name,
-                        self.type_name(&capture.type_)
-                    ),
-                    file,
-                    line,
-                );
-            }
-        }
+        // The capture rejections (TYPE_LAMBDA_CAPTURE_UNSUPPORTED) are
+        // `ir::verify`'s (plan-107-B): lowering computes the same capture list
+        // and its `Closure` node carries it, with the non-escaping callback
+        // licence encoded as a `LocalRef` capture.
         let return_type = match assign_target {
             Some(target) => {
                 // `name = <body>`: validate the assignment the same way the
@@ -1835,19 +1759,10 @@ mod tests {
     // twins are `verify::tests::rejects_inline_trap_on_a_non_call` and
     // `rejects_inline_trap_on_a_package_constant`.
 
-    #[test]
-    fn lambda_mut_capture_rejected() {
-        let src = &wrap(
-            "  MUT offset AS Integer = 1\n  LET f AS FUNC(Integer) AS Integer = LAMBDA(value AS Integer) -> value + offset",
-        );
-        assert!(rejects_with(src, "TYPE_LAMBDA_CAPTURE_UNSUPPORTED"));
-    }
-
-    #[test]
-    fn lambda_resource_capture_rejected() {
-        let src = "IMPORT fs\nFUNC main AS Integer\n  RES file = fs::openFile(\"x.txt\")\n  LET f AS FUNC() AS String = LAMBDA() -> fs::readLine(file)\n  RETURN 0\nEND FUNC\n";
-        assert!(rejects_with(src, "TYPE_LAMBDA_CAPTURE_UNSUPPORTED"));
-    }
+    // TYPE_LAMBDA_CAPTURE_UNSUPPORTED moved to `ir::verify` (plan-107-B); its
+    // twins are `verify::tests::rejects_a_by_value_capture_of_a_mut_local`,
+    // `rejects_a_resource_capture_in_either_shape`, `rejects_a_non_copyable_capture`,
+    // `accepts_a_by_ref_capture_of_a_mut_local` and `accepts_a_copyable_immutable_capture`.
 
     #[test]
     fn read_only_error_constructor_rejected() {
@@ -2030,15 +1945,7 @@ mod tests {
         assert!(accepts(src));
     }
 
-    // ---- lambda capture variants ----
-
-    #[test]
-    fn lambda_noncopyable_capture_rejected() {
-        // Capturing an immutable non-copyable local (a Thread is not copyable and
-        // not a resource) hits the `!is_copyable_type` capture arm.
-        let src = "IMPORT thread\nFUNC worker(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\nSUB use(t AS Thread OF Integer TO Integer)\nEND SUB\nFUNC main AS Integer\n  LET t AS Thread OF Integer TO Integer = thread::start(worker, 1, 1, 1)\n  LET f AS FUNC() AS Nothing = LAMBDA() -> use(t)\n  RETURN 0\nEND FUNC\n";
-        assert!(rejects_with(src, "TYPE_LAMBDA_CAPTURE_UNSUPPORTED"));
-    }
+    // ---- lambda capture variants (the rejections live in `ir::verify`) ----
 
     #[test]
     fn lambda_no_capture_accepted() {
@@ -2341,14 +2248,6 @@ mod tests {
         // so infer_lambda's assign_target block pushes it as an extra capture.
         let src = "IMPORT collections\nFUNC main AS Integer\n  MUT total AS Integer = 0\n  LET numbers AS List OF Integer = [1, 2, 3]\n  collections::forEach(numbers, LAMBDA(x AS Integer) -> total = x)\n  RETURN total\nEND FUNC\n";
         let _ = check_src(src);
-    }
-
-    #[test]
-    fn lambda_immutable_resource_in_foreach_rejected() {
-        // An immutable resource captured in the non-escaping `forEach` position
-        // hits the `is_resource_type` (non-mutable) capture arm.
-        let src = "IMPORT collections\nIMPORT fs\nFUNC main AS Integer\n  LET numbers AS List OF Integer = [1, 2, 3]\n  RES handle AS fs::File = fs::createTempFile()\n  collections::forEach(numbers, LAMBDA(x AS Integer) -> fs::writeLine(handle, toString(x)))\n  RETURN 0\nEND FUNC\n";
-        assert!(rejects_with(src, "TYPE_LAMBDA_CAPTURE_UNSUPPORTED"));
     }
 
     // ---- plan-18 assertion type-checking (check_expect_call) ----------------

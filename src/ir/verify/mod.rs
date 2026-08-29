@@ -178,6 +178,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_INLINE_TRAP_DEAD_HANDLER",
     "TYPE_TRAP_FALLTHROUGH",
     "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+    "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
 ];
 
 /// Diagnostic prefixes shared with the structural `verify_package` checks so a
@@ -631,6 +632,11 @@ struct TypeEnv {
     /// Name of the function currently being checked, for diagnostics that name
     /// it (the normal-flow form of TYPE_TRAP_FALLTHROUGH).
     current_function: RefCell<String>,
+    /// The mutability of every local in scope at the op whose values are being
+    /// checked — a snapshot of `check_ops`'s `muts`, taken only for ops that
+    /// carry a `Closure`, for the lambda-capture rule (a by-value capture of a
+    /// `MUT` local is the "mutable capture" rejection).
+    current_muts: RefCell<HashMap<String, bool>>,
     /// Whether a type-poisoning rule fired while checking the current value —
     /// syntaxcheck's inference yields `Unknown` after an operator/constructor
     /// failure, cascading a TYPE_UNKNOWN_VALUE at the consuming statement even
@@ -848,6 +854,7 @@ impl TypeEnv {
             current_return: RefCell::new(ParameterType::Unknown),
             current_kind: RefCell::new(String::new()),
             current_function: RefCell::new(String::new()),
+            current_muts: RefCell::new(HashMap::new()),
             poisoned: Cell::new(false),
             // Strict by default: the package path (and every unit test) builds the
             // env directly and has the full merged type table. Only
@@ -1400,6 +1407,51 @@ fn collect_closures(value: &IrValue, out: &mut HashMap<String, HashSet<usize>>) 
             out.entry(name.clone()).or_default().insert(captures.len());
         }
     });
+}
+
+/// Whether one of `op`'s OWN values (not a nested body's) contains a `Closure`
+/// node — the trigger for snapshotting local mutability before the op's
+/// values are checked (see `TypeEnv::current_muts`).
+fn op_carries_closure(op: &IrOp) -> bool {
+    fn has_closure(value: &IrValue) -> bool {
+        let mut found = false;
+        crate::ir::value::visit_value(value, &mut |v| {
+            if matches!(v, IrValue::Closure { .. }) {
+                found = true;
+            }
+        });
+        found
+    }
+    match op {
+        IrOp::Bind { value: Some(v), .. } | IrOp::Return { value: Some(v), .. } => has_closure(v),
+        IrOp::Bind { value: None, .. }
+        | IrOp::Return { value: None, .. }
+        | IrOp::ExitLoop { .. }
+        | IrOp::ContinueLoop { .. }
+        | IrOp::Trap { .. } => false,
+        IrOp::Assign { value, .. }
+        | IrOp::AssignGlobal { value, .. }
+        | IrOp::StateAssign { value, .. }
+        | IrOp::Eval { value, .. }
+        | IrOp::ExitProgram { code: value, .. }
+        | IrOp::Fail { error: value, .. }
+        | IrOp::If {
+            condition: value, ..
+        }
+        | IrOp::Match { value, .. }
+        | IrOp::While {
+            condition: value, ..
+        }
+        | IrOp::DoUntil {
+            condition: value, ..
+        }
+        | IrOp::ForEach {
+            iterable: value, ..
+        } => has_closure(value),
+        IrOp::For {
+            start, end, step, ..
+        } => has_closure(start) || has_closure(end) || has_closure(step),
+    }
 }
 
 fn collect_closures_ops(ops: &[IrOp], out: &mut HashMap<String, HashSet<usize>>) {

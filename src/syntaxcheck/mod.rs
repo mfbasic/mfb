@@ -117,13 +117,6 @@ struct LocalInfo {
 }
 
 #[derive(Clone)]
-struct CapturedLocal {
-    name: String,
-    type_: Type,
-    mutable: bool,
-}
-
-#[derive(Clone)]
 struct FunctionSig {
     kind: FunctionKind,
     params: Vec<ParamSig>,
@@ -332,12 +325,6 @@ struct SyntaxChecker<'a> {
     /// invalidation event #1 just like the registered close op itself
     /// (plan-link-update.md §5a).
     close_op_aliases: HashMap<String, String>,
-    /// Set true only while inferring the argument in a compiler-known
-    /// *non-escaping* callback position (e.g. `forEach`'s action). A lambda
-    /// inferred here may capture an outer `MUT` binding by-ref for the call.
-    /// `infer_lambda` consumes (resets) it on entry so nested lambdas in the
-    /// callback body do not inherit the licence.
-    nonescaping_callback: bool,
 }
 
 #[derive(Clone)]
@@ -391,7 +378,6 @@ impl<'a> SyntaxChecker<'a> {
             loop_stack: Vec::new(),
             resource_registry: crate::codegen::resource::ResourceRegistry::with_builtins(),
             close_op_aliases: HashMap::new(),
-            nonescaping_callback: false,
         };
         checker.collect_types();
         checker.collect_package_types();

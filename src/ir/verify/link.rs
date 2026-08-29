@@ -641,7 +641,11 @@ impl TypeEnv {
     /// `contains_thread`. Threads may never live in a collection; resources may
     /// (as pointers, §15.6), so a collection ELEMENT and a `Map` VALUE use this
     /// rather than the combined resource-or-thread predicate.
-    pub(super) fn contains_thread(&self, type_: &ParameterType, seen: &mut HashSet<String>) -> bool {
+    pub(super) fn contains_thread(
+        &self,
+        type_: &ParameterType,
+        seen: &mut HashSet<String>,
+    ) -> bool {
         let t = resource_base_type(type_);
         if is_thread_type(&t) {
             return true;
