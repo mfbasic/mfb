@@ -494,7 +494,16 @@ Everything below was run; the results are recorded inline.
   `1259 tests, 1406 build(s), 1732 golden(s) checked, 0 diff(s)`. The 125 diffs it
   reported before regeneration were classified against a main-tip baseline run of
   the same command (`0 diff(s)`), so every one was this plan's (Correction 7).
-- **Full suite.** `cargo test --no-fail-fast` — green (see Phase 2 commit).
+- **Full suite.** `cargo test --no-fail-fast` — green (exit 0, 0 `FAILED` results).
+- **Post-merge re-validation.** `main` advanced to `42ab48baa` (plan-109) while
+  this plan ran. Merged in; the only conflicts were 9 crypto `.ncodesum` hashes
+  both sides had changed, regenerated from the merged tree rather than resolved to
+  a side. On the merge: `artifact-gate all` → `1746 golden(s) checked, 0 diff(s)`;
+  `test-accept.sh` → `acceptance tests passed (1283 test(s) ran)`;
+  `cargo test --no-fail-fast` green — with one re-run: `golden.rs` failed in 0.16s
+  with "Another artifact-gate (pid 34727) is running" (a peer session held the
+  gate's lock), and `cargo test --test golden` standalone then reported
+  `1746 golden(s) checked, 0 diff(s)` / `test artifact_gate_all ... ok`.
 - **Formatting.** `rustup run 1.96.0 cargo fmt --all` plus the `repository/` pass.
 
 ## Open Decisions
