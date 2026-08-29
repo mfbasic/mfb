@@ -22,5 +22,9 @@ TESTING
     TCASE "expectInteger with a String operand"
       expectInteger(1, "two")
     END TCASE
+    TCASE "expectEqual on unprintable operands"
+      LET m AS Map OF String TO Integer = Map OF String TO Integer {}
+      expectEqual(m, m)
+    END TCASE
   END TGROUP
 END TESTING

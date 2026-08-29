@@ -41,6 +41,24 @@ tests/syntax/testing/testing-assert-invalid/src/main.mfb:20 error[2-208-0008 TES
      | ^
 tests/syntax/testing/testing-assert-invalid/src/main.mfb:23 error[2-208-0008 TESTING_EXPECT_TYPE_MISMATCH]: typed assertion operands must both be the named type
                `expectInteger` operands must both be Integer; got String.
+  25 |     TCASE "expectEqual on unprintable operands"
+  26 |       LET m AS Map OF String TO Integer = Map OF String TO Integer {}
+  27 |       expectEqual(m, m)
+     | ^
+tests/syntax/testing/testing-assert-invalid/src/main.mfb:27 error[2-208-0003 TESTING_EXPECT_INCOMPARABLE]: expectEqual/expectNEqual operands must be comparable with `=`
+               `expectEqual` operands must be comparable with `=`; got Map OF String TO Integer and Map OF String TO Integer.
+  25 |     TCASE "expectEqual on unprintable operands"
+  26 |       LET m AS Map OF String TO Integer = Map OF String TO Integer {}
+  27 |       expectEqual(m, m)
+     | ^
+tests/syntax/testing/testing-assert-invalid/src/main.mfb:27 error[2-208-0004 TESTING_EXPECT_NOT_PRINTABLE]: expectEqual/expectNEqual operands must be printable for the failure message
+               `expectEqual` operands must be printable (a scalar, String, Byte, or List OF Byte); got Map OF String TO Integer.
+  25 |     TCASE "expectEqual on unprintable operands"
+  26 |       LET m AS Map OF String TO Integer = Map OF String TO Integer {}
+  27 |       expectEqual(m, m)
+     | ^
+tests/syntax/testing/testing-assert-invalid/src/main.mfb:27 error[2-208-0004 TESTING_EXPECT_NOT_PRINTABLE]: expectEqual/expectNEqual operands must be printable for the failure message
+               `expectEqual` operands must be printable (a scalar, String, Byte, or List OF Byte); got Map OF String TO Integer.
    9 |     END TCASE
   10 |     TCASE "incomparable operands"
   11 |       expectEqual(1, "text")
@@ -59,4 +77,10 @@ tests/syntax/testing/testing-assert-invalid/src/main.mfb:17 error[2-203-0001 TYP
      | ^
 tests/syntax/testing/testing-assert-invalid/src/main.mfb:23 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
                Operator `=` requires compatible comparable operands, got Integer and String.
+  25 |     TCASE "expectEqual on unprintable operands"
+  26 |       LET m AS Map OF String TO Integer = Map OF String TO Integer {}
+  27 |       expectEqual(m, m)
+     | ^
+tests/syntax/testing/testing-assert-invalid/src/main.mfb:27 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Operator `=` requires compatible comparable operands, got Map OF String TO Integer and Map OF String TO Integer.
 [exit 1]

@@ -165,15 +165,24 @@ moves; split rules re-pin (listed).
       (23–28: `tests/syntax/testing/testing-assert-invalid` already carries
       every TESTING_EXPECT_* rule but NOT_PRINTABLE in its
       `golden/testing_assert.testrun` (`mfb test` proof; `diag-set-diff.sh`
-      now reads `.testrun` goldens, C-harness-test-verb); 41: moot, see
-      C-41-moot. Remaining: a NOT_PRINTABLE case in that fixture; a
-      TYPE_DUPLICATE_FIELD fixture with both forms.)
+      now reads `.testrun` goldens, C-harness-test-verb) — the NOT_PRINTABLE
+      case (`expectEqual(m, m)` on a Map) added and its `.testrun`/`.ast`
+      goldens regenerated with the pre-port binary; 41: moot, see C-41-moot.
+      Remaining: a TYPE_DUPLICATE_FIELD fixture with both forms.)
 - [~] Pure-(S) rules, one commit each (rows 3, 4, 6, 23–28, 33, 38, 41), each
       with its erased-evidence doc line; corpus SAME (order-neutral) per
       commit.
       (Rows 3, 4, 33, 38 landed — in ONE commit with rows 22, 39, 46 and E's
       C-override-typing fixup, not one each: see C-one-commit. Row 41 moot
-      (C-41-moot). Remaining: 6, 23–28.)
+      (C-41-moot). Rows 23–28 (the six TESTING_EXPECT_* rules) landed as one
+      commit: `Walker::check_expect_call` is the checker's transcription over
+      the HIR call (`expand_expect` rewrites the assertion into comparisons +
+      FAIL / a trap guard before the IR exists), with the `=` acceptance rule
+      (`is_comparable`, which needed `TypeShape.fields`/`is_enum` and the
+      checker's resource registry — builtin + native `LINK` + imported
+      `RESOURCE_TABLE` names, now a `collect_diagnostics` input) and
+      `is_printable` ported; corpus 522 same / 0 reordered / 0 set-diff.
+      Remaining: 6.)
 - [~] Split rules, one commit each (rows 22, 31, 39, 46): shape half + verify
       half confirmed/ported + list entry + syntaxcheck deletion; corpus
       set-equal, reorders listed.
@@ -193,7 +202,7 @@ moves; split rules re-pin (listed).
 
 Acceptance: every (S) rule fires from `ir::shape`; syntaxcheck's copies
 deleted; corpus set-equal (order-identical for pure-(S) moves).
-Commit: — (per rule)
+Commit: `f2d52f271` (control-flow group + E's seam fixup); TESTING_EXPECT_* —
 
 ### Phase 2 — delete src/syntaxcheck + the split machinery
 

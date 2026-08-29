@@ -1033,190 +1033,21 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 
-    /// Type-check one of the four assertion builtins (plan-18-B). All produce
-    /// `Nothing`; the argument constraints differ per builtin. Called from the
-    /// `Call` arm before general builtin dispatch.
+    /// The assertion builtins' argument rules (TESTING_EXPECT_*) are
+    /// `ir::shape`'s (plan-107-D); the operands are inferred for elaboration
+    /// only. All produce `Nothing`.
     pub(super) fn check_expect_call(
         &mut self,
         file: &HirFile,
-        callee: &str,
+        _callee: &str,
         arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        use crate::codegen::builtins_testing::{
-            expect_operand_type, is_equality_assert, is_inequality_assert, EXPECT_NTRAP,
-            EXPECT_TRAP,
-        };
-
-        if let Some((min, max)) = crate::codegen::builtins_testing::expect_arity(callee) {
-            if arguments.len() < min || arguments.len() > max {
-                self.report(
-                    "TESTING_EXPECT_ARITY",
-                    &format!(
-                        "`{callee}` expects {} argument(s), got {}.",
-                        if min == max {
-                            min.to_string()
-                        } else {
-                            format!("{min}–{max}")
-                        },
-                        arguments.len()
-                    ),
-                    file,
-                    line,
-                );
-            }
-        }
-
-        let arg = |index: usize| arguments.get(index).map(call_arg_value);
-        if is_equality_assert(callee) || is_inequality_assert(callee) {
-            let left = arg(0)
-                .map(|value| self.infer_expression(file, value, locals, line, ExprMode::Read))
-                .unwrap_or(Type::Unknown);
-            let right = arg(1)
-                .map(|value| self.infer_expression(file, value, locals, line, ExprMode::Read))
-                .unwrap_or(Type::Unknown);
-            match expect_operand_type(callee) {
-                // A typed assertion (`expectFloat`/`expectInteger`/…) requires both
-                // operands to be exactly the named type — an exact type-and-value
-                // check that needs no `toString`.
-                Some(want) => {
-                    for operand in [&left, &right] {
-                        if !matches!(operand, Type::Unknown) && self.type_name(operand) != want {
-                            self.report(
-                                "TESTING_EXPECT_TYPE_MISMATCH",
-                                &format!(
-                                    "`{callee}` operands must both be {want}; got {}.",
-                                    self.type_name(operand)
-                                ),
-                                file,
-                                line,
-                            );
-                        }
-                    }
-                }
-                // The generic `expectEqual`/`expectNEqual` accept any `=`-comparable,
-                // printable operands (reusing the language `=` acceptance; `Unknown`
-                // means not equality-comparable and neither operand was Unknown).
-                None => {
-                    let comparable = matches!(
-                        self.infer_binary(file, "=", &left, &right, line),
-                        Type::Boolean
-                    );
-                    if !comparable
-                        && !matches!(left, Type::Unknown)
-                        && !matches!(right, Type::Unknown)
-                    {
-                        self.report(
-                            "TESTING_EXPECT_INCOMPARABLE",
-                            &format!(
-                                "`{callee}` operands must be comparable with `=`; got {} and {}.",
-                                self.type_name(&left),
-                                self.type_name(&right)
-                            ),
-                            file,
-                            line,
-                        );
-                    }
-                    for operand in [&left, &right] {
-                        if !self.is_printable(operand) {
-                            self.report(
-                                "TESTING_EXPECT_NOT_PRINTABLE",
-                                &format!(
-                                    "`{callee}` operands must be printable (a scalar, String, Byte, or List OF Byte); got {}.",
-                                    self.type_name(operand)
-                                ),
-                                file,
-                                line,
-                            );
-                        }
-                    }
-                }
-            }
-        } else if callee == EXPECT_TRAP {
-            if let Some(value) = arg(0) {
-                self.infer_expression(file, value, locals, line, ExprMode::Read);
-                self.check_trap_guardable(file, callee, value, line);
-            }
-            if let Some(value) = arg(1) {
-                let code = self.infer_expression(file, value, locals, line, ExprMode::Read);
-                if !self.compatible(&Type::Integer, &code) {
-                    self.report(
-                        "TESTING_EXPECT_CODE_TYPE",
-                        &format!(
-                            "`{callee}` expected-code argument must be an Integer; got {}.",
-                            self.type_name(&code)
-                        ),
-                        file,
-                        line,
-                    );
-                }
-            }
-        } else if callee == EXPECT_NTRAP {
-            if let Some(value) = arg(0) {
-                self.infer_expression(file, value, locals, line, ExprMode::Read);
-                self.check_trap_guardable(file, callee, value, line);
-            }
+        for argument in arguments {
+            self.infer_expression(file, call_arg_value(argument), locals, line, ExprMode::Read);
         }
         Type::Nothing
-    }
-
-    /// `expectTrap`/`expectNTrap` evaluate their argument under a trap guard built
-    /// on the inline-TRAP machinery, so the gate rejects exactly what inline `TRAP`
-    /// rejects (plan-26-C): a scrutinee with no runtime call to trap — a non-call,
-    /// or a package constant. Everything else is accepted, including infallible
-    /// built-ins (the assertion evaluates against the real outcome: `expectTrap`
-    /// always fails, `expectNTrap` always passes — just as for an infallible user
-    /// FUNC) and the callback members (a failing callback is trapped).
-    fn check_trap_guardable(
-        &mut self,
-        file: &HirFile,
-        callee: &str,
-        expression: &HirExpression,
-        line: usize,
-    ) {
-        let HirExpression::Call {
-            callee: inner_callee,
-            ..
-        } = expression
-        else {
-            self.report(
-                "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE",
-                &format!("`{callee}` requires a call to trap-guard (got a non-call)."),
-                file,
-                line,
-            );
-            return;
-        };
-        let canonical = self.canonical_import_name(file, inner_callee);
-        if builtins::is_package_constant(&canonical) {
-            self.report(
-                "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE",
-                &format!(
-                    "`{callee}` requires a call to trap-guard; a package constant is not a call."
-                ),
-                file,
-                line,
-            );
-        }
-    }
-
-    /// Whether a value of `type_` can be rendered by `toString` for an assertion
-    /// failure message. `Unknown` is treated as printable to avoid error cascades.
-    fn is_printable(&self, type_: &Type) -> bool {
-        match type_ {
-            Type::Integer
-            | Type::Float
-            | Type::Fixed
-            | Type::Money
-            | Type::Boolean
-            | Type::String
-            | Type::Byte
-            | Type::Unknown => true,
-            Type::Named(name) if name.resolve() == "Scalar" => true,
-            Type::ListOf(inner) => matches!(**inner, Type::Byte),
-            _ => false,
-        }
     }
 
     pub(super) fn infer_unary(

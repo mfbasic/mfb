@@ -44,6 +44,7 @@ pub(crate) fn collect_diagnostics(
     hir: &HirProject,
     imported_types: &[ImportedTypeDef],
     imported_signatures: &HashMap<String, ExternalSignature>,
+    imported_resource_types: &[String],
 ) -> Vec<PendingDiagnostic> {
     // The typing seam is built over the UNFILTERED imported-signature table:
     // the source checker typed a reference to an imported function by its
@@ -57,6 +58,7 @@ pub(crate) fn collect_diagnostics(
         hir,
         imported_types,
         imported_signatures,
+        imported_resource_types,
     );
     walker.walk_project(hir);
     walker.diagnostics
@@ -69,7 +71,7 @@ pub(crate) fn check_project(
     hir: &HirProject,
     imported_signatures: &HashMap<String, ExternalSignature>,
 ) -> Result<(), ()> {
-    let diagnostics = collect_diagnostics(project_dir, hir, &[], imported_signatures);
+    let diagnostics = collect_diagnostics(project_dir, hir, &[], imported_signatures, &[]);
     let had_error = diagnostics.iter().any(|d| crate::rules::is_error(&d.rule));
     crate::rules::render_pending(diagnostics);
     if had_error {
@@ -118,6 +120,11 @@ struct Walker<'a> {
     /// The success types of the enclosing inline-`TRAP` handlers (innermost
     /// last): what a `RECOVER` must (or must not) supply.
     inline_trap_types: Vec<ParameterType>,
+    /// Resource type names beyond the builtin ones — the project's native
+    /// (`LINK`) resources and the imported packages' `RESOURCE_TABLE` rows —
+    /// the checker's resource registry knew (a resource is never
+    /// `=`-comparable).
+    resource_types: HashSet<String>,
     /// How many inline-TRAP handlers enclose the current statement:
     /// `treeify_handler` drops every statement after a terminator inside a
     /// handler, so no exit's unreachable tail survives lowering there.
@@ -178,6 +185,9 @@ struct TypeShape {
     /// A `TYPE` (record) — the one kind a constructor or `WITH` produces.
     is_record: bool,
     is_union: bool,
+    is_enum: bool,
+    /// A record's field types, for the `=`-comparability rule.
+    fields: Vec<ParameterType>,
     /// An `ENUM`'s member names, for MATCH exhaustiveness.
     members: Vec<String>,
     visibility: Visibility,
@@ -301,6 +311,38 @@ fn read_only_record(type_: &ParameterType) -> bool {
         || name == crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE
 }
 
+/// The checker's `is_numeric` (`Unknown` included, so a prior error does not
+/// cascade).
+fn is_numeric(type_: &ParameterType) -> bool {
+    matches!(
+        type_,
+        ParameterType::Byte
+            | ParameterType::Fixed
+            | ParameterType::Float
+            | ParameterType::Integer
+            | ParameterType::Money
+            | ParameterType::Unknown
+    )
+}
+
+/// Whether a value of `type_` can be rendered by `toString` for an assertion
+/// failure message (`Unknown` is printable to avoid cascades).
+fn is_printable(type_: &ParameterType) -> bool {
+    match type_ {
+        ParameterType::Integer
+        | ParameterType::Float
+        | ParameterType::Fixed
+        | ParameterType::Money
+        | ParameterType::Boolean
+        | ParameterType::String
+        | ParameterType::Byte
+        | ParameterType::Unknown => true,
+        ParameterType::Named(_) => type_.name() == "Scalar",
+        ParameterType::ListOf(inner) => matches!(**inner, ParameterType::Byte),
+        _ => false,
+    }
+}
+
 /// The call's argument values in source order.
 fn source_order(arguments: &[HirCallArg]) -> Vec<&HirExpression> {
     arguments
@@ -318,7 +360,13 @@ impl<'a> Walker<'a> {
         hir: &HirProject,
         imported_types: &[ImportedTypeDef],
         imported_signatures: &'a HashMap<String, ExternalSignature>,
+        imported_resource_types: &[String],
     ) -> Self {
+        let resource_types: HashSet<String> = super::lower_link::native_resources(hir)
+            .iter()
+            .map(|resource| resource.name.clone())
+            .chain(imported_resource_types.iter().cloned())
+            .collect();
         // Declared unions with their own variants and INCLUDES, for the
         // transitive expansion below (a `UNION B INCLUDES A` matches A's
         // variants too — the checker's and lowering's shared rule).
@@ -374,6 +422,12 @@ impl<'a> Walker<'a> {
                             variants,
                             is_record: type_decl.kind == crate::ast::TypeDeclKind::Type,
                             is_union: type_decl.kind == crate::ast::TypeDeclKind::Union,
+                            is_enum: type_decl.kind == crate::ast::TypeDeclKind::Enum,
+                            fields: type_decl
+                                .fields
+                                .iter()
+                                .map(|field| field.type_.clone())
+                                .collect(),
                             members: type_decl
                                 .members
                                 .iter()
@@ -404,6 +458,12 @@ impl<'a> Walker<'a> {
                     variants,
                     is_record: imported.kind == super::ImportedTypeKind::Record,
                     is_union: imported.kind == super::ImportedTypeKind::Union,
+                    is_enum: imported.kind == super::ImportedTypeKind::Enum,
+                    fields: imported
+                        .fields
+                        .iter()
+                        .map(|field| ParameterType::parse(&field.type_))
+                        .collect(),
                     members: imported.members.clone(),
                     visibility: Visibility::Export,
                     file: String::new(),
@@ -448,6 +508,7 @@ impl<'a> Walker<'a> {
             astrings_imported,
             current_is_sub: false,
             inline_trap_types: Vec::new(),
+            resource_types,
             handler_depth: 0,
             types,
             file: String::new(),
@@ -1500,6 +1561,230 @@ impl<'a> Walker<'a> {
         lower::expression_type(expression, locals, &self.context).unwrap_or(ParameterType::Unknown)
     }
 
+    /// TESTING_EXPECT_ARITY / TYPE_MISMATCH / INCOMPARABLE / NOT_PRINTABLE /
+    /// CODE_TYPE / TRAP_REQUIRES_FALLIBLE: an assertion builtin's argument
+    /// constraints (plan-18-B). Lowering expands `expectX(...)` into plain
+    /// comparisons + FAIL, or a trap-guarded evaluation (`testing::expand_expect`,
+    /// `lower_statement`), so the IR never sees the assertion — only the HIR
+    /// call names it. The rules and their order are the source checker's
+    /// `check_expect_call`.
+    fn check_expect_call(
+        &mut self,
+        callee: &str,
+        arguments: &[HirCallArg],
+        line: usize,
+        locals: &HashMap<String, ParameterType>,
+    ) {
+        use crate::codegen::builtins_testing::{
+            expect_arity, expect_operand_type, is_equality_assert, is_inequality_assert,
+            EXPECT_NTRAP, EXPECT_TRAP,
+        };
+        if let Some((min, max)) = expect_arity(callee) {
+            if arguments.len() < min || arguments.len() > max {
+                self.emit(
+                    "TESTING_EXPECT_ARITY",
+                    format!(
+                        "`{callee}` expects {} argument(s), got {}.",
+                        if min == max {
+                            min.to_string()
+                        } else {
+                            format!("{min}\u{2013}{max}")
+                        },
+                        arguments.len()
+                    ),
+                    line,
+                );
+            }
+        }
+        let values = source_order(arguments);
+        // The checker's verdict on an operand: its inferred type, or `Unknown`
+        // where the checker could not type it (see `checker_types_unknown`).
+        let operand = |walker: &Self, index: usize| {
+            values.get(index).map_or(ParameterType::Unknown, |value| {
+                if walker.checker_types_unknown(value, locals, None) {
+                    ParameterType::Unknown
+                } else {
+                    walker.type_of(value, locals)
+                }
+            })
+        };
+        if is_equality_assert(callee) || is_inequality_assert(callee) {
+            let left = operand(self, 0);
+            let right = operand(self, 1);
+            match expect_operand_type(callee) {
+                // A typed assertion requires both operands to be exactly the
+                // named type.
+                Some(want) => {
+                    for operand in [&left, &right] {
+                        if !matches!(operand, ParameterType::Unknown) && operand.name() != want {
+                            self.emit(
+                                "TESTING_EXPECT_TYPE_MISMATCH",
+                                format!(
+                                    "`{callee}` operands must both be {want}; got {}.",
+                                    operand.name()
+                                ),
+                                line,
+                            );
+                        }
+                    }
+                }
+                // `expectEqual`/`expectNEqual` accept any `=`-comparable,
+                // printable operands (the language's `=` acceptance).
+                None => {
+                    let comparable = (is_numeric(&left) && is_numeric(&right))
+                        || ((self.compatible(&left, &right) || self.compatible(&right, &left))
+                            && self.is_comparable(&left)
+                            && self.is_comparable(&right));
+                    if !comparable
+                        && !matches!(left, ParameterType::Unknown)
+                        && !matches!(right, ParameterType::Unknown)
+                    {
+                        self.emit(
+                            "TESTING_EXPECT_INCOMPARABLE",
+                            format!(
+                                "`{callee}` operands must be comparable with `=`; got {} and {}.",
+                                left.name(),
+                                right.name()
+                            ),
+                            line,
+                        );
+                    }
+                    for operand in [&left, &right] {
+                        if !is_printable(operand) {
+                            self.emit(
+                                "TESTING_EXPECT_NOT_PRINTABLE",
+                                format!(
+                                    "`{callee}` operands must be printable (a scalar, String, Byte, or List OF Byte); got {}.",
+                                    operand.name()
+                                ),
+                                line,
+                            );
+                        }
+                    }
+                }
+            }
+        } else if callee == EXPECT_TRAP {
+            if let Some(value) = values.first() {
+                self.check_trap_guardable(callee, value, line);
+            }
+            if values.get(1).is_some() {
+                let code = operand(self, 1);
+                if !self.compatible(&ParameterType::Integer, &code) {
+                    self.emit(
+                        "TESTING_EXPECT_CODE_TYPE",
+                        format!(
+                            "`{callee}` expected-code argument must be an Integer; got {}.",
+                            code.name()
+                        ),
+                        line,
+                    );
+                }
+            }
+        } else if callee == EXPECT_NTRAP {
+            if let Some(value) = values.first() {
+                self.check_trap_guardable(callee, value, line);
+            }
+        }
+    }
+
+    /// `expectTrap`/`expectNTrap` evaluate their argument under a trap guard
+    /// built on the inline-TRAP machinery, so the gate rejects exactly what an
+    /// inline `TRAP` rejects (plan-26-C): a scrutinee with no runtime call to
+    /// trap — a non-call, or a package constant.
+    fn check_trap_guardable(&mut self, callee: &str, expression: &HirExpression, line: usize) {
+        let HirExpression::Call {
+            callee: inner_callee,
+            ..
+        } = expression
+        else {
+            self.emit(
+                "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE",
+                format!("`{callee}` requires a call to trap-guard (got a non-call)."),
+                line,
+            );
+            return;
+        };
+        if builtins::is_package_constant(&self.canonical_callee(inner_callee)) {
+            self.emit(
+                "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE",
+                format!(
+                    "`{callee}` requires a call to trap-guard; a package constant is not a call."
+                ),
+                line,
+            );
+        }
+    }
+
+    /// Whether a type is an `=`-comparable operand, as the source checker
+    /// judged it (`syntaxcheck::is_comparable_with_seen`): primitives,
+    /// `Error`/`ErrorLoc`/`Scalar`, enums, records of comparable fields, and any
+    /// nominal it cannot resolve; never a collection, a callable, a result, a
+    /// thread handle, a resource, a union or `AttributedString`.
+    fn is_comparable(&self, type_: &ParameterType) -> bool {
+        self.is_comparable_seen(type_, &mut HashSet::new())
+    }
+
+    fn is_comparable_seen(&self, type_: &ParameterType, seen: &mut HashSet<String>) -> bool {
+        match type_ {
+            ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::Fixed
+            | ParameterType::Float
+            | ParameterType::Integer
+            | ParameterType::Money
+            | ParameterType::Nothing
+            | ParameterType::String
+            | ParameterType::Unknown => true,
+            ParameterType::ListOf(_)
+            | ParameterType::SetOf(_)
+            | ParameterType::MapOf(_, _)
+            | ParameterType::Func(..)
+            | ParameterType::ResultOf(_)
+            | ParameterType::Res(_)
+            | ParameterType::ThreadHandle { .. } => false,
+            ParameterType::Named(_) => {
+                let name = type_.name().into_owned();
+                match name.as_str() {
+                    "Error" | "ErrorLoc" | "Scalar" => return true,
+                    // Wraps a list overlay (like `List`), plan-89-A.
+                    "AttributedString" => return false,
+                    _ => {}
+                }
+                if self.is_resource_type(&name) || !seen.insert(name.clone()) {
+                    return false;
+                }
+                let Some(shape) = self.types.get(&name) else {
+                    return true;
+                };
+                let result = if shape.is_enum {
+                    true
+                } else if shape.is_record {
+                    shape
+                        .fields
+                        .iter()
+                        .all(|field| self.is_comparable_seen(field, seen))
+                } else {
+                    false
+                };
+                seen.remove(&name);
+                result
+            }
+            // The checker routed every other spelling through its nominal arm.
+            other => self.is_comparable_seen(&ParameterType::named(&other.name()), seen),
+        }
+    }
+
+    /// The checker's resource registry: builtin resources plus the native and
+    /// imported ones this project declares/imports (an imported resource is
+    /// spelled `binding.Type` in source; its table row carries the bare name).
+    fn is_resource_type(&self, name: &str) -> bool {
+        crate::codegen::resource::builtin_resource_close_function(name).is_some()
+            || self.resource_types.contains(name)
+            || name
+                .rsplit_once('.')
+                .is_some_and(|(_, bare)| self.resource_types.contains(bare))
+    }
+
     /// Type compatibility as the source checker judged it (`syntaxcheck::compatible`):
     /// `Unknown` on either side is compatible; the `RES` marker is stripped;
     /// containers, thread handles and callable types recurse (parameters
@@ -1696,6 +1981,10 @@ impl<'a> Walker<'a> {
         line: usize,
         locals: &HashMap<String, ParameterType>,
     ) {
+        if crate::codegen::builtins_testing::is_testing_call(callee) {
+            self.check_expect_call(callee, arguments, line, locals);
+            return;
+        }
         let has_named = arguments
             .iter()
             .any(|argument| matches!(argument, HirCallArg::Named { .. }));
@@ -2307,10 +2596,16 @@ mod tests {
 
     /// The shape pass's rule codes for `src`, in traversal order.
     fn shape_codes(src: &str) -> Vec<String> {
-        collect_diagnostics(Path::new("/proj"), &hir_from(src), &[], &HashMap::new())
-            .into_iter()
-            .map(|d| d.rule)
-            .collect()
+        collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(src),
+            &[],
+            &HashMap::new(),
+            &[],
+        )
+        .into_iter()
+        .map(|d| d.rule)
+        .collect()
     }
 
     fn rejects_with(src: &str, rule: &str) -> bool {
@@ -2405,7 +2700,7 @@ mod tests {
         let hir = hir_from(src);
         let facts = lower::lower_facts(&hir, &HashMap::new(), &[]);
         let no_imports = HashMap::new();
-        let mut walker = Walker::new(Path::new("/proj"), &facts, &hir, &[], &no_imports);
+        let mut walker = Walker::new(Path::new("/proj"), &facts, &hir, &[], &no_imports, &[]);
         walker.walk_project(&hir);
         let emitted: Vec<_> = walker
             .diagnostics
@@ -2516,10 +2811,11 @@ mod tests {
         };
         let hir = crate::resolver::augment_hir_project(&crate::hir::elaborate(&project))
             .expect("augments");
-        let codes: Vec<_> = collect_diagnostics(Path::new("/proj"), &hir, &[], &HashMap::new())
-            .into_iter()
-            .map(|d| d.rule)
-            .collect();
+        let codes: Vec<_> =
+            collect_diagnostics(Path::new("/proj"), &hir, &[], &HashMap::new(), &[])
+                .into_iter()
+                .map(|d| d.rule)
+                .collect();
         assert!(codes.is_empty(), "{codes:?}");
     }
 
@@ -2555,7 +2851,7 @@ mod tests {
             files: vec![file],
         };
         let hir = crate::hir::elaborate(&project);
-        let diagnostics = collect_diagnostics(Path::new("/proj"), &hir, &[], &imported);
+        let diagnostics = collect_diagnostics(Path::new("/proj"), &hir, &[], &imported, &[]);
         let codes: Vec<_> = diagnostics.iter().map(|d| d.rule.as_str()).collect();
         // Line 3 supplies one bindable name of two required parameters, so the
         // arity rule follows the unknown name; line 4's duplicate leaves `height`
@@ -2693,7 +2989,7 @@ mod tests {
         )
         .expect("monomorphizes");
         let codes: Vec<_> =
-            collect_diagnostics(Path::new("/proj"), &concrete, &[], &HashMap::new())
+            collect_diagnostics(Path::new("/proj"), &concrete, &[], &HashMap::new(), &[])
                 .into_iter()
                 .map(|d| d.rule)
                 .collect();
@@ -2711,6 +3007,7 @@ mod tests {
             ),
             &[],
             &HashMap::new(),
+            &[],
         );
         let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
         // Only the SUPPLIED argument is judged; the defaulted `b` is not.
@@ -2738,6 +3035,7 @@ mod tests {
             ),
             &[],
             &HashMap::new(),
+            &[],
         );
         let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
         // The failed call types the binding Unknown: the cascade follows.
@@ -2772,6 +3070,7 @@ mod tests {
             ),
             &[],
             &HashMap::new(),
+            &[],
         );
         let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
         // The entry rejection ends the call's checks (no count or type form
@@ -2796,6 +3095,7 @@ mod tests {
             ),
             &[],
             &HashMap::new(),
+            &[],
         );
         let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
         assert_eq!(
@@ -2813,6 +3113,104 @@ mod tests {
         assert!(accepts(
             "IMPORT net\nTYPE Circle\n  r AS Integer\nEND TYPE\nUNION Shape\n  Circle\nEND UNION\nUNION Extra INCLUDES Shape\n  Circle\nEND UNION\nFUNC score(s AS Extra) AS Integer\n  MATCH s\n    CASE Circle(c)\n      RETURN c.r + 1\n  END MATCH\nEND FUNC\nFUNC main AS Integer\n  LET u AS net::Url = net::toUrl(\"http://x/\")\n  LET rendered AS String = toString(u)\n  RETURN len(rendered)\nEND FUNC\n"
         ));
+    }
+
+    // ---- TESTING assertions lowering expands away -------------------------
+
+    fn tcase(body: &str) -> String {
+        // The assertion builtins are recognized by name in the Call arm
+        // (`is_testing_call`), so a plain FUNC body reaches `check_expect_call`
+        // without the TESTING desugaring (`mfb test` only).
+        format!("FUNC main AS Integer\n{body}\n  RETURN 0\nEND FUNC\n")
+    }
+
+    #[test]
+    fn expect_arity_forms() {
+        assert_eq!(
+            shape_codes(&tcase("  expectEqual(1)")),
+            ["TESTING_EXPECT_ARITY"]
+        );
+        // `expectTrap` has a 1–2 range: the range wording.
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(&tcase("  expectTrap()")),
+            &[],
+            &HashMap::new(),
+            &[],
+        );
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|d| d.detail.as_str())
+                .collect::<Vec<_>>(),
+            ["`expectTrap` expects 1\u{2013}2 argument(s), got 0."]
+        );
+    }
+
+    #[test]
+    fn expect_typed_operands_must_be_the_named_type() {
+        assert_eq!(
+            shape_codes(&tcase("  expectFloat(1, 2)")),
+            [
+                "TESTING_EXPECT_TYPE_MISMATCH",
+                "TESTING_EXPECT_TYPE_MISMATCH"
+            ]
+        );
+        assert!(accepts(&tcase("  expectInteger(1, 2)")));
+        assert!(accepts(&tcase("  expectNString(\"a\", \"b\")")));
+    }
+
+    #[test]
+    fn expect_equal_operands_must_be_comparable_and_printable() {
+        assert_eq!(
+            shape_codes(&tcase("  expectEqual(\"a\", 1)")),
+            ["TESTING_EXPECT_INCOMPARABLE"]
+        );
+        // A Map is neither `=`-comparable nor printable — both, per operand.
+        let body = "  LET m AS Map OF String TO Integer = Map OF String TO Integer {}\n  expectEqual(m, m)";
+        assert_eq!(
+            shape_codes(&tcase(body)),
+            [
+                "TESTING_EXPECT_INCOMPARABLE",
+                "TESTING_EXPECT_NOT_PRINTABLE",
+                "TESTING_EXPECT_NOT_PRINTABLE"
+            ]
+        );
+        // A record of comparable fields compares but does not print.
+        let src = "TYPE Point\n  x AS Integer\nEND TYPE\nFUNC main AS Integer\n  LET p AS Point = Point[1]\n  expectEqual(p, p)\n  RETURN 0\nEND FUNC\n";
+        assert_eq!(
+            shape_codes(src),
+            [
+                "TESTING_EXPECT_NOT_PRINTABLE",
+                "TESTING_EXPECT_NOT_PRINTABLE"
+            ]
+        );
+        assert!(accepts(&tcase("  expectEqual(1, 1)")));
+        assert!(accepts(&tcase("  expectEqual(1, 2.5)")));
+    }
+
+    #[test]
+    fn expect_trap_code_must_be_integer() {
+        let body =
+            "  LET xs AS List OF Integer = [1, 2, 3]\n  expectTrap(collections::get(xs, 0), \"x\")";
+        let src = format!("IMPORT collections\n{}", tcase(body));
+        assert_eq!(shape_codes(&src), ["TESTING_EXPECT_CODE_TYPE"]);
+    }
+
+    #[test]
+    fn expect_trap_requires_a_call_to_guard() {
+        assert_eq!(
+            shape_codes(&tcase("  expectTrap(5)")),
+            ["TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE"]
+        );
+        assert_eq!(
+            shape_codes(&tcase("  expectNTrap(42)")),
+            ["TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE"]
+        );
+        let src = format!("IMPORT math\n{}", tcase("  expectTrap(math::pi)"));
+        assert_eq!(shape_codes(&src), ["TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE"]);
+        let src = format!("IMPORT math\n{}", tcase("  expectTrap(math::pi())"));
+        assert_eq!(shape_codes(&src), ["TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE"]);
     }
 
     // ---- control-flow shapes lowering erases -------------------------------
@@ -2840,6 +3238,7 @@ mod tests {
             &hir_from("FUNC main AS Integer\n  EXIT FUNC\n  LET a = 1\n  RETURN a\nEND FUNC\n"),
             &[],
             &HashMap::new(),
+            &[],
         );
         let lines: Vec<_> = diagnostics
             .iter()
@@ -2866,6 +3265,7 @@ mod tests {
             ),
             &[],
             &HashMap::new(),
+            &[],
         );
         let lines: Vec<_> = diagnostics
             .iter()
@@ -2887,6 +3287,7 @@ mod tests {
             ),
             &[],
             &HashMap::new(),
+            &[],
         );
         let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
         assert_eq!(
@@ -2908,6 +3309,7 @@ mod tests {
             ),
             &[],
             &HashMap::new(),
+            &[],
         );
         let lines: Vec<_> = diagnostics
             .iter()
@@ -2931,6 +3333,7 @@ mod tests {
                 "FUNC g(a AS Integer) AS Integer\n  RETURN a\nEND FUNC\nFUNC main AS Integer\n  RETURN g(z := g(y := 1))\nEND FUNC\n",
             ),
             &[], &HashMap::new(),
+            &[],
         );
         let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
         assert_eq!(

@@ -440,11 +440,16 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // plan-107-E: the pre-lowering shape pass — the source rules whose evidence
     // lowering erases — runs over the same HIR, with the same signature and
     // type inputs, that lowering is about to consume. Its stream comes first.
+    let imported_resource_type_names: Vec<String> = imported_resource_types
+        .iter()
+        .map(|name| name.to_string())
+        .collect();
     let shape_diagnostics = ir::shape::collect_diagnostics(
         &options.location,
         &concrete_hir,
         &imported_types,
         &all_external_signatures,
+        &imported_resource_type_names,
     );
     let source_ir = ir::lower_augmented_project(
         &concrete_hir,
