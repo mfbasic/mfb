@@ -581,17 +581,8 @@ impl<'a> SyntaxChecker<'a> {
                 .return_type
                 .as_deref()
                 .is_some_and(|return_type| return_type != "Nothing");
-        if wants_result && function.result.is_none() {
-            self.report(
-                "NATIVE_ABI_NO_RESULT",
-                &format!(
-                    "Native function `{}` returns a value but declares no `RETURN <expr>` naming its result.",
-                    function.name
-                ),
-                file,
-                function.line,
-            );
-        }
+        // A value-returning wrapper with no `RETURN <expr>` is `ir::verify`'s
+        // (plan-107-C).
         // A `Nothing` wrapper surfaces no value, so a RETURN has nothing to name.
         if !wants_result && function.result.is_some() {
             self.report(
@@ -1655,29 +1646,6 @@ END FUNC
     }
 
     #[test]
-    fn value_returning_wrapper_without_return_is_rejected() {
-        // link.rs:614 — a non-Nothing return with no `RETURN <expr>`.
-        let src = "\
-LINK \"c\" AS libc
-  FUNC f(a AS Integer) AS Integer
-    SYMBOL \"f\"
-    ABI (a CInt64) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-END LINK
-
-FUNC main AS Integer
-  RETURN 0
-END FUNC
-";
-        assert!(
-            rejects_with(src, "NATIVE_ABI_NO_RESULT"),
-            "{:?}",
-            check_src(src)
-        );
-    }
-
-    #[test]
     fn nothing_wrapper_with_return_is_rejected() {
         // link.rs:626 — a Nothing wrapper that declares a RETURN.
         let src = "\
@@ -1754,11 +1722,9 @@ END FUNC
 
     #[test]
     fn cbuffer_without_return_hits_result_slot_none_arm() {
-        // link.rs:150 — a buffer function with no RETURN drives the `_ => None`
-        // result_slot arm (the buffer is also unreturned and value-typed, so it
-        // is rejected). Asserting the directly-emitted NATIVE_ABI_NO_RESULT keeps
-        // the native-rule parity guard's source scan honest (the forwarded buffer
-        // rule literal lives only in ir::link).
+        // A buffer function with no RETURN drives the `_ => None` result_slot arm
+        // of the buffer-rule view (the missing-result rejection itself is
+        // `ir::verify`'s since plan-107-C, so only the walk is asserted here).
         let src = "\
 LINK \"c\" AS libc
   FUNC noReturn(n AS Integer) AS List OF Byte
@@ -1772,11 +1738,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_ABI_NO_RESULT"),
-            "{:?}",
-            check_src(src)
-        );
+        let _ = check_src(src);
     }
 
     // ----- FREE blocks ------------------------------------------------------

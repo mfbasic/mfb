@@ -2027,14 +2027,9 @@ mod checker_tests {
         ));
     }
 
-    #[test]
-    fn link_no_result_rejected() {
-        // A value-returning wrapper with no result marker.
-        assert!(rejects_with(
-            &link_wrap("  FUNC size(RES db AS Db) AS Integer\n    SYMBOL \"demo_size\"\n    ABI (db CPtr) AS status CInt32\n    SUCCESS_ON status = 0\n  END FUNC\n"),
-            "NATIVE_ABI_NO_RESULT"
-        ));
-    }
+    // The value-returning-wrapper-without-RETURN rejection moved to `ir::verify`
+    // (plan-107-C); its twins are `verify::tests::rejects_link_no_result` and
+    // the source fixture `tests/syntax/native/native-abi-no-result-invalid`.
 
     #[test]
     fn link_full_native_binding_with_alias_valid() {
@@ -2056,16 +2051,6 @@ mod checker_tests {
     // A slot named `return` is now a PARSE error, so it cannot be exercised
     // through this checker (which requires its source to parse). It is covered
     // end-to-end by tests/syntax/native/native-abi-return-slot-invalid.
-
-    #[test]
-    fn link_value_wrapper_without_return_rejected() {
-        // plan-50-H: an OUT slot no longer needs to be named `return`, but a
-        // value-returning wrapper must still name its result.
-        assert!(rejects_with(
-            &link_wrap("  FUNC opn(statement AS String) AS RES Db\n    SYMBOL \"demo_open\"\n    ABI (statement CString, extra OUT CPtr) AS status CInt32\n    SUCCESS_ON status = 0\n  END FUNC\n"),
-            "NATIVE_ABI_NO_RESULT"
-        ));
-    }
 
     #[test]
     fn link_free_wrong_return_ctype_rejected() {
