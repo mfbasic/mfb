@@ -142,30 +142,43 @@ Acceptance: a minimal `Hash.SHA1` fixture emits exactly one named warning and
 still produces/runs an executable; a non-advisory enum member emits none.
 VERIFIED 2026-08-29: `tests/rt-behavior/crypto/crypto-sha1-advisory-valid`
 build.log pins exactly one `warn[2-203-0136 CRYPTO_SHA1_INSECURE]` per
-occurrence (line 12 MATCH literal, line 22 expression), none for `Hash.SHA256`
+occurrence (line 12 MATCH literal, line 22 expression), none for `Hash.SHA2_256`
 in the same two contexts, `[exit 0]`, and the run prints the FIPS 180-4 digest.
-Commit: —
+Commit: f27f3f343
 
 ### Phase 2 — rename SHA-2 and implement SHA-1
 
-- [ ] Rename the four enum variants and all 105 measured non-golden uses; update
-      docs/examples/benchmarks, resolver tests, ordinal comments, and helpers.
+- [x] Rename the four enum variants and all 105 measured non-golden uses; update
+      docs/examples/benchmarks, resolver tests, ordinal comments, and helpers
+      (123 occurrences in 22 files at execution — see Corrections; `mod.rs`
+      variants + `gen_hash::ORD_SHA2_*` + the three dispatch helpers; man
+      descriptors of `hash`/`hmac`/`hkdf`/`pbkdf2` and `10_crypto.md` list the
+      five selectors with the SHA-1 advisory; `rg 'Hash\.SHA(224|256|384|512)'
+      --glob '!**/golden/**' .` → only the removed-spelling fixture).
 - [x] Add pure-MFB SHA-1 schedule/compression/padding helpers and wire native
       `hash` plus generic HMAC/HKDF/PBKDF2 size/dispatch helpers (landed in the
       Phase 1 commit: `helper_rotl32`/`helper_sha1_f`/`helper_sha1_k`/
       `helper_sha1_schedule`/`helper_sha1_bytes`/`helper_sha1_text`, reusing
       `__crypto_pad512`; `gen_hash` ordinal 0 arm; SHA1 arms in
       `__crypto_sha{Digest,BlockSize,OutputLen}`).
-- [~] Add FIPS 180-4 KATs for empty, `abc`, and multi-block inputs and invalid
+- [x] Add FIPS 180-4 KATs for empty, `abc`, and multi-block inputs and invalid
       argument fixtures for each modified public overload — KATs landed in the
       Phase 1 commit (`crypto-kat-valid`: SHA-1 §A.1/§A.2 + empty, both
       overloads; HMAC-SHA1 RFC 2202 #2; HKDF-SHA1 RFC 5869 #4; PBKDF2-HMAC-SHA1
-      RFC 6070 #1/#2). Remaining: invalid-argument fixtures for the modified
-      overloads.
-- [~] Add a syntax fixture proving each removed old spelling is rejected and a
-      warning fixture proving SHA1 warns in normal and MATCH contexts — the
-      warning fixture is `crypto-sha1-advisory-valid` (Phase 1 commit).
-      Remaining: the removed-spelling syntax fixture (needs the rename).
+      RFC 6070 #1/#2). Invalid coverage: runtime
+      `rt-behavior/crypto/crypto-kdf-invalid` (HKDF `255*L` ceiling per
+      selector — 5100/5101 for SHA1, 8160/8161 for SHA2_256 — plus length 0;
+      PBKDF2 iterations/length 0 for SHA1 and SHA2_512; all
+      `ErrInvalidArgument`, in-range boundary calls succeed) and compile-time
+      argument typing of `hash`/`hmac` (both overloads) in the syntax fixture
+      below (`TYPE_CALL_ARGUMENT_MISMATCH`). `hash`/`hmac` are total at runtime,
+      so their only invalid inputs are type-level.
+- [x] Add a syntax fixture proving each removed old spelling is rejected and a
+      warning fixture proving SHA1 warns in normal and MATCH contexts —
+      `syntax/crypto/hash-removed-spellings-invalid` pins
+      `TYPE_UNKNOWN_ENUM_MEMBER` for each of `SHA224`/`SHA256`/`SHA384`/`SHA512`
+      (`[exit 1]`); the warning fixture is `crypto-sha1-advisory-valid`
+      (Phase 1 commit).
 
 Acceptance: FIPS SHA-1/SHA-2 KAT bytes match; SHA-1 works through hash, HMAC,
 HKDF, and PBKDF2; old spellings fail; warning count is exact and non-fatal.
@@ -214,6 +227,18 @@ Commit: —
   removed-spelling fixture, the invalid-argument fixtures, and the doc sweep.
   Ordinals shifted once here (SHA1=0 pushes the four SHA-2 ordinals to 1–4) and
   the names change in Phase 2 — one golden regen per commit.
+- Rename census at execution: 22 non-golden files / 123 `Hash.SHA###`
+  occurrences (`rg -l 'Hash\.SHA(224|256|384|512)' --glob '!**/golden/**' .`
+  before the sweep; the plan's 18/105 predates the Phase 1 KAT/advisory fixtures
+  and the syntaxcheck unit tests, which added the rest). A mechanical
+  `Hash.SHA###` → `Hash.SHA2_###` sweep must EXCLUDE the removed-spelling
+  fixture (`tests/syntax/crypto/hash-removed-spellings-invalid`), whose whole
+  point is to keep the old names — the first pass rewrote it and was reverted.
+- `benchmark/mfb` cannot be built locally to prove its rename compiles: it
+  declares an uninstalled `bench_workers` package
+  (`IMPORT_PACKAGE_NOT_INSTALLED`, no `benchmark/mfb/packages/` in the tree),
+  so `benchmark/mfb/src/crypto.mfb` is covered only by the same API the
+  acceptance/KAT fixtures exercise.
 - "The two user-HIR member-access checking paths" is one path: the `MATCH`
   literal check (`check_match_pattern`) infers its literal through the same
   `infer_member_access` enum arm as an expression, so the warning is emitted

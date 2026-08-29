@@ -43,7 +43,7 @@ FUNC __crypto_decrypt(cipher AS AsymmetricCipher, recipientPrivateKey AS List OF
   LET dh AS List OF Byte = __crypto_x25519(recipXpriv, ephPub)
   LET salt AS List OF Byte = __crypto_concat(ephPub, recipX)
   LET info AS List OF Byte = __crypto_asymInfo(cipher)
-  LET okm AS List OF Byte = __crypto_hkdf(Hash.SHA256, dh, salt, info, 44)
+  LET okm AS List OF Byte = __crypto_hkdf(Hash.SHA2_256, dh, salt, info, 44)
   LET k AS List OF Byte = __crypto_slice(okm, 0, 32)
   LET nonce AS List OF Byte = __crypto_slice(okm, 32, 44)
   LET aead AS SymmetricCipher = __crypto_asymAead(cipher)

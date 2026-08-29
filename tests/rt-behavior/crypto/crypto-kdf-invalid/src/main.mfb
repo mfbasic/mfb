@@ -1,0 +1,46 @@
+' The hash-selected KDF overloads must FAIL CLOSED with ErrInvalidArgument on an
+' out-of-range length/iteration count, and the bound must follow the selected
+' digest: HKDF's ceiling is 255 * L (RFC 5869), so SHA-1 (L=20) admits 5100 bytes
+' and rejects 5101, while SHA2_256 (L=32) admits 8160 and rejects 8161. PBKDF2
+' rejects iterations < 1 and length < 1 for every selector. TRAP handlers assert
+' the exact code; the in-range boundary calls prove the check is not off by one.
+IMPORT crypto
+IMPORT errorCode
+IMPORT io
+
+FUNC hkdfLen(h AS Hash, length AS Integer) AS Integer
+  LET ikm AS List OF Byte = [toByte(11), toByte(11), toByte(11)]
+  LET okm AS List OF Byte = crypto::hkdf(h, ikm, [], [], length)
+  RETURN len(okm)
+  TRAP(err)
+    IF err.code = errorCode::ErrInvalidArgument THEN
+      RETURN -1
+    END IF
+    RETURN -2
+  END TRAP
+END FUNC
+
+FUNC pbkdf2Args(h AS Hash, iterations AS Integer, length AS Integer) AS Integer
+  LET pw AS List OF Byte = [toByte(112), toByte(119)]
+  LET salt AS List OF Byte = [toByte(115)]
+  LET dk AS List OF Byte = crypto::pbkdf2(h, pw, salt, iterations, length)
+  RETURN len(dk)
+  TRAP(err)
+    IF err.code = errorCode::ErrInvalidArgument THEN
+      RETURN -1
+    END IF
+    RETURN -2
+  END TRAP
+END FUNC
+
+SUB main()
+  io::print("hkdf-sha1-0=" & toString(hkdfLen(Hash.SHA1, 0)))
+  io::print("hkdf-sha1-5100=" & toString(hkdfLen(Hash.SHA1, 5100)))
+  io::print("hkdf-sha1-5101=" & toString(hkdfLen(Hash.SHA1, 5101)))
+  io::print("hkdf-sha2_256-8160=" & toString(hkdfLen(Hash.SHA2_256, 8160)))
+  io::print("hkdf-sha2_256-8161=" & toString(hkdfLen(Hash.SHA2_256, 8161)))
+  io::print("pbkdf2-sha1-iter0=" & toString(pbkdf2Args(Hash.SHA1, 0, 20)))
+  io::print("pbkdf2-sha1-len0=" & toString(pbkdf2Args(Hash.SHA1, 1, 0)))
+  io::print("pbkdf2-sha1-ok=" & toString(pbkdf2Args(Hash.SHA1, 1, 21)))
+  io::print("pbkdf2-sha2_512-iter0=" & toString(pbkdf2Args(Hash.SHA2_512, 0, 64)))
+END SUB

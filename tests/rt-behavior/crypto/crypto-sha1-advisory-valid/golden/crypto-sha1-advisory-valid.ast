@@ -34,7 +34,7 @@
           ]
         },
         {
-          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA256" } },
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA2_256" } },
           "guard": null,
           "line": 14,
           "body": [
@@ -64,8 +64,8 @@
       "returnType": null,
       "body": [
       { "kind": "binding", "mutable": false, "name": "legacy", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA1" }, { "kind": "string", "value": "abc" }] }, "line": 22 },
-      { "kind": "binding", "mutable": false, "name": "modern", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA256" }, { "kind": "string", "value": "abc" }] }, "line": 23 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "label", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA256" }] }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "modern" }] } }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "modern", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA2_256" }, { "kind": "string", "value": "abc" }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "label", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA2_256" }] }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "modern" }] } }] }, "line": 24 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "legacy=" }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "legacy" }] } }] }, "line": 25 }
       ]
     }

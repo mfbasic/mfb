@@ -20,13 +20,13 @@ FUNC __crypto_shaDigest(algo AS Hash, data AS List OF Byte) AS List OF Byte
   IF algo = Hash.SHA1 THEN
     RETURN __crypto_sha1_bytes(data)
   END IF
-  IF algo = Hash.SHA224 THEN
+  IF algo = Hash.SHA2_224 THEN
     RETURN __crypto_sha224_bytes(data)
   END IF
-  IF algo = Hash.SHA256 THEN
+  IF algo = Hash.SHA2_256 THEN
     RETURN __crypto_sha256_bytes(data)
   END IF
-  IF algo = Hash.SHA384 THEN
+  IF algo = Hash.SHA2_384 THEN
     RETURN __crypto_sha384_bytes(data)
   END IF
   RETURN __crypto_sha512_bytes(data)

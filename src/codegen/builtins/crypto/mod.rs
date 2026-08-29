@@ -155,9 +155,12 @@ pub(crate) fn register(r: &mut Registry) {
         }],
     });
     // The hash-algorithm selector — every hash function `crypto` supports (SHA-1
-    // and the SHA-2 family). Ordinals are declaration order (SHA1=0, SHA224=1,
-    // SHA256=2, SHA384=3, SHA512=4); `gen_hash`'s `ORD_*` constants and the
+    // and the SHA-2 family). Ordinals are declaration order (SHA1=0, SHA2_224=1,
+    // SHA2_256=2, SHA2_384=3, SHA2_512=4); `gen_hash`'s `ORD_*` constants and the
     // `__crypto_sha{Digest,BlockSize,OutputLen}` dispatch helpers mirror this order.
+    // The SHA-2 spellings carry the family prefix (`SHA2_256`, never `SHA256`) so
+    // the SHA-3 widths added by plan-109-B read unambiguously beside them; the
+    // old bare spellings were removed without aliases (plan-109-A).
     // `SHA1` carries the registry's enum-value advisory: every user-source use
     // reports `CRYPTO_SHA1_INSECURE` (warn, non-fatal) — the digest itself is the
     // standard FIPS 180-4 value and stays usable for legacy interoperability.
@@ -170,27 +173,27 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "SHA-1 (FIPS 180-4, 160-bit digest). Not collision-resistant: every source use reports the `CRYPTO_SHA1_INSECURE` warning; select it only for legacy interoperability, never for new designs.",
                 advisory: Some(EnumAdvisory {
                     rule: "CRYPTO_SHA1_INSECURE",
-                    detail: "`Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA256` or stronger for new designs.",
+                    detail: "`Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.",
                 }),
             },
             EnumVariant {
-                name: "SHA224",
-                description: "SHA-224 (SHA-2 family, 224-bit digest).",
+                name: "SHA2_224",
+                description: "SHA-224 (SHA-2 family, FIPS 180-4, 224-bit digest).",
                 advisory: None,
             },
             EnumVariant {
-                name: "SHA256",
-                description: "SHA-256 (SHA-2 family, 256-bit digest).",
+                name: "SHA2_256",
+                description: "SHA-256 (SHA-2 family, FIPS 180-4, 256-bit digest).",
                 advisory: None,
             },
             EnumVariant {
-                name: "SHA384",
-                description: "SHA-384 (SHA-2 family, 384-bit digest).",
+                name: "SHA2_384",
+                description: "SHA-384 (SHA-2 family, FIPS 180-4, 384-bit digest).",
                 advisory: None,
             },
             EnumVariant {
-                name: "SHA512",
-                description: "SHA-512 (SHA-2 family, 512-bit digest).",
+                name: "SHA2_512",
+                description: "SHA-512 (SHA-2 family, FIPS 180-4, 512-bit digest).",
                 advisory: None,
             },
         ],

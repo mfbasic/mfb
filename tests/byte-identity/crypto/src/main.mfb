@@ -11,31 +11,31 @@ FUNC main() AS Integer
   LET s = "the quick brown fox"
 
   ' Hashes — List OF Byte overload and String overload for each digest.
-  io::print(toString(len(crypto::hash(Hash.SHA224, msg))))
-  io::print(toString(len(crypto::hash(Hash.SHA224, s))))
-  io::print(toString(len(crypto::hash(Hash.SHA256, msg))))
-  io::print(toString(len(crypto::hash(Hash.SHA256, s))))
-  io::print(toString(len(crypto::hash(Hash.SHA384, msg))))
-  io::print(toString(len(crypto::hash(Hash.SHA384, s))))
-  io::print(toString(len(crypto::hash(Hash.SHA512, msg))))
-  io::print(toString(len(crypto::hash(Hash.SHA512, s))))
+  io::print(toString(len(crypto::hash(Hash.SHA2_224, msg))))
+  io::print(toString(len(crypto::hash(Hash.SHA2_224, s))))
+  io::print(toString(len(crypto::hash(Hash.SHA2_256, msg))))
+  io::print(toString(len(crypto::hash(Hash.SHA2_256, s))))
+  io::print(toString(len(crypto::hash(Hash.SHA2_384, msg))))
+  io::print(toString(len(crypto::hash(Hash.SHA2_384, s))))
+  io::print(toString(len(crypto::hash(Hash.SHA2_512, msg))))
+  io::print(toString(len(crypto::hash(Hash.SHA2_512, s))))
 
   ' HMAC — List OF Byte data overload and String data overload.
   LET macKey = crypto::randomBytes(32)
-  io::print(toString(len(crypto::hmac(Hash.SHA256, macKey, msg))))
-  io::print(toString(len(crypto::hmac(Hash.SHA256, macKey, s))))
-  io::print(toString(len(crypto::hmac(Hash.SHA512, macKey, msg))))
-  io::print(toString(len(crypto::hmac(Hash.SHA512, macKey, s))))
+  io::print(toString(len(crypto::hmac(Hash.SHA2_256, macKey, msg))))
+  io::print(toString(len(crypto::hmac(Hash.SHA2_256, macKey, s))))
+  io::print(toString(len(crypto::hmac(Hash.SHA2_512, macKey, msg))))
+  io::print(toString(len(crypto::hmac(Hash.SHA2_512, macKey, s))))
 
   ' HKDF — single overload each.
   LET salt = crypto::randomBytes(16)
   LET info = crypto::randomBytes(8)
-  io::print(toString(len(crypto::hkdf(Hash.SHA256, msg, salt, info, 32))))
-  io::print(toString(len(crypto::hkdf(Hash.SHA512, msg, salt, info, 64))))
+  io::print(toString(len(crypto::hkdf(Hash.SHA2_256, msg, salt, info, 32))))
+  io::print(toString(len(crypto::hkdf(Hash.SHA2_512, msg, salt, info, 64))))
 
   ' PBKDF2 — single List OF Byte password overload each.
-  io::print(toString(len(crypto::pbkdf2(Hash.SHA256, msg, salt, 1000, 32))))
-  io::print(toString(len(crypto::pbkdf2(Hash.SHA512, msg, salt, 1000, 64))))
+  io::print(toString(len(crypto::pbkdf2(Hash.SHA2_256, msg, salt, 1000, 32))))
+  io::print(toString(len(crypto::pbkdf2(Hash.SHA2_512, msg, salt, 1000, 64))))
 
   ' AEAD — AES-256-GCM: 3-arg seal / 4-arg open and the aad overloads.
   LET aeadKey = crypto::randomBytes(32)

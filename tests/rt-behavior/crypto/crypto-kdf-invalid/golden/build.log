@@ -1,0 +1,90 @@
+$ mfb build -ast -ir tests/rt-behavior/crypto/crypto-kdf-invalid
+  35 | 
+  36 | SUB main()
+  37 |   io::print("hkdf-sha1-0=" & toString(hkdfLen(Hash.SHA1, 0)))
+     | ^
+tests/rt-behavior/crypto/crypto-kdf-invalid/src/main.mfb:37 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
+               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+  36 | SUB main()
+  37 |   io::print("hkdf-sha1-0=" & toString(hkdfLen(Hash.SHA1, 0)))
+  38 |   io::print("hkdf-sha1-5100=" & toString(hkdfLen(Hash.SHA1, 5100)))
+     | ^
+tests/rt-behavior/crypto/crypto-kdf-invalid/src/main.mfb:38 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
+               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+  37 |   io::print("hkdf-sha1-0=" & toString(hkdfLen(Hash.SHA1, 0)))
+  38 |   io::print("hkdf-sha1-5100=" & toString(hkdfLen(Hash.SHA1, 5100)))
+  39 |   io::print("hkdf-sha1-5101=" & toString(hkdfLen(Hash.SHA1, 5101)))
+     | ^
+tests/rt-behavior/crypto/crypto-kdf-invalid/src/main.mfb:39 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
+               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+  40 |   io::print("hkdf-sha2_256-8160=" & toString(hkdfLen(Hash.SHA2_256, 8160)))
+  41 |   io::print("hkdf-sha2_256-8161=" & toString(hkdfLen(Hash.SHA2_256, 8161)))
+  42 |   io::print("pbkdf2-sha1-iter0=" & toString(pbkdf2Args(Hash.SHA1, 0, 20)))
+     | ^
+tests/rt-behavior/crypto/crypto-kdf-invalid/src/main.mfb:42 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
+               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+  41 |   io::print("hkdf-sha2_256-8161=" & toString(hkdfLen(Hash.SHA2_256, 8161)))
+  42 |   io::print("pbkdf2-sha1-iter0=" & toString(pbkdf2Args(Hash.SHA1, 0, 20)))
+  43 |   io::print("pbkdf2-sha1-len0=" & toString(pbkdf2Args(Hash.SHA1, 1, 0)))
+     | ^
+tests/rt-behavior/crypto/crypto-kdf-invalid/src/main.mfb:43 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
+               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+  42 |   io::print("pbkdf2-sha1-iter0=" & toString(pbkdf2Args(Hash.SHA1, 0, 20)))
+  43 |   io::print("pbkdf2-sha1-len0=" & toString(pbkdf2Args(Hash.SHA1, 1, 0)))
+  44 |   io::print("pbkdf2-sha1-ok=" & toString(pbkdf2Args(Hash.SHA1, 1, 21)))
+     | ^
+tests/rt-behavior/crypto/crypto-kdf-invalid/src/main.mfb:44 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
+               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+Wrote AST to tests/rt-behavior/crypto/crypto-kdf-invalid/crypto-kdf-invalid.ast
+Wrote IR to tests/rt-behavior/crypto/crypto-kdf-invalid/crypto-kdf-invalid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/crypto/crypto-kdf-invalid
+  35 | 
+  36 | SUB main()
+  37 |   io::print("hkdf-sha1-0=" & toString(hkdfLen(Hash.SHA1, 0)))
+     | ^
+tests/rt-behavior/crypto/crypto-kdf-invalid/src/main.mfb:37 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
+               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+  36 | SUB main()
+  37 |   io::print("hkdf-sha1-0=" & toString(hkdfLen(Hash.SHA1, 0)))
+  38 |   io::print("hkdf-sha1-5100=" & toString(hkdfLen(Hash.SHA1, 5100)))
+     | ^
+tests/rt-behavior/crypto/crypto-kdf-invalid/src/main.mfb:38 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
+               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+  37 |   io::print("hkdf-sha1-0=" & toString(hkdfLen(Hash.SHA1, 0)))
+  38 |   io::print("hkdf-sha1-5100=" & toString(hkdfLen(Hash.SHA1, 5100)))
+  39 |   io::print("hkdf-sha1-5101=" & toString(hkdfLen(Hash.SHA1, 5101)))
+     | ^
+tests/rt-behavior/crypto/crypto-kdf-invalid/src/main.mfb:39 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
+               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+  40 |   io::print("hkdf-sha2_256-8160=" & toString(hkdfLen(Hash.SHA2_256, 8160)))
+  41 |   io::print("hkdf-sha2_256-8161=" & toString(hkdfLen(Hash.SHA2_256, 8161)))
+  42 |   io::print("pbkdf2-sha1-iter0=" & toString(pbkdf2Args(Hash.SHA1, 0, 20)))
+     | ^
+tests/rt-behavior/crypto/crypto-kdf-invalid/src/main.mfb:42 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
+               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+  41 |   io::print("hkdf-sha2_256-8161=" & toString(hkdfLen(Hash.SHA2_256, 8161)))
+  42 |   io::print("pbkdf2-sha1-iter0=" & toString(pbkdf2Args(Hash.SHA1, 0, 20)))
+  43 |   io::print("pbkdf2-sha1-len0=" & toString(pbkdf2Args(Hash.SHA1, 1, 0)))
+     | ^
+tests/rt-behavior/crypto/crypto-kdf-invalid/src/main.mfb:43 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
+               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+  42 |   io::print("pbkdf2-sha1-iter0=" & toString(pbkdf2Args(Hash.SHA1, 0, 20)))
+  43 |   io::print("pbkdf2-sha1-len0=" & toString(pbkdf2Args(Hash.SHA1, 1, 0)))
+  44 |   io::print("pbkdf2-sha1-ok=" & toString(pbkdf2Args(Hash.SHA1, 1, 21)))
+     | ^
+tests/rt-behavior/crypto/crypto-kdf-invalid/src/main.mfb:44 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
+               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+Wrote executable to tests/rt-behavior/crypto/crypto-kdf-invalid/build/crypto-kdf-invalid.out
+[exit 0]
+$ tests/rt-behavior/crypto/crypto-kdf-invalid/build/crypto-kdf-invalid.out
+hkdf-sha1-0=-1
+hkdf-sha1-5100=5100
+hkdf-sha1-5101=-1
+hkdf-sha2_256-8160=8160
+hkdf-sha2_256-8161=-1
+pbkdf2-sha1-iter0=-1
+pbkdf2-sha1-len0=-1
+pbkdf2-sha1-ok=21
+pbkdf2-sha2_512-iter0=-1
+[exit 0]

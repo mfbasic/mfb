@@ -1,7 +1,7 @@
 //! `__crypto_shaOutputLen` — shared private helper for the `crypto` package.
 //!
-//! The hash-generic digest length `L` for a `crypto::Hash`: SHA1=20, SHA224=28,
-//! SHA256=32, SHA384=48, SHA512=64. `__crypto_hkdf` uses it for the all-zero default salt and the
+//! The hash-generic digest length `L` for a `crypto::Hash`: SHA1=20, SHA2_224=28,
+//! SHA2_256=32, SHA2_384=48, SHA2_512=64. `__crypto_hkdf` uses it for the all-zero default salt and the
 //! `255 * L` output-length ceiling, so HKDF stays written over an abstract hash `H` — a
 //! future `Hash` variant needs only one new arm here.
 //!
@@ -18,13 +18,13 @@ FUNC __crypto_shaOutputLen(algo AS Hash) AS Integer
   IF algo = Hash.SHA1 THEN
     RETURN 20
   END IF
-  IF algo = Hash.SHA224 THEN
+  IF algo = Hash.SHA2_224 THEN
     RETURN 28
   END IF
-  IF algo = Hash.SHA256 THEN
+  IF algo = Hash.SHA2_256 THEN
     RETURN 32
   END IF
-  IF algo = Hash.SHA384 THEN
+  IF algo = Hash.SHA2_384 THEN
     RETURN 48
   END IF
   RETURN 64

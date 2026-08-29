@@ -66,10 +66,10 @@
     "name": "Hash",
     "members": [
     { "name": "SHA1" },
-    { "name": "SHA224" },
-    { "name": "SHA256" },
-    { "name": "SHA384" },
-    { "name": "SHA512" }
+    { "name": "SHA2_224" },
+    { "name": "SHA2_256" },
+    { "name": "SHA2_384" },
+    { "name": "SHA2_512" }
     ]
   },
   {
@@ -103,29 +103,29 @@
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA256" }, { "kind": "const", "type": "String", "value": "abc" }] }] }] } },
-    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA224" }, { "kind": "const", "type": "String", "value": "abc" }] }] }] } },
-    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA512" }, { "kind": "const", "type": "String", "value": "abc" }] }] }] } },
-    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA384" }, { "kind": "const", "type": "String", "value": "abc" }] }] }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_256" }, { "kind": "const", "type": "String", "value": "abc" }] }] }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_224" }, { "kind": "const", "type": "String", "value": "abc" }] }] }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_512" }, { "kind": "const", "type": "String", "value": "abc" }] }] }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_384" }, { "kind": "const", "type": "String", "value": "abc" }] }] }] } },
     { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA1" }, { "kind": "const", "type": "String", "value": "abc" }] }] }] } },
     { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA1" }, { "kind": "const", "type": "String", "value": "" }] }] }] } },
     { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA1" }, { "kind": "const", "type": "String", "value": "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq" }] }] }] } },
     { "op": "bind", "line": 22, "mutable": false, "name": "abcBytes", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_utf8Encode$String$AS$List$OF$Byte", "args": [{ "kind": "const", "type": "String", "value": "abc" }] } },
     { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "crypto.hash", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA1" }, { "kind": "local", "name": "abcBytes" }] }] }] } },
     { "op": "bind", "line": 26, "mutable": false, "name": "jefe", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_utf8Encode$String$AS$List$OF$Byte", "args": [{ "kind": "const", "type": "String", "value": "Jefe" }] } },
-    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hmacText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA256" }, { "kind": "local", "name": "jefe" }, { "kind": "const", "type": "String", "value": "what do ya want for nothing?" }] }] }] } },
-    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hmacText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA512" }, { "kind": "local", "name": "jefe" }, { "kind": "const", "type": "String", "value": "what do ya want for nothing?" }] }] }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hmacText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_256" }, { "kind": "local", "name": "jefe" }, { "kind": "const", "type": "String", "value": "what do ya want for nothing?" }] }] }] } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hmacText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_512" }, { "kind": "local", "name": "jefe" }, { "kind": "const", "type": "String", "value": "what do ya want for nothing?" }] }] }] } },
     { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hmacText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA1" }, { "kind": "local", "name": "jefe" }, { "kind": "const", "type": "String", "value": "what do ya want for nothing?" }] }] }] } },
     { "op": "bind", "line": 32, "mutable": false, "name": "ikm", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b" }] } },
     { "op": "bind", "line": 33, "mutable": false, "name": "salt", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "000102030405060708090a0b0c" }] } },
     { "op": "bind", "line": 34, "mutable": false, "name": "info", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "f0f1f2f3f4f5f6f7f8f9" }] } },
-    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hkdf", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA256" }, { "kind": "local", "name": "ikm" }, { "kind": "local", "name": "salt" }, { "kind": "local", "name": "info" }, { "kind": "const", "type": "Integer", "value": "42" }] }] }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hkdf", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_256" }, { "kind": "local", "name": "ikm" }, { "kind": "local", "name": "salt" }, { "kind": "local", "name": "info" }, { "kind": "const", "type": "Integer", "value": "42" }] }] }] } },
     { "op": "bind", "line": 36, "mutable": false, "name": "ikm1", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "0b0b0b0b0b0b0b0b0b0b0b" }] } },
     { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_hkdf", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA1" }, { "kind": "local", "name": "ikm1" }, { "kind": "local", "name": "salt" }, { "kind": "local", "name": "info" }, { "kind": "const", "type": "Integer", "value": "42" }] }] }] } },
     { "op": "bind", "line": 41, "mutable": false, "name": "pw", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_utf8Encode$String$AS$List$OF$Byte", "args": [{ "kind": "const", "type": "String", "value": "passwd" }] } },
     { "op": "bind", "line": 42, "mutable": false, "name": "sa", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_utf8Encode$String$AS$List$OF$Byte", "args": [{ "kind": "const", "type": "String", "value": "salt" }] } },
-    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_pbkdf2", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA256" }, { "kind": "local", "name": "pw" }, { "kind": "local", "name": "sa" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "64" }] }] }] } },
-    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_pbkdf2", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA512" }, { "kind": "local", "name": "pw" }, { "kind": "local", "name": "sa" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "64" }] }] }] } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_pbkdf2", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_256" }, { "kind": "local", "name": "pw" }, { "kind": "local", "name": "sa" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "64" }] }] }] } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_pbkdf2", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_512" }, { "kind": "local", "name": "pw" }, { "kind": "local", "name": "sa" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "64" }] }] }] } },
     { "op": "bind", "line": 45, "mutable": false, "name": "pw1", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_utf8Encode$String$AS$List$OF$Byte", "args": [{ "kind": "const", "type": "String", "value": "password" }] } },
     { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_pbkdf2", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA1" }, { "kind": "local", "name": "pw1" }, { "kind": "local", "name": "sa" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "20" }] }] }] } },
     { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_pbkdf2", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA1" }, { "kind": "local", "name": "pw1" }, { "kind": "local", "name": "sa" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "20" }] }] }] } },
@@ -145,9 +145,9 @@
     { "op": "bind", "line": 65, "mutable": false, "name": "cbox", "type": "Sealed", "value": { "kind": "call", "type": "Sealed", "target": "crypto.seal", "args": [{ "kind": "memberAccess", "type": "SymmetricCipher", "target": { "kind": "local", "name": "SymmetricCipher" }, "member": "CHACHA20POLY1305" }, { "kind": "local", "name": "ckey" }, { "kind": "local", "name": "cnonce" }, { "kind": "local", "name": "cpt" }, { "kind": "local", "name": "caad" }] } },
     { "op": "eval", "line": 66, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "cbox" }, "member": "ciphertext" }] }] } },
     { "op": "eval", "line": 67, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "cbox" }, "member": "tag" }] }] } },
-    { "op": "bind", "line": 70, "mutable": false, "name": "d1", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA256" }, { "kind": "const", "type": "String", "value": "abc" }] } },
-    { "op": "bind", "line": 71, "mutable": false, "name": "d2", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA256" }, { "kind": "const", "type": "String", "value": "abc" }] } },
-    { "op": "bind", "line": 72, "mutable": false, "name": "d3", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA256" }, { "kind": "const", "type": "String", "value": "abd" }] } },
+    { "op": "bind", "line": 70, "mutable": false, "name": "d1", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_256" }, { "kind": "const", "type": "String", "value": "abc" }] } },
+    { "op": "bind", "line": 71, "mutable": false, "name": "d2", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_256" }, { "kind": "const", "type": "String", "value": "abc" }] } },
+    { "op": "bind", "line": 72, "mutable": false, "name": "d3", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_256" }, { "kind": "const", "type": "String", "value": "abd" }] } },
     { "op": "eval", "line": 73, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "cteq-same=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#crypto_constantTimeEqual", "args": [{ "kind": "local", "name": "d1" }, { "kind": "local", "name": "d2" }] }] } }] } },
     { "op": "eval", "line": 74, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "cteq-diff=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#crypto_constantTimeEqual", "args": [{ "kind": "local", "name": "d1" }, { "kind": "local", "name": "d3" }] }] } }] } },
     { "op": "bind", "line": 77, "mutable": false, "name": "edSeed", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "9d61b19deffbbcc0f5dcb4a5eb28efbcccca7ab3b7a3c6ee5ce3af5b7cba5327" }] } },
@@ -1620,7 +1620,7 @@
     {
       "op": "if",
       "line": 783,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA224" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_224" } },
       "then": [
       { "op": "return", "line": 784, "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_sha224_bytes", "args": [{ "kind": "local", "name": "data" }] } }
       ],
@@ -1630,7 +1630,7 @@
     {
       "op": "if",
       "line": 786,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA256" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_256" } },
       "then": [
       { "op": "return", "line": 787, "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_sha256_bytes", "args": [{ "kind": "local", "name": "data" }] } }
       ],
@@ -1640,7 +1640,7 @@
     {
       "op": "if",
       "line": 789,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA384" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_384" } },
       "then": [
       { "op": "return", "line": 790, "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_sha384_bytes", "args": [{ "kind": "local", "name": "data" }] } }
       ],
@@ -1663,7 +1663,7 @@
     {
       "op": "if",
       "line": 797,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA384" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_384" } },
       "then": [
       { "op": "return", "line": 798, "value": { "kind": "const", "type": "Integer", "value": "128" } }
       ],
@@ -1673,7 +1673,7 @@
     {
       "op": "if",
       "line": 800,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA512" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_512" } },
       "then": [
       { "op": "return", "line": 801, "value": { "kind": "const", "type": "Integer", "value": "128" } }
       ],
@@ -1706,7 +1706,7 @@
     {
       "op": "if",
       "line": 811,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA224" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_224" } },
       "then": [
       { "op": "return", "line": 812, "value": { "kind": "const", "type": "Integer", "value": "28" } }
       ],
@@ -1716,7 +1716,7 @@
     {
       "op": "if",
       "line": 814,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA256" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_256" } },
       "then": [
       { "op": "return", "line": 815, "value": { "kind": "const", "type": "Integer", "value": "32" } }
       ],
@@ -1726,7 +1726,7 @@
     {
       "op": "if",
       "line": 817,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA384" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "algo" }, "right": { "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_384" } },
       "then": [
       { "op": "return", "line": 818, "value": { "kind": "const", "type": "Integer", "value": "48" } }
       ],
@@ -4924,7 +4924,7 @@
     { "op": "bind", "line": 2449, "mutable": false, "name": "dh", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_x25519", "args": [{ "kind": "local", "name": "ephPriv" }, { "kind": "local", "name": "recipX" }] } },
     { "op": "bind", "line": 2450, "mutable": false, "name": "salt", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_concat", "args": [{ "kind": "local", "name": "ephPub" }, { "kind": "local", "name": "recipX" }] } },
     { "op": "bind", "line": 2451, "mutable": false, "name": "info", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_asymInfo", "args": [{ "kind": "local", "name": "cipher" }] } },
-    { "op": "bind", "line": 2452, "mutable": false, "name": "okm", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_hkdf", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA256" }, { "kind": "local", "name": "dh" }, { "kind": "local", "name": "salt" }, { "kind": "local", "name": "info" }, { "kind": "const", "type": "Integer", "value": "44" }] } },
+    { "op": "bind", "line": 2452, "mutable": false, "name": "okm", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_hkdf", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_256" }, { "kind": "local", "name": "dh" }, { "kind": "local", "name": "salt" }, { "kind": "local", "name": "info" }, { "kind": "const", "type": "Integer", "value": "44" }] } },
     { "op": "bind", "line": 2453, "mutable": false, "name": "k", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_slice", "args": [{ "kind": "local", "name": "okm" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "32" }] } },
     { "op": "bind", "line": 2454, "mutable": false, "name": "nonce", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_slice", "args": [{ "kind": "local", "name": "okm" }, { "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "44" }] } },
     { "op": "bind", "line": 2455, "mutable": false, "name": "aead", "type": "SymmetricCipher", "value": { "kind": "call", "type": "SymmetricCipher", "target": "#crypto_asymAead", "args": [{ "kind": "local", "name": "cipher" }] } },
@@ -4982,7 +4982,7 @@
     { "op": "bind", "line": 2483, "mutable": false, "name": "dh", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_x25519", "args": [{ "kind": "local", "name": "recipXpriv" }, { "kind": "local", "name": "ephPub" }] } },
     { "op": "bind", "line": 2484, "mutable": false, "name": "salt", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_concat", "args": [{ "kind": "local", "name": "ephPub" }, { "kind": "local", "name": "recipX" }] } },
     { "op": "bind", "line": 2485, "mutable": false, "name": "info", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_asymInfo", "args": [{ "kind": "local", "name": "cipher" }] } },
-    { "op": "bind", "line": 2486, "mutable": false, "name": "okm", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_hkdf", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA256" }, { "kind": "local", "name": "dh" }, { "kind": "local", "name": "salt" }, { "kind": "local", "name": "info" }, { "kind": "const", "type": "Integer", "value": "44" }] } },
+    { "op": "bind", "line": 2486, "mutable": false, "name": "okm", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_hkdf", "args": [{ "kind": "memberAccess", "type": "Hash", "target": { "kind": "local", "name": "Hash" }, "member": "SHA2_256" }, { "kind": "local", "name": "dh" }, { "kind": "local", "name": "salt" }, { "kind": "local", "name": "info" }, { "kind": "const", "type": "Integer", "value": "44" }] } },
     { "op": "bind", "line": 2487, "mutable": false, "name": "k", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_slice", "args": [{ "kind": "local", "name": "okm" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "32" }] } },
     { "op": "bind", "line": 2488, "mutable": false, "name": "nonce", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_slice", "args": [{ "kind": "local", "name": "okm" }, { "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "44" }] } },
     { "op": "bind", "line": 2489, "mutable": false, "name": "aead", "type": "SymmetricCipher", "value": { "kind": "call", "type": "SymmetricCipher", "target": "#crypto_asymAead", "args": [{ "kind": "local", "name": "cipher" }] } },

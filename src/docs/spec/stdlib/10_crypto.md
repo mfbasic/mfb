@@ -60,10 +60,21 @@ extensions); computation is portable-arithmetic only, identical across targets.
 
 ## Algorithm set
 
-- **Hashes** — SHA-224, SHA-256, SHA-384, SHA-512 (FIPS 180-4).
-- **HMAC** — HMAC-SHA-256, HMAC-SHA-512 (RFC 2104).
-- **KDF** — HKDF-SHA-256/512 (RFC 5869, extract-and-expand over the HMAC cores);
-  PBKDF2-HMAC-SHA-256/512 (RFC 8018).
+- **Hashes** — the `crypto::Hash` selector: `SHA1` (FIPS 180-4, 20-byte digest,
+  legacy) and the SHA-2 family `SHA2_224`, `SHA2_256`, `SHA2_384`, `SHA2_512`
+  (FIPS 180-4; 28/32/48/64 bytes). The SHA-2 spellings carry the family prefix;
+  there are no bare `SHA256`-style aliases. Every user-source occurrence of
+  `Hash.SHA1` (an expression or a `MATCH` literal) reports the non-fatal
+  `CRYPTO_SHA1_INSECURE` warning (`2-203-0136`, see
+  `./mfb spec diagnostics rule-codes`) — SHA-1 is not collision-resistant, so it
+  exists only for interoperability with systems that require it; the program
+  still builds and the digest is the standard value.
+  [[src/codegen/builtins/crypto/mod.rs:CRYPTO]]
+- **HMAC** — HMAC over every `Hash` selector (RFC 2104): HMAC-SHA1 and
+  HMAC-SHA-224/256/384/512.
+- **KDF** — HKDF over every `Hash` selector (RFC 5869, extract-and-expand over
+  the HMAC core; output ceiling `255 × L` for the selector's digest length `L`);
+  PBKDF2-HMAC over every `Hash` selector (RFC 8018).
 - **AEAD** — AES-256-GCM (NIST SP 800-38D) and ChaCha20-Poly1305 (RFC 8439).
   `seal` returns ciphertext plus a 16-byte tag; `open` verifies the tag in
   constant time and **fails closed** with `ErrAuthenticationFailed`
@@ -83,7 +94,10 @@ extensions); computation is portable-arithmetic only, identical across targets.
 ## Numeric representation
 
 The software cores keep 32-bit arithmetic masked to `0..2^32-1` (a sum of two such
-values is at most `2^33-2`, within the trapping 63-bit `+`, and is masked back).
+values is at most `2^33-2`, within the trapping 63-bit `+`, and is masked back);
+SHA-1 shares SHA-256's 512-bit padding and masked-32-bit model, differing only in
+its 80-word schedule, round function, and constants
+[[src/codegen/builtins/crypto/helper_sha1_bytes.rs:BODY]].
 SHA-512's 64-bit modular addition is done through a limb-split helper that never
 lets an intermediate cross `2^63`. Poly1305 uses a 5 × 26-bit limb representation
 (poly1305-donna) with explicit carry propagation. Ed25519 field elements use

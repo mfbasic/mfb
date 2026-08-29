@@ -2770,7 +2770,7 @@ FUNC pick(h AS Hash) AS Integer
 END FUNC
 FUNC main AS Integer
   LET d AS List OF Byte = crypto::hash(Hash.SHA1, \"legacy\")
-  RETURN len(d) + pick(Hash.SHA256)
+  RETURN len(d) + pick(Hash.SHA2_256)
 END FUNC
 ";
         let rules = check_src(src);
@@ -2790,9 +2790,9 @@ END FUNC
         let src = "\
 IMPORT crypto
 FUNC main AS Integer
-  LET d AS List OF Byte = crypto::hash(Hash.SHA256, \"data\")
-  MATCH Hash.SHA512
-    CASE Hash.SHA512
+  LET d AS List OF Byte = crypto::hash(Hash.SHA2_256, \"data\")
+  MATCH Hash.SHA2_512
+    CASE Hash.SHA2_512
       RETURN len(d)
     CASE ELSE
       RETURN 0

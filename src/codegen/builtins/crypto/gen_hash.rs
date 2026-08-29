@@ -24,12 +24,12 @@ use crate::target::shared::abi;
 // SHA-1 is the fall-through ordinal (never compared), but named for the contract.
 #[allow(dead_code)]
 pub(crate) const ORD_SHA1: &str = "0";
-pub(crate) const ORD_SHA224: &str = "1";
-pub(crate) const ORD_SHA256: &str = "2";
-pub(crate) const ORD_SHA384: &str = "3";
-pub(crate) const ORD_SHA512: &str = "4";
+pub(crate) const ORD_SHA2_224: &str = "1";
+pub(crate) const ORD_SHA2_256: &str = "2";
+pub(crate) const ORD_SHA2_384: &str = "3";
+pub(crate) const ORD_SHA2_512: &str = "4";
 
-/// Emit the `Hash`-ordinal dispatch for `crypto::hash`: branch on `ord` to the SHA-2
+/// Emit the `Hash`-ordinal dispatch for `crypto::hash`: branch on `ord` to the SHA
 /// core matching the digest, routing the single `data` operand into the core's first
 /// argument register. `is_text` picks the `_text` (String) vs `_bytes` (List OF Byte)
 /// core family. Every arm leaves the digest `List OF Byte` in the result registers and
@@ -49,13 +49,13 @@ pub(crate) fn emit_dispatch(
     let sha384 = format!("{symbol}_{suffix}_sha384");
     let sha512 = format!("{symbol}_{suffix}_sha512");
     builder.instructions.extend([
-        abi::compare_immediate(ord, ORD_SHA224),
+        abi::compare_immediate(ord, ORD_SHA2_224),
         abi::branch_eq(&sha224),
-        abi::compare_immediate(ord, ORD_SHA256),
+        abi::compare_immediate(ord, ORD_SHA2_256),
         abi::branch_eq(&sha256),
-        abi::compare_immediate(ord, ORD_SHA384),
+        abi::compare_immediate(ord, ORD_SHA2_384),
         abi::branch_eq(&sha384),
-        abi::compare_immediate(ord, ORD_SHA512),
+        abi::compare_immediate(ord, ORD_SHA2_512),
         abi::branch_eq(&sha512),
     ]);
     // SHA-1 (ordinal 0) falls through here.

@@ -2,7 +2,7 @@
 ' occurrence — a plain expression AND a MATCH literal — reports exactly one
 ' CRYPTO_SHA1_INSECURE warning (2-203-0136, warn, non-fatal), the program still
 ' builds and runs, and the digest is the standard FIPS 180-4 value. A non-advisory
-' value (`Hash.SHA256`) in the same contexts reports nothing.
+' value (`Hash.SHA2_256`) in the same contexts reports nothing.
 IMPORT crypto
 IMPORT encoding
 IMPORT io
@@ -11,7 +11,7 @@ FUNC label(h AS Hash) AS String
   MATCH h
     CASE Hash.SHA1
       RETURN "sha1"
-    CASE Hash.SHA256
+    CASE Hash.SHA2_256
       RETURN "sha256"
     CASE ELSE
       RETURN "other"
@@ -20,7 +20,7 @@ END FUNC
 
 SUB main()
   LET legacy AS List OF Byte = crypto::hash(Hash.SHA1, "abc")
-  LET modern AS List OF Byte = crypto::hash(Hash.SHA256, "abc")
-  io::print(label(Hash.SHA256) & "=" & encoding::hexEncode(modern))
+  LET modern AS List OF Byte = crypto::hash(Hash.SHA2_256, "abc")
+  io::print(label(Hash.SHA2_256) & "=" & encoding::hexEncode(modern))
   io::print("legacy=" & encoding::hexEncode(legacy))
 END SUB

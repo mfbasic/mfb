@@ -1,8 +1,8 @@
 //! `crypto::pbkdf2(type, password, salt, iterations, length)` — unified hash-generic
 //! PBKDF2 entry point.
 //!
-//! Selected by a [`crypto::Hash`] enum (`SHA224`/`SHA256`/`SHA384`/`SHA512`), this
-//! member rewrites onto the hash-generic `__crypto_pbkdf2` MFB core (registered by
+//! Selected by a [`crypto::Hash`] enum (`SHA1`, `SHA2_224`/`SHA2_256`/`SHA2_384`/
+//! `SHA2_512`), this member rewrites onto the hash-generic `__crypto_pbkdf2` MFB core (registered by
 //! [`super::helper_pbkdf2`]), which runs RFC 2898 PBKDF2 over the hash-generic
 //! `__crypto_hmac` — so every `Hash` variant, present and future, derives password keys
 //! through one construction. It is the unified front door for the per-digest
@@ -14,10 +14,12 @@ use super::{
 
 const INTRO: &str = r#"Derive a key from a password with PBKDF2, selected by a `crypto::Hash`."#;
 const DESC: &str = r#"`crypto::pbkdf2(type, password, salt, iterations, length)` derives `length` bytes of
-key material from a `password` and `salt` using PBKDF2-HMAC over the SHA-2 hash
-selected by `type` — a `crypto::Hash`: `SHA224`, `SHA256`, `SHA384`, or `SHA512`. The
-result is returned as a raw `List OF Byte` of exactly `length` bytes. This one call
-replaces the per-digest PBKDF2 members behind a single `Hash`-selected surface.
+key material from a `password` and `salt` using PBKDF2-HMAC over the hash selected
+by `type` — a `crypto::Hash`: `SHA1`, `SHA2_224`, `SHA2_256`, `SHA2_384`, or
+`SHA2_512`. The result is returned as a raw `List OF Byte` of exactly `length`
+bytes. This one call is the package's single PBKDF2 surface. (PBKDF2-HMAC-SHA1 is
+the RFC 8018 / WPA2 legacy profile; `Hash.SHA1` reports the `CRYPTO_SHA1_INSECURE`
+advisory, so select it only for compatibility with an existing deployment.)
 
 PBKDF2 applies the underlying HMAC `iterations` times per output block, chaining the
 salted password through repeated hashing so that each derived byte costs about
@@ -47,7 +49,7 @@ key material is raw binary, not text — stringify it with `encoding::hexEncode`
 with `crypto::constantTimeEqual`.
 
 **Implementation.** PBKDF2 is specified by RFC 8018 (PKCS#5 v2.1), here layered over
-HMAC of the selected SHA-2 hash. The derivation is computed in-process by a portable
+HMAC of the selected hash. The derivation is computed in-process by a portable
 MFBASIC software core over the `bits` package — no platform cryptographic library is
 called — so the output is **byte-identical on macOS, Linux, and Windows** (and across
 aarch64/x86-64). The core is hash-generic over the `Hash` enum, so a future `Hash`
@@ -62,7 +64,7 @@ IMPORT io
 SUB main()
   LET password AS List OF Byte = strings::toBytes("correct horse")
   LET salt AS List OF Byte = crypto::randomBytes(16)
-  LET key AS List OF Byte = crypto::pbkdf2(Hash.SHA256, password, salt, 600000, 32)
+  LET key AS List OF Byte = crypto::pbkdf2(Hash.SHA2_256, password, salt, 600000, 32)
 END SUB
 ```"#;
 

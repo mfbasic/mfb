@@ -49,36 +49,36 @@ TESTING
     ' -----------------------------------------------------------------------
     TGROUP "hash — SHA-2 (FIPS 180-4)"
       TCASE "SHA-256 known-answer"
-        expectString(encoding::hexEncode(crypto::hash(Hash.SHA256, "abc")), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
-        expectString(encoding::hexEncode(crypto::hash(Hash.SHA256, "")), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA2_256, "abc")), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA2_256, "")), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
       END TCASE
       TCASE "SHA-224 known-answer"
-        expectString(encoding::hexEncode(crypto::hash(Hash.SHA224, "abc")), "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7")
-        expectString(encoding::hexEncode(crypto::hash(Hash.SHA224, "")), "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f")
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA2_224, "abc")), "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7")
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA2_224, "")), "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f")
       END TCASE
       TCASE "SHA-384 known-answer"
-        expectString(encoding::hexEncode(crypto::hash(Hash.SHA384, "abc")), "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7")
-        expectString(encoding::hexEncode(crypto::hash(Hash.SHA384, "")), "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b")
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA2_384, "abc")), "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7")
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA2_384, "")), "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b")
       END TCASE
       TCASE "SHA-512 known-answer"
-        expectString(encoding::hexEncode(crypto::hash(Hash.SHA512, "abc")), "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f")
-        expectString(encoding::hexEncode(crypto::hash(Hash.SHA512, "")), "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e")
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA2_512, "abc")), "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f")
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA2_512, "")), "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e")
       END TCASE
       TCASE "String and List OF Byte overloads agree"
         LET raw AS List OF Byte = cxBytes("abc")
-        expectString(encoding::hexEncode(crypto::hash(Hash.SHA256, raw)), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA2_256, raw)), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
         LET empty AS List OF Byte = []
-        expectString(encoding::hexEncode(crypto::hash(Hash.SHA256, empty)), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA2_256, empty)), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
       END TCASE
       TCASE "digest lengths are fixed by algorithm"
-        expectInteger(len(crypto::hash(Hash.SHA224, "x")), 28)
-        expectInteger(len(crypto::hash(Hash.SHA256, "x")), 32)
-        expectInteger(len(crypto::hash(Hash.SHA384, "x")), 48)
-        expectInteger(len(crypto::hash(Hash.SHA512, "x")), 64)
+        expectInteger(len(crypto::hash(Hash.SHA2_224, "x")), 28)
+        expectInteger(len(crypto::hash(Hash.SHA2_256, "x")), 32)
+        expectInteger(len(crypto::hash(Hash.SHA2_384, "x")), 48)
+        expectInteger(len(crypto::hash(Hash.SHA2_512, "x")), 64)
       END TCASE
       TCASE "deterministic; distinct inputs differ"
-        expectEqual(crypto::constantTimeEqual(crypto::hash(Hash.SHA256, "abc"), crypto::hash(Hash.SHA256, "abc")), TRUE)
-        expectEqual(crypto::constantTimeEqual(crypto::hash(Hash.SHA256, "abc"), crypto::hash(Hash.SHA256, "abd")), FALSE)
+        expectEqual(crypto::constantTimeEqual(crypto::hash(Hash.SHA2_256, "abc"), crypto::hash(Hash.SHA2_256, "abc")), TRUE)
+        expectEqual(crypto::constantTimeEqual(crypto::hash(Hash.SHA2_256, "abc"), crypto::hash(Hash.SHA2_256, "abd")), FALSE)
       END TCASE
     END TGROUP
 
@@ -86,30 +86,30 @@ TESTING
     TGROUP "hmac — RFC 4231"
       TCASE "test case 1 (20-byte 0x0b key, 'Hi There')"
         LET k AS List OF Byte = encoding::hexDecode("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b")
-        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA224, k, "Hi There")), "896fb1128abbdf196832107cd49df33f47b4b1169912ba4f53684b22")
-        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA256, k, "Hi There")), "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7")
-        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA384, k, "Hi There")), "afd03944d84895626b0825f4ab46907f15f9dadbe4101ec682aa034c7cebc59cfaea9ea9076ede7f4af152e8b2fa9cb6")
-        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA512, k, "Hi There")), "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854")
+        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA2_224, k, "Hi There")), "896fb1128abbdf196832107cd49df33f47b4b1169912ba4f53684b22")
+        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA2_256, k, "Hi There")), "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7")
+        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA2_384, k, "Hi There")), "afd03944d84895626b0825f4ab46907f15f9dadbe4101ec682aa034c7cebc59cfaea9ea9076ede7f4af152e8b2fa9cb6")
+        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA2_512, k, "Hi There")), "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854")
       END TCASE
       TCASE "test case 2 (key 'Jefe')"
         LET jefe AS List OF Byte = cxBytes("Jefe")
-        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA256, jefe, "what do ya want for nothing?")), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
-        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA512, jefe, "what do ya want for nothing?")), "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737")
+        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA2_256, jefe, "what do ya want for nothing?")), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
+        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA2_512, jefe, "what do ya want for nothing?")), "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737")
       END TCASE
       TCASE "String and List OF Byte data overloads agree"
         LET jefe AS List OF Byte = cxBytes("Jefe")
         LET msg AS List OF Byte = cxBytes("what do ya want for nothing?")
-        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA256, jefe, msg)), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
+        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA2_256, jefe, msg)), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
       END TCASE
       TCASE "MAC length equals digest length; total (empty inputs ok)"
         LET e AS List OF Byte = []
-        expectInteger(len(crypto::hmac(Hash.SHA256, e, "")), 32)
-        expectInteger(len(crypto::hmac(Hash.SHA512, e, "")), 64)
+        expectInteger(len(crypto::hmac(Hash.SHA2_256, e, "")), 32)
+        expectInteger(len(crypto::hmac(Hash.SHA2_512, e, "")), 64)
       END TCASE
       TCASE "distinct key yields distinct MAC"
         LET k1 AS List OF Byte = cxBytes("key-one")
         LET k2 AS List OF Byte = cxBytes("key-two")
-        expectEqual(crypto::constantTimeEqual(crypto::hmac(Hash.SHA256, k1, "m"), crypto::hmac(Hash.SHA256, k2, "m")), FALSE)
+        expectEqual(crypto::constantTimeEqual(crypto::hmac(Hash.SHA2_256, k1, "m"), crypto::hmac(Hash.SHA2_256, k2, "m")), FALSE)
       END TCASE
     END TGROUP
 
@@ -119,24 +119,24 @@ TESTING
         LET ikm AS List OF Byte = encoding::hexDecode("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b")
         LET salt AS List OF Byte = encoding::hexDecode("000102030405060708090a0b0c")
         LET info AS List OF Byte = encoding::hexDecode("f0f1f2f3f4f5f6f7f8f9")
-        expectString(encoding::hexEncode(crypto::hkdf(Hash.SHA256, ikm, salt, info, 42)), "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865")
+        expectString(encoding::hexEncode(crypto::hkdf(Hash.SHA2_256, ikm, salt, info, 42)), "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865")
       END TCASE
       TCASE "test case 3 (SHA-256, empty salt and info)"
         LET ikm AS List OF Byte = encoding::hexDecode("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b")
         LET e AS List OF Byte = []
-        expectString(encoding::hexEncode(crypto::hkdf(Hash.SHA256, ikm, e, e, 42)), "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d9d201395faa4b61a96c8")
+        expectString(encoding::hexEncode(crypto::hkdf(Hash.SHA2_256, ikm, e, e, 42)), "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d9d201395faa4b61a96c8")
       END TCASE
       TCASE "length boundaries"
         LET ikm AS List OF Byte = cxBytes("input key material")
         LET e AS List OF Byte = []
-        expectInteger(len(crypto::hkdf(Hash.SHA256, ikm, e, e, 1)), 1)
-        expectInteger(len(crypto::hkdf(Hash.SHA256, ikm, e, e, 8160)), 8160)
+        expectInteger(len(crypto::hkdf(Hash.SHA2_256, ikm, e, e, 1)), 1)
+        expectInteger(len(crypto::hkdf(Hash.SHA2_256, ikm, e, e, 8160)), 8160)
       END TCASE
       TCASE "error: length out of range -> ErrInvalidArgument"
         LET ikm AS List OF Byte = cxBytes("ikm")
         LET e AS List OF Byte = []
-        expectTrap(crypto::hkdf(Hash.SHA256, ikm, e, e, 0), errorCode::ErrInvalidArgument)
-        expectTrap(crypto::hkdf(Hash.SHA256, ikm, e, e, 8161), errorCode::ErrInvalidArgument)
+        expectTrap(crypto::hkdf(Hash.SHA2_256, ikm, e, e, 0), errorCode::ErrInvalidArgument)
+        expectTrap(crypto::hkdf(Hash.SHA2_256, ikm, e, e, 8161), errorCode::ErrInvalidArgument)
       END TCASE
     END TGROUP
 
@@ -145,21 +145,21 @@ TESTING
       TCASE "SHA-256/512 known-answer (passwd/salt, 1 iteration)"
         LET pw AS List OF Byte = cxBytes("passwd")
         LET sa AS List OF Byte = cxBytes("salt")
-        expectString(encoding::hexEncode(crypto::pbkdf2(Hash.SHA256, pw, sa, 1, 64)), "55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc49ca9cccf179b645991664b39d77ef317c71b845b1e30bd509112041d3a19783")
-        expectString(encoding::hexEncode(crypto::pbkdf2(Hash.SHA512, pw, sa, 1, 64)), "c74319d99499fc3e9013acff597c23c5baf0a0bec5634c46b8352b793e324723d55caa76b2b25c43402dcfdc06cdcf66f95b7d0429420b39520006749c51a04e")
+        expectString(encoding::hexEncode(crypto::pbkdf2(Hash.SHA2_256, pw, sa, 1, 64)), "55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc49ca9cccf179b645991664b39d77ef317c71b845b1e30bd509112041d3a19783")
+        expectString(encoding::hexEncode(crypto::pbkdf2(Hash.SHA2_512, pw, sa, 1, 64)), "c74319d99499fc3e9013acff597c23c5baf0a0bec5634c46b8352b793e324723d55caa76b2b25c43402dcfdc06cdcf66f95b7d0429420b39520006749c51a04e")
       END TCASE
       TCASE "deterministic; salt separation"
         LET pw AS List OF Byte = cxBytes("password")
         LET s1 AS List OF Byte = cxBytes("salt-a")
         LET s2 AS List OF Byte = cxBytes("salt-b")
-        expectEqual(crypto::constantTimeEqual(crypto::pbkdf2(Hash.SHA256, pw, s1, 4, 32), crypto::pbkdf2(Hash.SHA256, pw, s1, 4, 32)), TRUE)
-        expectEqual(crypto::constantTimeEqual(crypto::pbkdf2(Hash.SHA256, pw, s1, 4, 32), crypto::pbkdf2(Hash.SHA256, pw, s2, 4, 32)), FALSE)
+        expectEqual(crypto::constantTimeEqual(crypto::pbkdf2(Hash.SHA2_256, pw, s1, 4, 32), crypto::pbkdf2(Hash.SHA2_256, pw, s1, 4, 32)), TRUE)
+        expectEqual(crypto::constantTimeEqual(crypto::pbkdf2(Hash.SHA2_256, pw, s1, 4, 32), crypto::pbkdf2(Hash.SHA2_256, pw, s2, 4, 32)), FALSE)
       END TCASE
       TCASE "error: iterations/length below 1 -> ErrInvalidArgument"
         LET pw AS List OF Byte = cxBytes("pw")
         LET sa AS List OF Byte = cxBytes("salt")
-        expectTrap(crypto::pbkdf2(Hash.SHA256, pw, sa, 0, 32), errorCode::ErrInvalidArgument)
-        expectTrap(crypto::pbkdf2(Hash.SHA256, pw, sa, 1, 0), errorCode::ErrInvalidArgument)
+        expectTrap(crypto::pbkdf2(Hash.SHA2_256, pw, sa, 0, 32), errorCode::ErrInvalidArgument)
+        expectTrap(crypto::pbkdf2(Hash.SHA2_256, pw, sa, 1, 0), errorCode::ErrInvalidArgument)
       END TCASE
     END TGROUP
 
@@ -537,17 +537,17 @@ TESTING
       TCASE "flow: pbkdf2 password -> AES-GCM seal/open"
         LET pw AS List OF Byte = cxBytes("correct horse battery staple")
         LET salt AS List OF Byte = crypto::randomBytes(16)
-        LET key AS List OF Byte = crypto::pbkdf2(Hash.SHA256, pw, salt, 1000, 32)
+        LET key AS List OF Byte = crypto::pbkdf2(Hash.SHA2_256, pw, salt, 1000, 32)
         expectInteger(len(key), 32)
         LET nonce AS List OF Byte = crypto::randomBytes(12)
         LET pt AS List OF Byte = cxBytes("vault contents")
         LET box AS crypto::Sealed = crypto::seal(SymmetricCipher.AES256GCM, key, nonce, pt)
-        LET key2 AS List OF Byte = crypto::pbkdf2(Hash.SHA256, pw, salt, 1000, 32)
+        LET key2 AS List OF Byte = crypto::pbkdf2(Hash.SHA2_256, pw, salt, 1000, 32)
         expectString(encoding::hexEncode(crypto::open(SymmetricCipher.AES256GCM, key2, nonce, box)), encoding::hexEncode(pt))
       END TCASE
       TCASE "flow: hkdf-derived key+nonce -> ChaCha20-Poly1305 seal/open"
         LET shared AS List OF Byte = crypto::randomBytes(32)
-        LET okm AS List OF Byte = crypto::hkdf(Hash.SHA256, shared, cxBytes("session-salt"), cxBytes("aead-key-nonce"), 44)
+        LET okm AS List OF Byte = crypto::hkdf(Hash.SHA2_256, shared, cxBytes("session-salt"), cxBytes("aead-key-nonce"), 44)
         LET key AS List OF Byte = collections::mid(okm, 0, 32)
         LET nonce AS List OF Byte = collections::mid(okm, 32, 12)
         LET pt AS List OF Byte = cxBytes("streamed record")
@@ -557,12 +557,12 @@ TESTING
       TCASE "flow: HMAC token issue -> verify in constant time"
         LET macKey AS List OF Byte = crypto::randomBytes(32)
         LET token AS List OF Byte = cxBytes("user=alice;exp=1893456000")
-        LET tag AS List OF Byte = crypto::hmac(Hash.SHA256, macKey, token)
+        LET tag AS List OF Byte = crypto::hmac(Hash.SHA2_256, macKey, token)
         ' receiver recomputes and compares
-        LET recomputed AS List OF Byte = crypto::hmac(Hash.SHA256, macKey, token)
+        LET recomputed AS List OF Byte = crypto::hmac(Hash.SHA2_256, macKey, token)
         expectEqual(crypto::constantTimeEqual(tag, recomputed), TRUE)
         ' a forged token fails
-        LET forged AS List OF Byte = crypto::hmac(Hash.SHA256, macKey, cxBytes("user=admin;exp=1893456000"))
+        LET forged AS List OF Byte = crypto::hmac(Hash.SHA2_256, macKey, cxBytes("user=admin;exp=1893456000"))
         expectEqual(crypto::constantTimeEqual(tag, forged), FALSE)
       END TCASE
       TCASE "flow: randomBytes key -> GCM seal/open with aad header"

@@ -15,10 +15,10 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 const BODY: &str =
 r#"' Hash-generic HMAC block size B: 64 for SHA-1/224/256, 128 for SHA-384/512.
 FUNC __crypto_shaBlockSize(algo AS Hash) AS Integer
-  IF algo = Hash.SHA384 THEN
+  IF algo = Hash.SHA2_384 THEN
     RETURN 128
   END IF
-  IF algo = Hash.SHA512 THEN
+  IF algo = Hash.SHA2_512 THEN
     RETURN 128
   END IF
   RETURN 64
