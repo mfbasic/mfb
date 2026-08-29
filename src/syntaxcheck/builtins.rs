@@ -254,24 +254,6 @@ fn builtin_arg_mode(package: &str) -> Option<ArgMode> {
         .map(|entry| entry.args)
 }
 
-/// Whether a builtin call (canonical `package.member` name) reaches one of the
-/// argument checkers — the four bespoke arms or the package table — and so has
-/// its argument list normalized. A builtin outside every arm falls through
-/// `check_builtin_call`'s tail with its arguments merely inferred, so its named
-/// arguments are never bound; `ir::shape` asks this to apply the same boundary
-/// to the relocated named-argument rules (plan-107-E).
-pub(crate) fn checks_builtin_call_arguments(callee: &str) -> bool {
-    crate::codegen::builtins::general::is_general_call(callee)
-        || matches!(
-            crate::codegen::registry::registry().owning_package(callee),
-            Some("collections") | Some("term")
-        )
-        || crate::codegen::builtins::thread::is_thread_call(callee)
-        || builtins::builtin_package_name(callee)
-            .and_then(builtin_arg_mode)
-            .is_some()
-}
-
 impl<'a> SyntaxChecker<'a> {
     #[allow(clippy::too_many_arguments)]
     /// Dispatch a builtin call to its package checker.
@@ -390,8 +372,7 @@ impl<'a> SyntaxChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        let arguments =
-            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
+        let arguments = self.normalize_builtin_call_arguments(callee, arguments);
         let arg_types = arguments
             .iter()
             .enumerate()
@@ -414,20 +395,8 @@ impl<'a> SyntaxChecker<'a> {
 
         if let Some((min, max)) = builtins::arity(callee) {
             if arguments.len() < min || arguments.len() > max {
-                let expected = if min == max {
-                    min.to_string()
-                } else {
-                    format!("{min} to {max}")
-                };
-                self.report(
-                    "TYPE_CALL_ARITY_MISMATCH",
-                    &format!(
-                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
-                        arguments.len()
-                    ),
-                    file,
-                    line,
-                );
+                // The arity mismatch is `ir::verify`'s (TYPE_CALL_ARITY_MISMATCH,
+                // plan-107-E); the call still types as Unknown here.
                 return Type::Unknown;
             }
         }
@@ -461,26 +430,13 @@ impl<'a> SyntaxChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        let arguments =
-            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
+        let arguments = self.normalize_builtin_call_arguments(callee, arguments);
 
         if let Some((min, max)) = builtins::arity(callee) {
             if arguments.len() < min || arguments.len() > max {
-                let expected = if min == max {
-                    min.to_string()
-                } else {
-                    format!("{min} to {max}")
-                };
-                self.report(
-                    "TYPE_CALL_ARITY_MISMATCH",
-                    &format!(
-                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
-                        arguments.len()
-                    ),
-                    file,
-                    line,
-                );
-                // Still infer the arguments so nested errors are reported.
+                // The arity mismatch is `ir::verify`'s (TYPE_CALL_ARITY_MISMATCH,
+                // plan-107-E). Still infer the arguments so nested errors are
+                // reported.
                 for argument in &arguments {
                     self.infer_expression(file, argument, locals, line, ExprMode::Read);
                 }
@@ -587,8 +543,7 @@ impl<'a> SyntaxChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        let arguments =
-            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
+        let arguments = self.normalize_builtin_call_arguments(callee, arguments);
         let arg_types = arguments
             .iter()
             .enumerate()
@@ -634,20 +589,8 @@ impl<'a> SyntaxChecker<'a> {
 
         if let Some((min, max)) = builtins::arity(callee) {
             if arguments.len() < min || arguments.len() > max {
-                let expected = if min == max {
-                    min.to_string()
-                } else {
-                    format!("{min} to {max}")
-                };
-                self.report(
-                    "TYPE_CALL_ARITY_MISMATCH",
-                    &format!(
-                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
-                        arguments.len()
-                    ),
-                    file,
-                    line,
-                );
+                // The arity mismatch is `ir::verify`'s (TYPE_CALL_ARITY_MISMATCH,
+                // plan-107-E); the call still types as Unknown here.
                 return Type::Unknown;
             }
         }
@@ -682,8 +625,7 @@ impl<'a> SyntaxChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        let arguments =
-            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
+        let arguments = self.normalize_builtin_call_arguments(callee, arguments);
 
         let arg_types = arguments
             .iter()
@@ -705,20 +647,8 @@ impl<'a> SyntaxChecker<'a> {
 
         if let Some((min, max)) = builtins::arity(callee) {
             if arguments.len() < min || arguments.len() > max {
-                let expected = if min == max {
-                    min.to_string()
-                } else {
-                    format!("{min} to {max}")
-                };
-                self.report(
-                    "TYPE_CALL_ARITY_MISMATCH",
-                    &format!(
-                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
-                        arguments.len()
-                    ),
-                    file,
-                    line,
-                );
+                // The arity mismatch is `ir::verify`'s (TYPE_CALL_ARITY_MISMATCH,
+                // plan-107-E); the call still types as Unknown here.
                 return Type::Unknown;
             }
         }
@@ -777,8 +707,7 @@ impl<'a> SyntaxChecker<'a> {
         // `owning_package == Some("collections")` check at the call site), so the
         // generic dequalifier hands back its bare native name (`collections.get` -> `get`).
         let member = crate::codegen::builtins::native_builtin_target(callee).unwrap_or(callee);
-        let arguments =
-            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
+        let arguments = self.normalize_builtin_call_arguments(callee, arguments);
         // `filter` used to be the ONLY position that accepted a bare built-in
         // predicate, because it was the only one with this special case — which
         // is precisely how bug-368 stayed invisible. Every native member taking a
@@ -863,20 +792,8 @@ impl<'a> SyntaxChecker<'a> {
 
         if let Some((min, max)) = builtins::arity(callee) {
             if arguments.len() < min || arguments.len() > max {
-                let expected = if min == max {
-                    min.to_string()
-                } else {
-                    format!("{min} to {max}")
-                };
-                self.report(
-                    "TYPE_CALL_ARITY_MISMATCH",
-                    &format!(
-                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
-                        arguments.len()
-                    ),
-                    file,
-                    line,
-                );
+                // The arity mismatch is `ir::verify`'s (TYPE_CALL_ARITY_MISMATCH,
+                // plan-107-E); the call still types as Unknown here.
                 return Type::Unknown;
             }
         }
@@ -940,13 +857,14 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 
+    /// Bind a builtin call's arguments to its parameter positions. Every
+    /// rejection this used to raise — an unknown or duplicate name, an omitted
+    /// parameter before a later supplied one, no overload taking the names —
+    /// is the shape pass's now (plan-107-E).
     pub(super) fn normalize_builtin_call_arguments(
         &mut self,
-        file: &HirFile,
-        display_callee: &str,
         callee: &str,
         arguments: &[HirCallArg],
-        line: usize,
     ) -> Vec<HirExpression> {
         if !arguments
             .iter()
@@ -958,13 +876,7 @@ impl<'a> SyntaxChecker<'a> {
                 .collect();
         }
         if let Some(overloads) = builtins::call_param_name_overloads(callee) {
-            return self.normalize_overloaded_builtin_call_arguments(
-                file,
-                display_callee,
-                &overloads,
-                arguments,
-                line,
-            );
+            return self.normalize_overloaded_builtin_call_arguments(&overloads, arguments);
         }
         let Some(param_names) = builtins::call_param_names(callee) else {
             // No param-name metadata for this builtin: named arguments cannot be
@@ -978,7 +890,6 @@ impl<'a> SyntaxChecker<'a> {
         let mut ordered = vec![None; param_names.len()];
         let mut next_positional = 0usize;
         let mut extras = Vec::new();
-        let mut saw_unknown_named = false;
         for argument in arguments {
             match argument {
                 HirCallArg::Positional(value) => {
@@ -997,10 +908,9 @@ impl<'a> SyntaxChecker<'a> {
                         .iter()
                         .position(|aliases| aliases.iter().any(|alias| alias == name))
                     else {
-                        // The unknown name itself is the shape pass's rejection
-                        // (TYPE_UNKNOWN_ARGUMENT_NAME, plan-107-E); it still
-                        // disarms the omission check below.
-                        saw_unknown_named = true;
+                        // The unknown name is the shape pass's rejection
+                        // (TYPE_UNKNOWN_ARGUMENT_NAME, plan-107-E), as is the
+                        // omission it disarms (TYPE_CALL_ARITY_MISMATCH).
                         continue;
                     };
                     if ordered[index].is_some() {
@@ -1009,27 +919,6 @@ impl<'a> SyntaxChecker<'a> {
                         continue;
                     }
                     ordered[index] = Some(value.clone());
-                }
-            }
-        }
-        if !saw_unknown_named {
-            for (index, aliases) in param_names.iter().enumerate() {
-                if ordered[index].is_none()
-                    && ordered
-                        .iter()
-                        .skip(index + 1)
-                        .any(|argument| argument.is_some())
-                {
-                    self.report(
-                        "TYPE_CALL_ARITY_MISMATCH",
-                        &format!(
-                            "Call to `{display_callee}` omits parameter `{}` before a later supplied argument.",
-                            aliases[0]
-                        ),
-                        file,
-                        line,
-                    );
-                    break;
                 }
             }
         }
@@ -1049,11 +938,8 @@ impl<'a> SyntaxChecker<'a> {
     /// within it.
     fn normalize_overloaded_builtin_call_arguments(
         &mut self,
-        file: &HirFile,
-        display_callee: &str,
         overloads: &[Vec<&str>],
         arguments: &[HirCallArg],
-        line: usize,
     ) -> Vec<HirExpression> {
         let positionals: Vec<&HirExpression> = arguments
             .iter()
@@ -1113,55 +999,22 @@ impl<'a> SyntaxChecker<'a> {
         }
 
         // Every supplied name exists, but no overload's arity and layout accept
-        // this combination: report the first parameter left unsupplied by the
-        // smallest overload that names them all (`connectTcp(host:, timeoutMs:)`
-        // omits `port`).
-        let covering = overloads
-            .iter()
-            .filter(|params| {
-                named
-                    .iter()
-                    .all(|(name, _, _)| params.contains(&name.as_str()))
-            })
-            .collect::<Vec<_>>();
-        if let Some(params) = covering.iter().min_by_key(|params| params.len()) {
-            let missing = params.iter().enumerate().find(|(index, param)| {
-                *index >= positionals.len() && !named.iter().any(|(name, _, _)| name == *param)
-            });
-            if let Some((_, missing)) = missing {
-                self.report(
-                    "TYPE_CALL_ARITY_MISMATCH",
-                    &format!(
-                        "Call to `{display_callee}` omits parameter `{missing}` before a later supplied argument."
-                    ),
-                    file,
-                    line,
-                );
-                return fallback();
-            }
-        }
-        self.report(
-            "TYPE_CALL_ARITY_MISMATCH",
-            &format!("Call to `{display_callee}` has no overload taking these arguments."),
-            file,
-            line,
-        );
+        // this combination — the shape pass's rejection (TYPE_CALL_ARITY_MISMATCH,
+        // plan-107-E); the arguments stay in source order.
         fallback()
     }
 
+    /// Bind a declared function's call arguments to its parameter slots. Every
+    /// rejection this used to raise — an unknown or duplicate name, a count the
+    /// signature cannot take — is the shape pass's now (plan-107-E); an
+    /// argument that binds nowhere is simply left out.
     pub(super) fn normalize_named_arguments(
         &mut self,
-        file: &HirFile,
-        callee: &str,
         arguments: &[HirCallArg],
         params: &[ParamSig],
-        line: usize,
-        allow_trailing_omission: bool,
     ) -> Vec<Option<HirExpression>> {
         let mut ordered = vec![None; params.len()];
         let mut next_positional = 0usize;
-        let mut supplied = 0usize;
-        let mut arity_error = false;
 
         for argument in arguments {
             match argument {
@@ -1170,64 +1023,21 @@ impl<'a> SyntaxChecker<'a> {
                         next_positional += 1;
                     }
                     if next_positional >= ordered.len() {
-                        arity_error = true;
                         continue;
                     }
                     ordered[next_positional] = Some(value.clone());
                     next_positional += 1;
-                    supplied += 1;
                 }
                 HirCallArg::Named { name, value, .. } => {
-                    // An unknown name is the shape pass's rejection
-                    // (TYPE_UNKNOWN_ARGUMENT_NAME, plan-107-E).
                     let Some(index) = params.iter().position(|param| param.name == *name) else {
                         continue;
                     };
                     if ordered[index].is_some() {
-                        // The duplicate is the shape pass's rejection
-                        // (TYPE_DUPLICATE_ARGUMENT_NAME, plan-107-E).
                         continue;
                     }
                     ordered[index] = Some(value.clone());
-                    supplied += 1;
                 }
             }
-        }
-
-        let required = params.iter().filter(|param| !param.has_default).count();
-        let missing_required = ordered
-            .iter()
-            .zip(params.iter())
-            .any(|(argument, param)| argument.is_none() && !param.has_default);
-        let max_supplied = ordered
-            .iter()
-            .rposition(Option::is_some)
-            .map(|index| index + 1)
-            .unwrap_or(0);
-        let has_internal_gap = allow_trailing_omission
-            && ordered
-                .iter()
-                .zip(params.iter())
-                .take(max_supplied)
-                .any(|(argument, param)| argument.is_none() && !param.has_default);
-
-        if arity_error
-            || supplied < required
-            || supplied > params.len()
-            || missing_required
-            || has_internal_gap
-        {
-            self.report(
-                "TYPE_CALL_ARITY_MISMATCH",
-                &format!(
-                    "Call to `{callee}` has {} argument(s), expected {} to {}.",
-                    supplied,
-                    required,
-                    params.len()
-                ),
-                file,
-                line,
-            );
         }
 
         ordered

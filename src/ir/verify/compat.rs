@@ -1,5 +1,96 @@
 use super::*;
 
+/// The builtin a lowered call targets, by the name the source wrote: the
+/// target itself when it is a builtin call, or — for a call lowering rewrote
+/// to a source-companion body (a `Body::Mfb`/`Body::Rewrite` member, the
+/// `astrings` Tier-B transforms, the `term::drawText(AttributedString)`
+/// bridge) — the member that body implements. `None` for a declared function.
+///
+/// A rewritten call keeps the builtin argument normalization (extras kept, no
+/// defaults filled), so its lowered `args` are still the checker's list; only
+/// the target name changed, and the rules below must report the builtin.
+pub(super) fn builtin_call_target(target: &str) -> Option<String> {
+    if builtins::is_builtin_call(target) {
+        return Some(target.to_string());
+    }
+    if target == crate::internal_name::internalize("__term_drawTextAttr") {
+        return Some(crate::codegen::builtins::term::DRAW_TEXT.to_string());
+    }
+    if let Some(owner) = crate::codegen::builtins::strings::tier_b_transform_owner(target) {
+        return Some(owner.to_string());
+    }
+    crate::codegen::registry::rewrite_owner(target)
+}
+
+/// The name of a bare general built-in predicate in a callback position: a
+/// `FunctionRef` lowering typed from the list's element type, or the `Local`
+/// it left when it could not (no such local exists — the name is the builtin's).
+fn builtin_predicate_name<'a>(
+    value: &'a IrValue,
+    locals: &HashMap<String, ParameterType>,
+) -> Option<&'a str> {
+    match value {
+        IrValue::FunctionRef { name, .. } | IrValue::Local(name)
+            if !locals.contains_key(name)
+                && crate::codegen::builtins::general::builtin_function_id(name).is_some() =>
+        {
+            Some(name)
+        }
+        _ => None,
+    }
+}
+
+/// Whether an argument is a non-negative integer literal that fits in a `Byte`
+/// (0..=255) — the same rule `expression_compatible` applies to let an
+/// `Integer` literal satisfy a `Byte` parameter. Only a literal qualifies; a
+/// computed `Integer` value does not.
+fn is_byte_literal(value: &IrValue) -> bool {
+    matches!(value, IrValue::Const { type_: ParameterType::Integer, value }
+        if value.parse::<u16>().is_ok_and(|n| n <= u8::MAX as u16))
+}
+
+/// Resolve a table-driven builtin call, retrying with `Integer`-literal
+/// arguments coerced to `Byte` when the exact-typed resolution fails
+/// (syntaxcheck's `resolve_table_call_with_byte_literals`): the table arm
+/// resolves by exact argument-type match, which rejects an integer literal
+/// passed to a `Byte` parameter (`astrings::foreground(255, 0, 0)`). Each
+/// subset of the eligible positions is tried, so a literal that is validly
+/// either `Integer` or `Byte` resolves against whichever the overload expects.
+fn resolve_table_call_with_byte_literals(
+    target: &str,
+    arg_types: &[ParameterType],
+    args: &[IrValue],
+) -> Option<ParameterType> {
+    if let Some(return_type) = builtins::resolve_call_return_type_typed(target, arg_types, true) {
+        return Some(return_type);
+    }
+    let eligible: Vec<usize> = arg_types
+        .iter()
+        .enumerate()
+        .filter(|(index, type_)| {
+            matches!(type_, ParameterType::Integer) && args.get(*index).is_some_and(is_byte_literal)
+        })
+        .map(|(index, _)| index)
+        .collect();
+    // Bound the subset search: a `Byte`-parameter overload never has many
+    // positions, and this only runs on the error path.
+    if eligible.is_empty() || eligible.len() > 6 {
+        return None;
+    }
+    for mask in 1u32..(1u32 << eligible.len()) {
+        let mut trial = arg_types.to_vec();
+        for (bit, &index) in eligible.iter().enumerate() {
+            if mask & (1 << bit) != 0 {
+                trial[index] = ParameterType::Byte;
+            }
+        }
+        if let Some(return_type) = builtins::resolve_call_return_type_typed(target, &trial, true) {
+            return Some(return_type);
+        }
+    }
+    None
+}
+
 impl TypeEnv {
     // 11. Result-type checks + builtin call args
     // ===========================================================================
@@ -136,32 +227,45 @@ impl TypeEnv {
     /// term/collections/general arity checks shared this exact body).
     fn builtin_arity_errored(&self, target: &str, actual: usize, min: usize, max: usize) -> bool {
         if actual < min || actual > max {
-            let expected = if min == max {
-                min.to_string()
-            } else {
-                format!("{min} to {max}")
-            };
-            self.emit(
-                "TYPE_CALL_ARITY_MISMATCH",
-                format!("Call to `{target}` has {actual} argument(s), expected {expected}."),
-            );
+            // On the source path the count the source wrote is `ir::shape`'s
+            // to report (lowering pads a builtin's optional trailing arguments
+            // and appends the extras, so the lowered count is not that count);
+            // the structural check still ends this call's checks, as the
+            // checker's did.
+            if !self.source_path.get() {
+                let expected = if min == max {
+                    min.to_string()
+                } else {
+                    format!("{min} to {max}")
+                };
+                self.emit(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    format!("Call to `{target}` has {actual} argument(s), expected {expected}."),
+                );
+            }
             true
         } else {
             false
         }
     }
 
-    /// Reject a call to a numeric built-in whose argument types match no
-    /// overload — the IR-level counterpart of `syntaxcheck`'s per-built-in
-    /// `TYPE_CALL_ARGUMENT_MISMATCH`, reusing the *same* `resolve_call` dispatch
-    /// the compiler already uses for return-type inference (so there is one
-    /// source of truth for the argument rules, not a re-implementation). On
-    /// decoded package IR a crafted `math.sqrt("x")` would otherwise reach
-    /// codegen, which selects the float instruction from the declared numeric
-    /// type. Restricted to the pure-numeric packages (math/bits) where the
-    /// arguments are ordinary values with no receiver/predicate normalization,
-    /// so `resolve_call`'s None is unambiguously an argument mismatch. Skipped
-    /// unless every argument type is known (no false rejection).
+    /// The builtin-call family — syntaxcheck's `check_builtin_call` transcribed
+    /// over the lowered call (plan-107-E): `TYPE_CALL_ARITY_MISMATCH` and
+    /// `TYPE_CALL_ARGUMENT_MISMATCH` for every builtin whose arguments the
+    /// checker validated (`builtins::checks_call_arguments`), in the checker's
+    /// own dispatch order — the four bespoke arms (`general`, `collections`,
+    /// `term`, `thread`) ahead of the shared package table — and with its
+    /// ordering inside a call: arity before resolution, resolution before the
+    /// comparability rule. Lowering has already normalized the call the way
+    /// the checker did (named arguments bound, unknown names dropped, extras
+    /// kept), so the lowered `args` are the checker's normalized list.
+    ///
+    /// On decoded package IR this is the ABI defense PKG-02 named: codegen
+    /// marshals every builtin argument by the registry's declared parameter
+    /// type, so a crafted `math.sqrt("x")` reaches the float instruction with a
+    /// string pointer unless rejected here. An argument whose type cannot be
+    /// inferred is `Unknown` — the checker's own spelling for it — rather than
+    /// a reason to skip the call.
     pub(super) fn check_builtin_call_args(
         &self,
         target: &str,
@@ -173,42 +277,24 @@ impl TypeEnv {
         // STATE. Run before the STATE-stripping arg-type collection below, which
         // would erase exactly the clause this check needs.
         self.check_thread_transfer_state(target, args, locals);
-        // `collections` element searches compare elements for equality, so the
-        // list's element type must be comparable — syntaxcheck's
-        // `check_special_builtin_arguments` arm of TYPE_REQUIRES_COMPARABLE.
-        if matches!(
-            target,
-            "collections.contains" | "collections.replace" | "collections.find"
-        ) {
-            if let Some(first) = args.first() {
-                if let Some(t) = self.infer_type(first, locals) {
-                    if let ParameterType::ListOf(element) = resource_base_type(&t) {
-                        if !matches!(*element, ParameterType::Unknown)
-                            && !self.is_comparable(&element)
-                        {
-                            let element = element.name();
-                            self.emit(
-                                "TYPE_REQUIRES_COMPARABLE",
-                                format!(
-                                    "Call to `{target}` requires a comparable type, got `{element}`."
-                                ),
-                            );
-                        }
-                    }
-                }
-            }
-        }
-        // Strip the `STATE T` clause a resource argument carries in its type
-        // string (`File STATE FileState` → `File`); resolve_call and the
-        // parameter tables use the bare resource type.
-        let arg_types: Option<Vec<ParameterType>> = args
-            .iter()
-            .map(|a| self.infer_type(a, locals).map(|t| resource_base_type(&t)))
-            .collect();
-        let Some(arg_types) = arg_types else {
+        let Some(builtin) = builtin_call_target(target) else {
             return;
         };
-        // The diagnostics below quote the argument list; render once, here.
+        let target = builtin.as_str();
+        if !builtins::checks_call_arguments(target) {
+            return;
+        }
+        // Strip the `STATE T` clause a resource argument carries in its type
+        // (`File STATE FileState` → `File`); resolve_call and the parameter
+        // tables use the bare resource type.
+        let arg_types: Vec<ParameterType> = args
+            .iter()
+            .map(|arg| {
+                self.infer_type(arg, locals)
+                    .map(|t| resource_base_type(&t))
+                    .unwrap_or(ParameterType::Unknown)
+            })
+            .collect();
         let arg_type_names = || {
             arg_types
                 .iter()
@@ -216,67 +302,18 @@ impl TypeEnv {
                 .collect::<Vec<_>>()
                 .join(", ")
         };
-        // `term` exposes its per-name signatures (`arity`, machine `argument_types`)
-        // rather than an arg-typed `resolve_call`, so check against those with
-        // the ported `expression_compatible` — the same data syntaxcheck's
-        // `check_term_builtin_call` uses, so term's signature is single-source.
-        if crate::codegen::registry::registry().owning_package(target) == Some("term") {
-            if let Some((min, max)) = builtins::arity(target) {
-                if self.builtin_arity_errored(target, arg_types.len(), min, max) {
-                    return;
-                }
-            }
-            let params = builtins::argument_types_typed(target).unwrap_or_default();
-            let mut mismatch = false;
-            for (i, param) in params.iter().enumerate() {
-                if let (Some(actual), Some(arg)) = (arg_types.get(i), args.get(i)) {
-                    if !self.expression_compatible(param, actual, arg) {
-                        mismatch = true;
-                    }
-                }
-            }
-            if mismatch {
-                self.emit(
-                    "TYPE_CALL_ARGUMENT_MISMATCH",
-                    format!(
-                        "Call to `{target}` has argument type(s) that do not match its signature."
-                    ),
-                );
-            }
-            return;
-        }
-        // `collections`/`general` builtins: per-name arity, then arg-typed
-        // overload resolution (syntaxcheck's check_general_builtin_call arms).
-        // Every collections member is a registered function now — the native members
-        // (`get`, …) and the source generics (`sort`, …, `Body::Mfb` descriptors) —
-        // scoped to collections so the other migrated packages (csv/json/…) still
-        // fall through as before.
-        if crate::codegen::registry::registry().owning_package(target) == Some("collections") {
-            if let Some((min, max)) = builtins::arity(target) {
-                if self.builtin_arity_errored(target, arg_types.len(), min, max) {
-                    return;
-                }
-            }
-            if builtins::resolve_call_return_type_typed(target, &arg_types, false).is_none() {
-                let expected = builtins::expected_arguments(target)
-                    .unwrap_or_else(|| "supported overload".to_string());
-                self.emit(
-                    "TYPE_CALL_ARGUMENT_MISMATCH",
-                    format!(
-                        "Call to `{target}` has argument type(s) ({}), expected {expected}.",
-                        arg_type_names()
-                    ),
-                );
-            }
-            return;
-        }
+        let expected_overloads = || {
+            builtins::expected_arguments(target).unwrap_or_else(|| "supported overload".to_string())
+        };
+        let registry = crate::codegen::registry::registry();
+
         if crate::codegen::builtins::general::is_general_call(target) {
             if let Some((min, max)) = builtins::arity(target) {
-                if self.builtin_arity_errored(target, arg_types.len(), min, max) {
+                if self.builtin_arity_errored(target, args.len(), min, max) {
                     return;
                 }
             }
-            if builtins::resolve_call_return_type_typed(target, &arg_types, false).is_none() {
+            if builtins::resolve_call_return_type_typed(target, &arg_types, true).is_none() {
                 // A package-provided override may accept what the built-in
                 // rejects (plan-01-overload §A.3.2) — never reject those.
                 if crate::codegen::builtins::general::is_overridable(target)
@@ -285,8 +322,110 @@ impl TypeEnv {
                 {
                     return;
                 }
+                self.emit(
+                    "TYPE_CALL_ARGUMENT_MISMATCH",
+                    format!(
+                        "Call to `{target}` has argument type(s) ({}), expected {}.",
+                        arg_type_names(),
+                        expected_overloads()
+                    ),
+                );
+                return;
+            }
+            self.check_builtin_comparability(target, target, &arg_types);
+            return;
+        }
+
+        if registry.owning_package(target) == Some("collections") {
+            // `callee` is a collections native member; the generic dequalifier
+            // hands back its bare native name (`collections.get` -> `get`).
+            let member = builtins::native_builtin_target(target).unwrap_or(target);
+            // A bare general built-in predicate in the callback position
+            // (bug-368): the predicate's type is derived from the list's element
+            // type, and the diagnostic quotes the predicate's NAME.
+            if crate::codegen::registry::callback_member(target) && args.len() == 2 {
+                if let Some(predicate) = builtin_predicate_name(&args[1], locals) {
+                    let collection_type_name = arg_types[0].name().into_owned();
+                    let predicate_type = match &arg_types[0] {
+                        ParameterType::ListOf(element) => {
+                            crate::codegen::builtins::general::filter_predicate_type(
+                                predicate,
+                                &element.name(),
+                            )
+                        }
+                        _ => None,
+                    };
+                    let Some(predicate_type) = predicate_type else {
+                        self.emit(
+                            "TYPE_CALL_ARGUMENT_MISMATCH",
+                            format!(
+                                "Call to `{target}` has argument type(s) ({collection_type_name}, {predicate}), expected {}.",
+                                expected_overloads()
+                            ),
+                        );
+                        return;
+                    };
+                    let trial = vec![arg_types[0].clone(), ParameterType::parse(&predicate_type)];
+                    if builtins::resolve_call_return_type_typed(target, &trial, true).is_none() {
+                        self.emit(
+                            "TYPE_CALL_ARGUMENT_MISMATCH",
+                            format!(
+                                "Call to `{target}` has argument type(s) ({collection_type_name}, {predicate_type}), expected {}.",
+                                expected_overloads()
+                            ),
+                        );
+                    }
+                    return;
+                }
+            }
+            if let Some((min, max)) = builtins::arity(target) {
+                if self.builtin_arity_errored(target, args.len(), min, max) {
+                    return;
+                }
+            }
+            if builtins::resolve_call_return_type_typed(target, &arg_types, true).is_none() {
+                self.emit(
+                    "TYPE_CALL_ARGUMENT_MISMATCH",
+                    format!(
+                        "Call to `{target}` has argument type(s) ({}), expected {}.",
+                        arg_type_names(),
+                        expected_overloads()
+                    ),
+                );
+                return;
+            }
+            self.check_builtin_comparability(target, member, &arg_types);
+            return;
+        }
+
+        if registry.owning_package(target) == Some("term") {
+            if let Some((min, max)) = builtins::arity(target) {
+                if self.builtin_arity_errored(target, args.len(), min, max) {
+                    return;
+                }
+            }
+            // `term::drawText` additionally accepts an `AttributedString` at the
+            // text position (the source-companion overload); only the third
+            // expected type flips. Whether the `astrings` bridge that overload
+            // routes to is imported is a source fact (`ir::shape`).
+            let third_is_attributed = target == crate::codegen::builtins::term::DRAW_TEXT
+                && arg_types.len() == 3
+                && arg_types[2].name() == "AttributedString";
+            let params: Vec<ParameterType> = if third_is_attributed {
+                vec![
+                    ParameterType::Integer,
+                    ParameterType::Integer,
+                    ParameterType::named("AttributedString"),
+                ]
+            } else {
+                builtins::argument_types_typed(target).unwrap_or_default()
+            };
+            let mismatch = params.iter().zip(arg_types.iter()).zip(args.iter()).any(
+                |((expected, actual), arg)| !self.expression_compatible(expected, actual, arg),
+            );
+            if mismatch {
                 let expected = builtins::expected_arguments(target)
-                    .unwrap_or_else(|| "supported overload".to_string());
+                    .unwrap_or_else(|| "no arguments".to_string());
                 self.emit(
                     "TYPE_CALL_ARGUMENT_MISMATCH",
                     format!(
@@ -297,86 +436,87 @@ impl TypeEnv {
             }
             return;
         }
-        // The arg-typed packages checked here (bug-342 A10). Each pairs its
-        // membership test with an overload-resolution probe; a non-capturing
-        // closure erases each package's distinct `ResolvedCall<'_>` type to a
-        // plain `bool`. This set is deliberately narrower than
-        // `resolve_call_return_type`'s (no term/collections/general — handled
-        // above — and no crypto/json/csv/…), so it must stay an explicit table:
-        // widening it would reject programs codegen currently accepts.
-        // plan-72-BB: the narrow membership stays an explicit list (widening it
-        // would reject programs codegen accepts — see the note above), but the
-        // per-package `resolve_call` probes collapse to the registry aggregate,
-        // which resolves each of these packages byte-identically to its own
-        // `resolve_call` (proven by the descriptor parity tests + artifact-gate).
-        type IsCall = fn(&str) -> bool;
-        // `encoding` migrated to the clean-room registry; its membership is the
-        // narrow `owning_package == "encoding"` (not the broad `registry::is_member`,
-        // which would widen this set to every migrated package and reject programs
-        // codegen accepts — see the note above).
-        fn is_encoding_call(name: &str) -> bool {
-            crate::codegen::registry::registry().owning_package(name) == Some("encoding")
+
+        if crate::codegen::builtins::thread::is_thread_call(target) {
+            if target == "thread.start" {
+                // The entry must be an exported ISOLATED FUNC of an imported
+                // package. The IR keeps only what survives lowering — a
+                // `FunctionRef` typed `ISOLATED FUNC` — which is a superset of
+                // the valid entries (a same-package `self::` export and a bare
+                // same-package function both canonicalize to the bare name), so
+                // the source path leaves the rejection to `ir::shape` and only
+                // the package path rejects here; a call whose entry fails even
+                // this test is not checked further, as the checker did not.
+                let entry_is_isolated_ref = matches!(
+                    args.first(),
+                    Some(IrValue::FunctionRef {
+                        type_: ParameterType::Func(_, _, true),
+                        ..
+                    })
+                );
+                if !entry_is_isolated_ref {
+                    if !self.source_path.get() {
+                        self.emit(
+                            "TYPE_CALL_ARGUMENT_MISMATCH",
+                            "thread.start entry point must be an exported ISOLATED FUNC from an imported package.".to_string(),
+                        );
+                    }
+                    return;
+                }
+            }
+            if let Some((min, max)) = builtins::arity(target) {
+                if self.builtin_arity_errored(target, args.len(), min, max) {
+                    return;
+                }
+            }
+            if builtins::resolve_call_return_type_typed(target, &arg_types, true).is_none() {
+                self.emit(
+                    "TYPE_CALL_ARGUMENT_MISMATCH",
+                    format!(
+                        "Call to `{target}` has argument type(s) ({}), expected {}.",
+                        arg_type_names(),
+                        expected_overloads()
+                    ),
+                );
+            }
+            return;
         }
-        // `bits` migrated to the clean-room registry; its membership is the narrow
-        // `owning_package == "bits"` (mirroring `is_encoding_call`), replacing the
-        // deleted `builtins::bits::is_bits_call`.
-        fn is_bits_call(name: &str) -> bool {
-            crate::codegen::registry::registry().owning_package(name) == Some("bits")
+
+        // The shared package table: arity, then arg-typed overload resolution
+        // with the literal→`Byte` retry the checker gave the table packages.
+        if let Some((min, max)) = builtins::arity(target) {
+            if self.builtin_arity_errored(target, args.len(), min, max) {
+                return;
+            }
         }
-        // `os` migrated to the clean-room registry; its membership is the narrow
-        // `owning_package == "os"` (mirroring `is_bits_call`/`is_encoding_call`),
-        // replacing the deleted `builtins::os::is_os_call`.
-        fn is_os_call(name: &str) -> bool {
-            crate::codegen::registry::registry().owning_package(name) == Some("os")
-        }
-        // `fs` migrated to the clean-room registry; membership is the narrow
-        // `owning_package == "fs"`, replacing the deleted `builtins::fs::is_fs_call`.
-        fn is_fs_call(name: &str) -> bool {
-            crate::codegen::registry::registry().owning_package(name) == Some("fs")
-        }
-        // `io` migrated to the clean-room registry; membership is the narrow
-        // `owning_package == "io"`, replacing the deleted `builtins::io::is_io_call`.
-        fn is_io_call(name: &str) -> bool {
-            crate::codegen::registry::registry().owning_package(name) == Some("io")
-        }
-        // `math` migrated to the clean-room registry; membership is the narrow
-        // `owning_package == "math"`, replacing the deleted `builtins::math::is_math_call`.
-        fn is_math_call(name: &str) -> bool {
-            crate::codegen::registry::registry().owning_package(name) == Some("math")
-        }
-        // `vector` migrated to the clean-room registry; membership is the narrow
-        // `owning_package == "vector"` (function members only — constants are folded, not
-        // called), replacing the deleted `builtins::vector::is_vector_call`.
-        fn is_vector_call(name: &str) -> bool {
-            crate::codegen::registry::registry().owning_package(name) == Some("vector")
-        }
-        // `net` migrated to the clean-room registry — membership via `owning_package`,
-        // replacing the deleted `builtins::net::is_net_call`.
-        fn is_net_call(name: &str) -> bool {
-            crate::codegen::registry::registry().owning_package(name) == Some("net")
-        }
-        // `strings` migrated to the clean-room registry (plan-99 PART B) — membership
-        // via `owning_package`, replacing the deleted `builtins::strings::is_strings_call`.
-        fn is_strings_call(name: &str) -> bool {
-            crate::codegen::registry::registry().owning_package(name) == Some("strings")
-        }
-        let checked: [IsCall; 9] = [
-            is_math_call,
-            is_bits_call,
-            is_vector_call,
-            is_strings_call,
-            is_encoding_call,
-            is_io_call,
-            is_fs_call,
-            is_net_call,
-            is_os_call,
-        ];
-        if checked.iter().any(|is_call| is_call(target))
-            && builtins::resolve_call_return_type_typed(target, &arg_types, false).is_none()
-        {
+        if resolve_table_call_with_byte_literals(target, &arg_types, args).is_none() {
             self.emit(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
-                format!("Arguments to `{target}` do not match any overload."),
+                format!(
+                    "Call to `{target}` has argument type(s) ({}), expected {}.",
+                    arg_type_names(),
+                    expected_overloads()
+                ),
+            );
+        }
+    }
+
+    /// `collections` element searches compare elements for equality, so the
+    /// list's element type must be comparable — syntaxcheck's
+    /// `check_general_builtin_comparability` (TYPE_REQUIRES_COMPARABLE), run
+    /// only after the call resolved, as the checker did.
+    fn check_builtin_comparability(&self, target: &str, member: &str, arg_types: &[ParameterType]) {
+        if !matches!(member, "contains" | "replace" | "find") {
+            return;
+        }
+        let Some(ParameterType::ListOf(element)) = arg_types.first() else {
+            return;
+        };
+        if !matches!(**element, ParameterType::Unknown) && !self.is_comparable(element) {
+            let element = element.name();
+            self.emit(
+                "TYPE_REQUIRES_COMPARABLE",
+                format!("Call to `{target}` requires a comparable type, got `{element}`."),
             );
         }
     }

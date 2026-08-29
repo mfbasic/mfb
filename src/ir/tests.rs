@@ -2417,14 +2417,17 @@ mod lower_tests {
                     ExternalFunctionParam {
                         name: "a".to_string(),
                         type_: crate::types::ParameterType::parse("Integer"),
+                        has_default: false,
                     },
                     ExternalFunctionParam {
                         name: "b".to_string(),
                         type_: crate::types::ParameterType::parse("Integer"),
+                        has_default: false,
                     },
                 ],
                 returns: crate::types::ParameterType::parse("Integer"),
                 isolated: false,
+                sub: false,
             },
         );
         let ir = lower_project_with_external_functions(&project, None, &signatures, &[]);
@@ -5276,9 +5279,11 @@ END FUNC
                 params: vec![super::ExternalFunctionParam {
                     name: "n".to_string(),
                     type_: crate::types::ParameterType::parse("Integer"),
+                    has_default: false,
                 }],
                 returns: crate::types::ParameterType::parse("String"),
                 isolated: false,
+                sub: false,
             },
         );
         let entry = Some(super::EntryPoint {

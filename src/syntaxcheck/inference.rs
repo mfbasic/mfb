@@ -1263,8 +1263,7 @@ impl<'a> SyntaxChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) {
-        let arguments =
-            self.normalize_named_arguments(file, callee, arguments, &sig.params, line, false);
+        let arguments = self.normalize_named_arguments(arguments, &sig.params);
 
         for (index, argument) in arguments.iter().enumerate() {
             let Some(argument) = argument else {
@@ -1326,19 +1325,8 @@ impl<'a> SyntaxChecker<'a> {
             );
         }
 
-        if arguments.len() != params.len() {
-            self.report(
-                "TYPE_CALL_ARITY_MISMATCH",
-                &format!(
-                    "Call to `{callee}` has {} argument(s), expected {}.",
-                    arguments.len(),
-                    params.len()
-                ),
-                file,
-                line,
-            );
-        }
-
+        // The argument count is `ir::verify`'s (TYPE_CALL_ARITY_MISMATCH,
+        // plan-107-E).
         for (index, argument) in arguments.iter().enumerate() {
             let argument = call_arg_value(argument);
             let actual = self.infer_expression(
@@ -1716,7 +1704,11 @@ mod tests {
         let src = &wrap(
             "  LET f AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> x + 1\n  LET r AS Integer = f(1, 2)",
         );
-        assert!(rejects_with(src, "TYPE_CALL_ARITY_MISMATCH"));
+        let codes = check_src(src);
+        assert!(
+            codes.iter().any(|code| code == "TYPE_CALL_ARITY_MISMATCH"),
+            "{codes:?}"
+        );
     }
 
     #[test]
@@ -1965,7 +1957,7 @@ mod tests {
     fn huge_integer_literal_accepted() {
         // A digit-only literal that overflows i64 still infers Integer (the
         // else arm of the Number match), so no argument-type mismatch arises.
-        assert!(accepts(&wrap(
+        assert!(syntaxcheck_accepts(&wrap(
             "  LET n AS Integer = 99999999999999999999999999"
         )));
     }
@@ -1974,7 +1966,7 @@ mod tests {
     fn unary_negation_of_huge_integer_accepted() {
         // `-<huge>`: the literal is out of i64 range so the
         // `!integer_literal_in_range` unary arm returns Integer directly.
-        assert!(accepts(&wrap(
+        assert!(syntaxcheck_accepts(&wrap(
             "  LET n AS Integer = -99999999999999999999999999"
         )));
     }
@@ -2031,7 +2023,7 @@ mod tests {
     fn package_constant_call_with_arguments_accepted() {
         // `math::pi(1)`: a package constant in call position still infers the
         // arguments (the arg loop in the is_package_constant Call arm).
-        assert!(accepts(
+        assert!(syntaxcheck_accepts(
             "IMPORT math\nFUNC main AS Integer\n  LET x AS Float = math::pi(1)\n  RETURN 0\nEND FUNC\n"
         ));
     }
@@ -2126,7 +2118,7 @@ mod tests {
     fn package_constant_call_form_accepted() {
         // `math::pi()` (call syntax) resolves through the is_package_constant
         // Call arm, inferring the constant's Float type.
-        assert!(accepts(
+        assert!(syntaxcheck_accepts(
             "IMPORT math\nFUNC main AS Integer\n  LET x AS Float = math::pi()\n  RETURN 0\nEND FUNC\n"
         ));
     }

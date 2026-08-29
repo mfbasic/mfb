@@ -456,6 +456,31 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     crate::codegen::registry::registry().arity(name)
 }
 
+/// The packages whose calls the shared table checker validates (arity and
+/// arg-typed overload resolution). `general`, `collections`, `term` and
+/// `thread` have bespoke checkers and are deliberately absent; a package in
+/// neither set has its calls' arguments merely inferred, never bound or
+/// validated. Shared by `ir::shape` (the named-argument rules) and `ir::verify`
+/// (the arity/argument rules) so both draw the same boundary (plan-107-E).
+const ARGUMENT_CHECKED_PACKAGES: &[&str] = &[
+    "encoding", "astrings", "crypto", "strings", "math", "bits", "fs", "os", "net", "tls", "audio",
+    "process", "io", "json", "csv", "regex", "datetime", "money", "app", "http", "vector",
+];
+
+/// Whether a builtin call (canonical `package.member` name) reaches one of the
+/// argument checkers — the four bespoke arms or the package table — and so has
+/// its argument list normalized and validated.
+pub(crate) fn checks_call_arguments(callee: &str) -> bool {
+    general::is_general_call(callee)
+        || matches!(
+            crate::codegen::registry::registry().owning_package(callee),
+            Some("collections") | Some("term")
+        )
+        || thread::is_thread_call(callee)
+        || builtin_package_name(callee)
+            .is_some_and(|package| ARGUMENT_CHECKED_PACKAGES.contains(&package))
+}
+
 /// The human-readable expected-argument rendering for a builtin call's
 /// argument-mismatch diagnostic — plan-72-BB. Most packages render per-position
 /// from the descriptor (`DefaultResolver::expected_arguments`); the packages whose

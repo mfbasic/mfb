@@ -5,6 +5,12 @@ $ mfb build -ast -ir tests/syntax/net/func_net_writeText_invalid
      | ^
 tests/syntax/net/func_net_writeText_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `net.writeText` has 0 argument(s), expected 2.
+   5 |   LET wrongType = net::writeText(1, "v")
+   6 |   LET wrongValue = net::writeText("s", 5)
+   7 |   LET tooMany = net::writeText(1, "v", 3)
+     | ^
+tests/syntax/net/func_net_writeText_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.writeText` has 3 argument(s), expected 2.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing = net::writeText()
@@ -35,12 +41,6 @@ tests/syntax/net/func_net_writeText_invalid/src/main.mfb:6 error[2-203-0021 TYPE
      | ^
 tests/syntax/net/func_net_writeText_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongValue` does not have a known type.
-   5 |   LET wrongType = net::writeText(1, "v")
-   6 |   LET wrongValue = net::writeText("s", 5)
-   7 |   LET tooMany = net::writeText(1, "v", 3)
-     | ^
-tests/syntax/net/func_net_writeText_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `net.writeText` has 3 argument(s), expected 2.
    5 |   LET wrongType = net::writeText(1, "v")
    6 |   LET wrongValue = net::writeText("s", 5)
    7 |   LET tooMany = net::writeText(1, "v", 3)

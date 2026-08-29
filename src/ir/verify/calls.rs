@@ -1,3 +1,4 @@
+use super::compat::builtin_call_target;
 use super::*;
 
 impl TypeEnv {
@@ -54,9 +55,13 @@ impl TypeEnv {
     }
 
     /// Reject a direct call whose argument count cannot match the callee's
-    /// signature. Only internal functions have a known signature; builtins,
-    /// runtime helpers, imports and indirect (function-typed local) calls are
-    /// skipped.
+    /// signature (`TYPE_CALL_ARITY_MISMATCH`). Three callee classes
+    /// (plan-107-E): a function value (a local or global of FUNC type) takes
+    /// exactly its type's parameter count; a builtin is `check_builtin_call_args`'s;
+    /// a declared function's count is checked here only on the package path —
+    /// on the source path lowering has already normalized the argument list
+    /// (extras dropped, defaults filled), so the count the source wrote is
+    /// `ir::shape`'s to check.
     pub(super) fn check_call_arity(
         &self,
         target: &str,
@@ -77,9 +82,11 @@ impl TypeEnv {
             // A local of FUNC type is an indirect call; its arity is the
             // function type's, not a named signature. Any other *known* local
             // type is not callable at all.
-            if !t.name().is_empty()
-                && !matches!(t, ParameterType::Unknown | ParameterType::Func(_, _, _))
-            {
+            if let ParameterType::Func(params, _, _) = t {
+                self.check_function_value_arity(target, argc, params.len());
+                return;
+            }
+            if !t.name().is_empty() && !matches!(t, ParameterType::Unknown) {
                 self.emit(
                     "SYMBOL_NOT_CALLABLE",
                     format!("Local binding or parameter `{target}` is not callable."),
@@ -88,16 +95,39 @@ impl TypeEnv {
             return;
         }
         let Some(sig) = self.functions.get(target) else {
+            // A global binding holding a function value is callable like a
+            // local one (bug-198).
+            if let Some(ParameterType::Func(params, _, _)) = self.globals.get(target) {
+                self.check_function_value_arity(target, argc, params.len());
+            }
             return;
         };
+        // A builtin call lowering rewrote to its source-companion body is the
+        // builtin's (`check_builtin_call_args`), not the body's signature's.
+        if self.source_path.get() || builtin_call_target(target).is_some() {
+            return;
+        }
         let required = sig.total.saturating_sub(sig.optional);
         if argc < required || argc > sig.total {
             self.emit(
                 "TYPE_CALL_ARITY_MISMATCH",
                 format!(
-                    "Call to `{target}` has {argc} argument(s), expected {required}..={}.",
+                    "Call to `{target}` has {argc} argument(s), expected {required} to {}.",
                     sig.total
                 ),
+            );
+        }
+    }
+
+    /// A function value's callable type carries no defaults, so the call
+    /// supplies exactly its parameter count (syntaxcheck's
+    /// `check_function_value_call`). Package path only, like every count rule:
+    /// the source-written count is `ir::shape`'s.
+    fn check_function_value_arity(&self, target: &str, argc: usize, expected: usize) {
+        if argc != expected && !self.source_path.get() {
+            self.emit(
+                "TYPE_CALL_ARITY_MISMATCH",
+                format!("Call to `{target}` has {argc} argument(s), expected {expected}."),
             );
         }
     }
@@ -116,12 +146,42 @@ impl TypeEnv {
         args: &[IrValue],
         locals: &HashMap<String, ParameterType>,
     ) {
-        if locals.contains_key(target) {
-            return; // indirect call — no named signature
+        // A function value (a local or global of FUNC type) has no named
+        // signature; its callable type gives the per-position parameter types
+        // (syntaxcheck's `check_function_value_call`). A local shadows a global.
+        let function_value = match locals.get(target) {
+            Some(t) => Some(t),
+            None if self.functions.contains_key(target) => None,
+            None => self.globals.get(target),
+        };
+        if let Some(t) = function_value {
+            if let ParameterType::Func(params, _, _) = t {
+                for (index, (arg, expected)) in args.iter().zip(params.iter()).enumerate() {
+                    let Some(actual) = self.infer_type(arg, locals) else {
+                        continue;
+                    };
+                    if !self.expression_compatible(expected, &actual, arg) {
+                        let (actual, expected) = (actual.name(), expected.name());
+                        self.emit(
+                            "TYPE_CALL_ARGUMENT_MISMATCH",
+                            format!(
+                                "Argument {} for `{target}` has type {actual}, expected {expected}.",
+                                index + 1
+                            ),
+                        );
+                    }
+                }
+            }
+            return;
         }
         let Some(sig) = self.functions.get(target) else {
             return;
         };
+        // A builtin call lowering rewrote to its source-companion body is
+        // type-checked as the builtin (`check_builtin_call_args`), whose
+        // registry signature is the one the source wrote against; only the
+        // body's declared `STATE` clauses still bind the arguments here.
+        let rewritten_builtin = builtin_call_target(target).is_some();
         for (index, arg) in args.iter().enumerate() {
             let Some(param_type) = sig.params.get(index) else {
                 break;
@@ -130,6 +190,9 @@ impl TypeEnv {
                 continue;
             };
             self.check_argument_state_agreement(target, index, param_type, &actual);
+            if rewritten_builtin {
+                continue;
+            }
             // Strip a resource argument's `STATE T` clause; the parameter type
             // is the bare resource type.
             let actual = resource_base_type(&actual);

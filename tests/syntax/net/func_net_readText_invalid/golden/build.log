@@ -5,6 +5,18 @@ $ mfb build -ast -ir tests/syntax/net/func_net_readText_invalid
      | ^
 tests/syntax/net/func_net_readText_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `net.readText` has 0 argument(s), expected 2.
+   4 |   LET missing = net::readText()
+   5 |   LET wrongType = net::readText(1, 16)
+   6 |   LET wrongCount = net::readText("s")
+     | ^
+tests/syntax/net/func_net_readText_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.readText` has 1 argument(s), expected 2.
+   5 |   LET wrongType = net::readText(1, 16)
+   6 |   LET wrongCount = net::readText("s")
+   7 |   LET tooMany = net::readText(1, 2, 3)
+     | ^
+tests/syntax/net/func_net_readText_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.readText` has 3 argument(s), expected 2.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing = net::readText()
@@ -27,20 +39,8 @@ tests/syntax/net/func_net_readText_invalid/src/main.mfb:5 error[2-203-0043 TYPE_
    5 |   LET wrongType = net::readText(1, 16)
    6 |   LET wrongCount = net::readText("s")
      | ^
-tests/syntax/net/func_net_readText_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `net.readText` has 1 argument(s), expected 2.
-   4 |   LET missing = net::readText()
-   5 |   LET wrongType = net::readText(1, 16)
-   6 |   LET wrongCount = net::readText("s")
-     | ^
 tests/syntax/net/func_net_readText_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongCount` does not have a known type.
-   5 |   LET wrongType = net::readText(1, 16)
-   6 |   LET wrongCount = net::readText("s")
-   7 |   LET tooMany = net::readText(1, 2, 3)
-     | ^
-tests/syntax/net/func_net_readText_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `net.readText` has 3 argument(s), expected 2.
    5 |   LET wrongType = net::readText(1, 16)
    6 |   LET wrongCount = net::readText("s")
    7 |   LET tooMany = net::readText(1, 2, 3)

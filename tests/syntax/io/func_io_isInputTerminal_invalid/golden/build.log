@@ -1,16 +1,16 @@
 $ mfb build -ast -ir tests/syntax/io/func_io_isInputTerminal_invalid
-   3 | FUNC main AS Integer
-   4 |   LET wrongType AS Boolean = io::isInputTerminal(1)
-   5 |   LET badName AS Boolean = io::isInputTerminal(value := 1)
-     | ^
-tests/syntax/io/func_io_isInputTerminal_invalid/src/main.mfb:5 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
-               Call to `io.isInputTerminal` does not have a parameter named `value`.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET wrongType AS Boolean = io::isInputTerminal(1)
      | ^
 tests/syntax/io/func_io_isInputTerminal_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `io.isInputTerminal` has 1 argument(s), expected 0.
+   3 | FUNC main AS Integer
+   4 |   LET wrongType AS Boolean = io::isInputTerminal(1)
+   5 |   LET badName AS Boolean = io::isInputTerminal(value := 1)
+     | ^
+tests/syntax/io/func_io_isInputTerminal_invalid/src/main.mfb:5 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `io.isInputTerminal` does not have a parameter named `value`.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET wrongType AS Boolean = io::isInputTerminal(1)

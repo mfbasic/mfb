@@ -5,6 +5,18 @@ $ mfb build -ast -ir tests/syntax/os/func_os_system_status_invalid
      | ^
 tests/syntax/os/func_os_system_status_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `os.version` has 1 argument(s), expected 0.
+   3 | FUNC main() AS Integer
+   4 |   LET a AS String = os::version("x")
+   5 |   LET b AS Integer = os::uptime(1)
+     | ^
+tests/syntax/os/func_os_system_status_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `os.uptime` has 1 argument(s), expected 0.
+   4 |   LET a AS String = os::version("x")
+   5 |   LET b AS Integer = os::uptime(1)
+   6 |   LET c AS Boolean = os::isAdmin(FALSE)
+     | ^
+tests/syntax/os/func_os_system_status_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `os.isAdmin` has 1 argument(s), expected 0.
    2 | 
    3 | FUNC main() AS Integer
    4 |   LET a AS String = os::version("x")
@@ -15,20 +27,8 @@ tests/syntax/os/func_os_system_status_invalid/src/main.mfb:4 error[2-203-0043 TY
    4 |   LET a AS String = os::version("x")
    5 |   LET b AS Integer = os::uptime(1)
      | ^
-tests/syntax/os/func_os_system_status_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `os.uptime` has 1 argument(s), expected 0.
-   3 | FUNC main() AS Integer
-   4 |   LET a AS String = os::version("x")
-   5 |   LET b AS Integer = os::uptime(1)
-     | ^
 tests/syntax/os/func_os_system_status_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `b` does not have a known type.
-   4 |   LET a AS String = os::version("x")
-   5 |   LET b AS Integer = os::uptime(1)
-   6 |   LET c AS Boolean = os::isAdmin(FALSE)
-     | ^
-tests/syntax/os/func_os_system_status_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `os.isAdmin` has 1 argument(s), expected 0.
    4 |   LET a AS String = os::version("x")
    5 |   LET b AS Integer = os::uptime(1)
    6 |   LET c AS Boolean = os::isAdmin(FALSE)

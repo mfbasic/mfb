@@ -74,8 +74,8 @@ pub(crate) fn check_project(
 /// A callee's parameter names as a rule needs them: the declared user/imported
 /// function's list, or a builtin's per-position alias table.
 enum CalleeParams {
-    /// A user-declared or imported-package function: one name per position.
-    Declared(Vec<String>),
+    /// A user-declared or imported-package function: one parameter per position.
+    Declared(Vec<ShapeParam>),
     /// A builtin with a merged per-position alias table.
     Builtin(Vec<Vec<&'static str>>),
     /// A builtin whose overloads place a name at different positions, listed
@@ -83,6 +83,9 @@ enum CalleeParams {
     BuiltinOverloads(Vec<Vec<&'static str>>),
     /// A builtin with no parameter-name metadata: names cannot bind at all.
     BuiltinUnnamed,
+    /// A local or global binding of FUNC type: the callable type carries a
+    /// parameter count but no names.
+    FunctionValue(usize),
 }
 
 /// The walk state: lowering's context (positioned per file / per function
@@ -108,9 +111,19 @@ struct Walker<'a> {
 }
 
 struct DeclaredFunction {
-    params: Vec<String>,
+    params: Vec<ShapeParam>,
     visibility: Visibility,
     owner_file: String,
+    isolated: bool,
+    kind: crate::ast::FunctionKind,
+}
+
+/// What the call-shape rules know about one declared parameter: its name (the
+/// named-argument rules) and whether it may be omitted (the arity rule).
+#[derive(Clone)]
+struct ShapeParam {
+    name: String,
+    has_default: bool,
 }
 
 impl<'a> Walker<'a> {
@@ -130,10 +143,15 @@ impl<'a> Walker<'a> {
                             params: function
                                 .params
                                 .iter()
-                                .map(|param| param.name.clone())
+                                .map(|param| ShapeParam {
+                                    name: param.name.clone(),
+                                    has_default: param.default.is_some(),
+                                })
                                 .collect(),
                             visibility: function.visibility,
                             owner_file: file.path.clone(),
+                            isolated: function.isolated,
+                            kind: function.kind,
                         },
                     );
                 }
@@ -450,13 +468,16 @@ impl<'a> Walker<'a> {
             }
             HirExpression::Unary { operand, .. } => self.walk_expression(operand, locals),
             HirExpression::Call {
-                callee, arguments, ..
+                callee,
+                arguments,
+                line,
+                ..
             } => {
                 // The call's own shape rules report before its arguments are
                 // walked — the source checker normalized the argument list
                 // before inferring any argument, so a nested call's rule follows
                 // the enclosing call's.
-                self.check_named_arguments(callee, arguments);
+                self.check_call_shape(callee, arguments, *line, locals);
                 for argument in arguments {
                     match argument {
                         HirCallArg::Positional(value) | HirCallArg::Named { value, .. } => {
@@ -519,29 +540,26 @@ impl<'a> Walker<'a> {
     /// constant is not a function call; a builtin (by canonical name) comes
     /// before any declared function; a declared function must be visible from
     /// the calling file; an imported package's function is looked up under its
-    /// canonical `package.member` name. Anything else (a function value, an
-    /// unresolved dotted name) has no parameter names to bind against.
-    fn callee_params(&self, callee: &str) -> Option<CalleeParams> {
+    /// canonical `package.member` name; last, a local or global binding of
+    /// FUNC type is a function value. Anything else (an unresolved dotted name,
+    /// a non-callable binding) has no signature to check against.
+    fn callee_params(
+        &self,
+        callee: &str,
+        locals: &HashMap<String, ParameterType>,
+    ) -> Option<CalleeParams> {
         if crate::codegen::builtins_testing::is_testing_call(callee) {
             return None;
         }
-        let (binding, member) = match callee.split_once('.') {
-            Some((binding, member)) => (Some(binding), member),
-            None => (None, callee),
-        };
+        let binding = callee.split_once('.').map(|(binding, _)| binding);
         let resolved_package =
             binding.and_then(|binding| self.context.current_imports.get(binding));
-        let canonical = match (resolved_package, binding) {
-            // `IMPORT self` binds the package's own exports under their bare names.
-            (Some(package), _) if package == crate::ast::SELF_IMPORT => member.to_string(),
-            (Some(package), _) => format!("{package}.{member}"),
-            _ => callee.to_string(),
-        };
+        let canonical = self.canonical_callee(callee);
         if builtins::is_package_constant(&canonical) {
             return None;
         }
         if builtins::is_builtin_call(&canonical) {
-            if !crate::syntaxcheck::checks_builtin_call_arguments(&canonical) {
+            if !builtins::checks_call_arguments(&canonical) {
                 return None;
             }
             if let Some(overloads) = builtins::call_param_name_overloads(&canonical) {
@@ -572,40 +590,153 @@ impl<'a> Walker<'a> {
                     signature
                         .params
                         .iter()
-                        .map(|param| param.name.clone())
+                        .map(|param| ShapeParam {
+                            name: param.name.clone(),
+                            has_default: param.has_default,
+                        })
                         .collect(),
                 ));
             }
         }
-        None
+        // A dotted name that resolved to nothing is not a call to a binding.
+        if binding.is_some() {
+            return None;
+        }
+        let value_type = locals
+            .get(callee)
+            .or_else(|| self.context.binding_type(callee))?;
+        match value_type {
+            ParameterType::Func(params, _, _) => Some(CalleeParams::FunctionValue(params.len())),
+            _ => None,
+        }
     }
 
-    /// TYPE_UNKNOWN_ARGUMENT_NAME / TYPE_DUPLICATE_ARGUMENT_NAME.
-    ///
-    /// Shape-pass rules: lowering normalizes named arguments into positional
-    /// order and silently drops a name that binds to no parameter (or binds a
-    /// parameter twice), so the lowered `IrValue::Call` carries no trace of the
-    /// name the source wrote — the evidence exists only in the HIR.
-    fn check_named_arguments(&mut self, callee: &str, arguments: &[HirCallArg]) {
-        if !arguments
-            .iter()
-            .any(|argument| matches!(argument, HirCallArg::Named { .. }))
-        {
-            return;
+    /// The canonical `package.member` spelling of a call target, through this
+    /// file's import bindings (`IMPORT self` binds the package's own exports
+    /// under their bare names) — lowering's `canonical_import_name`.
+    fn canonical_callee(&self, callee: &str) -> String {
+        let Some((binding, member)) = callee.split_once('.') else {
+            return callee.to_string();
+        };
+        match self.context.current_imports.get(binding) {
+            Some(package) if package == crate::ast::SELF_IMPORT => member.to_string(),
+            Some(package) => format!("{package}.{member}"),
+            None => callee.to_string(),
         }
-        let Some(params) = self.callee_params(callee) else {
+    }
+
+    /// Whether a `thread::start` entry argument names an exported ISOLATED
+    /// FUNC of an imported package — through an import binding (`pkg::f`, the
+    /// `.mfp`'s export table) or the package's own `self::` binding (an
+    /// `EXPORT ISOLATED FUNC` of this project). A bare project function is not
+    /// an import, whatever it declares. The checker resolved the NORMALIZED
+    /// first argument, so `entry` is that.
+    fn thread_start_entry_valid(&self, entry: Option<&HirExpression>) -> bool {
+        let Some(HirExpression::Identifier(name)) = entry else {
+            return false;
+        };
+        let Some((binding, member)) = name.split_once('.') else {
+            return false;
+        };
+        match self.context.current_imports.get(binding) {
+            Some(package) if package == crate::ast::SELF_IMPORT => {
+                self.functions.get(member).is_some_and(|function| {
+                    function.visibility == Visibility::Export
+                        && function.isolated
+                        && function.kind == crate::ast::FunctionKind::Func
+                })
+            }
+            Some(package) => self
+                .imported_signatures
+                .get(&format!("{package}.{member}"))
+                .is_some_and(|signature| signature.isolated && !signature.sub),
+            None => false,
+        }
+    }
+
+    /// TYPE_CALL_ARITY_MISMATCH, the builtin count form: the checker counted
+    /// the normalized argument list (names bound, unknown names dropped,
+    /// extras kept) against the registry's arity range.
+    fn check_builtin_arity(&mut self, callee: &str, canonical: &str, count: usize, line: usize) {
+        let Some((min, max)) = builtins::arity(canonical) else {
             return;
         };
+        if count < min || count > max {
+            let expected = if min == max {
+                min.to_string()
+            } else {
+                format!("{min} to {max}")
+            };
+            self.emit(
+                "TYPE_CALL_ARITY_MISMATCH",
+                format!("Call to `{callee}` has {count} argument(s), expected {expected}."),
+                line,
+            );
+        }
+    }
+
+    /// The call-shape rules — the ones lowering's argument normalization
+    /// erases, so the evidence exists only in the HIR:
+    ///
+    /// - TYPE_UNKNOWN_ARGUMENT_NAME / TYPE_DUPLICATE_ARGUMENT_NAME: a name
+    ///   that binds to no parameter (or binds one twice) is silently dropped by
+    ///   lowering, so the lowered `IrValue::Call` carries no trace of it.
+    /// - TYPE_CALL_ARITY_MISMATCH, the declared-function form: lowering drops
+    ///   the positional arguments a signature cannot take and fills every
+    ///   omitted slot from its default, so the count the source wrote is gone.
+    /// - TYPE_CALL_ARITY_MISMATCH, the builtin and function-value count forms:
+    ///   lowering pads a builtin's optional trailing arguments with their
+    ///   defaults (the fixed-ABI runtime helpers take a full list) and appends
+    ///   the extras, so the count the source wrote is gone from the IR; the
+    ///   named-argument omission forms of a builtin call (a parameter left
+    ///   unsupplied before a later named one, a name set no overload takes) go
+    ///   the same way — lowering binds what it can and moves on.
+    ///
+    /// A builtin's argument TYPES survive lowering and are `ir::verify`'s.
+    fn check_call_shape(
+        &mut self,
+        callee: &str,
+        arguments: &[HirCallArg],
+        line: usize,
+        locals: &HashMap<String, ParameterType>,
+    ) {
+        let has_named = arguments
+            .iter()
+            .any(|argument| matches!(argument, HirCallArg::Named { .. }));
+        let Some(params) = self.callee_params(callee, locals) else {
+            return;
+        };
+        // The builtin count rule reads the canonical name's arity table.
+        let canonical = self.canonical_callee(callee);
         match params {
+            CalleeParams::FunctionValue(expected) => {
+                // A callable type carries no defaults: exactly its count.
+                if arguments.len() != expected {
+                    self.emit(
+                        "TYPE_CALL_ARITY_MISMATCH",
+                        format!(
+                            "Call to `{callee}` has {} argument(s), expected {expected}.",
+                            arguments.len()
+                        ),
+                        line,
+                    );
+                }
+            }
             CalleeParams::BuiltinUnnamed => {
-                // No parameter-name metadata: a name cannot bind at all (bug-173 B).
+                // No parameter-name metadata: a name cannot bind at all (bug-173 B);
+                // the arguments stay in source order for the count.
                 for argument in arguments {
                     if let HirCallArg::Named { name, line, .. } = argument {
                         self.report_unknown_name(callee, name, *line);
                     }
                 }
+                self.check_builtin_arity(callee, &canonical, arguments.len(), line);
             }
             CalleeParams::BuiltinOverloads(overloads) => {
+                if !has_named {
+                    self.check_builtin_arity(callee, &canonical, arguments.len(), line);
+                    return;
+                }
                 // Overload selection needs a well-formed name set: the first
                 // duplicate, else the first unknown name, ends the check.
                 let named: Vec<(&String, usize)> = arguments
@@ -615,56 +746,159 @@ impl<'a> Walker<'a> {
                         HirCallArg::Positional(_) => None,
                     })
                     .collect();
-                for (index, (name, line)) in named.iter().enumerate() {
+                // Whichever way selection ends, the checker's normalized list
+                // has every argument (bound in overload order, or left in
+                // source order), so the count is the source's.
+                let count = arguments.len();
+                for (index, (name, arg_line)) in named.iter().enumerate() {
                     if named[..index].iter().any(|(earlier, _)| earlier == name) {
-                        self.report_duplicate_name(callee, name, *line);
+                        self.report_duplicate_name(callee, name, *arg_line);
+                        self.check_builtin_arity(callee, &canonical, count, line);
                         return;
                     }
                 }
-                if let Some((name, line)) = named.iter().find(|(name, _)| {
+                if let Some((name, arg_line)) = named.iter().find(|(name, _)| {
                     !overloads
                         .iter()
                         .any(|params| params.contains(&name.as_str()))
                 }) {
-                    self.report_unknown_name(callee, name, *line);
+                    self.report_unknown_name(callee, name, *arg_line);
+                    self.check_builtin_arity(callee, &canonical, count, line);
+                    return;
                 }
+                let positionals = arguments.len() - named.len();
+                let supplied_names: Vec<&str> =
+                    named.iter().map(|(name, _)| name.as_str()).collect();
+                if builtins::select_param_name_overload(&overloads, positionals, &supplied_names)
+                    .is_some()
+                {
+                    self.check_builtin_arity(callee, &canonical, count, line);
+                    return;
+                }
+                // Every supplied name exists, but no overload's arity and layout
+                // accept this combination: report the first parameter left
+                // unsupplied by the smallest overload that names them all
+                // (`connectTcp(host:, timeoutMs:)` omits `port`).
+                let covering = overloads
+                    .iter()
+                    .filter(|params| supplied_names.iter().all(|name| params.contains(name)))
+                    .min_by_key(|params| params.len());
+                if let Some(params) = covering {
+                    let missing = params.iter().enumerate().find(|(index, param)| {
+                        *index >= positionals && !supplied_names.contains(param)
+                    });
+                    if let Some((_, missing)) = missing {
+                        self.emit(
+                            "TYPE_CALL_ARITY_MISMATCH",
+                            format!(
+                                "Call to `{callee}` omits parameter `{missing}` before a later supplied argument."
+                            ),
+                            line,
+                        );
+                        self.check_builtin_arity(callee, &canonical, count, line);
+                        return;
+                    }
+                }
+                self.emit(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    format!("Call to `{callee}` has no overload taking these arguments."),
+                    line,
+                );
+                self.check_builtin_arity(callee, &canonical, count, line);
             }
             CalleeParams::Builtin(aliases) => {
-                let mut ordered = vec![false; aliases.len()];
+                if !has_named {
+                    // `thread::start`'s entry check precedes its count (the
+                    // checker returned on a bad entry); the entry itself is the
+                    // ARGUMENT rule's.
+                    if canonical == "thread.start"
+                        && !self.thread_start_entry_valid(arguments.first().map(|argument| {
+                            match argument {
+                                HirCallArg::Positional(value) | HirCallArg::Named { value, .. } => {
+                                    value
+                                }
+                            }
+                        }))
+                    {
+                        return;
+                    }
+                    self.check_builtin_arity(callee, &canonical, arguments.len(), line);
+                    return;
+                }
+                let mut ordered: Vec<Option<&HirExpression>> = vec![None; aliases.len()];
+                let mut extras: Vec<&HirExpression> = Vec::new();
                 let mut next_positional = 0usize;
+                let mut saw_unknown_named = false;
                 for argument in arguments {
                     match argument {
-                        HirCallArg::Positional(_) => {
-                            while next_positional < ordered.len() && ordered[next_positional] {
+                        HirCallArg::Positional(value) => {
+                            while next_positional < ordered.len()
+                                && ordered[next_positional].is_some()
+                            {
                                 next_positional += 1;
                             }
                             if next_positional < ordered.len() {
-                                ordered[next_positional] = true;
+                                ordered[next_positional] = Some(value);
                                 next_positional += 1;
+                            } else {
+                                extras.push(value);
                             }
                         }
-                        HirCallArg::Named { name, line, .. } => {
+                        HirCallArg::Named { name, value, line } => {
                             let Some(index) = aliases
                                 .iter()
                                 .position(|aliases| aliases.iter().any(|alias| alias == name))
                             else {
                                 self.report_unknown_name(callee, name, *line);
+                                saw_unknown_named = true;
                                 continue;
                             };
-                            if ordered[index] {
+                            if ordered[index].is_some() {
                                 // Reported under the parameter's canonical
                                 // (first) alias, whichever alias the call wrote.
                                 self.report_duplicate_name(callee, aliases[index][0], *line);
                                 continue;
                             }
-                            ordered[index] = true;
+                            ordered[index] = Some(value);
                         }
                     }
                 }
+                // The checker's normalized list: the bound slots in parameter
+                // order, then the extras; an unknown or duplicate name binds
+                // nowhere and drops out of it.
+                let normalized: Vec<&HirExpression> =
+                    ordered.iter().flatten().copied().chain(extras).collect();
+                // An unknown name has already disarmed the omission check: the
+                // gap it left is its own diagnostic's.
+                if !saw_unknown_named {
+                    for (index, names) in aliases.iter().enumerate() {
+                        if ordered[index].is_none()
+                            && ordered[index + 1..].iter().any(|filled| filled.is_some())
+                        {
+                            self.emit(
+                                "TYPE_CALL_ARITY_MISMATCH",
+                                format!(
+                                    "Call to `{callee}` omits parameter `{}` before a later supplied argument.",
+                                    names[0]
+                                ),
+                                line,
+                            );
+                            break;
+                        }
+                    }
+                }
+                if canonical == "thread.start"
+                    && !self.thread_start_entry_valid(normalized.first().copied())
+                {
+                    return;
+                }
+                self.check_builtin_arity(callee, &canonical, normalized.len(), line);
             }
             CalleeParams::Declared(params) => {
                 let mut ordered = vec![false; params.len()];
                 let mut next_positional = 0usize;
+                let mut supplied = 0usize;
+                let mut arity_error = false;
                 for argument in arguments {
                     match argument {
                         HirCallArg::Positional(_) => {
@@ -672,13 +906,16 @@ impl<'a> Walker<'a> {
                                 next_positional += 1;
                             }
                             if next_positional >= ordered.len() {
+                                arity_error = true;
                                 continue;
                             }
                             ordered[next_positional] = true;
                             next_positional += 1;
+                            supplied += 1;
                         }
                         HirCallArg::Named { name, line, .. } => {
-                            let Some(index) = params.iter().position(|param| param == name) else {
+                            let Some(index) = params.iter().position(|param| param.name == *name)
+                            else {
                                 self.report_unknown_name(callee, name, *line);
                                 continue;
                             };
@@ -687,8 +924,25 @@ impl<'a> Walker<'a> {
                                 continue;
                             }
                             ordered[index] = true;
+                            supplied += 1;
                         }
                     }
+                }
+                let required = params.iter().filter(|param| !param.has_default).count();
+                let missing_required = ordered
+                    .iter()
+                    .zip(params.iter())
+                    .any(|(filled, param)| !filled && !param.has_default);
+                if arity_error || supplied < required || supplied > params.len() || missing_required
+                {
+                    self.emit(
+                        "TYPE_CALL_ARITY_MISMATCH",
+                        format!(
+                            "Call to `{callee}` has {supplied} argument(s), expected {required} to {}.",
+                            params.len()
+                        ),
+                        line,
+                    );
                 }
             }
         }
@@ -991,14 +1245,17 @@ mod tests {
                     crate::ir::ExternalFunctionParam {
                         name: "width".to_string(),
                         type_: ParameterType::Integer,
+                        has_default: false,
                     },
                     crate::ir::ExternalFunctionParam {
                         name: "height".to_string(),
                         type_: ParameterType::Integer,
+                        has_default: false,
                     },
                 ],
                 returns: ParameterType::Integer,
                 isolated: false,
+                sub: false,
             },
         );
         let src = "IMPORT shapes AS sh\nFUNC main AS Integer\n  LET a = sh::area(width := 1, depth := 2)\n  LET b = sh::area(1, width := 2)\n  RETURN a + b\nEND FUNC\n";
@@ -1011,9 +1268,17 @@ mod tests {
         let diagnostics =
             collect_diagnostics(Path::new("/proj"), &hir, &HashMap::new(), &[], &imported);
         let codes: Vec<_> = diagnostics.iter().map(|d| d.rule.as_str()).collect();
+        // Line 3 supplies one bindable name of two required parameters, so the
+        // arity rule follows the unknown name; line 4's duplicate leaves `height`
+        // unsupplied, so it is followed by the arity rule too.
         assert_eq!(
             codes,
-            ["TYPE_UNKNOWN_ARGUMENT_NAME", "TYPE_DUPLICATE_ARGUMENT_NAME"]
+            [
+                "TYPE_UNKNOWN_ARGUMENT_NAME",
+                "TYPE_CALL_ARITY_MISMATCH",
+                "TYPE_DUPLICATE_ARGUMENT_NAME",
+                "TYPE_CALL_ARITY_MISMATCH",
+            ]
         );
         assert_eq!(
             diagnostics[0].detail,
@@ -1097,12 +1362,16 @@ mod tests {
     #[test]
     fn overloaded_duplicate_reported_once_and_before_unknown_names() {
         // A duplicate ends overload selection before any unknown name is
-        // considered, and only the first duplicate is reported.
+        // considered, and only the first duplicate is reported; the count rule
+        // still runs over the source-order list the selection fell back to.
         let codes = shape_codes(&wrap_import(
             "datetime",
             "  LET z = datetime::fixedOffset(hours := 1, hours := 2, bogus := 3, bogus := 4)",
         ));
-        assert_eq!(codes, ["TYPE_DUPLICATE_ARGUMENT_NAME"]);
+        assert_eq!(
+            codes,
+            ["TYPE_DUPLICATE_ARGUMENT_NAME", "TYPE_CALL_ARITY_MISMATCH"]
+        );
     }
 
     #[test]
@@ -1111,6 +1380,36 @@ mod tests {
             "datetime",
             "  LET z = datetime::fixedOffset(hours := 1, mins := 2)",
         )));
+    }
+
+    #[test]
+    fn function_value_call_count_rejected() {
+        // A local of FUNC type takes exactly its type's parameter count.
+        let src = "FUNC main AS Integer\n  LET f AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> x + 1\n  LET r AS Integer = f(1, 2)\n  RETURN r\nEND FUNC\n";
+        assert_eq!(shape_codes(src), ["TYPE_CALL_ARITY_MISMATCH"]);
+        // The same program through the monomorphizer, as the build runs it.
+        let file = parse_source(Path::new("main.mfb"), "main.mfb", src).expect("parses");
+        let project = AstProject {
+            name: "test".to_string(),
+            files: vec![file],
+        };
+        let augmented = crate::resolver::augment_project(&project).expect("augments");
+        let concrete = crate::monomorph::monomorphize_project(
+            Path::new("."),
+            &crate::hir::elaborate(&augmented),
+        )
+        .expect("monomorphizes");
+        let codes: Vec<_> = collect_diagnostics(
+            Path::new("/proj"),
+            &concrete,
+            &HashMap::new(),
+            &[],
+            &HashMap::new(),
+        )
+        .into_iter()
+        .map(|d| d.rule)
+        .collect();
+        assert_eq!(codes, ["TYPE_CALL_ARITY_MISMATCH"]);
     }
 
     #[test]
@@ -1130,7 +1429,9 @@ mod tests {
             details,
             [
                 "Call to `g` does not have a parameter named `z`.",
+                "Call to `g` has 0 argument(s), expected 1 to 1.",
                 "Call to `g` does not have a parameter named `y`.",
+                "Call to `g` has 0 argument(s), expected 1 to 1.",
             ]
         );
     }

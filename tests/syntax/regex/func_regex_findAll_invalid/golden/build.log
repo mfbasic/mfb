@@ -1,4 +1,16 @@
 $ mfb build -ast -ir tests/syntax/regex/func_regex_findAll_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS List OF Integer = regex::findAll("a")
+     | ^
+tests/syntax/regex/func_regex_findAll_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `regex.findAll` has 1 argument(s), expected 2 to 3.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS List OF Integer = regex::findAll("a")
+   5 |   LET tooMany AS List OF Integer = regex::findAll("a", "b", 0, 1)
+     | ^
+tests/syntax/regex/func_regex_findAll_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `regex.findAll` has 4 argument(s), expected 2 to 3.
    5 |   LET tooMany AS List OF Integer = regex::findAll("a", "b", 0, 1)
    6 |   LET wrongType AS List OF Integer = regex::findAll("a", "b", "c")
    7 |   LET badName AS List OF Integer = regex::findAll("a", "b", begin := 0)
@@ -9,20 +21,8 @@ tests/syntax/regex/func_regex_findAll_invalid/src/main.mfb:7 error[2-203-0059 TY
    3 | FUNC main AS Integer
    4 |   LET missing AS List OF Integer = regex::findAll("a")
      | ^
-tests/syntax/regex/func_regex_findAll_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `regex.findAll` has 1 argument(s), expected 2 to 3.
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   LET missing AS List OF Integer = regex::findAll("a")
-     | ^
 tests/syntax/regex/func_regex_findAll_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
-   3 | FUNC main AS Integer
-   4 |   LET missing AS List OF Integer = regex::findAll("a")
-   5 |   LET tooMany AS List OF Integer = regex::findAll("a", "b", 0, 1)
-     | ^
-tests/syntax/regex/func_regex_findAll_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `regex.findAll` has 4 argument(s), expected 2 to 3.
    3 | FUNC main AS Integer
    4 |   LET missing AS List OF Integer = regex::findAll("a")
    5 |   LET tooMany AS List OF Integer = regex::findAll("a", "b", 0, 1)

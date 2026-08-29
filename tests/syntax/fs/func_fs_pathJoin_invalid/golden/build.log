@@ -5,6 +5,12 @@ $ mfb build -ast -ir tests/syntax/fs/func_fs_pathJoin_invalid
      | ^
 tests/syntax/fs/func_fs_pathJoin_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `fs.pathJoin` has 0 argument(s), expected 1.
+   5 |   LET wrongType AS String = fs::pathJoin("x")
+   6 |   LET wrongList AS String = fs::pathJoin([1, 2])
+   7 |   LET tooMany AS String = fs::pathJoin(["a"], ["b"])
+     | ^
+tests/syntax/fs/func_fs_pathJoin_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.pathJoin` has 2 argument(s), expected 1.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing AS String = fs::pathJoin()
@@ -35,12 +41,6 @@ tests/syntax/fs/func_fs_pathJoin_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CA
      | ^
 tests/syntax/fs/func_fs_pathJoin_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongList` does not have a known type.
-   5 |   LET wrongType AS String = fs::pathJoin("x")
-   6 |   LET wrongList AS String = fs::pathJoin([1, 2])
-   7 |   LET tooMany AS String = fs::pathJoin(["a"], ["b"])
-     | ^
-tests/syntax/fs/func_fs_pathJoin_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `fs.pathJoin` has 2 argument(s), expected 1.
    5 |   LET wrongType AS String = fs::pathJoin("x")
    6 |   LET wrongList AS String = fs::pathJoin([1, 2])
    7 |   LET tooMany AS String = fs::pathJoin(["a"], ["b"])

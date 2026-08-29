@@ -1,4 +1,10 @@
 $ mfb build -ast -ir tests/syntax/tls/poll_invalid
+  12 |   LET badTimeout = tls::poll(conn, "soon")
+  13 |   ' Too many arguments (poll takes at most 2).
+  14 |   LET tooMany = tls::poll(conn, 100, 200)
+     | ^
+tests/syntax/tls/poll_invalid/src/main.mfb:14 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `tls.poll` has 3 argument(s), expected 1 to 2.
    6 |   RES conn = tls::connect("example.com", 443)
    7 |   ' Wrong receiver: a tls::TlsListener is not a tls::TlsSocket.
    8 |   LET wrongReceiver = tls::poll(server)
@@ -35,12 +41,6 @@ tests/syntax/tls/poll_invalid/src/main.mfb:12 error[2-203-0021 TYPE_CALL_ARGUMEN
      | ^
 tests/syntax/tls/poll_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badTimeout` does not have a known type.
-  12 |   LET badTimeout = tls::poll(conn, "soon")
-  13 |   ' Too many arguments (poll takes at most 2).
-  14 |   LET tooMany = tls::poll(conn, 100, 200)
-     | ^
-tests/syntax/tls/poll_invalid/src/main.mfb:14 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `tls.poll` has 3 argument(s), expected 1 to 2.
   12 |   LET badTimeout = tls::poll(conn, "soon")
   13 |   ' Too many arguments (poll takes at most 2).
   14 |   LET tooMany = tls::poll(conn, 100, 200)

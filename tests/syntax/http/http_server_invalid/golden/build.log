@@ -5,6 +5,18 @@ $ mfb build -ast -ir tests/syntax/http/http_server_invalid
      | ^
 tests/syntax/http/http_server_invalid/src/main.mfb:11 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `http.server` has 0 argument(s), expected 1 to 3.
+  14 |   LET badRoute = http::route("/", badHandler)
+  15 |   ' route: too few arguments.
+  16 |   LET fewRoute = http::route("/")
+     | ^
+tests/syntax/http/http_server_invalid/src/main.mfb:16 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `http.route` has 1 argument(s), expected 2.
+  18 |   LET badStatus = http::status("200", "body")
+  19 |   ' ok: too many arguments.
+  20 |   LET manyOk = http::ok("a", "b")
+     | ^
+tests/syntax/http/http_server_invalid/src/main.mfb:20 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `http.ok` has 2 argument(s), expected 1.
    9 | FUNC main AS Integer
   10 |   ' server: too few / wrong-typed arguments.
   11 |   LET noPort = http::server()
@@ -39,12 +51,6 @@ tests/syntax/http/http_server_invalid/src/main.mfb:14 error[2-203-0043 TYPE_UNKN
   15 |   ' route: too few arguments.
   16 |   LET fewRoute = http::route("/")
      | ^
-tests/syntax/http/http_server_invalid/src/main.mfb:16 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `http.route` has 1 argument(s), expected 2.
-  14 |   LET badRoute = http::route("/", badHandler)
-  15 |   ' route: too few arguments.
-  16 |   LET fewRoute = http::route("/")
-     | ^
 tests/syntax/http/http_server_invalid/src/main.mfb:16 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `fewRoute` does not have a known type.
   16 |   LET fewRoute = http::route("/")
@@ -59,12 +65,6 @@ tests/syntax/http/http_server_invalid/src/main.mfb:18 error[2-203-0021 TYPE_CALL
      | ^
 tests/syntax/http/http_server_invalid/src/main.mfb:18 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badStatus` does not have a known type.
-  18 |   LET badStatus = http::status("200", "body")
-  19 |   ' ok: too many arguments.
-  20 |   LET manyOk = http::ok("a", "b")
-     | ^
-tests/syntax/http/http_server_invalid/src/main.mfb:20 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `http.ok` has 2 argument(s), expected 1.
   18 |   LET badStatus = http::status("200", "body")
   19 |   ' ok: too many arguments.
   20 |   LET manyOk = http::ok("a", "b")

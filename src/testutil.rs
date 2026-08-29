@@ -73,19 +73,21 @@ pub fn lower_src(source: &str) -> IrProject {
 /// Run the syntax checker over `src` and return the emitted diagnostic rule
 /// codes (in traversal order). An empty vector means the program is accepted.
 pub fn check_src(source: &str) -> Vec<String> {
-    let project = project_from_src(source);
-    // `check_project_collect` consumes HIR (plan-106-D); a hand-written test
-    // source starts as an AST, so it elaborates here — forward, as the compile
-    // path does.
-    let diagnostics =
-        crate::syntaxcheck::check_project_collect(Path::new("."), &crate::hir::elaborate(&project))
-            .expect("augmentation should not fail for test sources");
-    diagnostics.into_iter().map(|d| d.rule).collect()
+    // One source-diagnostic oracle for every unit test (plan-107-E): the build
+    // path's three checkers — `ir::shape`, `syntaxcheck`, `ir::verify` on the
+    // lowered IR — over the monomorphized program, in the build's stream order.
+    crate::syntaxcheck::testutil::check_src(source)
 }
 
 /// True when the checker accepts `src` with zero diagnostics.
 pub fn accepts(source: &str) -> bool {
     check_src(source).is_empty()
+}
+
+/// True when the SOURCE checker alone emits nothing for `src` — for a test that
+/// walks one of its inference arms on a program `ir::verify` rejects.
+pub fn syntaxcheck_accepts(source: &str) -> bool {
+    crate::syntaxcheck::testutil::syntaxcheck_accepts(source)
 }
 
 /// True when the checker rejects `src` with at least one diagnostic whose rule

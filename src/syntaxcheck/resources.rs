@@ -203,7 +203,7 @@ mod resources_tests {
     /// the parameter position now consults it (spec §15.4).
     #[test]
     fn resource_union_variant_widens_into_union_param() {
-        let src = "IMPORT fs\nIMPORT net\nUNION Stream\n  fs::File\n  Socket\nEND UNION\nFUNC useStream(RES s AS Stream) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RES f AS fs::File = fs::createTempFile()\n  RETURN useStream(f)\nEND FUNC\n";
+        let src = "IMPORT fs\nIMPORT net\nUNION Stream\n  fs::File\n  net::Socket\nEND UNION\nFUNC useStream(RES s AS Stream) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RES f AS fs::File = fs::createTempFile()\n  RETURN useStream(f)\nEND FUNC\n";
         assert!(
             accepts(src),
             "a variant must widen into a resource-union RES parameter"
@@ -284,7 +284,10 @@ mod resources_tests {
         // rejects_collection_resource_element_without_res` and the
         // `tests/syntax/resources/native-resource-in-list-invalid` fixture.
         let src = "IMPORT fs\nFUNC main AS Integer\n  LET xs AS List OF fs::File = []\n  RETURN 0\nEND FUNC\n";
-        assert!(accepts(src), "RES axis must not be rejected by syntaxcheck");
+        assert!(
+            syntaxcheck_codes(src).is_empty(),
+            "RES axis must not be rejected by syntaxcheck"
+        );
     }
 
     #[test]
@@ -296,7 +299,10 @@ mod resources_tests {
         // `tests/syntax/resources/resource-res-nonresource-invalid` fixture.
         let src =
             "FUNC main AS Integer\n  LET xs AS List OF RES Integer = []\n  RETURN 0\nEND FUNC\n";
-        assert!(accepts(src), "RES axis must not be rejected by syntaxcheck");
+        assert!(
+            syntaxcheck_codes(src).is_empty(),
+            "RES axis must not be rejected by syntaxcheck"
+        );
     }
 
     // ---- thread.start / thread.send sendability boundary -------------------

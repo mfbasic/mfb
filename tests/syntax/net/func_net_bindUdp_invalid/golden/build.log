@@ -5,6 +5,12 @@ $ mfb build -ast -ir tests/syntax/net/func_net_bindUdp_invalid
      | ^
 tests/syntax/net/func_net_bindUdp_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `net.bindUdp` has 0 argument(s), expected 2.
+   4 |   LET missing = net::bindUdp()
+   5 |   LET wrongType = net::bindUdp(1, 2)
+   6 |   LET tooMany = net::bindUdp("127.0.0.1", 0, 1)
+     | ^
+tests/syntax/net/func_net_bindUdp_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.bindUdp` has 3 argument(s), expected 2.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing = net::bindUdp()
@@ -23,12 +29,6 @@ tests/syntax/net/func_net_bindUdp_invalid/src/main.mfb:5 error[2-203-0021 TYPE_C
      | ^
 tests/syntax/net/func_net_bindUdp_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongType` does not have a known type.
-   4 |   LET missing = net::bindUdp()
-   5 |   LET wrongType = net::bindUdp(1, 2)
-   6 |   LET tooMany = net::bindUdp("127.0.0.1", 0, 1)
-     | ^
-tests/syntax/net/func_net_bindUdp_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `net.bindUdp` has 3 argument(s), expected 2.
    4 |   LET missing = net::bindUdp()
    5 |   LET wrongType = net::bindUdp(1, 2)
    6 |   LET tooMany = net::bindUdp("127.0.0.1", 0, 1)

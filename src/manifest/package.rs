@@ -534,10 +534,12 @@ fn package_export_signature(export: &binary_repr::BinaryReprExport) -> ir::Exter
             .map(|param| ir::ExternalFunctionParam {
                 name: param.name.clone(),
                 type_: crate::types::ParameterType::parse(&param.type_),
+                has_default: param.has_default,
             })
             .collect(),
         returns: crate::types::ParameterType::parse(&export.return_type),
         isolated: export.isolated,
+        sub: export.kind == binary_repr::BinaryReprExportKind::Sub,
     }
 }
 

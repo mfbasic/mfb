@@ -7,6 +7,12 @@ uses thread_file_workers - [Unsigned]
      | ^
 tests/syntax/threads/func_thread_send_invalid/src/main.mfb:17 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `thread.send` has 0 argument(s), expected 2 to 3.
+  18 |   LET wrongMessage AS Nothing = thread::send(t, 1)
+  19 |   LET wrongTimeout AS Nothing = thread::send(t, "b", "bad")
+  20 |   LET tooMany AS Nothing = thread::send(t, "b", 0, 1)
+     | ^
+tests/syntax/threads/func_thread_send_invalid/src/main.mfb:20 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `thread.send` has 4 argument(s), expected 2 to 3.
   15 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
   16 |   LET fileThread AS Thread OF RES fs::File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
   17 |   LET missing AS Nothing = thread::send()
@@ -37,12 +43,6 @@ tests/syntax/threads/func_thread_send_invalid/src/main.mfb:19 error[2-203-0021 T
      | ^
 tests/syntax/threads/func_thread_send_invalid/src/main.mfb:19 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongTimeout` does not have a known type.
-  18 |   LET wrongMessage AS Nothing = thread::send(t, 1)
-  19 |   LET wrongTimeout AS Nothing = thread::send(t, "b", "bad")
-  20 |   LET tooMany AS Nothing = thread::send(t, "b", 0, 1)
-     | ^
-tests/syntax/threads/func_thread_send_invalid/src/main.mfb:20 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `thread.send` has 4 argument(s), expected 2 to 3.
   18 |   LET wrongMessage AS Nothing = thread::send(t, 1)
   19 |   LET wrongTimeout AS Nothing = thread::send(t, "b", "bad")
   20 |   LET tooMany AS Nothing = thread::send(t, "b", 0, 1)

@@ -5,6 +5,12 @@ $ mfb build -ast -ir tests/syntax/strings/split
      | ^
 tests/syntax/strings/split/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `strings.split` has 1 argument(s), expected 2.
+   5 |   LET wrongValue AS List OF String = strings::split(1, ",")
+   6 |   LET wrongDelimiter AS List OF String = strings::split("a,b", 1)
+   7 |   LET tooMany AS List OF String = strings::split("a,b", ",", ";")
+     | ^
+tests/syntax/strings/split/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `strings.split` has 3 argument(s), expected 2.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing AS List OF String = strings::split("a,b")
@@ -35,12 +41,6 @@ tests/syntax/strings/split/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MI
      | ^
 tests/syntax/strings/split/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongDelimiter` does not have a known type.
-   5 |   LET wrongValue AS List OF String = strings::split(1, ",")
-   6 |   LET wrongDelimiter AS List OF String = strings::split("a,b", 1)
-   7 |   LET tooMany AS List OF String = strings::split("a,b", ",", ";")
-     | ^
-tests/syntax/strings/split/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `strings.split` has 3 argument(s), expected 2.
    5 |   LET wrongValue AS List OF String = strings::split(1, ",")
    6 |   LET wrongDelimiter AS List OF String = strings::split("a,b", 1)
    7 |   LET tooMany AS List OF String = strings::split("a,b", ",", ";")

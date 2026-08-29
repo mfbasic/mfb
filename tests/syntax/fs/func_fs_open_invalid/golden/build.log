@@ -5,6 +5,12 @@ $ mfb build -ast -ir tests/syntax/fs/func_fs_open_invalid
      | ^
 tests/syntax/fs/func_fs_open_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `fs.open` has 1 argument(s), expected 2.
+   5 |   RES wrongPath AS fs::File = fs::open(1, "read")
+   6 |   RES wrongMode AS fs::File = fs::open("a", 1)
+   7 |   RES tooMany AS fs::File = fs::open("a", "read", "x")
+     | ^
+tests/syntax/fs/func_fs_open_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.open` has 3 argument(s), expected 2.
    2 | 
    3 | FUNC main AS Integer
    4 |   RES missing AS fs::File = fs::open("a")
@@ -35,12 +41,6 @@ tests/syntax/fs/func_fs_open_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_A
      | ^
 tests/syntax/fs/func_fs_open_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongMode` does not have a known type.
-   5 |   RES wrongPath AS fs::File = fs::open(1, "read")
-   6 |   RES wrongMode AS fs::File = fs::open("a", 1)
-   7 |   RES tooMany AS fs::File = fs::open("a", "read", "x")
-     | ^
-tests/syntax/fs/func_fs_open_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `fs.open` has 3 argument(s), expected 2.
    5 |   RES wrongPath AS fs::File = fs::open(1, "read")
    6 |   RES wrongMode AS fs::File = fs::open("a", 1)
    7 |   RES tooMany AS fs::File = fs::open("a", "read", "x")

@@ -5,6 +5,12 @@ $ mfb build -ast -ir tests/syntax/fs/func_fs_openWithin_invalid
      | ^
 tests/syntax/fs/func_fs_openWithin_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `fs.openWithin` has 1 argument(s), expected 2 to 3.
+   6 |   RES wrongRel AS fs::File = fs::openWithin("root", 2)
+   7 |   RES wrongMode AS fs::File = fs::openWithin("root", "rel", 3)
+   8 |   RES tooMany AS fs::File = fs::openWithin("root", "rel", "read", "x")
+     | ^
+tests/syntax/fs/func_fs_openWithin_invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.openWithin` has 4 argument(s), expected 2 to 3.
    2 | 
    3 | FUNC main AS Integer
    4 |   RES tooFew AS fs::File = fs::openWithin("root")
@@ -47,12 +53,6 @@ tests/syntax/fs/func_fs_openWithin_invalid/src/main.mfb:7 error[2-203-0021 TYPE_
      | ^
 tests/syntax/fs/func_fs_openWithin_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongMode` does not have a known type.
-   6 |   RES wrongRel AS fs::File = fs::openWithin("root", 2)
-   7 |   RES wrongMode AS fs::File = fs::openWithin("root", "rel", 3)
-   8 |   RES tooMany AS fs::File = fs::openWithin("root", "rel", "read", "x")
-     | ^
-tests/syntax/fs/func_fs_openWithin_invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `fs.openWithin` has 4 argument(s), expected 2 to 3.
    6 |   RES wrongRel AS fs::File = fs::openWithin("root", 2)
    7 |   RES wrongMode AS fs::File = fs::openWithin("root", "rel", 3)
    8 |   RES tooMany AS fs::File = fs::openWithin("root", "rel", "read", "x")

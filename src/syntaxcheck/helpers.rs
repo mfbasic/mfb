@@ -325,7 +325,7 @@ END FUNC
 ";
         // The helper is a pure shape query, so syntaxcheck must emit nothing —
         // the range rule itself belongs to ir::verify (plan-20).
-        assert!(accepts(src), "{:?}", check_src(src));
+        assert!(syntaxcheck_accepts(src), "{:?}", check_src(src));
     }
 
     // ----- numeric_literal_type / numeric_literal_is_zero -------------------
@@ -342,7 +342,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(accepts(src), "{:?}", check_src(src));
+        assert!(syntaxcheck_accepts(src), "{:?}", check_src(src));
     }
 
     #[test]
@@ -384,7 +384,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(accepts(src), "{:?}", check_src(src));
+        assert!(syntaxcheck_accepts(src), "{:?}", check_src(src));
     }
 
     // ----- numeric_binary_result_type / numeric_type_name -------------------
@@ -404,7 +404,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(accepts(src), "{:?}", check_src(src));
+        assert!(syntaxcheck_accepts(src), "{:?}", check_src(src));
     }
 
     // ----- strip_res (List OF RES ...) --------------------------------------
@@ -492,7 +492,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(accepts(src), "{:?}", check_src(src));
+        assert!(syntaxcheck_accepts(src), "{:?}", check_src(src));
     }
 
     #[test]
@@ -506,7 +506,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(accepts(src), "{:?}", check_src(src));
+        assert!(syntaxcheck_accepts(src), "{:?}", check_src(src));
     }
 
     // ----- constructor_arg_value (positional + named) -----------------------

@@ -1,4 +1,16 @@
 $ mfb build -ast -ir tests/syntax/regex/func_regex_find_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Integer = regex::find("a")
+     | ^
+tests/syntax/regex/func_regex_find_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `regex.find` has 1 argument(s), expected 2 to 3.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Integer = regex::find("a")
+   5 |   LET tooMany AS Integer = regex::find("a", "b", 0, 1)
+     | ^
+tests/syntax/regex/func_regex_find_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `regex.find` has 4 argument(s), expected 2 to 3.
    5 |   LET tooMany AS Integer = regex::find("a", "b", 0, 1)
    6 |   LET wrongType AS Integer = regex::find("a", "b", "c")
    7 |   LET badName AS Integer = regex::find("a", "b", begin := 0)
@@ -9,20 +21,8 @@ tests/syntax/regex/func_regex_find_invalid/src/main.mfb:7 error[2-203-0059 TYPE_
    3 | FUNC main AS Integer
    4 |   LET missing AS Integer = regex::find("a")
      | ^
-tests/syntax/regex/func_regex_find_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `regex.find` has 1 argument(s), expected 2 to 3.
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   LET missing AS Integer = regex::find("a")
-     | ^
 tests/syntax/regex/func_regex_find_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
-   3 | FUNC main AS Integer
-   4 |   LET missing AS Integer = regex::find("a")
-   5 |   LET tooMany AS Integer = regex::find("a", "b", 0, 1)
-     | ^
-tests/syntax/regex/func_regex_find_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `regex.find` has 4 argument(s), expected 2 to 3.
    3 | FUNC main AS Integer
    4 |   LET missing AS Integer = regex::find("a")
    5 |   LET tooMany AS Integer = regex::find("a", "b", 0, 1)

@@ -5,6 +5,12 @@ $ mfb build -ast -ir tests/syntax/net/func_net_lookup_invalid
      | ^
 tests/syntax/net/func_net_lookup_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `net.lookup` has 0 argument(s), expected 1 to 2.
+   5 |   LET wrongHost = net::lookup(1)
+   6 |   LET wrongPort = net::lookup("h", "p")
+   7 |   LET tooMany = net::lookup("h", 1, 2)
+     | ^
+tests/syntax/net/func_net_lookup_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.lookup` has 3 argument(s), expected 1 to 2.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing = net::lookup()
@@ -35,12 +41,6 @@ tests/syntax/net/func_net_lookup_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CA
      | ^
 tests/syntax/net/func_net_lookup_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongPort` does not have a known type.
-   5 |   LET wrongHost = net::lookup(1)
-   6 |   LET wrongPort = net::lookup("h", "p")
-   7 |   LET tooMany = net::lookup("h", 1, 2)
-     | ^
-tests/syntax/net/func_net_lookup_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `net.lookup` has 3 argument(s), expected 1 to 2.
    5 |   LET wrongHost = net::lookup(1)
    6 |   LET wrongPort = net::lookup("h", "p")
    7 |   LET tooMany = net::lookup("h", 1, 2)

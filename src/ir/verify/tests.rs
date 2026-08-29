@@ -5881,7 +5881,12 @@ fn rejects_bits_bad_args() {
         "run",
         "Nothing",
         vec![],
-        vec![eval_call("bits.band", vec![const_of("String", "x")])],
+        // Two arguments (the member's arity), both of the wrong type: the arity
+        // check precedes the type check, as in the source checker (plan-107-E).
+        vec![eval_call(
+            "bits.band",
+            vec![const_of("String", "x"), const_of("String", "y")],
+        )],
     );
     expect_rule(&project(vec![f], vec![]), "TYPE_CALL_ARGUMENT_MISMATCH");
 }

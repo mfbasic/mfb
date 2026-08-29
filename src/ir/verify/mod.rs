@@ -91,6 +91,12 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     // name the source wrote survives only in the HIR.
     "TYPE_UNKNOWN_ARGUMENT_NAME",
     "TYPE_DUPLICATE_ARGUMENT_NAME",
+    // plan-107-E: builtin and function-value forms in ir::verify; the user-FUNC
+    // form is ir::shape's on the source path (lowering normalizes the argument
+    // list — extras dropped, defaults filled — so the count is erased) and
+    // verify's on the package path; the named-argument omission forms are
+    // ir::shape's.
+    "TYPE_CALL_ARITY_MISMATCH",
     "TYPE_BINARY_OPERATOR_MISMATCH",
     "TYPE_UNARY_OPERATOR_MISMATCH",
     "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
@@ -240,7 +246,7 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
     // The package path runs on merged IR, whose resource types are already in
     // `native_resources` or are the package's own, so it registers no extra rows;
     // and a decoded package has no source, so its LINK rules report unlocated.
-    collect_diagnostics_with(project, false, &[], &crate::ir::LinkSpans::default())
+    collect_diagnostics_with(project, false, &[], &crate::ir::LinkSpans::default(), false)
 }
 
 /// `collect_diagnostics`, with `imported_types_unknown` telling the checker which
@@ -257,10 +263,12 @@ fn collect_diagnostics_with(
     imported_types_unknown: bool,
     imported_resources: &[ImportedResource],
     link_spans: &crate::ir::LinkSpans,
+    source_path: bool,
 ) -> Vec<Diagnostic> {
     let mut env = TypeEnv::build(project);
     env.imported_types_unknown = imported_types_unknown;
     env.link_spans = link_spans.clone();
+    env.source_path.set(source_path);
     // bug-377: seed the imported packages' `RESOURCE_TABLE` rows. The project's
     // own `native_resources` win — an importer never overrides a declaration it
     // can see the source of.
@@ -568,7 +576,7 @@ pub fn collect_source_diagnostics(
     imported_resources: &[ImportedResource],
     link_spans: &crate::ir::LinkSpans,
 ) -> Vec<crate::rules::PendingDiagnostic> {
-    collect_diagnostics_with(project, true, imported_resources, link_spans)
+    collect_diagnostics_with(project, true, imported_resources, link_spans, true)
         .into_iter()
         .filter(|d| RELOCATED_TO_IR_VERIFY.contains(&d.rule.as_str()))
         .map(|d| crate::rules::PendingDiagnostic {
@@ -683,6 +691,12 @@ struct TypeEnv {
     /// failure, cascading a TYPE_UNKNOWN_VALUE at the consuming statement even
     /// where lowering stamped a nominal result type. Reset per checked value.
     poisoned: Cell<bool>,
+    /// Whether this walk is the source path (build: `syntaxcheck` and
+    /// `ir::shape` run beside it) rather than the package path (`check`, where
+    /// verify is the only checker). A rule whose evidence lowering erases on
+    /// the source path — the user-FUNC call arity — is `ir::shape`'s there and
+    /// verify's structural check here only on the package path (plan-107-E).
+    source_path: Cell<bool>,
     /// Whether this run's type tables are missing the imported types (the source
     /// path lowers with empty external maps; the package path does not). When set,
     /// a type name absent from every table is treated as an unresolvable *import*
@@ -898,6 +912,7 @@ impl TypeEnv {
             current_function: RefCell::new(String::new()),
             current_muts: RefCell::new(HashMap::new()),
             poisoned: Cell::new(false),
+            source_path: Cell::new(false),
             // Strict by default: the package path (and every unit test) builds the
             // env directly and has the full merged type table. Only
             // `collect_source_diagnostics` opts into the leniency.

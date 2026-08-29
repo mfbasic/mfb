@@ -220,9 +220,22 @@ Commit: `ecd3601cd` (TYPE_UNKNOWN_ARGUMENT_NAME); TYPE_DUPLICATE_ARGUMENT_NAME �
 
 ### Phase 3 — builtin-call typing family
 
-- [ ] TYPE_CALL_ARITY_MISMATCH: verify (user/function-value/builtin incl. the
+- [x] TYPE_CALL_ARITY_MISMATCH: verify (user/function-value/builtin incl. the
       four bespoke arms) + shape (omission form); package-path tests per
       form; list; delete.
+      (Landed with the split Corrections C-count-erased describes: every
+      COUNT form is `ir::shape`'s on the source path (declared FUNC, builtin
+      incl. the four bespoke arms and the source-bodied members, function
+      value, the named-argument omission forms); `ir::verify`'s count checks
+      (`check_call_arity`, `check_function_value_arity`,
+      `builtin_arity_errored`) run on the package path only, with
+      syntaxcheck's wording. verify's `check_builtin_call_args` is now the
+      full transcription of syntaxcheck's five arms (its ARGUMENT forms land
+      with the next box) and sees a call lowering rewrote to a source-companion
+      body as the builtin it implements (`builtin_call_target` /
+      `registry::rewrite_owner`). syntaxcheck's 10 ARITY report sites deleted,
+      its argument normalizers reduced to binding. Corpus: 302 same, 219
+      reordered, 0 set-diff; all 219 goldens regenerated as pure line moves.)
 - [ ] TYPE_CALL_ARGUMENT_MISMATCH: verify + shape (named-on-function-value);
       package-path tests; list; delete; remove `syntaxcheck/builtins.rs`'s
       checker and `inference.rs` call checks.
@@ -251,6 +264,82 @@ Commit: — (per rule)
 
 ## Corrections
 
+- **C-count-erased (2026-08-29, Phase 3).** A's verdict that the user-FUNC,
+  function-value and builtin ARITY forms "survive lowering" is false for the
+  COUNT: `normalize_local_call_arguments` drops the positional arguments a
+  declared signature cannot take and `lower_local_call_arguments` fills every
+  omitted slot from its default (`src/ir/lower.rs`), so a declared-FUNC call's
+  lowered `args.len()` is never the source's count except when a required slot
+  vanishes; and the builtin Call arm pads optional trailing arguments with
+  their defaults ("Pad optional trailing arguments (`tls.connect` defaults)
+  with constants so the fixed-ABI runtime helper always receives …"), so a
+  too-few builtin call is padded to a valid count (`tls::listen()` lowered
+  with 1 argument; the first corpus run lost 59 fixtures' too-few ARITY —
+  csv/crypto/encoding/http/json/net/regex/tls/vector). Measured by the
+  harness (`/tmp/p107-phase-E3a.log`, first run: 59 SETDIFF). Consequence:
+  every count form is a shape rule on the source path; `ir::verify` keeps a
+  structural count check for the package path only (`TypeEnv::source_path`),
+  since there is no HIR there. The named-argument omission forms were already
+  shape's. Only the argument TYPES of a builtin call survive lowering and are
+  verify's.
+- **C-rewritten-targets (2026-08-29, Phase 3).** A source-bodied builtin
+  member (`Body::Mfb`/`Body::Rewrite`, the `astrings` Tier-B transforms, the
+  `term::drawText(AttributedString)` bridge) lowers to a call whose target is
+  the companion body's internal symbol (`#encoding_base32Decode`,
+  `#astrings_upper`, `#term_drawTextAttr`) while keeping the BUILTIN argument
+  normalization. verify's builtin family therefore resolves the target back
+  to the member (`compat::builtin_call_target`: `registry::rewrite_owner` +
+  `strings::tier_b_transform_owner` + the term bridge) and reports the
+  member's name; the user-FUNC arity/argument checks skip such targets (only
+  the body's `STATE` agreement still binds them — the
+  `http_async_wrongarg_invalid` golden's `TYPE_STATE_MISMATCH` for
+  `#http_pump` stays).
+- **C-thread-entry (2026-08-29, Phase 3).** `thread.start`'s entry form of
+  TYPE_CALL_ARGUMENT_MISMATCH ("entry point must be an exported ISOLATED FUNC
+  from an imported package") is (S): a `self::worker` export and a bare
+  `worker` both lower to `FunctionRef{name: "worker"}` (lowering's
+  `canonical_import_name` strips `self.`), so the IR cannot tell the accepted
+  form from the rejected one. It goes to the shape pass (with the
+  count-check gate the checker had — a bad entry ends the call's checks);
+  verify keeps an IR-evidence superset check (`FunctionRef` typed `ISOLATED
+  FUNC`) on the package path only. `ExternalSignature` gained `sub` (a SUB
+  export is not a FUNC) and `ExternalFunctionParam` gained `has_default` (the
+  arity rule's optional-parameter fact), both read straight off the `.mfp`
+  export table syntaxcheck already consulted.
+- **C-alias-spelling (2026-08-29, Phase 3).** syntaxcheck spelled a callee as
+  the source wrote it (`sh.area` under `IMPORT shapes AS sh`, `self.f`);
+  verify's IR target is canonical (`shapes.area`, `f`). For the verify-side
+  forms (argument types) an aliased or `self::` call therefore renders the
+  canonical name — the IR's truth. No fixture in the 556-fixture family
+  spells a call through an alias (`/tmp/p107-alias-fixtures.sh`: only
+  `func_thread_start_self_invalid`, whose messages name no callee), so the
+  corpus is unaffected; the shape-side forms keep the source spelling.
+- **C-test-oracle (2026-08-29, Phase 3).** `syntaxcheck::testutil::check_src`
+  (and the crate-level `testutil::check_src` that four syntaxcheck test
+  modules use, now delegating to it) runs the build path in the build's order
+  — registry augmentation, monomorphization, then `ir::shape`, syntaxcheck
+  (with its late-pass augmentation) and `ir::verify` on the lowered IR — and
+  concatenates their codes, so a rule's unit tests keep passing as it
+  relocates; D moves the surviving tests out of `syntaxcheck` with the
+  module. Three tests asserted syntaxcheck-only properties and switched to
+  the new `syntaxcheck_codes` oracle (the bug-43 "must not be rejected by
+  syntaxcheck" guards, and a monomorph-rejected overload program that only
+  exercised the checker's fallback branch); one test's source (`Socket` for
+  `net::Socket`) never resolved in a real build and was corrected.
+  syntaxcheck's builtin arms keep their return-TYPE inference (the rest of
+  syntaxcheck still types expressions until `TYPE_UNKNOWN_VALUE` moves); only
+  their reports were deleted.
+- **Bug found and fixed on the way (2026-08-29, Phase 3).** The pipeline
+  oracle exposed `syntaxcheck::types::types_tests::default_list_of_fixed_literal`
+  as asserting something the real compiler rejected: `FUNC g(a AS List OF
+  Fixed = [1, 2])` failed the build with `TYPE_DEFAULT_VALUE_MISMATCH`
+  (reproduced on the pre-plan baseline binary,
+  `/tmp/p107-baseline/target/debug/mfb`, so pre-existing). Root cause:
+  `lower_param` lowered a default WITHOUT the parameter's expected type
+  (`lower_expression`), so the literal list stayed `List OF Integer`, while
+  the call site's default fill (`lower_local_call_arguments`) and every other
+  typed slot use `lower_expression_with_expected`. Fixed in `lower_param`;
+  the artifact gate classifies any codegen delta as this fix's.
 - **Note from B (2026-08-29), for `TYPE_UNKNOWN_VALUE`'s relocation here:**
   lowering now binds a stray `RECOVER`'s value to a `$recover_stray` temp
   (B Corrections). verify's initializer cascade ("Initializer for binding

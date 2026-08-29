@@ -5,18 +5,18 @@ $ mfb build -ast -ir tests/syntax/bits/func_bits_rr32_invalid
      | ^
 tests/syntax/bits/func_bits_rr32_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `bits.rr32` has 1 argument(s), expected 2.
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   LET a AS Integer = bits::rr32(1)
-     | ^
-tests/syntax/bits/func_bits_rr32_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `a` does not have a known type.
    3 | FUNC main AS Integer
    4 |   LET a AS Integer = bits::rr32(1)
    5 |   LET b AS Integer = bits::rr32(1, 2, 3)
      | ^
 tests/syntax/bits/func_bits_rr32_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `bits.rr32` has 3 argument(s), expected 2.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET a AS Integer = bits::rr32(1)
+     | ^
+tests/syntax/bits/func_bits_rr32_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `a` does not have a known type.
    3 | FUNC main AS Integer
    4 |   LET a AS Integer = bits::rr32(1)
    5 |   LET b AS Integer = bits::rr32(1, 2, 3)

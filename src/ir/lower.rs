@@ -272,6 +272,14 @@ pub(super) struct LowerFacts {
     type_index: TypeIndex,
 }
 
+impl LowerContext<'_> {
+    /// The declared or inferred type of a top-level binding, for the shape
+    /// pass's call rules (a global of FUNC type is callable like a local).
+    pub(super) fn binding_type(&self, name: &str) -> Option<&ParameterType> {
+        self.binding_types.get(name)
+    }
+}
+
 impl LowerFacts {
     /// A fresh lowering context over these facts, positioned before the first
     /// file (no imports, no current file, no function cursor).
@@ -563,10 +571,16 @@ fn lower_param(
     IrParam {
         name: param.name.clone(),
         type_: type_.clone(),
+        // The default is typed by the parameter, exactly as the call site
+        // fills it (`lower_local_call_arguments`): a bare numeric literal — or a
+        // list of them — coerces to a `Fixed`/`Money`/`Float` parameter here too,
+        // so `a AS List OF Fixed = [1, 2]` lowers as the `List OF Fixed` the
+        // declaration names rather than a `List OF Integer` the default-value
+        // rule then rejects.
         default: param
             .default
             .as_ref()
-            .map(|value| lower_expression(value, locals, context)),
+            .map(|value| lower_expression_with_expected(value, Some(&type_), locals, context)),
         loc: IrSourceLoc {
             line: param.line as u32,
             column: 1,

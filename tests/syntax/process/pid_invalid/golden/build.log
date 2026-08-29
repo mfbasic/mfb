@@ -5,6 +5,12 @@ $ mfb build -ast -ir tests/syntax/process/pid_invalid
      | ^
 tests/syntax/process/pid_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `process.pid` has 0 argument(s), expected 1.
+   9 |   LET b = process::pid(5)
+  10 |   ' Too many arguments.
+  11 |   LET c = process::pid(5, 6)
+     | ^
+tests/syntax/process/pid_invalid/src/main.mfb:11 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `process.pid` has 2 argument(s), expected 1.
    5 | FUNC main AS Integer
    6 |   ' No arguments: below the minimum arity.
    7 |   LET a = process::pid()
@@ -23,12 +29,6 @@ tests/syntax/process/pid_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUM
      | ^
 tests/syntax/process/pid_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `b` does not have a known type.
-   9 |   LET b = process::pid(5)
-  10 |   ' Too many arguments.
-  11 |   LET c = process::pid(5, 6)
-     | ^
-tests/syntax/process/pid_invalid/src/main.mfb:11 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `process.pid` has 2 argument(s), expected 1.
    9 |   LET b = process::pid(5)
   10 |   ' Too many arguments.
   11 |   LET c = process::pid(5, 6)

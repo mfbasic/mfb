@@ -271,28 +271,30 @@ pub(crate) fn is_tier_a_query(name: &str) -> bool {
 /// (re-express it — narrowed, extended, or rewritten), so an `AttributedString`
 /// argument yields an `AttributedString` whose text is transformed exactly as the
 /// `String` overload's and whose attribute spans are remapped by the same edit.
-/// `ir::lower` routes these to their `__astrings_*` body. Keyed on the qualified name.
+/// `ir::lower` routes these to their `__astrings_*` body. Keyed on the qualified
+/// name; each row pairs the member with its source-companion implementation symbol.
+const TIER_B_TRANSFORMS: &[(&str, &str)] = &[
+    ("strings.left", "__astrings_left"),
+    ("strings.right", "__astrings_right"),
+    ("strings.mid", "__astrings_mid"),
+    ("strings.trim", "__astrings_trim"),
+    ("strings.trimStart", "__astrings_trimStart"),
+    ("strings.trimEnd", "__astrings_trimEnd"),
+    ("strings.trimChars", "__astrings_trimChars"),
+    ("strings.stripPrefix", "__astrings_stripPrefix"),
+    ("strings.stripSuffix", "__astrings_stripSuffix"),
+    ("strings.padLeft", "__astrings_padLeft"),
+    ("strings.padRight", "__astrings_padRight"),
+    ("strings.repeat", "__astrings_repeat"),
+    ("strings.replace", "__astrings_replace"),
+    ("strings.upper", "__astrings_upper"),
+    ("strings.lower", "__astrings_lower"),
+    ("strings.caseFold", "__astrings_caseFold"),
+    ("strings.normalizeNfc", "__astrings_normalizeNfc"),
+];
+
 pub(crate) fn is_tier_b_transform(name: &str) -> bool {
-    matches!(
-        name,
-        "strings.left"
-            | "strings.right"
-            | "strings.mid"
-            | "strings.trim"
-            | "strings.trimStart"
-            | "strings.trimEnd"
-            | "strings.trimChars"
-            | "strings.stripPrefix"
-            | "strings.stripSuffix"
-            | "strings.padLeft"
-            | "strings.padRight"
-            | "strings.repeat"
-            | "strings.replace"
-            | "strings.upper"
-            | "strings.lower"
-            | "strings.caseFold"
-            | "strings.normalizeNfc"
-    )
+    TIER_B_TRANSFORMS.iter().any(|(member, _)| *member == name)
 }
 
 /// The `astrings` source-companion implementation symbol for a Tier-B transform of an
@@ -300,25 +302,21 @@ pub(crate) fn is_tier_b_transform(name: &str) -> bool {
 /// `strings::<t>(AttributedString, …)` call to this `__astrings_*` body instead of
 /// the native `String` transform.
 pub(crate) fn tier_b_transform_impl(name: &str) -> Option<&'static str> {
-    let symbol = match name {
-        "strings.left" => "__astrings_left",
-        "strings.right" => "__astrings_right",
-        "strings.mid" => "__astrings_mid",
-        "strings.trim" => "__astrings_trim",
-        "strings.trimStart" => "__astrings_trimStart",
-        "strings.trimEnd" => "__astrings_trimEnd",
-        "strings.trimChars" => "__astrings_trimChars",
-        "strings.stripPrefix" => "__astrings_stripPrefix",
-        "strings.stripSuffix" => "__astrings_stripSuffix",
-        "strings.padLeft" => "__astrings_padLeft",
-        "strings.padRight" => "__astrings_padRight",
-        "strings.repeat" => "__astrings_repeat",
-        "strings.replace" => "__astrings_replace",
-        "strings.upper" => "__astrings_upper",
-        "strings.lower" => "__astrings_lower",
-        "strings.caseFold" => "__astrings_caseFold",
-        "strings.normalizeNfc" => "__astrings_normalizeNfc",
-        _ => return None,
-    };
-    Some(symbol)
+    TIER_B_TRANSFORMS
+        .iter()
+        .find(|(member, _)| *member == name)
+        .map(|(_, symbol)| *symbol)
+}
+
+/// The Tier-B member whose `AttributedString` call lowers to `symbol` (either
+/// the `__astrings_*` spelling or the internalized `#astrings_*` the IR
+/// carries) — the inverse of [`tier_b_transform_impl`], for the IR-level call
+/// rules that report the member the source wrote (plan-107-E).
+pub(crate) fn tier_b_transform_owner(symbol: &str) -> Option<&'static str> {
+    TIER_B_TRANSFORMS
+        .iter()
+        .find(|(_, implementation)| {
+            *implementation == symbol || crate::internal_name::internalize(implementation) == symbol
+        })
+        .map(|(member, _)| *member)
 }

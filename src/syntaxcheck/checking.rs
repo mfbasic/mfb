@@ -1197,7 +1197,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(accepts(src), "{:?}", check_src(src));
+        assert!(syntaxcheck_accepts(src), "{:?}", check_src(src));
     }
 
     #[test]
@@ -1213,7 +1213,7 @@ FUNC main AS Integer
   RETURN total
 END FUNC
 ";
-        assert!(accepts(src), "{:?}", check_src(src));
+        assert!(syntaxcheck_accepts(src), "{:?}", check_src(src));
     }
 
     #[test]
@@ -1374,7 +1374,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(accepts(src), "{:?}", check_src(src));
+        assert!(syntaxcheck_accepts(src), "{:?}", check_src(src));
     }
 
     #[test]

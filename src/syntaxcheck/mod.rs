@@ -16,7 +16,6 @@ use std::path::Path;
 
 #[path = "builtins.rs"]
 mod builtins_check;
-pub(crate) use builtins_check::checks_builtin_call_arguments;
 mod checking;
 mod helpers;
 mod inference;
@@ -164,6 +163,17 @@ pub fn check_project_collect(
     project_dir: &Path,
     hir: &crate::hir::HirProject,
 ) -> Result<Vec<crate::rules::PendingDiagnostic>, ()> {
+    let augmented = augment_for_check(hir)?;
+    let mut checker = SyntaxChecker::new(project_dir, &augmented);
+    checker.check();
+    Ok(checker.diagnostics)
+}
+
+/// Inject the builtin package sources `hir` needs, exactly as the build path
+/// does before lowering, so the checker sees the same program lowering will.
+pub(crate) fn augment_for_check(
+    hir: &crate::hir::HirProject,
+) -> Result<crate::hir::HirProject, ()> {
     // plan-106-D: the injection runs in the HIR domain, through the SAME chain
     // the AST pipeline uses (`resolver::augment_hir_project`). syntaxcheck used to
     // carry its own copy of the four-pass sequence — a second place to keep in
@@ -193,10 +203,7 @@ pub fn check_project_collect(
     // injected by the generic clean-room `registry::augment_project` above as a
     // `WhenUsed` gated helper (plan-99 PART B) — before this `encoding` late pass, so
     // `encoding::uses_package` still sees the seam's transitive `IMPORT encoding`.
-    let augmented = crate::codegen::builtins::encoding::augmented_hir_project(&augmented)?;
-    let mut checker = SyntaxChecker::new(project_dir, &augmented);
-    checker.check();
-    Ok(checker.diagnostics)
+    crate::codegen::builtins::encoding::augmented_hir_project(&augmented)
 }
 
 /// Check `ast` and render any rejections directly (standalone callers that do
@@ -1612,20 +1619,75 @@ impl<'a> SyntaxChecker<'a> {
     }
 }
 
-/// Shared test harness for the `syntaxcheck` unit tests. Builds a single-file
-/// `AstProject` from an MFBASIC source string and runs the checker, returning
-/// the collected rule codes (in traversal order). Builtin package sources are
-/// injected on demand by `check_project_collect` when their imports appear, so
-/// tests can freely `USES collections`, `strings`, etc.
+/// Shared test harness for the source-diagnostic unit tests. Builds a
+/// single-file `AstProject` from an MFBASIC source string and runs the build
+/// path's three checkers over it — `ir::shape`, this checker, and `ir::verify`
+/// on the lowered IR, concatenated in the build's stream order — returning the
+/// collected rule codes. A rule's tests therefore keep passing as the rule
+/// relocates between checkers (plan-107); the oracle is the pipeline, not one
+/// checker. Builtin package sources are injected on demand when their imports
+/// appear, so tests can freely `USES collections`, `strings`, etc.
 #[cfg(test)]
 pub(crate) mod testutil {
     use super::*;
     use crate::ast::parse_source;
     use std::path::Path;
 
-    /// Parse `src` as `main.mfb`, run the checker, and return the emitted rule
-    /// codes in order. Panics on a lex/parse failure (test-author error).
+    /// Parse `src` as `main.mfb`, run the pipeline's checkers, and return the
+    /// emitted rule codes in order. Panics on a lex/parse failure (test-author
+    /// error).
     pub(crate) fn check_src(src: &str) -> Vec<String> {
+        let file = parse_source(Path::new("main.mfb"), "main.mfb", src)
+            .expect("test source must lex+parse");
+        let project = AstProject {
+            name: "test".to_string(),
+            files: vec![file],
+        };
+        // The build path's order: the registry's package sources are injected
+        // into the AST, the generic HIR is monomorphized (every overloaded or
+        // generic call rewritten to its mangled symbol), and the checkers see
+        // that CONCRETE program — `ir::shape` and lowering directly, this
+        // checker through its late-pass augmentation (`check_project_collect`).
+        let project_dir = Path::new(".");
+        let augmented =
+            crate::resolver::augment_project(&project).expect("builtin augmentation must succeed");
+        let concrete =
+            crate::monomorph::monomorphize_project(project_dir, &crate::hir::elaborate(&augmented))
+                .expect("test source must monomorphize");
+        let no_signatures = HashMap::new();
+        let mut diagnostics = crate::ir::shape::collect_diagnostics(
+            project_dir,
+            &concrete,
+            &no_signatures,
+            &[],
+            &no_signatures,
+        );
+        let checked = augment_for_check(&concrete).expect("late-pass augmentation must succeed");
+        let mut checker = SyntaxChecker::new(project_dir, &checked);
+        checker.check();
+        diagnostics.extend(checker.diagnostics);
+        let ir = crate::ir::lower_augmented_project(&concrete, None, &no_signatures, &[]);
+        let link_spans = crate::ir::link_spans(&concrete);
+        diagnostics.extend(crate::ir::verify_source_diagnostics(
+            &ir,
+            project_dir,
+            &[],
+            &link_spans,
+        ));
+        diagnostics.into_iter().map(|d| d.rule).collect()
+    }
+
+    /// True when this checker alone emits nothing for `src` — for the tests
+    /// that walk one of its inference arms on a program another checker
+    /// rejects (`ir::verify` owns the rejection; this checker must stay silent).
+    pub(crate) fn syntaxcheck_accepts(src: &str) -> bool {
+        syntaxcheck_codes(src).is_empty()
+    }
+
+    /// The source checker's OWN codes for `src` — for the tests that guard a
+    /// rule's absence from this checker (a rule `ir::verify` alone rejects,
+    /// bug-43), which the pipeline oracle above cannot express.
+    pub(crate) fn syntaxcheck_codes(src: &str) -> Vec<String> {
         let file = parse_source(Path::new("main.mfb"), "main.mfb", src)
             .expect("test source must lex+parse");
         let project = AstProject {
@@ -2396,8 +2458,10 @@ mod checker_tests {
     #[test]
     fn return_type_overload_no_expected_falls_back() {
         // The same overloads called with no contextual type fall back to the last
-        // candidate (the else path of the disambiguation).
-        let _ = check_src(
+        // candidate (the else path of the disambiguation). This checker's own
+        // walk only: the build rejects the program earlier, in the monomorphizer
+        // (TYPE_OVERLOAD_AMBIGUOUS), before any checker runs.
+        let _ = syntaxcheck_codes(
             "IMPORT io\nFUNC encode(v AS String) AS List OF Byte\n  RETURN [toByte(65)]\nEND FUNC\nFUNC encode(v AS String) AS List OF Integer\n  RETURN [1]\nEND FUNC\nFUNC main AS Integer\n  LET a = encode(\"x\")\n  RETURN 0\nEND FUNC\n",
         );
     }

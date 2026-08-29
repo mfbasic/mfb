@@ -2227,6 +2227,27 @@ pub(crate) fn rewrite_target(qualified: &str, arg_types: &[String]) -> Option<&'
     function.implementations.first()?.body.rewrite_target()
 }
 
+/// The qualified member whose call lowering rewrites to the internal symbol
+/// `target` (either spelling: the descriptor's `__pkg_name` or the internalized
+/// `#pkg_name` the IR carries), or `None` when no member rewrites to it. The
+/// inverse of [`rewrite_target`], for the IR-level checks that must see a
+/// rewritten call as the builtin the source wrote (plan-107-E).
+pub(crate) fn rewrite_owner(target: &str) -> Option<String> {
+    for package in registry().packages() {
+        for function in package.functions() {
+            for implementation in function.implementations() {
+                let Some(rewrite) = implementation.body.rewrite_target() else {
+                    continue;
+                };
+                if rewrite == target || crate::internal_name::internalize(rewrite) == target {
+                    return Some(format!("{}.{}", package.import_name(), function.name));
+                }
+            }
+        }
+    }
+    None
+}
+
 /// The [`AbiInline`] lowering for `qualified`, or `None`. The inline dual-path
 /// (`try_abi_inline_lower`) consults this at the call site.
 pub(crate) fn abi_inline_lower(qualified: &str) -> Option<AbiInline> {
