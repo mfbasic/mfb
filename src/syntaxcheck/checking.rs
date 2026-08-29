@@ -17,14 +17,9 @@ impl<'a> SyntaxChecker<'a> {
                     statement,
                     HirStatement::Exit { .. } | HirStatement::Continue { .. }
                 ) {
-                    for unreachable in &body[index + 1..] {
-                        self.report(
-                            "UNREACHABLE_AFTER_EXIT",
-                            "Statement is unreachable after EXIT or CONTINUE.",
-                            file,
-                            statement_line(unreachable),
-                        );
-                    }
+                    // UNREACHABLE_AFTER_EXIT is `ir::verify`'s (the loop forms)
+                    // and `ir::shape`'s (EXIT SUB/FUNC/PROGRAM), plan-107-D.
+                    let _ = &body[index + 1..];
                 }
                 return Flow::AlwaysReturns;
             }
@@ -177,12 +172,8 @@ impl<'a> SyntaxChecker<'a> {
                     if let Some(value) = value {
                         self.infer_expression(file, value, locals, *line, ExprMode::Transfer);
                     }
-                    self.report(
-                        "SUB_RETURN_FORBIDDEN",
-                        "A SUB returns no value; use `EXIT SUB`.",
-                        file,
-                        *line,
-                    );
+                    // SUB_RETURN_FORBIDDEN is `ir::shape`'s (bare form) and
+                    // `ir::verify`'s (valued form), plan-107-D.
                     return Flow::AlwaysReturns;
                 }
                 let actual = value
@@ -208,24 +199,9 @@ impl<'a> SyntaxChecker<'a> {
                     // EXIT FOR/DO/WHILE outside a matching loop is rejected by
                     // ir::verify (plan-20), so there is nothing to check here.
                     ExitTarget::For | ExitTarget::Do | ExitTarget::While => {}
-                    ExitTarget::Sub => {
-                        if !self.current_is_sub {
-                            self.report(
-                                "EXIT_SUB_IN_FUNC",
-                                "EXIT SUB is valid only inside a SUB; use RETURN <value> in a FUNC.",
-                                file,
-                                *line,
-                            );
-                        }
-                    }
-                    ExitTarget::Func => {
-                        self.report(
-                            "EXIT_FUNC_FORBIDDEN",
-                            "Functions must RETURN a value; EXIT FUNC is not allowed.",
-                            file,
-                            *line,
-                        );
-                    }
+                    // EXIT_SUB_IN_FUNC / EXIT_FUNC_FORBIDDEN are `ir::shape`'s
+                    // (plan-107-D).
+                    ExitTarget::Sub | ExitTarget::Func => {}
                     ExitTarget::Program => {
                         // coverage:off — the parser always parses an expression
                         // for `EXIT PROGRAM`, so `code` is never `None` here.
@@ -250,18 +226,15 @@ impl<'a> SyntaxChecker<'a> {
                     if let Some(value) = value {
                         self.infer_expression(file, value, locals, *line, ExprMode::Read);
                     }
-                    self.report(
-                        "TYPE_RECOVER_OUTSIDE_INLINE_TRAP",
-                        "RECOVER is valid only inside an inline TRAP handler.",
-                        file,
-                        *line,
-                    );
+                    // TYPE_RECOVER_OUTSIDE_INLINE_TRAP is `ir::shape`'s (plan-107-D).
                     return Flow::AlwaysReturns;
                 };
                 let produces_value = !matches!(recover_type, Type::Nothing);
                 match (value, produces_value) {
+                    // The value-type form (TYPE_RECOVER_TYPE_MISMATCH) is
+                    // `ir::verify`'s; inference still runs for elaboration.
                     (Some(value), true) => {
-                        let actual = self.infer_expression_with_expected(
+                        self.infer_expression_with_expected(
                             file,
                             value,
                             locals,
@@ -269,38 +242,11 @@ impl<'a> SyntaxChecker<'a> {
                             Some(&recover_type),
                             ExprMode::Transfer,
                         );
-                        if !self.expression_compatible(&recover_type, &actual, Some(value)) {
-                            self.report(
-                                "TYPE_RECOVER_TYPE_MISMATCH",
-                                &format!(
-                                    "RECOVER has type {}, expected {}.",
-                                    self.type_name(&actual),
-                                    self.type_name(&recover_type)
-                                ),
-                                file,
-                                *line,
-                            );
-                        }
                     }
-                    (None, true) => {
-                        self.report(
-                            "TYPE_RECOVER_TYPE_MISMATCH",
-                            &format!(
-                                "RECOVER must supply a {} value for the trapped expression.",
-                                self.type_name(&recover_type)
-                            ),
-                            file,
-                            *line,
-                        );
-                    }
+                    // The two count forms are `ir::shape`'s (plan-107-D).
+                    (None, true) => {}
                     (Some(value), false) => {
                         self.infer_expression(file, value, locals, *line, ExprMode::Read);
-                        self.report(
-                            "TYPE_RECOVER_TYPE_MISMATCH",
-                            "RECOVER must not supply a value for a value-less trapped expression.",
-                            file,
-                            *line,
-                        );
                     }
                     (None, false) => {}
                 }

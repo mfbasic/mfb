@@ -5,12 +5,6 @@ $ mfb build -ast -ir tests/syntax/trap/control-flow-inline-trap-invalid
      | ^
 tests/syntax/trap/control-flow-inline-trap-invalid/src/main.mfb:10 error[2-203-0066 TYPE_INLINE_TRAP_FALLS_THROUGH]: inline TRAP handler path neither recovers nor diverges
                Inline TRAP handler must end every path in RECOVER or a diverging statement (RETURN, FAIL, or PROPAGATE).
-  17 | FUNC recoverWrongType(v AS Integer) AS Integer
-  18 |   LET a = parsePositive(v) TRAP(e)
-  19 |     RECOVER "nope"
-     | ^
-tests/syntax/trap/control-flow-inline-trap-invalid/src/main.mfb:19 error[2-203-0067 TYPE_RECOVER_TYPE_MISMATCH]: RECOVER value does not match the trapped expression's success type
-               RECOVER has type String, expected Integer.
   25 | FUNC recoverMissingValue(v AS Integer) AS Integer
   26 |   LET a = parsePositive(v) TRAP(e)
   27 |     RECOVER
@@ -29,6 +23,12 @@ tests/syntax/trap/control-flow-inline-trap-invalid/src/main.mfb:36 error[2-203-0
      | ^
 tests/syntax/trap/control-flow-inline-trap-invalid/src/main.mfb:42 error[2-203-0068 TYPE_RECOVER_OUTSIDE_INLINE_TRAP]: RECOVER is valid only inside an inline TRAP handler
                RECOVER is valid only inside an inline TRAP handler.
+  17 | FUNC recoverWrongType(v AS Integer) AS Integer
+  18 |   LET a = parsePositive(v) TRAP(e)
+  19 |     RECOVER "nope"
+     | ^
+tests/syntax/trap/control-flow-inline-trap-invalid/src/main.mfb:19 error[2-203-0067 TYPE_RECOVER_TYPE_MISMATCH]: RECOVER value does not match the trapped expression's success type
+               RECOVER has type String, expected Integer.
   46 | ' Inline trap on an expression that cannot fail.
   47 | FUNC infallibleTrap() AS Integer
   48 |   LET a = 5 TRAP(e)

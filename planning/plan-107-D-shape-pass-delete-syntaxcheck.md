@@ -160,14 +160,31 @@ moves; split rules re-pin (listed).
 
 ### Phase 1 — the (S) ports + split rules
 
-- [ ] Fixtures first for the zero-fixture rows (23–28 as `mfb test`
+- [~] Fixtures first for the zero-fixture rows (23–28 as `mfb test`
       fixtures; 31 both forms; 41).
-- [ ] Pure-(S) rules, one commit each (rows 3, 4, 6, 23–28, 33, 38, 41), each
+      (23–28: `tests/syntax/testing/testing-assert-invalid` already carries
+      every TESTING_EXPECT_* rule but NOT_PRINTABLE in its
+      `golden/testing_assert.testrun` (`mfb test` proof; `diag-set-diff.sh`
+      now reads `.testrun` goldens, C-harness-test-verb); 41: moot, see
+      C-41-moot. Remaining: a NOT_PRINTABLE case in that fixture; a
+      TYPE_DUPLICATE_FIELD fixture with both forms.)
+- [~] Pure-(S) rules, one commit each (rows 3, 4, 6, 23–28, 33, 38, 41), each
       with its erased-evidence doc line; corpus SAME (order-neutral) per
       commit.
-- [ ] Split rules, one commit each (rows 22, 31, 39, 46): shape half + verify
+      (Rows 3, 4, 33, 38 landed — in ONE commit with rows 22, 39, 46 and E's
+      C-override-typing fixup, not one each: see C-one-commit. Row 41 moot
+      (C-41-moot). Remaining: 6, 23–28.)
+- [~] Split rules, one commit each (rows 22, 31, 39, 46): shape half + verify
       half confirmed/ported + list entry + syntaxcheck deletion; corpus
       set-equal, reorders listed.
+      (22, 39, 46 landed with the control-flow group (C-one-commit); the
+      verify halves were NOT all sound as found — C-handler-truncation (46)
+      and C-recover-literal (39) record the two blind spots and their fixes.
+      Corpus after the group: 517 same, 4 reordered (`control-flow/
+      continue-loop-invalid`, `control-flow/exit-loop-invalid`,
+      `functions/sub-value-less-invalid`, `trap/control-flow-inline-trap-
+      invalid` — the fixtures carrying the relocated rules; all four goldens
+      regenerated as pure line moves), 0 set-diff. Remaining: 31.)
 - [ ] (I) relocations: `export_in_executable_diagnostics` moved beside the
       pass; `PACKAGE_INVALID` metadata validation moved to the decode boundary
       with its unit tests (prove which sites the resolver already shadows —
@@ -225,6 +242,53 @@ Commit: —
 
 ## Corrections
 
+- **C-one-commit (2026-08-29, Phase 1).** Rows 3, 4, 22 (bare form), 33, 38,
+  39 (count forms) and 46 landed in ONE commit together with E's
+  C-override-typing seam fixup, not one commit per rule as the phase box
+  asks. Why: the group was ported into the same working tree while E's gate
+  failure (two false TYPE_UNKNOWN_VALUE cascades on rt-* fixtures) was being
+  root-caused, and its fixes touch the same `ir::shape` walker; splitting
+  the hunks afterwards would have produced commits that do not build.
+  The commit message itemizes every rule with its fixture classification.
+  Later rows go back to one commit each.
+- **C-41-moot (2026-08-29, Phase 1).** TYPE_SUB_CANNOT_RETURN_VALUE is
+  unreachable from source: `SUB tick() AS Integer` does not parse
+  (`mfb build` on `/tmp/p107-src-subret.mfb` → `MFB_PARSE_EXPECTED_EXPRESSION`
+  + `MFB_PARSE_UNEXPECTED_STATEMENT`, exit 1 — the parser reads a return type
+  only for a FUNC). No fixture can carry it, so no emission was ported and the
+  rule is not in the RELOCATED list; syntaxcheck's site (itself annotated
+  "unreachable from source") is deleted with the module. The rule row stays in
+  `rules/table.rs` + the spec's code table as a reserved code.
+- **C-handler-truncation (2026-08-29, Phase 1 — row 46).** The residue table
+  said verify keeps the loop-exit forms of UNREACHABLE_AFTER_EXIT. Inside an
+  inline-TRAP handler it cannot: `lower::treeify_handler` drops every
+  statement after a terminator before lowering (`statement_terminates` covers
+  EXIT/CONTINUE), so `EXIT FOR` + trailing statements in a handler reach the
+  IR as the EXIT alone (the pre-D binary reported lines 10–11 of
+  `/tmp/p107-src-unreach.mfb`; the port without this fix accepted it). Shape
+  owns every exit form while `handler_depth > 0`
+  (`ir::shape::tests::loop_exit_tail_inside_a_handler_is_shapes`); verify's
+  per-op form keeps the rest.
+- **C-recover-literal (2026-08-29, Phase 1 — row 39).** verify's value-type
+  form of TYPE_RECOVER_TYPE_MISMATCH was blind to lowering's literal
+  coercion: `RECOVER 300` / `RECOVER 0x100` / `RECOVER 1.5` into a `Byte`
+  success type lower to `Const Byte "300"`/`"256"`/`"1.5"` (no range check),
+  which `compatible(Byte, Byte)` accepts — with syntaxcheck's site deleted the
+  new pipeline COMPILED the out-of-range value and crashed codegen on `1.5`
+  ("invalid immediate"). The syntaxcheck form was the only thing catching it.
+  Fixed in verify (not shape — the evidence survives in the const's text): a
+  `$trap_val` assign of a `Const Byte` whose text is not a `u8` is the
+  mismatch, with the literal's class (`numeric::classify_literal`) as the
+  actual type, exactly the old wording
+  (`verify::tests::rejects_recover_literal_lowered_into_a_byte_slot_out_of_range`,
+  `syntaxcheck::types::types_tests::byte_recover_rejects_out_of_range_radix_literal`
+  through the pipeline oracle).
+- **C-harness-test-verb (2026-08-29, Phase 1).** `scripts/diag-set-diff.sh`
+  re-ran `.testrun` goldens as `mfb test -q …`, but `mfb test` has no `-q`
+  (usage error, exit 2) — the harness reported `testing-assert-invalid` as a
+  SETDIFF with an empty actual set. The `-q` is now build-only. Any earlier
+  "SAME" over a `.testrun` golden predates the `.testrun` support and is
+  unaffected.
 - **2026-08-29 (from A's audit).** The shape pass is created in E (with its
   typing seam and the named-argument cluster), not here; D completes it. The
   residue is 12 whole rules + 4 split halves, seven of which need expression

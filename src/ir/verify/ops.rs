@@ -311,6 +311,30 @@ impl TypeEnv {
                     // expression's success type (TYPE_RECOVER_TYPE_MISMATCH).
                     if name.starts_with('$') {
                         if name.starts_with("$trap_val") {
+                            // Lowering coerces a numeric literal to the slot's
+                            // `Byte` type without a range check, so `RECOVER
+                            // 300` / `RECOVER 1.5` arrive as a `Const Byte`
+                            // whose text no `Byte` can hold — the literal was
+                            // never a Byte (plan-107-D).
+                            if let IrValue::Const {
+                                type_: ParameterType::Byte,
+                                value: literal,
+                            } = value
+                            {
+                                if literal.parse::<u8>().is_err() {
+                                    let actual = match crate::numeric::classify_literal(literal).1 {
+                                        crate::numeric::LiteralType::Integer => "Integer",
+                                        crate::numeric::LiteralType::Float => "Float",
+                                        crate::numeric::LiteralType::Fixed => "Fixed",
+                                        crate::numeric::LiteralType::Money => "Money",
+                                    };
+                                    self.emit(
+                                        "TYPE_RECOVER_TYPE_MISMATCH",
+                                        format!("RECOVER has type {actual}, expected Byte."),
+                                    );
+                                    continue;
+                                }
+                            }
                             if let (Some(expected), Some(actual)) =
                                 (locals.get(name), self.infer_type(value, locals))
                             {

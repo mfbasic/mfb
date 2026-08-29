@@ -170,14 +170,8 @@ impl<'a> SyntaxChecker<'a> {
                     Some(binding.as_str()),
                 );
                 self.inline_trap_types.pop();
-                if handler_flow != Flow::AlwaysReturns {
-                    self.report(
-                        "TYPE_INLINE_TRAP_FALLS_THROUGH",
-                        "Inline TRAP handler must end every path in RECOVER or a diverging statement (RETURN, FAIL, or PROPAGATE).",
-                        file,
-                        *trap_line,
-                    );
-                }
+                // TYPE_INLINE_TRAP_FALLS_THROUGH is `ir::shape`'s (plan-107-D).
+                let _ = (handler_flow, trap_line);
                 success_type
             }
             HirExpression::Binary {

@@ -8,8 +8,10 @@
 # `build.log` byte-for-byte, so an expected reorder and an accidental wording or
 # line drift look identical there. This harness tells them apart.
 #
-# For every golden `build.log`/`test.log` under tests/ that records at least one
-# diagnostic, it re-runs the fixture's echoed `mfb build …`/`mfb test …` command
+# For every golden `build.log`/`test.log`/`<pkg>.testrun` under tests/ that
+# records at least one diagnostic (the `.testrun` golden is the `mfb test`
+# proof, where the TESTING assertion rules fire), it re-runs the fixture's
+# echoed `mfb build …`/`mfb test …` command
 # lines exactly as echoed (the flags matter: a dump-only `-ast -ir` run stops
 # before the link stage, whose `NATIVE_LIBRARY_*` warnings only a full build
 # emits), removes whatever artifacts the run wrote into the fixture directory,
@@ -128,10 +130,14 @@ while IFS= read -r golden; do
     while IFS= read -r tok; do argv+=("$tok"); done < <(run_args "$cmd")
     verb="${argv[0]}"; unset 'argv[0]'
     # Diagnostics are on stderr; the harness merges both streams and records
-    # the exit status exactly as test-accept does.
+    # the exit status exactly as test-accept does. Only `build` takes `-q`
+    # (`mfb test` rejects it with a usage error).
+    quiet=-q
+    [ "$verb" = test ] && quiet=
     {
       echo "$cmd"
-      "$MFB" "$verb" -q "${argv[@]}" 2>&1 < /dev/null
+      # shellcheck disable=SC2086
+      "$MFB" "$verb" $quiet "${argv[@]}" 2>&1 < /dev/null
       echo "[exit $?]"
     } > "$tmp/run.out"
     records "$tmp/run.out" >> "$tmp/actual"
@@ -157,7 +163,7 @@ while IFS= read -r golden; do
   echo "SETDIFF  $name"
   diff -u --label "$name (golden set)" --label "$name (actual set)" \
     "$tmp/expected.sorted" "$tmp/actual.sorted" | sed 's/^/    /'
-done < <(grep -rlE --include=build.log --include=test.log ' (error|warn|info)\[' "$REPO/tests" | grep '/golden/' | sort)
+done < <(grep -rlE --include=build.log --include=test.log --include='*.testrun' ' (error|warn|info)\[' "$REPO/tests" | grep '/golden/' | sort)
 
 echo "diag-set-diff: $ran fixture(s) with diagnostics — $same same, $reorder reordered, $setdiff set-diff"
 [ "$setdiff" -eq 0 ]

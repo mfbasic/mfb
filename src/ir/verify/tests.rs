@@ -1798,6 +1798,48 @@ fn rejects_unreachable_after_exit() {
     );
 }
 
+#[test]
+fn rejects_recover_literal_lowered_into_a_byte_slot_out_of_range() {
+    // `RECOVER 300` into a `Byte` success type lowers to a `Const Byte "300"`
+    // (the literal is coerced, not range-checked) — verify must still reject
+    // it as the RECOVER mismatch the source checker reported.
+    for (literal, actual) in [("300", "Integer"), ("1.5", "Float")] {
+        let body = vec![
+            IrOp::Bind {
+                mutable: true,
+                name: "$trap_val0".to_string(),
+                type_: ParameterType::Byte,
+                value: None,
+                loc: IrSourceLoc::default(),
+                explicit_type: false,
+            },
+            IrOp::Assign {
+                name: "$trap_val0".to_string(),
+                value: IrValue::Const {
+                    type_: ParameterType::Byte,
+                    value: literal.to_string(),
+                },
+                loc: IrSourceLoc::default(),
+            },
+        ];
+        let diagnostics = collect_diagnostics(&project(
+            vec![func_returns("run", "Nothing", vec![], body)],
+            vec![],
+        ));
+        let details: Vec<_> = diagnostics
+            .iter()
+            .map(|d| (d.rule.as_str(), d.detail.as_str()))
+            .collect();
+        assert_eq!(
+            details,
+            [(
+                "TYPE_RECOVER_TYPE_MISMATCH",
+                format!("RECOVER has type {actual}, expected Byte.").as_str()
+            )]
+        );
+    }
+}
+
 // --- if / while / do-until conditions --------------------------------------
 
 #[test]

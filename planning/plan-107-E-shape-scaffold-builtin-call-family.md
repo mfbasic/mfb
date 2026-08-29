@@ -173,15 +173,18 @@ None to codegen/wire. Diagnostic order re-pins on the 283/273-fixture family
       and `pub(super)` `expression_type`/`match_expression_type`/
       `collection_iteration_type`/`match_case_binding`/`function_return_type`;
       `src/ir/shape.rs` walks every scope form lowering binds.)
-- [~] Tests: unit test proving the seam types a HIR expression identically to
+- [x] Tests: unit test proving the seam types a HIR expression identically to
       lowering's stamped `IrValue` type on a sample; full suite;
       corpus SAME on every fixture (order-neutral).
       (`ir::shape::tests::walker_types_bindings_exactly_as_lowering_does`
       compares every binding's walker type against lowering's `Bind`/`ForEach`
       type across LET/annotated LET/inline-TRAP LET/FOR promotion/FOR EACH/
       MATCH binding/trap binding/lambda; corpus: `diag-set-diff.sh` → `521
-      same, 0 reordered, 0 set-diff`. Remaining: the full suite at this commit,
-      queued on the baseline checkout behind C's.)
+      same, 0 reordered, 0 set-diff`. Full suite: run at the letter's end
+      (`6ff122464`, `/tmp/p107-suite-E4.log`) — every cargo test green except
+      `artifact_gate_all`, which failed on exactly the two false-cascade
+      fixtures (`func_net_url_toString_valid`, `types-union`) that
+      C-override-typing below repairs; gate green again after it.)
 
 Acceptance: pass wired, zero corpus change.
 Commit: `c2e865703`
@@ -216,7 +219,8 @@ Commit: `c2e865703`
       the 6 syntaxcheck twins deleted.)
 
 Acceptance: both codes shape-only; corpus set-equal.
-Commit: `ecd3601cd` (TYPE_UNKNOWN_ARGUMENT_NAME); TYPE_DUPLICATE_ARGUMENT_NAME —
+Commit: `ecd3601cd` (TYPE_UNKNOWN_ARGUMENT_NAME); `9a5db7992`
+(TYPE_DUPLICATE_ARGUMENT_NAME)
 
 ### Phase 3 — builtin-call typing family
 
@@ -258,11 +262,12 @@ Commit: `ecd3601cd` (TYPE_UNKNOWN_ARGUMENT_NAME); TYPE_DUPLICATE_ARGUMENT_NAME �
       inference; `check_function_value_call` / `check_call` infer arguments
       only). Corpus: 281 same, 240 reordered, 0 set-diff; all 240 goldens
       regenerated as pure line moves.)
-- [~] Tests: corpus + harness (all 283/273 fixtures classified; every REORDER
+- [x] Tests: corpus + harness (all 283/273 fixtures classified; every REORDER
       listed in the commit; zero SETDIFF); `artifact-gate all`; full suite.
       (Corpus zero SETDIFF at both landings — 219 then 240 REORDER, all pure
       moves; unit tests: `ir::shape` (58), `syntaxcheck`, `ir::` green.
-      Remaining: the artifact gate and the full suite at the ARGUMENT commit.)
+      `artifact-gate all` 0 diffs at `0b2360912` (the seam-gap landing); full
+      suite at the letter's end — see Phase 1's test line.)
 
 Acceptance: both codes verify/shape-only; syntaxcheck's builtin checker gone;
 corpus set-equal; gate byte-identical.
@@ -287,7 +292,8 @@ Commit: `f70a3919f` (TYPE_CALL_ARITY_MISMATCH); `4199d19e9` +
       syntaxcheck tests green.
 
 Acceptance: shape/verify-only; corpus set-equal.
-Commit: —
+Commit: `6ff122464`; the two false cascades its gate exposed are repaired in
+the commit that opens D's Phase 1 (C-override-typing; hash recorded there).
 
 ## Validation Plan
 
@@ -448,6 +454,24 @@ Commit: —
   `{name}` does not have a known type") must skip `$`-temps — syntaxcheck never
   emitted that cascade for a RECOVER value (nor for `$trap_res`/`$trap_val`,
   whose cascades it reports against the user's binding instead).
+
+- **C-override-typing (2026-08-29, after Phase 4).** `artifact-gate all` at
+  `6ff122464` failed on two fixtures with a FALSE TYPE_UNKNOWN_VALUE cascade
+  (`rt-behavior/net/func_net_url_toString_valid`: "Initializer for binding
+  `rendered` does not have a known type"; `rt-error/types/types-union`:
+  "RETURN value does not have a known type"). Root causes, both in the typing
+  seam the pass borrows: (1) `lower::expression_type`'s general arm typed a
+  call to a builtin OVERRIDE (`toString(Url)`, a user FUNC shadowing a builtin
+  spelling) as `None` because it only consulted the builtin registry — the
+  checker fell back to the visible declared FUNC; the arm now falls back to
+  the declared override's return type. (2) the shape pass's union `variants`
+  came from the declaration's own variant list, so a variant reached through
+  `INCLUDES` was "unknown" to `constructor_typed`/`compatible`; `TypeShape`
+  now carries the INCLUDES-expanded variant set (`ir::shape::tests::
+  cascade_spares_typed_seam_cases` pins both). Corpus and gate re-run green
+  with D's first landing. Lesson: the gate is the only check that runs the
+  cascade over the rt-* fixtures' typed programs — a corpus of `syntax/*`
+  goldens cannot see a false cascade on a program that compiles.
 
 ## Summary
 

@@ -263,52 +263,6 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 
-    pub(super) fn expression_compatible(
-        &self,
-        expected: &Type,
-        actual: &Type,
-        expression: Option<&HirExpression>,
-    ) -> bool {
-        if self.compatible(expected, actual) {
-            return true;
-        }
-        match (expected, actual, expression) {
-            (Type::Byte, Type::Integer, Some(HirExpression::Number(value))) => value
-                .parse::<u16>()
-                .is_ok_and(|number| number <= u8::MAX as u16),
-            (Type::Fixed, Type::Integer | Type::Float, Some(HirExpression::Number(_))) => true,
-            (
-                Type::Fixed,
-                Type::Integer | Type::Float,
-                Some(HirExpression::Unary {
-                    operator, operand, ..
-                }),
-            ) if operator == "-" && matches!(operand.as_ref(), HirExpression::Number(_)) => true,
-            // A decimal literal acquires type Money from a Money expectation
-            // (`LET a AS Money = 1.25`), mirroring the Fixed path (plan-29-A §4.4).
-            // The exact range is checked in ir::verify.
-            (Type::Money, Type::Integer | Type::Float, Some(HirExpression::Number(_))) => true,
-            (
-                Type::Money,
-                Type::Integer | Type::Float,
-                Some(HirExpression::Unary {
-                    operator, operand, ..
-                }),
-            ) if operator == "-" && matches!(operand.as_ref(), HirExpression::Number(_)) => true,
-            (
-                Type::ListOf(expected_element),
-                Type::ListOf(_),
-                Some(HirExpression::ListLiteral(values)),
-            ) => values.iter().all(|value| {
-                let Some(actual_element) = numeric_literal_type(value) else {
-                    return false;
-                };
-                self.expression_compatible(expected_element, &actual_element, Some(value))
-            }),
-            _ => false,
-        }
-    }
-
     pub(super) fn is_numeric(&self, type_: &Type) -> bool {
         matches!(
             type_,

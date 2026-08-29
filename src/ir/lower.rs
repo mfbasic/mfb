@@ -2208,11 +2208,24 @@ pub(super) fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::resolve_call_return_type_typed(
-                    &canonical_callee,
-                    &arg_types,
-                    false,
-                );
+                let resolved =
+                    builtins::resolve_call_return_type_typed(&canonical_callee, &arg_types, false);
+                // A package-provided override of an overridable general builtin
+                // (`toString(net::Url)` → the package's renderer, plan-01-overload
+                // §B.2) yields the builtin's conventional result type — the same
+                // answer the source checker gave, so the seam types it (plan-107-E).
+                if resolved.is_none()
+                    && crate::codegen::builtins::general::is_overridable(&canonical_callee)
+                    && arg_types.len() == 1
+                    && builtins::general_override_target(&canonical_callee, &arg_types[0].name())
+                        .is_some()
+                {
+                    return crate::codegen::builtins::general::override_result_type(
+                        &canonical_callee,
+                    )
+                    .map(ParameterType::parse);
+                }
+                return resolved;
             }
             if crate::codegen::registry::abi_inline_lower(&canonical_callee).is_some() {
                 let normalized =

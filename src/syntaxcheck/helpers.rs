@@ -14,27 +14,6 @@ pub(super) fn declared(type_: &Type) -> Option<&Type> {
     }
 }
 
-pub(super) fn statement_line(statement: &HirStatement) -> usize {
-    match statement {
-        HirStatement::Let { line, .. }
-        | HirStatement::Return { line, .. }
-        | HirStatement::Exit { line, .. }
-        | HirStatement::Continue { line, .. }
-        | HirStatement::Fail { line, .. }
-        | HirStatement::Propagate { line }
-        | HirStatement::Recover { line, .. }
-        | HirStatement::Assign { line, .. }
-        | HirStatement::StateAssign { line, .. }
-        | HirStatement::Expression { line, .. }
-        | HirStatement::If { line, .. }
-        | HirStatement::Match { line, .. }
-        | HirStatement::For { line, .. }
-        | HirStatement::ForEach { line, .. }
-        | HirStatement::While { line, .. }
-        | HirStatement::DoUntil { line, .. } => *line,
-    }
-}
-
 pub(super) fn integer_literal_in_range(expression: &HirExpression) -> bool {
     match expression {
         HirExpression::Number(value) => match numeric::classify_literal(value) {
@@ -98,23 +77,6 @@ pub(super) fn strip_res(type_: &Type) -> &Type {
     match type_ {
         Type::Res(inner) => inner,
         other => other,
-    }
-}
-
-pub(super) fn numeric_literal_type(expression: &HirExpression) -> Option<Type> {
-    match expression {
-        HirExpression::Number(number) => Some(match numeric::classify_literal(number).1 {
-            numeric::LiteralType::Integer => Type::Integer,
-            numeric::LiteralType::Float => Type::Float,
-            numeric::LiteralType::Fixed => Type::Fixed,
-            numeric::LiteralType::Money => Type::Money,
-        }),
-        HirExpression::Unary {
-            operator, operand, ..
-        } if operator == "-" && matches!(operand.as_ref(), HirExpression::Number(_)) => {
-            numeric_literal_type(operand)
-        }
-        _ => None,
     }
 }
 

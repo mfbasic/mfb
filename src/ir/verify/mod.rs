@@ -107,6 +107,20 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     // own call rules typed the call Unknown) and for the two not-a-local-binding
     // target forms; ir::verify's for a typed node its own rules poisoned.
     "TYPE_UNKNOWN_VALUE",
+    // plan-107-D: ir::shape's — `EXIT FUNC` lowers to nothing and `EXIT SUB` to
+    // a bare Return, so neither statement exists as such in the IR.
+    "EXIT_FUNC_FORBIDDEN",
+    "EXIT_SUB_IN_FUNC",
+    // plan-107-D: ir::shape's — the bare-RETURN-in-a-SUB form (verify keeps
+    // the valued form), a stray RECOVER (lowered to a `$recover_stray` temp),
+    // RECOVER's two count forms (verify keeps the value-type form), the inline
+    // handler's fall-through edge, and EXIT SUB/FUNC/PROGRAM's unreachable tail
+    // (verify keeps the loop-exit forms).
+    "SUB_RETURN_FORBIDDEN",
+    "TYPE_RECOVER_OUTSIDE_INLINE_TRAP",
+    "TYPE_RECOVER_TYPE_MISMATCH",
+    "TYPE_INLINE_TRAP_FALLS_THROUGH",
+    "UNREACHABLE_AFTER_EXIT",
     "TYPE_BINARY_OPERATOR_MISMATCH",
     "TYPE_UNARY_OPERATOR_MISMATCH",
     "TYPE_FIELD_ACCESS_REQUIRES_RECORD",

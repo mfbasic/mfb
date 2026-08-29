@@ -1371,14 +1371,8 @@ impl<'a> SyntaxChecker<'a> {
                 }
             }
             FunctionKind::Sub => {
-                if declared(&function.returns).is_some() {
-                    self.report(
-                        "TYPE_SUB_CANNOT_RETURN_VALUE",
-                        &format!("SUB `{}` cannot declare a return type.", function.name),
-                        file,
-                        function.line,
-                    );
-                }
+                // TYPE_SUB_CANNOT_RETURN_VALUE is unreachable: the parser reads
+                // a return type only for a FUNC (plan-107-D, moot).
                 Type::Nothing
             }
         };
@@ -2414,13 +2408,14 @@ mod checker_tests {
     #[test]
     fn check_project_wrapper_rejects() {
         use crate::ast::{parse_source, AstProject};
-        // `EXIT FUNC` is a syntaxcheck-owned rejection (EXIT_FUNC_FORBIDDEN), so
-        // the wrapper's `Err` comes from this checker rather than a rule that has
-        // since moved out of it.
+        // A duplicate constructor field is a syntaxcheck-owned rejection
+        // (TYPE_DUPLICATE_FIELD's constructor form), so the wrapper's `Err`
+        // comes from this checker rather than a rule that has since moved out
+        // of it.
         let file = parse_source(
             Path::new("main.mfb"),
             "main.mfb",
-            "FUNC main AS Integer\n  EXIT FUNC\n  RETURN 0\nEND FUNC\n",
+            "TYPE Point\n  x AS Integer\n  y AS Integer\nEND TYPE\nFUNC main AS Integer\n  LET a AS Point = Point[x := 1, x := 2]\n  RETURN a.x\nEND FUNC\n",
         )
         .unwrap();
         let project = crate::hir::elaborate(&AstProject {

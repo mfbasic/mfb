@@ -22,7 +22,7 @@
 
 use super::lower::{self, LowerContext, LowerFacts};
 use super::{ExternalSignature, ImportedTypeDef};
-use crate::ast::Visibility;
+use crate::ast::{ExitTarget, FunctionKind, Visibility};
 use crate::codegen::builtins;
 use crate::hir::{
     HirCallArg, HirConstructorArg, HirExpression, HirFile, HirFunction, HirItem, HirMatchCase,
@@ -112,6 +112,16 @@ struct Walker<'a> {
     /// `term::drawText(AttributedString)` bridge body, which is injected only
     /// then.
     astrings_imported: bool,
+    /// Whether the function being walked is a `SUB` (the EXIT/RETURN forms
+    /// that depend on it).
+    current_is_sub: bool,
+    /// The success types of the enclosing inline-`TRAP` handlers (innermost
+    /// last): what a `RECOVER` must (or must not) supply.
+    inline_trap_types: Vec<ParameterType>,
+    /// How many inline-TRAP handlers enclose the current statement:
+    /// `treeify_handler` drops every statement after a terminator inside a
+    /// handler, so no exit's unreachable tail survives lowering there.
+    handler_depth: usize,
     /// Every declared and imported type, for the compatibility rule's union
     /// and same-declaration questions.
     types: HashMap<String, TypeShape>,
@@ -168,6 +178,8 @@ struct TypeShape {
     /// A `TYPE` (record) — the one kind a constructor or `WITH` produces.
     is_record: bool,
     is_union: bool,
+    /// An `ENUM`'s member names, for MATCH exhaustiveness.
+    members: Vec<String>,
     visibility: Visibility,
     /// Declaring file (`PRIVATE` types are visible only there); empty for an
     /// imported type.
@@ -248,6 +260,13 @@ fn resolve_table_call_with_byte_literals(
     None
 }
 
+/// How a block ends, as the source checker judged it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Flow {
+    FallsThrough,
+    AlwaysReturns,
+}
+
 /// The source line a statement reports at.
 fn statement_line(statement: &HirStatement) -> usize {
     match statement {
@@ -300,17 +319,51 @@ impl<'a> Walker<'a> {
         imported_types: &[ImportedTypeDef],
         imported_signatures: &'a HashMap<String, ExternalSignature>,
     ) -> Self {
+        // Declared unions with their own variants and INCLUDES, for the
+        // transitive expansion below (a `UNION B INCLUDES A` matches A's
+        // variants too — the checker's and lowering's shared rule).
+        let union_decls: HashMap<&str, (&crate::hir::HirTypeDecl, &str)> = hir
+            .files
+            .iter()
+            .flat_map(|file| file.items.iter().map(move |item| (file, item)))
+            .filter_map(|(file, item)| match item {
+                HirItem::Type(type_decl) if type_decl.kind == crate::ast::TypeDeclKind::Union => {
+                    Some((type_decl.name.as_str(), (type_decl, file.path.as_str())))
+                }
+                _ => None,
+            })
+            .collect();
+        fn expanded_variants(
+            name: &str,
+            union_decls: &HashMap<&str, (&crate::hir::HirTypeDecl, &str)>,
+            visiting: &mut HashSet<String>,
+        ) -> Vec<String> {
+            let Some((type_decl, _)) = union_decls.get(name) else {
+                return Vec::new();
+            };
+            if !visiting.insert(name.to_string()) {
+                return Vec::new();
+            }
+            let mut variants = Vec::new();
+            for include in &type_decl.includes {
+                variants.extend(expanded_variants(include, union_decls, visiting));
+            }
+            variants.extend(
+                type_decl
+                    .variants
+                    .iter()
+                    .map(|variant| variant.name.clone()),
+            );
+            visiting.remove(name);
+            variants
+        }
         let mut types = HashMap::new();
         for file in &hir.files {
             for item in &file.items {
                 if let HirItem::Type(type_decl) = item {
                     let id = types.len();
                     let variants = if type_decl.kind == crate::ast::TypeDeclKind::Union {
-                        type_decl
-                            .variants
-                            .iter()
-                            .map(|variant| variant.name.clone())
-                            .collect()
+                        expanded_variants(&type_decl.name, &union_decls, &mut HashSet::new())
                     } else {
                         Vec::new()
                     };
@@ -321,6 +374,11 @@ impl<'a> Walker<'a> {
                             variants,
                             is_record: type_decl.kind == crate::ast::TypeDeclKind::Type,
                             is_union: type_decl.kind == crate::ast::TypeDeclKind::Union,
+                            members: type_decl
+                                .members
+                                .iter()
+                                .map(|member| member.name.clone())
+                                .collect(),
                             visibility: type_decl.visibility,
                             file: file.path.clone(),
                         },
@@ -346,6 +404,7 @@ impl<'a> Walker<'a> {
                     variants,
                     is_record: imported.kind == super::ImportedTypeKind::Record,
                     is_union: imported.kind == super::ImportedTypeKind::Union,
+                    members: imported.members.clone(),
                     visibility: Visibility::Export,
                     file: String::new(),
                 },
@@ -387,6 +446,9 @@ impl<'a> Walker<'a> {
             functions,
             imported_signatures,
             astrings_imported,
+            current_is_sub: false,
+            inline_trap_types: Vec::new(),
+            handler_depth: 0,
             types,
             file: String::new(),
             current_line: 0,
@@ -466,12 +528,11 @@ impl<'a> Walker<'a> {
         let previous_return_type = self.context.current_return_type.take();
         self.context.current_return_type = Some(lower::function_return_type(function));
         self.state_dropped.clear();
+        self.current_is_sub = function.kind == FunctionKind::Sub;
         // The body's top-level locals stay visible to the function-level
         // TRAP body (bug-285), exactly as `lower_function_body` scopes them.
         let mut body_locals = locals.clone();
-        for statement in &function.body {
-            self.walk_statement(statement, &mut body_locals);
-        }
+        self.walk_statements_flow(&function.body, &mut body_locals);
         if let Some(trap) = &function.trap {
             let mut trap_locals = body_locals;
             trap_locals.insert(trap.name.clone(), ParameterType::named("Error"));
@@ -483,18 +544,171 @@ impl<'a> Walker<'a> {
     /// Walk a block in a scope of its own — `lower_statement_block` clones the
     /// enclosing locals per block, so a binding never leaks out of it.
     fn walk_block(&mut self, body: &[HirStatement], locals: &HashMap<String, ParameterType>) {
+        self.walk_block_flow(body, locals);
+    }
+
+    /// Walk a block and report how it ends, the way the source checker's
+    /// `check_block` did: the first diverging statement ends the walk (the
+    /// checker checked nothing after it), and when that statement is an `EXIT
+    /// SUB`/`EXIT FUNC`/`EXIT PROGRAM` every statement after it is
+    /// UNREACHABLE_AFTER_EXIT — those three lower to a bare Return, to
+    /// nothing, and to an `ExitProgram` op that `ir::verify`'s loop-exit form
+    /// does not treat as an exit, so the IR cannot report them (the `EXIT
+    /// FOR`/`DO`/`WHILE`/`CONTINUE` forms are verify's). Inside an inline-TRAP
+    /// handler every exit form is shape's: `treeify_handler` drops the
+    /// statements after any terminator before lowering sees them.
+    fn walk_block_flow(
+        &mut self,
+        body: &[HirStatement],
+        locals: &HashMap<String, ParameterType>,
+    ) -> Flow {
         let mut nested = locals.clone();
-        for statement in body {
-            self.walk_statement(statement, &mut nested);
+        self.walk_statements_flow(body, &mut nested)
+    }
+
+    /// `walk_block_flow` over a scope the caller keeps (a function body's
+    /// top-level locals feed its TRAP body).
+    fn walk_statements_flow(
+        &mut self,
+        body: &[HirStatement],
+        locals: &mut HashMap<String, ParameterType>,
+    ) -> Flow {
+        for (index, statement) in body.iter().enumerate() {
+            let flow = self.walk_statement(statement, locals);
+            if flow == Flow::AlwaysReturns {
+                let erased_exit = match statement {
+                    HirStatement::Exit {
+                        target: ExitTarget::Sub | ExitTarget::Func | ExitTarget::Program,
+                        ..
+                    } => true,
+                    HirStatement::Exit { .. } | HirStatement::Continue { .. } => {
+                        self.handler_depth > 0
+                    }
+                    _ => false,
+                };
+                if erased_exit {
+                    for unreachable in &body[index + 1..] {
+                        self.emit(
+                            "UNREACHABLE_AFTER_EXIT",
+                            "Statement is unreachable after EXIT or CONTINUE.".to_string(),
+                            statement_line(unreachable),
+                        );
+                    }
+                }
+                return Flow::AlwaysReturns;
+            }
         }
+        Flow::FallsThrough
+    }
+
+    /// The checker's verdict on whether a block always diverges — for the
+    /// inline-TRAP handler rule and for the walk order above.
+    fn statement_flow(&self, statement: &HirStatement) -> Flow {
+        match statement {
+            HirStatement::Return { .. }
+            | HirStatement::Exit { .. }
+            | HirStatement::Continue { .. }
+            | HirStatement::Fail { .. }
+            | HirStatement::Propagate { .. }
+            | HirStatement::Recover { .. } => Flow::AlwaysReturns,
+            HirStatement::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                if self.block_flow(then_body) == Flow::AlwaysReturns
+                    && self.block_flow(else_body) == Flow::AlwaysReturns
+                {
+                    Flow::AlwaysReturns
+                } else {
+                    Flow::FallsThrough
+                }
+            }
+            HirStatement::Match { cases, .. } => {
+                // Exhaustiveness is judged as the checker did: an unguarded
+                // CASE ELSE, or every variant/member of the scrutinee's type
+                // named by an unguarded case. The scrutinee type is not
+                // needed here — a MATCH whose every case diverges but whose
+                // coverage cannot be established falls through, which is
+                // what the checker answered for an untyped scrutinee too.
+                let all_return = !cases.is_empty()
+                    && cases
+                        .iter()
+                        .all(|case| self.block_flow(&case.body) == Flow::AlwaysReturns);
+                if all_return && self.match_covered(cases) {
+                    Flow::AlwaysReturns
+                } else {
+                    Flow::FallsThrough
+                }
+            }
+            _ => Flow::FallsThrough,
+        }
+    }
+
+    fn block_flow(&self, body: &[HirStatement]) -> Flow {
+        for statement in body {
+            if self.statement_flow(statement) == Flow::AlwaysReturns {
+                return Flow::AlwaysReturns;
+            }
+        }
+        Flow::FallsThrough
+    }
+
+    /// Whether a MATCH's unguarded cases cover its scrutinee (a `CASE ELSE`,
+    /// or every variant of the union / member of the enum the cases name).
+    fn match_covered(&self, cases: &[HirMatchCase]) -> bool {
+        use crate::hir::HirMatchPattern;
+        let mut covered: HashSet<String> = HashSet::new();
+        for case in cases {
+            if case.guard.is_some() {
+                continue;
+            }
+            match &case.pattern {
+                HirMatchPattern::Else => return true,
+                HirMatchPattern::Union { type_, .. } => {
+                    covered.insert(type_.name().into_owned());
+                }
+                HirMatchPattern::Literal(HirExpression::MemberAccess { target, member }) => {
+                    if let HirExpression::Identifier(type_name) = target.as_ref() {
+                        covered.insert(format!("{type_name}::{member}"));
+                    }
+                }
+                _ => {}
+            }
+        }
+        // The cases name one type; its declaration decides the full set.
+        let Some(first) = covered.iter().next() else {
+            return false;
+        };
+        if let Some((type_name, _)) = first.split_once("::") {
+            return self.types.get(type_name).is_some_and(|info| {
+                !info.members.is_empty()
+                    && info
+                        .members
+                        .iter()
+                        .all(|member| covered.contains(&format!("{type_name}::{member}")))
+            });
+        }
+        self.types.values().any(|info| {
+            info.is_union
+                && info
+                    .variants
+                    .iter()
+                    .any(|variant| covered.contains(variant))
+                && info
+                    .variants
+                    .iter()
+                    .all(|variant| covered.contains(variant))
+        })
     }
 
     fn walk_statement(
         &mut self,
         statement: &HirStatement,
         locals: &mut HashMap<String, ParameterType>,
-    ) {
+    ) -> Flow {
         self.current_line = statement_line(statement);
+        let flow = self.statement_flow(statement);
         match statement {
             HirStatement::Let {
                 resource,
@@ -511,7 +725,7 @@ impl<'a> Walker<'a> {
                     expression,
                     binding,
                     handler,
-                    ..
+                    line: trap_line,
                 }) = value
                 {
                     // The inline-TRAP form: the binding takes the trapped
@@ -525,7 +739,8 @@ impl<'a> Walker<'a> {
                         _ => success_type,
                     };
                     self.walk_expression(expression, locals);
-                    self.walk_handler(binding, handler, locals);
+                    let trapped_type = self.type_of(expression, locals);
+                    self.walk_handler(binding, handler, locals, trapped_type, *trap_line);
                     // The checker typed the binding by the trapped call.
                     self.check_initializer_known(
                         name,
@@ -535,7 +750,7 @@ impl<'a> Walker<'a> {
                         *line,
                     );
                     self.bind(name, success_type, locals);
-                    return;
+                    return flow;
                 }
                 let lowered_type = declared_type.clone().unwrap_or_else(|| {
                     value
@@ -565,6 +780,16 @@ impl<'a> Walker<'a> {
                 self.bind(name, lowered_type, locals);
             }
             HirStatement::Return { value, line } => {
+                // SUB_RETURN_FORBIDDEN, the bare form: `RETURN` in a SUB lowers
+                // to the same bare `Return` op as `EXIT SUB`, so only the HIR
+                // knows which the source wrote (the valued form is verify's).
+                if self.current_is_sub && value.is_none() {
+                    self.emit(
+                        "SUB_RETURN_FORBIDDEN",
+                        "A SUB returns no value; use `EXIT SUB`.".to_string(),
+                        *line,
+                    );
+                }
                 if let Some(value) = value {
                     self.walk_expression(value, locals);
                     // TYPE_UNKNOWN_VALUE, the RETURN form (see
@@ -580,16 +805,76 @@ impl<'a> Walker<'a> {
                     }
                 }
             }
-            HirStatement::Exit { code, .. } => {
+            HirStatement::Exit { target, code, line } => {
+                match target {
+                    // EXIT FOR/DO/WHILE outside a matching loop is `ir::verify`'s.
+                    ExitTarget::For | ExitTarget::Do | ExitTarget::While => {}
+                    // EXIT_SUB_IN_FUNC: `EXIT SUB` lowers to a bare `Return`,
+                    // which a FUNC's IR cannot tell from a fall-through — the
+                    // statement's own kind is gone.
+                    ExitTarget::Sub => {
+                        if !self.current_is_sub {
+                            self.emit(
+                                "EXIT_SUB_IN_FUNC",
+                                "EXIT SUB is valid only inside a SUB; use RETURN <value> in a FUNC."
+                                    .to_string(),
+                                *line,
+                            );
+                        }
+                    }
+                    // EXIT_FUNC_FORBIDDEN: `ExitTarget::Func` lowers to NOTHING —
+                    // the fact does not exist in the IR.
+                    ExitTarget::Func => {
+                        self.emit(
+                            "EXIT_FUNC_FORBIDDEN",
+                            "Functions must RETURN a value; EXIT FUNC is not allowed.".to_string(),
+                            *line,
+                        );
+                    }
+                    ExitTarget::Program => {}
+                }
                 if let Some(code) = code {
                     self.walk_expression(code, locals);
                 }
             }
             HirStatement::Continue { .. } | HirStatement::Propagate { .. } => {}
             HirStatement::Fail { error, .. } => self.walk_expression(error, locals),
-            HirStatement::Recover { value, .. } => {
+            HirStatement::Recover { value, line } => {
                 if let Some(value) = value {
                     self.walk_expression(value, locals);
+                }
+                // TYPE_RECOVER_OUTSIDE_INLINE_TRAP: a stray RECOVER lowers to a
+                // `$recover_stray` bind (plan-107-B) — the statement is gone.
+                let Some(recover_type) = self.inline_trap_types.last().cloned() else {
+                    self.emit(
+                        "TYPE_RECOVER_OUTSIDE_INLINE_TRAP",
+                        "RECOVER is valid only inside an inline TRAP handler.".to_string(),
+                        *line,
+                    );
+                    return flow;
+                };
+                // TYPE_RECOVER_TYPE_MISMATCH, the two count forms: lowering
+                // stores a RECOVER value into the trap slot only when both exist
+                // (a valueless RECOVER for a value-producing trap and a value for
+                // a value-less one lower to nothing / an `Eval`), so the IR
+                // keeps no trace of the mismatch; the value-TYPE form is verify's.
+                let produces_value = !matches!(recover_type, ParameterType::Nothing);
+                match (value, produces_value) {
+                    (None, true) => self.emit(
+                        "TYPE_RECOVER_TYPE_MISMATCH",
+                        format!(
+                            "RECOVER must supply a {} value for the trapped expression.",
+                            recover_type.name()
+                        ),
+                        *line,
+                    ),
+                    (Some(_), false) => self.emit(
+                        "TYPE_RECOVER_TYPE_MISMATCH",
+                        "RECOVER must not supply a value for a value-less trapped expression."
+                            .to_string(),
+                        *line,
+                    ),
+                    _ => {}
                 }
             }
             HirStatement::Assign { name, value, line } => {
@@ -709,6 +994,7 @@ impl<'a> Walker<'a> {
                 self.walk_expression(condition, locals);
             }
         }
+        flow
     }
 
     /// A statement-position value: an inline-TRAP form walks its handler in the
@@ -718,11 +1004,12 @@ impl<'a> Walker<'a> {
             expression,
             binding,
             handler,
-            ..
+            line,
         } = value
         {
             self.walk_expression(expression, locals);
-            self.walk_handler(binding, handler, locals);
+            let trapped_type = self.type_of(expression, locals);
+            self.walk_handler(binding, handler, locals, trapped_type, *line);
             return;
         }
         self.walk_expression(value, locals);
@@ -735,10 +1022,27 @@ impl<'a> Walker<'a> {
         binding: &str,
         handler: &[HirStatement],
         locals: &HashMap<String, ParameterType>,
+        trapped_type: ParameterType,
+        trap_line: usize,
     ) {
         let mut handler_locals = locals.clone();
         handler_locals.insert(binding.to_string(), ParameterType::named("Error"));
-        self.walk_block(handler, &handler_locals);
+        self.inline_trap_types.push(trapped_type);
+        self.handler_depth += 1;
+        let handler_flow = self.walk_block_flow(handler, &handler_locals);
+        self.handler_depth -= 1;
+        self.inline_trap_types.pop();
+        // TYPE_INLINE_TRAP_FALLS_THROUGH: the handler's fall-through edge is a
+        // source shape — lowering emits the handler as the `If`'s else arm and
+        // nothing marks where a path ended without RECOVER.
+        if handler_flow != Flow::AlwaysReturns {
+            self.emit(
+                "TYPE_INLINE_TRAP_FALLS_THROUGH",
+                "Inline TRAP handler must end every path in RECOVER or a diverging statement (RETURN, FAIL, or PROPAGATE)."
+                    .to_string(),
+                trap_line,
+            );
+        }
     }
 
     fn walk_match_case(
@@ -872,10 +1176,11 @@ impl<'a> Walker<'a> {
                 expression,
                 binding,
                 handler,
-                ..
+                line,
             } => {
                 self.walk_expression(expression, locals);
-                self.walk_handler(binding, handler, locals);
+                let trapped_type = self.type_of(expression, locals);
+                self.walk_handler(binding, handler, locals, trapped_type, *line);
             }
         }
     }
@@ -2496,6 +2801,124 @@ mod tests {
         assert_eq!(
             details,
             ["Call to `term.drawText` with an `AttributedString` requires `IMPORT astrings`."]
+        );
+    }
+
+    #[test]
+    fn cascade_spares_typed_seam_cases() {
+        // A package override of an overridable general builtin types by the
+        // builtin's result (`toString(net::Url)` → String), and a MATCH on a
+        // union that INCLUDES another binds the included variants — neither
+        // is an `Unknown` for the checker.
+        assert!(accepts(
+            "IMPORT net\nTYPE Circle\n  r AS Integer\nEND TYPE\nUNION Shape\n  Circle\nEND UNION\nUNION Extra INCLUDES Shape\n  Circle\nEND UNION\nFUNC score(s AS Extra) AS Integer\n  MATCH s\n    CASE Circle(c)\n      RETURN c.r + 1\n  END MATCH\nEND FUNC\nFUNC main AS Integer\n  LET u AS net::Url = net::toUrl(\"http://x/\")\n  LET rendered AS String = toString(u)\n  RETURN len(rendered)\nEND FUNC\n"
+        ));
+    }
+
+    // ---- control-flow shapes lowering erases -------------------------------
+
+    #[test]
+    fn exit_forms_and_bare_sub_return() {
+        let codes = shape_codes(
+            "SUB tick()\n  RETURN\nEND SUB\nFUNC main AS Integer\n  EXIT SUB\n  EXIT FUNC\n  RETURN 0\nEND FUNC\n",
+        );
+        assert_eq!(
+            codes,
+            [
+                "SUB_RETURN_FORBIDDEN",
+                "EXIT_SUB_IN_FUNC",
+                "UNREACHABLE_AFTER_EXIT",
+                "UNREACHABLE_AFTER_EXIT",
+            ]
+        );
+    }
+
+    #[test]
+    fn unreachable_after_exit_func_names_each_following_statement() {
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from("FUNC main AS Integer\n  EXIT FUNC\n  LET a = 1\n  RETURN a\nEND FUNC\n"),
+            &[],
+            &HashMap::new(),
+        );
+        let lines: Vec<_> = diagnostics
+            .iter()
+            .map(|d| (d.rule.as_str(), d.line))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                ("EXIT_FUNC_FORBIDDEN", 2),
+                ("UNREACHABLE_AFTER_EXIT", 3),
+                ("UNREACHABLE_AFTER_EXIT", 4),
+            ]
+        );
+    }
+
+    #[test]
+    fn loop_exit_tail_inside_a_handler_is_shapes() {
+        // `treeify_handler` truncates the handler after `EXIT FOR`, so the
+        // RECOVER/PROPAGATE behind it never reach the IR.
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(
+                "FUNC f(v AS Integer) AS Integer\n  RETURN v\nEND FUNC\nFUNC main AS Integer\n  FOR i = 1 TO 3\n    LET a = f(i) TRAP(e)\n      EXIT FOR\n      RECOVER 0\n      PROPAGATE\n    END TRAP\n  NEXT\n  FOR j = 1 TO 3\n    CONTINUE FOR\n    LET dead = 1\n  NEXT\n  RETURN 0\nEND FUNC\n",
+            ),
+            &[],
+            &HashMap::new(),
+        );
+        let lines: Vec<_> = diagnostics
+            .iter()
+            .map(|d| (d.rule.as_str(), d.line))
+            .collect();
+        // The second loop's tail is outside any handler: verify's form.
+        assert_eq!(
+            lines,
+            [("UNREACHABLE_AFTER_EXIT", 8), ("UNREACHABLE_AFTER_EXIT", 9)]
+        );
+    }
+
+    #[test]
+    fn recover_outside_a_handler_and_the_count_forms() {
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(
+                "FUNC f(v AS Integer) AS Integer\n  RETURN v\nEND FUNC\nSUB g()\n  EXIT SUB\nEND SUB\nFUNC main AS Integer\n  LET a = f(1) TRAP(e)\n    RECOVER\n  END TRAP\n  g() TRAP(e)\n    RECOVER 2\n  END TRAP\n  RECOVER 1\n  RETURN a\nEND FUNC\n",
+            ),
+            &[],
+            &HashMap::new(),
+        );
+        let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
+        assert_eq!(
+            details,
+            [
+                "RECOVER must supply a Integer value for the trapped expression.",
+                "RECOVER must not supply a value for a value-less trapped expression.",
+                "RECOVER is valid only inside an inline TRAP handler.",
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_trap_handler_must_diverge_on_every_path() {
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(
+                "IMPORT io\nFUNC f(v AS Integer) AS Integer\n  RETURN v\nEND FUNC\nFUNC main AS Integer\n  LET a = f(1) TRAP(e)\n    io::print(e.message)\n  END TRAP\n  LET b = f(2) TRAP(e)\n    IF a > 0 THEN\n      RECOVER 0\n    END IF\n  END TRAP\n  LET c = f(3) TRAP(e)\n    IF a > 0 THEN\n      RECOVER 0\n    ELSE\n      RETURN 1\n    END IF\n  END TRAP\n  RETURN a + b + c\nEND FUNC\n",
+            ),
+            &[],
+            &HashMap::new(),
+        );
+        let lines: Vec<_> = diagnostics
+            .iter()
+            .map(|d| (d.rule.as_str(), d.line))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                ("TYPE_INLINE_TRAP_FALLS_THROUGH", 6),
+                ("TYPE_INLINE_TRAP_FALLS_THROUGH", 9),
+            ]
         );
     }
 
