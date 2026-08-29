@@ -182,7 +182,13 @@ Commit: f27f3f343
 
 Acceptance: FIPS SHA-1/SHA-2 KAT bytes match; SHA-1 works through hash, HMAC,
 HKDF, and PBKDF2; old spellings fail; warning count is exact and non-fatal.
-Commit: —
+VERIFIED 2026-08-29: `crypto-kat-valid` build.log run block is byte-identical
+before/after the rename apart from the advisory text (FIPS/RFC SHA-1 lines
+present through `hash` both overloads, `hmac`, `hkdf`, `pbkdf2`);
+`hash-removed-spellings-invalid` `[exit 1]` with one
+`TYPE_UNKNOWN_ENUM_MEMBER` per old name; `crypto-sha1-advisory-valid` two
+warnings for two occurrences, `[exit 0]`.
+Commit: 166017205 (spec citation placement follow-up: b5dfbec8b)
 
 ## Validation Plan
 
@@ -198,6 +204,24 @@ Commit: —
   fresh `cargo build --release --bin mfb`; full `cargo test`; filtered release
   acceptance; regenerate only expected crypto/importer drift; then
   `scripts/artifact-gate.sh target/release/mfb all`.
+
+## Validation ledger (2026-08-29)
+
+- rustfmt root + `repository/`: run. Fresh `cargo build --release --bin mfb`.
+- `cargo test --no-fail-fast`: 63 targets ok; the single red, `golden.rs
+  artifact_gate_all`, failed in 0.17s on "Another artifact-gate (pid 97419) is
+  running" (a peer session's gate holding the global lock) — re-run standalone
+  as `scripts/artifact-gate.sh target/release/mfb all`: **1262 tests, 1409
+  builds, 1738 goldens checked, 0 diffs**.
+- Filtered release acceptance on every crypto importer (`rg -l 'IMPORT crypto'
+  tests benchmark`, 14 fixtures): green after golden sync; `mfb test
+  tests/acceptance` 707/707.
+- Full `scripts/test-accept.sh` (frozen copy of the letter-A binary): 1279 ran,
+  the only mismatches are the two plan-109-B fixtures already in the tree
+  (`crypto-sha3-kat-valid`, `crypto-kdf-invalid`'s `shake256` lines), which
+  this binary cannot build by design.
+- Docs: `mfb man crypto --all`, `mfb man crypto types`, `mfb spec stdlib crypto`
+  render with zero leaked `[[` citations.
 
 ## Open Decisions
 
