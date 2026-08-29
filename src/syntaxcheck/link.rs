@@ -205,19 +205,10 @@ impl<'a> SyntaxChecker<'a> {
                 self.report(fault.rule, &fault.message, file, slot.line);
             }
             // A wrapper returning this struct must declare the mapped record.
+            // (Returning an IN slot is the result-marker rule, `ir::verify`'s
+            // since plan-107-C.)
             if matches!(&function.result, Some(crate::ast::Expression::Identifier(n)) if *n == slot.name)
             {
-                if slot.direction == crate::ir::AbiDirection::In {
-                    self.report(
-                        "NATIVE_ABI_RESULT_MARKER",
-                        &format!(
-                            "Native function `{}` returns struct slot `{}`, which is IN — an input slot is zeroed and never read back.",
-                            function.name, slot.name
-                        ),
-                        file,
-                        slot.line,
-                    );
-                }
                 if function.return_type.as_deref() != Some(decl.maps_to.as_str()) {
                     self.report(
                         "NATIVE_STRUCT_FIELD_MISMATCH",
@@ -574,27 +565,9 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        // A producer (`AS RES X`) and any non-Nothing value-returning wrapper must
-        // surface exactly one result; a `Nothing` wrapper surfaces none.
-        let wants_result = function.return_resource
-            || function
-                .return_type
-                .as_deref()
-                .is_some_and(|return_type| return_type != "Nothing");
-        // A value-returning wrapper with no `RETURN <expr>` is `ir::verify`'s
+        // The result-marker rules — a value-returning wrapper with no
+        // `RETURN <expr>`, a `Nothing` wrapper with one — are `ir::verify`'s
         // (plan-107-C).
-        // A `Nothing` wrapper surfaces no value, so a RETURN has nothing to name.
-        if !wants_result && function.result.is_some() {
-            self.report(
-                "NATIVE_ABI_RESULT_MARKER",
-                &format!(
-                    "Native function `{}` returns Nothing but declares a `RETURN`.",
-                    function.name
-                ),
-                file,
-                function.line,
-            );
-        }
 
         // Every wrapper parameter must be consumed: by an ABI slot of the same
         // name, by a `BIND IN` field that binds it (plan-50-E — a parameter
@@ -1100,11 +1073,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_ABI_RESULT_MARKER"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -1662,11 +1632,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_ABI_RESULT_MARKER"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]

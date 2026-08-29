@@ -2039,14 +2039,8 @@ mod checker_tests {
         assert!(check_project_dir(Path::new(&fixture("native-resource-link-valid"))).is_empty());
     }
 
-    #[test]
-    fn link_return_on_a_nothing_wrapper_rejected() {
-        // plan-50-H: a `Nothing` wrapper surfaces no value, so RETURN names nothing.
-        assert!(rejects_with(
-            &link_wrap("  FUNC opn(statement AS String) AS Nothing\n    SYMBOL \"demo_open\"\n    ABI (statement CString) AS status CInt32\n    RETURN status\n  END FUNC\n"),
-            "NATIVE_ABI_RESULT_MARKER"
-        ));
-    }
+    // The `Nothing`-wrapper-with-RETURN rejection moved to `ir::verify`
+    // (plan-107-C); twin `verify::tests::rejects_link_return_on_a_nothing_wrapper`.
 
     // A slot named `return` is now a PARSE error, so it cannot be exercised
     // through this checker (which requires its source to parse). It is covered
