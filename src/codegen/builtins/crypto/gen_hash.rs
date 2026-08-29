@@ -2,7 +2,7 @@
 //!
 //! `crypto::hash(Hash, data)` selects a digest by the `Hash` enum ordinal and
 //! branch-links to the always-emitted MFB software SHA core
-//! (`__crypto_sha{1,224,256,384,512}_{bytes,text}`). Unlike [`super::gen_cert`] (which
+//! (`__crypto_sha{1,224,256,384,512,3_224,3_256,3_384,3_512}_{bytes,text}`). Unlike [`super::gen_cert`] (which
 //! reproduces the platform key sequences and owns data objects), this seam emits **no**
 //! data objects and needs **no** platform imports — every arm just routes the single
 //! `data` argument into the core's first argument register and calls it, exactly how
@@ -28,6 +28,10 @@ pub(crate) const ORD_SHA2_224: &str = "1";
 pub(crate) const ORD_SHA2_256: &str = "2";
 pub(crate) const ORD_SHA2_384: &str = "3";
 pub(crate) const ORD_SHA2_512: &str = "4";
+pub(crate) const ORD_SHA3_224: &str = "5";
+pub(crate) const ORD_SHA3_256: &str = "6";
+pub(crate) const ORD_SHA3_384: &str = "7";
+pub(crate) const ORD_SHA3_512: &str = "8";
 
 /// Emit the `Hash`-ordinal dispatch for `crypto::hash`: branch on `ord` to the SHA
 /// core matching the digest, routing the single `data` operand into the core's first
@@ -48,6 +52,10 @@ pub(crate) fn emit_dispatch(
     let sha256 = format!("{symbol}_{suffix}_sha256");
     let sha384 = format!("{symbol}_{suffix}_sha384");
     let sha512 = format!("{symbol}_{suffix}_sha512");
+    let sha3_224 = format!("{symbol}_{suffix}_sha3_224");
+    let sha3_256 = format!("{symbol}_{suffix}_sha3_256");
+    let sha3_384 = format!("{symbol}_{suffix}_sha3_384");
+    let sha3_512 = format!("{symbol}_{suffix}_sha3_512");
     builder.instructions.extend([
         abi::compare_immediate(ord, ORD_SHA2_224),
         abi::branch_eq(&sha224),
@@ -57,6 +65,14 @@ pub(crate) fn emit_dispatch(
         abi::branch_eq(&sha384),
         abi::compare_immediate(ord, ORD_SHA2_512),
         abi::branch_eq(&sha512),
+        abi::compare_immediate(ord, ORD_SHA3_224),
+        abi::branch_eq(&sha3_224),
+        abi::compare_immediate(ord, ORD_SHA3_256),
+        abi::branch_eq(&sha3_256),
+        abi::compare_immediate(ord, ORD_SHA3_384),
+        abi::branch_eq(&sha3_384),
+        abi::compare_immediate(ord, ORD_SHA3_512),
+        abi::branch_eq(&sha3_512),
     ]);
     // SHA-1 (ordinal 0) falls through here.
     emit_core(builder, "1", suffix, data_op.clone(), ctx, done)?;
@@ -67,7 +83,17 @@ pub(crate) fn emit_dispatch(
     builder.instructions.push(abi::label(&sha384));
     emit_core(builder, "384", suffix, data_op.clone(), ctx, done)?;
     builder.instructions.push(abi::label(&sha512));
-    emit_core(builder, "512", suffix, data_op, ctx, done)?;
+    emit_core(builder, "512", suffix, data_op.clone(), ctx, done)?;
+    // The SHA-3 cores are `#crypto_sha3_<width>_<suffix>`, so `n` carries the
+    // family infix.
+    builder.instructions.push(abi::label(&sha3_224));
+    emit_core(builder, "3_224", suffix, data_op.clone(), ctx, done)?;
+    builder.instructions.push(abi::label(&sha3_256));
+    emit_core(builder, "3_256", suffix, data_op.clone(), ctx, done)?;
+    builder.instructions.push(abi::label(&sha3_384));
+    emit_core(builder, "3_384", suffix, data_op.clone(), ctx, done)?;
+    builder.instructions.push(abi::label(&sha3_512));
+    emit_core(builder, "3_512", suffix, data_op, ctx, done)?;
     Ok(())
 }
 

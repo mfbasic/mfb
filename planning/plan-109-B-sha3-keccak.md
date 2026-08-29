@@ -15,8 +15,8 @@ two-limb 64-bit arithmetic precedent); `src/docs/spec/stdlib/10_crypto.md`.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-109-A is archived/complete | `find planning -maxdepth 1 -name 'plan-109-A-*' \| wc -l` → `0` | NOT MET at authoring |
-| renamed SHA-2 + SHA-1 KAT is green | `scripts/test-accept.sh target/release/mfb /tmp/plan109-b-pre 'rt-behavior/crypto/crypto-kat-valid'` | re-run |
+| plan-109-A is archived/complete | `find planning -maxdepth 1 -name 'plan-109-A-*' \| wc -l` → `0` | MET 2026-08-29 (archived to `planning/completed/` after its full ledger: gate 0 diffs, full acceptance 1279 ran, `cargo test` green) |
+| renamed SHA-2 + SHA-1 KAT is green | `scripts/test-accept.sh target/release/mfb /tmp/plan109-b-pre 'rt-behavior/crypto/crypto-kat-valid'` | MET 2026-08-29 (green in A's filtered and full runs; the Keccak work below was prototyped against a debug build while A's final acceptance drained the shared harness lock, and only committed after A archived) |
 
 This letter must not start until A is complete, full stop.
 
@@ -83,26 +83,55 @@ Existing digest bytes remain unchanged; new variants add fixed digest outputs.
 
 ### Phase 1 — permutation and sponge
 
-- [ ] Add limb XOR/rotate helpers and Keccak-f[1600] state/round helpers as
-      individually registered `helper_*.rs` modules.
-- [ ] Add absorb/pad/squeeze helpers parameterized by public rate, suffix, and
-      output length; add private `__crypto_shake256`.
-- [ ] Test NIST permutation and SHAKE256 vectors, multi-block absorb, multi-block
-      squeeze, empty input, and padding at rate−1/rate/rate+1.
+- [x] Add limb XOR/rotate helpers and Keccak-f[1600] state/round helpers as
+      individually registered `helper_*.rs` modules — one `Integer` per lane
+      (see Corrections), so no limb helpers: `helper_keccak_{rc,rc_table,rho,
+      rho_table,pi,pi_table,zero,round,f}.rs`, `helper_le_lane.rs`,
+      `helper_append_le_lane.rs`.
+- [x] Add absorb/pad/squeeze helpers parameterized by public rate, suffix, and
+      output length; add private `__crypto_shake256`
+      (`helper_keccak_sponge.rs`; `helper_shake256.rs` + the public
+      `func_shake256.rs` surface and `helper_shake256_text.rs` shim — see
+      Corrections).
+- [x] Test NIST permutation and SHAKE256 vectors, multi-block absorb, multi-block
+      squeeze, empty input, and padding at rate−1/rate/rate+1
+      (`tests/rt-behavior/crypto/crypto-sha3-kat-valid`, 46 oracle lines: every
+      SHA-3 width at empty/`abc`/200×0xa3/rate±1 through both `hash` overloads;
+      SHAKE256 empty-32, abc-64, abc-300, 135→136, 136→137, 137→1, a3→272,
+      prefix property; `crypto-kdf-invalid` pins `shake256` length 0/−5 →
+      `ErrInvalidArgument`, 1 ok).
 
 Acceptance: NIST intermediate/permutation and SHAKE256 outputs match exactly;
 structural audit finds no secret-dependent branch/index.
+VERIFIED 2026-08-29: fixture output `diff`s clean against the hashlib oracle
+(`ALL_MATCH`); `keccak_core_is_branch_free` (crypto `mod.rs` tests) asserts the
+round/permutation/lane helpers contain no `IF`/`EXIT`/`TRAP`, the sponge's only
+conditional is `len(out) < outLen`, and no state list is indexed by another
+state list's contents (only `__CRYPTO_KECCAK_RHO`/`PI` by the loop counter).
 Commit: —
 
 ### Phase 2 — public SHA-3 dispatch
 
-- [ ] Append four `Hash` variants and extend hash/digest/block/output dispatch.
-- [ ] Add both overloads and HMAC/HKDF/PBKDF2 coverage for each SHA-3 selector.
-- [ ] Update man/spec algorithm and constant-time claims with source citations.
+- [x] Append four `Hash` variants and extend hash/digest/block/output dispatch
+      (`SHA3_224..512` = ordinals 5–8; `gen_hash::ORD_SHA3_*` arms to
+      `#crypto_sha3_<w>_bytes`; `__crypto_sha{Digest,BlockSize,OutputLen}` arms —
+      HMAC block = sponge rate 144/136/104/72 per FIPS 202 §7).
+- [x] Add both overloads and HMAC/HKDF/PBKDF2 coverage for each SHA-3 selector
+      (`crypto-sha3-kat-valid`: `hash` String + bytes per width; HMAC per width
+      incl. >block-size keys; HKDF per width incl. empty salt/info; PBKDF2 per
+      width; `crypto-kdf-invalid` HKDF-SHA3_256 8160/8161 + PBKDF2-SHA3_512
+      iterations 0).
+- [x] Update man/spec algorithm and constant-time claims with source citations
+      (`hash`/`hmac`/`hkdf`/`pbkdf2`/`shake256` descriptors, `MODULE_DESC`,
+      `10_crypto.md` algorithm set + XOF row + numeric-representation paragraph
+      citing `helper_keccak_round.rs:BODY`/`helper_keccak_sponge.rs:BODY`).
 
 Acceptance: NIST SHA-3 KATs for all four widths match on empty, `abc`, and
 multi-block messages; all hash-selected APIs produce correct independent oracle
 outputs.
+VERIFIED 2026-08-29: same fixture `diff` (the 200×0xa3 message is NIST's
+1600-bit SHA-3 example; `hashlib` reproduces the published digests
+`9376816a…`/`79f38ade…`/`1881de2c…`/`e76dfad2…`).
 Commit: —
 
 ## Validation Plan
@@ -116,11 +145,44 @@ only proven importer/helper drift. Run the mandated two rustfmt commands. Render
 
 - Internal state container — recommend a flat `List OF Integer` of 50 limbs to
   match existing package collection operations; reject 25 record values because
-  repeated record rebuilds amplify allocation churn.
+  repeated record rebuilds amplify allocation churn. DECIDED: a flat
+  `List OF Integer` of 25 full 64-bit lanes (see Corrections).
 
 ## Corrections
 
-None yet.
+- The "Verified property" that a trapping `Integer` cannot carry a 64-bit
+  Keccak lane is FALSE, and so is the premise that SHA-512 avoids it with limbs:
+  `bits::` treats every `Integer` as a raw two's-complement 64-bit pattern
+  (`bits::rl64`, `bxor`, `band`, `bnot`, `sl`, `sr` are total on it), and SHA-512
+  already keeps each word in ONE `Integer` (`helper_be_word64.rs`,
+  `helper_add64.rs` — only the *addition* is limb-split, to dodge the trapping
+  `+`). Probe (`/tmp/p109-lane`, release binary): a lane built from LE bytes with
+  bit 63 set (`0x8000000080008008`) round-trips, `rl64` by 1/32/63 and
+  XOR/AND-NOT give the expected patterns, and `bits::sl(1, 63)` is simply a
+  negative `Integer`, no trap. Keccak has no addition, so the state is a flat
+  `List OF Integer` of **25** lanes (not 50 limbs) and rho is a single `rl64` —
+  the Open Decision's 50-limb container is superseded.
+- Private `__crypto_*` helpers are unreachable from user source
+  (`SYMBOL_UNKNOWN_IDENTIFIER: Callable __crypto_sha1_bytes is not a top-level
+  function`, `/tmp/p109-priv`), so a "private SHAKE256" has no runtime proof
+  path. SHAKE256 therefore lands as the public member `crypto::shake256(data,
+  length)` (`List OF Byte` and `String` overloads, `ErrInvalidArgument` below 1)
+  — a variable-length XOF is its own member, which the non-goal ("not a public
+  `Hash` variant") explicitly leaves open. Ed448 (D) still consumes the same
+  `__crypto_shake256` core.
+- Raw Keccak-f[1600] zero-state intermediates are likewise unreachable from
+  user source; the permutation is proven through SHAKE256/SHA-3 outputs from an
+  independent oracle (`/tmp/p109-keccak-oracle.py`: a from-scratch Python
+  Keccak-f + sponge whose self-check equals Python `hashlib` on 16 messages × 4
+  widths and 6 SHAKE lengths before it is trusted; the KAT expectations come
+  from `hashlib` itself). The multi-block squeezes (300 bytes from `abc`, 272
+  from the 200-byte message) exercise repeated permutations on evolving states;
+  the rate−1/rate/rate+1 messages at every rate exercise pad10*1 in both the
+  message-then-pad and padding-only-block shapes.
+- Populations at execution: 187 crypto modules / 165 `helper_*.rs` before this
+  letter (`find src/codegen/builtins/crypto -maxdepth 1 -type f | wc -l` after
+  A's six SHA-1 helpers landed; the plan's 181/159 predates A). The letter adds
+  22 helpers + `func_shake256.rs` → 210 / 187.
 
 ## Summary
 

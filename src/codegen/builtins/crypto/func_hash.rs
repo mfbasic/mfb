@@ -59,14 +59,15 @@ pub(crate) fn lower_hash(
     })
 }
 
-const INTRO: &str =
-    r#"Compute a cryptographic hash (SHA-1 or SHA-2) of a message, selected by a `crypto::Hash`."#;
+const INTRO: &str = r#"Compute a cryptographic hash (SHA-1, SHA-2, or SHA-3) of a message, selected by a `crypto::Hash`."#;
 const DESC: &str = r#"`crypto::hash(type, data)` computes the message digest of `data` for the
-algorithm selected by `type` — a `crypto::Hash`: `SHA1`, or the SHA-2 family
-`SHA2_224`, `SHA2_256`, `SHA2_384`, `SHA2_512` — and returns it as a raw
-`List OF Byte`. The digest length is fixed by the algorithm: 20 bytes for `SHA1`,
-28 for `SHA2_224`, 32 for `SHA2_256`, 48 for `SHA2_384`, and 64 for `SHA2_512`.
-This one call is the package's single hashing surface.
+algorithm selected by `type` — a `crypto::Hash`: `SHA1`; the SHA-2 family
+`SHA2_224`, `SHA2_256`, `SHA2_384`, `SHA2_512`; or the SHA-3 family `SHA3_224`,
+`SHA3_256`, `SHA3_384`, `SHA3_512` — and returns it as a raw `List OF Byte`. The
+digest length is fixed by the algorithm: 20 bytes for `SHA1`, and 28/32/48/64
+bytes for the 224/256/384/512-bit widths of either family. This one call is the
+package's single fixed-digest hashing surface (the variable-length SHAKE256 XOF is
+`crypto::shake256`).
 
 **`SHA1` is a legacy algorithm.** SHA-1 is not collision-resistant (practical
 collisions have been public since 2017), so every source occurrence of `Hash.SHA1`
@@ -92,16 +93,18 @@ slow, salted `crypto::pbkdf2`, and authenticate a message under a shared secret 
 with `crypto::hmac` — a bare hash provides no authentication. In particular, do
 **not** build a MAC as `hash(type, key ‖ message)`: `SHA1`, `SHA2_256`, and
 `SHA2_512` are vulnerable to length-extension (the truncated `SHA2_224`/`SHA2_384`
-resist it), which lets an attacker who never saw `key` append data and forge a valid
-digest. Use `crypto::hmac` for keyed authentication.
+resist it, and the SHA-3 sponge is immune), which lets an attacker who never saw
+`key` append data and forge a valid digest. Use `crypto::hmac` for keyed
+authentication.
 
-**Implementation.** SHA-1 and SHA-2 are specified by FIPS 180-4. Every digest is
-computed in-process by a portable MFBASIC software core over the `bits` package —
-no platform cryptographic library is called — so the output is **byte-identical on
-macOS, Linux, and Windows** (and across aarch64/x86-64). No loop bound, branch, or
-index depends on the message contents; only the public message length does. The
-core is hash-generic over the `Hash` enum, so a future `Hash` variant is supported
-without new code."#;
+**Implementation.** SHA-1 and SHA-2 are specified by FIPS 180-4; SHA-3 by FIPS 202
+(the Keccak-f[1600] sponge at rate 1152/1088/832/576 bits with domain suffix
+`0x06`). Every digest is computed in-process by a portable MFBASIC software core
+over the `bits` package — no platform cryptographic library is called — so the
+output is **byte-identical on macOS, Linux, and Windows** (and across
+aarch64/x86-64). No loop bound, branch, or index depends on the message contents;
+only the public message length does. The core is hash-generic over the `Hash`
+enum, so a future `Hash` variant is supported without new code."#;
 const EX: &str = r#"Hash a byte list and print it as hex:
 
 ```

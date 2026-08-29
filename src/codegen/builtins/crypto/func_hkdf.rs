@@ -15,7 +15,8 @@ const INTRO: &str = r#"Derive key material with HKDF (RFC 5869), selected by a `
 const DESC: &str = r#"`crypto::hkdf(type, ikm, salt, info, length)` derives `length` bytes of output
 keying material from the input keying material `ikm`, using the HKDF
 Extract-then-Expand construction over the hash selected by `type` — a
-`crypto::Hash`: `SHA1`, `SHA2_224`, `SHA2_256`, `SHA2_384`, or `SHA2_512`. The
+`crypto::Hash`: `SHA1`, `SHA2_224`/`SHA2_256`/`SHA2_384`/`SHA2_512`, or
+`SHA3_224`/`SHA3_256`/`SHA3_384`/`SHA3_512`. The
 result is returned as a raw `List OF Byte` of exactly `length` bytes. This one call
 is the package's single HKDF surface. (`Hash.SHA1` reports the `CRYPTO_SHA1_INSECURE`
 advisory; prefer `SHA2_256` unless a peer requires HKDF-SHA1.)
@@ -24,7 +25,8 @@ HKDF first *extracts* a fixed-length pseudorandom key from `ikm` and `salt` (one
 HMAC), then *expands* it under `info` into the requested output length. `salt` is an
 optional, non-secret value that strengthens the extraction; it may be empty, in which
 case it is treated as a string of `L` zero bytes, where `L` is the digest length of
-`type` (20/28/32/48/64 for `SHA1`/`SHA2_224`/`SHA2_256`/`SHA2_384`/`SHA2_512`). `info` is optional
+`type` (20 for `SHA1`; 28/32/48/64 for the 224/256/384/512-bit SHA-2 and SHA-3
+selectors). `info` is optional
 context/application binding — a label that domain-separates independent keys derived
 from the same `ikm` (for example `"app v1 encryption"` vs `"app v1 signing"`); it may
 be empty. The derivation is deterministic in all of its inputs.

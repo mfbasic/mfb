@@ -1,0 +1,126 @@
+{
+  "project": "crypto-sha3-kat-valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 10 },
+    { "module": "crypto", "line": 11 },
+    { "module": "encoding", "line": 12 },
+    { "module": "io", "line": 13 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "fill",
+      "line": 15,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 15 },
+      { "name": "v", "type": "Integer", "default": null, "line": 15 }
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 16 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 17 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "identifier", "value": "n" } },
+        "line": 18,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "out" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "v" }] }] }, "line": 19 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 20 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "out" }, "line": 22 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "show",
+      "line": 25,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 25 },
+      { "name": "d", "type": "List OF Byte", "default": null, "line": 25 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "d" }] } }] }, "line": 26 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 29,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a3", "type": "List OF Byte", "value": { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "200" }, { "kind": "number", "value": "163" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_224-empty" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_224" }, { "kind": "string", "value": "" }] }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_224-abc" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_224" }, { "kind": "string", "value": "abc" }] }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_224-a3" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_224" }, { "kind": "identifier", "value": "a3" }] }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_256-empty" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_256" }, { "kind": "string", "value": "" }] }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_256-abc" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_256" }, { "kind": "string", "value": "abc" }] }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_256-a3" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_256" }, { "kind": "identifier", "value": "a3" }] }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_384-empty" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_384" }, { "kind": "string", "value": "" }] }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_384-abc" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_384" }, { "kind": "string", "value": "abc" }] }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_384-a3" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_384" }, { "kind": "identifier", "value": "a3" }] }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_512-empty" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_512" }, { "kind": "string", "value": "" }] }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_512-abc" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_512" }, { "kind": "string", "value": "abc" }] }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_512-a3" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_512" }, { "kind": "identifier", "value": "a3" }] }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_224-143" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_224" }, { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "143" }, { "kind": "number", "value": "120" }] }] }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_224-144" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_224" }, { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "144" }, { "kind": "number", "value": "120" }] }] }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_224-145" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_224" }, { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "145" }, { "kind": "number", "value": "120" }] }] }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_256-135" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_256" }, { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "135" }, { "kind": "number", "value": "120" }] }] }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_256-136" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_256" }, { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "136" }, { "kind": "number", "value": "120" }] }] }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_256-137" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_256" }, { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "137" }, { "kind": "number", "value": "120" }] }] }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_384-103" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_384" }, { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "103" }, { "kind": "number", "value": "120" }] }] }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_384-104" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_384" }, { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "104" }, { "kind": "number", "value": "120" }] }] }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_384-105" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_384" }, { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "105" }, { "kind": "number", "value": "120" }] }] }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_512-71" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_512" }, { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "71" }, { "kind": "number", "value": "120" }] }] }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_512-72" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_512" }, { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "72" }, { "kind": "number", "value": "120" }] }] }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "sha3_512-73" }, { "kind": "call", "callee": "crypto.hash", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_512" }, { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "73" }, { "kind": "number", "value": "120" }] }] }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "shake256-empty-32" }, { "kind": "call", "callee": "crypto.shake256", "arguments": [{ "kind": "string", "value": "" }, { "kind": "number", "value": "32" }] }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "shake256-abc-64" }, { "kind": "call", "callee": "crypto.shake256", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "number", "value": "64" }] }] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "shake256-abc-300" }, { "kind": "call", "callee": "crypto.shake256", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "number", "value": "300" }] }] }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "shake256-135-136" }, { "kind": "call", "callee": "crypto.shake256", "arguments": [{ "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "135" }, { "kind": "number", "value": "120" }] }, { "kind": "number", "value": "136" }] }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "shake256-136-137" }, { "kind": "call", "callee": "crypto.shake256", "arguments": [{ "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "136" }, { "kind": "number", "value": "120" }] }, { "kind": "number", "value": "137" }] }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "shake256-137-1" }, { "kind": "call", "callee": "crypto.shake256", "arguments": [{ "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "137" }, { "kind": "number", "value": "120" }] }, { "kind": "number", "value": "1" }] }] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "shake256-a3-272" }, { "kind": "call", "callee": "crypto.shake256", "arguments": [{ "kind": "identifier", "value": "a3" }, { "kind": "number", "value": "272" }] }] }, "line": 61 },
+      { "kind": "binding", "mutable": false, "name": "short", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.shake256", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "number", "value": "16" }] }, "line": 62 },
+      { "kind": "binding", "mutable": false, "name": "long", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.shake256", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "number", "value": "64" }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "shake256-prefix=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "short" }] }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "collections.mid", "arguments": [{ "kind": "identifier", "value": "long" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "16" }] }] } }] } }] }, "line": 64 },
+      { "kind": "binding", "mutable": false, "name": "jefe", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "Jefe" }] }, "line": 65 },
+      { "kind": "binding", "mutable": false, "name": "what", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "what do ya want for nothing?" }] }, "line": 66 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hmac-sha3_224" }, { "kind": "call", "callee": "crypto.hmac", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_224" }, { "kind": "identifier", "value": "jefe" }, { "kind": "string", "value": "what do ya want for nothing?" }] }] }, "line": 67 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hmac-sha3_256" }, { "kind": "call", "callee": "crypto.hmac", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_256" }, { "kind": "identifier", "value": "jefe" }, { "kind": "string", "value": "what do ya want for nothing?" }] }] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hmac-sha3_384" }, { "kind": "call", "callee": "crypto.hmac", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_384" }, { "kind": "identifier", "value": "jefe" }, { "kind": "identifier", "value": "what" }] }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hmac-sha3_512" }, { "kind": "call", "callee": "crypto.hmac", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_512" }, { "kind": "identifier", "value": "jefe" }, { "kind": "identifier", "value": "what" }] }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hmac-sha3_224-longkey" }, { "kind": "call", "callee": "crypto.hmac", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_224" }, { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "200" }, { "kind": "number", "value": "170" }] }, { "kind": "identifier", "value": "what" }] }] }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hmac-sha3_512-longkey" }, { "kind": "call", "callee": "crypto.hmac", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_512" }, { "kind": "call", "callee": "fill", "arguments": [{ "kind": "number", "value": "200" }, { "kind": "number", "value": "170" }] }, { "kind": "string", "value": "what do ya want for nothing?" }] }] }, "line": 72 },
+      { "kind": "binding", "mutable": false, "name": "ikm", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b" }] }, "line": 73 },
+      { "kind": "binding", "mutable": false, "name": "salt", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "000102030405060708090a0b0c" }] }, "line": 74 },
+      { "kind": "binding", "mutable": false, "name": "info", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "f0f1f2f3f4f5f6f7f8f9" }] }, "line": 75 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hkdf-sha3_224" }, { "kind": "call", "callee": "crypto.hkdf", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_224" }, { "kind": "identifier", "value": "ikm" }, { "kind": "identifier", "value": "salt" }, { "kind": "identifier", "value": "info" }, { "kind": "number", "value": "42" }] }] }, "line": 76 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hkdf-sha3_256" }, { "kind": "call", "callee": "crypto.hkdf", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_256" }, { "kind": "identifier", "value": "ikm" }, { "kind": "identifier", "value": "salt" }, { "kind": "identifier", "value": "info" }, { "kind": "number", "value": "42" }] }] }, "line": 77 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hkdf-sha3_384" }, { "kind": "call", "callee": "crypto.hkdf", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_384" }, { "kind": "identifier", "value": "ikm" }, { "kind": "list", "values": [] }, { "kind": "identifier", "value": "info" }, { "kind": "number", "value": "42" }] }] }, "line": 78 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hkdf-sha3_512" }, { "kind": "call", "callee": "crypto.hkdf", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_512" }, { "kind": "identifier", "value": "ikm" }, { "kind": "identifier", "value": "salt" }, { "kind": "list", "values": [] }, { "kind": "number", "value": "100" }] }] }, "line": 79 },
+      { "kind": "binding", "mutable": false, "name": "pw", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "password" }] }, "line": 80 },
+      { "kind": "binding", "mutable": false, "name": "sa", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "salt" }] }, "line": 81 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "pbkdf2-sha3_224" }, { "kind": "call", "callee": "crypto.pbkdf2", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_224" }, { "kind": "identifier", "value": "pw" }, { "kind": "identifier", "value": "sa" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "40" }] }] }, "line": 82 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "pbkdf2-sha3_256" }, { "kind": "call", "callee": "crypto.pbkdf2", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_256" }, { "kind": "identifier", "value": "pw" }, { "kind": "identifier", "value": "sa" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "40" }] }] }, "line": 83 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "pbkdf2-sha3_384" }, { "kind": "call", "callee": "crypto.pbkdf2", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_384" }, { "kind": "identifier", "value": "pw" }, { "kind": "identifier", "value": "sa" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "20" }] }] }, "line": 84 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "pbkdf2-sha3_512" }, { "kind": "call", "callee": "crypto.pbkdf2", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_512" }, { "kind": "identifier", "value": "pw" }, { "kind": "identifier", "value": "sa" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "64" }] }] }, "line": 85 }
+      ]
+    }
+    ]
+  }
+  ]
+}

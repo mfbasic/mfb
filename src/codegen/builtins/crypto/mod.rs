@@ -45,7 +45,8 @@ is raw binary — stringify it for display or storage with the `encoding` packag
 (`encoding::hexEncode`, `encoding::base64Encode`). The package defines two record
 types, `crypto::Sealed` and `crypto::KeyPair`; see `mfb man crypto types`.
 
-`crypto` is software-first: every hash, HMAC, KDF, AEAD, and Ed25519 primitive is
+`crypto` is software-first: every hash (SHA-1, SHA-2, SHA-3, and the SHAKE256
+XOF), HMAC, KDF, AEAD, and Ed25519 primitive is
 a portable core written in MFBASIC source over the `bits` package, so its output
 is byte-identical on every target and uses no deprecated platform functions. Two
 categories bind the platform instead: `randomBytes` draws from the OS CSPRNG
@@ -154,9 +155,10 @@ pub(crate) fn register(r: &mut Registry) {
             advisory: None,
         }],
     });
-    // The hash-algorithm selector — every hash function `crypto` supports (SHA-1
-    // and the SHA-2 family). Ordinals are declaration order (SHA1=0, SHA2_224=1,
-    // SHA2_256=2, SHA2_384=3, SHA2_512=4); `gen_hash`'s `ORD_*` constants and the
+    // The hash-algorithm selector — every hash function `crypto` supports (SHA-1,
+    // the SHA-2 family, the SHA-3 family). Ordinals are declaration order (SHA1=0,
+    // SHA2_224=1, SHA2_256=2, SHA2_384=3, SHA2_512=4, SHA3_224=5, SHA3_256=6,
+    // SHA3_384=7, SHA3_512=8); `gen_hash`'s `ORD_*` constants and the
     // `__crypto_sha{Digest,BlockSize,OutputLen}` dispatch helpers mirror this order.
     // The SHA-2 spellings carry the family prefix (`SHA2_256`, never `SHA256`) so
     // the SHA-3 widths added by plan-109-B read unambiguously beside them; the
@@ -194,6 +196,28 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "SHA2_512",
                 description: "SHA-512 (SHA-2 family, FIPS 180-4, 512-bit digest).",
+                advisory: None,
+            },
+            // SHA-3 (plan-109-B): appended after the SHA-2 family so the earlier
+            // ordinals stay fixed (SHA3_224=5, SHA3_256=6, SHA3_384=7, SHA3_512=8).
+            EnumVariant {
+                name: "SHA3_224",
+                description: "SHA3-224 (SHA-3 family, FIPS 202, 224-bit digest; Keccak-f[1600] at rate 1152).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "SHA3_256",
+                description: "SHA3-256 (SHA-3 family, FIPS 202, 256-bit digest; Keccak-f[1600] at rate 1088).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "SHA3_384",
+                description: "SHA3-384 (SHA-3 family, FIPS 202, 384-bit digest; Keccak-f[1600] at rate 832).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "SHA3_512",
+                description: "SHA3-512 (SHA-3 family, FIPS 202, 512-bit digest; Keccak-f[1600] at rate 576).",
                 advisory: None,
             },
         ],
@@ -288,6 +312,32 @@ pub(crate) fn register(r: &mut Registry) {
     helper_sha1_bytes::register(&mut pkg);
     helper_sha1_text::register(&mut pkg);
     helper_add64::register(&mut pkg);
+    // Keccak-f[1600] / SHA-3 / SHAKE256 (FIPS 202, plan-109-B). One full 64-bit
+    // lane per Integer (a raw `bits::` pattern, like SHA-512's words — Keccak is
+    // XOR/AND/NOT/rotate only, so nothing enters trapping arithmetic); the
+    // permutation and sponge are branch-free apart from the public lengths.
+    helper_keccak_rc::register(&mut pkg);
+    helper_keccak_rc_table::register(&mut pkg);
+    helper_keccak_rho::register(&mut pkg);
+    helper_keccak_rho_table::register(&mut pkg);
+    helper_keccak_pi::register(&mut pkg);
+    helper_keccak_pi_table::register(&mut pkg);
+    helper_keccak_zero::register(&mut pkg);
+    helper_keccak_round::register(&mut pkg);
+    helper_keccak_f::register(&mut pkg);
+    helper_le_lane::register(&mut pkg);
+    helper_append_le_lane::register(&mut pkg);
+    helper_keccak_sponge::register(&mut pkg);
+    helper_sha3_224_bytes::register(&mut pkg);
+    helper_sha3_224_text::register(&mut pkg);
+    helper_sha3_256_bytes::register(&mut pkg);
+    helper_sha3_256_text::register(&mut pkg);
+    helper_sha3_384_bytes::register(&mut pkg);
+    helper_sha3_384_text::register(&mut pkg);
+    helper_sha3_512_bytes::register(&mut pkg);
+    helper_sha3_512_text::register(&mut pkg);
+    helper_shake256::register(&mut pkg);
+    helper_shake256_text::register(&mut pkg);
     helper_be_word64::register(&mut pkg);
     helper_be_words64::register(&mut pkg);
     helper_append_be_word64::register(&mut pkg);
@@ -445,6 +495,10 @@ pub(crate) fn register(r: &mut Registry) {
     func_hmac::register(&mut pkg);
     func_hkdf::register(&mut pkg);
     func_pbkdf2::register(&mut pkg);
+    // The SHAKE256 extendable-output function (FIPS 202 §6.2): variable output
+    // length, so it is its own member rather than a fixed-digest `Hash` selector.
+    // Pure-MFB rewrite onto `__crypto_shake256` (also the Ed448 hash).
+    func_shake256::register(&mut pkg);
     // The unified clean-room AEAD `seal`/`open` select a symmetric cipher by the
     // `SymmetricCipher` ordinal and branch-link to the always-emitted MFB software AEAD
     // cores (the AEAD math stays in MFB), mirroring `hash` over `Hash`. `seal` carries a
@@ -502,6 +556,7 @@ pub(crate) mod func_pbkdf2;
 mod func_random_bytes;
 mod func_random_int;
 pub(crate) mod func_seal;
+mod func_shake256;
 pub(crate) mod func_sign;
 mod func_ulid;
 mod func_uuid4;
@@ -527,6 +582,7 @@ mod helper_aes_sub;
 mod helper_aes_sub_bytes;
 mod helper_append_be_word;
 mod helper_append_be_word64;
+mod helper_append_le_lane;
 mod helper_append_le_word;
 mod helper_asym_aead;
 mod helper_asym_info;
@@ -602,8 +658,19 @@ mod helper_iv384;
 mod helper_iv512;
 mod helper_k256;
 mod helper_k512;
+mod helper_keccak_f;
+mod helper_keccak_pi;
+mod helper_keccak_pi_table;
+mod helper_keccak_rc;
+mod helper_keccak_rc_table;
+mod helper_keccak_rho;
+mod helper_keccak_rho_table;
+mod helper_keccak_round;
+mod helper_keccak_sponge;
+mod helper_keccak_zero;
 mod helper_last64;
 mod helper_le64;
+mod helper_le_lane;
 mod helper_le_word;
 mod helper_m32;
 mod helper_maj32;
@@ -653,6 +720,14 @@ mod helper_sha2_64;
 mod helper_sha384_bytes;
 mod helper_sha384_iv;
 mod helper_sha384_text;
+mod helper_sha3_224_bytes;
+mod helper_sha3_224_text;
+mod helper_sha3_256_bytes;
+mod helper_sha3_256_text;
+mod helper_sha3_384_bytes;
+mod helper_sha3_384_text;
+mod helper_sha3_512_bytes;
+mod helper_sha3_512_text;
 mod helper_sha512_bytes;
 mod helper_sha512_iv;
 mod helper_sha512_ktable;
@@ -661,6 +736,8 @@ mod helper_sha512_text;
 mod helper_sha_block_size;
 mod helper_sha_digest;
 mod helper_sha_output_len;
+mod helper_shake256;
+mod helper_shake256_text;
 mod helper_shr32;
 mod helper_slice;
 mod helper_ssig0;
@@ -691,15 +768,15 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 18 members: the unified `generate`/`sign`/`verify`/`hash`, the
+        // 19 members: the unified `generate`/`sign`/`verify`/`hash`, the
         // `SymmetricCipher`-selected `seal`/`open`, the hash-generic
-        // `hmac`/`hkdf`/`pbkdf2(Hash, …)`, `convert` (Ed25519↔X25519 key conversion),
-        // the `AsymmetricCipher`-selected `encrypt`/`decrypt` (X25519 sealed box),
-        // plus `randomBytes`/`randomInt`/`uuid4`/`uuid7`/`ulid`/
-        // `constantTimeEqual`. The per-type
-        // generate/sign/verify/sha and per-digest `*Sha*`/per-cipher AEAD members were
-        // all retired behind the unified surface.
-        assert_eq!(pkg.functions().len(), 18);
+        // `hmac`/`hkdf`/`pbkdf2(Hash, …)`, the SHAKE256 XOF `shake256`, `convert`
+        // (Ed25519↔X25519 key conversion), the `AsymmetricCipher`-selected
+        // `encrypt`/`decrypt` (X25519 sealed box), plus
+        // `randomBytes`/`randomInt`/`uuid4`/`uuid7`/`ulid`/`constantTimeEqual`. The
+        // per-type generate/sign/verify/sha and per-digest `*Sha*`/per-cipher AEAD
+        // members were all retired behind the unified surface.
+        assert_eq!(pkg.functions().len(), 19);
     }
 
     #[test]
@@ -709,6 +786,7 @@ mod tests {
             "crypto.hmac",
             "crypto.hkdf",
             "crypto.pbkdf2",
+            "crypto.shake256",
             "crypto.seal",
             "crypto.open",
             "crypto.randomBytes",
@@ -826,6 +904,17 @@ mod tests {
             ),
             Some("__crypto_pbkdf2")
         );
+        // `shake256(data, length)` selects on `data`: the `String` form rewrites to
+        // the `__crypto_shake256Text` UTF-8 shim, the `List OF Byte` form to the
+        // XOF core.
+        assert_eq!(
+            sel("crypto.shake256", &["List OF Byte", "Integer"]),
+            Some("__crypto_shake256")
+        );
+        assert_eq!(
+            sel("crypto.shake256", &["String", "Integer"]),
+            Some("__crypto_shake256Text")
+        );
         // Single-body source member.
         assert_eq!(sel("crypto.uuid4", &[]), Some("__crypto_uuid4"));
         assert_eq!(sel("crypto.uuid7", &[]), Some("__crypto_uuid7"));
@@ -939,6 +1028,63 @@ mod tests {
             registry::default_argument_padding("crypto.hash", 2).len(),
             0
         );
+    }
+
+    /// Structural constant-time audit of the Keccak core (plan-109-B): the
+    /// permutation and its round must contain no conditional or early exit at
+    /// all, and the sponge's only conditional may test the PUBLIC output length.
+    /// Every `collections::get` index in the round is a loop counter or a public
+    /// table lookup — this pins that no arm branches on, or indexes by, state or
+    /// message contents.
+    #[test]
+    fn keccak_core_is_branch_free() {
+        let source = registry()
+            .resolve_package("crypto")
+            .expect("crypto")
+            .get_mfb();
+        let body_of = |name: &str| -> String {
+            let start = source
+                .find(&format!("FUNC {name}("))
+                .unwrap_or_else(|| panic!("{name} not in assembled source"));
+            let end = source[start..].find("END FUNC").expect("END FUNC") + start;
+            source[start..end].to_string()
+        };
+        for name in [
+            "__crypto_keccakRound",
+            "__crypto_keccakF",
+            "__crypto_leLane",
+            "__crypto_appendLeLane",
+        ] {
+            let body = body_of(name);
+            assert!(!body.contains("IF "), "{name} must be branch-free:\n{body}");
+            assert!(
+                !body.contains("EXIT ") && !body.contains("TRAP"),
+                "{name} must have no early exit:\n{body}"
+            );
+        }
+        let sponge = body_of("__crypto_keccakSponge");
+        let conditionals: Vec<&str> = sponge.lines().filter(|l| l.contains("IF ")).collect();
+        assert_eq!(conditionals.len(), 1, "{conditionals:?}");
+        assert!(
+            conditionals[0].contains("len(out) < outLen"),
+            "the sponge's only branch is on the public output length: {conditionals:?}"
+        );
+        // Indices into the state within the round: a nested lookup whose inner
+        // subject is the state (`get(a, get(a, …))`) would be a data-dependent
+        // address; the only nested lookups are the public RHO/PI tables.
+        let round = body_of("__crypto_keccakRound");
+        for state in ["a", "b", "t", "c", "out"] {
+            for inner in ["a", "b", "t", "c", "out"] {
+                assert!(
+                    !round.contains(&format!(
+                        "collections::get({state}, collections::get({inner}"
+                    )),
+                    "{state} indexed by {inner} contents"
+                );
+            }
+        }
+        assert!(round.contains("collections::get(__CRYPTO_KECCAK_RHO, i)"));
+        assert!(round.contains("collections::get(__CRYPTO_KECCAK_PI, i)"));
     }
 
     #[test]

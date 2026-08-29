@@ -4,9 +4,9 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "crypto", "line": 7 },
-    { "module": "errorCode", "line": 8 },
-    { "module": "io", "line": 9 }
+    { "module": "crypto", "line": 8 },
+    { "module": "errorCode", "line": 9 },
+    { "module": "io", "line": 10 }
     ],
     "items": [
     {
@@ -14,32 +14,32 @@
       "visibility": "public",
       "isolated": false,
       "name": "hkdfLen",
-      "line": 11,
+      "line": 12,
       "params": [
-      { "name": "h", "type": "Hash", "default": null, "line": 11 },
-      { "name": "length", "type": "Integer", "default": null, "line": 11 }
+      { "name": "h", "type": "Hash", "default": null, "line": 12 },
+      { "name": "length", "type": "Integer", "default": null, "line": 12 }
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "ikm", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "11" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "11" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "11" }] }] }, "line": 12 },
-      { "kind": "binding", "mutable": false, "name": "okm", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.hkdf", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "ikm" }, { "kind": "list", "values": [] }, { "kind": "list", "values": [] }, { "kind": "identifier", "value": "length" }] }, "line": 13 },
-      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "okm" }] }, "line": 14 }
+      { "kind": "binding", "mutable": false, "name": "ikm", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "11" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "11" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "11" }] }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "okm", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.hkdf", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "ikm" }, { "kind": "list", "values": [] }, { "kind": "list", "values": [] }, { "kind": "identifier", "value": "length" }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "okm" }] }, "line": 15 }
       ],
       "trap": {
       "name": "err",
-      "line": 15,
+      "line": 16,
       "body": [
       {
         "kind": "if",
         "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } },
-        "line": 16,
+        "line": 17,
         "then": [
-        { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 17 }
+        { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 18 }
         ],
         "else": [
         ]
       },
-      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2" } }, "line": 19 }
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2" } }, "line": 20 }
       ]
     }
     },
@@ -48,34 +48,66 @@
       "visibility": "public",
       "isolated": false,
       "name": "pbkdf2Args",
-      "line": 23,
+      "line": 24,
       "params": [
-      { "name": "h", "type": "Hash", "default": null, "line": 23 },
-      { "name": "iterations", "type": "Integer", "default": null, "line": 23 },
-      { "name": "length", "type": "Integer", "default": null, "line": 23 }
+      { "name": "h", "type": "Hash", "default": null, "line": 24 },
+      { "name": "iterations", "type": "Integer", "default": null, "line": 24 },
+      { "name": "length", "type": "Integer", "default": null, "line": 24 }
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "pw", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "112" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "119" }] }] }, "line": 24 },
-      { "kind": "binding", "mutable": false, "name": "salt", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "115" }] }] }, "line": 25 },
-      { "kind": "binding", "mutable": false, "name": "dk", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.pbkdf2", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "pw" }, { "kind": "identifier", "value": "salt" }, { "kind": "identifier", "value": "iterations" }, { "kind": "identifier", "value": "length" }] }, "line": 26 },
-      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "dk" }] }, "line": 27 }
+      { "kind": "binding", "mutable": false, "name": "pw", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "112" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "119" }] }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "salt", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "115" }] }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "dk", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.pbkdf2", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "pw" }, { "kind": "identifier", "value": "salt" }, { "kind": "identifier", "value": "iterations" }, { "kind": "identifier", "value": "length" }] }, "line": 27 },
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "dk" }] }, "line": 28 }
       ],
       "trap": {
       "name": "err",
-      "line": 28,
+      "line": 29,
       "body": [
       {
         "kind": "if",
         "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } },
-        "line": 29,
+        "line": 30,
         "then": [
-        { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 30 }
+        { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 31 }
         ],
         "else": [
         ]
       },
-      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2" } }, "line": 32 }
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2" } }, "line": 33 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "shakeLen",
+      "line": 37,
+      "params": [
+      { "name": "length", "type": "Integer", "default": null, "line": 37 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "out", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.shake256", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "identifier", "value": "length" }] }, "line": 38 },
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "out" }] }, "line": 39 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 40,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } },
+        "line": 41,
+        "then": [
+        { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 42 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2" } }, "line": 44 }
       ]
     }
     },
@@ -84,20 +116,26 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 36,
+      "line": 48,
       "params": [
       ],
       "returnType": null,
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hkdf-sha1-0=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "hkdfLen", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA1" }, { "kind": "number", "value": "0" }] }] } }] }, "line": 37 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hkdf-sha1-5100=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "hkdfLen", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA1" }, { "kind": "number", "value": "5100" }] }] } }] }, "line": 38 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hkdf-sha1-5101=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "hkdfLen", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA1" }, { "kind": "number", "value": "5101" }] }] } }] }, "line": 39 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hkdf-sha2_256-8160=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "hkdfLen", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA2_256" }, { "kind": "number", "value": "8160" }] }] } }] }, "line": 40 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hkdf-sha2_256-8161=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "hkdfLen", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA2_256" }, { "kind": "number", "value": "8161" }] }] } }] }, "line": 41 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pbkdf2-sha1-iter0=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "pbkdf2Args", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA1" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "20" }] }] } }] }, "line": 42 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pbkdf2-sha1-len0=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "pbkdf2Args", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "0" }] }] } }] }, "line": 43 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pbkdf2-sha1-ok=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "pbkdf2Args", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "21" }] }] } }] }, "line": 44 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pbkdf2-sha2_512-iter0=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "pbkdf2Args", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA2_512" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "64" }] }] } }] }, "line": 45 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "shake256-0=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "shakeLen", "arguments": [{ "kind": "number", "value": "0" }] }] } }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "shake256-neg=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "shakeLen", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "5" } }] }] } }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "shake256-1=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "shakeLen", "arguments": [{ "kind": "number", "value": "1" }] }] } }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hkdf-sha3_256-8160=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "hkdfLen", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_256" }, { "kind": "number", "value": "8160" }] }] } }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hkdf-sha3_256-8161=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "hkdfLen", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_256" }, { "kind": "number", "value": "8161" }] }] } }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pbkdf2-sha3_512-iter0=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "pbkdf2Args", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA3_512" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "64" }] }] } }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hkdf-sha1-0=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "hkdfLen", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA1" }, { "kind": "number", "value": "0" }] }] } }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hkdf-sha1-5100=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "hkdfLen", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA1" }, { "kind": "number", "value": "5100" }] }] } }] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hkdf-sha1-5101=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "hkdfLen", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA1" }, { "kind": "number", "value": "5101" }] }] } }] }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hkdf-sha2_256-8160=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "hkdfLen", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA2_256" }, { "kind": "number", "value": "8160" }] }] } }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hkdf-sha2_256-8161=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "hkdfLen", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA2_256" }, { "kind": "number", "value": "8161" }] }] } }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pbkdf2-sha1-iter0=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "pbkdf2Args", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA1" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "20" }] }] } }] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pbkdf2-sha1-len0=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "pbkdf2Args", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "0" }] }] } }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pbkdf2-sha1-ok=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "pbkdf2Args", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "21" }] }] } }] }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pbkdf2-sha2_512-iter0=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "pbkdf2Args", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Hash" }, "member": "SHA2_512" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "64" }] }] } }] }, "line": 63 }
       ]
     }
     ]

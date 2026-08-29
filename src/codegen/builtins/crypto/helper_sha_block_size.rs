@@ -1,7 +1,9 @@
 //! `__crypto_shaBlockSize` — shared private helper for the `crypto` package.
 //!
 //! The hash-generic HMAC block size `B` for a `crypto::Hash`: SHA-1/SHA-224/SHA-256
-//! hash in 64-byte blocks, SHA-384/SHA-512 in 128-byte blocks. `__crypto_hmac` keys and pads to
+//! hash in 64-byte blocks, SHA-384/SHA-512 in 128-byte blocks, and a SHA-3 hash's
+//! block is its sponge rate (144/136/104/72 bytes), as FIPS 202 §7 specifies for
+//! HMAC-SHA3. `__crypto_hmac` keys and pads to
 //! this width, so the construction stays written over an abstract hash `H` — a future
 //! `Hash` variant needs only one new arm here.
 //!
@@ -13,13 +15,26 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"' Hash-generic HMAC block size B: 64 for SHA-1/224/256, 128 for SHA-384/512.
+r#"' Hash-generic HMAC block size B: 64 for SHA-1/224/256, 128 for SHA-384/512,
+' and the sponge rate (144/136/104/72) for SHA3-224/256/384/512 (FIPS 202 §7).
 FUNC __crypto_shaBlockSize(algo AS Hash) AS Integer
   IF algo = Hash.SHA2_384 THEN
     RETURN 128
   END IF
   IF algo = Hash.SHA2_512 THEN
     RETURN 128
+  END IF
+  IF algo = Hash.SHA3_224 THEN
+    RETURN 144
+  END IF
+  IF algo = Hash.SHA3_256 THEN
+    RETURN 136
+  END IF
+  IF algo = Hash.SHA3_384 THEN
+    RETURN 104
+  END IF
+  IF algo = Hash.SHA3_512 THEN
+    RETURN 72
   END IF
   RETURN 64
 END FUNC"#;

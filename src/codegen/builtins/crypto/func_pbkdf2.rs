@@ -15,8 +15,9 @@ use super::{
 const INTRO: &str = r#"Derive a key from a password with PBKDF2, selected by a `crypto::Hash`."#;
 const DESC: &str = r#"`crypto::pbkdf2(type, password, salt, iterations, length)` derives `length` bytes of
 key material from a `password` and `salt` using PBKDF2-HMAC over the hash selected
-by `type` — a `crypto::Hash`: `SHA1`, `SHA2_224`, `SHA2_256`, `SHA2_384`, or
-`SHA2_512`. The result is returned as a raw `List OF Byte` of exactly `length`
+by `type` — a `crypto::Hash`: `SHA1`, `SHA2_224`/`SHA2_256`/`SHA2_384`/`SHA2_512`,
+or `SHA3_224`/`SHA3_256`/`SHA3_384`/`SHA3_512`. The result is returned as a raw
+`List OF Byte` of exactly `length`
 bytes. This one call is the package's single PBKDF2 surface. (PBKDF2-HMAC-SHA1 is
 the RFC 8018 / WPA2 legacy profile; `Hash.SHA1` reports the `CRYPTO_SHA1_INSECURE`
 advisory, so select it only for compatibility with an existing deployment.)

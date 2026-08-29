@@ -13,7 +13,8 @@ algorithm set, the backend split, and the security-relevant guarantees.
 
 ## Backend model (hybrid, no deprecated platform calls)
 
-`crypto` is **software-first**: every hash, HMAC, KDF, AEAD, and Ed25519
+`crypto` is **software-first**: every hash (SHA-1, SHA-2, SHA-3, SHAKE256), HMAC,
+KDF, AEAD, and Ed25519
 primitive is a portable core implemented in injected MFBASIC source over the
 `bits` package. Because each core computes the same
 standard algorithm, its output is **byte-identical on every target**
@@ -61,8 +62,11 @@ extensions); computation is portable-arithmetic only, identical across targets.
 ## Algorithm set
 
 - **Hashes** — the `crypto::Hash` selector: `SHA1` (FIPS 180-4, 20-byte digest,
-  legacy) and the SHA-2 family `SHA2_224`, `SHA2_256`, `SHA2_384`, `SHA2_512`
-  (FIPS 180-4; 28/32/48/64 bytes). The SHA-2 spellings carry the family prefix;
+  legacy); the SHA-2 family `SHA2_224`, `SHA2_256`, `SHA2_384`, `SHA2_512`
+  (FIPS 180-4; 28/32/48/64 bytes); and the SHA-3 family `SHA3_224`, `SHA3_256`,
+  `SHA3_384`, `SHA3_512` (FIPS 202; the Keccak-f[1600] sponge at rate
+  1152/1088/832/576 bits, domain suffix `0x06`, `pad10*1`; 28/32/48/64 bytes).
+  The family prefix is part of every spelling;
   there are no bare `SHA256`-style aliases. Every user-source occurrence of
   `Hash.SHA1` (an expression or a `MATCH` literal) reports the non-fatal
   `CRYPTO_SHA1_INSECURE` warning (`2-203-0136`, see
@@ -70,8 +74,13 @@ extensions); computation is portable-arithmetic only, identical across targets.
   exists only for interoperability with systems that require it; the program
   still builds and the digest is the standard value.
   [[src/codegen/builtins/crypto/mod.rs:CRYPTO]]
-- **HMAC** — HMAC over every `Hash` selector (RFC 2104): HMAC-SHA1 and
-  HMAC-SHA-224/256/384/512.
+- **XOF** — `shake256(data, length)`: SHAKE256 (FIPS 202 §6.2; the same sponge
+  at rate 1088 with domain suffix `0x1f`) squeezed to any `length ≥ 1`; a shorter
+  output is a prefix of a longer one. It is also the Ed448 hash (RFC 8032 §5.2).
+  [[src/codegen/builtins/crypto/func_shake256.rs:register]]
+- **HMAC** — HMAC over every `Hash` selector (RFC 2104): HMAC-SHA1,
+  HMAC-SHA-224/256/384/512, and HMAC-SHA3-224/256/384/512 (block size = the
+  sponge rate, FIPS 202 §7).
 - **KDF** — HKDF over every `Hash` selector (RFC 5869, extract-and-expand over
   the HMAC core; output ceiling `255 × L` for the selector's digest length `L`);
   PBKDF2-HMAC over every `Hash` selector (RFC 8018).
@@ -98,6 +107,15 @@ values is at most `2^33-2`, within the trapping 63-bit `+`, and is masked back);
 SHA-1 shares SHA-256's 512-bit padding and masked-32-bit model, differing only in
 its 80-word schedule, round function, and constants.
 [[src/codegen/builtins/crypto/helper_sha1_bytes.rs:BODY]]
+Keccak-f[1600] keeps each of its 25 lanes in one `Integer` as a raw 64-bit bit
+pattern (the same representation as SHA-512's words) and touches it only through
+`bits::` XOR/AND/NOT/`rl64` — Keccak has no addition, so no lane ever enters the
+trapping arithmetic operators, and a lane with bit 63 set is simply a negative
+`Integer`. The round is branch-free: every loop bound is a constant and every
+index is a loop counter or an entry of the public rho/pi tables; the sponge's
+only conditional tests the public output length.
+[[src/codegen/builtins/crypto/helper_keccak_round.rs:BODY]]
+[[src/codegen/builtins/crypto/helper_keccak_sponge.rs:BODY]]
 SHA-512's 64-bit modular addition is done through a limb-split helper that never
 lets an intermediate cross `2^63`. Poly1305 uses a 5 × 26-bit limb representation
 (poly1305-donna) with explicit carry propagation. Ed25519 field elements use

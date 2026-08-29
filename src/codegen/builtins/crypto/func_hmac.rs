@@ -20,17 +20,20 @@ use super::{
 const INTRO: &str = r#"Compute the HMAC message authentication code of a message under a key, selected by a `crypto::Hash`."#;
 const DESC: &str = r#"`crypto::hmac(type, key, data)` computes the keyed-hash message authentication code
 (HMAC) of `data` under the secret `key`, using the hash selected by `type` — a
-`crypto::Hash`: `SHA1`, `SHA2_224`, `SHA2_256`, `SHA2_384`, or `SHA2_512`. It
-returns the MAC as a raw `List OF Byte` whose length is the digest length of `type`:
-20 bytes for `SHA1`, 28 for `SHA2_224`, 32 for `SHA2_256`, 48 for `SHA2_384`, and
-64 for `SHA2_512`. This one call is the package's single HMAC surface. (HMAC-SHA1
+`crypto::Hash`: `SHA1`, `SHA2_224`/`SHA2_256`/`SHA2_384`/`SHA2_512`, or
+`SHA3_224`/`SHA3_256`/`SHA3_384`/`SHA3_512`. It returns the MAC as a raw
+`List OF Byte` whose length is the digest length of `type`: 20 bytes for `SHA1`
+and 28/32/48/64 for the 224/256/384/512-bit widths of SHA-2 or SHA-3. This one
+call is the package's single HMAC surface. (HMAC-SHA1
 remains cryptographically sound — HMAC does not rely on collision resistance — but
 `Hash.SHA1` still reports the `CRYPTO_SHA1_INSECURE` advisory; prefer `SHA2_256`
 unless a peer requires SHA-1.)
 
 A key of any length is accepted. Following the HMAC construction, a key longer than
 the hash's block size (64 bytes for `SHA1`/`SHA2_224`/`SHA2_256`, 128 bytes for
-`SHA2_384`/`SHA2_512`) is first hashed down to the digest length, and a key shorter than
+`SHA2_384`/`SHA2_512`, and the sponge rate — 144/136/104/72 bytes — for
+`SHA3_224`/`SHA3_256`/`SHA3_384`/`SHA3_512`, per FIPS 202 §7) is first hashed down
+to the digest length, and a key shorter than
 the block size is right-padded with zero bytes to the block size; the padded key is
 then combined with the inner (`0x36`) and outer (`0x5c`) pads. The MAC is a
 deterministic function of `type`, `key`, and `data` alone — the same inputs always

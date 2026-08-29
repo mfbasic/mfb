@@ -1,9 +1,10 @@
 ' The hash-selected KDF overloads must FAIL CLOSED with ErrInvalidArgument on an
 ' out-of-range length/iteration count, and the bound must follow the selected
 ' digest: HKDF's ceiling is 255 * L (RFC 5869), so SHA-1 (L=20) admits 5100 bytes
-' and rejects 5101, while SHA2_256 (L=32) admits 8160 and rejects 8161. PBKDF2
-' rejects iterations < 1 and length < 1 for every selector. TRAP handlers assert
-' the exact code; the in-range boundary calls prove the check is not off by one.
+' and rejects 5101, while SHA2_256 and SHA3_256 (L=32) admit 8160 and reject
+' 8161. PBKDF2 rejects iterations < 1 and length < 1 for every selector, and the
+' SHAKE256 XOF rejects a length below 1. TRAP handlers assert the exact code; the
+' in-range boundary calls prove the check is not off by one.
 IMPORT crypto
 IMPORT errorCode
 IMPORT io
@@ -33,7 +34,24 @@ FUNC pbkdf2Args(h AS Hash, iterations AS Integer, length AS Integer) AS Integer
   END TRAP
 END FUNC
 
+FUNC shakeLen(length AS Integer) AS Integer
+  LET out AS List OF Byte = crypto::shake256("abc", length)
+  RETURN len(out)
+  TRAP(err)
+    IF err.code = errorCode::ErrInvalidArgument THEN
+      RETURN -1
+    END IF
+    RETURN -2
+  END TRAP
+END FUNC
+
 SUB main()
+  io::print("shake256-0=" & toString(shakeLen(0)))
+  io::print("shake256-neg=" & toString(shakeLen(-5)))
+  io::print("shake256-1=" & toString(shakeLen(1)))
+  io::print("hkdf-sha3_256-8160=" & toString(hkdfLen(Hash.SHA3_256, 8160)))
+  io::print("hkdf-sha3_256-8161=" & toString(hkdfLen(Hash.SHA3_256, 8161)))
+  io::print("pbkdf2-sha3_512-iter0=" & toString(pbkdf2Args(Hash.SHA3_512, 0, 64)))
   io::print("hkdf-sha1-0=" & toString(hkdfLen(Hash.SHA1, 0)))
   io::print("hkdf-sha1-5100=" & toString(hkdfLen(Hash.SHA1, 5100)))
   io::print("hkdf-sha1-5101=" & toString(hkdfLen(Hash.SHA1, 5101)))
