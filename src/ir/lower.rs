@@ -717,16 +717,29 @@ fn lower_statement(
             loc,
         }],
         HirStatement::Recover { value, .. } => {
-            // Typecheck rejects RECOVER outside an inline-TRAP handler; total
-            // lowering falls back to a discard target rather than panicking.
-            let target = context
-                .recover_targets
-                .last()
-                .cloned()
-                .unwrap_or_else(|| RecoverTarget {
-                    slot: None,
+            // Typecheck rejects RECOVER outside an inline-TRAP handler
+            // (TYPE_RECOVER_OUTSIDE_INLINE_TRAP); total lowering binds the stray
+            // value to a `$recover_stray` temp rather than panicking. The temp —
+            // not a discard `Eval` — because the statement's one surviving fact
+            // must stay readable: the front end's flow analysis treats ANY
+            // RECOVER as diverging, and `ir::verify`'s divergence rules
+            // (TYPE_TRAP_FALLTHROUGH, TYPE_FUNC_MISSING_RETURN) key on the
+            // temp's name to agree. Never reaches codegen: the program is
+            // rejected.
+            let Some(target) = context.recover_targets.last().cloned() else {
+                let name = make_temp_local_name(context, "recover_stray");
+                let value = value
+                    .as_ref()
+                    .map(|value| lower_expression(value, locals, context));
+                return vec![IrOp::Bind {
+                    mutable: false,
+                    name,
                     type_: ParameterType::Unknown,
-                });
+                    value,
+                    explicit_type: false,
+                    loc,
+                }];
+            };
             match (target.slot, value) {
                 (Some(slot), Some(value)) => {
                     let lowered =

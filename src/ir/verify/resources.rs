@@ -740,6 +740,11 @@ impl TypeEnv {
         for op in ops {
             match op {
                 IrOp::Return { .. } | IrOp::Fail { .. } | IrOp::ExitProgram { .. } => return true,
+                // A stray RECOVER (outside any inline-TRAP handler — an error the
+                // shape pass reports) lowers to a `$recover_stray` bind; the front
+                // end's flow analysis treats every RECOVER as diverging, so the
+                // rules built on this predicate must too.
+                IrOp::Bind { name, .. } if name.starts_with("$recover_stray") => return true,
                 IrOp::If {
                     then_body,
                     else_body,

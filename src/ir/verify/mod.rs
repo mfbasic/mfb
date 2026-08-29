@@ -176,6 +176,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_THREAD_NOT_SENDABLE",
     // plan-107-B: the general semantic cluster.
     "TYPE_INLINE_TRAP_DEAD_HANDLER",
+    "TYPE_TRAP_FALLTHROUGH",
 ];
 
 /// Diagnostic prefixes shared with the structural `verify_package` checks so a
@@ -246,6 +247,7 @@ fn collect_diagnostics_with(
         env.current_file.replace(function.file.clone());
         env.current_return.replace(function.returns.clone());
         env.current_kind.replace(function.kind.clone());
+        env.current_function.replace(function.name.clone());
         env.current_owners
             .replace(function.resource_owners.keys().cloned().collect());
         // plan-59-C: a parameter whose type is a resource and which names no
@@ -625,6 +627,9 @@ struct TypeEnv {
     current_return: RefCell<ParameterType>,
     /// `kind` (`func`/`sub`) of the function currently being checked.
     current_kind: RefCell<String>,
+    /// Name of the function currently being checked, for diagnostics that name
+    /// it (the normal-flow form of TYPE_TRAP_FALLTHROUGH).
+    current_function: RefCell<String>,
     /// Whether a type-poisoning rule fired while checking the current value —
     /// syntaxcheck's inference yields `Unknown` after an operator/constructor
     /// failure, cascading a TYPE_UNKNOWN_VALUE at the consuming statement even
@@ -841,6 +846,7 @@ impl TypeEnv {
             current_file: RefCell::new(String::new()),
             current_return: RefCell::new(ParameterType::Unknown),
             current_kind: RefCell::new(String::new()),
+            current_function: RefCell::new(String::new()),
             poisoned: Cell::new(false),
             // Strict by default: the package path (and every unit test) builds the
             // env directly and has the full merged type table. Only

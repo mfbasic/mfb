@@ -1485,33 +1485,11 @@ impl<'a> SyntaxChecker<'a> {
                 &mut trap_locals,
                 Some(trap.name.as_str()),
             );
-            // A bare `TRAP` synthesizes a `#`-sentinel binding the user never
-            // named; refer to it as "the TRAP handler" instead of exposing the
-            // internal name in diagnostics.
-            let trap_label = if trap.name == crate::ast::SYNTHETIC_TRAP_BINDING {
-                "the TRAP handler".to_string()
-            } else {
-                format!("TRAP `{}`", trap.name)
-            };
-            if trap_flow != Flow::AlwaysReturns {
-                self.report(
-                    "TYPE_TRAP_FALLTHROUGH",
-                    &format!("{trap_label} must return, fail, or propagate."),
-                    file,
-                    trap.line,
-                );
-            }
-            if flow != Flow::AlwaysReturns {
-                self.report(
-                    "TYPE_TRAP_FALLTHROUGH",
-                    &format!(
-                        "Normal flow in `{}` reaches {trap_label}; body paths before TRAP must end with RETURN or FAIL.",
-                        function.name
-                    ),
-                    file,
-                    trap.line,
-                );
-            }
+            // Both TYPE_TRAP_FALLTHROUGH forms (the handler falling through,
+            // the normal flow reaching the handler) are `ir::verify`'s
+            // (plan-107-B); the flows are still computed for their inference
+            // side effects.
+            let _ = (flow, trap_flow);
         }
     }
 
@@ -1813,24 +1791,9 @@ mod checker_tests {
         ));
     }
 
-    #[test]
-    fn trap_fallthrough_rejected() {
-        // TRAP body that neither returns nor fails.
-        assert!(rejects_with(
-            "IMPORT io\nIMPORT fs\nFUNC f AS Integer\n  LET x = fs::readText(\"a\")\n  RETURN len(x)\n  TRAP(err)\n    io::print(\"oops\")\n  END TRAP\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
-            "TYPE_TRAP_FALLTHROUGH"
-        ));
-    }
-
-    #[test]
-    fn trap_body_reaches_trap_fallthrough() {
-        // The normal flow before the TRAP falls through (no RETURN/FAIL) so the
-        // body-reaches-TRAP TYPE_TRAP_FALLTHROUGH check fires.
-        assert!(rejects_with(
-            "IMPORT io\nIMPORT fs\nFUNC f AS Integer\n  LET x = fs::readText(\"a\")\n  io::print(x)\n  TRAP(err)\n    RETURN 0\n  END TRAP\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
-            "TYPE_TRAP_FALLTHROUGH"
-        ));
-    }
+    // Both TYPE_TRAP_FALLTHROUGH forms moved to `ir::verify` (plan-107-B); the
+    // twins are `verify::tests::rejects_trap_fallthrough` (handler form) and
+    // `rejects_normal_flow_reaching_the_trap` (body form).
 
     #[test]
     fn value_func_falls_through_walk() {

@@ -8035,3 +8035,65 @@ fn warns_dead_handler_on_an_infallible_inline_builtin() {
         "TYPE_INLINE_TRAP_DEAD_HANDLER",
     );
 }
+
+#[test]
+fn rejects_normal_flow_reaching_the_trap() {
+    // The handler returns, but the body before the TRAP falls through into it.
+    let body = vec![
+        IrOp::Eval {
+            value: int_const("1"),
+            loc: IrSourceLoc::default(),
+        },
+        IrOp::Trap {
+            name: "e".to_string(),
+            body: vec![ret(int_const("0"))],
+            loc: IrSourceLoc::default(),
+        },
+    ];
+    let f = func("run", vec![], body);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"),
+        "{got:?}"
+    );
+}
+
+#[test]
+fn a_stray_recover_counts_as_diverging() {
+    // `RECOVER 0` inside a function-level TRAP is itself an error, but the front
+    // end's flow analysis treats it as diverging, so the handler is not ALSO
+    // reported as falling through. The stray RECOVER lowers to a
+    // `$recover_stray` bind, which the divergence predicate honours.
+    let body = vec![
+        ret(int_const("1")),
+        IrOp::Trap {
+            name: "e".to_string(),
+            body: vec![bind("$recover_stray0", "Unknown", Some(int_const("0")), false, false)],
+            loc: IrSourceLoc::default(),
+        },
+    ];
+    let f = func("run", vec![], body);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"),
+        "{got:?}"
+    );
+}
+
+#[test]
+fn accepts_a_body_that_returns_before_its_trap() {
+    let body = vec![
+        ret(int_const("1")),
+        IrOp::Trap {
+            name: "e".to_string(),
+            body: vec![ret(int_const("0"))],
+            loc: IrSourceLoc::default(),
+        },
+    ];
+    let f = func("run", vec![], body);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"),
+        "{got:?}"
+    );
+}

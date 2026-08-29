@@ -216,7 +216,12 @@ Commit: — (per rule)
 
 ## Corrections
 
-<Filled in during execution.>
+- **Note from B (2026-08-29), for `TYPE_UNKNOWN_VALUE`'s relocation here:**
+  lowering now binds a stray `RECOVER`'s value to a `$recover_stray` temp
+  (B Corrections). verify's initializer cascade ("Initializer for binding
+  `{name}` does not have a known type") must skip `$`-temps — syntaxcheck never
+  emitted that cascade for a RECOVER value (nor for `$trap_res`/`$trap_val`,
+  whose cascades it reports against the user's binding instead).
 
 ## Summary
 

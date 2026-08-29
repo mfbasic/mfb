@@ -764,17 +764,29 @@ impl TypeEnv {
                     // A function-level TRAP block must leave the function on
                     // every path (syntaxcheck's TYPE_TRAP_FALLTHROUGH).
                     self.current_line.set(line);
+                    // A bare `TRAP` synthesizes a `#`-sentinel name the user
+                    // never wrote; keep it out of diagnostics.
+                    let trap_label = if name == crate::ast::SYNTHETIC_TRAP_BINDING {
+                        "the TRAP handler".to_string()
+                    } else {
+                        format!("TRAP `{name}`")
+                    };
                     if !self.block_always_returns(body, &branch) {
-                        // A bare `TRAP` synthesizes a `#`-sentinel name the user
-                        // never wrote; keep it out of diagnostics.
-                        let trap_label = if name == crate::ast::SYNTHETIC_TRAP_BINDING {
-                            "the TRAP handler".to_string()
-                        } else {
-                            format!("TRAP `{name}`")
-                        };
                         self.emit(
                             "TYPE_TRAP_FALLTHROUGH",
                             format!("{trap_label} must return, fail, or propagate."),
+                        );
+                    }
+                    // …and so must the normal flow before it: lowering places the
+                    // TRAP op last, so the ops preceding it ARE the body, and a
+                    // body that can fall through would run into the handler.
+                    if !self.block_always_returns(&ops[..op_index], locals) {
+                        self.emit(
+                            "TYPE_TRAP_FALLTHROUGH",
+                            format!(
+                                "Normal flow in `{}` reaches {trap_label}; body paths before TRAP must end with RETURN or FAIL.",
+                                self.current_function.borrow()
+                            ),
                         );
                     }
                 }

@@ -97,7 +97,13 @@ Per plan-107-A (order re-pins only).
       (`inline_builtin_is_infallible(target)`); corpus `518 same, 0 reordered,
       0 set-diff` (its one fixture is warning-only); twin
       `warns_dead_handler_on_an_infallible_inline_builtin`.
-- [ ] TYPE_TRAP_FALLTHROUGH (second form ported)
+- [x] TYPE_TRAP_FALLTHROUGH — second form ported (`ops[..op_index]` before
+      the `Trap` op + `current_function`); corpus `517 same, 1 reordered, 0
+      set-diff` after the stray-RECOVER fix (Corrections); reorder:
+      `tests/syntax/json/json_read_invalid` (verify's `TYPE_FUNC_MISSING_RETURN`
+      at line 5 now precedes the rule at line 9, one stream); twins
+      `rejects_trap_fallthrough` (pre-existing), `rejects_normal_flow_reaching_the_trap`,
+      `accepts_a_body_that_returns_before_its_trap`, `a_stray_recover_counts_as_diverging`.
 - [ ] TYPE_COLLECTION_OWNERSHIP_VIOLATION (thread arms ported)
 - [x] ~~TYPE_READ_ONLY_RECORD_CONSTRUCTOR~~ — moot here: split (V/S), moved
       to D (A Corrections C-split-49)
@@ -135,6 +141,21 @@ Commit: — (per rule)
 
 ## Corrections
 
+- **2026-08-29 (TYPE_TRAP_FALLTHROUGH, harness SETDIFF).** Listing the rule
+  exposed a fidelity gap in verify's pre-existing handler form:
+  `control-flow-inline-trap-invalid` line 35 gained a second
+  `TYPE_TRAP_FALLTHROUGH` ("TRAP `e` must return, fail, or propagate") on a
+  handler whose only statement is a stray `RECOVER 0`. syntaxcheck's flow
+  analysis treats EVERY `RECOVER` as diverging (`check_block` returns
+  `AlwaysReturns` for the statement even after reporting
+  `TYPE_RECOVER_OUTSIDE_INLINE_TRAP`), while lowering's fallback for a stray
+  RECOVER was a discard `Eval` — erased evidence, in the fallback lowering of
+  an already-erroneous statement. Fix (not a golden re-pin): the fallback now
+  binds the value to a `$recover_stray` temp (`lower.rs`, `HirStatement::Recover`)
+  and `block_always_returns` treats that bind as diverging — closing the same
+  latent gap for the already-relocated `TYPE_FUNC_MISSING_RETURN` (a function
+  ending in a stray RECOVER). Codegen-neutral by construction: a stray RECOVER
+  never survives to codegen. Twin: `a_stray_recover_counts_as_diverging`.
 - **2026-08-29 (from A's audit).** Scope re-set from the hypothesis list to
   A's measured verdicts: `TYPE_UNKNOWN_VALUE`, `TYPE_THREAD_NOT_SENDABLE` and
   `TYPE_ISOLATED_NOT_VISIBLE` are A's pilots; `TYPE_DUPLICATE_FIELD` and
