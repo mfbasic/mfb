@@ -213,8 +213,9 @@ fn is_comparable_defaultable_primitive(type_: &str) -> bool {
 /// them all.
 pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
     // The package path runs on merged IR, whose resource types are already in
-    // `native_resources` or are the package's own, so it registers no extra rows.
-    collect_diagnostics_with(project, false, &[])
+    // `native_resources` or are the package's own, so it registers no extra rows;
+    // and a decoded package has no source, so its LINK rules report unlocated.
+    collect_diagnostics_with(project, false, &[], &crate::ir::LinkSpans::default())
 }
 
 /// `collect_diagnostics`, with `imported_types_unknown` telling the checker which
@@ -230,9 +231,11 @@ fn collect_diagnostics_with(
     project: &IrProject,
     imported_types_unknown: bool,
     imported_resources: &[ImportedResource],
+    link_spans: &crate::ir::LinkSpans,
 ) -> Vec<Diagnostic> {
     let mut env = TypeEnv::build(project);
     env.imported_types_unknown = imported_types_unknown;
+    env.link_spans = link_spans.clone();
     // bug-377: seed the imported packages' `RESOURCE_TABLE` rows. The project's
     // own `native_resources` win — an importer never overrides a declaration it
     // can see the source of.
@@ -501,8 +504,7 @@ fn collect_diagnostics_with(
         }
     }
     env.check_type_declarations(project);
-    env.check_link_functions(project);
-    env.check_link_cstructs(project);
+    env.check_link_blocks(project);
     env.diags.take()
 }
 
@@ -511,7 +513,16 @@ fn collect_diagnostics_with(
 /// error string. Package-path diagnostics carry no source context (the decoded
 /// `.mfp` has no source file), so first-error is sufficient here.
 pub fn check(project: &IrProject) -> Result<(), String> {
-    match collect_diagnostics(project).into_iter().next() {
+    // Only an error-severity rule rejects: an advisory (`Severity::Warn`) rule
+    // such as TYPE_INLINE_TRAP_DEAD_HANDLER is rendered by the source path and
+    // must not fail the merged-project gate (plan-107-B found this the moment
+    // the first warning-severity rule moved here).
+    // The structural `PACKAGE_BINARY_REPRESENTATION_*` pseudo-rules are not
+    // table rows (they are prefixes shared with `verify_package`); they are
+    // always rejections.
+    match collect_diagnostics(project).into_iter().find(|d| {
+        d.rule == VERIFY_TYPE || d.rule == VERIFY_MATCH || crate::rules::is_error(&d.rule)
+    }) {
         Some(d) => Err(format!("{}: {}", d.rule, d.detail)),
         None => Ok(()),
     }
@@ -530,8 +541,9 @@ pub fn collect_source_diagnostics(
     project: &IrProject,
     project_dir: &Path,
     imported_resources: &[ImportedResource],
+    link_spans: &crate::ir::LinkSpans,
 ) -> Vec<crate::rules::PendingDiagnostic> {
-    collect_diagnostics_with(project, true, imported_resources)
+    collect_diagnostics_with(project, true, imported_resources, link_spans)
         .into_iter()
         .filter(|d| RELOCATED_TO_IR_VERIFY.contains(&d.rule.as_str()))
         .map(|d| crate::rules::PendingDiagnostic {
@@ -602,6 +614,10 @@ struct TypeEnv {
     /// `RESOURCE_TABLE` sendable bits. Built-in resources are not here; the
     /// registry answers for them (`is_builtin_sendable_resource_type`).
     resource_sendable: HashMap<String, bool>,
+    /// The LINK declarations' source spans (plan-107-C), present on the source
+    /// path only; the native-ABI rules report at these lines, and unlocated
+    /// (the `<generated>` form) when a declaration has none.
+    link_spans: crate::ir::LinkSpans,
     /// Function name → the distinct captured-slot counts observed at the
     /// `Closure` sites that target it. A single count means the closure shape is
     /// known; zero or multiple distinct counts leaves it ambiguous (skip).
@@ -844,6 +860,7 @@ impl TypeEnv {
             global_muts,
             resource_closers,
             resource_sendable,
+            link_spans: crate::ir::LinkSpans::default(),
             closure_counts,
             field_types,
             record_field_lists,

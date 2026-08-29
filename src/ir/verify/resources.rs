@@ -667,10 +667,12 @@ impl TypeEnv {
         if !res.starts_with("$trap_res") {
             return;
         }
-        if handler
-            .iter()
-            .any(|op| matches!(op, IrOp::Assign { name, .. } if name.starts_with("$expect_")))
-        {
+        // Every assertion desugar's handler touches an `$expect_` temp: it sets
+        // `$expect_trapped` (expectTrap) or reads the `$expect_err` binding the
+        // lowering then binds (expectNTrap's `FAIL error(…, err.message)`).
+        if handler.iter().any(|op| {
+            matches!(op, IrOp::Assign { name, .. } | IrOp::Bind { name, .. } if name.starts_with("$expect_"))
+        }) {
             return;
         }
         let Some(scrutinee) = temp_consts.get(res.as_str()) else {

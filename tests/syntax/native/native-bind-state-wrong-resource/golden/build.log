@@ -1,4 +1,8 @@
 $ mfb build -ast -ir tests/syntax/native/native-bind-state-wrong-resource
-tests/syntax/native/native-bind-state-wrong-resource/<generated>:1 error[2-203-0130 NATIVE_BIND_STATE_INVALID]: a BIND STATE must name the native function's stateful resource return and an OUT CSTRUCT slot whose record is the resource's STATE type
+  26 |   END CSTRUCT
+  27 | 
+  28 |   FUNC openFile(path AS String) AS RES SoundFile STATE FileInfo
+     | ^
+tests/syntax/native/native-bind-state-wrong-resource/src/lib.mfb:28 error[2-203-0130 NATIVE_BIND_STATE_INVALID]: a BIND STATE must name the native function's stateful resource return and an OUT CSTRUCT slot whose record is the resource's STATE type
                Native function `openFile` BIND STATE names resource slot `handle`, but the wrapper returns `file`; the STATE attaches to the returned slot.
 [exit 1]

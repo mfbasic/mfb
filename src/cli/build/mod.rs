@@ -441,8 +441,15 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         &source_external_signatures,
         &imported_type_defs(&options.location, &manifest),
     );
-    let verify_diagnostics =
-        ir::verify_source_diagnostics(&source_ir, &options.location, &imported_resources);
+    // plan-107-C: the LINK declarations' source spans, so verify's native-ABI
+    // rules report at the slot/parameter/field lines syntaxcheck did.
+    let link_spans = ir::link_spans(&concrete_hir);
+    let verify_diagnostics = ir::verify_source_diagnostics(
+        &source_ir,
+        &options.location,
+        &imported_resources,
+        &link_spans,
+    );
     let Ok(mut diagnostics) = syntaxcheck_diagnostics else {
         return Err(());
     };

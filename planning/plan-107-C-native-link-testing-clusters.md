@@ -124,6 +124,46 @@ Per plan-107-A.
 
 ## Phases
 
+### Phase 0 — source spans for the LINK rules (a prerequisite A did not see)
+
+- [x] `ir::LinkSpans`: a source-path-only sidecar derived from the HIR at the
+      build seam (`ir::link_spans(&HirProject)`) — per LINK function its file,
+      FUNC line, ABI line, per-parameter / per-slot / per-CONST-pin lines, per
+      `BIND IN` block + field lines, FREE line; per CSTRUCT its file, line and
+      field lines — handed to `verify::collect_source_diagnostics` beside the
+      imported-resource rows (the package path passes an empty one). No IR
+      struct or wire change: the LINK tables stay as they are (their ~85
+      struct-literal sites untouched) and the `.ir` dump does not print them.
+- [x] verify's LINK rules attribute every emission to the span syntaxcheck
+      used (slot line for slot rules, param line, `ABI` line for expression
+      and buffer faults, `BIND IN` block/field lines, CSTRUCT decl/field
+      lines — `check_cstruct` faults point at the named field, as syntaxcheck's
+      message-match does), falling back to the function-level `<generated>`
+      form on the package path exactly as today.
+- [x] verify's LINK walk mirrors syntaxcheck's ORDER (per LINK block: CSTRUCT
+      duplicates + layout faults, CSTRUCT escape, then per function: signature
+      rules, struct-slot rules, buffer rules) — `check_link_blocks` replaces
+      `check_link_functions`/`check_link_cstructs`, every rule body moved
+      into per-item functions; the missing sub-forms (INOUT-non-CSTRUCT,
+      IN-struct-slot RETURN, returns-struct-record, BIND IN OUT-slot /
+      duplicate-field / value-shape) and the wording drifts are transcribed
+      in the same pass; the unbound-IN-struct-slot gap closed.
+- [x] Tests: the existing package-path twins keep their unlocated fallback
+      (`ir::verify` 424 passed); the source-path attribution is proven by
+      the corpus (below) rather than a hand-built HIR — the three already
+      verify-only LINK rules moved from `<generated>:1` to their real lines.
+
+Acceptance: unlisted (no source-path change), corpus `518 same`; verify's
+LINK diagnostics carry source spans on the source path.
+VERIFIED 2026-08-29 with one deliberate deviation: corpus `515 same, 0
+reordered, 3 set-diff` — the three are the already-relocated
+`NATIVE_BIND_STATE_INVALID` (`native-bind-state-invalid`,
+`native-bind-state-wrong-resource`) and `TYPE_STATE_MISMATCH`
+(`native-resource-state-mismatch-invalid`), whose goldens pinned the
+placeholder `<generated>:1` for a SOURCE-declared LINK function; they now
+report `src/lib.mfb:13`, `:28`, `:24` (re-pinned, listed in the commit).
+Commit: —
+
 ### Phase 1 — package-path tests (the gap made visible)
 
 - [ ] For each of the 13 rules: a verify unit test per sub-form whose IR
@@ -168,6 +208,38 @@ Commit: — (per rule)
 - **2026-08-29 (from A's audit).** Verify already mirrors all 13 codes; the
   work is 5 missing sub-forms + 5 wording drifts (§2 table), not 13 ports.
   The TESTING family is (S): handed to D.
+- **2026-08-29 (C kickoff, two audit gaps).** (1) verify's LINK rules carry NO
+  source location: `check_link_functions`/`check_link_cstructs` set
+  `current_file = ""` and `current_line = 0` ("spans are function-level here"),
+  and the IR LINK tables (`IrLinkFunction`, `IrAbiSlot`, `IrBindIn`,
+  `IrCStruct`, …) have no line fields — the already-verify-only
+  `NATIVE_BIND_STATE_INVALID` renders as
+  `tests/syntax/native/native-bind-state-invalid/<generated>:1` in its golden.
+  Every other LINK golden pins a slot/param/field line, so listing any of the
+  13 without spans would SETDIFF all 22 fixtures. Phase 0 (above) adds the
+  spans as a HIR-derived sidecar; the package path is unchanged. (2) A's
+  string census could not see codes syntaxcheck emits DYNAMICALLY through the
+  shared `ir::link` fault helpers (`self.report(fault.rule, …)`):
+  `NATIVE_BUFFER_INVALID` (9 fixtures, `check_buffer_slots`) and
+  `NATIVE_CSTRUCT_TOO_LARGE` (0 fixtures, `check_cstruct`) are syntaxcheck's
+  on the source path and verify's on the package path, unlisted — the same
+  shape as the 13. They join this letter: 15 codes, and the remaining-set
+  count A recorded (49) is 51. `NATIVE_CSTRUCT_TOO_LARGE` gets its fixture
+  first.
+- **2026-08-29 (C kickoff, two split rules).** Reading the two implementations
+  side by side: (a) `NATIVE_CONST_UNKNOWN_SLOT`'s "not a constant the compiler
+  can fold" form (`syntaxcheck/link.rs`, `foldable`) is ERASED — lowering folds
+  every pin to an `i64` immediate (`eval_link_const`, unfoldable → 0) and the
+  pin's expression is gone; the unknown-slot form survives. (b)
+  `NATIVE_FREE_INVALID`'s "malformed FREE" form checks the deallocator's
+  signature (`free.param_ctype`/`return_ctype`), which `IrFree` does not carry
+  (slot + symbol only — "the deallocator's signature check stays in
+  syntaxcheck", `verify/link.rs`); the producer form and the empty-symbol
+  sub-condition survive. Both are (V/S) and land in D with their shape halves
+  (A §3 "Split rules"); C relocates the other 13. Also: verify's slot loop
+  skipped CSTRUCT-typed slots entirely, so an unbound IN struct slot passed on
+  the package path (syntaxcheck's second slot pass does not skip them) — fixed
+  in Phase 0's mirrored walk.
 
 ## Summary
 

@@ -124,7 +124,8 @@ Per plan-107-A (order re-pins only).
 
 Acceptance: those rules live only in verify; corpus set-equal; gate
 byte-identical; goldens re-pinned and listed.
-Commit: — (one hash per rule, recorded against its checkbox)
+Commit: `31f73a142` (DEAD_HANDLER), `c20881316` (TRAP_FALLTHROUGH),
+`0f7696bbe` (COLLECTION_OWNERSHIP), `108b05e20` (the two dead-rule deletions)
 
 ### Phase 2 — gap-bearing rules
 
@@ -146,7 +147,7 @@ Commit: — (one hash per rule, recorded against its checkbox)
 
 Acceptance: the general cluster fully relocated; syntaxcheck's copies deleted;
 corpus set-equal; gate byte-identical.
-Commit: — (per rule)
+Commit: `18390eb35` (LAMBDA_CAPTURE)
 
 ## Validation Plan
 
@@ -164,6 +165,22 @@ Commit: — (per rule)
 
 ## Corrections
 
+- **2026-08-29 (letter-end `test-accept`: 2 mismatches, both real, both
+  invisible to the harness).** (1) `rt-behavior/trap/inline-trap-infallible-builtin-valid`:
+  the FULL build (not the `-ast -ir` pass) failed with an unlocated
+  `error: TYPE_INLINE_TRAP_DEAD_HANDLER: …` and exit 1 — the merged-project
+  gate `verify::check()` treated the first diagnostic of ANY severity as a
+  rejection, and DEAD_HANDLER is the first warning-severity rule to move into
+  verify. Fixed: `check()` rejects only error-severity rules (and verify's
+  structural `PACKAGE_BINARY_REPRESENTATION_*` pseudo-rules, which are not
+  table rows). (2) `rt-behavior/testing/testing-trap-parity`
+  (`expectNTrap(len(xs))`): the desugared trap's handler is a bare `FAIL`, so
+  A's `$expect_` guard — which looked for an `Assign` to an `$expect_` temp —
+  missed it and DEAD_HANDLER fired on an assertion; the guard now also
+  recognises the `Bind $expect_err…` the handler's error read produces.
+  Harness: `diag-set-diff.sh` now records each `$ mfb …` section's
+  `[exit N]` line and bare `error: RULE: …` lines, so both classes are
+  SETDIFFs from now on (the unmodified-tree baseline stays `518 same`).
 - **2026-08-29 (TYPE_TRAP_FALLTHROUGH, harness SETDIFF).** Listing the rule
   exposed a fidelity gap in verify's pre-existing handler form:
   `control-flow-inline-trap-invalid` line 35 gained a second

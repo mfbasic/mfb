@@ -30,6 +30,97 @@ pub(super) fn link_cstructs(hir: &crate::hir::HirProject) -> Vec<crate::ir::IrCS
     cstructs
 }
 
+/// The source spans of one LINK function's declaration, for `ir::verify`'s
+/// native-ABI diagnostics (plan-107-C). Source-path only: a decoded package has
+/// no source, and the LINK tables themselves carry no lines (they ride the
+/// `.mfp` wire and feed the thunk emitter), so the spans travel beside them as
+/// a sidecar the build seam derives from the HIR — the same shape as the
+/// imported-resource rows.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct LinkFunctionSpans {
+    pub(crate) file: String,
+    /// The `FUNC` line.
+    pub(crate) line: u32,
+    /// The `ABI (...)` line — where expression- and buffer-level faults point.
+    pub(crate) abi_line: u32,
+    /// Per wrapper parameter, in declaration order.
+    pub(crate) params: Vec<u32>,
+    /// Per ABI slot, in slot order.
+    pub(crate) slots: Vec<u32>,
+    /// Per `CONST` pin, in declaration order.
+    pub(crate) consts: Vec<u32>,
+    /// Per `BIND IN` block: the block line and its fields' lines.
+    pub(crate) bind_in: Vec<(u32, Vec<u32>)>,
+    /// The `FREE` block line, when present.
+    pub(crate) free_line: u32,
+}
+
+/// The source spans of one `CSTRUCT` declaration (see [`LinkFunctionSpans`]).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CStructSpans {
+    pub(crate) file: String,
+    pub(crate) line: u32,
+    /// Per field, in declaration order.
+    pub(crate) fields: Vec<u32>,
+}
+
+/// Every LINK declaration's spans, keyed by `(alias, name)` — the identity the
+/// IR tables carry. Empty on the package path.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct LinkSpans {
+    pub(crate) functions: HashMap<(String, String), LinkFunctionSpans>,
+    pub(crate) cstructs: HashMap<(String, String), CStructSpans>,
+}
+
+/// Derive the LINK declarations' source spans from the HIR (which mirrors the
+/// AST's lines 1:1), in the same walk order `link_functions`/`link_cstructs`
+/// lower them.
+pub(crate) fn link_spans(hir: &crate::hir::HirProject) -> LinkSpans {
+    let mut spans = LinkSpans::default();
+    for file in &hir.files {
+        for item in &file.items {
+            let crate::hir::HirItem::Link(link) = item else {
+                continue;
+            };
+            for decl in &link.cstructs {
+                spans.cstructs.insert(
+                    (link.alias.clone(), decl.name.clone()),
+                    CStructSpans {
+                        file: file.path.clone(),
+                        line: decl.line as u32,
+                        fields: decl.fields.iter().map(|f| f.line as u32).collect(),
+                    },
+                );
+            }
+            for native in &link.functions {
+                spans.functions.insert(
+                    (link.alias.clone(), native.name.clone()),
+                    LinkFunctionSpans {
+                        file: file.path.clone(),
+                        line: native.line as u32,
+                        abi_line: native.abi.line as u32,
+                        params: native.params.iter().map(|p| p.line as u32).collect(),
+                        slots: native.abi.slots.iter().map(|s| s.line as u32).collect(),
+                        consts: native.consts.iter().map(|c| c.line as u32).collect(),
+                        bind_in: native
+                            .bind_in
+                            .iter()
+                            .map(|b| {
+                                (
+                                    b.line as u32,
+                                    b.fields.iter().map(|f| f.line as u32).collect(),
+                                )
+                            })
+                            .collect(),
+                        free_line: native.free.as_ref().map_or(0, |f| f.line as u32),
+                    },
+                );
+            }
+        }
+    }
+    spans
+}
+
 /// Collect native `LINK` functions from the AST with their full ABI surface so
 /// the backend can emit marshaling thunks and dlopen/dlsym initializers
 /// (plan-linker.md §12).

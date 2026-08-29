@@ -55,11 +55,20 @@ GLOBS=("$@")
 # The diagnostic header shape `show_diagnostic` renders (src/rules/mod.rs).
 HEADER_RE='^[^ ].*:[0-9]+ (error|warn|info)\[[0-9-]+ [A-Z_]+\]: '
 
-# Extract `header<TAB>detail` records from a log, in order.
+# Extract the diagnostic records from a log, in order: `header<TAB>detail` for
+# a located diagnostic; an unlocated `error: RULE: detail` line (the merged-
+# project gate's form) verbatim; and the `[exit N]` line of every `$ mfb …`
+# section (not of a fixture's own executable run, which the harness does not
+# replay), so a build that starts failing (or passing) is a SETDIFF even when
+# its located diagnostics are unchanged.
 records() {
   awk -v re="$HEADER_RE" '
+    /^\$ mfb (build|test) / { in_mfb = 1; next }
+    /^\$ / { in_mfb = 0; next }
     pending != "" { sub(/^[ \t]+/, ""); print pending "\t" $0; pending = ""; next }
     $0 ~ re { pending = $0; next }
+    /^error: [A-Z_]+: / { print; next }
+    /^\[exit [0-9]+\]$/ { if (in_mfb) print; next }
   ' "$1"
 }
 
@@ -118,9 +127,13 @@ while IFS= read -r golden; do
     argv=()
     while IFS= read -r tok; do argv+=("$tok"); done < <(run_args "$cmd")
     verb="${argv[0]}"; unset 'argv[0]'
-    # Diagnostics are on stderr; the harness merges both streams exactly as
-    # test-accept does.
-    "$MFB" "$verb" -q "${argv[@]}" > "$tmp/run.out" 2>&1 < /dev/null
+    # Diagnostics are on stderr; the harness merges both streams and records
+    # the exit status exactly as test-accept does.
+    {
+      echo "$cmd"
+      "$MFB" "$verb" -q "${argv[@]}" 2>&1 < /dev/null
+      echo "[exit $?]"
+    } > "$tmp/run.out"
     records "$tmp/run.out" >> "$tmp/actual"
   done < <(grep -E '^\$ mfb (build|test) ' "$golden")
   remove_new_files "$fixture_dir" "$tmp/before" "$had_build_dir"

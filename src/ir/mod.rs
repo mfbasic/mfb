@@ -50,6 +50,7 @@ mod json;
 mod link;
 mod lower;
 mod lower_link;
+pub(crate) use lower_link::{link_spans, CStructSpans, LinkFunctionSpans, LinkSpans};
 mod op;
 mod package;
 #[cfg(test)]

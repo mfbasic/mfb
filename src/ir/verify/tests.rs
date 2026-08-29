@@ -4916,7 +4916,12 @@ fn collect_source_diagnostics_filters_relocated() {
         "Integer",
     ))];
     let p = project(vec![func("run", vec![], body)], vec![]);
-    let diags = super::collect_source_diagnostics(&p, Path::new("/proj"), &[]);
+    let diags = super::collect_source_diagnostics(
+        &p,
+        Path::new("/proj"),
+        &[],
+        &crate::ir::LinkSpans::default(),
+    );
     assert!(diags
         .iter()
         .any(|d| d.rule == "TYPE_BINARY_OPERATOR_MISMATCH"));
@@ -4931,7 +4936,12 @@ fn collect_source_diagnostics_generated_path_when_file_empty() {
         vec![func_returns("run", "Nothing", vec![], vec![])],
         vec![ty],
     );
-    let diags = super::collect_source_diagnostics(&p, Path::new("/proj"), &[]);
+    let diags = super::collect_source_diagnostics(
+        &p,
+        Path::new("/proj"),
+        &[],
+        &crate::ir::LinkSpans::default(),
+    );
     assert!(diags
         .iter()
         .any(|d| d.rule == "TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION"
