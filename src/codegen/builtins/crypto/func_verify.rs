@@ -1391,10 +1391,12 @@ pub(crate) fn lower_verify(
     let imports = ctx.platform_imports;
     let platform = ctx.platform;
 
-    // X25519 is a key-agreement (ECDH) key, not a signing key: reject it up front
-    // rather than fall through to the P-256 sequence.
+    // X25519 and X448 are key-agreement (ECDH) keys, not signing keys: reject them
+    // up front rather than fall through to the P-256 sequence.
     builder.instructions.extend([
         abi::compare_immediate(&ord, gen_cert::ORD_X25519),
+        abi::branch_eq(&x25519_reject),
+        abi::compare_immediate(&ord, gen_cert::ORD_X448),
         abi::branch_eq(&x25519_reject),
     ]);
 
@@ -1510,7 +1512,7 @@ pub(crate) fn lower_verify(
     }
     builder.instructions.push(abi::branch(&done));
 
-    // X25519 keys cannot verify signatures.
+    // X25519 / X448 keys cannot verify signatures.
     builder.instructions.push(abi::label(&x25519_reject));
     emit_fail(
         &symbol,
@@ -1558,8 +1560,8 @@ cannot verify.
 **Boundary and errors.** For the NIST curves a malformed `publicKey` — wrong
 length, or a right-length off-curve point the platform import rejects — raises
 `ErrInvalidArgument` (it is a caller mistake, not a false verdict). For `Ed25519`
-a wrong-length key or signature is simply `FALSE`. `X25519` cannot verify and
-raises `ErrInvalidArgument`. A platform-library or system failure raises
+a wrong-length key or signature is simply `FALSE`. `X25519` and `X448` cannot
+verify and raise `ErrInvalidArgument`. A platform-library or system failure raises
 `ErrUnknown`, and an allocation failure raises `ErrOutOfMemory`. The untrusted
 `signature` bytes are fully bounds-checked before use.
 

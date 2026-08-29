@@ -1300,6 +1300,7 @@ pub(crate) fn lower_generate(
     let done = format!("{symbol}_done");
     let ed25519 = format!("{symbol}_ed25519");
     let x25519 = format!("{symbol}_x25519");
+    let x448 = format!("{symbol}_x448");
 
     match ctx.platform.family() {
         PlatformFamily::MacOS => {
@@ -1326,6 +1327,8 @@ pub(crate) fn lower_generate(
                 abi::branch_eq(&ed25519),
                 abi::compare_immediate(&ord, gen_cert::ORD_X25519),
                 abi::branch_eq(&x25519),
+                abi::compare_immediate(&ord, gen_cert::ORD_X448),
+                abi::branch_eq(&x448),
             ]);
             // P-256 (ordinal 0) falls through here.
             set(&mut builder.instructions, &v9, "256", "65");
@@ -1374,6 +1377,8 @@ pub(crate) fn lower_generate(
                 abi::branch_eq(&ed25519),
                 abi::compare_immediate(&ord, gen_cert::ORD_X25519),
                 abi::branch_eq(&x25519),
+                abi::compare_immediate(&ord, gen_cert::ORD_X448),
+                abi::branch_eq(&x448),
             ]);
             // P-256 (ordinal 0) falls through here.
             set(
@@ -1431,6 +1436,8 @@ pub(crate) fn lower_generate(
                 abi::branch_eq(&ed25519),
                 abi::compare_immediate(&ord, gen_cert::ORD_X25519),
                 abi::branch_eq(&x25519),
+                abi::compare_immediate(&ord, gen_cert::ORD_X448),
+                abi::branch_eq(&x448),
             ]);
             // P-256 (ordinal 0) falls through here.
             set(
@@ -1488,6 +1495,20 @@ pub(crate) fn lower_generate(
     if win64 {
         builder.instructions.push(abi::add_stack(0x20));
     }
+    builder.instructions.push(abi::branch(&done));
+
+    // X448 dispatch (all platforms): call the software `__crypto_generateX448` MFB
+    // helper (scalar = clamp448(randomBytes(56)); pub = X448(scalar, basepoint u=5)).
+    // It leaves the `KeyPair` in the result registers, so fall through to `done`.
+    builder.instructions.push(abi::label(&x448));
+    let x448_symbol = crate::target::shared::nir::function_symbol("#crypto_generateX448");
+    if win64 {
+        builder.instructions.push(abi::subtract_stack(0x20));
+    }
+    builder.emit_symbol_call(&x448_symbol);
+    if win64 {
+        builder.instructions.push(abi::add_stack(0x20));
+    }
 
     builder
         .instructions
@@ -1508,12 +1529,13 @@ const DESC: &str = r#"`crypto::generate(type)` draws a fresh random key pair for
 pairs — the three NIST prime curves (`P256`/`P384`/`P521`, FIPS 186-4 ECDSA over
 SEC/NIST `secp256r1`/`secp384r1`/`secp521r1`) and `Ed25519` (RFC 8032 EdDSA) —
 are usable with `crypto::sign(type, …)` and `crypto::verify(type, …)` for that
-same `type`. `X25519` produces a Curve25519 ECDH key-agreement pair (RFC 7748); it
-is **not** a signing key, so `sign`/`verify` reject it with `ErrInvalidArgument`.
-Note that `crypto::encrypt`/`crypto::decrypt` take **Ed25519** keys (converting them
-to X25519 internally, as `crypto::convert` does), so a directly generated `X25519`
-pair is a raw ECDH building block for a protocol you construct yourself rather than a
-direct input to any other current `crypto` member.
+same `type`. `X25519` and `X448` produce Curve25519 / Curve448 ECDH key-agreement
+pairs (RFC 7748) for `crypto::exchange`; they are **not** signing keys, so
+`sign`/`verify` reject them with `ErrInvalidArgument`. Note that
+`crypto::encrypt`/`crypto::decrypt` take **Ed25519** keys (converting them to X25519
+internally, as `crypto::convert` does), so a directly generated `X25519`/`X448` pair
+is the raw Diffie-Hellman building block for `crypto::exchange` rather than a direct
+input to the asymmetric-encryption members.
 
 **Encodings and sizes.** Every field is raw big-endian bytes — no PEM, no
 base64, no DER wrapper on the key material itself. For the NIST curves the
@@ -1521,7 +1543,8 @@ base64, no DER wrapper on the key material itself. For the NIST curves the
 `field` bytes), and the `privateKey` is that same uncompressed point immediately
 followed by the big-endian secret scalar `d` (i.e. `0x04‖X‖Y‖d`). For `Ed25519`
 the `privateKey` is the 32-byte seed and the `publicKey` is the 32-byte compressed
-point; for `X25519` both are 32-byte Curve25519 values.
+point; for `X25519` both are 32-byte Curve25519 values, and for `X448` both are
+56-byte Curve448 values (little-endian `u`-coordinate and clamped scalar).
 
 | `type` | Standard | Digest (sign/verify) | `publicKey` | `privateKey` |
 | --- | --- | --- | --- | --- |
@@ -1530,6 +1553,7 @@ point; for `X25519` both are 32-byte Curve25519 values.
 | `P521` | secp521r1, FIPS 186-4 | SHA-512 | 133 B | 199 B |
 | `Ed25519` | RFC 8032 | SHA-512 (internal) | 32 B | 32 B (seed) |
 | `X25519` | RFC 7748 | — (not a signing key) | 32 B | 32 B |
+| `X448` | RFC 7748 | — (not a signing key) | 56 B | 56 B |
 
 **Security.** The `privateKey` is secret key material — keep it confidential and
 never transmit or log it; only the `publicKey` is safe to share. Randomness comes
@@ -1544,8 +1568,8 @@ OpenSSL `libcrypto` (`EVP_EC_gen` on 3.x, else `EC_KEY_new_by_curve_name` +
 `EC_KEY_generate_key`, serialized through `i2d_PrivateKey`/`i2d_PUBKEY`); on
 **Windows** via CNG `bcrypt.dll` (`BCryptGenerateKeyPair` +
 `BCryptFinalizeKeyPair` + `BCryptExportKey`, algorithms `ECDSA_P256/384/521`,
-`ECCPRIVATEBLOB`). `Ed25519` and `X25519` are a pure in-process MFBASIC software
-core (over the `bits` package) with **no platform library**, so they are
+`ECCPRIVATEBLOB`). `Ed25519`, `X25519`, and `X448` are a pure in-process MFBASIC
+software core (over the `bits` package) with **no platform library**, so they are
 byte-identical on every OS. Across platforms the encodings are wire-compatible: a
 key made on one OS is accepted by `sign`/`verify` on the others."#;
 const EX: &str = r#"Generate an ECDSA P-256 pair and use both halves:

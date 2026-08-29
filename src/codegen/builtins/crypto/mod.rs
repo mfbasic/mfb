@@ -108,10 +108,10 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
     // The certificate/key type selector for `crypto::generate(type)`. Ordinals are
-    // declaration order (P256=0, P384=1, P521=2, Ed25519=3, X25519=4);
-    // `func_generate`'s `AbiFunction` body branches on that ordinal. `X25519` is a
-    // key-agreement (ECDH) key, not a signing key, so `sign`/`verify` reject it with
-    // `ErrInvalidArgument`.
+    // declaration order (P256=0, P384=1, P521=2, Ed25519=3, X25519=4, X448=5);
+    // `func_generate`'s `AbiFunction` body branches on that ordinal. `X25519` and
+    // `X448` are key-agreement (ECDH) keys, not signing keys, so `sign`/`verify`
+    // reject them with `ErrInvalidArgument` and `exchange` accepts only them.
     pkg.add_enum(RegistryEnum {
         name: "Certificate",
         export: true,
@@ -138,22 +138,36 @@ pub(crate) fn register(r: &mut Registry) {
             },
             EnumVariant {
                 name: "X25519",
-                description: "X25519 (Curve25519 ECDH) key-agreement key pair — not a signing key. `crypto::encrypt`/`crypto::decrypt` take Ed25519 keys (converted internally), so a raw X25519 pair is an ECDH building block, not a direct input to another `crypto` member.",
+                description: "X25519 (Curve25519 ECDH, RFC 7748) key-agreement key pair (32-byte keys) — not a signing key; use it with `crypto::exchange`. `crypto::encrypt`/`crypto::decrypt` take Ed25519 keys (converted internally).",
+                advisory: None,
+            },
+            // Curve448 (plan-109-C): appended after X25519 so the earlier ordinals stay
+            // fixed (X448=5).
+            EnumVariant {
+                name: "X448",
+                description: "X448 (Curve448 ECDH, RFC 7748) key-agreement key pair (56-byte keys) — not a signing key; use it with `crypto::exchange`. `KeyConvert.Ed448ToX448` derives one from an Ed448 pair.",
                 advisory: None,
             },
         ],
     });
     // The key-conversion selector for `crypto::convert(conv, keys)`. Ordinals are
-    // declaration order (Ed25519ToX25519=0); the pure-MFB `__crypto_convert` core
-    // branches on it.
+    // declaration order (Ed25519ToX25519=0, Ed448ToX448=1); the pure-MFB
+    // `__crypto_convert` core branches on it.
     pkg.add_enum(RegistryEnum {
         name: "KeyConvert",
         export: true,
-        variants: vec![EnumVariant {
-            name: "Ed25519ToX25519",
-            description: "Convert an Ed25519 signing key pair to the matching X25519 (Curve25519 ECDH) key pair.",
-            advisory: None,
-        }],
+        variants: vec![
+            EnumVariant {
+                name: "Ed25519ToX25519",
+                description: "Convert an Ed25519 signing key pair to the matching X25519 (Curve25519 ECDH) key pair.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Ed448ToX448",
+                description: "Convert an Ed448 signing key pair (57-byte seed and public key) to the matching X448 (Curve448 ECDH) key pair (56-byte keys), by the RFC 7748 §4.2 edwards448→curve448 map for the public key and `SHAKE256(seed)[0..56]` for the private key.",
+                advisory: None,
+            },
+        ],
     });
     // The hash-algorithm selector — every hash function `crypto` supports (SHA-1,
     // the SHA-2 family, the SHA-3 family). Ordinals are declaration order (SHA1=0,
@@ -471,6 +485,30 @@ pub(crate) fn register(r: &mut Registry) {
     helper_generate_x25519::register(&mut pkg);
     helper_ed25519_pub_to_x25519::register(&mut pkg);
     helper_ed25519_priv_to_x25519::register(&mut pkg);
+    // X448 (Curve448 ECDH, RFC 7748) + Ed448→X448 conversion (plan-109-C): a
+    // 16 × 28-bit-limb GF(2^448-2^224-1) field (`__crypto_gf448*`), the 448-step
+    // ladder with a branch-free select swap, generation, and the RFC 7748 §4.2
+    // isogeny / SHAKE256 conversion. `__crypto_exchange` is the public X25519/X448
+    // Diffie-Hellman core.
+    helper_gf448_zero::register(&mut pkg);
+    helper_gf448_one::register(&mut pkg);
+    helper_gf448_carry::register(&mut pkg);
+    helper_gf448_add::register(&mut pkg);
+    helper_gf448_sub::register(&mut pkg);
+    helper_gf448_mul::register(&mut pkg);
+    helper_gf448_mul_small::register(&mut pkg);
+    helper_gf448_inv::register(&mut pkg);
+    helper_gf448_select::register(&mut pkg);
+    helper_gf448_unpack::register(&mut pkg);
+    helper_gf448_pack::register(&mut pkg);
+    helper_clamp_scalar448::register(&mut pkg);
+    helper_x448::register(&mut pkg);
+    helper_x448_base::register(&mut pkg);
+    helper_generate_x448::register(&mut pkg);
+    helper_ed448_pub_to_x448::register(&mut pkg);
+    helper_ed448_priv_to_x448::register(&mut pkg);
+    helper_is_all_zero::register(&mut pkg);
+    helper_exchange::register(&mut pkg);
     helper_convert::register(&mut pkg);
     // Asymmetric public-key encryption (X25519 sealed box over Ed25519 keys). Pure
     // software over the X25519 ladder, the Ed25519→X25519 conversion helpers,
@@ -527,10 +565,13 @@ pub(crate) fn register(r: &mut Registry) {
     // mirroring `sign`. It is the sole verification surface — the per-curve
     // `p*Verify`/`ed25519Verify` members were removed.
     func_verify::register(&mut pkg);
-    // Key-pair conversion between curve encodings (`Ed25519ToX25519`). Pure-MFB
-    // rewrite onto `__crypto_convert` — no platform library, so (like `hmac`/`hkdf`)
-    // it is NOT in any backend's `runtime_calls`.
+    // Key-pair conversion between curve encodings (`Ed25519ToX25519`,
+    // `Ed448ToX448`). Pure-MFB rewrite onto `__crypto_convert` — no platform
+    // library, so (like `hmac`/`hkdf`) it is NOT in any backend's `runtime_calls`.
     func_convert::register(&mut pkg);
+    // X25519 / X448 Diffie-Hellman over the key-agreement `Certificate`s. Pure-MFB
+    // rewrite onto `__crypto_exchange`.
+    func_exchange::register(&mut pkg);
     // Asymmetric public-key encryption. `encrypt`/`decrypt` are X25519 sealed boxes
     // over Ed25519 recipient keys, selected by `AsymmetricCipher`. Pure-MFB rewrites
     // onto `__crypto_encrypt`/`__crypto_decrypt` — no platform library, so (like
@@ -547,6 +588,7 @@ mod func_constant_time_equal;
 mod func_convert;
 mod func_decrypt;
 mod func_encrypt;
+mod func_exchange;
 pub(crate) mod func_generate;
 pub(crate) mod func_hash;
 pub(crate) mod func_hkdf;
@@ -606,6 +648,7 @@ mod helper_chacha_block;
 mod helper_chacha_qr;
 mod helper_chacha_state;
 mod helper_clamp_scalar;
+mod helper_clamp_scalar448;
 mod helper_concat;
 mod helper_concat_int;
 mod helper_constant_time_equal;
@@ -618,6 +661,8 @@ mod helper_ed25519_pub_to_x25519;
 mod helper_ed25519_public;
 mod helper_ed25519_sign;
 mod helper_ed25519_verify;
+mod helper_ed448_priv_to_x448;
+mod helper_ed448_pub_to_x448;
 mod helper_ed_a;
 mod helper_ed_add;
 mod helper_ed_l;
@@ -626,6 +671,7 @@ mod helper_ed_s;
 mod helper_ed_z;
 mod helper_encrypt;
 mod helper_encrypt_text;
+mod helper_exchange;
 mod helper_first64;
 mod helper_gcm_gctr;
 mod helper_gcm_ghash_data;
@@ -634,9 +680,21 @@ mod helper_gcm_j0;
 mod helper_gcm_tag;
 mod helper_generate_ed25519;
 mod helper_generate_x25519;
+mod helper_generate_x448;
 mod helper_gf0;
 mod helper_gf1;
 mod helper_gf121665;
+mod helper_gf448_add;
+mod helper_gf448_carry;
+mod helper_gf448_inv;
+mod helper_gf448_mul;
+mod helper_gf448_mul_small;
+mod helper_gf448_one;
+mod helper_gf448_pack;
+mod helper_gf448_select;
+mod helper_gf448_sub;
+mod helper_gf448_unpack;
+mod helper_gf448_zero;
 mod helper_gf_at;
 mod helper_gf_d;
 mod helper_gf_d2;
@@ -652,6 +710,7 @@ mod helper_hkdf_expand;
 mod helper_hmac;
 mod helper_hmac_text;
 mod helper_inv25519;
+mod helper_is_all_zero;
 mod helper_iv224;
 mod helper_iv256;
 mod helper_iv384;
@@ -749,6 +808,8 @@ mod helper_unpack25519;
 mod helper_unpackneg;
 mod helper_uuid4;
 mod helper_x25519;
+mod helper_x448;
+mod helper_x448_base;
 mod helper_xor_bytes;
 mod helper_xor_pad;
 mod helper_xtime;
@@ -768,15 +829,16 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 19 members: the unified `generate`/`sign`/`verify`/`hash`, the
+        // 20 members: the unified `generate`/`sign`/`verify`/`hash`, the
         // `SymmetricCipher`-selected `seal`/`open`, the hash-generic
         // `hmac`/`hkdf`/`pbkdf2(Hash, …)`, the SHAKE256 XOF `shake256`, `convert`
-        // (Ed25519↔X25519 key conversion), the `AsymmetricCipher`-selected
-        // `encrypt`/`decrypt` (X25519 sealed box), plus
+        // (Ed25519→X25519 / Ed448→X448 key conversion), `exchange` (X25519/X448
+        // Diffie-Hellman), the `AsymmetricCipher`-selected `encrypt`/`decrypt`
+        // (X25519 sealed box), plus
         // `randomBytes`/`randomInt`/`uuid4`/`uuid7`/`ulid`/`constantTimeEqual`. The
         // per-type generate/sign/verify/sha and per-digest `*Sha*`/per-cipher AEAD
         // members were all retired behind the unified surface.
-        assert_eq!(pkg.functions().len(), 19);
+        assert_eq!(pkg.functions().len(), 20);
     }
 
     #[test]
@@ -798,6 +860,7 @@ mod tests {
             "crypto.sign",
             "crypto.verify",
             "crypto.convert",
+            "crypto.exchange",
             "crypto.encrypt",
             "crypto.decrypt",
             "crypto.constantTimeEqual",
@@ -853,7 +916,12 @@ mod tests {
             assert!(is_abi_function_call(f), "{f}");
         }
         // The `Body::Rewrite` source members are NOT runtime/abi calls.
-        for f in ["crypto.hmac", "crypto.convert", "crypto.constantTimeEqual"] {
+        for f in [
+            "crypto.hmac",
+            "crypto.convert",
+            "crypto.exchange",
+            "crypto.constantTimeEqual",
+        ] {
             assert!(!is_abi_function_call(f), "{f}");
         }
     }
@@ -1085,6 +1153,54 @@ mod tests {
         }
         assert!(round.contains("collections::get(__CRYPTO_KECCAK_RHO, i)"));
         assert!(round.contains("collections::get(__CRYPTO_KECCAK_PI, i)"));
+    }
+
+    /// Executable bound proof for the GF(2^448−2^224−1) arithmetic (plan-109-C
+    /// Phase 1): with every limb at its carried maximum 2^28 (`__crypto_gf448Carry`
+    /// leaves limbs in `0..=2^28` after two passes), the schoolbook convolution
+    /// columns and the folded output limbs of `__crypto_gf448Mul` — mirroring the
+    /// helper's exact fold weights — and the biased sums of `Add`/`Sub`/`MulSmall`
+    /// must all stay below the trapping `Integer` boundary 2^63.
+    #[test]
+    fn gf448_mul_accumulators_fit_i63() {
+        let limb: u128 = 1 << 28;
+        let product = limb * limb;
+        // Convolution column k has min(k,15) - max(0,k-15) + 1 products.
+        let column = |k: usize| -> u128 {
+            let lo = k.saturating_sub(15);
+            let hi = k.min(15);
+            (hi - lo + 1) as u128 * product
+        };
+        let mut worst = 0u128;
+        for n in 0..16 {
+            let mut v = column(n);
+            if n <= 14 {
+                v += column(n + 16);
+            }
+            if n >= 8 {
+                v += column(n + 8);
+                if n <= 14 {
+                    v += column(n + 16);
+                }
+            }
+            if n <= 6 {
+                v += column(n + 24);
+            }
+            worst = worst.max(v);
+            assert!(v < 1u128 << 63, "output limb {n} accumulator {v} >= 2^63");
+        }
+        // The worst column (limb 8: 9 + 2·7 + 15 = 38 products) is ~2^61.25.
+        assert_eq!(worst, 38 * product);
+        assert!(worst < 1u128 << 62);
+        // Carry-pass input: a limb plus the previous carry (< 2^35) stays < 2^63.
+        assert!(worst + (1u128 << 35) < 1u128 << 63);
+        // Add: two carried limbs; Sub: a − b + 2p_i with the biases the helper uses;
+        // MulSmall: limb × 39081 (the largest constant, a24 / the Edwards d).
+        assert!(2 * limb < 1u128 << 63);
+        assert!(limb + 536_870_910 < 1u128 << 63);
+        assert_eq!(536_870_910, 2 * ((1u128 << 28) - 1));
+        assert_eq!(536_870_908, 2 * ((1u128 << 28) - 2));
+        assert!(limb * 39081 < 1u128 << 63);
     }
 
     #[test]

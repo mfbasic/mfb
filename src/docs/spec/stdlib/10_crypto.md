@@ -97,6 +97,24 @@ extensions); computation is portable-arithmetic only, identical across targets.
 - **Public-key** — Ed25519 (RFC 8032, PureEdDSA, deterministic signing) plus
   ECDSA over NIST P-256/384/521 (FIPS 186; SHA-256/384/512 respectively; DER
   X9.62 signatures, non-deterministic). Key generation returns a `KeyPair`.
+- **Key agreement** — `Certificate.X25519` (RFC 7748, 32-byte keys) and
+  `Certificate.X448` (RFC 7748, 56-byte keys; a 16 × 28-bit-limb
+  GF(2^448−2^224−1) field and a 448-step ladder with a branch-free select swap)
+  through `exchange(type, privateKey, publicKey)`, which **fails closed** with
+  `ErrInvalidArgument` on a signing certificate, a wrong key length, or an
+  all-zero shared secret (a low-order peer point, RFC 7748 §6.1). `sign`/`verify`
+  reject both. [[src/codegen/builtins/crypto/helper_x448.rs:BODY]]
+  [[src/codegen/builtins/crypto/helper_exchange.rs:BODY]]
+- **Key conversion** — `convert(KeyConvert.Ed25519ToX25519, keys)` (libsodium's
+  `crypto_sign_ed25519_{pk,sk}_to_curve25519` maps) and
+  `convert(KeyConvert.Ed448ToX448, keys)`: the public key by the RFC 7748 §4.2
+  edwards448→curve448 4-isogeny `u = y²/x²` (evaluated as
+  `y²·(1 − d·y²)/(1 − y²)`, no square root), the private key as
+  `SHAKE256(seed)[0..56]` — libdecaf's `decaf_ed448_convert_*_to_x448`
+  convention, under which the edwards448 base point maps to `u = 5` and
+  `X448(convertedPrivate, 5) = convertedPublic`. Inputs must be 57 bytes.
+  [[src/codegen/builtins/crypto/helper_ed448_pub_to_x448.rs:BODY]]
+  [[src/codegen/builtins/crypto/helper_ed448_priv_to_x448.rs:BODY]]
 - **Verification** — `constantTimeEqual` compares two byte lists in time
   independent of their contents (length is not secret).
 
@@ -107,6 +125,11 @@ values is at most `2^33-2`, within the trapping 63-bit `+`, and is masked back);
 SHA-1 shares SHA-256's 512-bit padding and masked-32-bit model, differing only in
 its 80-word schedule, round function, and constants.
 [[src/codegen/builtins/crypto/helper_sha1_bytes.rs:BODY]]
+Curve448 field elements use 16 × 28-bit limbs: a schoolbook product's largest
+folded accumulator is 38 products of two `2^28` limbs (`< 2^61.3`), pinned by the
+`gf448_mul_accumulators_fit_i63` unit test, and every field op returns carried
+limbs so that bound holds for the next product.
+[[src/codegen/builtins/crypto/helper_gf448_mul.rs:BODY]]
 Keccak-f[1600] keeps each of its 25 lanes in one `Integer` as a raw 64-bit bit
 pattern (the same representation as SHA-512's words) and touches it only through
 `bits::` XOR/AND/NOT/`rl64` — Keccak has no addition, so no lane ever enters the
