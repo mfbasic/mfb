@@ -49,7 +49,8 @@ impl<'a> SyntaxChecker<'a> {
     /// slot/parameter consistency (plan-link-update.md §5b/§5c/§11/§12).
     pub(super) fn check_link_block(&mut self, file: &HirFile, link: &crate::ast::LinkBlock) {
         self.check_link_cstructs(file, link);
-        self.check_cstruct_escape(file, link);
+        // CSTRUCT-name escape into a wrapper signature is `ir::verify`'s
+        // (plan-107-C).
         let cstructs: Vec<String> = link.cstructs.iter().map(|c| c.name.clone()).collect();
         for function in &link.functions {
             self.check_link_function_in(file, function, &cstructs);
@@ -215,48 +216,6 @@ impl<'a> SyntaxChecker<'a> {
                         &format!(
                             "Native function `{}` returns struct slot `{}`, so it must return `{}` (the CSTRUCT's mapped record).",
                             function.name, slot.name, decl.maps_to
-                        ),
-                        file,
-                        function.line,
-                    );
-                }
-            }
-        }
-    }
-
-    /// A `CSTRUCT` name is a native-side layout descriptor, not a type: it may
-    /// appear only in its own declaration, an `ABI (...)` slot's ctype position,
-    /// and `SIZEOF`. Naming one in a wrapper's MFBASIC-facing signature would make
-    /// a private C layout part of the public API — the same argument that confines
-    /// `CPtr` (`NATIVE_CPTR_ESCAPE`). plan-50-B §4.5.
-    fn check_cstruct_escape(&mut self, file: &HirFile, link: &crate::ast::LinkBlock) {
-        if link.cstructs.is_empty() {
-            return;
-        }
-        let is_cstruct = |name: &str| link.cstructs.iter().any(|c| c.name == name);
-        for function in &link.functions {
-            for param in &function.params {
-                if let Some(type_name) = &param.type_name {
-                    if is_cstruct(type_name) {
-                        self.report(
-                            "NATIVE_CSTRUCT_ESCAPE",
-                            &format!(
-                                "Native function `{}` parameter `{}` uses CSTRUCT `{}`; name its mapped record type instead — a CSTRUCT is nameable only in an ABI slot or SIZEOF.",
-                                function.name, param.name, type_name
-                            ),
-                            file,
-                            param.line,
-                        );
-                    }
-                }
-            }
-            if let Some(return_type) = &function.return_type {
-                if is_cstruct(return_type) {
-                    self.report(
-                        "NATIVE_CSTRUCT_ESCAPE",
-                        &format!(
-                            "Native function `{}` returns CSTRUCT `{}`; name its mapped record type instead — a CSTRUCT is nameable only in an ABI slot or SIZEOF.",
-                            function.name, return_type
                         ),
                         file,
                         function.line,
@@ -803,11 +762,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_CSTRUCT_ESCAPE"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -833,11 +789,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_CSTRUCT_ESCAPE"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]

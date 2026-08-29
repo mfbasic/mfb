@@ -184,6 +184,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "NATIVE_ABI_RESULT_MARKER",
     "NATIVE_ABI_UNBOUND_PARAM",
     "NATIVE_BIND_IN_INVALID",
+    "NATIVE_CSTRUCT_ESCAPE",
 ];
 
 /// Diagnostic prefixes shared with the structural `verify_package` checks so a
