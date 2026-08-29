@@ -247,13 +247,46 @@ review it, don't treat it as a stop.
 
 ### Phase 0 — Census in-tree callers
 
-- [ ] Run `rg -n 'thread::sleep' tests/ examples/ src/docs` and record every hit;
-      classify each as mechanically rewritable to `os::sleep` (drop the handle
-      arg) or needing thought. Fill the Prerequisites row.
+- [x] Run `rg -l 'thread::sleep' --glob '*.mfb' .` plus `rg -l 'thread::sleep'
+      --glob '*.rs' tests/ src/` and `rg -n 'thread::sleep' src/docs`, and record
+      every hit; classify each as mechanically rewritable to `os::sleep` (drop the
+      handle arg) or needing thought. Fill the Prerequisites row.
+
+**Census (2026-08-29).** The plan's own command (`rg -l 'thread::sleep' tests/
+examples/`) has a blind spot: `tools/thread-package-sources/` (compiled worker
+packages) also calls it. The `.mfb` census below is the whole-repo glob.
+
+MFB source callers (10 files) — every one is the same mechanical rewrite
+`thread::sleep(h, ms)` → `os::sleep(ms)` + `IMPORT os`; none needs thought:
+
+| File | Hits | Rewrite |
+|---|---|---|
+| `tests/byte-identity/thread/src/main.mfb:30` | 1 (`t1, 0`) | mechanical; drives a `.ncode` golden — regenerate |
+| `tools/thread-package-sources/thread_runtime_workers/src/lib.mfb:199,204` | 2 (worker 200 / 5000) | mechanical; **package source** → re-run `scripts/sync-package-mfp.sh` |
+| `tools/thread-package-sources/thread_cover_worker/src/lib.mfb:32` | 1 (`w, 0`) | mechanical; same `.mfp` re-sync |
+| `tests/rt-error/threads/thread-sleep-negative-rt` | 1 | fixture MIGRATES to `tests/rt-error/os/os-sleep-negative-rt` |
+| `tests/rt-behavior/threads/thread-sleep-parent-rt` | 2 | fixture MIGRATES to `tests/rt-behavior/os/os-sleep-main-rt` |
+| `tests/rt-behavior/threads/thread-sleep-worker-rt` | 1 | fixture MIGRATES to `tests/rt-behavior/os/os-sleep-worker-rt` |
+| `tests/rt-behavior/threads/thread-sleep-worker-cancel-rt` | 1 | fixture MIGRATES to `tests/rt-behavior/os/os-sleep-worker-cancel-rt` |
+| `tests/syntax/threads/func_thread_sleep_valid` | 2 | MIGRATES to `tests/syntax/os/func_os_sleep_valid` |
+| `tests/syntax/threads/func_thread_sleep_worker_valid` | 1 | folds into `func_os_sleep_valid` (one sleep, no handle side) |
+| `tests/syntax/threads/func_thread_sleep_invalid` | 5 | REPURPOSED: an unknown-member fixture for `thread::sleep(t, 1)` + a new `func_os_sleep_invalid` for arity/type negatives |
+
+Rust tests embedding MFB source: `tests/codegen_thread_c_return_x86_64.rs:59`
+(`thread::sleep(t, 1)`, asserts the `nanosleep` emission) — mechanical rewrite to
+`os::sleep(1)`. The other `*.rs` hits (`tests/common/mod.rs`,
+`rt_macos_d4_union_state_tls.rs`, `rt_macos_tls_write_capacity.rs`,
+`rt_http_async_stream.rs`) are Rust `std::thread::sleep` in harness code — **not
+callers**, no change.
+
+Docs: `src/docs/spec/threading/06_thread-runtime-helpers.md` (:48,:51,:81,:83),
+`src/docs/spec/language/16_threads.md` (:48,:49,:73,:77),
+`src/docs/spec/language/18_builtin-functions.md:73` — Phase 2 doc edits.
 
 Acceptance: a complete list of `thread::sleep` source callers with a rewrite note
-each; zero unclassified.
-Commit: —
+each; zero unclassified. **MET** — 10 `.mfb` files + 1 Rust-embedded + 3 spec
+pages, all classified above.
+Commit: 5a4f59dba (census) + this phase's plan update
 
 ### Phase 1 — Add `os::sleep` additively (both branches proven)
 
@@ -343,7 +376,48 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+1. **Every source path in §2/§4 is stale — the tree was reorganized after this
+   plan was written (2026-08-15).** Measured 2026-08-29
+   (`rg -l 'thread\.sleep|sleepWorker' src/`):
+
+   | Plan says | Actually |
+   |---|---|
+   | `src/builtins/thread.rs` | `src/codegen/builtins/thread/mod.rs` (descriptor) + `lowering.rs` (bodies) + `tests.rs` |
+   | `src/builtins/os.rs` | `src/codegen/builtins/os/mod.rs` + one `func_<name>.rs` per member |
+   | `src/target/shared/code/builder_values.rs` | `src/codegen/engine/value/builder_values.rs` |
+   | `src/target/shared/code/runtime_helpers.rs` | `src/codegen/runtime/thread/runtime_helpers.rs` |
+   | `src/target/shared/code/runtime_helpers_thread.rs` | `src/codegen/runtime/thread/runtime_helpers_thread.rs` |
+   | `src/target/shared/code/error_constants.rs` | `src/codegen/error/constants/error_constants.rs` |
+   | `os_specs.rs` + `catalog.rs` registration | **Gone — moot.** Runtime specs are DERIVED from the registry (`registry::runtime_specs`); `thread_specs.rs`/`os_specs.rs` no longer exist. No spec to add and none to delete. |
+   | `src/docs/man/builtins/os/sleep.md` (+ `scripts/update_man.sh`) | **Gone — moot.** `src/docs/man/builtins/` does not exist; member docs are the `intro`/`desc`/`example` fields of the `RegistryFunction` descriptor (`.ai/man-content.md`). `os::sleep`'s man page IS its `func_sleep.rs`. |
+
+   Consequence for §4.4: removing `thread::sleep` is a descriptor-member deletion
+   + a `builder_values` direction-split deletion + the two helper-body deletions;
+   there are no hand-written specs or catalog rows to remove.
+
+2. **§4.2's "extract emit-subroutines" is the right shape, but the two bodies do
+   NOT share an argument contract.** Measured by reading
+   `lower_thread_sleep_helper` / `lower_thread_sleep_worker_helper`: both take
+   `(handle = c_arg(0), ms = c_arg(1))`. `os.sleep` has ONE argument
+   (`ms = c_arg(0)`), so each extracted body is parameterized by where `ms` lives
+   and (worker) where the TCB comes from. The parent body's `ErrResourceClosed`
+   handle-state check is dropped for `os::sleep` — there is no handle — a
+   deliberate narrowing.
+
+3. **§3's "the worker body reads `x20`" is wrong; it reads its handle argument.**
+   Measured: `lower_thread_sleep_worker_helper` stores `c_arg(0)` to
+   `HANDLE_OFFSET` and loads the queue/cancel fields off it — `CURRENT_THREAD`
+   (`x20`) is never referenced in that body. This makes the reuse *simpler*, not
+   harder: the `[arena+8]` TCB value is fed straight into the worker body as its
+   handle, so the branch does not depend on `x20` at all. The §2 "Verified
+   properties" claim about `WorkerSelf` reading `x20` describes
+   `thread_queue_read_helper`, not the sleep body.
+
+4. **Fixture population is 7, not 2** (Measured populations, Phase 0 census): 4 rt
+   fixtures (`thread-sleep-{negative,parent,worker,worker-cancel}-rt`) and 3
+   syntax fixtures, plus 2 `tools/thread-package-sources` package sources that
+   need `scripts/sync-package-mfp.sh` re-run — the plan never mentions the `.mfp`
+   re-sync, and a stale committed `.mfp` is silently mis-lowered.
 
 ## Summary
 
