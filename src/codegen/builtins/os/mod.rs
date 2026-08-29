@@ -48,6 +48,7 @@ mod func_name;
 mod func_pid;
 mod func_resource_path;
 mod func_set_env;
+mod func_sleep;
 mod func_unset_env;
 mod func_uptime;
 mod func_user_name;
@@ -121,6 +122,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_version::register(&mut pkg);
     func_uptime::register(&mut pkg);
     func_is_admin::register(&mut pkg);
+    func_sleep::register(&mut pkg);
 
     r.add_package(pkg);
 }
@@ -132,7 +134,7 @@ mod tests {
     #[test]
     fn os_registered_on_the_clean_room_registry() {
         let pkg = registry().resolve_package("os").expect("os package");
-        assert_eq!(pkg.functions().len(), 18);
+        assert_eq!(pkg.functions().len(), 19);
         // os contributes no builtin value type and owns no resource.
         assert!(!registry().is_builtin_type("os"));
     }
@@ -188,6 +190,45 @@ mod tests {
         assert_eq!(
             registry::call_return_type("os.resourcePath").as_deref(),
             Some("String")
+        );
+    }
+
+    /// plan-99: `os::sleep(ms)` is handle-free — one `Integer` in, `Nothing` out.
+    /// This is the descriptor half the deleted `thread::sleep` overload pair used to
+    /// own (`resolve_sleep_both_handle_sides`): there is no handle argument to split
+    /// on any more, so a single implementation answers every call site, and the
+    /// worker/main-thread split moved entirely into the body (arena+8).
+    #[test]
+    fn sleep_resolves_handle_free() {
+        fn rt(call: &str, args: &[&str]) -> Option<String> {
+            let types: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+            registry::resolve_call(call, &types, false)
+        }
+        assert!(registry().is_member("os.sleep"));
+        assert_eq!(rt("os.sleep", &["Integer"]), Some("Nothing".into()));
+        // Arity negatives: no nullary form, no second argument (the old handle side).
+        assert_eq!(rt("os.sleep", &[]), None);
+        assert_eq!(rt("os.sleep", &["Integer", "Integer"]), None);
+        // Type negatives: `ms` is an Integer, and a thread handle is NOT accepted —
+        // passing one is the `thread::sleep`-shaped call this member replaced.
+        assert_eq!(rt("os.sleep", &["String"]), None);
+        assert_eq!(rt("os.sleep", &["Float"]), None);
+        // Strict (validation) resolution also rejects a thread handle in the `ms`
+        // slot — the `thread::sleep`-shaped call this member replaced. Lenient
+        // resolution deliberately does not: an opaque handle type is a wildcard
+        // there, exactly as it is for every other one-Integer builtin.
+        assert_eq!(
+            registry::resolve_call("os.sleep", &["Thread OF String TO Integer".into()], true),
+            None
+        );
+        assert_eq!(
+            registry::call_return_type("os.sleep").as_deref(),
+            Some("Nothing")
+        );
+        assert_eq!(
+            registry::expected_arguments("os.sleep"),
+            Some("Integer"),
+            "the one-argument phrasing renders from the descriptor"
         );
     }
 

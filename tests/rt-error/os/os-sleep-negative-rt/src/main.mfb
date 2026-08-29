@@ -1,0 +1,12 @@
+' plan-99: a negative `ms` on `os::sleep` raises `ErrInvalidArgument` (77050002)
+' BEFORE sleeping, and before the arena's worker back-pointer is even read — so the
+' rejection is identical on the main thread and in a worker. Left uncaught here, it
+' aborts the program with the standard runtime-error report (exit 255).
+IMPORT io
+IMPORT os
+
+FUNC main AS Integer
+  os::sleep(-1)
+  io::print("unexpected: sleep returned")
+  RETURN 1
+END FUNC

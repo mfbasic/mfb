@@ -63,6 +63,7 @@ impl NativeBackend for Backend {
                 "os.version",
                 "os.uptime",
                 "os.isAdmin",
+                "os.sleep",
                 "io.print",
                 "io.write",
                 "io.printError",

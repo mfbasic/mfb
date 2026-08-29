@@ -97,6 +97,19 @@ pub(crate) fn emit_thread_external_call(ctx: &mut EmitCtx, name: &str) -> Result
 /// (`mfb_return(0)`): the two are both `x0` on AArch64 but differ on x86-64
 /// (`rax` vs the aligned MFB bank's `rdi`/`rcx`), so an MFB-token read here
 /// silently tests a clobbered caller-saved register.
+///
+/// **WIN64_DIV_CLOBBER (plan-99).** These arms name ABI tokens directly, so their
+/// values land on the Win64 call bank: `c_arg(0)`=rcx, `c_arg(1)`=**rdx**,
+/// `c_arg(2)`=r8, `c_arg(3)`=r9. The x86-64 `div` expansion writes the quotient to
+/// rax and the REMAINDER to **rdx** (`div_seq` in `arch::x86_64::encode::emitter`),
+/// and the allocator clobber model does not cover hand-written token code — that
+/// expansion is sound for allocated code only because rax/rcx/rdx are never
+/// allocatable. So a value parked in `c_arg(1)` across an
+/// `unsigned_divide_registers` is silently replaced by the remainder. Three arms
+/// here did exactly that (`nanosleep`, `clock_gettime`, and the deadline math in
+/// `pthread_cond_timedwait`); keep every live intermediate in `c_arg(2)`/`c_arg(3)`
+/// and re-materialize a constant after a divide rather than holding it in
+/// `c_arg(1)`.
 fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String> {
     let from = ctx.symbol;
     let pi = ctx.platform_imports;
@@ -153,19 +166,76 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
             ctx.instructions
                 .push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
         }
-        // pthread_cond_timedwait(cond=x0, mutex=x1, &abstime=x2). The shared
-        // callers loop on their own deadline (emit_thread_deadline), re-checking
-        // the predicate after each wake, so a fixed short poll interval preserves
-        // correctness (it just wakes more often); a precise abstime→relative-ms
-        // conversion is unnecessary. Return ETIMEDOUT (110) on a timeout wake so
-        // the caller's deadline logic advances, 0 on a genuine wake.
+        // pthread_cond_timedwait(cond=x0, mutex=x1, &abstime=x2) →
+        // SleepConditionVariableSRW(cond, lock, dwMilliseconds, Flags=0), waiting
+        // until the caller's ABSOLUTE deadline and returning ETIMEDOUT (110) only
+        // when that deadline has actually passed, 0 on any earlier wake.
+        //
+        // plan-99: this arm used to ignore `abstime` entirely and poll a fixed
+        // 20 ms, on the theory that "the shared callers loop on their own deadline,
+        // re-checking the predicate after each wake". That theory is FALSE — every
+        // caller (`emit_cancellable_sleep_wait`, `thread_queue_read_helper`,
+        // `thread_queue_write_helper`) treats a NON-ZERO return as "the deadline
+        // elapsed" and stops waiting. So on Windows every timed wait expired after
+        // ~20 ms: a worker `thread::sleep(t, 200)` returned in ~20 ms (box 2230:
+        // `os_sleep_worker_rt.exe` printed "slept short", and the 5000 ms
+        // `*_worker_cancel_rt.exe` ran to completion before the parent could cancel,
+        // printing "no interrupt 0"), and a bounded `thread::send`/`receive` gave up
+        // ~20 ms into its timeout. Honoring `abstime` here fixes all three callers
+        // at once and leaves every POSIX target byte-identical.
+        //
+        // `abstime` is in the epoch this file's `clock_gettime` shim produces
+        // (`GetSystemTimePreciseAsFileTime`, 100 ns ticks since 1601, split into
+        // sec/nsec), so the remaining wait is recovered by rebuilding the deadline's
+        // tick count and subtracting `now`. The ms conversion rounds UP so a wait is
+        // never cut short by sub-millisecond truncation; a spurious wake returns 0
+        // and the caller re-enters, where the remaining time is recomputed.
         "pthread_cond_timedwait" => {
             let n = ctx.instructions.len();
             let timed = format!("{from}_ctw_timeout_{n}");
+            let expired = format!("{from}_ctw_expired_{n}");
             let done = format!("{from}_ctw_done_{n}");
+            // Hand-managed scratch frame, like the `clock_gettime` arm: 0x00..0x20
+            // is the Win64 shadow space every call below needs, 0x20.. are locals.
+            const COND: usize = 0x20;
+            const LOCK: usize = 0x28;
+            const ABSTIME: usize = 0x30;
+            const NOW_FT: usize = 0x38;
             ctx.instructions.extend([
-                abi::move_immediate(abi::c_arg(2), "Integer", "20"), // poll every 20ms
-                abi::move_immediate(abi::c_arg(3), "Integer", "0"),
+                abi::subtract_stack(0x50),
+                abi::store_u64(abi::c_arg(0), abi::stack_pointer(), COND),
+                abi::store_u64(abi::c_arg(1), abi::stack_pointer(), LOCK),
+                abi::store_u64(abi::c_arg(2), abi::stack_pointer(), ABSTIME),
+                abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), NOW_FT),
+            ]);
+            call(ctx, from, "GetSystemTimePreciseAsFileTime")?;
+            ctx.instructions.extend([
+                // deadline_ft = abstime.tv_sec * 1e7 + abstime.tv_nsec / 100.
+                // Every value that must survive a divide is held in `c_arg(2)`/
+                // `c_arg(3)` (r8/r9) — never `c_arg(1)` (rdx), see
+                // WIN64_DIV_CLOBBER below.
+                abi::load_u64(abi::c_arg(0), abi::stack_pointer(), ABSTIME),
+                abi::load_u64(abi::c_arg(2), abi::c_arg(0), 0), // tv_sec
+                abi::load_u64(abi::c_arg(3), abi::c_arg(0), 8), // tv_nsec
+                abi::move_immediate(abi::c_arg(1), "Integer", "10000000"),
+                abi::multiply_registers(abi::c_arg(2), abi::c_arg(2), abi::c_arg(1)),
+                abi::move_immediate(abi::c_arg(1), "Integer", "100"),
+                abi::unsigned_divide_registers(abi::c_arg(3), abi::c_arg(3), abi::c_arg(1)),
+                abi::add_registers(abi::c_arg(2), abi::c_arg(2), abi::c_arg(3)),
+                // remaining 100 ns ticks = deadline_ft - now_ft; <= 0 is already due.
+                abi::load_u64(abi::c_arg(3), abi::stack_pointer(), NOW_FT),
+                abi::subtract_registers(abi::c_arg(2), abi::c_arg(2), abi::c_arg(3)),
+                abi::compare_immediate(abi::c_arg(2), "0"),
+                abi::branch_le(&expired),
+                // ms = ceil(ticks / 10000) so a wait never ends early. The quotient
+                // lands in `c_arg(2)` (r8), which IS SleepConditionVariableSRW's
+                // third argument, so no further staging is needed.
+                abi::add_immediate(abi::c_arg(2), abi::c_arg(2), 9999),
+                abi::move_immediate(abi::c_arg(3), "Integer", "10000"),
+                abi::unsigned_divide_registers(abi::c_arg(2), abi::c_arg(2), abi::c_arg(3)),
+                abi::load_u64(abi::c_arg(0), abi::stack_pointer(), COND),
+                abi::load_u64(abi::c_arg(1), abi::stack_pointer(), LOCK),
+                abi::move_immediate(abi::c_arg(3), "Integer", "0"), // Flags (exclusive)
             ]);
             call(ctx, from, "SleepConditionVariableSRW")?;
             ctx.instructions.extend([
@@ -173,9 +243,13 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
                 abi::branch_eq(&timed), // BOOL 0 → timed out (or error)
                 abi::move_immediate(abi::c_return(0), "Integer", "0"),
                 abi::branch(&done),
+                // The deadline had already passed: report ETIMEDOUT without waiting.
+                // The caller still holds the mutex, exactly as after a real wait.
+                abi::label(&expired),
                 abi::label(&timed),
                 abi::move_immediate(abi::c_return(0), "Integer", "110"), // ETIMEDOUT
                 abi::label(&done),
+                abi::add_stack(0x50),
             ]);
         }
         // nanosleep(&req, &rem): Win32 has no nanosleep. `req` (c_arg(0)) is a
@@ -184,14 +258,22 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
         // is uninterruptible, so report POSIX success (0) — the shared EINTR-retry
         // loop then exits after this single Sleep.
         "nanosleep" => {
+            // plan-99: the seconds term is staged in `c_arg(2)`/`c_arg(3)` (r8/r9),
+            // NOT in `c_arg(1)` — see WIN64_DIV_CLOBBER below. It used to sit in
+            // `c_arg(1)` (rdx) across the `nsec/1e6` divide, which overwrote it with
+            // the division's REMAINDER: every sleep of a whole second or more lost
+            // its seconds and slept only `ms % 1000` (box 2230, measured: a 1500 ms
+            // `os::sleep` on the main thread returned in 505 ms). Sub-second sleeps
+            // were accidentally correct — `tv_sec` is 0 and the remainder is 0 —
+            // which is why the 50 ms fixtures never caught it.
             ctx.instructions.extend([
-                abi::load_u64(abi::c_arg(1), abi::c_arg(0), 0), // tv_sec
-                abi::load_u64(abi::c_arg(2), abi::c_arg(0), 8), // tv_nsec
-                abi::move_immediate(abi::c_arg(3), "Integer", "1000"),
-                abi::multiply_registers(abi::c_arg(1), abi::c_arg(1), abi::c_arg(3)), // sec*1000
-                abi::move_immediate(abi::c_arg(3), "Integer", "1000000"),
-                abi::unsigned_divide_registers(abi::c_arg(2), abi::c_arg(2), abi::c_arg(3)), // nsec/1e6
-                abi::add_registers(abi::c_arg(0), abi::c_arg(1), abi::c_arg(2)), // total ms → dwMilliseconds
+                abi::load_u64(abi::c_arg(2), abi::c_arg(0), 0), // tv_sec
+                abi::load_u64(abi::c_arg(3), abi::c_arg(0), 8), // tv_nsec
+                abi::move_immediate(abi::c_arg(1), "Integer", "1000"),
+                abi::multiply_registers(abi::c_arg(2), abi::c_arg(2), abi::c_arg(1)), // sec*1000
+                abi::move_immediate(abi::c_arg(1), "Integer", "1000000"),
+                abi::unsigned_divide_registers(abi::c_arg(3), abi::c_arg(3), abi::c_arg(1)), // nsec/1e6
+                abi::add_registers(abi::c_arg(0), abi::c_arg(2), abi::c_arg(3)), // total ms → dwMilliseconds
             ]);
             call(ctx, from, "Sleep")?;
             ctx.instructions
@@ -226,11 +308,21 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
                 abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0x20), // &ft
             ]);
             call(ctx, from, "GetSystemTimePreciseAsFileTime")?;
+            // plan-99: the `1e7` scale is re-materialized in `c_arg(3)` (r9) and the
+            // seconds live in `c_arg(2)` (r8) — see WIN64_DIV_CLOBBER below. The
+            // scale used to sit in `c_arg(1)` (rdx) ACROSS the `ft / 1e7` divide,
+            // which left the division's remainder there, so `sec * 1e7` computed
+            // `sec * (ft % 1e7)` and `tv_nsec` came out garbage. `tv_sec` was right,
+            // which is why the clock looked plausible: what broke was every ABSOLUTE
+            // deadline built on it (`emit_thread_deadline`), and that only became
+            // visible once `pthread_cond_timedwait` started honoring the deadline
+            // instead of polling a fixed 20 ms.
             ctx.instructions.extend([
                 abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 0x20), // ft
-                abi::move_immediate(abi::c_arg(1), "Integer", "10000000"),
-                abi::unsigned_divide_registers(abi::c_arg(2), abi::c_arg(0), abi::c_arg(1)), // sec
-                abi::multiply_registers(abi::c_arg(3), abi::c_arg(2), abi::c_arg(1)), // sec*1e7
+                abi::move_immediate(abi::c_arg(3), "Integer", "10000000"),
+                abi::unsigned_divide_registers(abi::c_arg(2), abi::c_arg(0), abi::c_arg(3)), // sec
+                abi::move_immediate(abi::c_arg(3), "Integer", "10000000"),
+                abi::multiply_registers(abi::c_arg(3), abi::c_arg(2), abi::c_arg(3)), // sec*1e7
                 abi::subtract_registers(abi::c_arg(3), abi::c_arg(0), abi::c_arg(3)), // ft % 1e7
                 abi::move_immediate(abi::c_arg(1), "Integer", "100"),
                 abi::multiply_registers(abi::c_arg(3), abi::c_arg(3), abi::c_arg(1)), // nsec
@@ -426,6 +518,61 @@ pub(crate) fn lower_thread_stdin_subscription_helper(
     Ok((instructions, relocations, 0))
 }
 
+/// plan-99: a plain, uninterruptible RELATIVE delay of `ms_reg` milliseconds via
+/// libc `nanosleep` (Win32 `Sleep`), re-entered on an EINTR wake so a signal can
+/// never truncate it. Control leaves this block ONLY by branching to `ok_label`,
+/// once the full delay has elapsed — the caller owns the `ok_label` epilogue and
+/// every error path.
+///
+/// `req_offset`/`rem_offset` name two 16-byte relative `timespec { tv_sec; tv_nsec }`
+/// slots in the caller's frame: `req` is the requested remaining sleep, `rem` the
+/// kernel's leftover on an EINTR wake. `ms_reg` must hold a validated positive `ms`
+/// (the caller rejects a negative and short-circuits zero); it is read once, before
+/// the C-argument registers are staged, so passing `c_arg(0)`/`c_arg(1)` is safe.
+///
+/// Shared by the parent `thread::sleep` (`ms` in `c_arg(1)`, after its handle
+/// argument) and the main-thread branch of `os::sleep` (`ms` in `c_arg(0)`).
+pub(crate) fn emit_relative_sleep(
+    ctx: &mut EmitCtx,
+    ms_reg: crate::codegen::engine::operand::Operand,
+    req_offset: usize,
+    rem_offset: usize,
+    ok_label: &str,
+) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let retry = format!("{symbol}_retry");
+    ctx.instructions.extend([
+        // ms -> relative {tv_sec, tv_nsec}: sec = ms/1000, nsec = (ms%1000)*1e6.
+        // Same split as `emit_thread_deadline`, but RELATIVE (no clock_gettime add).
+        abi::move_register("%v9", ms_reg),
+        abi::move_immediate("%v10", "Integer", "1000"),
+        abi::signed_divide_registers("%v11", "%v9", "%v10"),
+        abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v9"),
+        abi::move_immediate("%v13", "Integer", "1000000"),
+        abi::multiply_registers("%v12", "%v12", "%v13"),
+        abi::store_u64("%v11", abi::stack_pointer(), req_offset),
+        abi::store_u64("%v12", abi::stack_pointer(), req_offset + 8),
+        abi::label(&retry),
+        abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), req_offset), // &req
+        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), rem_offset), // &rem
+    ]);
+    emit_thread_external_call(ctx, "nanosleep")?;
+    ctx.instructions.extend([
+        // 0 = the full sleep elapsed. Non-zero = EINTR (a signal cut it short);
+        // the kernel wrote the leftover into `rem`, so copy rem->req and re-enter
+        // so a signal cannot truncate the sleep. nsec/sec are always in range, so
+        // EINVAL is impossible — any non-zero return is an interrupt.
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_eq(ok_label),
+        abi::load_u64("%v9", abi::stack_pointer(), rem_offset),
+        abi::store_u64("%v9", abi::stack_pointer(), req_offset),
+        abi::load_u64("%v9", abi::stack_pointer(), rem_offset + 8),
+        abi::store_u64("%v9", abi::stack_pointer(), req_offset + 8),
+        abi::branch(&retry),
+    ]);
+    Ok(())
+}
+
 /// plan-91-A: parent-side `thread::sleep(t, ms)`. Blocks the CALLING thread for
 /// `ms` milliseconds via libc `nanosleep` (Win32 `Sleep`) and returns `Nothing`.
 /// This is a plain, uninterruptible wall-clock sleep — it reads nothing from the
@@ -447,7 +594,6 @@ pub(crate) fn lower_thread_sleep_helper(
     let ok = format!("{symbol}_ok");
     let err_arg = format!("{symbol}_invalid");
     let err_closed = format!("{symbol}_closed");
-    let retry = format!("{symbol}_retry");
 
     let mut instructions = Vec::new();
     let mut relocations = Vec::new();
@@ -462,21 +608,8 @@ pub(crate) fn lower_thread_sleep_helper(
         abi::compare_immediate(abi::c_arg(1), "0"),
         abi::branch_lt(&err_arg),
         abi::branch_eq(&ok),
-        // ms -> relative {tv_sec, tv_nsec}: sec = ms/1000, nsec = (ms%1000)*1e6.
-        // Same split as `emit_thread_deadline`, but RELATIVE (no clock_gettime add).
-        abi::move_register("%v9", abi::c_arg(1)),
-        abi::move_immediate("%v10", "Integer", "1000"),
-        abi::signed_divide_registers("%v11", "%v9", "%v10"),
-        abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v9"),
-        abi::move_immediate("%v13", "Integer", "1000000"),
-        abi::multiply_registers("%v12", "%v12", "%v13"),
-        abi::store_u64("%v11", abi::stack_pointer(), REQ_OFFSET),
-        abi::store_u64("%v12", abi::stack_pointer(), REQ_OFFSET + 8),
-        abi::label(&retry),
-        abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), REQ_OFFSET), // &req
-        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), REM_OFFSET), // &rem
     ]);
-    emit_thread_external_call(
+    emit_relative_sleep(
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -484,20 +617,12 @@ pub(crate) fn lower_thread_sleep_helper(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
-        "nanosleep",
+        abi::c_arg(1),
+        REQ_OFFSET,
+        REM_OFFSET,
+        &ok,
     )?;
     instructions.extend([
-        // 0 = the full sleep elapsed. Non-zero = EINTR (a signal cut it short);
-        // the kernel wrote the leftover into `rem`, so copy rem->req and re-enter
-        // so a signal cannot truncate the sleep. nsec/sec are always in range, so
-        // EINVAL is impossible — any non-zero return is an interrupt.
-        abi::compare_immediate(abi::c_return(0), "0"),
-        abi::branch_eq(&ok),
-        abi::load_u64("%v9", abi::stack_pointer(), REM_OFFSET),
-        abi::store_u64("%v9", abi::stack_pointer(), REQ_OFFSET),
-        abi::load_u64("%v9", abi::stack_pointer(), REM_OFFSET + 8),
-        abi::store_u64("%v9", abi::stack_pointer(), REQ_OFFSET + 8),
-        abi::branch(&retry),
         // Nothing return: only the OK tag (no result value), like the stdin wrapper.
         abi::label(&ok),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -1024,6 +1149,16 @@ pub(crate) fn lower_thread_trampoline(
             ARENA_STATE_REGISTER,
             abi::CURRENT_THREAD,
             THREAD_OFFSET_ARENA_STATE,
+        ),
+        // plan-99: publish the TCB back into this worker's arena state, now that
+        // both pinned registers are live. `os::sleep` reads `[arena+8]` to tell a
+        // worker from the main thread (which leaves the zero-init `0` there) and
+        // uses the value as the handle its cancellation-aware wait needs. One
+        // store, once per worker; the main thread's entry path writes nothing.
+        abi::store_u64(
+            abi::CURRENT_THREAD,
+            ARENA_STATE_REGISTER,
+            ARENA_WORKER_THREAD_OFFSET,
         ),
     ];
     let mut relocations = Vec::new();

@@ -78,6 +78,7 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "os.version",
     "os.uptime",
     "os.isAdmin",
+    "os.sleep",
     "io.print",
     "io.write",
     "io.printError",

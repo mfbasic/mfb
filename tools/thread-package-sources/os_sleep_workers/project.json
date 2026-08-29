@@ -1,0 +1,12 @@
+{
+  "name": "os_sleep_workers",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "plan-99 worker package: exported ISOLATED workers that call os::sleep inside a worker, proving it takes the cancellation-aware branch.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "ident": "tests:os-sleep-workers",
+  "identKey": "ed25519-public:test-os-sleep-workers-ident",
+  "identFingerprint": "sha256:test-os-sleep-workers-ident",
+  "signingFingerprint": "sha256:test-os-sleep-workers-signing"
+}

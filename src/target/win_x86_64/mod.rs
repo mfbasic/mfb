@@ -41,6 +41,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "os.name",
     "os.arch",
     "os.pid",
+    "os.sleep",
     "os.cpuCount",
     "os.getEnv",
     "os.getEnvOr",

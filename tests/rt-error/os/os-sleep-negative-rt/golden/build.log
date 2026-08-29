@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/rt-error/os/os-sleep-negative-rt
+Wrote AST to tests/rt-error/os/os-sleep-negative-rt/os_sleep_negative_rt.ast
+Wrote IR to tests/rt-error/os/os-sleep-negative-rt/os_sleep_negative_rt.ir
+[exit 0]
+$ mfb build tests/rt-error/os/os-sleep-negative-rt
+Wrote executable to tests/rt-error/os/os-sleep-negative-rt/build/os_sleep_negative_rt.out
+[exit 0]
+$ tests/rt-error/os/os-sleep-negative-rt/build/os_sleep_negative_rt.out
+Error: 7-705-0002
+Argument value is not valid for the requested operation.
+[exit 255]

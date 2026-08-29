@@ -293,23 +293,91 @@ Commit: 5a4f59dba (census) + this phase's plan update
 Delivers a working `os::sleep` while `thread::sleep` still exists — safe to land
 alone; nothing depends on the removal yet.
 
-- [ ] `src/builtins/os.rs`: add the `os.sleep` source surface (§4.1).
-- [ ] `os_specs.rs` + `catalog.rs`: add `OS_SLEEP_SPEC` (§4.2).
-- [ ] Extract parent/worker sleep bodies into emit-subroutines; add the `os.sleep`
-      helper + dispatch (§4.2). Reuse each target's existing `nanosleep`/`Sleep`.
-- [ ] `runtime_helpers_thread.rs`: store `x20`→`[arena+8]` in the worker
-      trampoline (§4.3).
-- [ ] Tests: `tests/rt-behavior/os/os-sleep-main-rt` — main-thread `os::sleep(50)`
-      returns after ≥ the delay (monotonic check), never raises.
-- [ ] Tests: `tests/rt-behavior/os/os-sleep-worker-cancel-rt` — a worker in
-      `os::sleep(long)` wakes early with `ErrInterrupted` when the parent
-      `thread::cancel`s (mirror the existing `thread-sleep-worker-cancel-rt`).
-- [ ] Tests: `tests/rt-error/os/os-sleep-negative-rt` — `os::sleep(-1)` →
+- [x] `src/codegen/builtins/os/func_sleep.rs`: the `os.sleep` descriptor +
+      authored docs + `Body::abi_function` body, registered from
+      `builtins/os/mod.rs` (§4.1; the path/shape corrections are Correction 1).
+- [x] ~~`os_specs.rs` + `catalog.rs`: add `OS_SLEEP_SPEC`~~ — moot: neither file
+      exists. Runtime specs are DERIVED from the registry
+      (`rg -l 'os_specs|thread_specs' src/` → no matches;
+      `registry::runtime_specs` builds the catalog), so registering the descriptor
+      IS registering the spec. Proven by the working fixtures below.
+- [x] Extract parent/worker sleep bodies into emit-subroutines
+      (`emit_relative_sleep` in `runtime/thread/runtime_helpers.rs`;
+      `emit_cancellable_sleep_wait` + `emit_cancellable_sleep_interrupted` in
+      `runtime_helpers_thread.rs`), add `lower_os_sleep_helper` calling both
+      behind the arena+8 branch. No dispatch arm needed — `Body::abi_function`
+      routes by registry name.
+- [x] `runtime_helpers.rs`: store `%thread`→`[arena+8]` in the worker trampoline,
+      right after the arena register is loaded from the TCB (§4.3), with the new
+      `ARENA_WORKER_THREAD_OFFSET` constant naming the reserved word.
+- [x] **Added task** — per-target wiring the plan did not list: `os.sleep` in each
+      backend's runtime-call surface (`linux_common`/`win_x86_64`/`macos_aarch64`
+      `mod.rs`) and an import arm in each `plan.rs`. `os::sleep` carries BOTH
+      branches in one body, so it declares `nanosleep`/`Sleep` AND the
+      mutex/condvar/clock subset the worker wait uses.
+- [x] **Added task** — `ErrInterrupted`'s message data object is gated on
+      `os.sleep` in `memory/data/data_objects.rs`. Without it an `os::sleep`-only
+      program links no `_mfb_rt_thread_*` symbol, so it misses the standard
+      error-message set and fails with a dangling
+      `_mfb_str_error_interrupted` relocation (the bug-256 class) — hit on the
+      first smoke build.
+- [x] **Added task** — `tools/thread-package-sources/os_sleep_workers`: a new
+      worker package (`sleepThenReturn`, `sleepUntilCancel`,
+      `waitForCancelForever`) calling `os::sleep` inside a worker. A NEW package
+      rather than new members on `thread_runtime_workers`, whose `.mfp` is
+      committed in 26 consumer fixtures (`find tests -name
+      thread_runtime_workers.mfp | wc -l` → 26) that would all have churned.
+- [x] Tests: `tests/rt-behavior/os/os-sleep-main-rt` — main-thread `os::sleep(50)`
+      returns after ≥ the delay (monotonic check), and `os::sleep(0)` is immediate.
+- [x] Tests: `tests/rt-behavior/os/os-sleep-worker-cancel-rt` — a worker in
+      `os::sleep(5000)` wakes early with `ErrInterrupted` when the parent
+      `thread::cancel`s.
+- [x] Tests: `tests/rt-error/os/os-sleep-negative-rt` — `os::sleep(-1)` →
       `ErrInvalidArgument`.
+- [x] **Added task** — `tests/rt-behavior/os/os-sleep-worker-rt`: an uncancelled
+      worker `os::sleep(200)` runs to COMPLETION (the census's fourth fixture; the
+      cancel test alone cannot tell a working wait from one that returns instantly).
+- [x] Unit test `codegen::builtins::os::tests::sleep_resolves_handle_free` — the
+      descriptor half the deleted `resolve_sleep_both_handle_sides` covered:
+      `Integer`→`Nothing`, arity/type negatives, and strict rejection of a thread
+      handle in the `ms` slot.
+- [x] **Added task (bug found, fixed here)** — three hand-written Win64 shims in
+      `emit_windows_thread_call` kept a live value in `c_arg(1)` (rdx) across an
+      `unsigned_divide_registers`, which writes the division REMAINDER there. See
+      Correction 5; without the fix `os::sleep` could not meet this phase's
+      acceptance on Windows.
 
-Acceptance: the three new fixtures pass on all four targets; a worker `os::sleep`
-is demonstrably interruptible and a main-thread `os::sleep` is a plain delay.
-`thread::sleep` still works (untouched).
+Acceptance: the new fixtures pass on all four targets; a worker `os::sleep` is
+demonstrably interruptible and a main-thread `os::sleep` is a plain delay.
+`thread::sleep` still works (untouched). **MET, measured per target:**
+
+| Target | How | Result |
+|---|---|---|
+| macos-aarch64 (host) | `scripts/test-accept.sh target/release/mfb /tmp/p99-accept 'os-sleep-*'` | `acceptance tests passed (4 test(s) ran)` |
+| linux-x86_64 glibc | `FILTER=os-sleep scripts/linux-runtime-proof.sh … 2228 linux-x86_64 glibc` | 4 passed, 0 failed |
+| linux-x86_64 musl | `… 2227 linux-x86_64 musl` | 4 passed, 0 failed |
+| linux-riscv64 musl | `… 2229 linux-riscv64 musl` | 4 passed, 0 failed |
+| windows-x86_64 | built `-target windows-x86_64`, shipped to box 2230, run | `immediate ok/slept ok/done`, `result 5/slept full`, `interrupted`, `ErrInvalidArgument` |
+| linux-aarch64 | `mfb build -target linux-aarch64` (box 2224 is down: "Connection refused") | compiles + links; runtime proof deferred to the box returning |
+
+Commit: 05c7ba6b1
+
+### Phase 1.5 — Windows uncaught-error code line (found in Phase 1)
+
+An unlisted prerequisite discovered by Phase 1's Windows acceptance run: the
+`os-sleep-negative-rt` fixture's expected output includes the error CODE line, and
+on Windows that line renders empty. Not a sleep bug (Correction 6), but Phase 2
+migrates this exact fixture, so its golden must be honest on every target.
+
+- [ ] Root-cause the empty `Error: ` code line on Windows (repro on box 2230:
+      `os_sleep_negative_rt.exe` prints `Error: ` then the correct message; macOS
+      prints `Error: 7-705-0002`).
+- [ ] Fix it, or — if the fix is genuinely a separate subsystem's work — file it
+      with `write-bug` and record the bug number here.
+- [ ] Re-run the rt-error fixtures on box 2230.
+
+Acceptance: an uncaught runtime error on Windows prints its dotted code, matching
+macOS/Linux; the rt-error fixtures' `build.log` tail reproduces on box 2230.
 Commit: —
 
 ### Phase 2 — Remove `thread::sleep` + migrate (largest blast radius last)
@@ -418,6 +486,44 @@ Commit: —
    syntax fixtures, plus 2 `tools/thread-package-sources` package sources that
    need `scripts/sync-package-mfp.sh` re-run — the plan never mentions the `.mfp`
    re-sync, and a stale committed `.mfp` is silently mis-lowered.
+
+5. **Three pre-existing Win64 shim bugs blocked this plan's Windows acceptance —
+   fixed here.** `emit_windows_thread_call` names ABI tokens directly, so its values
+   land on the Win64 call bank (`c_arg(1)` = **rdx**). The x86-64 `div` expansion
+   writes the quotient to rax and the REMAINDER to rdx (`div_seq`), and that is only
+   sound for ALLOCATED code — rax/rcx/rdx are never allocatable
+   (`implicit_clobber_registers_are_never_allocatable`), but hand-written token code
+   is outside that guarantee. Three arms parked a live value in `c_arg(1)` across a
+   divide:
+
+   - `nanosleep` — the `sec*1000` term was destroyed, so a Windows sleep of a whole
+     second or more slept only `ms % 1000`. Measured on box 2230 BEFORE the fix:
+     `main os::sleep(1500) measured ms: 505`; after: `1505`.
+   - `clock_gettime` — the `1e7` scale was destroyed, so `tv_nsec` was garbage and
+     EVERY absolute deadline built by `emit_thread_deadline` was wrong.
+   - `pthread_cond_timedwait` — this arm also *ignored* `abstime` entirely and polled
+     a fixed 20 ms, on the stated theory that "the shared callers loop on their own
+     deadline, re-checking the predicate after each wake". That theory is FALSE:
+     every caller treats a non-zero return as "the deadline elapsed". So on Windows
+     every timed wait expired ~20 ms in — a worker `thread::sleep(t, 200)` returned
+     in ~20 ms and a bounded `thread::send`/`receive` gave up 20 ms into its timeout.
+     The arm now honors `abstime` (and keeps its own math off `c_arg(1)`).
+
+   **Pre-existing, verified at main tip 5f17afd7c** (`git worktree add --detach
+   /tmp/p99-head main`, release build, `-target windows-x86_64` build of the
+   UNCHANGED `tests/rt-behavior/threads/thread-sleep-worker-cancel-rt`, run on box
+   2230): printed `no interrupt 0`, not its golden's `interrupted`. Measured after
+   the fix: `worker os::sleep(200) measured ms: 205`,
+   `worker thread::sleep(200) measured ms: 211`, and the fixture prints
+   `interrupted`. Fixed here per AGENTS.md ("never leave a bug you found") and
+   because Phase 1's acceptance ("passes on all four targets") is unreachable
+   without it.
+
+6. **Windows renders an uncaught runtime error's CODE line empty** — `Error: `
+   instead of `Error: 7-705-0002`, with the message line correct. Confirmed
+   pre-existing and unrelated to sleep at main tip 5f17afd7c (the untouched
+   `thread-sleep-negative-rt`, built by the main-tip compiler, prints the same on box
+   2230). Tracked as its own defect — see Phase 1.5.
 
 ## Summary
 

@@ -427,6 +427,29 @@ impl LinuxPlan<'_> {
             // pthread set is pulled by `thread.start` (needed to obtain the handle).
             // Gating nanosleep to this call keeps non-sleep programs byte-identical.
             "thread.sleep" => vec![self.libc_import("nanosleep", required_by)],
+            // plan-99: `os::sleep` carries BOTH sleep branches in one body — the
+            // main-thread relative `nanosleep` and the worker's cancellation-aware
+            // condvar wait — so it declares the libc sleep AND the subset of the
+            // pthread set that wait touches. The rest of the thread set is pulled
+            // by `thread.start` in any program that actually spawns a worker.
+            "os.sleep" => {
+                let mut imports = vec![self.libc_import("nanosleep", required_by)];
+                imports.extend(
+                    [
+                        "pthread_mutex_lock",
+                        "pthread_mutex_unlock",
+                        "pthread_cond_timedwait",
+                        "clock_gettime",
+                    ]
+                    .into_iter()
+                    .map(|symbol| PlatformImport {
+                        library: self.libpthread().to_string(),
+                        symbol: symbol.to_string(),
+                        required_by: required_by.to_string(),
+                    }),
+                );
+                imports
+            }
             "thread.start"
             | "thread.isRunning"
             | "thread.waitFor"

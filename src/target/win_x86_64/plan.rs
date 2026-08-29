@@ -183,6 +183,19 @@ impl NativePlanPlatform for Platform {
             "os.cpuCount" => vec![import("GetSystemInfo", KERNEL32, required_by)],
             "os.version" => vec![import("RtlGetVersion", "ntdll", required_by)],
             "os.uptime" => vec![import("GetTickCount64", KERNEL32, required_by)],
+            // plan-99: `os::sleep` carries BOTH sleep branches in one body. The
+            // main-thread branch is the shared relative-`nanosleep` block, which
+            // `emit_windows_thread_call` maps to `Sleep(dwMilliseconds)`; the worker
+            // branch is the condvar wait, whose `pthread_mutex_lock`/`unlock`/
+            // `cond_timedwait`/`clock_gettime` map to the SRW + condition-variable
+            // + precise-time set below.
+            "os.sleep" => vec![
+                import("Sleep", KERNEL32, required_by),
+                import("AcquireSRWLockExclusive", KERNEL32, required_by),
+                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
+                import("SleepConditionVariableSRW", KERNEL32, required_by),
+                import("GetSystemTimePreciseAsFileTime", KERNEL32, required_by),
+            ],
             "os.isAdmin" => vec![import("IsUserAnAdmin", "shell32", required_by)],
             "os.getEnv" | "os.getEnvOr" | "os.hasEnv" | "os.setEnv" | "os.unsetEnv" => vec![
                 import("AcquireSRWLockExclusive", KERNEL32, required_by),

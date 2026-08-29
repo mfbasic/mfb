@@ -814,14 +814,120 @@ pub(crate) fn simple_thread_handle_helper(
     Ok((instructions, relocations, FRAME_SIZE))
 }
 
+/// The caller-frame slots [`emit_cancellable_sleep_wait`] addresses: the thread
+/// control block it waits on, the requested `ms`, the scratch word it parks the
+/// inbound-queue pointer in, and the 16-byte absolute `timespec` deadline.
+pub(crate) struct CancellableSleepSlots {
+    pub(crate) handle: usize,
+    pub(crate) timeout: usize,
+    pub(crate) queue: usize,
+    pub(crate) timespec: usize,
+}
+
+/// plan-99: the cancellation-aware wait shared by the worker `thread::sleep` and
+/// the worker branch of `os::sleep`. Waits on the worker's inbound not-empty
+/// condvar — the one `thread::cancel` broadcasts — until the ABSOLUTE deadline
+/// `now + ms`, so a parent `send` arriving mid-sleep re-loops without shortening
+/// it, while a pending cancellation branches to `interrupted_label` promptly.
+///
+/// The caller has already validated `ms` (`< 0` rejected, `== 0` short-circuited),
+/// parked it at `slots.timeout`, and parked the thread control block at
+/// `slots.handle`. This block FALLS THROUGH once the deadline is reached (with the
+/// queue mutex released), so the caller must place its `ok` epilogue immediately
+/// after it; the `interrupted_label` block is emitted separately by
+/// [`emit_cancellable_sleep_interrupted`], because in the stream it belongs *after*
+/// that epilogue.
+pub(crate) fn emit_cancellable_sleep_wait(
+    ctx: &mut EmitCtx,
+    slots: CancellableSleepSlots,
+    interrupted_label: &str,
+) -> Result<(), String> {
+    let wait_loop = format!("{}_wait_loop", ctx.symbol);
+    let deadline_reached = format!("{}_deadline_reached", ctx.symbol);
+    // Absolute deadline = now + ms (pthread_cond_timedwait consumes it).
+    emit_thread_deadline(ctx, slots.timeout, slots.timespec)?;
+    // Lock the inbound queue mutex (the queue base pointer IS the mutex — offset 0).
+    ctx.instructions.extend([
+        abi::load_u64("%v8", abi::stack_pointer(), slots.handle),
+        abi::load_u64("%v9", "%v8", THREAD_OFFSET_INBOUND_QUEUE),
+        abi::store_u64("%v9", abi::stack_pointer(), slots.queue),
+        abi::move_register(abi::c_arg(0), "%v9"),
+    ]);
+    emit_thread_external_call(ctx, "pthread_mutex_lock")?;
+    ctx.instructions.extend([
+        abi::label(&wait_loop),
+        // Cancellation requested? wake and fail with ErrInterrupted (poll parity
+        // with the worker receive path).
+        abi::load_u64("%v8", abi::stack_pointer(), slots.handle),
+        abi::load_u64("%v10", "%v8", THREAD_OFFSET_CANCELLED),
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_ne(interrupted_label),
+        // Wait on the inbound not-empty condvar until the absolute deadline.
+        abi::load_u64("%v9", abi::stack_pointer(), slots.queue),
+        abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::move_register(abi::c_arg(1), "%v9"), // mutex = queue base
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), slots.timespec),
+    ]);
+    emit_thread_external_call(ctx, "pthread_cond_timedwait")?;
+    ctx.instructions.extend([
+        // Non-zero (ETIMEDOUT) = the absolute deadline elapsed → the sleep is done.
+        // Zero = a spurious/broadcast wake (a parent `send`, or `cancel`); re-loop
+        // to re-check the cancel flag. The absolute deadline is unchanged, so a
+        // send never shortens the sleep.
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_ne(&deadline_reached),
+        abi::branch(&wait_loop),
+        abi::label(&deadline_reached),
+        abi::load_u64("%v9", abi::stack_pointer(), slots.queue),
+        abi::move_register(abi::c_arg(0), "%v9"),
+    ]);
+    emit_thread_external_call(ctx, "pthread_mutex_unlock")?;
+    Ok(())
+}
+
+/// plan-99: the `interrupted_label` tail of [`emit_cancellable_sleep_wait`] —
+/// release the queue mutex and set the `ErrInterrupted` result. The caller appends
+/// the `return_` (it owns the epilogue ordering).
+pub(crate) fn emit_cancellable_sleep_interrupted(
+    ctx: &mut EmitCtx,
+    queue_offset: usize,
+    interrupted_label: &str,
+) -> Result<(), String> {
+    ctx.instructions.extend([
+        abi::label(interrupted_label),
+        abi::load_u64("%v9", abi::stack_pointer(), queue_offset),
+        abi::move_register(abi::c_arg(0), "%v9"),
+    ]);
+    emit_thread_external_call(ctx, "pthread_mutex_unlock")?;
+    ctx.instructions.extend([
+        abi::move_immediate(
+            RESULT_VALUE_REGISTER,
+            "Integer",
+            crate::codegen::registry::runtime_error("ErrInterrupted")
+                .expect("errorCode name")
+                .0,
+        ),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        ctx.symbol,
+        crate::codegen::registry::runtime_error_emission("ErrInterrupted")
+            .expect("errorCode name")
+            .1,
+        ctx.instructions,
+        ctx.relocations,
+    );
+    Ok(())
+}
+
 /// plan-91-B: worker-side `thread::sleep(t, ms)` — a cancellation-aware delay.
 /// Unlike the parent form's plain `nanosleep`, this waits on the worker's inbound
 /// queue not-empty condvar (the same one `thread::cancel` broadcasts), so a
 /// pending cancellation wakes it promptly and it returns `ErrInterrupted`; a
 /// spurious wake (a parent `send` broadcasts not-empty) does NOT shorten the
-/// sleep because the deadline is absolute. Reuses `emit_thread_deadline` and the
-/// `ThreadReadMode::WorkerSelf` lock/wait/cancel structure (see
-/// `thread_queue_read_helper`). `ms < 0` → `ErrInvalidArgument`; `ms == 0` → no-op.
+/// sleep because the deadline is absolute. The wait itself is
+/// [`emit_cancellable_sleep_wait`], shared with `os::sleep` (plan-99).
+/// `ms < 0` → `ErrInvalidArgument`; `ms == 0` → no-op.
 pub(crate) fn lower_thread_sleep_worker_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -837,8 +943,6 @@ pub(crate) fn lower_thread_sleep_worker_helper(
 
     let ok = format!("{symbol}_ok");
     let err_arg = format!("{symbol}_invalid");
-    let wait_loop = format!("{symbol}_wait_loop");
-    let deadline_reached = format!("{symbol}_deadline_reached");
     let interrupted = format!("{symbol}_interrupted");
 
     let mut instructions = Vec::new();
@@ -851,8 +955,7 @@ pub(crate) fn lower_thread_sleep_worker_helper(
         abi::branch_lt(&err_arg),
         abi::branch_eq(&ok),
     ]);
-    // Absolute deadline = now + ms (pthread_cond_timedwait consumes it).
-    emit_thread_deadline(
+    emit_cancellable_sleep_wait(
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -860,82 +963,21 @@ pub(crate) fn lower_thread_sleep_worker_helper(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
-        TIMEOUT_OFFSET,
-        TIMESPEC_OFFSET,
-    )?;
-    // Lock the inbound queue mutex (the queue base pointer IS the mutex — offset 0).
-    instructions.extend([
-        abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-        abi::load_u64("%v9", "%v8", THREAD_OFFSET_INBOUND_QUEUE),
-        abi::store_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
-        abi::move_register(abi::c_arg(0), "%v9"),
-    ]);
-    emit_thread_external_call(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
+        CancellableSleepSlots {
+            handle: HANDLE_OFFSET,
+            timeout: TIMEOUT_OFFSET,
+            queue: QUEUE_OFFSET,
+            timespec: TIMESPEC_OFFSET,
         },
-        "pthread_mutex_lock",
-    )?;
-    instructions.extend([
-        abi::label(&wait_loop),
-        // Cancellation requested? wake and fail with ErrInterrupted (poll parity
-        // with the worker receive path).
-        abi::load_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
-        abi::load_u64("%v10", "%v8", THREAD_OFFSET_CANCELLED),
-        abi::compare_immediate("%v10", "0"),
-        abi::branch_ne(&interrupted),
-        // Wait on the inbound not-empty condvar until the absolute deadline.
-        abi::load_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
-        abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
-        abi::move_register(abi::c_arg(1), "%v9"), // mutex = queue base
-        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), TIMESPEC_OFFSET),
-    ]);
-    emit_thread_external_call(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        "pthread_cond_timedwait",
-    )?;
-    instructions.extend([
-        // Non-zero (ETIMEDOUT) = the absolute deadline elapsed → the sleep is done.
-        // Zero = a spurious/broadcast wake (a parent `send`, or `cancel`); re-loop
-        // to re-check the cancel flag. The absolute deadline is unchanged, so a
-        // send never shortens the sleep.
-        abi::compare_immediate(abi::c_return(0), "0"),
-        abi::branch_ne(&deadline_reached),
-        abi::branch(&wait_loop),
-        abi::label(&deadline_reached),
-        abi::load_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
-        abi::move_register(abi::c_arg(0), "%v9"),
-    ]);
-    emit_thread_external_call(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        "pthread_mutex_unlock",
+        &interrupted,
     )?;
     instructions.extend([
         // Nothing return: only the OK tag.
         abi::label(&ok),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::return_(),
-        abi::label(&interrupted),
-        abi::load_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
-        abi::move_register(abi::c_arg(0), "%v9"),
     ]);
-    emit_thread_external_call(
+    emit_cancellable_sleep_interrupted(
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -943,13 +985,16 @@ pub(crate) fn lower_thread_sleep_worker_helper(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
-        "pthread_mutex_unlock",
+        QUEUE_OFFSET,
+        &interrupted,
     )?;
     instructions.extend([
+        abi::return_(),
+        abi::label(&err_arg),
         abi::move_immediate(
             RESULT_VALUE_REGISTER,
             "Integer",
-            crate::codegen::registry::runtime_error("ErrInterrupted")
+            crate::codegen::registry::runtime_error("ErrInvalidArgument")
                 .expect("errorCode name")
                 .0,
         ),
@@ -957,12 +1002,126 @@ pub(crate) fn lower_thread_sleep_worker_helper(
     ]);
     push_error_message_address(
         symbol,
-        crate::codegen::registry::runtime_error_emission("ErrInterrupted")
+        crate::codegen::registry::runtime_error_emission("ErrInvalidArgument")
             .expect("errorCode name")
             .1,
         &mut instructions,
         &mut relocations,
     );
+    instructions.push(abi::return_());
+    Ok((instructions, relocations, FRAME_SIZE))
+}
+
+/// plan-99: `os::sleep(ms)` — the handle-free, context-aware sleep. Blocks the
+/// CALLING thread for at least `ms` milliseconds, whichever thread that is:
+///
+///   - on the main thread it is a plain, uninterruptible relative delay
+///     ([`emit_relative_sleep`], libc `nanosleep` / Win32 `Sleep`) with no wakeup
+///     path at all — byte-for-byte what the parent `thread::sleep` did;
+///   - inside a worker it is the cancellation-aware condvar wait
+///     ([`emit_cancellable_sleep_wait`]), so `thread::cancel` wakes it early with
+///     `ErrInterrupted` and a parent `send` does not shorten it.
+///
+/// The two are told apart by the TCB back-pointer the worker trampoline publishes
+/// at [`ARENA_WORKER_THREAD_OFFSET`]: `0` (the main thread's zero-init default)
+/// takes the plain delay, non-zero takes the wait — and that non-zero value IS the
+/// control block the wait needs, so no handle argument is required.
+///
+/// `ms < 0` → `ErrInvalidArgument`; `ms == 0` returns immediately without reading
+/// the arena at all. There is no `ErrResourceClosed`: `os::sleep` owns no handle.
+pub(crate) fn lower_os_sleep_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<ThreadBodyParts, String> {
+    const FRAME_SIZE: usize = 80;
+    // Worker-branch slots (see `CancellableSleepSlots`).
+    const HANDLE_OFFSET: usize = 8;
+    const TIMEOUT_OFFSET: usize = 16;
+    const QUEUE_OFFSET: usize = 24;
+    const TIMESPEC_OFFSET: usize = 32;
+    // Main-thread-branch slots: the relative `req`/`rem` timespec pair. Disjoint
+    // from the worker slots above — only one branch ever runs, but keeping them
+    // separate keeps each block readable on its own.
+    const REQ_OFFSET: usize = 48;
+    const REM_OFFSET: usize = 64;
+
+    let ok = format!("{symbol}_ok");
+    let err_arg = format!("{symbol}_invalid");
+    let worker = format!("{symbol}_worker");
+    let interrupted = format!("{symbol}_interrupted");
+
+    let mut instructions = Vec::new();
+    let mut relocations = Vec::new();
+    instructions.extend([
+        // ms validation first: `< 0` rejects and `== 0` is an immediate no-op Ok,
+        // so a zero sleep never touches the arena or a queue lock.
+        abi::compare_immediate(abi::c_arg(0), "0"),
+        abi::branch_lt(&err_arg),
+        abi::branch_eq(&ok),
+        // Park `ms` for the worker branch (`emit_cancellable_sleep_wait` reads it
+        // from the frame); the main-thread branch reads it straight out of c_arg(0),
+        // which nothing below clobbers before `emit_relative_sleep` copies it.
+        abi::store_u64(abi::c_arg(0), abi::stack_pointer(), TIMEOUT_OFFSET),
+        // Am I a worker? The trampoline published this thread's control block at
+        // arena+8; the main thread's is the zero-init 0. Park it for the worker
+        // branch rather than holding it in a vreg across the main-thread branch's
+        // `nanosleep` call (a hand-picked `%vN` here is caller-saved).
+        abi::load_u64("%v8", ARENA_STATE_REGISTER, ARENA_WORKER_THREAD_OFFSET),
+        abi::store_u64("%v8", abi::stack_pointer(), HANDLE_OFFSET),
+        abi::compare_immediate("%v8", "0"),
+        abi::branch_ne(&worker),
+    ]);
+    // Main thread: a plain relative delay; leaves this block only via `ok`.
+    emit_relative_sleep(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        abi::c_arg(0),
+        REQ_OFFSET,
+        REM_OFFSET,
+        &ok,
+    )?;
+    // Worker: the cancellation-aware wait, on the control block parked above.
+    instructions.push(abi::label(&worker));
+    emit_cancellable_sleep_wait(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        CancellableSleepSlots {
+            handle: HANDLE_OFFSET,
+            timeout: TIMEOUT_OFFSET,
+            queue: QUEUE_OFFSET,
+            timespec: TIMESPEC_OFFSET,
+        },
+        &interrupted,
+    )?;
+    instructions.extend([
+        // Nothing return: only the OK tag (no result value). Reached by falling out
+        // of the worker wait, and by branch from the main-thread delay and `ms == 0`.
+        abi::label(&ok),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::return_(),
+    ]);
+    emit_cancellable_sleep_interrupted(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        QUEUE_OFFSET,
+        &interrupted,
+    )?;
     instructions.extend([
         abi::return_(),
         abi::label(&err_arg),

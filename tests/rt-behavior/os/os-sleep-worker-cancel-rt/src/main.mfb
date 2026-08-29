@@ -1,0 +1,29 @@
+' plan-99: an `os::sleep` in progress INSIDE A WORKER wakes early and fails with
+' ErrInterrupted (77050009) when the parent requests cancellation — the handle-free
+' call finds the worker's control block at arena+8 and takes the cancellation-aware
+' branch. The worker `sleepUntilCancel` starts a 5000 ms sleep; the parent waits
+' ~50 ms (its own plain main-thread `os::sleep`), cancels, then `waitFor`
+' auto-propagates the worker's ErrInterrupted — caught here well before the 5000 ms
+' would elapse. A worker sleep wrongly taking the main-thread branch would instead
+' run the full 5000 ms and return 0 → "no interrupt".
+IMPORT io
+IMPORT os
+IMPORT thread
+IMPORT os_sleep_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(os_sleep_workers::sleepUntilCancel, "seed")
+  os::sleep(50)
+  thread::cancel(t)
+  LET r AS Integer = thread::waitFor(t)
+  io::print("no interrupt " & toString(r))
+  RETURN 1
+  TRAP(err)
+    IF err.code = 77050009 THEN
+      io::print("interrupted")
+      RETURN 0
+    END IF
+    io::print("wrong " & toString(err.code))
+    RETURN 1
+  END TRAP
+END FUNC
