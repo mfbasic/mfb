@@ -228,30 +228,37 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "Light",
                 description: "Thin single line (─ │).",
+                advisory: None,
             },
             EnumVariant {
                 name: "Heavy",
                 description: "Thick single line (━ ┃).",
+                advisory: None,
             },
             EnumVariant {
                 name: "LightDash",
                 description: "Thin triple-dash line (┄ ┆).",
+                advisory: None,
             },
             EnumVariant {
                 name: "HeavyDash",
                 description: "Thick triple-dash line (┅ ┇).",
+                advisory: None,
             },
             EnumVariant {
                 name: "LightDot",
                 description: "Thin quadruple-dot line (┈ ┊).",
+                advisory: None,
             },
             EnumVariant {
                 name: "HeavyDot",
                 description: "Thick quadruple-dot line (┉ ┋).",
+                advisory: None,
             },
             EnumVariant {
                 name: "Double",
                 description: "Double line (═ ║).",
+                advisory: None,
             },
         ],
     });
@@ -264,26 +271,32 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "Filled",
                 description: "Solid full block (█).",
+                advisory: None,
             },
             EnumVariant {
                 name: "Light",
                 description: "Light shade (░).",
+                advisory: None,
             },
             EnumVariant {
                 name: "Medium",
                 description: "Medium shade (▒).",
+                advisory: None,
             },
             EnumVariant {
                 name: "Dark",
                 description: "Dark shade (▓).",
+                advisory: None,
             },
             EnumVariant {
                 name: "Checker",
                 description: "Upper-left + lower-right quadrants (▚).",
+                advisory: None,
             },
             EnumVariant {
                 name: "CheckerAlt",
                 description: "Upper-right + lower-left quadrants (▞).",
+                advisory: None,
             },
         ],
     });
