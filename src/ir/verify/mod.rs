@@ -183,6 +183,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "NATIVE_ABI_NO_RESULT",
     "NATIVE_ABI_RESULT_MARKER",
     "NATIVE_ABI_UNBOUND_PARAM",
+    "NATIVE_BIND_IN_INVALID",
 ];
 
 /// Diagnostic prefixes shared with the structural `verify_package` checks so a

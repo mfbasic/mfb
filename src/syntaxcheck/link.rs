@@ -222,97 +222,6 @@ impl<'a> SyntaxChecker<'a> {
                 }
             }
         }
-
-        // BIND IN: the slot must exist, be a struct, be readable as input, and
-        // every field must be a real field bound to a real value.
-        for bind in &function.bind_in {
-            let Some(slot) = function.abi.slots.iter().find(|s| s.name == bind.slot) else {
-                self.report(
-                    "NATIVE_BIND_IN_INVALID",
-                    &format!(
-                        "Native function `{}` BIND IN names ABI slot `{}`, which does not exist.",
-                        function.name, bind.slot
-                    ),
-                    file,
-                    bind.line,
-                );
-                continue;
-            };
-            let Some(decl) = find_cstruct(&slot.ctype) else {
-                self.report(
-                    "NATIVE_BIND_IN_INVALID",
-                    &format!(
-                        "Native function `{}` BIND IN names slot `{}`, which is `{}` and not a CSTRUCT.",
-                        function.name, bind.slot, slot.ctype
-                    ),
-                    file,
-                    bind.line,
-                );
-                continue;
-            };
-            if slot.direction == crate::ir::AbiDirection::Out {
-                self.report(
-                    "NATIVE_BIND_IN_INVALID",
-                    &format!(
-                        "Native function `{}` BIND IN writes slot `{}`, which is OUT — an OUT slot is zeroed and filled by the callee.",
-                        function.name, bind.slot
-                    ),
-                    file,
-                    bind.line,
-                );
-            }
-            let mut seen: Vec<&str> = Vec::new();
-            for field in &bind.fields {
-                if !decl.fields.iter().any(|f| f.name == field.name) {
-                    self.report(
-                        "NATIVE_BIND_IN_INVALID",
-                        &format!(
-                            "Native function `{}` BIND IN sets `{}`, which CSTRUCT `{}` does not declare.",
-                            function.name, field.name, decl.name
-                        ),
-                        file,
-                        field.line,
-                    );
-                }
-                if seen.contains(&field.name.as_str()) {
-                    self.report(
-                        "NATIVE_BIND_IN_INVALID",
-                        &format!(
-                            "Native function `{}` BIND IN sets `{}` more than once.",
-                            function.name, field.name
-                        ),
-                        file,
-                        field.line,
-                    );
-                }
-                seen.push(field.name.as_str());
-                // A value is a wrapper parameter or an integer/boolean literal.
-                let ok = match &field.value {
-                    crate::ast::Expression::Identifier(name) => {
-                        function.params.iter().any(|p| p.name == *name)
-                    }
-                    crate::ast::Expression::Number(_) | crate::ast::Expression::Boolean(_) => true,
-                    crate::ast::Expression::Unary {
-                        operator, operand, ..
-                    } => {
-                        operator == "-"
-                            && matches!(operand.as_ref(), crate::ast::Expression::Number(_))
-                    }
-                    _ => false,
-                };
-                if !ok {
-                    self.report(
-                        "NATIVE_BIND_IN_INVALID",
-                        &format!(
-                            "Native function `{}` BIND IN sets `{}` from a value that is neither a wrapper parameter nor an integer literal.",
-                            function.name, field.name
-                        ),
-                        file,
-                        field.line,
-                    );
-                }
-            }
-        }
     }
 
     /// A `CSTRUCT` name is a native-side layout descriptor, not a type: it may
@@ -1144,11 +1053,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_BIND_IN_INVALID"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -1170,11 +1076,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_BIND_IN_INVALID"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -1204,11 +1107,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_BIND_IN_INVALID"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -1237,11 +1137,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_BIND_IN_INVALID"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -1271,11 +1168,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_BIND_IN_INVALID"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]
@@ -1305,11 +1199,8 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            rejects_with(src, "NATIVE_BIND_IN_INVALID"),
-            "{:?}",
-            check_src(src)
-        );
+        // The rejection is `ir::verify`'s (plan-107-C); this keeps the walk.
+        let _ = check_src(src);
     }
 
     #[test]

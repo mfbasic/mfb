@@ -17,6 +17,12 @@ tests/syntax/native/native-struct-slot-invalid/src/lib.mfb:39 error[2-203-0127 N
      | ^
 tests/syntax/native/native-struct-slot-invalid/src/lib.mfb:47 error[2-203-0094 NATIVE_ABI_UNBOUND_SLOT]: an ABI slot binds to no parameter, CONST pin, or result marker
                Native function `f3` ABI slot `s` does not bind to a parameter, CONST pin, or an OUT buffer.
+  87 |   FUNC f7(n AS Integer) AS Nothing
+  88 |     SYMBOL "demo_f7"
+  89 |     ABI (n INOUT CInt32) AS status CInt32
+     | ^
+tests/syntax/native/native-struct-slot-invalid/src/lib.mfb:89 error[2-203-0123 NATIVE_ABI_UNKNOWN_CTYPE]: an ABI slot or return names a C type the marshaling backend does not implement
+               Native function `f7` ABI slot `n` is INOUT but `CInt32` is not a CSTRUCT; INOUT is meaningful only for a struct.
   46 |     SYMBOL "demo_f3"
   47 |     ABI (s IN Good) AS status CInt32
   48 |     BIND IN nope
@@ -35,12 +41,6 @@ tests/syntax/native/native-struct-slot-invalid/src/lib.mfb:59 error[2-203-0128 N
      | ^
 tests/syntax/native/native-struct-slot-invalid/src/lib.mfb:68 error[2-203-0128 NATIVE_BIND_IN_INVALID]: a BIND IN block names an unknown slot or field, or binds a value it cannot marshal
                Native function `f5` BIND IN writes slot `s`, which is OUT — an OUT slot is zeroed and filled by the callee.
-  87 |   FUNC f7(n AS Integer) AS Nothing
-  88 |     SYMBOL "demo_f7"
-  89 |     ABI (n INOUT CInt32) AS status CInt32
-     | ^
-tests/syntax/native/native-struct-slot-invalid/src/lib.mfb:89 error[2-203-0123 NATIVE_ABI_UNKNOWN_CTYPE]: an ABI slot or return names a C type the marshaling backend does not implement
-               Native function `f7` ABI slot `n` is INOUT but `CInt32` is not a CSTRUCT; INOUT is meaningful only for a struct.
   76 |   FUNC f6(n AS Integer) AS Ok2
   77 |     SYMBOL "demo_f6"
   78 |     ABI (s IN Good) AS status CInt32
