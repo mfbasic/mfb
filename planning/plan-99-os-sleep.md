@@ -37,8 +37,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| Arena-state offset +8 is the reserved zero-init word | `mfb spec memory arenas` → `+8 U64 reserved ; zero-initialized` | MET |
-| No source program in-tree calls `thread::sleep` in a way the migration can't mechanically rewrite | `rg -l 'thread::sleep' tests/ examples/ 2>/dev/null` | UNMEASURED — Phase 0 |
+| Arena-state offset +8 is the reserved zero-init word | `grep -n '+8' src/docs/spec/memory/04_arenas.md` → `+8 U64 reserved ; zero-initialized`; no constant maps to +8 (`sed -n 330,480p src/codegen/error/constants/error_constants.rs`) and the only raw arena-register literals are 0 and 32 (`rg -no 'ARENA_STATE_REGISTER,\s*[0-9]+' src/ \| sed 's/.*,\s*//' \| sort -nu` → `0`, `32`) | **MET** (re-measured 2026-08-29) |
+| No source program in-tree calls `thread::sleep` in a way the migration can't mechanically rewrite | `rg -l 'thread::sleep' --glob '*.mfb' .` → 10 files, all `(handle, ms)` → `(ms)` drops | **MET** (Phase 0 census below; every hit is a mechanical rewrite) |
 
 Everything below is written against the world where +8 is free and reusable. If a
 future change has claimed +8 (re-run the spec command), this plan appends a new
@@ -121,9 +121,9 @@ register (`x19`) and the current-thread register (`x20` = the TCB) —
 |---|---|---|
 | `thread.rs` lines referencing `SLEEP`/`P_SLEEP` | 17 | `rg -c 'SLEEP\|P_SLEEP' src/builtins/thread.rs → 17` |
 | Native sleep helper bodies to fold | 2 | `lower_thread_sleep_helper`, `lower_thread_sleep_worker_helper` (rg -n 'fn lower_thread_sleep' src/target → 2) |
-| Existing sleep test fixtures to migrate | 2 | `thread-sleep-negative-rt`, `thread-sleep-worker-cancel-rt` (`ls tests/rt-error/threads tests/rt-behavior/threads \| rg sleep`) |
-| `os` man pages (add `sleep.md`) | 16 present | `ls src/docs/man/builtins/os/*.md \| wc -l → 16` |
-| In-tree `thread::sleep` source callers | UNMEASURED | `rg -l 'thread::sleep' tests/ examples/` — Phase 0 |
+| Existing sleep test fixtures to migrate | **7** (4 rt + 3 syntax), not 2 | `rg -l 'thread::sleep' --glob '*.mfb' tests/` — see Corrections |
+| `os` man pages (add `sleep.md`) | **0 — moot** | `ls src/docs/man/builtins/` → no such dir; member docs are registry descriptor fields (`intro`/`desc`/`example`), see Corrections |
+| In-tree `thread::sleep` `.mfb` callers | **10 files** | `rg -l 'thread::sleep' --glob '*.mfb' .` |
 
 ### Verified properties
 
