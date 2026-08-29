@@ -160,15 +160,16 @@ moves; split rules re-pin (listed).
 
 ### Phase 1 — the (S) ports + split rules
 
-- [~] Fixtures first for the zero-fixture rows (23–28 as `mfb test`
+- [x] Fixtures first for the zero-fixture rows (23–28 as `mfb test`
       fixtures; 31 both forms; 41).
       (23–28: `tests/syntax/testing/testing-assert-invalid` already carries
       every TESTING_EXPECT_* rule but NOT_PRINTABLE in its
       `golden/testing_assert.testrun` (`mfb test` proof; `diag-set-diff.sh`
       now reads `.testrun` goldens, C-harness-test-verb) — the NOT_PRINTABLE
       case (`expectEqual(m, m)` on a Map) added and its `.testrun`/`.ast`
-      goldens regenerated with the pre-port binary; 41: moot, see C-41-moot.
-      Remaining: a TYPE_DUPLICATE_FIELD fixture with both forms.)
+      goldens regenerated with the pre-port binary; 41: moot, see C-41-moot;
+      31: `tests/syntax/types/types-duplicate-field-invalid` carries both
+      forms (constructor + WITH), golden generated with the pre-port binary.)
 - [~] Pure-(S) rules, one commit each (rows 3, 4, 6, 23–28, 33, 38, 41), each
       with its erased-evidence doc line; corpus SAME (order-neutral) per
       commit.
@@ -185,7 +186,7 @@ moves; split rules re-pin (listed).
       Row 6 (MONEY_INEXACT_FLOAT_LITERAL, Warn) landed: the literal's
       SPELLING is the evidence (`1.08` vs `1.08f` lower to the same Float
       const); corpus 522 same. All pure-(S) rows done.)
-- [~] Split rules, one commit each (rows 22, 31, 39, 46): shape half + verify
+- [x] Split rules, one commit each (rows 22, 31, 39, 46): shape half + verify
       half confirmed/ported + list entry + syntaxcheck deletion; corpus
       set-equal, reorders listed.
       (22, 39, 46 landed with the control-flow group (C-one-commit); the
@@ -195,7 +196,14 @@ moves; split rules re-pin (listed).
       continue-loop-invalid`, `control-flow/exit-loop-invalid`,
       `functions/sub-value-less-invalid`, `trap/control-flow-inline-trap-
       invalid` — the fixtures carrying the relocated rules; all four goldens
-      regenerated as pure line moves), 0 set-diff. Remaining: 31.)
+      regenerated as pure line moves), 0 set-diff. Row 31 landed: the
+      constructor form is shape's (lowering reorders named arguments into
+      field order — the last spelling wins — so the repetition is gone),
+      gated on a declared visible record as the checker's
+      `check_constructor_arguments` was; verify's WITH form now emits on the
+      source path. Corpus: 522 same, 1 reordered (the new fixture: shape's
+      constructor form, then verify's Bind-order ARITY + WITH; same three
+      records), 0 set-diff.)
 - [ ] (I) relocations: `export_in_executable_diagnostics` moved beside the
       pass; `PACKAGE_INVALID` metadata validation moved to the decode boundary
       with its unit tests (prove which sites the resolver already shadows —
@@ -205,7 +213,8 @@ moves; split rules re-pin (listed).
 Acceptance: every (S) rule fires from `ir::shape`; syntaxcheck's copies
 deleted; corpus set-equal (order-identical for pure-(S) moves).
 Commit: `f2d52f271` (control-flow group + E's seam fixup); `794eada94`
-(TESTING_EXPECT_*); MONEY_INEXACT_FLOAT_LITERAL —
+(TESTING_EXPECT_*); `d77dd17fd` (MONEY_INEXACT_FLOAT_LITERAL);
+TYPE_DUPLICATE_FIELD —
 
 ### Phase 2 — delete src/syntaxcheck + the split machinery
 

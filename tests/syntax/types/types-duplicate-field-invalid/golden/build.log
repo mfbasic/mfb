@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/types/types-duplicate-field-invalid
+   5 | 
+   6 | FUNC main AS Integer
+   7 |   LET a AS Point = Point[x := 1, x := 2]
+     | ^
+tests/syntax/types/types-duplicate-field-invalid/src/main.mfb:7 error[2-203-0029 TYPE_DUPLICATE_FIELD]: type field is declared more than once
+               Constructor `Point` sets field `x` more than once.
+   5 | 
+   6 | FUNC main AS Integer
+   7 |   LET a AS Point = Point[x := 1, x := 2]
+     | ^
+tests/syntax/types/types-duplicate-field-invalid/src/main.mfb:7 error[2-203-0024 TYPE_CONSTRUCTOR_ARITY_MISMATCH]: constructor has the wrong number of arguments
+               Constructor `Point` has 1 argument(s), expected 2.
+   6 | FUNC main AS Integer
+   7 |   LET a AS Point = Point[x := 1, x := 2]
+   8 |   LET b AS Point = WITH a { y := 10, y := 20 }
+     | ^
+tests/syntax/types/types-duplicate-field-invalid/src/main.mfb:8 error[2-203-0029 TYPE_DUPLICATE_FIELD]: type field is declared more than once
+               WITH update sets field `y` more than once.
+[exit 1]

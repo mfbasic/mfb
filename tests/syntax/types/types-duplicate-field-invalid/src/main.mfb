@@ -1,0 +1,10 @@
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+FUNC main AS Integer
+  LET a AS Point = Point[x := 1, x := 2]
+  LET b AS Point = WITH a { y := 10, y := 20 }
+  RETURN a.x + b.y
+END FUNC

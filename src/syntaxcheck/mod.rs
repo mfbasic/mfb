@@ -2390,14 +2390,14 @@ mod checker_tests {
     #[test]
     fn check_project_wrapper_rejects() {
         use crate::ast::{parse_source, AstProject};
-        // A duplicate constructor field is a syntaxcheck-owned rejection
-        // (TYPE_DUPLICATE_FIELD's constructor form), so the wrapper's `Err`
-        // comes from this checker rather than a rule that has since moved out
-        // of it.
+        // Constructing `Error` directly is a syntaxcheck-owned rejection
+        // (TYPE_READ_ONLY_RECORD_CONSTRUCTOR's Error form), so the wrapper's
+        // `Err` comes from this checker rather than a rule that has since
+        // moved out of it.
         let file = parse_source(
             Path::new("main.mfb"),
             "main.mfb",
-            "TYPE Point\n  x AS Integer\n  y AS Integer\nEND TYPE\nFUNC main AS Integer\n  LET a AS Point = Point[x := 1, x := 2]\n  RETURN a.x\nEND FUNC\n",
+            "FUNC main AS Integer\n  LET e = Error[1, \"boom\"]\n  RETURN 0\nEND FUNC\n",
         )
         .unwrap();
         let project = crate::hir::elaborate(&AstProject {

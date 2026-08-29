@@ -737,16 +737,8 @@ impl<'a> SyntaxChecker<'a> {
         if !matches!(info.kind, TypeDeclKind::Type) {
             return Type::Unknown;
         }
-        let mut seen = HashSet::new();
+        // The WITH form of TYPE_DUPLICATE_FIELD is `ir::verify`'s.
         for update in updates {
-            if !seen.insert(update.field.clone()) {
-                self.report(
-                    "TYPE_DUPLICATE_FIELD",
-                    &format!("WITH update sets field `{}` more than once.", update.field),
-                    file,
-                    update.line,
-                );
-            }
             let Some(field) = info.fields.iter().find(|field| field.name == update.field) else {
                 self.infer_expression(file, &update.value, locals, update.line, ExprMode::Transfer);
                 continue;
@@ -868,7 +860,8 @@ impl<'a> SyntaxChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) {
-        let mut seen_named = HashSet::new();
+        // TYPE_DUPLICATE_FIELD's constructor form is `ir::shape`'s (plan-107-D).
+        let _ = constructor;
         for (index, argument) in arguments.iter().enumerate() {
             let (field, argument_value, argument_line) = match argument {
                 HirConstructorArg::Positional(value) => (fields.get(index), value, line),
@@ -876,23 +869,11 @@ impl<'a> SyntaxChecker<'a> {
                     name,
                     value,
                     line: argument_line,
-                } => {
-                    if !seen_named.insert(name.clone()) {
-                        self.report(
-                            "TYPE_DUPLICATE_FIELD",
-                            &format!(
-                                "Constructor `{constructor}` sets field `{name}` more than once."
-                            ),
-                            file,
-                            *argument_line,
-                        );
-                    }
-                    (
-                        fields.iter().find(|field| field.name == *name),
-                        value,
-                        *argument_line,
-                    )
-                }
+                } => (
+                    fields.iter().find(|field| field.name == *name),
+                    value,
+                    *argument_line,
+                ),
             };
             if let Some(field) = field {
                 self.infer_expression_with_expected(

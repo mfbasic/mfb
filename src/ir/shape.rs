@@ -1255,7 +1255,31 @@ impl<'a> Walker<'a> {
                 }
                 self.walk_expression(body, &nested);
             }
-            HirExpression::Constructor { arguments, .. } => {
+            HirExpression::Constructor { type_, arguments } => {
+                // TYPE_DUPLICATE_FIELD, the constructor form: lowering reorders
+                // the named arguments into field order (the last spelling of a
+                // repeated field wins), so the IR holds one value per field and
+                // the repetition is gone. The checker checked it only for a
+                // declared, visible record (`check_constructor_arguments` — the
+                // built-in nominals and compiler-owned records return before
+                // it); verify keeps the WITH form.
+                if self.declared_record_constructible(type_) {
+                    let mut seen = HashSet::new();
+                    for argument in arguments {
+                        if let HirConstructorArg::Named { name, line, .. } = argument {
+                            if !seen.insert(name.as_str()) {
+                                self.emit(
+                                    "TYPE_DUPLICATE_FIELD",
+                                    format!(
+                                        "Constructor `{}` sets field `{name}` more than once.",
+                                        type_.name()
+                                    ),
+                                    *line,
+                                );
+                            }
+                        }
+                    }
+                }
                 for argument in arguments {
                     match argument {
                         HirConstructorArg::Positional(value)
@@ -2504,19 +2528,22 @@ impl<'a> Walker<'a> {
     /// RECORD; `Ok`/`Result`, a compiler-owned record, a union, an enum or an
     /// unknown name typed `Unknown`.
     fn constructor_typed(&self, type_: &ParameterType) -> bool {
-        let name = type_.name();
-        match name.as_ref() {
+        match type_.name().as_ref() {
             "AttributedString" | "Error" | "ErrorLoc" => true,
             "Ok" | "Result" => false,
-            _ => {
-                if read_only_record(type_) {
-                    return false;
-                }
-                self.types
-                    .get(name.as_ref())
-                    .is_some_and(|info| info.is_record && self.type_visible(info))
-            }
+            _ => self.declared_record_constructible(type_),
         }
+    }
+
+    /// A declared (or imported) record the calling file may construct — the
+    /// one kind whose arguments the checker went on to check.
+    fn declared_record_constructible(&self, type_: &ParameterType) -> bool {
+        if read_only_record(type_) {
+            return false;
+        }
+        self.types
+            .get(type_.name().as_ref())
+            .is_some_and(|info| info.is_record && self.type_visible(info))
     }
 
     /// Whether the checker typed a `WITH target { … }`: a built-in nominal or a
@@ -3163,6 +3190,38 @@ mod tests {
         assert!(accepts(
             "IMPORT net\nTYPE Circle\n  r AS Integer\nEND TYPE\nUNION Shape\n  Circle\nEND UNION\nUNION Extra INCLUDES Shape\n  Circle\nEND UNION\nFUNC score(s AS Extra) AS Integer\n  MATCH s\n    CASE Circle(c)\n      RETURN c.r + 1\n  END MATCH\nEND FUNC\nFUNC main AS Integer\n  LET u AS net::Url = net::toUrl(\"http://x/\")\n  LET rendered AS String = toString(u)\n  RETURN len(rendered)\nEND FUNC\n"
         ));
+    }
+
+    // ---- record constructors ---------------------------------------------
+
+    #[test]
+    fn constructor_named_field_set_twice() {
+        let src = "TYPE Point\n  x AS Integer\n  y AS Integer\nEND TYPE\nFUNC main AS Integer\n  LET a AS Point = Point[x := 1, x := 2]\n  LET b AS Point = WITH a { y := 10, y := 20 }\n  RETURN a.x + b.y\nEND FUNC\n";
+        // The constructor form only; the WITH form is verify's.
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(src),
+            &[],
+            &HashMap::new(),
+            &[],
+        );
+        let details: Vec<_> = diagnostics
+            .iter()
+            .map(|d| (d.rule.as_str(), d.detail.as_str(), d.line))
+            .collect();
+        assert_eq!(
+            details,
+            [(
+                "TYPE_DUPLICATE_FIELD",
+                "Constructor `Point` sets field `x` more than once.",
+                6
+            )]
+        );
+        // Not for an unconstructible record (the checker never reached the
+        // argument check); the read-only rule reports instead.
+        let src =
+            "FUNC main AS Integer\n  LET e = Error[code := 1, code := 2]\n  RETURN 0\nEND FUNC\n";
+        assert!(!rejects_with(src, "TYPE_DUPLICATE_FIELD"));
     }
 
     // ---- the Money exactness nudge ---------------------------------------
