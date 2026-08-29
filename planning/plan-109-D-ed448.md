@@ -14,8 +14,8 @@ existing Ed25519 helpers and `func_generate.rs`, `func_sign.rs`, `func_verify.rs
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-109-C complete | `find planning -maxdepth 1 -name 'plan-109-C-*' \| wc -l` → `0` | NOT MET |
-| X448/conversion KAT green | filtered C fixture | re-run |
+| plan-109-C complete | `find planning -maxdepth 1 -name 'plan-109-C-*' \| wc -l` → `0` | MET 2026-08-29 (C committed `1a2402d89`; B/C/D share one post-D full-suite + all-target gate run and are archived together — see Corrections) |
+| X448/conversion KAT green | filtered C fixture | MET 2026-08-29 (`crypto-x448-valid` green in the 16-fixture filtered run) |
 
 ## 1. Goal
 
@@ -78,25 +78,67 @@ bytes. Existing Ed25519 and NIST key/signature formats remain byte-for-byte.
 
 ### Phase 1 — Ed448 primitive KAT core
 
-- [ ] Add field/scalar/point helpers with fixed-time secret operations and strict
-      canonical point/scalar decoding.
-- [ ] Implement public-key derivation, PureEd448 sign, and verify helpers.
-- [ ] Add all applicable RFC 8032 §7.4 vectors and adversarial canonicality,
-      torsion/low-order, S≥L, truncated/extended input tests.
+- [x] Add field/scalar/point helpers with fixed-time secret operations and strict
+      canonical point/scalar decoding — the field is C's `__crypto_gf448*`
+      (shared: same `p`); new: byte-limb scalar arithmetic (`helper_bn_mul.rs`,
+      `helper_bn_add.rs`, `helper_bytes_to_limbs.rs`, `helper_zero_limbs.rs`,
+      `helper_pad_limbs.rs`), the fold-based `__crypto_ed448ModL`
+      (`helper_ed448_fold.rs`, `helper_ed448_mod_l.rs`: three `2^446 ≡ c`
+      folds + one masked subtraction, validated against big-int `% L` on 300
+      random inputs and the `L`/`2L−1`/all-`ff` edges in
+      `/tmp/p109-modl-model.py`), `__crypto_ed448ScalarBelowL`, projective
+      unified addition (`helper_ed448_add.rs`), the 448-step select-swap ladder
+      (`helper_ed448_scalarmult.rs`, `helper_ed448_cswap.rs`), encode
+      (`helper_ed448_encode.rs`), `__crypto_gf448PowP34` (exponent `(p−3)/4`,
+      only bit 222 clear — computed), and strict decode
+      (`helper_ed448_decode.rs`: length, unused sign-byte bits, `y ≥ p`,
+      off-curve, `x = 0` with sign, and the 4-torsion points `x = 0 ∨ y = 0`).
+- [x] Implement public-key derivation, PureEd448 sign, and verify helpers
+      (`helper_ed448_{dom,public,sign,verify}.rs`, `helper_generate_ed448.rs`,
+      `helper_ed448_tables.rs` for `L`, `c`, and `B`).
+- [x] Add all applicable RFC 8032 §7.4 vectors and adversarial canonicality,
+      torsion/low-order, S≥L, truncated/extended input tests
+      (`tests/rt-behavior/crypto/crypto-ed448-valid`, 35 oracle lines: the
+      §7.4 "blank" and "1 octet" vectors reproduced byte-exactly, a 300-byte
+      multi-block message, determinism, generated round trips for empty /
+      1-byte / 300-byte messages, altered message / `R` / `S`, wrong key,
+      113/115-byte signatures, 56/58-byte keys, `S + L`, top `S` byte,
+      `y = p + 1`, dirty sign byte, the identity key with the trivial
+      `R = identity, S = 0` signature, an off-curve point, a 32-byte signing
+      key → `ErrInvalidArgument`, `exchange(Ed448, …)` → `ErrInvalidArgument`,
+      and the Ed448→X448 conversion invariant on a generated pair).
 
 Acceptance: every RFC vector matches exactly and every malformed vector rejects;
 structural constant-time review passes.
+VERIFIED 2026-08-29: fixture `diff` clean against the oracle on the first run
+(`ALL_MATCH`, 2.9 s); `curve448_secret_paths_are_branch_free` pins that the
+ladder, swap, addition, scalar reduction, big-int multiply, prune, and clamp
+contain no `IF`, and that the field multiply/sub/inverse/sqrt/pack branch only
+on loop counters.
 Commit: —
 
 ### Phase 2 — Certificate integration
 
-- [ ] Append Ed448 and wire generate/sign/verify on macOS, Linux, and Windows
-      software branches; preserve explicit X25519/X448 rejection.
-- [ ] Update function descriptors, type docs, KAT/invalid fixtures, acceptance
-      coverage, and stdlib spec.
+- [x] Append Ed448 and wire generate/sign/verify on macOS, Linux, and Windows
+      software branches; preserve explicit X25519/X448 rejection
+      (`Certificate.Ed448` = ordinal 6, `gen_cert::ORD_ED448`; `lower_generate`
+      ×3 platforms → `#crypto_generateEd448`; `lower_sign` ×3 →
+      `#crypto_ed448Sign`; `lower_verify`'s `emit_curves!` → `#crypto_ed448Verify`;
+      the `ORD_X25519`/`ORD_X448` up-front rejections untouched and re-pinned by
+      `x448-sign-reject`/`x448-verify-reject` in `crypto-x448-valid`).
+- [x] Update function descriptors, type docs, KAT/invalid fixtures, acceptance
+      coverage, and stdlib spec (`generate` table/sizes/backends, `sign`/`verify`
+      Ed448 paragraphs incl. the strict-decoding contract, `Certificate.Ed448`
+      variant doc, `10_crypto.md` public-key row with citations; the fixture
+      above is the KAT + invalid coverage; the TESTING-app cover sweep is
+      plan-F Phase 2's).
 
 Acceptance: generated Ed448 round-trip works for empty, short, and multi-block
 messages; deterministic signatures repeat exactly; RFC vectors interoperate.
+VERIFIED 2026-08-29: `ed448-gen-roundtrip-{empty,short,long}=TRUE`,
+`ed448-deterministic=TRUE`, and the RFC §7.4 signatures verify (`ed448-verify-*`)
+in the same fixture; the signatures MFB produces are byte-identical to
+OpenSSL's for the same seeds/messages.
 Commit: —
 
 ## Validation Plan
@@ -115,7 +157,25 @@ the required root/repository rustfmt passes.
 
 ## Corrections
 
-None yet.
+- Small-order points: RFC 8032 leaves rejecting them optional; this
+  implementation rejects a public key or `R` in the 4-torsion subgroup
+  (`x = 0` or `y = 0` after decoding) so the identity key cannot "verify" the
+  trivial `R = identity, S = 0` signature (`ed448-low-order-pub=FALSE`). This is
+  the libsodium rule and does not affect any honest key (a valid Ed448 key is
+  never small-order). Verification is cofactorless, as in the Ed25519 core.
+- The scalar-field reduction is a three-step `2^446 ≡ c (mod L)` fold plus one
+  masked subtraction over byte limbs (not Barrett/long division); it was
+  designed and proven in a Python model before the MFB body was written, and the
+  MFB fixture matched the oracle on its first run — the same oracle-first
+  ordering that caught C's inversion exponent.
+- The `Certificate` census is now 7 (`P256 P384 P521 Ed25519 X25519 X448 Ed448`),
+  matching plan-F's expected count. `exchange` (C) already rejects `Ed448`
+  (`ed448-exchange-reject=ErrInvalidArgument`).
+- Ledger note: the B+C full-suite run started after C's commit was killed once
+  it was clear its `golden.rs` step would rebuild the release binary from the
+  then-in-progress D sources (the test compiles targets lazily, so "past the
+  bin tests" is not "past compilation"); B, C, and D are validated by one
+  post-D full suite + all-target gate, and archived together.
 
 ## Summary
 

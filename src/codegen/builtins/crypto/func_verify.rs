@@ -1387,6 +1387,7 @@ pub(crate) fn lower_verify(
 
     let done = format!("{symbol}_done");
     let ed25519 = format!("{symbol}_ed25519");
+    let ed448 = format!("{symbol}_ed448");
     let x25519_reject = format!("{symbol}_x25519_reject");
     let imports = ctx.platform_imports;
     let platform = ctx.platform;
@@ -1411,6 +1412,8 @@ pub(crate) fn lower_verify(
                 abi::branch_eq(&p521),
                 abi::compare_immediate(&ord, gen_cert::ORD_ED25519),
                 abi::branch_eq(&ed25519),
+                abi::compare_immediate(&ord, gen_cert::ORD_ED448),
+                abi::branch_eq(&ed448),
             ]);
             // P-256 (ordinal 0) falls through here.
             $emit(
@@ -1495,6 +1498,9 @@ pub(crate) fn lower_verify(
     // MFB helper (always emitted with the crypto package). It leaves the Boolean verdict
     // in the result registers, so fall through to `done`.
     builder.instructions.push(abi::label(&ed25519));
+    let pub_op_ed448 = pub_op.clone();
+    let msg_op_ed448 = msg_op.clone();
+    let sig_op_ed448 = sig_op.clone();
     builder.instructions.extend([
         abi::move_register(abi::argument_register(0)?, pub_op),
         abi::move_register(abi::argument_register(1)?, msg_op),
@@ -1507,6 +1513,25 @@ pub(crate) fn lower_verify(
         builder.instructions.push(abi::subtract_stack(0x20));
     }
     builder.emit_symbol_call(&ed_symbol);
+    if win64 {
+        builder.instructions.push(abi::add_stack(0x20));
+    }
+    builder.instructions.push(abi::branch(&done));
+
+    // Ed448 dispatch (all platforms): the same triple routing into the software
+    // `__crypto_ed448Verify` MFB helper, which leaves the Boolean verdict in the
+    // result registers.
+    builder.instructions.push(abi::label(&ed448));
+    builder.instructions.extend([
+        abi::move_register(abi::argument_register(0)?, pub_op_ed448),
+        abi::move_register(abi::argument_register(1)?, msg_op_ed448),
+        abi::move_register(abi::argument_register(2)?, sig_op_ed448),
+    ]);
+    let ed448_symbol = crate::target::shared::nir::function_symbol("#crypto_ed448Verify");
+    if win64 {
+        builder.instructions.push(abi::subtract_stack(0x20));
+    }
+    builder.emit_symbol_call(&ed448_symbol);
     if win64 {
         builder.instructions.push(abi::add_stack(0x20));
     }
@@ -1538,11 +1563,12 @@ const INTRO: &str =
     r#"Verify a signature over a message with a public key of the given certificate type."#;
 const DESC: &str = r#"`crypto::verify(type, publicKey, message, signature)` checks whether `signature`
 is a valid signature over the raw bytes of `message` under `publicKey`, for the
-NIST prime curve or `Ed25519` selected by `type` (a `crypto::Certificate`), and
-returns a `Boolean`. `publicKey` is the `publicKey` field of the `crypto::KeyPair`
-from `crypto::generate(type)` — for the NIST curves one SEC1 uncompressed point
-`0x04‖X‖Y` (65/97/133 bytes for `P256`/`P384`/`P521`), for `Ed25519` the 32-byte
-compressed point — and `signature` is the output of `crypto::sign(type, …)`.
+NIST prime curve, `Ed25519`, or `Ed448` selected by `type` (a `crypto::Certificate`),
+and returns a `Boolean`. `publicKey` is the `publicKey` field of the
+`crypto::KeyPair` from `crypto::generate(type)` — for the NIST curves one SEC1
+uncompressed point `0x04‖X‖Y` (65/97/133 bytes for `P256`/`P384`/`P521`), for
+`Ed25519` the 32-byte compressed point, for `Ed448` the 57-byte compressed point —
+and `signature` is the output of `crypto::sign(type, …)`.
 
 It returns `TRUE` **if and only if** `signature` is a valid signature of that
 exact `message` under that exact `publicKey`, and `FALSE` otherwise — a failed
@@ -1555,12 +1581,16 @@ have more than one distinct `signature` that verifies `TRUE`; never use signatur
 bytes as a unique identifier (see `crypto::sign`). For `Ed25519` it is **RFC 8032
 PureEdDSA** over the fixed 64-byte `R‖S`, which additionally rejects a
 non-canonical scalar `S ≥ L` (returning `FALSE`) so a malleated `Ed25519` signature
-cannot verify.
+cannot verify. For `Ed448` it is **RFC 8032 PureEd448** (empty context, SHAKE256
+with `dom4`) over the fixed 114-byte `R‖S`, with strict decoding: a non-canonical
+`S ≥ L`, a non-canonical (`y ≥ p`) or off-curve point, a sign byte with any of its
+seven unused bits set, and a small-order (4-torsion) public key or `R` all return
+`FALSE`.
 
 **Boundary and errors.** For the NIST curves a malformed `publicKey` — wrong
 length, or a right-length off-curve point the platform import rejects — raises
 `ErrInvalidArgument` (it is a caller mistake, not a false verdict). For `Ed25519`
-a wrong-length key or signature is simply `FALSE`. `X25519` and `X448` cannot
+and `Ed448` a wrong-length key or signature is simply `FALSE`. `X25519` and `X448` cannot
 verify and raise `ErrInvalidArgument`. A platform-library or system failure raises
 `ErrUnknown`, and an allocation failure raises `ErrOutOfMemory`. The untrusted
 `signature` bytes are fully bounds-checked before use.
@@ -1573,9 +1603,10 @@ OpenSSL `libcrypto` `EVP_DigestVerifyInit` + one-shot `EVP_DigestVerify`
 (`EVP_sha256/384/512`), the SEC1 point wrapped in a fixed SPKI DER prefix and
 decoded with `d2i_PUBKEY`; on **Windows** via CNG `bcrypt.dll`
 `BCryptImportKeyPair` (`ECCPUBLICBLOB`) + `BCryptHash` + `BCryptVerifySignature`,
-the DER signature decoded here to the fixed `r‖s`. `Ed25519` is a pure in-process
-MFBASIC software core (RFC 8032) with **no platform library**, byte-identical on
-every OS. A signature or key produced on one OS verifies on the others."#;
+the DER signature decoded here to the fixed `r‖s`. `Ed25519` and `Ed448` are pure
+in-process MFBASIC software cores (RFC 8032) with **no platform library**,
+byte-identical on every OS. A signature or key produced on one OS verifies on the
+others."#;
 const EX: &str = r#"```
 IMPORT crypto
 IMPORT strings

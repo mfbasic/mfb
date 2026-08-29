@@ -94,9 +94,15 @@ extensions); computation is portable-arithmetic only, identical across targets.
   version-7 UUID with a 48-bit Unix-millisecond prefix and 74 random bits), and
   `ulid` (canonical 26-character Crockford Base32 with a 48-bit
   Unix-millisecond prefix and 80 random bits).
-- **Public-key** — Ed25519 (RFC 8032, PureEdDSA, deterministic signing) plus
-  ECDSA over NIST P-256/384/521 (FIPS 186; SHA-256/384/512 respectively; DER
-  X9.62 signatures, non-deterministic). Key generation returns a `KeyPair`.
+- **Public-key** — Ed25519 and Ed448 (RFC 8032 PureEdDSA with the empty context,
+  deterministic signing; Ed448 over edwards448 with SHAKE256 and `dom4`: 57-byte
+  seed/public key, 114-byte `R‖S`, verification rejects a non-canonical `S ≥ L`,
+  a non-canonical or off-curve point, a dirty sign byte, and a small-order
+  public key or `R`) plus ECDSA over NIST P-256/384/521 (FIPS 186;
+  SHA-256/384/512 respectively; DER X9.62 signatures, non-deterministic). Key
+  generation returns a `KeyPair`.
+  [[src/codegen/builtins/crypto/helper_ed448_decode.rs:BODY]]
+  [[src/codegen/builtins/crypto/helper_ed448_sign.rs:BODY]]
 - **Key agreement** — `Certificate.X25519` (RFC 7748, 32-byte keys) and
   `Certificate.X448` (RFC 7748, 56-byte keys; a 16 × 28-bit-limb
   GF(2^448−2^224−1) field and a 448-step ladder with a branch-free select swap)

@@ -46,7 +46,8 @@ is raw binary — stringify it for display or storage with the `encoding` packag
 types, `crypto::Sealed` and `crypto::KeyPair`; see `mfb man crypto types`.
 
 `crypto` is software-first: every hash (SHA-1, SHA-2, SHA-3, and the SHAKE256
-XOF), HMAC, KDF, AEAD, and Ed25519 primitive is
+XOF), HMAC, KDF, AEAD, Ed25519/Ed448 signature, and X25519/X448 key-agreement
+primitive is
 a portable core written in MFBASIC source over the `bits` package, so its output
 is byte-identical on every target and uses no deprecated platform functions. Two
 categories bind the platform instead: `randomBytes` draws from the OS CSPRNG
@@ -108,7 +109,8 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
     // The certificate/key type selector for `crypto::generate(type)`. Ordinals are
-    // declaration order (P256=0, P384=1, P521=2, Ed25519=3, X25519=4, X448=5);
+    // declaration order (P256=0, P384=1, P521=2, Ed25519=3, X25519=4, X448=5,
+    // Ed448=6);
     // `func_generate`'s `AbiFunction` body branches on that ordinal. `X25519` and
     // `X448` are key-agreement (ECDH) keys, not signing keys, so `sign`/`verify`
     // reject them with `ErrInvalidArgument` and `exchange` accepts only them.
@@ -146,6 +148,12 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "X448",
                 description: "X448 (Curve448 ECDH, RFC 7748) key-agreement key pair (56-byte keys) — not a signing key; use it with `crypto::exchange`. `KeyConvert.Ed448ToX448` derives one from an Ed448 pair.",
+                advisory: None,
+            },
+            // Ed448 (plan-109-D): appended after X448 (Ed448=6).
+            EnumVariant {
+                name: "Ed448",
+                description: "Ed448 EdDSA key pair (RFC 8032 PureEd448 over edwards448 with SHAKE256): 57-byte seed and public key, 114-byte deterministic signatures.",
                 advisory: None,
             },
         ],
@@ -510,6 +518,31 @@ pub(crate) fn register(r: &mut Registry) {
     helper_is_all_zero::register(&mut pkg);
     helper_exchange::register(&mut pkg);
     helper_convert::register(&mut pkg);
+    // Ed448 (RFC 8032 §5.2 PureEd448, plan-109-D) over the same GF(2^448-2^224-1)
+    // field: byte-limb scalar arithmetic with a fold-based `mod L`, projective
+    // unified addition, a select-swap ladder, strict decoding, and the
+    // SHAKE256/dom4 key/sign/verify flow.
+    helper_zero_limbs::register(&mut pkg);
+    helper_pad_limbs::register(&mut pkg);
+    helper_bytes_to_limbs::register(&mut pkg);
+    helper_bn_mul::register(&mut pkg);
+    helper_bn_add::register(&mut pkg);
+    helper_ed448_point3::register(&mut pkg);
+    helper_ed448_tables::register(&mut pkg);
+    helper_ed448_fold::register(&mut pkg);
+    helper_ed448_mod_l::register(&mut pkg);
+    helper_ed448_scalar_below_l::register(&mut pkg);
+    helper_ed448_add::register(&mut pkg);
+    helper_ed448_cswap::register(&mut pkg);
+    helper_ed448_scalarmult::register(&mut pkg);
+    helper_ed448_encode::register(&mut pkg);
+    helper_gf448_pow_p34::register(&mut pkg);
+    helper_ed448_decode::register(&mut pkg);
+    helper_ed448_dom::register(&mut pkg);
+    helper_ed448_public::register(&mut pkg);
+    helper_generate_ed448::register(&mut pkg);
+    helper_ed448_sign::register(&mut pkg);
+    helper_ed448_verify::register(&mut pkg);
     // Asymmetric public-key encryption (X25519 sealed box over Ed25519 keys). Pure
     // software over the X25519 ladder, the Ed25519→X25519 conversion helpers,
     // `__crypto_hkdf`, and the unified `seal`/`open`; the suite→AEAD/info dispatch is
@@ -634,10 +667,13 @@ mod helper_be_word;
 mod helper_be_word64;
 mod helper_be_words;
 mod helper_be_words64;
+mod helper_bn_add;
+mod helper_bn_mul;
 mod helper_bsig0;
 mod helper_bsig0_64;
 mod helper_bsig1;
 mod helper_bsig1_64;
+mod helper_bytes_to_limbs;
 mod helper_car25519;
 mod helper_ch32;
 mod helper_ch64;
@@ -661,8 +697,22 @@ mod helper_ed25519_pub_to_x25519;
 mod helper_ed25519_public;
 mod helper_ed25519_sign;
 mod helper_ed25519_verify;
+mod helper_ed448_add;
+mod helper_ed448_cswap;
+mod helper_ed448_decode;
+mod helper_ed448_dom;
+mod helper_ed448_encode;
+mod helper_ed448_fold;
+mod helper_ed448_mod_l;
+mod helper_ed448_point3;
 mod helper_ed448_priv_to_x448;
 mod helper_ed448_pub_to_x448;
+mod helper_ed448_public;
+mod helper_ed448_scalar_below_l;
+mod helper_ed448_scalarmult;
+mod helper_ed448_sign;
+mod helper_ed448_tables;
+mod helper_ed448_verify;
 mod helper_ed_a;
 mod helper_ed_add;
 mod helper_ed_l;
@@ -679,6 +729,7 @@ mod helper_gcm_inc32;
 mod helper_gcm_j0;
 mod helper_gcm_tag;
 mod helper_generate_ed25519;
+mod helper_generate_ed448;
 mod helper_generate_x25519;
 mod helper_generate_x448;
 mod helper_gf0;
@@ -691,6 +742,7 @@ mod helper_gf448_mul;
 mod helper_gf448_mul_small;
 mod helper_gf448_one;
 mod helper_gf448_pack;
+mod helper_gf448_pow_p34;
 mod helper_gf448_select;
 mod helper_gf448_sub;
 mod helper_gf448_unpack;
@@ -743,6 +795,7 @@ mod helper_pack_point;
 mod helper_pad1024;
 mod helper_pad16;
 mod helper_pad512;
+mod helper_pad_limbs;
 mod helper_par25519;
 mod helper_pbkdf2;
 mod helper_pbkdf2_block;
@@ -813,6 +866,7 @@ mod helper_x448_base;
 mod helper_xor_bytes;
 mod helper_xor_pad;
 mod helper_xtime;
+mod helper_zero_limbs;
 mod helper_zero_pad;
 
 /// `List OF Byte` — the pervasive `crypto` argument/return type.
@@ -1153,6 +1207,61 @@ mod tests {
         }
         assert!(round.contains("collections::get(__CRYPTO_KECCAK_RHO, i)"));
         assert!(round.contains("collections::get(__CRYPTO_KECCAK_PI, i)"));
+    }
+
+    /// Structural constant-time audit of the Curve448 secret paths (plan-109-C/D):
+    /// the X448 ladder, the Ed448 ladder/swap/addition, and the scalar reduction
+    /// contain no conditional at all, and the field multiply/carry branch only on
+    /// loop counters (`IF n …`, `IF j …`, `IF i …` — fold weights and bias limbs).
+    #[test]
+    fn curve448_secret_paths_are_branch_free() {
+        let source = registry()
+            .resolve_package("crypto")
+            .expect("crypto")
+            .get_mfb();
+        let body_of = |name: &str| -> String {
+            let start = source
+                .find(&format!("FUNC {name}("))
+                .unwrap_or_else(|| panic!("{name} not in assembled source"));
+            let end = source[start..].find("END FUNC").expect("END FUNC") + start;
+            source[start..end].to_string()
+        };
+        for name in [
+            "__crypto_x448",
+            "__crypto_gf448Select",
+            "__crypto_gf448Add",
+            "__crypto_gf448MulSmall",
+            "__crypto_gf448Carry",
+            "__crypto_ed448Scalarmult",
+            "__crypto_ed448Cswap",
+            "__crypto_ed448Add",
+            "__crypto_ed448ModL",
+            "__crypto_ed448Fold",
+            "__crypto_bnMul",
+            "__crypto_ed448Prune",
+            "__crypto_clampScalar448",
+        ] {
+            let body = body_of(name);
+            assert!(!body.contains("IF "), "{name} must be branch-free:\n{body}");
+        }
+        // The multiply, subtraction bias, and inverse/sqrt ladders branch only on
+        // loop counters — every `IF` tests `n`, `j`, or `i`.
+        for name in [
+            "__crypto_gf448Mul",
+            "__crypto_gf448Sub",
+            "__crypto_gf448Inv",
+            "__crypto_gf448PowP34",
+            "__crypto_gf448Pack",
+        ] {
+            let body = body_of(name);
+            for line in body.lines().filter(|l| l.trim_start().starts_with("IF ")) {
+                let cond = line.trim_start().trim_start_matches("IF ");
+                assert!(
+                    cond.starts_with("n ") || cond.starts_with("j ") || cond.starts_with("i "),
+                    "{name} branches on a non-counter: {line}"
+                );
+            }
+        }
     }
 
     /// Executable bound proof for the GF(2^448−2^224−1) arithmetic (plan-109-C
