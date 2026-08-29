@@ -435,11 +435,17 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             .into_iter()
             .filter(|(_, signature)| returns_imported_resource(signature))
             .collect();
+    let imported_types = imported_type_defs(&options.location, &manifest);
+    // plan-107-E: the pre-lowering shape pass — the source rules whose evidence
+    // lowering erases — runs over the same HIR, with the same signature and
+    // type inputs, that lowering is about to consume. Its stream comes first.
+    let shape_diagnostics =
+        ir::shape::collect_diagnostics(&concrete_hir, &source_external_signatures, &imported_types);
     let source_ir = ir::lower_augmented_project(
         &concrete_hir,
         entry.clone(),
         &source_external_signatures,
-        &imported_type_defs(&options.location, &manifest),
+        &imported_types,
     );
     // plan-107-C: the LINK declarations' source spans, so verify's native-ABI
     // rules report at the slot/parameter/field lines syntaxcheck did.
@@ -450,9 +456,11 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         &imported_resources,
         &link_spans,
     );
-    let Ok(mut diagnostics) = syntaxcheck_diagnostics else {
+    let Ok(syntaxcheck_diagnostics) = syntaxcheck_diagnostics else {
         return Err(());
     };
+    let mut diagnostics = shape_diagnostics;
+    diagnostics.extend(syntaxcheck_diagnostics);
     diagnostics.extend(verify_diagnostics);
     // EXPORT is only valid in a package project (it is the `.mfp` export flag);
     // in an executable a top-level EXPORT is an error. Checked here because the

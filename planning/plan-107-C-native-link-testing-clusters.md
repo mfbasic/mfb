@@ -242,6 +242,17 @@ Commit: see the per-rule hashes above
   where LINK validation lives — flag for D's pass.
 - Acceptance: full suite; gate; test-accept; fmt both crates.
 
+Letter-end results (2026-08-29, at `3dbf86592`): `artifact-gate.sh
+target/release/mfb all` → `1262 tests, 1409 build(s), 1734 golden(s) checked,
+0 diff(s)` (`/tmp/p107-gate-C.log`); `test-accept.sh target/release/mfb
+/tmp/p107-accept` → `acceptance tests passed (1278 test(s) ran)`
+(`/tmp/p107-accept-C2.log`, run serially). A first sweep run CONCURRENTLY
+with the artifact gate reported 2 mismatches — both `missing actual` for one
+fixture's `.ast`/`.ir` (`rt-error/vector/reject_zero_rt`); the fixture passes
+standalone and in the serial sweep, so the miss was the two harnesses racing
+over the same build outputs, not a C regression. Never run the gate and the
+sweep together. Full suite: see the archive note below.
+
 ## Open Decisions
 
 - None pending beyond A's TESTING verdict, which this letter executes.

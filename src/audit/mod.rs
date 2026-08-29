@@ -118,6 +118,11 @@ pub fn run(options: &AuditOptions) -> i32 {
     else {
         return 3;
     };
+    // plan-107-E: the shape pass gates audit exactly as the source checker does
+    // (its stream renders first, as on the build path).
+    if crate::ir::shape::check_project(&concrete_hir).is_err() {
+        return 3;
+    }
     if crate::syntaxcheck::check_project(&options.location, &concrete_hir).is_err() {
         return 3;
     }

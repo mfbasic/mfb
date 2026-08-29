@@ -162,7 +162,10 @@ Letter-end results (2026-08-29): `test-accept.sh target/release/mfb
 /tmp/p107-accept` → `acceptance tests passed (1275 test(s) ran)` after the two
 Corrections fixes (the first sweep's 2 mismatches, both root-caused above);
 `artifact-gate all` runs inside the full suite's `golden.rs` (recorded on
-archive); `cargo fmt --all` applied.
+archive); `cargo fmt --all` applied. Full suite (`rustup run 1.96.0 cargo test
+--no-fail-fast` on a detached checkout at `e92ec5d23` — B's work plus C's
+first relocation, the tip when the run started; `/tmp/p107-suite-B.log`):
+64 suites `ok`, 0 failed, exit 0.
 
 ## Open Decisions
 

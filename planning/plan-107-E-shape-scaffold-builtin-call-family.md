@@ -166,11 +166,22 @@ None to codegen/wire. Diagnostic order re-pins on the 283/273-fixture family
 
 ### Phase 1 — scaffold + seam
 
-- [ ] Expose lowering's facts/typing seam; create `ir::shape` with the walk
+- [x] Expose lowering's facts/typing seam; create `ir::shape` with the walk
       and context, wired at build + audit seams (first stream); emits nothing.
-- [ ] Tests: unit test proving the seam types a HIR expression identically to
+      (`lower::LowerFacts` + `lower_facts()` — the prologue of
+      `lower_augmented_project`, which now builds its context from them —
+      and `pub(super)` `expression_type`/`match_expression_type`/
+      `collection_iteration_type`/`match_case_binding`/`function_return_type`;
+      `src/ir/shape.rs` walks every scope form lowering binds.)
+- [~] Tests: unit test proving the seam types a HIR expression identically to
       lowering's stamped `IrValue` type on a sample; full suite;
       corpus SAME on every fixture (order-neutral).
+      (`ir::shape::tests::walker_types_bindings_exactly_as_lowering_does`
+      compares every binding's walker type against lowering's `Bind`/`ForEach`
+      type across LET/annotated LET/inline-TRAP LET/FOR promotion/FOR EACH/
+      MATCH binding/trap binding/lambda; corpus: `diag-set-diff.sh` → `521
+      same, 0 reordered, 0 set-diff`. Remaining: the full suite at this commit,
+      queued on the baseline checkout behind C's.)
 
 Acceptance: pass wired, zero corpus change.
 Commit: —
@@ -211,8 +222,10 @@ Commit: — (per rule)
 
 ## Open Decisions
 
-- **Module path** — `src/ir/shape.rs` recommended (A Open Decisions); decided
-  in Phase 1 with the seam in hand.
+- **Module path** — `src/ir/shape.rs` (decided in Phase 1): the pass borrows
+  lowering's `pub(super)` items (`LowerFacts`, `LowerContext`,
+  `expression_type`, …), which only a sibling of `ir::lower` can reach without
+  widening them to `pub(crate)`.
 
 ## Corrections
 
