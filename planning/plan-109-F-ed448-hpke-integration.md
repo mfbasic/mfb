@@ -114,15 +114,54 @@ Acceptance: both X448 profiles interoperate independently; all four profile
 roundtrips pass; cross-profile decrypt always fails closed. VERIFIED (the
 interop test's four-profile loop + the two fixtures' `cross-suite` /
 `cross-curve-open` = `ErrAuthenticationFailed` lines).
-Commit: —
+Commit: 70e479f3f
 
 ### Phase 2 — whole-plan surface and documentation closeout
 
-- [ ] Sweep every remaining old SHA spelling and stale “sealed box/not HPKE” or
+- [x] Sweep every remaining old SHA spelling and stale “sealed box/not HPKE” or
       Ed25519-only claim across source, man descriptors, spec, tests, and benchmark.
-- [ ] Update acceptance/byte-identity crypto cover fixtures to exercise all nine
+      VERIFIED 2026-08-29:
+      `rg -n 'Hash\.SHA(224|256|384|512)\b' src tests benchmark examples packages --glob '!**/golden/**'`
+      → only the 4 lines of `tests/syntax/crypto/hash-removed-spellings-invalid`
+      (the negative fixture that proves the spellings are gone);
+      `rg -n -i 'sealed box|mfb-box-v1|X25519-only|Ed25519-only|only Ed25519' src tests benchmark examples packages --glob '!**/golden/**'`
+      → every remaining hit describes the *rejected* legacy format or the
+      "a sealed box is anonymous" security note; the stale ones — the acceptance
+      TGROUP title "asymmetric sealed box", its flow comment, `10_crypto.md`'s
+      "only Ed25519 signing is [deterministic]", the `X25519`/`X448` Certificate
+      descriptions, `func_generate`'s "take Ed25519 keys", and the
+      `helper_encrypt`/`helper_decrypt` doc/body comments — were rewritten for
+      Ed25519+Ed448 / RFC 9180. `mfb man crypto --all`, `mfb spec stdlib crypto`
+      render with 0 `[[` and list `shake256`, `exchange`, the `Ed448_*` suites,
+      and the `SHA1` advisory paragraph.
+- [x] Update acceptance/byte-identity crypto cover fixtures to exercise all nine
       hashes, seven certificates, two conversions, and four HPKE profiles; prove
       every modified overload has valid and invalid coverage.
+      VERIFIED 2026-08-29: `tests/acceptance/src/crypto.mfb` (580 → 846 lines)
+      — census by
+      `python3 -c` over the source: enum variants used = all 9 `Hash.*`, all 7
+      `Certificate.*`, both `KeyConvert.*`, all 4 `AsymmetricCipher.*`; per
+      member calls/`expectTrap`: hash 32/0 (its only invalid inputs are the
+      removed spellings — a syntax fixture — and the SHA1 advisory, a warning),
+      shake256 9/2, hmac 17/0 (no error path exists: any key/data length is
+      valid), hkdf 13/3 (incl. the SHA-1 `255·20` ceiling), pbkdf2 12/2,
+      generate 54/0 (no error path), sign 24/4, verify 26/3 (+ FALSE verdicts),
+      convert 8/2 (wrong-curve pairs both ways), exchange 19/6, encrypt 21/2,
+      decrypt 28/18. New KATs: SHA-1/SHA-3/SHAKE256 (FIPS), HMAC/HKDF/PBKDF2
+      with SHA-1 (RFC 5869 A.4, RFC 6070) and SHA-3 (OpenSSL reference), Ed448
+      RFC 8032 §7.4 test-1 + an OpenSSL-computed "abc" signature, X25519/X448
+      RFC 7748 §6.1/§6.2 both directions.
+      `target/release/mfb test tests/acceptance` → `Tests: 732  Pass: 732  Fail: 0`.
+      `tests/byte-identity/crypto/src/main.mfb` (93 → 141 lines) now calls every
+      overload of every member incl. SHA-1/SHA-3/SHAKE256, Ed448 sign/verify,
+      X25519/X448 exchange, both conversions, and all four HPKE profiles
+      (bytes/String × aad/no-aad); executed once by hand (all lengths/verdicts
+      as expected) and compile-only in the gate as before.
+      Found while writing the invalid cases: `convert(KeyConvert.Ed25519ToX25519,
+      <57-byte Ed448 pair>)` silently mis-mapped (no length check, unlike the
+      Ed448 arm) — fixed in `helper_convert.rs` (32-byte check →
+      `ErrInvalidArgument`), documented in `func_convert.rs`/`10_crypto.md`,
+      covered by the new `expectTrap`.
 - [ ] Regenerate only expected AST/IR/ncode/ncodesum drift after normalized diffs;
       inspect one fixture per distinct drift class before accepting.
 - [ ] Run the complete validation ledger and archive each plan-109 letter only

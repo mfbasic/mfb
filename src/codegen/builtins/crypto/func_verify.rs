@@ -11,10 +11,11 @@
 //! helper.
 //!
 //! Semantics: a valid signature returns Boolean TRUE, an invalid/mismatched one returns
-//! Boolean FALSE (NOT a raised error). A malformed public key (wrong length, or a
-//! right-length off-curve key the platform import rejects) raises `ErrInvalidArgument`,
-//! matching the per-curve `p*Verify`. The body self-manages its result (like
-//! [`super::func_sign::lower_sign`]).
+//! Boolean FALSE (NOT a raised error). For the NIST curves a malformed public key
+//! (wrong length, or a right-length off-curve key the platform import rejects) raises
+//! `ErrInvalidArgument`, matching the per-curve `p*Verify`; for `Ed25519`/`Ed448` a
+//! wrong-length key or signature is simply FALSE (the software helpers' strict
+//! decode). The body self-manages its result (like [`super::func_sign::lower_sign`]).
 //!
 //! Structure mirrors [`super::func_sign`]: the `Certificate` ordinal consts and per-
 //! platform seam live in [`super::gen_cert`]; this file keeps the `crypto::verify`-

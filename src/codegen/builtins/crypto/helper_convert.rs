@@ -28,6 +28,9 @@ r#"FUNC __crypto_convert(conv AS KeyConvert, keys AS KeyPair) AS KeyPair
     LET x448Pub AS List OF Byte = __crypto_ed448PubToX448(pkBytes)
     RETURN KeyPair[x448Priv, x448Pub]
   END IF
+  IF len(skBytes) <> 32 OR len(pkBytes) <> 32 THEN
+    FAIL error(77050002, "Ed25519ToX25519 requires a 32-byte Ed25519 seed and public key")
+  END IF
   LET xPriv AS List OF Byte = __crypto_ed25519PrivToX25519(skBytes)
   LET xPub AS List OF Byte = __crypto_ed25519PubToX25519(pkBytes)
   RETURN KeyPair[xPriv, xPub]

@@ -140,7 +140,10 @@ extensions); computation is portable-arithmetic only, identical across targets.
   `y²·(1 − d·y²)/(1 − y²)`, no square root), the private key as
   `SHAKE256(seed)[0..56]` — libdecaf's `decaf_ed448_convert_*_to_x448`
   convention, under which the edwards448 base point maps to `u = 5` and
-  `X448(convertedPrivate, 5) = convertedPublic`. Inputs must be 57 bytes.
+  `X448(convertedPrivate, 5) = convertedPublic`. Both maps check the input
+  lengths (32 bytes for `Ed25519ToX25519`, 57 for `Ed448ToX448`) and raise
+  `ErrInvalidArgument` otherwise, so a pair from the other curve is rejected
+  rather than mis-mapped.
   [[src/codegen/builtins/crypto/helper_ed448_pub_to_x448.rs:BODY]]
   [[src/codegen/builtins/crypto/helper_ed448_priv_to_x448.rs:BODY]]
 - **Verification** — `constantTimeEqual` compares two byte lists in time

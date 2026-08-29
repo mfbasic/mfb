@@ -48,12 +48,14 @@ matching X448 / Curve448 (RFC 7748) ECDH key pair of 56-byte keys:
   scalar clamp coincide on those bytes, so `exchange(X448, privateKey, basepoint)`
   reproduces the converted `publicKey` exactly.
 
-A pair whose halves are not both 57 bytes raises `ErrInvalidArgument`.
+A pair whose halves are not both 57 bytes (`Ed448ToX448`) or both 32 bytes
+(`Ed25519ToX25519`) raises `ErrInvalidArgument` — so handing an Ed448 pair to the
+Ed25519 map, or vice versa, is rejected rather than silently mis-mapped.
 
 **No curve tagging.** A `crypto::KeyPair` carries no tag identifying its curve, so
-`convert` cannot detect a mismatched input beyond the length check — `Ed25519ToX25519`
-assumes `keys` is a 32-byte Ed25519 pair and simply applies the map. Passing any
-other pair produces an incorrect X25519 result rather than an error, so make sure
+`convert` cannot detect a mismatched input beyond the length check — a 32-byte pair
+that is not really an Ed25519 pair (or a 57-byte one that is not an Ed448 pair) is
+simply mapped, producing an incorrect result rather than an error, so make sure
 `keys` really is a key pair of the source curve.
 
 **Key reuse note.** Sharing one key pair across both signing and Diffie-Hellman is a
