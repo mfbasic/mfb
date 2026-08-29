@@ -286,7 +286,7 @@ Docs: `src/docs/spec/threading/06_thread-runtime-helpers.md` (:48,:51,:81,:83),
 Acceptance: a complete list of `thread::sleep` source callers with a rewrite note
 each; zero unclassified. **MET** — 10 `.mfb` files + 1 Rust-embedded + 3 spec
 pages, all classified above.
-Commit: 5a4f59dba (census) + this phase's plan update
+Commit: 5a4f59dba, fdc9c4807
 
 ### Phase 1 — Add `os::sleep` additively (both branches proven)
 
@@ -457,7 +457,7 @@ all four targets. **MET:**
 - `cargo test --no-fail-fast` — see Validation Plan.
 - `scripts/test-accept.sh` and `scripts/artifact-gate.sh all` — see Validation Plan.
 
-Commit: —
+Commit: 30cd20f24
 
 ## Validation Plan
 
