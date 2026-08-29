@@ -48,8 +48,8 @@ population, with A's row numbers:
 |---|---|---|---|---|
 | 21 | RESOURCE_SHADOWS_BUILTIN | 0 → write one | no | none |
 | 29 | TYPE_COLLECTION_OWNERSHIP_VIOLATION | 2 | Set-element + Map-key arms | port the List-element / Map-value thread arms; reproduce the double emission (declared type + literal) |
-| 32 | TYPE_INLINE_TRAP_DEAD_HANDLER (Warn) | 1 | no | `$expect_` temp guard (A Open Decisions) |
-| 35 | TYPE_INLINE_TRAP_REQUIRES_FALLIBLE | 2 | no | none (keyed on the `$trap_res` temp) |
+| 32 | TYPE_INLINE_TRAP_DEAD_HANDLER (Warn) | 1 | no | `$expect_` temp guard (A Open Decisions); hooks into A's `check_inline_trap_scrutinee` |
+| ~~35~~ | ~~TYPE_INLINE_TRAP_REQUIRES_FALLIBLE~~ | — | — | moved to A (pilot 2, landed `2f7067fd4`) |
 | 40 | TYPE_RESULT_NOT_USER_VISIBLE | 2 | no | none; measure which golden lines the resolver owns |
 | 43 | TYPE_TRAP_FALLTHROUGH | 2 | handler form | port the "Normal flow reaches the TRAP" form |
 | 49 | TYPE_READ_ONLY_RECORD_CONSTRUCTOR | 4 | compiler-owned form | port the `AttributedString` + `Error`/`ErrorLoc` forms with their wording |
@@ -84,14 +84,20 @@ Per plan-107-A (order re-pins only).
 
 ### Phase 1 — gap-free rules
 
-- [ ] RESOURCE_SHADOWS_BUILTIN (fixture first: 0 corpus fixtures)
-- [ ] TYPE_ISOLATED_NOT_VISIBLE — ~~here~~ moved to A's pilots
-- [ ] TYPE_RESULT_NOT_USER_VISIBLE
-- [ ] TYPE_INLINE_TRAP_REQUIRES_FALLIBLE
+- [ ] RESOURCE_SHADOWS_BUILTIN — dead since plan-97 (A Corrections
+      C-dead-rules): delete the emitter (`syntaxcheck/link.rs:52-77`), its
+      call site and test; no relocation (nothing to relocate)
+- [x] ~~TYPE_ISOLATED_NOT_VISIBLE~~ — moot here: A's pilot 1 (`ef53fcef3`)
+- [ ] TYPE_RESULT_NOT_USER_VISIBLE — resolver-shadowed dead code (A
+      Corrections C-dead-rules): delete syntaxcheck's two emitters
+      (`mod.rs:1576,1623`) and the two syntaxcheck-only tests; the resolver
+      keeps the rule and the goldens
+- [x] ~~TYPE_INLINE_TRAP_REQUIRES_FALLIBLE~~ — moot here: A's pilot 2 (`2f7067fd4`)
 - [ ] TYPE_INLINE_TRAP_DEAD_HANDLER
 - [ ] TYPE_TRAP_FALLTHROUGH (second form ported)
 - [ ] TYPE_COLLECTION_OWNERSHIP_VIOLATION (thread arms ported)
-- [ ] TYPE_READ_ONLY_RECORD_CONSTRUCTOR (two forms ported)
+- [x] ~~TYPE_READ_ONLY_RECORD_CONSTRUCTOR~~ — moot here: split (V/S), moved
+      to D (A Corrections C-split-49)
 - [ ] Tests: corpus + harness per commit; package-path (verify unit) test per
       rule.
 

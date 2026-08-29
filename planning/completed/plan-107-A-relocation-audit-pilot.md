@@ -157,7 +157,7 @@ codes need a fidelity check + list entry + syntaxcheck deletion, not a port.
 | 18 | NATIVE_FREE_INVALID | (V) | `verify/link.rs:483,491`; malformed-FREE wording differs | none | 2 | yes (wording) | C |
 | 19 | NATIVE_STRUCT_FIELD_MISMATCH | (V) | verify has the maps-to-non-record form (`75`); syntaxcheck's returns-struct-slot form (`link.rs:254`) must be ported | none | 1 | partial | C |
 | 20 | PACKAGE_INVALID | (I) | 5 sites (`mod.rs:485,531,643,735,833`) fire while syntaxcheck READS an imported `.mfp`'s metadata — decode-boundary validation, not a program rule; `cli/build/packages.rs:157,164` already owns the code at that boundary; the resolver reads the same exports first (`resolver/packages.rs:82` → `IMPORT_PACKAGE_INVALID`) | — | 0 (unit tests `mod.rs:2343,2537`) | — | D: move the metadata validation (`validate_package_metadata_type` + readers) to the decode boundary; prove which sites the resolver already shadows |
-| 21 | RESOURCE_SHADOWS_BUILTIN | (V) | every `RESOURCE` decl lowers into `IrProject.native_resources` (`lower_link.rs:368`) with its name + line; check `builtins::is_resource_type(name)` | none | 0 → write one | no | B |
+| 21 | RESOURCE_SHADOWS_BUILTIN | ~~(V)~~ (I) dead | every `RESOURCE` decl lowers into `IrProject.native_resources`; but the emitter compares a bare declaration name against package-qualified builtin keys and has been unreachable since plan-97 — Corrections C-dead-rules | — | 0 | no | B deletes |
 | 22 | SUB_RETURN_FORBIDDEN | (V/S) | `RETURN <v>` in a SUB survives as `Return{Some}` (`verify/ops.rs:451`, same message); bare `RETURN` lowers to `Return{None}` = `EXIT SUB` → erased | function kind | 3 | valued form | D (both halves) |
 | 23 | TESTING_EXPECT_ARITY | (S) | `expand_expect` (`lower.rs:819` → `testing/desugar/expect.rs`) desugars assertions into LET/IF/FAIL before IR exists; a missing operand makes the desugar EMPTY (`expect.rs:64`) | none | 0 → `mfb test` fixture | — | D (C records the hand-off) |
 | 24 | TESTING_EXPECT_CODE_TYPE | (S) | as #23; the expected-code operand becomes `LET $expect_want = code` | typing (`Integer`-compatible) | 0 → fixture | — | D |
@@ -176,7 +176,7 @@ codes need a fidelity check + list entry + syntaxcheck deletion, not a port.
 | 37 | TYPE_LAMBDA_CAPTURE_UNSUPPORTED | (V) | captures survive as `Bind name = Capture{index,type_,by_ref}` in the `$lambdaN` body (`lower.rs:3149-3167`) and `Closure{captures:[Local…]}` at the use site; `by_ref` IS "MUT capture in a licensed non-escaping position" (`by_ref = nonescaping && mutable`); the enclosing function's `muts` map gives mutability; the diagnostic line is the enclosing statement (lambdas carry `context.current_loc`) | `is_copyable_type` (port, ~40 lines from `resources.rs:190`); resource-ness (verify has) | 2 | no | B (gap-bearing) |
 | 38 | TYPE_RECOVER_OUTSIDE_INLINE_TRAP | (S) | a stray RECOVER lowers to a discard `Eval` or nothing (`lower.rs:719-748` fallback target) | trap-context stack (structural) | 1 | — | D |
 | 39 | TYPE_RECOVER_TYPE_MISMATCH | (V/S) | the value-mismatch form survives (`Assign $trap_val = …`, `verify/ops.rs:324`, same message); the two arity forms ("must supply a value" → lowers to nothing; "must not supply a value" → discard `Eval`) are erased | typing (is the trapped expression's success type `Nothing`) | 1 (both forms) | mismatch form | D (both halves) |
-| 40 | TYPE_RESULT_NOT_USER_VISIBLE | (V) | `ParameterType::ResultOf` / `Named("Ok")` survive in every IR type position; verify already walks declared types (`check_map_key_comparable` sites); the resolver ALSO emits this code for its own positions (`resolution.rs:1425`) — which emitter owns each golden line is measured at relocation | none | 2 | no | B |
+| 40 | TYPE_RESULT_NOT_USER_VISIBLE | ~~(V)~~ (I) resolver-shadowed | the resolver reports every `Result`/`Ok` type position and short-circuits before syntaxcheck runs (probe in Corrections C-dead-rules); syntaxcheck's two emitters are dead code; the resolver keeps the rule | — | 2 (the resolver's lines) | no | B deletes |
 | 41 | TYPE_SUB_CANNOT_RETURN_VALUE | (S) | `function_return_type` forces a SUB's IR `returns` to `Nothing` (`lower.rs:423`) — the declared annotation is dropped | none (structural) | 0 → write one; if the parser rejects `SUB x AS T` the rule is dead → moot with that evidence | — | D |
 | 42 | TYPE_THREAD_NOT_SENDABLE | (V) | `ParameterType::ThreadHandle{msg,res,out}` survives in every type position; the boundary calls survive as `Call{target:"thread.start"/"thread.send"/transfer/accept}` with typed args; 4 message forms (`mod.rs:1612`, `resources.rs:346,437,488,499`) | `is_thread_sendable_type` (port from `resources.rs:186`; needs the imported `RESOURCE_TABLE` sendable bit, which bug-377's `imported_resources` seam does NOT carry — extend the seam) | 2 | no | **A pilot (inference-fact port)** |
 | 43 | TYPE_TRAP_FALLTHROUGH | (V) | handler form already in verify (`ops.rs:767`, same message); the "Normal flow in `f` reaches the TRAP handler" form (`mod.rs:1521`) = `!block_always_returns(body before the Trap op)` — verify has `block_always_returns` (`resources.rs:380`) | none | 2 | partial | B |
@@ -185,7 +185,7 @@ codes need a fidelity check + list entry + syntaxcheck deletion, not a port.
 | 46 | UNREACHABLE_AFTER_EXIT | (V/S) | after `EXIT FOR/DO/WHILE`/`CONTINUE` survives (`verify/ops.rs:86`, same message) and after `EXIT PROGRAM` (`ExitProgram` op — add to verify's trigger); after `EXIT SUB` (→ `Return{None}`; a bare `RETURN` followed by statements is NOT reported by syntaxcheck) and `EXIT FUNC` (→ nothing) is erased | none | 3 (exit-loop/continue-loop = V forms; exit-sub-invalid = S forms) | loop forms | D (both halves) |
 | 47 | TYPE_CALL_ARITY_MISMATCH | (V/S) | NEW to the census. Three surviving call shapes: user FUNC (`verify/calls.rs:96` — wording differs: "expected {required}..={total}" vs syntaxcheck's "expected {n}"/"{min} to {max}"), function-value call (verify SKIPS `Func`-typed locals, `calls.rs:74` — port), builtin call (`builtins::arity` + the registry; `check_table_builtin_call` + the four bespoke `term`/`thread`/`general`/`collections` checkers, `syntaxcheck/builtins.rs:267-900`). The named-argument omission form ("omits parameter `x` before a later supplied argument", `builtins.rs:1040,1259`) is erased with the names → (S) | registry resolution (`builtins::resolve_call_return_type` + byte-literal retry, `builtins.rs:27`) | **273** | user-FUNC form (wording) | E |
 | 48 | TYPE_CALL_ARGUMENT_MISMATCH | (V/S) | NEW. user FUNC (`verify/calls.rs:141`, same wording); function-value call (`inference.rs:1391` — verify skips indirect calls; port); builtin call ("Call to `x` has argument type(s) (A, B), expected …" via `resolve_table_call_with_byte_literals` + `builtins::expected_arguments`); the "cannot use named arguments" function-value form (`inference.rs:1355`) is erased → (S) | as #47 + the bespoke checkers' per-position rules | **283** | user-FUNC form | E |
-| 49 | TYPE_READ_ONLY_RECORD_CONSTRUCTOR | (V) | NEW. `Constructor{type_}` survives; verify has the compiler-owned form (`values.rs`); syntaxcheck has three forms (`AttributedString` opaque, `Error`/`ErrorLoc`, compiler-owned — `inference.rs:641,663,701`) | none | 4 | partial | B |
+| 49 | TYPE_READ_ONLY_RECORD_CONSTRUCTOR | (V/S) | NEW. `Constructor{type_}` survives; verify has the compiler-owned form (`compat.rs:623`); the `AttributedString` form is (V); the `Error`/`ErrorLoc` form is ERASED — lowering synthesizes `Constructor{Error}` itself (Corrections C-split-49) | none | 4 | partial | D (both halves) |
 
 Message spelling: syntaxcheck's `display_callee` is already the CANONICAL
 dotted name (goldens say `` `math.pow` ``, `` `tls.poll` ``, `` `thread.send` ``),
@@ -360,7 +360,14 @@ expensive shape (the predicate, its call sites, and the seam that feeds it).
 
 Acceptance: 3 rules live in verify, syntaxcheck impls deleted, corpus
 set-equal, goldens re-pinned and listed, `artifact-gate all` byte-identical.
-Commit: —
+VERIFIED 2026-08-29: corpus `516 same, 2 reordered, 0 set-diff` at the
+pilot-3 state (pilot 1: 518/0/0, pilot 2: 517/1/0); `artifact-gate all` →
+`1259 tests, 1406 build(s), 1734 golden(s) checked, 0 diff(s)`; unit suites
+green (syntaxcheck 520, verify 411, registry 5, manifest 76; the full
+`--bin mfb` run at the pilot-1 state: 3825 passed). `test-accept` on the three
+re-pinned fixtures is deferred to B's letter-end run: a peer session's full
+sweep holds the harness's process lock (see Corrections C-A-acceptance).
+Commit: ef53fcef3 (pilot 1), 2f7067fd4 (pilot 2), cad6c8964 (pilot 3)
 
 ## Validation Plan
 
@@ -444,6 +451,41 @@ Commit: —
   `x` → `SYMBOL_UNKNOWN_IDENTIFIER`), while the lambda-target form
   (`inference.rs:1522`) is live for both a global (`LAMBDA(v) -> g = v`) and
   an undeclared name — E's row.
+- **C-A-acceptance (2026-08-29).** The three REORDER goldens
+  (`inline-trap-infallible-builtin-invalid`, `func_thread_send_invalid`,
+  `func_thread_start_invalid`) were regenerated with the same three-line
+  assembly `test-accept.sh` uses for an `-invalid` fixture (echoed command,
+  merged `mfb build -q -ast -ir` output, `[exit N]`; `/tmp/p107-regen.sh`)
+  because `sync-goldens.sh` synced 0 files: another session's full
+  `test-accept` sweep held the harness's pgrep lock ("Another test-accept (pid
+  16582) is running"), with a second sweep queued behind it. Each regenerated
+  file differs from its predecessor only by moved lines (`diff`: 4/24/24
+  lines, all the relocated rule's blocks). `test-accept` confirmation of the
+  three is owed at B's letter-end run.
+- **C-dead-rules (2026-08-29, found while pricing B).** Two (V) rows are
+  dead code in syntaxcheck, so their "relocation" is a deletion with evidence:
+  (a) row 40 `TYPE_RESULT_NOT_USER_VISIBLE` — the resolver reports every
+  `Result`/`Ok` type position first (`resolution.rs:1307-1309`) and
+  short-circuits the build, so syntaxcheck's two emitters (`mod.rs:1576,1623`)
+  never run on the source path (probe: a program with `value AS Result OF
+  Integer` AND an `EXIT FUNC` reports only the three `Result` lines — the
+  `EXIT_FUNC_FORBIDDEN` that syntaxcheck would have added never appears); the
+  goldens' lines are the resolver's, and the resolver keeps the rule. (b) row
+  21 `RESOURCE_SHADOWS_BUILTIN` — `builtins::is_resource_type` resolves a
+  package-qualified key (`fs.File`, `codegen/resource/mod.rs:182`) while a
+  `RESOURCE` declaration's name is a bare identifier, so the comparison has
+  been false for every input since plan-97/bug-441 made builtin resources
+  package-scoped (`syntaxcheck/link.rs:880` records exactly this: "a user
+  `RESOURCE File` no longer collides … previously this drove
+  RESOURCE_SHADOWS_BUILTIN"). Both are (I): B deletes the emitters and their
+  syntaxcheck-only tests; no golden changes (0 fixtures each).
+- **C-split-49 (2026-08-29).** `TYPE_READ_ONLY_RECORD_CONSTRUCTOR` is split
+  (V/S), not pure (V): verify's `check_constructor` (`compat.rs:619-622`)
+  documents why it omits the `Error`/`ErrorLoc` form — lowering synthesizes
+  `Constructor{Error}` for the `error()` builtin and the trap machinery, so a
+  user `Error[..]` is indistinguishable on the IR. The `AttributedString` and
+  compiler-owned-record forms survive (V); the `Error`/`ErrorLoc` form is (S).
+  Moves from B to D (both halves at once), fixtures 4.
 - **C-baseline (2026-08-29).** Bench recorded in
   `planning/plan-107-bench-baseline.txt` (trivial 0.62/0.35, one-regex
   31.80/7.26, acceptance 362.71/65.36 debug/release s — slower than
