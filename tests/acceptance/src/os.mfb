@@ -1,0 +1,185 @@
+IMPORT os
+IMPORT collections
+IMPORT errorCode
+
+FUNC osAccName(suffix AS String) AS String
+  RETURN "MFB_ACCEPT_OS_" & suffix
+END FUNC
+
+FUNC osAccMissingName() AS String
+  RETURN osAccName("MISSING")
+END FUNC
+
+FUNC osAccReadMissing() AS String
+  RETURN os::getEnv(osAccMissingName())
+END FUNC
+
+FUNC osAccResourceDot() AS String
+  RETURN os::resourcePath("assets/./secret.txt")
+END FUNC
+
+FUNC osAccResourceDotDot() AS String
+  RETURN os::resourcePath("assets/../secret.txt")
+END FUNC
+
+SUB osAccSetEmptyName()
+  os::setEnv("", "value")
+END SUB
+
+SUB osAccSetEqualsName()
+  os::setEnv("MFB_ACCEPT_OS_BAD=NAME", "value")
+END SUB
+
+TESTING
+  TGROUP "Builtin: os"
+
+    TGROUP "platform facts"
+      TCASE "name and arch are non-empty build-target constants"
+        LET nameA AS String = os::name()
+        LET nameB AS String = os::name()
+        LET archA AS String = os::arch()
+        LET archB AS String = os::arch()
+
+        expectEqual(len(nameA) > 0, TRUE)
+        expectString(nameB, nameA)
+        expectEqual(nameA = "macos" OR nameA = "linux" OR nameA = "windows", TRUE)
+        expectEqual(len(archA) > 0, TRUE)
+        expectString(archB, archA)
+        expectEqual(archA = "aarch64" OR archA = "x86_64" OR archA = "riscv64", TRUE)
+      END TCASE
+
+      TCASE "version, host, user, executable path, pid, uptime, cpu count, and admin flag are sane"
+        LET pidA AS Integer = os::pid()
+        LET pidB AS Integer = os::pid()
+        LET uptimeA AS Integer = os::uptime()
+        LET uptimeB AS Integer = os::uptime()
+        LET cpusA AS Integer = os::cpuCount()
+        LET cpusB AS Integer = os::cpuCount()
+
+        expectEqual(len(os::version()) > 0, TRUE)
+        expectEqual(len(os::hostName()) > 0, TRUE)
+        expectEqual(len(os::userName()) > 0, TRUE)
+        expectEqual(len(os::executablePath()) > 0, TRUE)
+        expectEqual(pidA > 0, TRUE)
+        expectInteger(pidB, pidA)
+        expectEqual(uptimeA >= 0, TRUE)
+        expectEqual(uptimeB >= uptimeA, TRUE)
+        expectEqual(cpusA >= 1, TRUE)
+        expectInteger(cpusB, cpusA)
+        expectString(typeName(os::isAdmin()), "Boolean")
+        expectEqual(os::isAdmin() OR NOT os::isAdmin(), TRUE)
+      END TCASE
+
+      TCASE "args returns an owned list excluding the executable name"
+        LET args AS List OF String = os::args()
+        LET argsAgain AS List OF String = os::args()
+
+        expectInteger(len(argsAgain), len(args))
+        expectEqual(len(args) >= 0, TRUE)
+        IF len(args) > 0 THEN
+          expectString(typeName(collections::get(args, 0)), "String")
+        END IF
+      END TCASE
+    END TGROUP
+
+    TGROUP "environment reads and writes"
+      TCASE "missing variables are absent, defaultable, and getEnv raises ErrNotFound"
+        os::unsetEnv(osAccMissingName())
+
+        expectEqual(os::hasEnv(osAccMissingName()), FALSE)
+        expectString(os::getEnvOr(osAccMissingName(), "fallback"), "fallback")
+        expectString(os::getEnvOr(osAccMissingName(), "a\0b"), "a\0b")
+        expectInteger(len(os::getEnvOr(osAccMissingName(), "a\0b")), 3)
+        expectTrap(osAccReadMissing(), errorCode::ErrNotFound)
+      END TCASE
+
+      TCASE "setEnv overwrites and getEnv/hasEnv observe live state"
+        LET key AS String = osAccName("ROUNDTRIP")
+        os::unsetEnv(key)
+
+        os::setEnv(key, "one")
+        expectEqual(os::hasEnv(key), TRUE)
+        expectString(os::getEnv(key), "one")
+
+        os::setEnv(key, "two")
+        expectEqual(os::hasEnv(key), TRUE)
+        expectString(os::getEnv(key), "two")
+
+        os::unsetEnv(key)
+        expectEqual(os::hasEnv(key), FALSE)
+        expectTrap(osAccReadMissing(), errorCode::ErrNotFound)
+      END TCASE
+
+      TCASE "empty and separator-bearing values remain exact values"
+        LET emptyKey AS String = osAccName("EMPTY_VALUE")
+        LET eqKey AS String = osAccName("EQUALS_VALUE")
+        os::unsetEnv(emptyKey)
+        os::unsetEnv(eqKey)
+
+        os::setEnv(emptyKey, "")
+        expectEqual(os::hasEnv(emptyKey), TRUE)
+        expectString(os::getEnv(emptyKey), "")
+        expectString(os::getEnvOr(emptyKey, "fallback"), "")
+
+        os::setEnv(eqKey, "a=b=c")
+        expectString(os::getEnv(eqKey), "a=b=c")
+
+        os::unsetEnv(emptyKey)
+        os::unsetEnv(eqKey)
+      END TCASE
+
+      TCASE "environ captures an owned snapshot and splits only the first equals"
+        LET key AS String = osAccName("SNAPSHOT")
+        LET eqKey AS String = osAccName("SNAPSHOT_EQ")
+        os::unsetEnv(key)
+        os::unsetEnv(eqKey)
+
+        os::setEnv(key, "before")
+        os::setEnv(eqKey, "a=b=c")
+        LET env AS Map OF String TO String = os::environ()
+        expectEqual(collections::hasKey(env, key), TRUE)
+        expectString(collections::get(env, key), "before")
+        expectString(collections::get(env, eqKey), "a=b=c")
+
+        os::setEnv(key, "after")
+        os::unsetEnv(eqKey)
+        expectString(collections::get(env, key), "before")
+        expectEqual(collections::hasKey(env, eqKey), TRUE)
+
+        LET fresh AS Map OF String TO String = os::environ()
+        expectString(collections::get(fresh, key), "after")
+        expectEqual(collections::hasKey(fresh, eqKey), FALSE)
+
+        os::unsetEnv(key)
+      END TCASE
+
+      TCASE "unsetEnv is idempotent"
+        LET key AS String = osAccName("UNSET_IDEMPOTENT")
+        os::unsetEnv(key)
+        expectEqual(os::hasEnv(key), FALSE)
+        expectNTrap(os::unsetEnv(key))
+        expectEqual(os::hasEnv(key), FALSE)
+      END TCASE
+
+      TCASE "invalid environment names are rejected by setEnv"
+        expectTrap(osAccSetEmptyName(), errorCode::ErrInvalidArgument)
+        expectTrap(osAccSetEqualsName(), errorCode::ErrInvalidArgument)
+      END TCASE
+    END TGROUP
+
+    TGROUP "resource paths"
+      TCASE "safe relative resource paths resolve and dot-like file names are allowed"
+        LET normal AS String = os::resourcePath("assets/config.txt")
+        LET dotLike AS String = os::resourcePath("assets/..hidden/a..b")
+
+        expectEqual(len(normal) > len("assets/config.txt"), TRUE)
+        expectEqual(len(dotLike) > len("assets/..hidden/a..b"), TRUE)
+      END TCASE
+
+      TCASE "dot and dot-dot path components are rejected"
+        expectTrap(osAccResourceDot(), errorCode::ErrInvalidPath)
+        expectTrap(osAccResourceDotDot(), errorCode::ErrInvalidPath)
+      END TCASE
+    END TGROUP
+  END TGROUP
+END TESTING

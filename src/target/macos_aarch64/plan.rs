@@ -246,6 +246,28 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: "_sysconf".to_string(),
                 required_by: required_by.clone(),
             }],
+            "os.version" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_sysctlbyname".to_string(),
+                required_by: required_by.clone(),
+            }],
+            "os.uptime" => vec![
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_sysctl".to_string(),
+                    required_by: required_by.clone(),
+                },
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_time".to_string(),
+                    required_by: required_by.clone(),
+                },
+            ],
+            "os.isAdmin" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_geteuid".to_string(),
+                required_by: required_by.clone(),
+            }],
             "os.hostName" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_gethostname".to_string(),

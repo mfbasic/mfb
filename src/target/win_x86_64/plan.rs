@@ -181,6 +181,9 @@ impl NativePlanPlatform for Platform {
             // Phase B — os. name/arch are const strings (no import → fall through).
             "os.pid" => vec![import("GetCurrentProcessId", KERNEL32, required_by)],
             "os.cpuCount" => vec![import("GetSystemInfo", KERNEL32, required_by)],
+            "os.version" => vec![import("RtlGetVersion", "ntdll", required_by)],
+            "os.uptime" => vec![import("GetTickCount64", KERNEL32, required_by)],
+            "os.isAdmin" => vec![import("IsUserAnAdmin", "shell32", required_by)],
             "os.getEnv" | "os.getEnvOr" | "os.hasEnv" | "os.setEnv" | "os.unsetEnv" => vec![
                 import("AcquireSRWLockExclusive", KERNEL32, required_by),
                 import("ReleaseSRWLockExclusive", KERNEL32, required_by),

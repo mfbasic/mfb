@@ -215,6 +215,9 @@ impl LinuxPlan<'_> {
             "os.environ" => vec![self.libc_import("environ", required_by)],
             "os.pid" => vec![self.libc_import("getpid", required_by)],
             "os.cpuCount" => vec![self.libc_import("sysconf", required_by)],
+            "os.version" => vec![self.libc_import("uname", required_by)],
+            "os.uptime" => vec![self.libc_import("sysinfo", required_by)],
+            "os.isAdmin" => vec![self.libc_import("geteuid", required_by)],
             "os.hostName" => vec![self.libc_import("gethostname", required_by)],
             "os.userName" => vec![
                 self.libc_import("getuid", required_by),

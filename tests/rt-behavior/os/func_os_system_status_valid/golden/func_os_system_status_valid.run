@@ -1,0 +1,3 @@
+version_nonempty=TRUE
+uptime_nonnegative=TRUE
+admin_bool=TRUE

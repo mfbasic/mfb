@@ -241,6 +241,8 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "os.hostName",
             "os.userName",
             "os.executablePath",
+            "os.version",
+            "os.uptime",
             // plan-55-B: `os.resourcePath` raises ErrUnsupported when the exe path
             // cannot be acquired (the same failure `executablePath` handles).
             "os.resourcePath",

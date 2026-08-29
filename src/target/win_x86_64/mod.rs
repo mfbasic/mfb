@@ -52,6 +52,9 @@ const RUNTIME_CALLS: &[&str] = &[
     "os.hostName",
     "os.userName",
     "os.executablePath",
+    "os.version",
+    "os.uptime",
+    "os.isAdmin",
     // Phase C — io console input + buffering.
     "io.input",
     "io.readLine",

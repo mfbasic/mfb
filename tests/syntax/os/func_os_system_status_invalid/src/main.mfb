@@ -1,0 +1,8 @@
+IMPORT os
+
+FUNC main() AS Integer
+  LET a AS String = os::version("x")
+  LET b AS Integer = os::uptime(1)
+  LET c AS Boolean = os::isAdmin(FALSE)
+  RETURN 0
+END FUNC

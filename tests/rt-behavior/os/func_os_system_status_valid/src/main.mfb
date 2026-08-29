@@ -1,0 +1,9 @@
+IMPORT os
+IMPORT io
+
+FUNC main() AS Integer
+  io::print("version_nonempty=" & toString(len(os::version()) > 0))
+  io::print("uptime_nonnegative=" & toString(os::uptime() >= 0))
+  io::print("admin_bool=" & toString(os::isAdmin() OR NOT os::isAdmin()))
+  RETURN 0
+END FUNC
