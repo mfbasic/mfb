@@ -1100,12 +1100,10 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte",
     },
-    Rule {
-        code: "2-203-0134",
-        name: "RESOURCE_SHADOWS_BUILTIN",
-        severity: Severity::Error,
-        message: "a RESOURCE declaration cannot reuse the name of a built-in resource type",
-    },
+    // 2-203-0134 (RESOURCE_SHADOWS_BUILTIN) retired in plan-107-B: built-in
+    // resources have been package-qualified (`fs.File`) since plan-97/bug-441, so
+    // a bare user `RESOURCE File` names a distinct type and the rule's comparison
+    // could no longer fire.
     Rule {
         code: "2-203-0135",
         name: "TYPE_INSTANTIATION_BUDGET_EXCEEDED",

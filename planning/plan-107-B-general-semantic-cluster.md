@@ -84,14 +84,16 @@ Per plan-107-A (order re-pins only).
 
 ### Phase 1 — gap-free rules
 
-- [ ] RESOURCE_SHADOWS_BUILTIN — dead since plan-97 (A Corrections
-      C-dead-rules): delete the emitter (`syntaxcheck/link.rs:52-77`), its
-      call site and test; no relocation (nothing to relocate)
+- [x] RESOURCE_SHADOWS_BUILTIN — dead since plan-97 (A Corrections
+      C-dead-rules): emitter, call site and predicate-free test deleted; the
+      rule code retired in `rules/table.rs` (reserved, never recycled) and the
+      spec (`17_native-libraries.md`, `01_rule-codes.md`) corrected; corpus
+      `518 same` (0 fixtures ever tripped it)
 - [x] ~~TYPE_ISOLATED_NOT_VISIBLE~~ — moot here: A's pilot 1 (`ef53fcef3`)
-- [ ] TYPE_RESULT_NOT_USER_VISIBLE — resolver-shadowed dead code (A
-      Corrections C-dead-rules): delete syntaxcheck's two emitters
-      (`mod.rs:1576,1623`) and the two syntaxcheck-only tests; the resolver
-      keeps the rule and the goldens
+- [x] TYPE_RESULT_NOT_USER_VISIBLE — resolver-shadowed dead code (A
+      Corrections C-dead-rules): syntaxcheck's two emitters and two tests
+      deleted (`check_project_wrapper_rejects` re-based on `EXIT FUNC`); the
+      resolver keeps the rule and its two goldens; corpus `518 same`
 - [x] ~~TYPE_INLINE_TRAP_REQUIRES_FALLIBLE~~ — moot here: A's pilot 2 (`2f7067fd4`)
 - [x] TYPE_INLINE_TRAP_DEAD_HANDLER — an arm on A's `check_inline_trap_scrutinee`
       (`inline_builtin_is_infallible(target)`); corpus `518 same, 0 reordered,

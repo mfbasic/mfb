@@ -45,37 +45,6 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 
-    /// Native-specific checks on a `RESOURCE … CLOSE BY …` declaration. The
-    /// structural close-op checks run during resolve; the sendability opt-in is
-    /// recorded into the registry (and the `RESOURCE_TABLE` sendable bit) by
-    /// `collect_native_resources` (plan-link-update.md §8/§10).
-    pub(super) fn check_resource_decl(
-        &mut self,
-        file: &HirFile,
-        resource: &crate::ast::ResourceDecl,
-    ) {
-        // bug-373: a user RESOURCE that reuses a built-in resource name is
-        // rejected here rather than left to collide. `collect_native_resources`
-        // registers it over the built-in entry, but the built-in's close op is
-        // still what pulls that helper into the module, so the program reaches
-        // codegen believing both meanings of the name at once and dies on the
-        // internal "declares unused runtime helper" invariant. Reject the
-        // collision uniformly — including when the helper happens to be elided
-        // today, since that only makes the failure latent until an unrelated
-        // import brings it back.
-        if builtins::is_resource_type(&resource.name) {
-            self.report(
-                "RESOURCE_SHADOWS_BUILTIN",
-                &format!(
-                    "RESOURCE `{}` reuses the name of a built-in resource type. Rename it (for example `My{}`); a user resource cannot shadow a built-in.",
-                    resource.name, resource.name
-                ),
-                file,
-                resource.line,
-            );
-        }
-    }
-
     /// Native-specific checks on a `LINK` block: `CPtr` containment and ABI
     /// slot/parameter consistency (plan-link-update.md §5b/§5c/§11/§12).
     pub(super) fn check_link_block(&mut self, file: &HirFile, link: &crate::ast::LinkBlock) {
@@ -873,13 +842,14 @@ mod tests {
     // `self.report(...)` diagnostic in this file (or an `accepts` path that
     // exercises the branch's success arms).
 
-    // ----- RESOURCE built-in shadow (link.rs:68) ----------------------------
+    // ----- RESOURCE built-in shadow ------------------------------------------
 
     #[test]
     fn user_resource_named_like_a_builtin_is_accepted() {
         // plan-97 / bug-441: builtin resources are package-qualified (`fs::File`), so a
-        // user `RESOURCE File` (bare) no longer collides — it names a distinct user
-        // resource and is accepted. (Previously this drove RESOURCE_SHADOWS_BUILTIN.)
+        // user `RESOURCE File` (bare) names a distinct user resource and is accepted.
+        // The RESOURCE_SHADOWS_BUILTIN rule that once drove this test could not fire
+        // after that change and was retired (plan-107-B).
         let src = "\
 RESOURCE File CLOSE BY demoLink::close
 
@@ -895,11 +865,7 @@ FUNC main AS Integer
   RETURN 0
 END FUNC
 ";
-        assert!(
-            !rejects_with(src, "RESOURCE_SHADOWS_BUILTIN"),
-            "{:?}",
-            check_src(src)
-        );
+        assert!(accepts(src), "{:?}", check_src(src));
     }
 
     // ----- collect_native_resources register path (clean, accepts) ----------

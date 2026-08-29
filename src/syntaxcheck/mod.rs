@@ -1298,7 +1298,12 @@ impl<'a> SyntaxChecker<'a> {
                     HirItem::Binding(binding) => self.check_binding(file, binding),
                     HirItem::Function(function) => self.check_function(file, function),
                     HirItem::Type(type_decl) => self.check_type_decl(file, type_decl),
-                    HirItem::Resource(resource) => self.check_resource_decl(file, resource),
+                    // A RESOURCE declaration's structural checks run during
+                    // resolve; the built-in-shadow rule that lived here
+                    // (RESOURCE_SHADOWS_BUILTIN) compared a bare declaration name
+                    // against package-qualified built-in keys and could not fire
+                    // since plan-97 — retired (plan-107-B).
+                    HirItem::Resource(_) => {}
                     HirItem::Link(link) => self.check_link_block(file, link),
                     // A re-export alias carries no body to check; its target was
                     // validated during resolve (plan-link-update.md §5a).
@@ -1531,18 +1536,12 @@ impl<'a> SyntaxChecker<'a> {
                 }
                 self.check_type_reference(file, return_type, line);
             }
-            Type::ResultOf(_) => {
-                // `Result` is internal: it is never nameable in a user type
-                // position. (The resolver normally catches this first; this keeps
-                // the invariant honest for any type that reaches the checker.)
-                self.report(
-                    "TYPE_RESULT_NOT_USER_VISIBLE",
-                    "`Result` is an internal type; declare the success type directly \
-                     (a function call yields its value or fails with an `Error`).",
-                    file,
-                    line,
-                );
-            }
+            // `Result`/`Ok` in a type position is TYPE_RESULT_NOT_USER_VISIBLE —
+            // the RESOLVER's rule (`resolution.rs::resolve_type`), which reports
+            // every such position and short-circuits the build before this
+            // checker runs. The copies that lived here were unreachable
+            // (plan-107-B, evidence in plan-107-A Corrections C-dead-rules).
+            Type::ResultOf(_) => {}
             Type::ThreadHandle {
                 msg: message,
                 res: resource,
@@ -1577,20 +1576,7 @@ impl<'a> SyntaxChecker<'a> {
                     self.check_type_reference(file, plane_state, line);
                 }
             }
-            Type::Named(name) => {
-                let name = name.resolve();
-                if name == "Ok" {
-                    // `Ok` is the internal success member of `Result`; it is not a
-                    // user-nameable type.
-                    self.report(
-                        "TYPE_RESULT_NOT_USER_VISIBLE",
-                        "`Ok` is an internal type; declare the success type directly \
-                         (a function call yields its value or fails with an `Error`).",
-                        file,
-                        line,
-                    );
-                }
-            }
+            Type::Named(_) => {}
             Type::Boolean
             | Type::Byte
             | Type::Fixed
@@ -1738,21 +1724,10 @@ mod checker_tests {
     // only reads a return type for a FUNC, so a `SUB … AS T` never parses. The
     // branch is defensive for IR/package-decoded functions and stays uncovered.
 
-    #[test]
-    fn func_returning_result_rejected() {
-        assert!(rejects_with(
-            "FUNC f AS Result OF Integer\n  RETURN 1\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
-            "TYPE_RESULT_NOT_USER_VISIBLE"
-        ));
-    }
-
-    #[test]
-    fn func_returning_ok_rejected() {
-        assert!(rejects_with(
-            "FUNC f AS Ok\n  RETURN 1\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
-            "TYPE_RESULT_NOT_USER_VISIBLE"
-        ));
-    }
+    // TYPE_RESULT_NOT_USER_VISIBLE is the resolver's; the copies this checker
+    // carried were unreachable on the build path and were deleted (plan-107-B).
+    // The goldens `tests/syntax/types/result-not-user-visible-invalid` and
+    // `tests/syntax/functions/func_typesystem_result_invalid` pin the resolver.
 
     #[test]
     fn func_nothing_may_fall_through() {
@@ -2479,10 +2454,13 @@ mod checker_tests {
     #[test]
     fn check_project_wrapper_rejects() {
         use crate::ast::{parse_source, AstProject};
+        // `EXIT FUNC` is a syntaxcheck-owned rejection (EXIT_FUNC_FORBIDDEN), so
+        // the wrapper's `Err` comes from this checker rather than a rule that has
+        // since moved out of it.
         let file = parse_source(
             Path::new("main.mfb"),
             "main.mfb",
-            "FUNC f AS Result OF Integer\n  RETURN 1\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+            "FUNC main AS Integer\n  EXIT FUNC\n  RETURN 0\nEND FUNC\n",
         )
         .unwrap();
         let project = crate::hir::elaborate(&AstProject {
