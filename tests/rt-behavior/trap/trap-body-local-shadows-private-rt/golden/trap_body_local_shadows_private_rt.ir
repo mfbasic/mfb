@@ -31,7 +31,7 @@
       "line": 16,
       "name": "e",
       "body": [
-      { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Unknown", "target": "io.print", "args": [{ "kind": "call", "type": "Unknown", "target": "toString", "args": [{ "kind": "local", "name": "x" }] }] } },
+      { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "x" }] }] } },
       { "op": "return", "line": 18, "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ]
     }

@@ -167,7 +167,7 @@
       "name": "e",
       "body": [
       { "op": "eval", "line": 99, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "over_cap_error=" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "e" }, "member": "message" } }] } },
-      { "op": "eval", "line": 100, "value": { "kind": "call", "type": "Unknown", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "bigPath" }] } },
+      { "op": "eval", "line": 100, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "bigPath" }] } },
       { "op": "return", "line": 101, "value": null }
       ]
     }

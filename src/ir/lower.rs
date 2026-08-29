@@ -536,9 +536,19 @@ fn lower_function_body(
     locals: &HashMap<String, ParameterType>,
     context: &mut LowerContext<'_>,
 ) -> Vec<IrOp> {
-    let mut body = lower_statement_block(&function.body, locals, context, None);
+    // The function-level TRAP body sees the function body's own (top-level)
+    // locals as well as the parameters (bug-285: a body local shadowing a
+    // file PRIVATE wins in the trap too), so the body is lowered into a scope
+    // the trap then inherits — typing `x` in the handler as the body's `x`
+    // rather than leaving it `Unknown` (plan-107-E).
+    let mut body_locals = locals.clone();
+    let mut body: Vec<IrOp> = function
+        .body
+        .iter()
+        .flat_map(|statement| lower_statement(statement, &mut body_locals, context, None))
+        .collect();
     if let Some(trap) = &function.trap {
-        let mut trap_locals = locals.clone();
+        let mut trap_locals = body_locals;
         trap_locals.insert(trap.name.clone(), ParameterType::named("Error"));
         body.push(IrOp::Trap {
             name: trap.name.clone(),
@@ -2139,10 +2149,22 @@ pub(super) fn expression_type(
             }
             // `t.result` is removed; worker outcomes are retrieved only via
             // `thread::waitFor`. (Typecheck rejects `.result` before IR.)
+            // `Error`/`ErrorLoc` are the compiler-generated records
+            // (`build_error_value`): their fields are typed here exactly as the
+            // source checker typed them, so `e.source.line` is an `Integer` to
+            // every consumer of this seam (plan-107-E).
             if target_type == ParameterType::named("Error") {
                 return match member.as_str() {
                     "code" => Some(ParameterType::Integer),
                     "message" => Some(ParameterType::String),
+                    "source" => Some(ParameterType::named("ErrorLoc")),
+                    _ => None,
+                };
+            }
+            if target_type == ParameterType::named("ErrorLoc") {
+                return match member.as_str() {
+                    "filename" => Some(ParameterType::String),
+                    "line" | "char" => Some(ParameterType::Integer),
                     _ => None,
                 };
             }

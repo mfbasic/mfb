@@ -364,9 +364,14 @@ impl<'a> Walker<'a> {
         }
         let previous_return_type = self.context.current_return_type.take();
         self.context.current_return_type = Some(lower::function_return_type(function));
-        self.walk_block(&function.body, &locals);
+        // The body's top-level locals stay visible to the function-level
+        // TRAP body (bug-285), exactly as `lower_function_body` scopes them.
+        let mut body_locals = locals.clone();
+        for statement in &function.body {
+            self.walk_statement(statement, &mut body_locals);
+        }
         if let Some(trap) = &function.trap {
-            let mut trap_locals = locals.clone();
+            let mut trap_locals = body_locals;
             trap_locals.insert(trap.name.clone(), ParameterType::named("Error"));
             self.walk_block(&trap.body, &trap_locals);
         }
@@ -1004,8 +1009,11 @@ impl<'a> Walker<'a> {
         if matches!(expected, ParameterType::Unknown) || matches!(actual, ParameterType::Unknown) {
             return true;
         }
-        let (expected, actual) = (strip_res(expected), strip_res(actual));
-        match (expected, actual) {
+        // The `RES` marker and a resource's ` STATE T` clause are both
+        // ownership-axis annotations the checker compared without.
+        let expected = strip_res(expected).without_state();
+        let actual = strip_res(actual).without_state();
+        match (&expected, &actual) {
             (ParameterType::ListOf(expected), ParameterType::ListOf(actual))
             | (ParameterType::SetOf(expected), ParameterType::SetOf(actual))
             | (ParameterType::ResultOf(expected), ParameterType::ResultOf(actual)) => {

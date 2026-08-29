@@ -323,6 +323,21 @@ Commit: `f70a3919f` (TYPE_CALL_ARITY_MISMATCH); TYPE_CALL_ARGUMENT_MISMATCH —
   are package-path only — the same split the counts took. The plan's
   "verify checks both paths" holds for the package path's ABI defense, not
   for source-path parity.
+- **Seam gaps the ARGUMENT landing exposed (2026-08-29, Phase 3).** The
+  artifact gate at `4199d19e9` failed 6 valid fixtures (their `.ast`/`.ir`
+  missing: the build was rejected), all shape-pass false rejections from two
+  gaps between lowering's `expression_type` and the checker's inference:
+  (1) `expression_type` typed `e.source` and every `ErrorLoc` member as
+  `Unknown` (it knew only `Error.code`/`.message`), so
+  `toString(where.line)` resolved no overload — fixed in the seam itself
+  (`lower.rs`, the `Error`/`ErrorLoc` member arms), which also stamps the
+  lowered `MemberAccess` with the right type; (2) the checker compared a
+  resource's type with its ` STATE T` clause stripped on BOTH sides (an
+  imported `db::exec(h AS Db STATE DbInfo)` takes a `Db`), which the port
+  had done for the actual only — `Walker::compatible` now strips both. The
+  seam fix is a lowering-inference correction: any `.ir` golden that
+  annotates such a member access re-baselines with it (a typed annotation
+  where `Unknown` stood), never a `.ncode`.
 - **C-rewritten-targets (2026-08-29, Phase 3).** A source-bodied builtin
   member (`Body::Mfb`/`Body::Rewrite`, the `astrings` Tier-B transforms, the
   `term::drawText(AttributedString)` bridge) lowers to a call whose target is
