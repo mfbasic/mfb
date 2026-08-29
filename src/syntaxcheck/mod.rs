@@ -1375,22 +1375,7 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     pub(super) fn check_function(&mut self, file: &HirFile, function: &HirFunction) {
-        if function.isolated
-            && (!matches!(function.kind, FunctionKind::Func)
-                || matches!(function.visibility, Visibility::Private))
-        {
-            self.report(
-                "TYPE_ISOLATED_NOT_VISIBLE",
-                &format!(
-                    "ISOLATED function `{}` must be a project-visible FUNC declaration \
-                     (PUBLIC — the default — or EXPORT, not PRIVATE).",
-                    function.name
-                ),
-                file,
-                function.line,
-            );
-        }
-
+        // TYPE_ISOLATED_NOT_VISIBLE is `ir::verify`'s (plan-107-A).
         let expected_return = match function.kind {
             FunctionKind::Func => {
                 if declared(&function.returns).is_none() {
@@ -1808,16 +1793,8 @@ mod checker_tests {
 
     // ---- check_function -----------------------------------------------------
 
-    #[test]
-    fn isolated_private_func_rejected() {
-        // ISOLATED requires a project-visible FUNC (PUBLIC — the default — or
-        // EXPORT); an explicit PRIVATE ISOLATED is rejected. (An unmarked ISOLATED
-        // FUNC is PUBLIC and accepted — exercised by the thread acceptance tests.)
-        assert!(rejects_with(
-            "PRIVATE ISOLATED FUNC w(x AS Integer) AS Integer\n  RETURN x\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
-            "TYPE_ISOLATED_NOT_VISIBLE"
-        ));
-    }
+    // TYPE_ISOLATED_NOT_VISIBLE moved to `ir::verify` (plan-107-A); its twin is
+    // `verify::tests::rejects_private_isolated_func`.
 
     // NOTE: TYPE_SUB_CANNOT_RETURN_VALUE is unreachable from source — the parser
     // only reads a return type for a FUNC, so a `SUB … AS T` never parses. The

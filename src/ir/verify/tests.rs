@@ -7677,3 +7677,249 @@ fn truncated_thread_spelling_still_counts_as_a_thread() {
         ParameterType::Integer
     )));
 }
+
+// ---------------------------------------------------------------------------
+// plan-107-A pilots — the package-path twins of the relocated rules. A crafted
+// `.mfp` gets exactly the source-path treatment; these prove the rule fires on
+// decoded IR, where no syntaxcheck ever ran.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rejects_private_isolated_func() {
+    let mut f = func("w", vec![], vec![ret(int_const("0"))]);
+    f.isolated = true;
+    f.visibility = "private".to_string();
+    expect_rule(&project(vec![f], vec![]), "TYPE_ISOLATED_NOT_VISIBLE");
+}
+
+#[test]
+fn rejects_isolated_sub() {
+    let mut s = func_returns("w", "Nothing", vec![], vec![ret_none()]);
+    s.kind = "sub".to_string();
+    s.isolated = true;
+    expect_rule(&project(vec![s], vec![]), "TYPE_ISOLATED_NOT_VISIBLE");
+}
+
+#[test]
+fn accepts_public_isolated_func() {
+    let mut f = func("w", vec![], vec![ret(int_const("0"))]);
+    f.isolated = true;
+    f.visibility = "public".to_string();
+    accept(&project(vec![f], vec![]));
+}
+
+/// The lowered shape of `LET a = <scrutinee> TRAP(e) … END TRAP` with `handler`
+/// as the handler's ops (`lower_inline_trap`).
+fn inline_trap_ops(scrutinee: IrValue, handler: Vec<IrOp>) -> Vec<IrOp> {
+    let res = || IrValue::Local("$trap_res0".to_string());
+    vec![
+        IrOp::Bind {
+            mutable: false,
+            name: "$trap_res0".to_string(),
+            type_: ParameterType::result_of(ParameterType::Integer),
+            value: Some(scrutinee),
+            explicit_type: false,
+            loc: IrSourceLoc::default(),
+        },
+        bind("$trap_val0", "Integer", None, false, true),
+        IrOp::If {
+            condition: IrValue::ResultIsOk {
+                value: Box::new(res()),
+            },
+            then_body: vec![IrOp::Assign {
+                name: "$trap_val0".to_string(),
+                value: IrValue::ResultValue {
+                    type_: ParameterType::Integer,
+                    value: Box::new(res()),
+                },
+                loc: IrSourceLoc::default(),
+            }],
+            else_body: handler,
+            loc: IrSourceLoc::default(),
+        },
+        bind(
+            "a",
+            "Integer",
+            Some(IrValue::Local("$trap_val0".to_string())),
+            false,
+            false,
+        ),
+        ret(IrValue::Local("a".to_string())),
+    ]
+}
+
+fn recover_zero() -> IrOp {
+    IrOp::Assign {
+        name: "$trap_val0".to_string(),
+        value: int_const("0"),
+        loc: IrSourceLoc::default(),
+    }
+}
+
+#[test]
+fn rejects_inline_trap_on_a_non_call() {
+    let body = inline_trap_ops(int_const("5"), vec![recover_zero()]);
+    expect_rule(
+        &project(vec![func("run", vec![], body)], vec![]),
+        "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
+    );
+}
+
+#[test]
+fn rejects_inline_trap_on_a_package_constant() {
+    let scrutinee = IrValue::CallResult {
+        target: "math.pi".to_string(),
+        args: vec![],
+        type_: ParameterType::Float,
+        loc: IrSourceLoc::default(),
+    };
+    let body = inline_trap_ops(scrutinee, vec![recover_zero()]);
+    expect_rule(
+        &project(vec![func("run", vec![], body)], vec![]),
+        "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
+    );
+}
+
+#[test]
+fn accepts_inline_trap_on_a_call() {
+    let scrutinee = IrValue::CallResult {
+        target: "getName".to_string(),
+        args: vec![],
+        type_: ParameterType::Integer,
+        loc: IrSourceLoc::default(),
+    };
+    let body = inline_trap_ops(scrutinee, vec![recover_zero()]);
+    let callee = func("getName", vec![], vec![ret(int_const("1"))]);
+    let got = rules(&project(vec![func("run", vec![], body), callee], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"),
+        "{got:?}"
+    );
+}
+
+#[test]
+fn skips_the_testing_desugared_trap_guard() {
+    // `expectTrap(5)` desugars into the inline-trap shape whose handler sets a
+    // `$expect_trapped` temp; that form has its own TESTING rule in the
+    // front end and must not be reported as an inline TRAP.
+    let handler = vec![IrOp::Assign {
+        name: "$expect_trapped0".to_string(),
+        value: const_of("Boolean", "true"),
+        loc: IrSourceLoc::default(),
+    }];
+    let mut body = inline_trap_ops(int_const("5"), handler);
+    body.insert(
+        0,
+        bind(
+            "$expect_trapped0",
+            "Boolean",
+            Some(const_of("Boolean", "false")),
+            false,
+            true,
+        ),
+    );
+    let got = rules(&project(vec![func("run", vec![], body)], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"),
+        "{got:?}"
+    );
+}
+
+/// A record that is NOT thread-sendable because it holds a thread handle.
+fn unsendable_record() -> IrType {
+    record_typed("BadMessage", &[("handle", "Thread OF String TO Integer")])
+}
+
+#[test]
+fn rejects_unsendable_thread_message_in_a_parameter() {
+    let f = func(
+        "run",
+        vec![param("t", "Thread OF BadMessage TO Integer", None)],
+        vec![ret(int_const("0"))],
+    );
+    expect_rule(
+        &project(vec![f], vec![unsendable_record()]),
+        "TYPE_THREAD_NOT_SENDABLE",
+    );
+}
+
+#[test]
+fn rejects_unsendable_thread_message_in_a_record_field() {
+    let holder = record_typed("Holder", &[("t", "Thread OF BadMessage TO Integer")]);
+    let f = func("run", vec![], vec![ret(int_const("0"))]);
+    expect_rule(
+        &project(vec![f], vec![unsendable_record(), holder]),
+        "TYPE_THREAD_NOT_SENDABLE",
+    );
+}
+
+#[test]
+fn rejects_unsendable_message_sent_across_a_thread() {
+    let send = IrOp::Eval {
+        value: IrValue::Call {
+            target: "thread.send".to_string(),
+            args: vec![
+                IrValue::Local("t".to_string()),
+                IrValue::Local("m".to_string()),
+            ],
+            type_: ParameterType::Nothing,
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    };
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![
+            param("t", "Thread OF BadMessage TO Integer", None),
+            param("m", "BadMessage", None),
+        ],
+        vec![send, ret_none()],
+    );
+    // Both the declared handle type and the call boundary reject.
+    let got = rules(&project(vec![f], vec![unsendable_record()]));
+    assert!(
+        got.iter()
+            .filter(|r| *r == "TYPE_THREAD_NOT_SENDABLE")
+            .count()
+            >= 2,
+        "{got:?}"
+    );
+}
+
+#[test]
+fn rejects_transfer_on_a_thread_without_a_resource_plane() {
+    let transfer = IrOp::Eval {
+        value: IrValue::Call {
+            target: crate::codegen::builtins::thread::TRANSFER_RESOURCE.to_string(),
+            args: vec![
+                IrValue::Local("t".to_string()),
+                IrValue::Local("v".to_string()),
+            ],
+            type_: ParameterType::Nothing,
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    };
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![
+            param("t", "Thread OF String TO Integer", None),
+            param("v", "Integer", None),
+        ],
+        vec![transfer, ret_none()],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_THREAD_NOT_SENDABLE");
+}
+
+#[test]
+fn accepts_a_sendable_thread_message() {
+    let f = func(
+        "run",
+        vec![param("t", "Thread OF String TO Integer", None)],
+        vec![ret(int_const("0"))],
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"), "{got:?}");
+}

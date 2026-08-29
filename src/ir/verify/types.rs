@@ -20,6 +20,7 @@ impl TypeEnv {
                     for field in &ty.fields {
                         self.current_line.set(field.loc.line);
                         self.check_map_key_comparable(&field.type_);
+                        self.check_thread_sendability(&field.type_);
                         self.current_line.set(ty.loc.line);
                         if is_resource_name(&resource_base_type(&field.type_).name()) {
                             self.current_line.set(field.loc.line);

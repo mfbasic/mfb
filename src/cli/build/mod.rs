@@ -418,7 +418,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let imported_resources = imported_resource_closers(&options.location, &manifest);
     let imported_resource_types: std::collections::HashSet<&str> = imported_resources
         .iter()
-        .map(|(type_name, _)| type_name.as_str())
+        .map(|resource| resource.type_name.as_str())
         .collect();
     let all_external_signatures = external_package_function_types(&options.location, &manifest);
     // plan-105-A: the signature arrives TYPED, so the return type is a field —

@@ -69,6 +69,7 @@ impl TypeEnv {
                 self.check_call_arity(target, args.len(), locals);
                 self.check_call_argument_types(target, args, locals);
                 self.check_builtin_call_args(target, args, locals);
+                self.check_thread_boundary_sendability(target, args, value, locals);
                 self.check_call_result_type(target, value, args, locals);
             }
             IrValue::Constructor { type_, args } => {

@@ -61,6 +61,19 @@ pub(crate) struct Diagnostic {
     pub(crate) line: u32,
 }
 
+/// One imported package's `RESOURCE_TABLE` row as the source-path checker needs
+/// it (bug-377): the type's close op, and whether the exporting package marked
+/// the type thread-sendable. A decoded package contributes no
+/// `native_resources`, so without these rows every resource rule is inert for
+/// an imported type — a double close of a package handle passed clean, and a
+/// non-sendable package resource crossed a thread boundary unchallenged.
+#[derive(Clone, Debug)]
+pub struct ImportedResource {
+    pub type_name: String,
+    pub close_function: String,
+    pub sendable: bool,
+}
+
 /// Rules for which `ir::verify` is the sole rejecter (plan-20-Z). On the
 /// **source** path `ir::verify` emits ONLY these (syntaxcheck still owns every
 /// other rule, so emitting a non-relocated rule here would duplicate it); on
@@ -157,6 +170,8 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     // escape analysis' ownership decision, which syntaxcheck does not compute
     // (bug-291).
     "TYPE_RESOURCE_RETURN_ORDER",
+    // plan-107-A pilots (decl-level / expression-level / inference-fact port).
+    "TYPE_ISOLATED_NOT_VISIBLE",
 ];
 
 /// Diagnostic prefixes shared with the structural `verify_package` checks so a
@@ -207,17 +222,20 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
 fn collect_diagnostics_with(
     project: &IrProject,
     imported_types_unknown: bool,
-    imported_resources: &[(String, String)],
+    imported_resources: &[ImportedResource],
 ) -> Vec<Diagnostic> {
     let mut env = TypeEnv::build(project);
     env.imported_types_unknown = imported_types_unknown;
     // bug-377: seed the imported packages' `RESOURCE_TABLE` rows. The project's
     // own `native_resources` win — an importer never overrides a declaration it
     // can see the source of.
-    for (type_name, close_function) in imported_resources {
+    for imported in imported_resources {
         env.resource_closers
-            .entry(type_name.clone())
-            .or_insert_with(|| close_function.clone());
+            .entry(imported.type_name.clone())
+            .or_insert_with(|| imported.close_function.clone());
+        env.resource_sendable
+            .entry(imported.type_name.clone())
+            .or_insert(imported.sendable);
     }
     let env = env;
     for function in &project.functions {
@@ -242,12 +260,30 @@ fn collect_diagnostics_with(
                 .map(|p| p.name.clone())
                 .collect(),
         );
+        // An ISOLATED function is a thread entry point, reached by name from
+        // another package's `thread::start`, so it must be a project-visible
+        // FUNC (bug-227). `IrFunction` carries all three facts.
+        if function.isolated && (function.kind != "func" || function.visibility == "private") {
+            env.current_line.set(function.loc.line);
+            env.emit(
+                "TYPE_ISOLATED_NOT_VISIBLE",
+                format!(
+                    "ISOLATED function `{}` must be a project-visible FUNC declaration \
+                     (PUBLIC — the default — or EXPORT, not PRIVATE).",
+                    function.name
+                ),
+            );
+        }
         // A declared return type is a type reference too (`AS List OF File`
         // needs the RES element marking like any collection declaration).
         if !function.name.starts_with('$') {
             env.current_line.set(function.loc.line);
             env.check_collection_res_axis(&resource_base_type(&function.returns));
             env.check_return_state_declaration(function);
+            env.check_thread_sendability(&function.returns.without_state());
+            if let Some(state) = function.returns.state() {
+                env.check_thread_sendability(&state);
+            }
         }
         // A declared FUNC must name its return type (`AS T`); lowering stamps
         // `Unknown` when the annotation is absent. Synthesized `$lambda` bodies
@@ -295,6 +331,10 @@ fn collect_diagnostics_with(
             locals.insert(param.name.clone(), param.type_.clone());
             env.check_map_key_comparable(&param.type_);
             env.check_collection_res_axis(&resource_base_type(&param.type_));
+            env.check_thread_sendability(&param.type_.without_state());
+            if let Some(state) = param.type_.state() {
+                env.check_thread_sendability(&state);
+            }
             // Every parameter must declare an `AS` type (lambda parameters
             // included — syntaxcheck checks both forms with this rule).
             if param.type_ == ParameterType::Unknown {
@@ -408,6 +448,10 @@ fn collect_diagnostics_with(
         if binding.explicit_type {
             env.check_map_key_comparable(binding_type);
             env.check_collection_res_axis(&resource_base_type(binding_type));
+            env.check_thread_sendability(&binding_type.without_state());
+            if let Some(state) = binding_type.state() {
+                env.check_thread_sendability(&state);
+            }
         }
         if binding.value.is_none() {
             if !binding.explicit_type {
@@ -477,7 +521,7 @@ pub fn check(project: &IrProject) -> Result<(), String> {
 pub fn collect_source_diagnostics(
     project: &IrProject,
     project_dir: &Path,
-    imported_resources: &[(String, String)],
+    imported_resources: &[ImportedResource],
 ) -> Vec<crate::rules::PendingDiagnostic> {
     collect_diagnostics_with(project, true, imported_resources)
         .into_iter()
@@ -545,6 +589,11 @@ struct TypeEnv {
     /// `alias.func`), complementing the builtin close table for the
     /// use-after-move pass.
     resource_closers: HashMap<String, String>,
+    /// User-declared native resource type → whether it may cross a thread
+    /// boundary (`RESOURCE … THREAD_SENDABLE`), plus the imported packages'
+    /// `RESOURCE_TABLE` sendable bits. Built-in resources are not here; the
+    /// registry answers for them (`is_builtin_sendable_resource_type`).
+    resource_sendable: HashMap<String, bool>,
     /// Function name → the distinct captured-slot counts observed at the
     /// `Closure` sites that target it. A single count means the closure shape is
     /// known; zero or multiple distinct counts leaves it ambiguous (skip).
@@ -750,6 +799,11 @@ impl TypeEnv {
             .iter()
             .map(|r| (r.name.clone(), r.close_function.clone()))
             .collect();
+        let resource_sendable = project
+            .native_resources
+            .iter()
+            .map(|r| (r.name.clone(), r.sendable))
+            .collect();
 
         let mut closure_counts: HashMap<String, HashSet<usize>> = HashMap::new();
         for function in &project.functions {
@@ -773,6 +827,7 @@ impl TypeEnv {
             globals,
             global_muts,
             resource_closers,
+            resource_sendable,
             closure_counts,
             field_types,
             record_field_lists,

@@ -59,8 +59,8 @@ Shared by every plan-107 letter; stated once here.
 |---|---|---|
 | plan-106 complete | plan-106-A..E archived; `rg -n 'deelaborate' src/` → 0; `rg -n 'enum Type' src/syntaxcheck/` → 0 | MET 2026-08-29 — plan-106-A..E in `planning/completed/`; both greps hit only one historical doc comment each (`src/hir/mod.rs:918` "the de-elaboration block … is deleted", `src/syntaxcheck/mod.rs:91` "this was a private `enum Type`"), no code |
 | Feature worktree + fresh baselines | as plan-104-A §Prerequisites (gate + suite + bench) | MET 2026-08-29 — `worktree-P-107` at `.claude/worktrees/P-107` forked from main `2299b6326`; `scripts/artifact-gate.sh target/release/mfb all` → `1259 tests, 1406 build(s), 1734 golden(s) checked, 0 diff(s)` (recorded in `planning/plan-107-baseline-diffs.txt`); full suite + bench: see the rows below |
-| Full suite green at HEAD | `rustup run 1.96.0 cargo test --no-fail-fast` on a pristine detached checkout of main tip (`git worktree add --detach /tmp/p107-baseline 2299b6326`) | see Corrections §C-baseline (filled when the run completes) |
-| Lowering perf baseline captured | `scripts/bench-lowering.sh` → `planning/plan-107-bench-baseline.txt` | see Corrections §C-baseline |
+| Full suite green at HEAD | `rustup run 1.96.0 cargo test --no-fail-fast` on a pristine detached checkout of main tip (`git worktree add --detach /tmp/p107-baseline 2299b6326`) | MET 2026-08-29 — exit 0; 64 `test result: ok`, 0 `FAILED` suites |
+| Lowering perf baseline captured | `scripts/bench-lowering.sh` → `planning/plan-107-bench-baseline.txt` | MET 2026-08-29 — recorded (trivial 0.62/0.35, one-regex 31.80/7.26, acceptance 362.71/65.36 debug/release s) |
 
 plan-106 is a hard gate, not a preference: post-106 the rules are
 `ParameterType`-typed on HIR, so each relocation is a **transcription** into
@@ -303,18 +303,27 @@ changes deliberately per relocation (goldens re-pinned); set never changes.
 
 Acceptance: harness proven; the verdict table complete with no hypothesis
 rows.
-Commit: —
+Commit: 6dd04364c
 
 ### Phase 2 — three pilot relocations
 
-- [ ] Relocate 3 (V)-verdict rules of different shapes end-to-end via the
-      recipe: `TYPE_ISOLATED_NOT_VISIBLE` (decl-level), `TYPE_UNKNOWN_VALUE`
-      (expression-level, 301 fixtures — the reorder-scale probe),
-      `TYPE_THREAD_NOT_SENDABLE` (inference-fact port: sendability + the
-      imported sendable bit); record per-rule cost and reordered-fixture
-      counts.
-- [ ] Tests: full corpus via the harness; package-path (verify unit) test for
-      each pilot.
+- [~] Relocate 3 (V)-verdict rules of different shapes end-to-end via the
+      recipe; record per-rule cost and reordered-fixture counts:
+  - [x] `TYPE_ISOLATED_NOT_VISIBLE` (decl-level): 12 lines in verify's
+        function loop; corpus `518 same, 0 reordered, 0 set-diff` (its one
+        fixture trips only this rule, so no reorder — as predicted).
+  - [ ] `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` (expression-level; replaces
+        `TYPE_UNKNOWN_VALUE`, see Corrections C-pilot-swap).
+  - [ ] `TYPE_THREAD_NOT_SENDABLE` (inference-fact port: sendability + the
+        imported sendable bit).
+- [~] Tests: full corpus via the harness; package-path (verify unit) test for
+      each pilot — `verify::tests::rejects_private_isolated_func`,
+      `rejects_isolated_sub`, `accepts_public_isolated_func` (pilot 1);
+      pilot 2/3 twins written alongside (`rejects_inline_trap_on_a_non_call`,
+      `…_package_constant`, `skips_the_testing_desugared_trap_guard`,
+      `rejects_unsendable_thread_message_in_a_parameter`, `…record_field`,
+      `rejects_unsendable_message_sent_across_a_thread`,
+      `rejects_transfer_on_a_thread_without_a_resource_plane`).
 
 Acceptance: 3 rules live in verify, syntaxcheck impls deleted, corpus
 set-equal, goldens re-pinned and listed, `artifact-gate all` byte-identical.
@@ -387,6 +396,21 @@ Commit: —
   `mfb test` (TESTING blocks are dropped by `mfb build`), so their fixtures
   are `mfb test` fixtures with `test.log` goldens; the harness handles both
   logs.
+- **C-pilot-swap (2026-08-29).** `TYPE_UNKNOWN_VALUE` cannot be a pilot:
+  verify's cascade (`ops.rs:117-126`) is gated on verify ITSELF having emitted
+  the poisoning rule for the initializer, and for the 301 fixtures that rule
+  is the builtin-call arity/argument check, which only E moves — an
+  unlisted-poisoner cascade would go silent (300 SETDIFFs). Probe evidence:
+  `LET z AS Integer = math::abs()` gets its `TYPE_UNKNOWN_VALUE` from
+  syntaxcheck's stream today. The rule's verdict stands (V); its letter is
+  **E**, landed after the builtin-call family, and E inherits the
+  reorder-scale probe. The expression-level pilot is
+  `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` instead (B loses it). Also measured
+  while probing: syntaxcheck's plain-assignment form of `TYPE_UNKNOWN_VALUE`
+  (`checking.rs:335`) is shadowed by the resolver (`x = 1` on an undeclared
+  `x` → `SYMBOL_UNKNOWN_IDENTIFIER`), while the lambda-target form
+  (`inference.rs:1522`) is live for both a global (`LAMBDA(v) -> g = v`) and
+  an undeclared name — E's row.
 - **C-baseline (2026-08-29).** Bench recorded in
   `planning/plan-107-bench-baseline.txt` (trivial 0.62/0.35, one-regex
   31.80/7.26, acceptance 362.71/65.36 debug/release s — slower than

@@ -141,6 +141,10 @@ impl TypeEnv {
                     if *explicit_type {
                         self.check_map_key_comparable(type_);
                         self.check_collection_res_axis(&resource_base_type(type_));
+                        self.check_thread_sendability(&type_.without_state());
+                        if let Some(state) = type_.state() {
+                            self.check_thread_sendability(&state);
+                        }
                     }
                     // The RES ownership axis (syntaxcheck's
                     // check_resource_declaration): a resource-typed binding
@@ -518,6 +522,11 @@ impl TypeEnv {
                     self.check_value_captures(condition, closure_slots);
                     self.check_value(condition, locals);
                     self.check_condition_boolean("IF condition", condition, locals);
+                    // The lowered inline-TRAP branch: its scrutinee was bound to
+                    // the `$trap_res` temp just above (in `temp_consts`), and the
+                    // rule reports before the handler's own diagnostics, as
+                    // syntaxcheck did.
+                    self.check_inline_trap_scrutinee(condition, else_body, &temp_consts);
                     self.check_ops_in_branch(then_body, locals, muts, closure_slots, depth);
                     self.check_ops_in_branch(else_body, locals, muts, closure_slots, depth);
                 }
