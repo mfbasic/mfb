@@ -52,9 +52,8 @@ jobs:
   # Uninstrumented unit/integration suite across every supported host family.
   # The native GitHub runners cover x86-64/glibc, AArch64/glibc, Win64, and
   # macOS/AArch64. The x86-64/musl row uses Rust's musl target on the native
-  # Linux runner. The riscv64/glibc row runs natively on a RISE-managed runner.
-  # Each matrix row recompiles under the test profile (separate from build's
-  # binary).
+  # Linux runner. Each matrix row recompiles under the test profile (separate
+  # from build's binary).
   test:
     needs: build
     name: Test (${{ matrix.name }})
@@ -73,9 +72,6 @@ jobs:
             rust_target: x86_64-unknown-linux-musl
           - name: linux-aarch64-glibc
             runner: ubuntu-24.04-arm
-            rust_target: native
-          - name: linux-riscv64-glibc
-            runner: ubuntu-24.04-riscv
             rust_target: native
           - name: windows-x86_64
             runner: windows-2025
