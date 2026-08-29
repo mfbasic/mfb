@@ -693,7 +693,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 if let Some(dir) = test_output_dir {
                     // Host run: execute the freshly linked binary, then remove
                     // the whole temp directory regardless of outcome.
-                    let status = match executable_paths.first() {
+                    let status = match host_test_executable(&executable_paths) {
                         Some(path) => run_test_binary(path),
                         None => {
                             eprintln!("error: mfb test produced no executable to run");

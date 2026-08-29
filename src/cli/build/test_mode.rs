@@ -51,10 +51,44 @@ pub(super) fn make_temp_output_dir() -> Result<PathBuf, ()> {
     Err(())
 }
 
+/// Pick the Linux artifact matching the libc this compiler itself targets.
+/// Linux builds emit both flavors, but only the host flavor is runnable.
+pub(super) fn host_test_executable(paths: &[PathBuf]) -> Option<&Path> {
+    #[cfg(target_os = "linux")]
+    {
+        let suffix = if cfg!(target_env = "musl") {
+            "-musl.out"
+        } else {
+            "-glibc.out"
+        };
+        paths
+            .iter()
+            .find(|path| path.to_string_lossy().ends_with(suffix))
+            .map(PathBuf::as_path)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        paths.first().map(PathBuf::as_path)
+    }
+}
+
 /// Run the freshly built test executable, inheriting its stdio, and map its exit
 /// status to `mfb test`'s result: success (all cases passed) or failure.
 pub(super) fn run_test_binary(path: &Path) -> Result<(), ()> {
-    match std::process::Command::new(path).status() {
+    let mut command = match std::env::var("MFB_TEST_RUNNER") {
+        Ok(runner) => {
+            let mut parts = runner.split_ascii_whitespace();
+            let Some(program) = parts.next() else {
+                eprintln!("error: MFB_TEST_RUNNER is empty");
+                return Err(());
+            };
+            let mut command = std::process::Command::new(program);
+            command.args(parts).arg(path);
+            command
+        }
+        Err(_) => std::process::Command::new(path),
+    };
+    match command.status() {
         Ok(status) if status.success() => Ok(()),
         Ok(_) => Err(()),
         Err(err) => {

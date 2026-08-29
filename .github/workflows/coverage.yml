@@ -116,6 +116,7 @@ jobs:
         env:
           CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
           CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_RUNNER: qemu-riscv64 -L /usr/riscv64-linux-gnu
+          MFB_TEST_RUNNER: qemu-riscv64 -L /usr/riscv64-linux-gnu
         run: cargo test --workspace --target riscv64gc-unknown-linux-gnu
 
   # Acceptance: reuses the compiled binary (no recompile). test-accept.sh uses
