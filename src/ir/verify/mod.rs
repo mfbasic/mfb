@@ -129,6 +129,9 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TESTING_EXPECT_NOT_PRINTABLE",
     "TESTING_EXPECT_CODE_TYPE",
     "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE",
+    // plan-107-D: ir::shape's — the literal's SPELLING (`1.08` vs `1.08f`) is the
+    // evidence, and lowering stamps both as the same Float const.
+    "MONEY_INEXACT_FLOAT_LITERAL",
     "TYPE_BINARY_OPERATOR_MISMATCH",
     "TYPE_UNARY_OPERATOR_MISMATCH",
     "TYPE_FIELD_ACCESS_REQUIRES_RECORD",

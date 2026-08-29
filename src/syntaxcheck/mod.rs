@@ -1584,24 +1584,6 @@ impl<'a> SyntaxChecker<'a> {
             line,
         });
     }
-
-    /// Emit a **non-fatal** advisory diagnostic (a `Severity::Warn` rule). It is
-    /// collected and rendered like any diagnostic but does not fail the build
-    /// (`crate::rules::is_error` gates the pipeline), so `had_error` stays unset.
-    /// Used for rules that flag a benign condition (e.g. a provably-dead inline
-    /// TRAP handler) without rejecting the program.
-    pub(super) fn report_warning(&mut self, rule: &str, detail: &str, file: &HirFile, line: usize) {
-        debug_assert!(
-            !crate::ir::RELOCATED_TO_IR_VERIFY.contains(&rule),
-            "rule {rule} is relocated to ir::verify; syntaxcheck must not emit it"
-        );
-        self.diagnostics.push(crate::rules::PendingDiagnostic {
-            rule: rule.to_string(),
-            detail: detail.to_string(),
-            path: self.project_dir.join(&file.path),
-            line,
-        });
-    }
 }
 
 /// Shared test harness for the source-diagnostic unit tests. Builds a

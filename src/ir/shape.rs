@@ -311,6 +311,25 @@ fn read_only_record(type_: &ParameterType) -> bool {
         || name == crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE
 }
 
+/// An unsuffixed decimal literal that classifies as `Float` (a suffixed
+/// `1.08f`/`1.08F`/`1.08m` is intrinsically typed and never the culprit); a
+/// negated one counts.
+fn is_bare_decimal_float(expression: &HirExpression) -> bool {
+    match expression {
+        HirExpression::Number(text) => {
+            !text.ends_with(['f', 'F', 'm', 'M'])
+                && matches!(
+                    crate::numeric::classify_literal(text).1,
+                    crate::numeric::LiteralType::Float
+                )
+        }
+        HirExpression::Unary {
+            operator, operand, ..
+        } if operator == "-" => is_bare_decimal_float(operand),
+        _ => false,
+    }
+}
+
 /// The checker's `is_numeric` (`Unknown` included, so a prior error does not
 /// cascade).
 fn is_numeric(type_: &ParameterType) -> bool {
@@ -1153,9 +1172,40 @@ impl<'a> Walker<'a> {
             | HirExpression::Scalar(_)
             | HirExpression::Boolean(_)
             | HirExpression::Identifier(_) => {}
-            HirExpression::Binary { left, right, .. } => {
+            HirExpression::Binary {
+                left,
+                operator,
+                right,
+                ..
+            } => {
                 self.walk_expression(left, locals);
                 self.walk_expression(right, locals);
+                // MONEY_INEXACT_FLOAT_LITERAL (Warn, plan-29-F §4.6): scaling a
+                // Money by a BARE decimal literal (`* 1.08` / `/ 1.08`) takes the
+                // inexact Float path. The literal's spelling is the evidence —
+                // lowering stamps the same `Float` const for `1.08` and `1.08f`.
+                let money = |walker: &Self, value: &HirExpression| {
+                    matches!(walker.type_of(value, locals), ParameterType::Money)
+                };
+                let bare_float = |walker: &Self, value: &HirExpression| {
+                    matches!(walker.type_of(value, locals), ParameterType::Float)
+                        && is_bare_decimal_float(value)
+                };
+                let culprit = match operator.as_str() {
+                    "*" => {
+                        (money(self, left) && bare_float(self, right))
+                            || (money(self, right) && bare_float(self, left))
+                    }
+                    "/" => money(self, left) && bare_float(self, right),
+                    _ => false,
+                };
+                if culprit {
+                    self.emit(
+                        "MONEY_INEXACT_FLOAT_LITERAL",
+                        "scaling Money by a bare decimal literal uses inexact Float arithmetic; append `F` for exact fixed-point scaling, or `f` to confirm the Float is intentional.".to_string(),
+                        self.current_line,
+                    );
+                }
             }
             HirExpression::Unary { operand, .. } => self.walk_expression(operand, locals),
             HirExpression::Call {
@@ -3113,6 +3163,43 @@ mod tests {
         assert!(accepts(
             "IMPORT net\nTYPE Circle\n  r AS Integer\nEND TYPE\nUNION Shape\n  Circle\nEND UNION\nUNION Extra INCLUDES Shape\n  Circle\nEND UNION\nFUNC score(s AS Extra) AS Integer\n  MATCH s\n    CASE Circle(c)\n      RETURN c.r + 1\n  END MATCH\nEND FUNC\nFUNC main AS Integer\n  LET u AS net::Url = net::toUrl(\"http://x/\")\n  LET rendered AS String = toString(u)\n  RETURN len(rendered)\nEND FUNC\n"
         ));
+    }
+
+    // ---- the Money exactness nudge ---------------------------------------
+
+    #[test]
+    fn money_scaled_by_a_bare_decimal_literal_warns() {
+        let src = |expr: &str| {
+            format!("FUNC main AS Integer\n  LET price AS Money = 10.00m\n  LET scaled AS Money = {expr}\n  RETURN 0\nEND FUNC\n")
+        };
+        for warned in [
+            "price * 1.08",
+            "1.08 * price",
+            "price / 1.08",
+            "price * -1.08",
+        ] {
+            assert_eq!(
+                shape_codes(&src(warned)),
+                ["MONEY_INEXACT_FLOAT_LITERAL"],
+                "{warned}"
+            );
+        }
+        // A suffixed literal is intrinsically typed; a Float variable never
+        // warns; `literal / Money` is not the scaling shape; `+` is not scaling.
+        for silent in [
+            "price * 1.08F",
+            "price * 1.08f",
+            "price * 2",
+            "price + 1.08m",
+        ] {
+            assert!(
+                accepts(&src(silent)),
+                "{silent}: {:?}",
+                shape_codes(&src(silent))
+            );
+        }
+        let float_var = "FUNC main AS Integer\n  LET price AS Money = 10.00m\n  LET rate AS Float = 1.08\n  LET scaled AS Money = price * rate\n  RETURN 0\nEND FUNC\n";
+        assert!(accepts(float_var), "{:?}", shape_codes(float_var));
     }
 
     // ---- TESTING assertions lowering expands away -------------------------

@@ -182,7 +182,9 @@ moves; split rules re-pin (listed).
       checker's resource registry — builtin + native `LINK` + imported
       `RESOURCE_TABLE` names, now a `collect_diagnostics` input) and
       `is_printable` ported; corpus 522 same / 0 reordered / 0 set-diff.
-      Remaining: 6.)
+      Row 6 (MONEY_INEXACT_FLOAT_LITERAL, Warn) landed: the literal's
+      SPELLING is the evidence (`1.08` vs `1.08f` lower to the same Float
+      const); corpus 522 same. All pure-(S) rows done.)
 - [~] Split rules, one commit each (rows 22, 31, 39, 46): shape half + verify
       half confirmed/ported + list entry + syntaxcheck deletion; corpus
       set-equal, reorders listed.
@@ -202,7 +204,8 @@ moves; split rules re-pin (listed).
 
 Acceptance: every (S) rule fires from `ir::shape`; syntaxcheck's copies
 deleted; corpus set-equal (order-identical for pure-(S) moves).
-Commit: `f2d52f271` (control-flow group + E's seam fixup); TESTING_EXPECT_* —
+Commit: `f2d52f271` (control-flow group + E's seam fixup); `794eada94`
+(TESTING_EXPECT_*); MONEY_INEXACT_FLOAT_LITERAL —
 
 ### Phase 2 — delete src/syntaxcheck + the split machinery
 
