@@ -191,9 +191,17 @@ Commit: `0292de3b5`
 
 ### Phase 2 — relocate the family
 
-- [ ] One rule per commit into `verify/link.rs` (recipe); Phase-1 tests
+- [x] One rule per commit into `verify/link.rs` (recipe); Phase-1 tests
       flip to firing on the package path; syntaxcheck `link.rs` copies
-      deleted. Grouping forced by the shared fault helpers: the five codes
+      deleted — `NATIVE_ABI_NO_RESULT` `e92ec5d23` (521/0/0),
+      `NATIVE_ABI_RESULT_MARKER` `226aba6f4` (520/1/0),
+      `NATIVE_ABI_UNBOUND_PARAM` `ce732b80a` (521/0/0),
+      `NATIVE_BIND_IN_INVALID` `665f4b26f` (520/1/0),
+      `NATIVE_CSTRUCT_ESCAPE` `602136627` (521/0/0), the eight-code group
+      `0852d3d7f` (520/1/0). Every reorder is
+      `tests/syntax/native/native-struct-slot-invalid`, the one LINK fixture
+      tripping several of the family's codes. Grouping forced by the shared
+      fault helpers: the five codes
       syntaxcheck emits only from its own strings — `NATIVE_ABI_NO_RESULT`,
       `NATIVE_ABI_RESULT_MARKER`, `NATIVE_ABI_UNBOUND_PARAM`,
       `NATIVE_BIND_IN_INVALID`, `NATIVE_CSTRUCT_ESCAPE` — land one per commit;
@@ -214,13 +222,16 @@ Commit: `0292de3b5`
       lists them with `mfb test` fixtures (`test.log` goldens; the harness
       already replays `$ mfb test` sections). Nothing in this letter touches
       them.
-- [ ] Tests: corpus + harness per commit; the package tests; the parity test
-      is retired in the final commit (with syntaxcheck's `link.rs` gone there
-      is no second set to agree with).
+- [x] Tests: corpus + harness per commit (above); the package tests (Phase 1
+      twins + the pre-existing ones, `ir::verify` 432 passed). The parity test
+      (`native_rule_sets_agree_between_syntaxcheck_and_verify`) stays: syntaxcheck
+      still emits the two split rules' erased forms (`NATIVE_CONST_UNKNOWN_SLOT`,
+      `NATIVE_FREE_INVALID`) until D, and the invariant is exactly what keeps
+      those two honest in the meantime — D retires it with `syntaxcheck/link.rs`.
 
 Acceptance: 13 rules verify-only and package-guarded; TESTING verdict
 executed; corpus set-equal; gate byte-identical.
-Commit: — (per rule)
+Commit: see the per-rule hashes above
 
 ## Validation Plan
 
