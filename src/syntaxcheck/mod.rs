@@ -1586,36 +1586,17 @@ impl<'a> SyntaxChecker<'a> {
                 out: output,
                 ..
             } => {
+                // The planes' sendability (TYPE_THREAD_NOT_SENDABLE) is
+                // `ir::verify`'s (plan-107-A); only the type-reference walk into
+                // each plane remains here.
                 self.check_type_reference(file, message, line);
                 self.check_type_reference(file, output, line);
-                self.require_thread_sendable_type(file, line, "Thread message type", message);
-                self.require_thread_sendable_type(file, line, "Thread output type", output);
-                // The data plane is resource-free (§7): a resource may only ride
-                // the `RES Res` resource plane, never the message slot.
-                if self.is_resource_type(message) {
-                    self.report(
-                        "TYPE_THREAD_NOT_SENDABLE",
-                        &format!(
-                            "Thread message type `{}` is a resource; the data channel is resource-free — declare it on the resource plane (`Thread OF … RES {} TO …`).",
-                            self.type_name(message),
-                            self.type_name(message)
-                        ),
-                        file,
-                        line,
-                    );
-                }
                 // plan-106-C rung 2e: an absent plane is `Nothing`, and the
                 // plane's ` STATE T` rides inside its spelling — `split_state`
                 // gives back exactly what the separate `res_state` slot held.
                 let (plane_resource, plane_state) = resource.split_state();
                 if !matches!(plane_resource, Type::Nothing) {
                     self.check_type_reference(file, &plane_resource, line);
-                    self.require_thread_sendable_type(
-                        file,
-                        line,
-                        "Thread resource type",
-                        &plane_resource,
-                    );
                 }
                 // The plane's `STATE T` payload type (plan-54) must resolve, and
                 // its defaultability/copyability is enforced by ir::verify as for a
@@ -1631,12 +1612,6 @@ impl<'a> SyntaxChecker<'a> {
                 // from crossing.
                 if let Some(plane_state) = &plane_state {
                     self.check_type_reference(file, plane_state, line);
-                    self.require_thread_sendable_type(
-                        file,
-                        line,
-                        "Thread resource STATE type",
-                        plane_state,
-                    );
                 }
             }
             Type::Named(name) => {
@@ -2025,9 +2000,12 @@ mod checker_tests {
 
     #[test]
     fn thread_resource_message_rejected() {
-        // A resource in the message (data) plane of a Thread type.
+        // A resource in the message (data) plane of a Thread type: the
+        // rejection (TYPE_THREAD_NOT_SENDABLE) is `ir::verify`'s (plan-107-A;
+        // twin `verify::tests::rejects_a_resource_in_the_message_plane`); the
+        // type-reference walk over the planes still runs here.
         let src = "IMPORT thread\nIMPORT fs\nFUNC main AS Integer\n  LET t AS Thread OF fs::File TO Integer\n  RETURN 0\nEND FUNC\n";
-        assert!(rejects_with(src, "TYPE_THREAD_NOT_SENDABLE"));
+        let _ = check_src(src);
     }
 
     #[test]

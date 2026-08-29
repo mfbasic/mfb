@@ -489,8 +489,10 @@ impl TypeEnv {
         if matches!(return_type, ParameterType::Unknown) {
             return;
         }
-        let arg_types: Vec<Option<ParameterType>> =
-            args.iter().map(|arg| self.infer_type(arg, locals)).collect();
+        let arg_types: Vec<Option<ParameterType>> = args
+            .iter()
+            .map(|arg| self.infer_type(arg, locals))
+            .collect();
         match target {
             "thread.start" => {
                 // syntaxcheck reaches the boundary rules only for an entry point
@@ -514,28 +516,19 @@ impl TypeEnv {
                     ..
                 } = &return_type
                 {
-                    self.require_thread_sendable(
-                        &format!("Call to `{display}` message type"),
-                        msg,
-                    );
+                    self.require_thread_sendable(&format!("Call to `{display}` message type"), msg);
                     if !matches!(**res, ParameterType::Nothing) {
                         self.require_thread_sendable(
                             &format!("Call to `{display}` resource type"),
                             &res.without_state(),
                         );
                     }
-                    self.require_thread_sendable(
-                        &format!("Call to `{display}` output type"),
-                        out,
-                    );
+                    self.require_thread_sendable(&format!("Call to `{display}` output type"), out);
                 }
             }
             "thread.send" => {
                 if let Some(Some(ParameterType::ThreadHandle { msg, .. })) = arg_types.first() {
-                    self.require_thread_sendable(
-                        &format!("Call to `{display}` message type"),
-                        msg,
-                    );
+                    self.require_thread_sendable(&format!("Call to `{display}` message type"), msg);
                     // The data plane is resource-free: a resource moves across a
                     // thread only via `thread::transfer` (§7).
                     if self.is_resource_type(msg) {

@@ -40,6 +40,13 @@ pub(crate) struct ResourceInfo {
     pub close_function: String,
     /// Whether the resource may cross a thread boundary (the `RESOURCE_TABLE`
     /// "sendable to thread" bit).
+    ///
+    /// Recorded at registration and not read by the compiler since plan-107-A:
+    /// the thread-sendability rules live in `ir::verify`, which reads the
+    /// clean-room registry (`is_builtin_sendable_resource_type`) and the
+    /// project's/imported tables directly. Kept for the same reason as
+    /// `close_may_fail` — it is part of what a `RESOURCE_TABLE` row states.
+    #[allow(dead_code)]
     pub sendable: bool,
     /// Whether the close op can fail.
     ///
@@ -111,6 +118,12 @@ impl ResourceRegistry {
     }
 
     /// Whether `type_name` is a resource that may cross a thread boundary.
+    ///
+    /// Test-only since plan-107-A, like [`close_may_fail`](Self::close_may_fail):
+    /// the compiler's sendability rules moved to `ir::verify`; this survives so
+    /// `builtins_carry_close_op_and_sendability` can assert what the built-in
+    /// seed states.
+    #[cfg(test)]
     pub(crate) fn is_sendable(&self, type_name: &str) -> bool {
         self.entries
             .get(type_name)

@@ -7792,7 +7792,8 @@ fn accepts_inline_trap_on_a_call() {
     let callee = func("getName", vec![], vec![ret(int_const("1"))]);
     let got = rules(&project(vec![func("run", vec![], body), callee], vec![]));
     assert!(
-        !got.iter().any(|r| r == "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"),
+        !got.iter()
+            .any(|r| r == "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"),
         "{got:?}"
     );
 }
@@ -7820,7 +7821,8 @@ fn skips_the_testing_desugared_trap_guard() {
     );
     let got = rules(&project(vec![func("run", vec![], body)], vec![]));
     assert!(
-        !got.iter().any(|r| r == "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"),
+        !got.iter()
+            .any(|r| r == "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"),
         "{got:?}"
     );
 }
@@ -7913,6 +7915,79 @@ fn rejects_transfer_on_a_thread_without_a_resource_plane() {
     expect_rule(&project(vec![f], vec![]), "TYPE_THREAD_NOT_SENDABLE");
 }
 
+/// bug-301 G4: the resource plane's `STATE T` payload crosses the boundary with
+/// the resource (deep-copied into the receiver's arena), so it must be sendable
+/// too — copyable + defaultable does not imply it: a record holding
+/// `List OF RES fs.File` satisfies both yet carries sender-owned pointers.
+#[test]
+fn rejects_unsendable_resource_plane_state_payload() {
+    let holder = record_typed("Holder", &[("files", "List OF RES fs.File")]);
+    let f = func(
+        "worker",
+        vec![param(
+            "t",
+            "ThreadWorker OF Integer RES fs.File STATE Holder TO Integer",
+            None,
+        )],
+        vec![ret(int_const("0"))],
+    );
+    expect_rule(&project(vec![f], vec![holder]), "TYPE_THREAD_NOT_SENDABLE");
+
+    // A STATE of plain sendable fields is accepted — the rule rejects the
+    // unsendable payload, not stateful planes generally.
+    let plain = record_typed("Holder", &[("count", "Integer"), ("label", "String")]);
+    let f = func(
+        "worker",
+        vec![param(
+            "t",
+            "ThreadWorker OF Integer RES fs.File STATE Holder TO Integer",
+            None,
+        )],
+        vec![ret(int_const("0"))],
+    );
+    let got = rules(&project(vec![f], vec![plain]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
+        "{got:?}"
+    );
+}
+
+#[test]
+fn rejects_a_non_resource_on_the_resource_plane() {
+    // `thread::accept` on a thread whose resource plane names `Integer`: the
+    // resource plane moves only resources.
+    let accept = IrOp::Eval {
+        value: IrValue::Call {
+            target: crate::codegen::builtins::thread::ACCEPT_RESOURCE.to_string(),
+            args: vec![IrValue::Local("t".to_string())],
+            type_: ParameterType::Integer,
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    };
+    let f = func(
+        "worker",
+        vec![param(
+            "t",
+            "ThreadWorker OF String RES Integer TO Integer",
+            None,
+        )],
+        vec![accept, ret(int_const("0"))],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_THREAD_NOT_SENDABLE");
+}
+
+#[test]
+fn rejects_a_resource_in_the_message_plane() {
+    // The data plane is resource-free (§7): a resource rides the `RES` plane.
+    let f = func(
+        "run",
+        vec![param("t", "Thread OF fs.File TO Integer", None)],
+        vec![ret(int_const("0"))],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_THREAD_NOT_SENDABLE");
+}
+
 #[test]
 fn accepts_a_sendable_thread_message() {
     let f = func(
@@ -7921,5 +7996,8 @@ fn accepts_a_sendable_thread_message() {
         vec![ret(int_const("0"))],
     );
     let got = rules(&project(vec![f], vec![]));
-    assert!(!got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"), "{got:?}");
+    assert!(
+        !got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
+        "{got:?}"
+    );
 }

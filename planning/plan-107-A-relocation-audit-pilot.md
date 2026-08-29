@@ -319,16 +319,44 @@ Commit: 6dd04364c
         the reorder is `tests/syntax/trap/inline-trap-infallible-builtin-invalid`
         (verify's `SYMBOL_NOT_CALLABLE` now precedes the rule at line 13, both
         in one stream); golden re-pinned in the commit.
-  - [ ] `TYPE_THREAD_NOT_SENDABLE` (inference-fact port: sendability + the
-        imported sendable bit).
-- [~] Tests: full corpus via the harness; package-path (verify unit) test for
-      each pilot — `verify::tests::rejects_private_isolated_func`,
+  - [x] `TYPE_THREAD_NOT_SENDABLE` (inference-fact port): ~250 lines in
+        `verify/resources.rs` — `is_thread_sendable` (ported predicate over
+        verify's record/union/resource tables), the declared-type walk
+        (`check_thread_sendability`, wired at params, returns, explicit binds,
+        globals, record fields, STATE types) and the `thread.start`/`send`/
+        `transfer`/`accept` boundary checks; the bug-377 seam now carries the
+        imported `RESOURCE_TABLE` sendable bit (`ir::ImportedResource`);
+        corpus `516 same, 2 reordered, 0 set-diff` — the reorders are
+        `tests/syntax/threads/func_thread_send_invalid` and
+        `func_thread_start_invalid` (the rule's lines now render after
+        syntaxcheck's arity/argument/unknown-value lines); goldens re-pinned.
+        syntaxcheck's `resources.rs` lost 250 lines (`sed -i '338,513d;
+        266,337d;186,189d'`) and `builtins.rs`/`mod.rs` their call sites; the
+        registry's `ResourceInfo.sendable`/`is_sendable` lost their last
+        compiler reader (field kept with `close_may_fail`'s justification,
+        accessor test-only).
+- [x] Tests: full corpus via the harness (above); package-path (verify unit)
+      twins per pilot — `verify::tests::rejects_private_isolated_func`,
       `rejects_isolated_sub`, `accepts_public_isolated_func` (pilot 1);
-      pilot 2/3 twins written alongside (`rejects_inline_trap_on_a_non_call`,
-      `…_package_constant`, `skips_the_testing_desugared_trap_guard`,
-      `rejects_unsendable_thread_message_in_a_parameter`, `…record_field`,
-      `rejects_unsendable_message_sent_across_a_thread`,
-      `rejects_transfer_on_a_thread_without_a_resource_plane`).
+      `rejects_inline_trap_on_a_non_call`, `…_package_constant`,
+      `accepts_inline_trap_on_a_call`, `skips_the_testing_desugared_trap_guard`
+      (pilot 2); `rejects_unsendable_thread_message_in_a_parameter`,
+      `…record_field`, `rejects_unsendable_message_sent_across_a_thread`,
+      `rejects_transfer_on_a_thread_without_a_resource_plane`,
+      `rejects_unsendable_resource_plane_state_payload`,
+      `rejects_a_non_resource_on_the_resource_plane`,
+      `rejects_a_resource_in_the_message_plane`, `accepts_a_sendable_thread_message`
+      (pilot 3).
+
+**Recipe pricing (the point of the pilots).** Per rule: implement + twin
+(15–60 min by rule shape), list, `cargo build --release` (~40 s), harness
+(~20 s for all 518 fixtures), regenerate the REORDER goldens (`sync-goldens.sh`
+or, while another test-accept holds the lock, the same three-line assembly
+test-accept uses), delete syntaxcheck's copy + tests, targeted unit tests,
+commit. Reordered-fixture counts: 0 / 1 / 2 — a relocated rule reorders
+exactly the multi-rule fixtures it trips, never others. The decl-level and
+expression-level shapes are transcriptions; the inference-fact port is the
+expensive shape (the predicate, its call sites, and the seam that feeds it).
 
 Acceptance: 3 rules live in verify, syntaxcheck impls deleted, corpus
 set-equal, goldens re-pinned and listed, `artifact-gate all` byte-identical.

@@ -183,10 +183,6 @@ impl<'a> SyntaxChecker<'a> {
         self.is_copyable_type_with_seen(type_, &mut HashSet::new())
     }
 
-    pub(super) fn is_thread_sendable_type(&self, type_: &Type) -> bool {
-        self.is_thread_sendable_type_with_seen(type_, &mut HashSet::new())
-    }
-
     pub(super) fn is_copyable_type_with_seen(
         &self,
         type_: &Type,
@@ -262,255 +258,6 @@ impl<'a> SyntaxChecker<'a> {
             other => self.is_copyable_type_with_seen(&Type::named(&other.name()), seen),
         }
     }
-
-    pub(super) fn is_thread_sendable_type_with_seen(
-        &self,
-        type_: &Type,
-        seen: &mut HashSet<String>,
-    ) -> bool {
-        match type_ {
-            Type::Boolean
-            | Type::Byte
-            | Type::Fixed
-            | Type::Float
-            | Type::Integer
-            | Type::Money
-            | Type::Nothing
-            | Type::String
-            | Type::Unknown => true,
-            // The built-in nominals are plain values: thread-sendable.
-            Type::Named(name) if is_builtin_nominal(name.resolve()) => true,
-            Type::ListOf(element) => self.is_thread_sendable_type_with_seen(element, seen),
-            Type::SetOf(element) => self.is_thread_sendable_type_with_seen(element, seen),
-            Type::MapOf(key, value) => {
-                self.is_thread_sendable_type_with_seen(key, seen)
-                    && self.is_thread_sendable_type_with_seen(value, seen)
-            }
-            Type::ResultOf(success) => self.is_thread_sendable_type_with_seen(success, seen),
-            // Sharing a resource collection across threads is out of scope (§15.6).
-            Type::Res(_) => false,
-            Type::Func(..) | Type::ThreadHandle { .. } => false,
-            Type::Named(name) => {
-                let name = name.resolve();
-                if self.resource_registry.is_resource(name) {
-                    return self.resource_registry.is_sendable(name);
-                }
-                if !seen.insert(name.to_string()) {
-                    return true;
-                }
-                let Some(info) = self.type_infos.get(name) else {
-                    return true;
-                };
-                let result =
-                    match info.kind {
-                        TypeDeclKind::Enum => true,
-                        TypeDeclKind::Type => info.fields.iter().all(|field| {
-                            self.is_thread_sendable_type_with_seen(&field.type_, seen)
-                        }),
-                        TypeDeclKind::Union => info.variants.iter().all(|variant| {
-                            // A resource-union variant name is itself a registered
-                            // resource carrying empty `fields`; the vacuous `.all()`
-                            // over no fields would report it sendable regardless of
-                            // its actual `is_sendable` bit (bug-173 F). Gate on the
-                            // resource's own sendability instead.
-                            if self.resource_registry.is_resource(&variant.name) {
-                                return self.resource_registry.is_sendable(&variant.name);
-                            }
-                            variant.fields.iter().all(|field| {
-                                self.is_thread_sendable_type_with_seen(&field.type_, seen)
-                            })
-                        }),
-                    };
-                seen.remove(name);
-                result
-            }
-            // `ParameterType` carries variants syntaxcheck's own parser never
-            // produces (`Var`, `Arg`, `UserOf`, `MapEntryOf`, `AttributeString`);
-            // a decoded package signature can still hold one. Before plan-106-C
-            // rung 2e each arrived spelled out as `Type::User(<spelling>)` and so
-            // took the NOMINAL arm above — routing the render back through it
-            // reproduces that exactly, rather than guessing a new answer for a
-            // shape this checker has never had to answer for.
-            other => self.is_thread_sendable_type_with_seen(&Type::named(&other.name()), seen),
-        }
-    }
-
-    pub(super) fn report_thread_type_not_sendable(
-        &mut self,
-        file: &HirFile,
-        line: usize,
-        context: &str,
-        type_: &Type,
-    ) {
-        self.report(
-            "TYPE_THREAD_NOT_SENDABLE",
-            &format!(
-                "{context} requires a thread-sendable type, got `{}`.",
-                self.type_name(type_)
-            ),
-            file,
-            line,
-        );
-    }
-
-    pub(super) fn require_thread_sendable_type(
-        &mut self,
-        file: &HirFile,
-        line: usize,
-        context: &str,
-        type_: &Type,
-    ) {
-        if !self.is_thread_sendable_type(type_) {
-            self.report_thread_type_not_sendable(file, line, context, type_);
-        }
-    }
-
-    pub(super) fn check_thread_boundary_sendability(
-        &mut self,
-        file: &HirFile,
-        display_callee: &str,
-        callee: &str,
-        arg_types: &[Type],
-        return_type: &Type,
-        line: usize,
-    ) {
-        match callee {
-            "thread.start" => {
-                if let Some(input) = arg_types.get(1) {
-                    self.require_thread_sendable_type(
-                        file,
-                        line,
-                        &format!("Call to `{display_callee}` input"),
-                        input,
-                    );
-                }
-                if let Type::ThreadHandle {
-                    worker: false,
-                    msg: message,
-                    res: resource,
-                    out: output,
-                    ..
-                } = return_type
-                {
-                    self.require_thread_sendable_type(
-                        file,
-                        line,
-                        &format!("Call to `{display_callee}` message type"),
-                        message,
-                    );
-                    // plan-106-C rung 2e: an absent resource plane is `Nothing`
-                    // (the `ParameterType::ThreadHandle` sentinel), not `None`, and
-                    // the plane's ` STATE T` now rides inside its spelling — so the
-                    // sendability check reads the BARE resource, exactly what the
-                    // separate `res_state` slot used to hand it.
-                    if !matches!(**resource, Type::Nothing) {
-                        // The resource plane carries only thread-sendable resources.
-                        self.require_thread_sendable_type(
-                            file,
-                            line,
-                            &format!("Call to `{display_callee}` resource type"),
-                            &resource.without_state(),
-                        );
-                    }
-                    self.require_thread_sendable_type(
-                        file,
-                        line,
-                        &format!("Call to `{display_callee}` output type"),
-                        output,
-                    );
-                }
-            }
-            "thread.send" => {
-                if let Some(handle) = arg_types.first() {
-                    match handle {
-                        Type::ThreadHandle { msg: message, .. } => {
-                            self.require_thread_sendable_type(
-                                file,
-                                line,
-                                &format!("Call to `{display_callee}` message type"),
-                                message,
-                            );
-                            // The data plane is resource-free: a resource moves
-                            // across a thread only via `thread::transfer` (§7).
-                            if self.is_resource_type(message) {
-                                self.report(
-                                    "TYPE_THREAD_NOT_SENDABLE",
-                                    &format!(
-                                        "Call to `{display_callee}` message type `{}` is a resource; the message channel is resource-free — use `thread::transfer`.",
-                                        self.type_name(message)
-                                    ),
-                                    file,
-                                    line,
-                                );
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            "thread.transfer" | "thread.accept" => {
-                if let Some(handle) = arg_types.first() {
-                    if let Type::ThreadHandle { res, .. } = handle {
-                        // plan-106-C rung 2e: the plane's resource and its
-                        // ` STATE T` share one slot now (the clause rides inside
-                        // the nominal's spelling, where the canonical grammar puts
-                        // it), so `split_state` is what hands the two planes back
-                        // apart. An ABSENT plane is `Nothing`, not `None`.
-                        let (resource, resource_state) = res.split_state();
-                        // bug-301 G4: the plane's `STATE T` payload crosses the
-                        // boundary with the resource -- plan-54 deep-copies it into
-                        // the receiver's arena -- so it must be sendable too. Only
-                        // the resource itself was checked here.
-                        if let Some(resource_state) = &resource_state {
-                            self.require_thread_sendable_type(
-                                file,
-                                line,
-                                &format!("Call to `{display_callee}` resource STATE type"),
-                                resource_state,
-                            );
-                        }
-                        match &resource {
-                            // The resource plane carries only thread-sendable
-                            // resources, and only when the thread declares one.
-                            resource
-                                if !matches!(resource, Type::Nothing)
-                                    && self.is_resource_type(resource) =>
-                            {
-                                self.require_thread_sendable_type(
-                                    file,
-                                    line,
-                                    &format!("Call to `{display_callee}` resource type"),
-                                    resource,
-                                );
-                            }
-                            resource if !matches!(resource, Type::Nothing) => {
-                                self.report(
-                                    "TYPE_THREAD_NOT_SENDABLE",
-                                    &format!(
-                                        "Call to `{display_callee}` carries `{}`, which is not a resource; the resource plane moves only resources.",
-                                        self.type_name(resource)
-                                    ),
-                                    file,
-                                    line,
-                                );
-                            }
-                            _ => {
-                                self.report(
-                                    "TYPE_THREAD_NOT_SENDABLE",
-                                    &format!(
-                                        "Call to `{display_callee}` requires a thread with a resource plane (`Thread OF … RES Res TO …`); this thread has no resource channel."
-                                    ),
-                                    file,
-                                    line,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
 }
 
 #[cfg(test)]
@@ -559,35 +306,12 @@ mod resources_tests {
     /// constrains a STATE type to be copyable and defaultable, which does NOT imply
     /// sendable: a record holding `List OF RES fs::File` satisfies both, yet carries
     /// resource pointers to sender-owned resources that §15.6 forbids from crossing.
-    #[test]
-    fn resource_plane_state_payload_must_be_sendable() {
-        let unsendable = "IMPORT thread\nIMPORT fs\nTYPE Holder\n  files AS List OF RES fs::File\nEND TYPE\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Integer RES fs::File STATE Holder TO Integer, seed AS Integer) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
-        assert!(rejects_with(unsendable, "TYPE_THREAD_NOT_SENDABLE"));
-
-        // A STATE of plain sendable fields is still accepted -- the check rejects
-        // the unsendable payload, not stateful planes generally.
-        let sendable = "IMPORT thread\nIMPORT fs\nTYPE Holder\n  count AS Integer\n  label AS String\nEND TYPE\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Integer RES fs::File STATE Holder TO Integer, seed AS Integer) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
-        assert!(!rejects_with(sendable, "TYPE_THREAD_NOT_SENDABLE"));
-    }
-
-    #[test]
-    fn resource_plane_carrying_nonresource_rejected() {
-        // A thread whose resource plane declares a non-resource (`Integer`)
-        // triggers the "not a resource" arm.
-        let src = "IMPORT thread\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF String RES Integer TO Integer, seed AS String) AS Integer\n  LET x AS Integer = thread::accept(t)\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
-        assert!(rejects_with(src, "TYPE_THREAD_NOT_SENDABLE"));
-    }
-
-    #[test]
-    fn send_resource_message_rejected() {
-        // thread.send where the message plane itself is a resource — the data
-        // channel is resource-free.
-        let src = "IMPORT thread\nIMPORT fs\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF RES fs::File TO Integer, seed AS String) AS Integer\n  RES f AS fs::File = fs::openFile(\"x\")\n  thread::send(t, f)\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
-        let diags = check_src(src);
-        // Message plane being a resource is rejected somewhere in the sendability
-        // walk; the exact code is TYPE_THREAD_NOT_SENDABLE when reached.
-        assert!(diags.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE") || !diags.is_empty());
-    }
+    // The thread-sendability rejections (TYPE_THREAD_NOT_SENDABLE) moved to
+    // `ir::verify` (plan-107-A); their twins are
+    // `verify::tests::rejects_unsendable_resource_plane_state_payload`,
+    // `rejects_a_non_resource_on_the_resource_plane`,
+    // `rejects_a_resource_in_the_message_plane` and
+    // `rejects_unsendable_message_sent_across_a_thread`.
 
     // ---- copyability / sendability walks over user types -------------------
 
@@ -772,16 +496,6 @@ mod resources_tests {
     }
 
     // ---- non-sendable message crosses a thread boundary --------------------
-
-    #[test]
-    fn nonsendable_message_rejected_at_boundary() {
-        // A message whose record type contains a Function field is not
-        // thread-sendable; sending it walks require_thread_sendable_type's false
-        // branch + report_thread_type_not_sendable, and the is_thread_sendable
-        // Function/record-field arms.
-        let src = "IMPORT thread\nTYPE Bad\n  fn AS FUNC(Integer) AS Integer\nEND TYPE\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Bad TO Integer, seed AS Bad) AS Integer\n  LET m AS Bad = thread::receive(t)\n  thread::send(t, m)\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
-        assert!(rejects_with(src, "TYPE_THREAD_NOT_SENDABLE"));
-    }
 
     #[test]
     fn sendable_map_and_result_message_walk() {

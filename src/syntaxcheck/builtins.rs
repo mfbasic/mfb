@@ -651,16 +651,8 @@ impl<'a> SyntaxChecker<'a> {
             return Type::Unknown;
         };
 
-        let return_type = self.parse_type(&resolved_return);
-        self.check_thread_boundary_sendability(
-            file,
-            display_callee,
-            callee,
-            &arg_types,
-            &return_type,
-            line,
-        );
-        return_type
+        // The thread-boundary sendability rules are `ir::verify`'s (plan-107-A).
+        self.parse_type(&resolved_return)
     }
 
     pub(super) fn check_general_builtin_call(
