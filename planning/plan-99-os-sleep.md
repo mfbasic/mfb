@@ -360,25 +360,41 @@ demonstrably interruptible and a main-thread `os::sleep` is a plain delay.
 | windows-x86_64 | built `-target windows-x86_64`, shipped to box 2230, run | `immediate ok/slept ok/done`, `result 5/slept full`, `interrupted`, `ErrInvalidArgument` |
 | linux-aarch64 | `mfb build -target linux-aarch64` (box 2224 is down: "Connection refused") | compiles + links; runtime proof deferred to the box returning |
 
-Commit: 05c7ba6b1
+Commit: ac231d499
 
 ### Phase 1.5 — Windows uncaught-error code line (found in Phase 1)
 
 An unlisted prerequisite discovered by Phase 1's Windows acceptance run: the
 `os-sleep-negative-rt` fixture's expected output includes the error CODE line, and
-on Windows that line renders empty. Not a sleep bug (Correction 6), but Phase 2
+on Windows that line rendered empty. Not a sleep bug (Correction 6), but Phase 2
 migrates this exact fixture, so its golden must be honest on every target.
 
-- [ ] Root-cause the empty `Error: ` code line on Windows (repro on box 2230:
-      `os_sleep_negative_rt.exe` prints `Error: ` then the correct message; macOS
-      prints `Error: 7-705-0002`).
-- [ ] Fix it, or — if the fix is genuinely a separate subsystem's work — file it
-      with `write-bug` and record the bug number here.
-- [ ] Re-run the rt-error fixtures on box 2230.
+- [x] Root-cause the empty `Error: ` code line on Windows. **It is the Win64
+      scratch/argument-bank aliasing hazard `map_scratch_register`'s own plan-47-B
+      note predicted** ("a hand-written helper that parks a value in low scratch and
+      then stages call arguments over it would corrupt it — but only under Win64
+      codegen, which no backend selects yet … so it is not rediscovered as a silent
+      Windows-only miscompile"). In
+      `entry.rs:emit_write_integer_to_stderr_with_labels`, the digit buffer's cursor
+      is `SCRATCH[13]` (`x23` → `r8`) and the write's length argument is
+      `string_length_register()` = MFB argument 2, which the **Win64** bank also
+      realizes as `r8` (`CALL_ARGS_WIN64[2]`). The length was computed first, so it
+      overwrote the cursor, and the following `mov <data>, SCRATCH[13]` handed the
+      write the digit COUNT as its buffer ADDRESS — `WriteFile` failed silently and
+      printed nothing. On SysV/AArch64/RISC-V the two are different registers, which
+      is why only Windows showed it.
+- [x] Fix it: read the cursor into the data-pointer register BEFORE computing the
+      length. Safe on every ABI, and the length's now-possible `dst == rhs` case is
+      already encoded correctly (`alu3` negates and adds). No separate bug document
+      — the fix is three lines and lands here.
+- [x] Re-run the rt-error fixture on box 2230.
 
 Acceptance: an uncaught runtime error on Windows prints its dotted code, matching
-macOS/Linux; the rt-error fixtures' `build.log` tail reproduces on box 2230.
-Commit: —
+macOS/Linux. **MET** — box 2230 `os_sleep_negative_rt.exe` now prints
+`Error: 7-705-0002` then the message (was `Error: ` then the message); macOS host
+prints the same with `[exit 255]`, and `linux-x86_64` glibc re-ran 4/4 green after
+the change.
+Commit: ac231d499 (Phase 1) + this one
 
 ### Phase 2 — Remove `thread::sleep` + migrate (largest blast radius last)
 
