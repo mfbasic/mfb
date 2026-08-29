@@ -7,11 +7,15 @@
 //! `common::mfb_exe()`, which builds it on demand) and must run with the repo
 //! root as its working directory, because the script derives `REPO` from `pwd`.
 
+#[cfg(not(windows))]
 mod common;
 
+#[cfg(not(windows))]
 use std::path::Path;
+#[cfg(not(windows))]
 use std::process::Command;
 
+#[cfg(not(windows))]
 #[test]
 fn artifact_gate_all() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
