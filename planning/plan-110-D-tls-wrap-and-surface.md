@@ -4,8 +4,13 @@ Last updated: 2026-08-27
 Effort: large (3h–1d)
 Depends on: plan-110-C
 
-Rename TLS resources to `tls::Socket`/`tls::Listener`, add Address overloads and endpoint/timeout
-members, and implement `tls::wrap` over an existing `tcp::Socket` for both client and server mode.
+Rename TLS resources to `tls::Socket`/`tls::Listener` and add the Address overloads and
+endpoint/timeout members.
+
+**`tls::wrap` is cut from this plan and from the language** (§C9). It cannot be implemented on
+macOS with any supported API, and shipping it on Linux and Windows only would make a program that
+compiles for five targets fail at runtime on one. The letter keeps its name for continuity with
+the commits and cross-references that already cite it.
 
 References: plan-110-C; `.ai/net-tls.md`; `.ai/arch-abi.md`;
 `src/codegen/builtins/tls/{mod.rs,gen_shared.rs,gen_openssl.rs,gen_schannel.rs,gen_macos/}`;
@@ -21,8 +26,10 @@ References: plan-110-C; `.ai/net-tls.md`; `.ai/arch-abi.md`;
 
 ## 1. Goal
 
-- Deliver every requested tls signature, including real client/server wrapping of an established
-  tcp connection, correct certificate/trust behavior, address queries, poll, and timeouts.
+- Deliver every requested tls signature except `wrap` — correct certificate/trust behavior,
+  address queries, poll, and timeouts — under the renamed `tls::Socket`/`tls::Listener` types.
+- Keep exactly ONE TLS backend per platform, and therefore exactly one `tls::Socket` record shape
+  per target: Network.framework on macOS, OpenSSL on Linux, Schannel on Windows (§C9).
 
 ### Non-goals
 
@@ -30,7 +37,11 @@ References: plan-110-C; `.ai/net-tls.md`; `.ai/arch-abi.md`;
   explicit CA/certificate contract says so.
 - Do not expose backend-specific OpenSSL/Schannel/Network.framework handles.
 - Do not keep `readText`/`writeText`; String is the second `write` overload.
-- Do not simulate wrap by reconnecting: it must use the exact supplied TCP stream.
+- Do not implement `wrap` (§C9). It is not deferred to a later letter — it is cut.
+- Do not add a second TLS backend to any platform. A platform with two backends means two
+  `tls::Socket` record shapes and a tag branch in every member; that is the trade §C9 refuses.
+- Do not move `tcp`/`udp` off BSD sockets. They are already uniform with Linux, already
+  thread-sendable, and `udp`'s `Datagram { bytes, from }` has no `nw_connection` equivalent.
 
 ## 2. Current State
 
@@ -48,21 +59,34 @@ readiness.
 ## 3. Design Overview
 
 Rename descriptor identities and docs while keeping runtime record layouts stable where possible.
-`tls::wrap` consumes `tcp::Socket`: ownership transfers exactly once on entry; success returns the
-sole TLS owner, and any failure closes the transport before raising Error. Extend builtin argument
-ownership metadata so only wrap's first argument and tls close consume.
 
-Client mode uses `serverName` (required in practice for DNS certificate validation unless the
-peer is intentionally validated another documented way), optional `caPath`, and must reject
-server-only cert/key inputs. Server mode requires certPath+keyPath, may use caPath for client trust
-only if the chosen mutual-TLS contract explicitly enables it, and rejects client-only serverName.
-Backend implementations must adopt the supplied connected transport: OpenSSL `SSL_set_fd`,
-Schannel over the existing SOCKET, and a proven Network.framework connection/adoption route. Phase
-1 is an uncertainty spike; lack of a real macOS route is a prerequisite blocker, never license for
-a reconnect or unsupported stub.
+**The `wrap` half of this design is superseded by §C9** and is kept below only as the record of
+what was designed and why it was cut. The live design is now: one TLS backend per platform
+(Network.framework / OpenSSL / Schannel), therefore one `tls::Socket` record shape per target, and
+no member that exists on only some targets. What survives from this section is the rename, the
+Address overloads, the endpoint queries, and the timeout setters.
+
+> ~~`tls::wrap` consumes `tcp::Socket`: ownership transfers exactly once on entry; success returns
+> the sole TLS owner, and any failure closes the transport before raising Error. Extend builtin
+> argument ownership metadata so only wrap's first argument and tls close consume.~~
+>
+> ~~Client mode uses `serverName` (required in practice for DNS certificate validation unless the
+> peer is intentionally validated another documented way), optional `caPath`, and must reject
+> server-only cert/key inputs. Server mode requires certPath+keyPath, may use caPath for client
+> trust only if the chosen mutual-TLS contract explicitly enables it, and rejects client-only
+> serverName. Backend implementations must adopt the supplied connected transport: OpenSSL
+> `SSL_set_fd`, Schannel over the existing SOCKET, and a proven Network.framework
+> connection/adoption route. Phase 1 is an uncertainty spike; lack of a real macOS route is a
+> prerequisite blocker, never license for a reconnect or unsupported stub.~~
+
+Note how the struck paragraph ends: "lack of a real macOS route is a prerequisite blocker". Phase 1
+found a route (§C1) and later measurement showed every version of it is either unsupported or
+deprecated (§C4, §C8, §C9) — so that blocker did fire, and cutting the member is how it was
+honoured. The alternative the plan explicitly forbade, "a reconnect or unsupported stub", is also
+what shipping `wrap` on two targets out of five would have amounted to.
 
 This intentionally changes TLS package metadata and all TLS/HTTP fixtures on every target. Backend
-handshake bodies also legitimately change for wrap and Address overloads.
+handshake bodies also legitimately change for the Address overloads.
 
 ## Phases
 
@@ -110,18 +134,26 @@ Acceptance: existing direct client/server workflows run under the new types and 
 signatures on all target families.
 Commit: —
 
-### Phase 3 — Implement wrap
+### Phase 3 — Implement wrap — CUT
 
-- [ ] Add `WrapMode { Server, Client }`, the wrap descriptor/defaults, consuming ownership rule,
-      and per-backend adopt/handshake/cleanup code.
-- [ ] Add loopback STARTTLS-style runtime tests: establish tcp, exchange a plaintext preface, wrap
-      both ends, exchange encrypted bytes/String, query addresses, poll, timeout, and close.
-- [ ] Add negative runtime cases: denied/missing cert/key/CA, key mismatch, untrusted CA, hostname
+- [x] ~~Add `WrapMode { Server, Client }`, the wrap descriptor/defaults, consuming ownership rule,
+      and per-backend adopt/handshake/cleanup code.~~ — moot: §C9. macOS has no supported API that
+      can adopt a caller's connected fd. `nw_connection_create_with_connected_socket` is SPI with
+      no SDK header and fails `ENETDOWN` in every shape (§C8); Secure Transport can do it but is
+      deprecated and cannot negotiate TLS 1.3 (§C4); the system LibreSSL can do it at TLS 1.3 but
+      is unsupported (§C9).
+- [x] ~~Add loopback STARTTLS-style runtime tests: establish tcp, exchange a plaintext preface, wrap
+      both ends, exchange encrypted bytes/String, query addresses, poll, timeout, and close.~~ —
+      moot: nothing to test; the member does not exist.
+- [x] ~~Add negative runtime cases: denied/missing cert/key/CA, key mismatch, untrusted CA, hostname
       mismatch, invalid mode-option combinations, closed/unconnected tcp socket, and handshake
-      failure; prove the input resource cannot be reused or double-closed.
+      failure; prove the input resource cannot be reused or double-closed.~~ — moot: same.
 
-Acceptance: both modes handshake over the supplied connection and all negative cases raise the
-documented Error with leak/double-close checks green.
+Acceptance: **superseded.** The criterion is now that no `wrap` surface exists anywhere — no
+registry member, no `WrapMode` enum, no runtime helper, no documentation promising it — so a
+program cannot compile against a member that only works on two of five targets. The consuming-
+argument ownership seam plan-110-A §C4 identified as missing stays missing; nothing in the language
+needs it now.
 Commit: —
 
 ## Validation Plan
@@ -470,6 +502,84 @@ fd. Shipping a compiler-emitted call to an undeclared, undocumented symbol that 
 its obvious form is not a production-ready path, and it would additionally be an App Store
 rejection risk. If Apple ever declares this in a public header, `wrap` on macOS should be revisited,
 because it is the one thing that would lift a wrapped socket from TLS 1.2 to 1.3.
+
+### C9 — `tls::wrap` is cut from the language; one TLS backend per platform is the constraint
+
+This is the decision §C4 and §C8 were circling, made explicitly by the user after the options were
+measured. It supersedes §C4's "Secure Transport for `wrap`" architecture.
+
+**The constraint that drove it.** A platform with two TLS backends has two `tls::Socket` record
+shapes — an fd on one, an `nw_connection` on the other — and every member (`read`, `write`, `poll`,
+`close`, `localAddress`, `remoteAddress`, the timeout setters) needs a tag branch at entry to tell
+them apart. That roughly doubles the macOS emitter, which is already the largest and most
+hazard-prone in the tree (bug-52, bug-380, bug-412, the plan-80 D4 STATE work, the whole
+synchronous dispatch bridge). §C4 accepted that cost implicitly; it should not have.
+
+Note what is NOT a problem, because it was raised and checked: a `tls::Socket` having a different
+shape on macOS than on Linux is fine. Each backend file emits exactly one tag
+(`gen_macos/{client,server}.rs` → `RESOURCE_TAG_TLS_MACOS`, `gen_openssl.rs` →
+`RESOURCE_TAG_TLS_OPENSSL`, `gen_schannel_{impl,server}.rs` → `RESOURCE_TAG_TLS_SCHANNEL`) and
+`lower_tls_*_helper` selects one by `platform.family()`. A binary targets one platform, so the
+shape is known at compile time — the same way `fs::File` is an fd on Unix and a HANDLE on Windows.
+The dual-shape problem is strictly a *two backends on one platform* problem.
+
+**Why `wrap` cannot be had on macOS.** Every candidate for adopting a caller's connected fd:
+
+| API | Adopts an fd? | TLS 1.3? | Supported? | Verdict |
+|---|---|---|---|---|
+| Network.framework | no — TLS is fixed in `nw_parameters` at creation, and cannot be grafted onto a live connection | yes | yes | cannot wrap |
+| `nw_connection_create_with_connected_socket` | resolves, but fails `ENETDOWN` in every shape tried | — | **no** — no SDK header (§C8) | unusable |
+| Secure Transport | yes | **no** — `kTLSProtocol13` is `errSSLIllegalParam`, negotiates 1.2 (§C4) | deprecated | rejected |
+| system LibreSSL (`/usr/lib/libssl.48.dylib`) | yes | **yes** — measured below | **no** — Apple ships no headers; the unversioned path deliberately aborts | rejected |
+| vendored OpenSSL | yes | yes | yes | impossible — the compiler ships no `.so`/`.dll` |
+
+The LibreSSL measurement is recorded because it is the one option that would have worked
+technically, and the door it leaves open should be findable later. Probing
+`/usr/lib/libssl.48.dylib` by `dlopen`/`dlsym` (`/tmp/libressl_13.c`, `/tmp/symcensus.c`):
+
+```
+library: LibreSSL 3.3.6
+example.com (default)          version=TLSv1.3 (0x0304)  cipher=AEAD-CHACHA20-POLY1305-SHA256  verify=0
+example.com (min forced 1.3)   version=TLSv1.3 (0x0304)  ...                                   verify=0
+example.com (max forced 1.2)   version=TLSv1.2 (0x0303)  cipher=ECDHE-ECDSA-CHACHA20-POLY1305  verify=0
+  [server, min forced to 1.3]  SSL_accept=1 version=TLSv1.3 (0x0304) cipher=AEAD-CHACHA20-POLY1305-SHA256
+/usr/lib/libssl.48.dylib     all 22 present     (the symbols gen_openssl.rs resolves)
+/usr/lib/libssl.46.dylib     MISSING: SSL_set1_host
+```
+
+Four independent confirmations of 1.3, not just the version string: the numeric code is `0x0304`;
+the cipher is a 1.3-only suite; forcing `max = 1.2` changes both, so the reporting is responsive;
+and the server half completes with `min` forced to 1.3. It was rejected on the supported-API
+criterion alone, not on capability.
+
+**Why not ship `wrap` on Linux and Windows only.** Both can do it today (`SSL_set_fd`; Schannel
+adopts a socket natively). But mfb builds one source for five targets: a program using `wrap` would
+compile everywhere and fail at runtime on macOS only — the "unsupported on this platform" pattern
+AGENTS.md rules out, found by the user in production rather than at build time. A capability that
+cannot be uniform is worse than one that does not exist.
+
+**What was also considered and rejected: moving `tcp`/`udp` onto Network.framework.** With `wrap`
+gone nothing forces `tcp::Socket` to hold an fd, so macOS could in principle run one networking
+stack. Against it: `udp::receive` returns `Datagram { bytes, from }` — recvfrom semantics on one
+unconnected socket — and `nw_connection` is connection-oriented, needing `nw_listener` plus a
+connection per peer, a model mismatch rather than extra work; and it would replace emitters
+currently *shared with Linux* with macOS-only async-bridge code. (A third argument, that it would
+cost thread-sendability, was withdrawn: `sendable: false` on `tls::Socket` is declared once in the
+registry for all platforms and the stated reason is v1 conservatism —
+`src/docs/spec/language/16_threads.md`, `src/codegen/builtins/tls/mod.rs:151` — not a measured
+Network.framework constraint. It is a risk to measure, not a known cost.)
+
+**Settled architecture:**
+
+| Layer | macOS | Linux | Windows |
+|---|---|---|---|
+| `tcp` / `udp` | BSD sockets | BSD sockets | Winsock2 |
+| `tls` | Network.framework | OpenSSL (dlopen) | Schannel |
+
+One backend per platform, one `tls::Socket` shape per target, every backend on its platform's
+current supported API. The cost is STARTTLS: SMTP/IMAP/FTPS/PostgreSQL upgrade-in-place stays
+unreachable. The only thing that would reopen it is Apple declaring
+`nw_connection_create_with_connected_socket` in a public header.
 
 ## Summary
 

@@ -6,8 +6,9 @@ Depends on: plan-110-E
 
 Certify the completed net/tcp/udp/tls rework on every supported runtime family, reconcile only
 expected generated artifacts, and finish embedded specifications/man output. The outcome is not
-merely green compilation: real DNS, ICMP, TCP, UDP, TLS client/server/wrap, and HTTP behavior is
-observed on the supported targets.
+merely green compilation: real DNS, ICMP, TCP, UDP, TLS client/server, and HTTP behavior is
+observed on the supported targets. (`wrap` is not certified because it does not exist — it was cut
+in plan-110-D §C9.)
 
 References: plan-110-E; `.ai/testing-gates.md`; `.ai/remote_systems.md`;
 `.ai/specifications.md`; `.ai/man-content.md`; `.ai/build-tooling.md`.
@@ -44,7 +45,7 @@ sources from plan 110-A.
 ## 3. Design Overview
 
 Build a deterministic loopback matrix with local DNS-independent addresses, local TCP/UDP peers,
-generated test CA/server identities, TLS direct and wrap flows, and an isolated permission-denied
+generated test CA/server identities, TLS direct client/server flows, and an isolated permission-denied
 ICMP environment. Run it natively per target. Keep live external connectivity only as an additional
 signal. Serialize acceptance/golden commands that share output directories.
 
@@ -58,7 +59,7 @@ the prediction before regeneration.
 
 - [ ] Recount all networking fixtures/artifacts with commands and record the post-migration matrix
       in Corrections; ensure every requested overload has valid and invalid coverage.
-- [ ] Add/finish reusable local peer scripts for TCP blackhole, UDP echo, TLS CA/client/server/wrap,
+- [ ] Add/finish reusable local peer scripts for TCP blackhole, UDP echo, TLS CA/client/server,
       and ICMP permission denial; no mocks or public-network dependency for required proof.
 - [ ] Prove the harness itself fails when one expected response/status/certificate is deliberately
       wrong, then restore it.
@@ -73,7 +74,9 @@ Commit: —
       glibc/musl architecture proofs according to `.ai/remote_systems.md`; record exact commands and
       results in the phase ledger.
 - [ ] Verify timeout elapsed bounds, ICMP permission Error, IPv4 and available IPv6 Address values,
-      resource cleanup, TLS certificate rejection, and wrap on each backend.
+      resource cleanup, and TLS certificate rejection on each backend.
+- [ ] Prove no `wrap` surface survives anywhere: no registry member, no `WrapMode`, no runtime
+      helper, no man/spec text promising it (plan-110-D §C9).
 - [ ] Fix every defect found, adding a RED regression test before each fix as required by project
       policy; never leave a target-specific bug for another plan.
 - [ ] **Carried in from plan-110-B §C5 — Windows TCP loopback is broken and was broken before
@@ -134,4 +137,5 @@ To be filled during execution with the post-E census, target commands, and every
 ## Summary
 
 This letter prevents a broad networking rewrite from being declared complete on compiler proxies.
-Its hard gate is real native behavior, especially ICMP permissions and TLS wrap on each backend.
+Its hard gate is real native behavior, especially ICMP permissions and the TLS client/server
+handshake on each backend.
