@@ -3095,6 +3095,86 @@ fn hir_expr_callees(expr: &crate::hir::HirExpression, out: &mut std::collections
 mod tests {
     use super::*;
 
+    /// plan-111-C Phase 3's overload-resolution regression guard.
+    ///
+    /// Collapsing the dual API means every overload is now selected from typed
+    /// arguments. The distinction that must survive is the one `leaf_matches`
+    /// draws in STRICT mode between a **resource** parameter and a **value**
+    /// nominal parameter — and it is asymmetric on purpose:
+    ///
+    /// * a resource parameter demands exact base-resource identity, so a
+    ///   resource UNION does not satisfy a concrete resource close-op parameter.
+    ///   `fs::close(<some union>)` must stay rejected — the legacy exact-name
+    ///   resolver caught it, and it is a use-after-free class error;
+    /// * a value nominal stays coarse, so a variant still widens into its union
+    ///   (`json::stringify(JsonNull)` against a `Json` parameter);
+    /// * and STATE/ownership are transparent either way (bug-427): a
+    ///   `File STATE Cursor` argument satisfies a bare `File` parameter, and a
+    ///   `RES ` marker matches through on either side.
+    ///
+    /// Getting any of these backwards changes which overload wins, which
+    /// plan-111-C §Non-goals names as the single failure mode this letter must
+    /// not have.
+    #[test]
+    fn strict_matching_separates_resource_params_from_value_union_params() {
+        let file = ParameterType::parse("fs.File");
+        let stateful_file = ParameterType::parse("fs.File STATE Cursor");
+        let res_file = ParameterType::parse("RES fs.File");
+        let socket = ParameterType::parse("net.Socket");
+
+        // A resource parameter: exact base identity, STATE- and RES-transparent.
+        assert!(leaf_matches(&file, &file, true));
+        assert!(
+            leaf_matches(&file, &stateful_file, true),
+            "bug-427: a stateful resource still satisfies its bare parameter"
+        );
+        assert!(
+            leaf_matches(&file, &res_file, true),
+            "the RES ownership marker is transparent to matching"
+        );
+        assert!(
+            !leaf_matches(&file, &socket, true),
+            "a DIFFERENT resource must not satisfy a concrete resource parameter"
+        );
+        assert!(
+            !leaf_matches(&file, &ParameterType::parse("Json"), true),
+            "a non-resource nominal must not widen into a concrete resource parameter"
+        );
+        assert!(
+            !leaf_matches(&file, &ParameterType::String, true),
+            "bug-443: a scalar never satisfies a nominal parameter in strict mode"
+        );
+
+        // A VALUE nominal parameter stays coarse, so a variant widens into it.
+        let json = ParameterType::parse("Json");
+        assert!(
+            leaf_matches(&json, &ParameterType::parse("JsonNull"), true),
+            "a value-union parameter must still accept a variant that widens into it"
+        );
+        assert!(
+            !leaf_matches(&json, &ParameterType::String, true),
+            "bug-443: but not a scalar"
+        );
+
+        // LENIENT mode (overload dispatch / return inference) stays coarse
+        // everywhere, so an unresolved or nominally-spelled argument does not
+        // perturb selection.
+        assert!(leaf_matches(&file, &ParameterType::parse("Json"), false));
+        assert!(leaf_matches(&json, &ParameterType::String, false));
+
+        // Two unequal scalars never match, in either mode.
+        assert!(!leaf_matches(
+            &ParameterType::Integer,
+            &ParameterType::String,
+            true
+        ));
+        assert!(!leaf_matches(
+            &ParameterType::Integer,
+            &ParameterType::String,
+            false
+        ));
+    }
+
     /// No registered descriptor may declare a [`ParameterType::Named`] whose name
     /// *spells something with structure*: for every `Named(n)` in the catalog,
     /// `parse(n)` must be that same `Named`.

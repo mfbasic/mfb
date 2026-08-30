@@ -312,10 +312,10 @@ pub(crate) fn emit_link_support(
     // record-resource param from a scalar one, and it must stay in lockstep with
     // the return-side wrap below — widening one without the other hands `FD@0` a
     // raw handle to dereference.
-    let record_native_resources: HashSet<String> = link_functions
+    let record_native_resources: HashSet<crate::types::ParameterType> = link_functions
         .iter()
         .filter(|f| f.return_resource)
-        .map(|f| f.return_type.without_state().name().into_owned())
+        .map(|f| f.return_type.without_state())
         .collect();
 
     // plan-59-B: the guard's two error strings, emitted HERE rather than relying
@@ -330,9 +330,9 @@ pub(crate) fn emit_link_support(
     // guard self-contained: whatever else the program does or does not import,
     // a thunk that can emit the guard also carries the strings it names.
     if link_functions.iter().any(|f| {
-        f.params.iter().any(|(_, type_)| {
-            record_native_resources.contains(type_.without_state().name().as_ref())
-        })
+        f.params
+            .iter()
+            .any(|(_, type_)| record_native_resources.contains(&type_.without_state()))
     }) {
         for (_, message, symbol) in ["ErrResourceClosed", "ErrResourceMoved"].map(|name| {
             crate::codegen::registry::runtime_error_triple(name).expect("errorCode name")
@@ -540,7 +540,7 @@ fn lower_link_thunk(
         Vec<(String, crate::types::ParameterType)>,
     >,
     ctx: ThunkContext,
-    record_native_resources: &HashSet<String>,
+    record_native_resources: &HashSet<crate::types::ParameterType>,
     is_close_op: bool,
 ) -> Result<CodeFunction, String> {
     let ThunkContext {
@@ -788,7 +788,7 @@ fn lower_link_thunk(
     // emission covers every `RES`-taking LINK function.
     let mut resource_guard_params: Vec<usize> = Vec::new();
     for (pidx, (_, type_)) in function.params.iter().enumerate() {
-        if record_native_resources.contains(type_.without_state().name().as_ref()) {
+        if record_native_resources.contains(&type_.without_state()) {
             resource_guard_params.push(pidx);
         }
     }
@@ -1104,9 +1104,10 @@ fn lower_link_thunk(
                     abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
                 ]);
             } else if slot.ctype == "CPtr"
-                && function.params.get(pidx).is_some_and(|(_, t)| {
-                    record_native_resources.contains(t.without_state().name().as_ref())
-                })
+                && function
+                    .params
+                    .get(pidx)
+                    .is_some_and(|(_, t)| record_native_resources.contains(&t.without_state()))
             {
                 // plan-59-A: a param whose resource TYPE is a native resource is a
                 // RECORD pointer, but the native symbol wants the handle it wraps.

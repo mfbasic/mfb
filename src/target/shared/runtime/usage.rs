@@ -125,7 +125,7 @@ pub fn required_helpers(ir: &IrProject) -> Vec<RuntimeHelper> {
     let mut helpers = Vec::new();
     // Resource unions drop by dispatching to each variant's close op, so a bind
     // of a resource-union type pulls in every variant's close helper.
-    let resource_union_closes: HashMap<String, Vec<&'static str>> = ir
+    let resource_union_closes: HashMap<crate::types::ParameterType, Vec<&'static str>> = ir
         .types
         .iter()
         .filter(|type_| type_.kind == "union")
@@ -138,7 +138,7 @@ pub fn required_helpers(ir: &IrProject) -> Vec<RuntimeHelper> {
             if closes.is_empty() {
                 return None;
             }
-            Some((type_.name.clone(), closes))
+            Some((crate::types::ParameterType::declared(&type_.name), closes))
         })
         .collect();
     for function in &ir.functions {
@@ -157,7 +157,7 @@ fn value_aliases_live_resource(value: &IrValue) -> bool {
 
 fn push_op_helpers(
     ops: &[IrOp],
-    resource_union_closes: &HashMap<String, Vec<&'static str>>,
+    resource_union_closes: &HashMap<crate::types::ParameterType, Vec<&'static str>>,
     helpers: &mut Vec<RuntimeHelper>,
 ) {
     for op in ops {
@@ -182,9 +182,10 @@ fn push_op_helpers(
                     // suffix so the variant close helpers are declared — else the
                     // validator marks them used (from the transfer copy) while they
                     // stay undeclared (plan-75 gap 1).
-                    let type_name = type_.name();
-                    let base = crate::codegen::resource::base_resource_name(&type_name);
-                    if let Some(closes) = resource_union_closes.get(base) {
+                    // plan-111-C: the union table is keyed by the type; the STATE
+                    // peel is structural.
+                    let base = type_.without_state();
+                    if let Some(closes) = resource_union_closes.get(&base) {
                         for close in closes {
                             if let Some(helper) = helper_for_call(close) {
                                 push_unique(helpers, helper);

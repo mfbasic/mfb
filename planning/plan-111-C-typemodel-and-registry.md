@@ -318,45 +318,69 @@ Commit: 20c0b68b6
 
 ### Phase 3 — collapse the registry's dual API (largest blast radius)
 
-- [ ] Add `resolve_call_return_type_typed` beside
-      `builtins::resolve_call_return_type` (7 callers, no twin today).
-- [ ] Repoint all 37 `resolve_call` callers to `resolve_call_typed`, then delete
-      `resolve_call`. Same for `call_return_type` (32) and `argument_types` (8).
-- [ ] Convert `constant_type_name` and `general_override_target`
+- [x] ~~Add `resolve_call_return_type_typed` beside
+      `builtins::resolve_call_return_type` (7 callers, no twin today).~~ — moot:
+      it already existed (plan-104-C). What this phase did instead was DELETE the
+      string half and remove the twin's own render-in/parse-out pocket.
+- [x] Repoint all ~~37~~ `resolve_call` callers to `resolve_call_typed`, then delete
+      `resolve_call`. Same for `call_return_type` (~~32~~) and `argument_types` (~~8~~).
+      **Correction C3**: the production populations were 7 / 2 / 0, not 37 / 32 / 8.
+      One `#[cfg(test)]`-gated spelling shim survives for ~140 registration
+      assertions — see Correction C4.
+- [x] Convert `constant_type_name` and `general_override_target`
       (`src/codegen/registry/mod.rs:1665`, `:1744`) to typed signatures.
-- [ ] Convert `src/ir/shape.rs`'s `arg_types: &[String]` (`:292`) and its
-      `type_name.as_str() == "Integer"` (`:302`) now that the typed registry
-      query exists — this is the item letter B deferred here.
-- [ ] Repoint `src/ir/lower.rs`'s 4 registry string calls.
-- [ ] Rename the surviving `_typed` functions back to the plain names (there is
-      no longer an untyped one to disambiguate from), in a mechanical commit of
-      its own.
-- [ ] Lower the gate budgets for `codegen/registry` and `codegen/builtins/*/mod.rs`
+      `constant_type_name` absorbs the parse of its descriptor literal (the
+      redundant `constant_type` wrapper is deleted); `general_override_target`
+      takes a type and renders once against the descriptor's `&'static str` row,
+      which §Non-goals forbids changing.
+- [x] Convert `src/ir/shape.rs`'s `arg_types: &[String]` (`:292`) and its
+      `type_name.as_str() == "Integer"` (`:302`) ~~now that the typed registry
+      query exists~~ — this is the item letter B deferred here. **Correction**:
+      letter B did it, on §2's own stated condition (the typed twin already
+      existed). What this phase converted in `ir/shape.rs` were its four
+      remaining `resolve_call_return_type` calls.
+- [x] Repoint `src/ir/lower.rs`'s ~~4~~ registry string calls (2 live:
+      `call_return_type`, `constant_type_name`).
+- [x] ~~Rename the surviving `_typed` functions back to the plain names~~ — moot,
+      and deliberately so: `resolve_call` is taken by the `#[cfg(test)]` shim, and
+      a rename that makes the production entry and a test-only shim differ by a
+      suffix is worse than one where the suffix marks which is which. The `_typed`
+      suffix now reads as "the typed one, as opposed to the test spelling shim",
+      which is exactly what a reader needs. See Correction C4.
+- [x] Lower the gate budgets for `codegen/registry` and `codegen/builtins/*/mod.rs`
       by what this phase removed.
-- [ ] Tests: add a registry resolution test covering the resource-vs-value-union
+- [x] Tests: add a registry resolution test covering the resource-vs-value-union
       strict-matcher distinction — a resource param must still reject a
       union→concrete-resource widening, and a value-union param must still accept
       variant→union (the strict-matcher memory). This is the overload-resolution
       regression guard.
 
-Acceptance: `rg -n '\b(resolve_call|call_return_type|argument_types)\(' src/ --glob '!**/tests*'`
-returns 0 hits outside the function definitions themselves; `cargo test --no-fail-fast -- --skip artifact_gate_all`
-green.
-Commit: —
+Acceptance: **MET.** No production caller of any string-form registry query
+remains — measured with the gate's own `test_free_lines` stripper rather than
+`rg`, which counts inline test modules (Correction C3): `resolve_call` 0,
+`call_return_type` 0, `argument_types` 0, `resolve_call_return_type` 0,
+`constant_type` 0. `cargo test --no-fail-fast -- --skip artifact_gate_all` →
+exit 0, 0 failures.
+Commit: b0c516cac, c950ddf8b
 
 ### Phase 4 — the last `format!` type construction
 
-- [ ] Rewrite `refined_list_literal_type`
+- [x] Rewrite `refined_list_literal_type`
       (`src/codegen/collection/layout/builder_collection_layout.rs:2459`) to build
       `ParameterType::ListOf(Box::new(element))` structurally instead of
       `format!("List OF {element}")`. This is plan-106-E Correction 4's site.
-- [ ] Confirm `:2890` is `#[cfg(test)]` (plan-106-E Correction 4 recorded it as
-      such) and convert or exempt it accordingly.
-- [ ] Lower the gate's `format!` budget for `codegen` to 0.
+      Its `List OF Unknown` test is a variant match now, and the caller no longer
+      parses the refined spelling back.
+- [x] Confirm `:2890` is `#[cfg(test)]` (plan-106-E Correction 4 recorded it as
+      such) and convert or exempt it accordingly. Confirmed: it is
+      `alloc_size_matches_free_size`, inside the test module — the gate excludes
+      it, and it is converted anyway so the fixtures read in the same currency.
+- [x] Lower the gate's `format!` budget for `codegen` to 0.
 
-Acceptance: the `format!` needle class reads 0 for `codegen`;
-`cargo test --no-fail-fast -- --skip artifact_gate_all` green.
-Commit: —
+Acceptance: **MET.** The `format_type_construction` class reads **0** for
+`codegen` (its row is deleted from the budget table);
+`cargo test --no-fail-fast -- --skip artifact_gate_all` → exit 0, 0 failures.
+Commit: 34f300996
 
 ### End-of-letter spot-check (scoped, read-only)
 

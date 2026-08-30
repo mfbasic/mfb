@@ -429,19 +429,17 @@ impl TypeModel {
                 .into_iter()
                 .filter(|resource| resource.native)
                 .collect();
-            let native_resources: HashSet<String> = exported_resources
+            let native_resources: HashSet<ParameterType> = exported_resources
                 .iter()
-                .map(|resource| resource.type_name.clone())
+                .map(|resource| ParameterType::declared(&resource.type_name))
                 .collect();
             // An imported binding's resource is still a resource here (bug-372):
             // it is skipped as a *record* above, but codegen must recognize the
             // name to give it a closed-resource default on an inline `TRAP`'s
             // error path.
-            model.resource_names.extend(
-                native_resources
-                    .iter()
-                    .map(|name| ParameterType::declared(name)),
-            );
+            model
+                .resource_names
+                .extend(native_resources.iter().cloned());
             // bug-374: an imported binding's resource drops at scope exit in the
             // importing program too, but a decoded package carries no
             // `native_resources` (`ir/binary.rs` drops them by contract), so the
@@ -475,7 +473,7 @@ impl TypeModel {
                 );
             }
             for type_export in binary_repr::read_package_type_exports(package)? {
-                if native_resources.contains(&type_export.name) {
+                if native_resources.contains(&ParameterType::declared(&type_export.name)) {
                     continue;
                 }
                 model.add_package_type_export(type_export)?;
