@@ -74,7 +74,7 @@ TLS, HTTP, and pure net fixtures are semantic controls.
 Acceptance: a minimal udp program binds, obtains its local net Address, and drops cleanly.
 **MET** — `func_udp_bind_valid` binds port 0, reads back a real assigned port, sets both timeouts,
 closes explicitly, and exits 0.
-Commit: PENDING-C
+Commit: 2dd8f30fd
 
 ### Phase 2 — Datagram I/O
 
@@ -98,7 +98,7 @@ timeouts and closed handles error as documented.
 **MET** on macOS AArch64 and Alpine x86_64 musl, byte-for-byte identical output on both: a String
 payload round-trips (`B text=ping`), a byte payload preserves `255` unchanged (`C bytes=4
 last=255`), the sender's port is reported non-zero, and an oversized datagram raises.
-Commit: PENDING-C
+Commit: 2dd8f30fd
 
 ### Phase 3 — Readiness
 
@@ -121,7 +121,7 @@ receive returns that datagram intact.
 returned that socket, and reading *through the returned socket* produced the sent bytes. Poll does
 not consume: the same datagram is still there for the receive (`G ready=TRUE` then
 `H afterPoll=up`).
-Commit: PENDING-C
+Commit: 2dd8f30fd
 
 ## Validation Plan
 
