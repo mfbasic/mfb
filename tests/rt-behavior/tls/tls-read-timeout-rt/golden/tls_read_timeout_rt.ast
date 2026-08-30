@@ -1,0 +1,75 @@
+{
+  "project": "tls_read_timeout_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 14 },
+    { "module": "tls", "line": 15 },
+    { "module": "io", "line": 16 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "negativeIsRejected",
+      "line": 18,
+      "params": [
+      { "name": "c", "type": "tls.Socket", "resource": true, "state": null, "default": null, "line": 18 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.setReadTimeout", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 21,
+      "body": [
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 22 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 26,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "conn", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "8.8.8.8" }, { "kind": "number", "value": "443" }, { "kind": "number", "value": "5000" }, { "kind": "string", "value": "dns.google" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "connected=TRUE" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "neg", "type": null, "value": { "kind": "call", "callee": "negativeIsRejected", "arguments": [{ "kind": "identifier", "value": "conn" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "negativeRejected=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "neg" }, "right": { "kind": "number", "value": "77050002" } }] } }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.setReadTimeout", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "number", "value": "750" }] }, "line": 36 },
+      { "kind": "binding", "mutable": true, "name": "timedOut", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "dead", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 38,
+        "expression": { "kind": "call", "callee": "tls.read", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "number", "value": "64" }] },
+        "handler": [
+        { "kind": "assignment", "name": "timedOut", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 39 },
+        { "kind": "recover", "value": { "kind": "list", "values": [] }, "line": 40 }
+        ]
+      }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "readTimedOut=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "timedOut" }, "right": { "kind": "number", "value": "77050008" } }] } }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "noBytesBeforeRequest=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "dead" }] }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.setReadTimeout", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "number", "value": "10000" }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.write", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "string", "value": "HEAD / HTTP/1.0\r\nHost: dns.google\r\n\r\n" }] }, "line": 49 },
+      { "kind": "binding", "mutable": false, "name": "reply", "type": null, "value": { "kind": "call", "callee": "tls.read", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "number", "value": "16" }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "recoveredAfterTimeout=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "reply" }] }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "looksLikeHttp=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "reply" }, { "kind": "number", "value": "0" }] }, "right": { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "72" }] } }] } }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "conn" }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "closed=TRUE" }] }, "line": 55 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 56 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "tls_read_timeout_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "negativeIsRejected",
+    "line": 18,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "c", "line": 18, "type": "tls.Socket", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "tls.setReadTimeout", "args": [{ "kind": "local", "name": "c" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "return", "line": 20, "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "trap",
+      "line": 21,
+      "name": "e",
+      "body": [
+      { "op": "return", "line": 22, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 26,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 27, "mutable": false, "name": "conn", "type": "tls.Socket", "value": { "kind": "call", "type": "tls.Socket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "8.8.8.8" }, { "kind": "const", "type": "Integer", "value": "443" }, { "kind": "const", "type": "Integer", "value": "5000" }, { "kind": "const", "type": "String", "value": "dns.google" }] } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "connected=TRUE" }] } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "neg", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "negativeIsRejected", "args": [{ "kind": "local", "name": "conn" }] } },
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "negativeRejected=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "neg" }, "right": { "kind": "const", "type": "Integer", "value": "77050002" } }] } }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "tls.setReadTimeout", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "750" }] } },
+    { "op": "bind", "line": 37, "mutable": true, "name": "timedOut", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 38, "mutable": false, "name": "$trap_res0", "type": "Result OF List OF Byte", "value": { "kind": "callResult", "type": "List OF Byte", "target": "tls.read", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "64" }] } },
+    { "op": "bind", "line": 38, "mutable": true, "name": "$trap_val1", "type": "List OF Byte", "value": null },
+    {
+      "op": "if",
+      "line": 38,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "line": 38, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "List OF Byte", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 38, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "assign", "line": 39, "name": "timedOut", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } },
+      { "op": "assign", "line": 40, "name": "$trap_val1", "value": { "kind": "list", "type": "List OF Byte", "values": [] } }
+      ]
+    },
+    { "op": "bind", "line": 38, "mutable": false, "name": "dead", "type": "List OF Byte", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "readTimedOut=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "timedOut" }, "right": { "kind": "const", "type": "Integer", "value": "77050008" } }] } }] } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "noBytesBeforeRequest=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "dead" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] } }] } },
+    { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "tls.setReadTimeout", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "10000" }] } },
+    { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "tls.write", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "String", "value": "HEAD / HTTP/1.0\r\nHost: dns.google\r\n\r\n" }] } },
+    { "op": "bind", "line": 50, "mutable": false, "name": "reply", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "tls.read", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
+    { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "recoveredAfterTimeout=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "reply" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] } }] } },
+    { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "looksLikeHttp=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "reply" }, { "kind": "const", "type": "Integer", "value": "0" }] }, "right": { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "72" }] } }] } }] } },
+    { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "conn" }] } },
+    { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "closed=TRUE" }] } },
+    { "op": "return", "line": 56, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -1,13 +1,23 @@
 {
   "format": "mfb-ir",
   "version": 1,
-  "project": "func_tls_endpoints_valid",
+  "project": "tcp_udp_poll_list_trap_rt",
   "entry": {
     "name": "main",
     "returns": "Integer",
     "accepts_args": false
   },
   "types": [
+  {
+    "kind": "type",
+    "line": 9,
+    "visibility": "export",
+    "name": "Datagram",
+    "fields": [
+    { "visibility": null, "line": 10, "name": "from", "type": "Address" },
+    { "visibility": null, "line": 11, "name": "bytes", "type": "List OF Byte" }
+    ]
+  },
   {
     "kind": "type",
     "line": 16,
@@ -62,47 +72,63 @@
   ],
   "functions": [
   {
-    "name": "describe",
-    "line": 11,
-    "visibility": "public",
-    "kind": "func",
-    "params": [
-    { "name": "c", "line": 11, "type": "tls.Socket", "default": null }
-    ],
-    "returns": "String",
-    "body": [
-    { "op": "bind", "line": 12, "mutable": false, "name": "peer", "type": "Address", "value": { "kind": "call", "type": "Address", "target": "tls.remoteAddress", "args": [{ "kind": "local", "name": "c" }] } },
-    { "op": "bind", "line": 13, "mutable": false, "name": "mine", "type": "Address", "value": { "kind": "call", "type": "Address", "target": "tls.localAddress", "args": [{ "kind": "local", "name": "c" }] } },
-    { "op": "return", "line": 14, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "peer" }, "member": "host" }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "peer" }, "member": "port" }] } }, "right": { "kind": "const", "type": "String", "value": " from :" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mine" }, "member": "port" }] } } }
-    ]
-  },
-  {
     "name": "main",
-    "line": 17,
+    "line": 21,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 18, "mutable": false, "name": "c1", "type": "tls.Socket", "value": { "kind": "call", "type": "tls.Socket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "443" }, { "kind": "const", "type": "Integer", "value": "9223372036854775808" }, { "kind": "const", "type": "String", "value": "" }] } },
-    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "describe", "args": [{ "kind": "local", "name": "c1" }] }] } },
-    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "tls.setReadTimeout", "args": [{ "kind": "local", "name": "c1" }, { "kind": "const", "type": "Integer", "value": "2000" }] } },
-    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "tls.setWriteTimeout", "args": [{ "kind": "local", "name": "c1" }, { "kind": "const", "type": "Integer", "value": "2000" }] } },
-    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "tls.setReadTimeout", "args": [{ "kind": "local", "name": "c1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "tls.setWriteTimeout", "args": [{ "kind": "local", "name": "c1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "line": 31, "mutable": false, "name": "dest", "type": "Address", "value": { "kind": "call", "type": "Address", "target": "collections.get", "args": [{ "kind": "call", "type": "List OF Address", "target": "net.lookup", "args": [{ "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "443" }] }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "line": 32, "mutable": false, "name": "h3", "type": "tls.Socket", "value": { "kind": "call", "type": "tls.Socket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "443" }, { "kind": "const", "type": "Integer", "value": "5000" }, { "kind": "const", "type": "String", "value": "" }] } },
-    { "op": "bind", "line": 33, "mutable": false, "name": "h4", "type": "tls.Socket", "value": { "kind": "call", "type": "tls.Socket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "443" }, { "kind": "const", "type": "Integer", "value": "5000" }, { "kind": "const", "type": "String", "value": "example.com" }] } },
-    { "op": "bind", "line": 34, "mutable": false, "name": "a1", "type": "tls.Socket", "value": { "kind": "call", "type": "tls.Socket", "target": "tls.connect", "args": [{ "kind": "local", "name": "dest" }, { "kind": "const", "type": "Integer", "value": "9223372036854775808" }, { "kind": "const", "type": "String", "value": "" }] } },
-    { "op": "bind", "line": 35, "mutable": false, "name": "a2", "type": "tls.Socket", "value": { "kind": "call", "type": "tls.Socket", "target": "tls.connect", "args": [{ "kind": "local", "name": "dest" }, { "kind": "const", "type": "Integer", "value": "5000" }, { "kind": "const", "type": "String", "value": "" }] } },
-    { "op": "bind", "line": 36, "mutable": false, "name": "a3", "type": "tls.Socket", "value": { "kind": "call", "type": "tls.Socket", "target": "tls.connect", "args": [{ "kind": "local", "name": "dest" }, { "kind": "const", "type": "Integer", "value": "5000" }, { "kind": "const", "type": "String", "value": "example.com" }] } },
-    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "call", "type": "Address", "target": "tls.localAddress", "args": [{ "kind": "local", "name": "h3" }] }, "member": "port" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] }] } },
-    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "call", "type": "Address", "target": "tls.localAddress", "args": [{ "kind": "local", "name": "h4" }] }, "member": "port" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] }] } },
-    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "call", "type": "Address", "target": "tls.localAddress", "args": [{ "kind": "local", "name": "a1" }] }, "member": "port" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] }] } },
-    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "call", "type": "Address", "target": "tls.localAddress", "args": [{ "kind": "local", "name": "a2" }] }, "member": "port" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] }] } },
-    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "call", "type": "Address", "target": "tls.localAddress", "args": [{ "kind": "local", "name": "a3" }] }, "member": "port" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] }] } },
-    { "op": "return", "line": 42, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 22, "mutable": false, "name": "server", "type": "tcp.Listener", "value": { "kind": "call", "type": "tcp.Listener", "target": "tcp.listen", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 23, "mutable": false, "name": "bound", "type": "Address", "value": { "kind": "call", "type": "Address", "target": "tcp.localAddress", "args": [{ "kind": "local", "name": "server" }] } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "c1", "type": "tcp.Socket", "value": { "kind": "call", "type": "tcp.Socket", "target": "tcp.connect", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "bound" }, "member": "port" }] } },
+    { "op": "bind", "line": 25, "mutable": false, "name": "c2", "type": "tcp.Socket", "value": { "kind": "call", "type": "tcp.Socket", "target": "tcp.connect", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "bound" }, "member": "port" }] } },
+    { "op": "bind", "line": 26, "mutable": true, "name": "socks", "type": "List OF RES tcp.Socket", "value": { "kind": "list", "type": "List OF RES tcp.Socket", "values": [] } },
+    { "op": "assign", "line": 27, "name": "socks", "value": { "kind": "call", "type": "List OF RES tcp.Socket", "target": "collections.append", "args": [{ "kind": "local", "name": "socks" }, { "kind": "local", "name": "c1" }] } },
+    { "op": "assign", "line": 28, "name": "socks", "value": { "kind": "call", "type": "List OF RES tcp.Socket", "target": "collections.append", "args": [{ "kind": "local", "name": "socks" }, { "kind": "local", "name": "c2" }] } },
+    { "op": "bind", "line": 32, "mutable": true, "name": "tcpIdle", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 33, "mutable": false, "name": "$trap_res0", "type": "Result OF tcp.Socket", "value": { "kind": "callResult", "type": "tcp.Socket", "target": "tcp.poll", "args": [{ "kind": "local", "name": "socks" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 33, "mutable": true, "name": "$trap_val1", "type": "tcp.Socket", "value": null },
+    {
+      "op": "if",
+      "line": 33,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "line": 33, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "tcp.Socket", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 33, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "assign", "line": 34, "name": "tcpIdle", "value": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050008" } } },
+      { "op": "assign", "line": 35, "name": "$trap_val1", "value": { "kind": "local", "name": "c1" } }
+      ]
+    },
+    { "op": "bind", "line": 33, "mutable": false, "name": "probe", "type": "tcp.Socket", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "tcpIdleTimeout=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "tcpIdle" }] } }] } },
+    { "op": "bind", "line": 39, "mutable": false, "name": "u1", "type": "udp.Socket", "value": { "kind": "call", "type": "udp.Socket", "target": "udp.bind", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 40, "mutable": false, "name": "u2", "type": "udp.Socket", "value": { "kind": "call", "type": "udp.Socket", "target": "udp.bind", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 41, "mutable": true, "name": "usocks", "type": "List OF RES udp.Socket", "value": { "kind": "list", "type": "List OF RES udp.Socket", "values": [] } },
+    { "op": "assign", "line": 42, "name": "usocks", "value": { "kind": "call", "type": "List OF RES udp.Socket", "target": "collections.append", "args": [{ "kind": "local", "name": "usocks" }, { "kind": "local", "name": "u1" }] } },
+    { "op": "assign", "line": 43, "name": "usocks", "value": { "kind": "call", "type": "List OF RES udp.Socket", "target": "collections.append", "args": [{ "kind": "local", "name": "usocks" }, { "kind": "local", "name": "u2" }] } },
+    { "op": "bind", "line": 45, "mutable": true, "name": "udpIdle", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 46, "mutable": false, "name": "$trap_res2", "type": "Result OF udp.Socket", "value": { "kind": "callResult", "type": "udp.Socket", "target": "udp.poll", "args": [{ "kind": "local", "name": "usocks" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 46, "mutable": true, "name": "$trap_val3", "type": "udp.Socket", "value": null },
+    {
+      "op": "if",
+      "line": 46,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
+      "then": [
+      { "op": "assign", "line": 46, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "udp.Socket", "value": { "kind": "local", "name": "$trap_res2" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 46, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
+      { "op": "assign", "line": 47, "name": "udpIdle", "value": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050008" } } },
+      { "op": "assign", "line": 48, "name": "$trap_val3", "value": { "kind": "local", "name": "u1" } }
+      ]
+    },
+    { "op": "bind", "line": 46, "mutable": false, "name": "uprobe", "type": "udp.Socket", "value": { "kind": "local", "name": "$trap_val3" } },
+    { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "udpIdleTimeout=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "udpIdle" }] } }] } },
+    { "op": "return", "line": 51, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {
@@ -304,20 +330,20 @@
       "else": [
       ]
     },
-    { "op": "bind", "line": 149, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "text" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
-    { "op": "bind", "line": 149, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
+    { "op": "bind", "line": 149, "mutable": false, "name": "$trap_res4", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "text" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "line": 149, "mutable": true, "name": "$trap_val5", "type": "Integer", "value": null },
     {
       "op": "if",
       "line": 149,
-      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res4" } },
       "then": [
-      { "op": "assign", "line": 149, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res0" } } }
+      { "op": "assign", "line": 149, "name": "$trap_val5", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res4" } } }
       ],
       "else": [
       { "op": "fail", "line": 150, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid URL: non-digit in port" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/net.mfb" }, { "kind": "const", "type": "Integer", "value": "150" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ]
     },
-    { "op": "bind", "line": 149, "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "bind", "line": 149, "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "local", "name": "$trap_val5" } },
     {
       "op": "if",
       "line": 152,
@@ -486,20 +512,20 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 227, "mutable": false, "name": "$trap_res2", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "#net_percentDecodeImpl", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
-    { "op": "bind", "line": 227, "mutable": true, "name": "$trap_val3", "type": "String", "value": null },
+    { "op": "bind", "line": 227, "mutable": false, "name": "$trap_res6", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "#net_percentDecodeImpl", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "bind", "line": 227, "mutable": true, "name": "$trap_val7", "type": "String", "value": null },
     {
       "op": "if",
       "line": 227,
-      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res6" } },
       "then": [
-      { "op": "assign", "line": 227, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res2" } } }
+      { "op": "assign", "line": 227, "name": "$trap_val7", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res6" } } }
       ],
       "else": [
-      { "op": "assign", "line": 228, "name": "$trap_val3", "value": { "kind": "local", "name": "s" } }
+      { "op": "assign", "line": 228, "name": "$trap_val7", "value": { "kind": "local", "name": "s" } }
       ]
     },
-    { "op": "bind", "line": 227, "mutable": false, "name": "decoded", "type": "String", "value": { "kind": "local", "name": "$trap_val3" } },
+    { "op": "bind", "line": 227, "mutable": false, "name": "decoded", "type": "String", "value": { "kind": "local", "name": "$trap_val7" } },
     { "op": "return", "line": 230, "value": { "kind": "local", "name": "decoded" } }
     ]
   },

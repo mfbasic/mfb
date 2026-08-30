@@ -2071,7 +2071,7 @@ impl CodeBuilder<'_> {
             .or_else(|| {
                 (target == "tcp.poll").then(|| {
                     if self.net_poll_is_list_form(&helper_args) {
-                        crate::codegen::builtins::tcp::SOCKET_TYPE.to_string()
+                        crate::codegen::builtins::tcp::SOCKET_TYPE_ID.to_string()
                     } else {
                         "Boolean".to_string()
                     }
@@ -2081,7 +2081,7 @@ impl CodeBuilder<'_> {
             .or_else(|| {
                 (target == "udp.poll").then(|| {
                     if self.net_poll_is_list_form(&helper_args) {
-                        crate::codegen::builtins::udp::SOCKET_TYPE.to_string()
+                        crate::codegen::builtins::udp::SOCKET_TYPE_ID.to_string()
                     } else {
                         "Boolean".to_string()
                     }
@@ -2093,7 +2093,7 @@ impl CodeBuilder<'_> {
             .or_else(|| {
                 (target == "net.poll").then(|| {
                     if self.net_poll_is_list_form(&helper_args) {
-                        crate::codegen::builtins::net::SOCKET_TYPE.to_string()
+                        crate::codegen::builtins::net::SOCKET_TYPE_ID.to_string()
                     } else {
                         "Boolean".to_string()
                     }
@@ -2101,10 +2101,19 @@ impl CodeBuilder<'_> {
             })
             // plan-76-C: `tls.poll` is likewise return-type-overloaded — the list
             // form yields a borrowed `tls::Socket`, the scalar a `Boolean`.
+            //
+            // All four of these name the resource with its PACKAGE-QUALIFIED id,
+            // not the bare `SOCKET_TYPE`. A bare resource spelling is invisible
+            // to the resource classification, so an inline-TRAP'd list-form poll
+            // treated the returned handle as an ordinary value and tried to
+            // flat-copy it: "native inlined field size not available for type
+            // 'Socket'", at build time, before plan-110-D. It is the same defect
+            // the audio device-overload opens hit (see
+            // `registry::alias_call_return_type`), reached by a different route.
             .or_else(|| {
                 (target == "tls.poll").then(|| {
                     if self.net_poll_is_list_form(&helper_args) {
-                        crate::codegen::builtins::tls::TLS_SOCKET_TYPE.to_string()
+                        crate::codegen::builtins::tls::TLS_SOCKET_TYPE_ID.to_string()
                     } else {
                         "Boolean".to_string()
                     }

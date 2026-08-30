@@ -1,0 +1,67 @@
+{
+  "project": "tcp_udp_poll_list_trap_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 14 },
+    { "module": "errorCode", "line": 15 },
+    { "module": "net", "line": 16 },
+    { "module": "tcp", "line": 17 },
+    { "module": "udp", "line": 18 },
+    { "module": "io", "line": 19 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 21,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": null, "value": { "kind": "call", "callee": "tcp.listen", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "bound", "type": "Address", "value": { "kind": "call", "callee": "tcp.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "c1", "type": null, "value": { "kind": "call", "callee": "tcp.connect", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "c2", "type": null, "value": { "kind": "call", "callee": "tcp.connect", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, "line": 25 },
+      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES tcp.Socket", "value": { "kind": "list", "values": [] }, "line": 26 },
+      { "kind": "assignment", "name": "socks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "identifier", "value": "c1" }] }, "line": 27 },
+      { "kind": "assignment", "name": "socks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "identifier", "value": "c2" }] }, "line": 28 },
+      { "kind": "binding", "mutable": true, "name": "tcpIdle", "type": "Boolean", "value": { "kind": "boolean", "value": false }, "line": 32 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "probe", "type": "tcp.Socket", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 33,
+        "expression": { "kind": "call", "callee": "tcp.poll", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "number", "value": "0" }] },
+        "handler": [
+        { "kind": "assignment", "name": "tcpIdle", "value": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrTimeout" } }, "line": 34 },
+        { "kind": "recover", "value": { "kind": "identifier", "value": "c1" }, "line": 35 }
+        ]
+      }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tcpIdleTimeout=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "tcpIdle" }] } }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "u1", "type": null, "value": { "kind": "call", "callee": "udp.bind", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 39 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "u2", "type": null, "value": { "kind": "call", "callee": "udp.bind", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 40 },
+      { "kind": "binding", "mutable": true, "name": "usocks", "type": "List OF RES udp.Socket", "value": { "kind": "list", "values": [] }, "line": 41 },
+      { "kind": "assignment", "name": "usocks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "usocks" }, { "kind": "identifier", "value": "u1" }] }, "line": 42 },
+      { "kind": "assignment", "name": "usocks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "usocks" }, { "kind": "identifier", "value": "u2" }] }, "line": 43 },
+      { "kind": "binding", "mutable": true, "name": "udpIdle", "type": "Boolean", "value": { "kind": "boolean", "value": false }, "line": 45 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "uprobe", "type": "udp.Socket", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 46,
+        "expression": { "kind": "call", "callee": "udp.poll", "arguments": [{ "kind": "identifier", "value": "usocks" }, { "kind": "number", "value": "0" }] },
+        "handler": [
+        { "kind": "assignment", "name": "udpIdle", "value": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrTimeout" } }, "line": 47 },
+        { "kind": "recover", "value": { "kind": "identifier", "value": "u1" }, "line": 48 }
+        ]
+      }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "udpIdleTimeout=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "udpIdle" }] } }] }, "line": 50 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 51 }
+      ]
+    }
+    ]
+  }
+  ]
+}
