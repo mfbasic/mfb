@@ -2140,10 +2140,10 @@ pub(super) fn expression_type(
                 if context
                     .type_index
                     .enums
-                    .get(&ParameterType::named(type_name))
+                    .get(&ParameterType::declared(type_name))
                     .is_some_and(|members| members.iter().any(|name| name == member))
                 {
-                    return Some(ParameterType::named(type_name));
+                    return Some(ParameterType::declared(type_name));
                 }
             }
             let target_type = expression_type(target, locals, context)?;
@@ -2721,7 +2721,7 @@ fn registry_record_constant(name: &str) -> Option<IrValue> {
             _ => return None,
         };
     Some(IrValue::Constructor {
-        type_: ParameterType::named(type_name),
+        type_: ParameterType::declared(type_name),
         args: components
             .iter()
             .enumerate()
@@ -3939,7 +3939,7 @@ impl TypeIndex {
                 match type_decl.kind {
                     TypeDeclKind::Type => {
                         records.insert(
-                            ParameterType::named(&type_decl.name),
+                            ParameterType::declared(&type_decl.name),
                             type_decl.fields.iter().map(lower_field).collect(),
                         );
                     }
@@ -3948,7 +3948,7 @@ impl TypeIndex {
                             expanded_union_variants(type_decl, &union_decls, &mut HashSet::new())
                         {
                             let variant_type = variant.type_.clone();
-                            let union_type = ParameterType::named(&type_decl.name);
+                            let union_type = ParameterType::declared(&type_decl.name);
                             variants
                                 .entry(variant_type.clone())
                                 .or_insert_with(|| union_type.clone());
@@ -3964,7 +3964,7 @@ impl TypeIndex {
                     }
                     TypeDeclKind::Enum => {
                         enums.insert(
-                            ParameterType::named(&type_decl.name),
+                            ParameterType::declared(&type_decl.name),
                             type_decl
                                 .members
                                 .iter()
@@ -3990,7 +3990,7 @@ impl TypeIndex {
             loc: IrSourceLoc::default(),
         };
         for imported in imported_types {
-            let imported_type = ParameterType::named(&imported.name);
+            let imported_type = ParameterType::declared(&imported.name);
             match imported.kind {
                 ImportedTypeKind::Record => {
                     records
@@ -4004,7 +4004,7 @@ impl TypeIndex {
                 }
                 ImportedTypeKind::Union => {
                     for variant in &imported.variants {
-                        let variant_type = ParameterType::named(&variant.name);
+                        let variant_type = ParameterType::declared(&variant.name);
                         variants
                             .entry(variant_type.clone())
                             .or_insert_with(|| imported_type.clone());

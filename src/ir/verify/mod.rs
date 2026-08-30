@@ -144,10 +144,10 @@ fn collect_diagnostics_with(
     // can see the source of.
     for imported in imported_resources {
         env.resource_closers
-            .entry(ParameterType::named(&imported.type_name))
+            .entry(ParameterType::declared(&imported.type_name))
             .or_insert_with(|| imported.close_function.clone());
         env.resource_sendable
-            .entry(ParameterType::named(&imported.type_name))
+            .entry(ParameterType::declared(&imported.type_name))
             .or_insert(imported.sendable);
     }
     let env = env;
@@ -652,7 +652,7 @@ impl TypeEnv {
             .iter()
             .map(|t| {
                 (
-                    ParameterType::named(&t.name),
+                    ParameterType::declared(&t.name),
                     (t.file.clone(), t.visibility.clone()),
                 )
             })
@@ -661,21 +661,24 @@ impl TypeEnv {
             match ty.kind.as_str() {
                 "enum" => {
                     enums.insert(
-                        ParameterType::named(&ty.name),
+                        ParameterType::declared(&ty.name),
                         ty.members.iter().map(|m| m.name.clone()).collect(),
                     );
                 }
                 "type" | "record" => {
                     records.insert(
-                        ParameterType::named(&ty.name),
+                        ParameterType::declared(&ty.name),
                         RecordInfo {
                             fields: ty.fields.iter().map(|f| f.name.clone()).collect(),
                             includes: ty.includes.clone(),
                         },
                     );
-                    field_types.insert(ParameterType::named(&ty.name), field_type_map(&ty.fields));
+                    field_types.insert(
+                        ParameterType::declared(&ty.name),
+                        field_type_map(&ty.fields),
+                    );
                     record_field_lists.insert(
-                        ParameterType::named(&ty.name),
+                        ParameterType::declared(&ty.name),
                         ty.fields
                             .iter()
                             .map(|f| (f.name.clone(), f.type_.clone()))
@@ -688,17 +691,17 @@ impl TypeEnv {
                         .map(|f| f.name.clone())
                         .collect();
                     if !private.is_empty() {
-                        private_fields.insert(ParameterType::named(&ty.name), private);
+                        private_fields.insert(ParameterType::declared(&ty.name), private);
                     }
                 }
                 "union" => {
                     unions.insert(
-                        ParameterType::named(&ty.name),
+                        ParameterType::declared(&ty.name),
                         UnionInfo {
                             variants: ty
                                 .variants
                                 .iter()
-                                .map(|v| ParameterType::named(&v.name))
+                                .map(|v| ParameterType::declared(&v.name))
                                 .collect(),
                             variant_order: ty.variants.iter().map(|v| v.name.clone()).collect(),
                             includes: ty.includes.clone(),
@@ -708,16 +711,16 @@ impl TypeEnv {
                     // its payload fields so `variant.field` accesses resolve.
                     for variant in &ty.variants {
                         records
-                            .entry(ParameterType::named(&variant.name))
+                            .entry(ParameterType::declared(&variant.name))
                             .or_insert_with(|| RecordInfo {
                                 fields: variant.fields.iter().map(|f| f.name.clone()).collect(),
                                 includes: Vec::new(),
                             });
                         field_types
-                            .entry(ParameterType::named(&variant.name))
+                            .entry(ParameterType::declared(&variant.name))
                             .or_insert_with(|| field_type_map(&variant.fields));
                         record_field_lists
-                            .entry(ParameterType::named(&variant.name))
+                            .entry(ParameterType::declared(&variant.name))
                             .or_insert_with(|| {
                                 variant
                                     .fields
@@ -762,12 +765,12 @@ impl TypeEnv {
         let resource_closers = project
             .native_resources
             .iter()
-            .map(|r| (ParameterType::named(&r.name), r.close_function.clone()))
+            .map(|r| (ParameterType::declared(&r.name), r.close_function.clone()))
             .collect();
         let resource_sendable = project
             .native_resources
             .iter()
-            .map(|r| (ParameterType::named(&r.name), r.sendable))
+            .map(|r| (ParameterType::declared(&r.name), r.sendable))
             .collect();
 
         let mut closure_counts: HashMap<String, HashSet<usize>> = HashMap::new();
@@ -915,7 +918,7 @@ impl TypeEnv {
         }
         // An `includes` entry is a declared type NAME, so it names a nominal.
         for include in &info.includes {
-            if !self.collect_record_fields(&ParameterType::named(include), out, seen) {
+            if !self.collect_record_fields(&ParameterType::declared(include), out, seen) {
                 return false;
             }
         }
@@ -950,7 +953,7 @@ impl TypeEnv {
             out.insert(variant.name().into_owned());
         }
         for include in &info.includes {
-            if !self.collect_union_variants(&ParameterType::named(include), out, seen) {
+            if !self.collect_union_variants(&ParameterType::declared(include), out, seen) {
                 return false;
             }
         }

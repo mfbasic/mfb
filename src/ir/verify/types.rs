@@ -34,7 +34,7 @@ impl TypeEnv {
                             self.current_line.set(ty.loc.line);
                         }
                     }
-                    let record = ParameterType::named(&ty.name);
+                    let record = ParameterType::declared(&ty.name);
                     if self.record_field_cycle(&record, &record, &mut HashSet::new()) {
                         self.emit(
                             "TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION",
@@ -53,7 +53,7 @@ impl TypeEnv {
                     for include in &ty.includes {
                         // An `INCLUDES` entry names a declared type; the tables
                         // are keyed by that nominal (plan-111-B).
-                        let include_type = ParameterType::named(include);
+                        let include_type = ParameterType::declared(include);
                         if !self.unions.contains_key(&include_type)
                             && (self.records.contains_key(&include_type)
                                 || self.enums.contains_key(&include_type))
@@ -72,7 +72,7 @@ impl TypeEnv {
                     // type. (Records-registered variant names are fine; only a
                     // name that is *also* a declared union/enum is rejected.)
                     for variant in &ty.variants {
-                        let variant_type = ParameterType::named(&variant.name);
+                        let variant_type = ParameterType::declared(&variant.name);
                         if self.unions.contains_key(&variant_type)
                             || self.enums.contains_key(&variant_type)
                         {
@@ -130,7 +130,7 @@ impl TypeEnv {
         if let Some(info) = self.unions.get(union_type) {
             for include in &info.includes {
                 names.extend(
-                    self.expanded_union_variant_names(&ParameterType::named(include), visiting),
+                    self.expanded_union_variant_names(&ParameterType::declared(include), visiting),
                 );
             }
             names.extend(info.variants.iter().map(|v| v.name().into_owned()));
@@ -144,7 +144,7 @@ impl TypeEnv {
     /// include and a local declaration. On decoded package IR a duplicated
     /// variant is an ambiguous tag → mis-dispatch, so this must run here too.
     pub(super) fn check_union_include_conflicts(&self, ty: &IrType) {
-        let Some(info) = self.unions.get(&ParameterType::named(&ty.name)) else {
+        let Some(info) = self.unions.get(&ParameterType::declared(&ty.name)) else {
             return;
         };
         // A member provided by two distinct includes.
@@ -152,7 +152,7 @@ impl TypeEnv {
         for include in &info.includes {
             let mut visiting = HashSet::new();
             for name in
-                self.expanded_union_variant_names(&ParameterType::named(include), &mut visiting)
+                self.expanded_union_variant_names(&ParameterType::declared(include), &mut visiting)
             {
                 if let Some(previous) = included_members.insert(name.clone(), include.clone()) {
                     self.current_line.set(ty.loc.line);

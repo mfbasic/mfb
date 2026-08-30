@@ -43,8 +43,8 @@ See plan-111-A §Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-111-A complete | `cargo test --test no_type_strings` passes; `ParameterType` derives `Hash` | NOT MET until A lands |
-| plan-111-B complete | `rg 'ParameterType::parse\(' src/ir src/monomorph src/resolver` → hits only `src/ir/binary.rs` | NOT MET until B lands |
+| plan-111-A complete | `cargo test --test no_type_strings` passes; `ParameterType` derives `Hash` | MET (2026-08-29): gate `4 passed`; `src/types.rs:31` derives `Hash`. |
+| plan-111-B complete | `rg 'ParameterType::parse\(' src/ir src/monomorph src/resolver` → hits only `src/ir/binary.rs` | MET (2026-08-29). The literal `rg` also lists 6 other files; every hit in them is inside a `#[cfg(test)]` module, confirmed by re-running the gate's own `test_free_lines` stripper over each — 0 live hits in all six. The gate agrees: it prints no `parse_sites` row for `ir`, `monomorph` or `resolver` at all. |
 
 ## 1. Goal
 
@@ -347,7 +347,64 @@ attribution (plan-111-A §3).
 
 ## Corrections
 
-<Filled in DURING execution.>
+**C1 — Phase 1 task 3's merge/split measurement found a REAL hazard, and a bug
+letter B had already shipped.** The task asks: for every key inserted, does
+`ParameterType::parse(key).name() == key`? That round trip holds. It is also the
+wrong question, and the right one fails.
+
+**A declared type may shadow a built-in spelling.** `TYPE Integer` is legal and
+compiles — verified by building it. So the name-keyed tables *merged* the record
+`Integer` and the scalar `Integer`, because `records["Integer"]` matched a field
+annotated `AS Integer` by string equality.
+
+Re-keying can turn that merge into a **split**, and it depends on which
+constructor builds the key. `ParameterType::named("Integer")` mints a `Named`
+nominal; an `AS Integer` annotation elaborates through `parse` to the `Integer`
+*variant*. They are not equal, so a table keyed with `named` stops answering a
+lookup the string table answered — silently, because for every name that is NOT
+a built-in spelling the two constructors agree.
+
+**Letter B built its keys with `named`, so letter B shipped that split.**
+Measured against a pre-plan-111 binary (`git worktree add --detach f79f6212a`,
+`cargo build --release`) over a battery of shadowing-type programs:
+
+```
+DIFF     record shadows Integer: arity
+  --- baseline ---
+    …:1 error[…TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION]…
+    …:5 error[…TYPE_CONSTRUCTOR_ARITY_MISMATCH]…
+  --- current  ---
+    …:5 error[…TYPE_CONSTRUCTOR_ARITY_MISMATCH]…
+```
+
+`TYPE Integer { a AS Integer }` stopped reporting its self-cycle, because
+`record_field_cycle`'s key (`Named("Integer")`) no longer equalled its field's
+type (`Integer`). Two of seven probes differed; five already matched.
+
+**Fixed** by `ParameterType::declared(name)` (`src/types.rs`) — it parses, so a
+declaration keys as the type its own annotations denote — and by repointing all
+**35 + 22** construction sites letter B had written with `named`. Deliberately
+NOT converted, each for a stated reason: fixed built-in nominal literals
+(`named("Error")`), `ir/shape`'s `named(&other.name())` re-wraps (which
+deliberately FLATTEN a structural type into one opaque nominal — letter B
+Correction 14 — so `declared` there would re-decompose it and defeat the
+re-wrap), `canonical_import_name`'s rewrite of an already-`Named` symbol, and
+`instantiate_type`'s minted mangled symbol (minted, not declared, and never a
+built-in spelling).
+
+All seven probes now match the baseline. `tests/rt_shadowing_type_name_diagnostics.rs`
+pins six of them permanently, including the positive direction (a correct
+constructor must not be spuriously rejected) and one pre-existing quirk it would
+otherwise be easy to mistake for re-keying damage (a field read on a shadowing
+record is rejected by the primitive-name test, in the baseline too). The
+self-cycle case was **RED-checked**: reverting just
+`ir/verify/types.rs`'s `declared` back to `named` fails it.
+
+**The lesson for the rest of this letter, and for D–F**: the round-trip property
+Phase 1 asked about (`parse(k).name() == k`) is necessary but not sufficient.
+The question that decides a re-key is **"does the key I build equal the key the
+lookup passes?"** — and the two sides are written in different files, months
+apart, by different constructors.
 
 ## Summary
 

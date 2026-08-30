@@ -165,7 +165,7 @@ impl TypeEnv {
             .filter(|n| {
                 // The pattern names a declared type; the tables are keyed by
                 // that nominal (plan-111-B).
-                let named = ParameterType::named(n);
+                let named = ParameterType::declared(n);
                 self.records.contains_key(&named)
                     || self.unions.contains_key(&named)
                     || self.enums.contains_key(&named)

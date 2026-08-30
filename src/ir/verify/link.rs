@@ -902,7 +902,7 @@ impl TypeEnv {
         self.unions.get(type_).is_some_and(|union| {
             union.variant_order.iter().any(|variant| {
                 self.record_field_lists
-                    .get(&ParameterType::named(variant))
+                    .get(&ParameterType::declared(variant))
                     .is_some_and(|fields| fields.iter().any(|(_, ft)| pred(ft)))
             })
         })

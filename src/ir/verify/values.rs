@@ -605,7 +605,7 @@ impl TypeEnv {
         if !self.source_path.get() || self.current_file.borrow().starts_with("builtins/") {
             return;
         }
-        let Some((owner_file, _)) = self.type_decl_info.get(&ParameterType::named(enum_name))
+        let Some((owner_file, _)) = self.type_decl_info.get(&ParameterType::declared(enum_name))
         else {
             return;
         };
@@ -638,7 +638,7 @@ impl TypeEnv {
         if let IrValue::Local(name) = target {
             if !locals.contains_key(name) {
                 // The target is a bare ENUM type name (no local shadows it).
-                if let Some(members) = self.enums.get(&ParameterType::named(name)) {
+                if let Some(members) = self.enums.get(&ParameterType::declared(name)) {
                     if !members.contains(member) {
                         self.emit(
                             "TYPE_UNKNOWN_ENUM_MEMBER",

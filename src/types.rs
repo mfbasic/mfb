@@ -193,6 +193,29 @@ impl ParameterType {
     pub(crate) fn res(inner: ParameterType) -> Self {
         ParameterType::Res(Box::new(inner))
     }
+    /// The type a DECLARATION of this name denotes.
+    ///
+    /// **Not [`named`](Self::named), and the difference is load-bearing.** A
+    /// declared type may shadow a built-in spelling — `TYPE Integer` is legal
+    /// and compiles — and when it does it must denote the same type an
+    /// `AS Integer` annotation denotes, because that is what the name-keyed
+    /// tables did before plan-111 keyed them by type. `named("Integer")` would
+    /// mint a distinct `Named` nominal and SPLIT a key the string world merged.
+    ///
+    /// Measured, against a pre-plan-111 binary: keying `ir::verify`'s tables
+    /// with `named` instead of this made `TYPE Integer` with a field
+    /// `a AS Integer` stop reporting `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`,
+    /// because the record's key (`Named("Integer")`) no longer equalled its
+    /// field's type (`Integer`). For every name that is not a built-in spelling
+    /// the two are identical, which is why the divergence hides so well.
+    ///
+    /// This is `parse`, and it lives here so the conversion stays inside the
+    /// grammar's own file (plan-111-A §2, boundary 1) rather than becoming a
+    /// `ParameterType::parse` call in every table's constructor.
+    pub(crate) fn declared(name: &str) -> Self {
+        ParameterType::parse(name)
+    }
+
     /// A resource carrying its own top-level ` STATE T` clause.
     ///
     /// **Build a stateful type with this, never with

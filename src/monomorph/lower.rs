@@ -40,11 +40,11 @@ impl<'a> Monomorphizer<'a> {
                     HirItem::Binding(_) => {}
                     HirItem::Type(type_decl) if !type_decl.template_params.is_empty() => {
                         type_templates
-                            .insert(ParameterType::named(&type_decl.name), type_decl.clone());
+                            .insert(ParameterType::declared(&type_decl.name), type_decl.clone());
                     }
                     HirItem::Type(type_decl) => {
                         concrete_types
-                            .insert(ParameterType::named(&type_decl.name), type_decl.clone());
+                            .insert(ParameterType::declared(&type_decl.name), type_decl.clone());
                     }
                     HirItem::Function(function) if !function.template_params.is_empty() => {
                         function_files.insert(function.name.clone(), file.path.clone());
@@ -399,7 +399,7 @@ impl<'a> Monomorphizer<'a> {
         for type_decl in types {
             let lowered = self.lower_type(type_decl, &HashMap::new(), None);
             self.concrete_types
-                .insert(ParameterType::named(&lowered.name), lowered);
+                .insert(ParameterType::declared(&lowered.name), lowered);
         }
 
         let functions = self
@@ -431,7 +431,7 @@ impl<'a> Monomorphizer<'a> {
                         HirItem::Type(type_decl) if type_decl.template_params.is_empty() => {
                             if let Some(concrete) = self
                                 .concrete_types
-                                .get(&ParameterType::named(&type_decl.name))
+                                .get(&ParameterType::declared(&type_decl.name))
                             {
                                 emitted_types.insert(concrete.name.clone());
                                 items.push(HirItem::Type(concrete.clone()));
@@ -993,7 +993,7 @@ impl<'a> Monomorphizer<'a> {
         }
         let Some(template) = self
             .type_templates
-            .get(&ParameterType::named(name))
+            .get(&ParameterType::declared(name))
             .cloned()
         else {
             return concrete;
@@ -1515,7 +1515,7 @@ impl<'a> Monomorphizer<'a> {
                 }
                 let field_types = concrete_type
                     .clone()
-                    .or_else(|| Some(ParameterType::named(&type_name)))
+                    .or_else(|| Some(ParameterType::declared(&type_name)))
                     .and_then(|type_| context.record_fields.get(&type_).cloned());
                 let lowered_args = arguments
                     .iter()
@@ -1532,7 +1532,7 @@ impl<'a> Monomorphizer<'a> {
                         )
                     })
                     .collect::<Vec<_>>();
-                let template_key = ParameterType::named(&type_name);
+                let template_key = ParameterType::declared(&type_name);
                 if concrete_type.is_none() && self.type_templates.contains_key(&template_key) {
                     let Some(template) = self.type_templates.get(&template_key).cloned() else {
                         unreachable!();
@@ -1565,7 +1565,7 @@ impl<'a> Monomorphizer<'a> {
                     }
                 }
                 HirExpression::Constructor {
-                    type_: concrete_type.unwrap_or_else(|| ParameterType::named(&type_name)),
+                    type_: concrete_type.unwrap_or_else(|| ParameterType::declared(&type_name)),
                     arguments: lowered_args,
                 }
             }

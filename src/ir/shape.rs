@@ -464,11 +464,11 @@ impl<'a> Walker<'a> {
         // plan-111-B: a resource type is a nominal, so the set holds types.
         let resource_types: HashSet<ParameterType> = super::lower_link::native_resources(hir)
             .iter()
-            .map(|resource| ParameterType::named(&resource.name))
+            .map(|resource| ParameterType::declared(&resource.name))
             .chain(
                 imported_resource_types
                     .iter()
-                    .map(|name| ParameterType::named(name)),
+                    .map(|name| ParameterType::declared(name)),
             )
             .collect();
         // Declared unions with their own variants and INCLUDES, for the
@@ -524,7 +524,7 @@ impl<'a> Walker<'a> {
                         Vec::new()
                     };
                     types.insert(
-                        ParameterType::named(&type_decl.name),
+                        ParameterType::declared(&type_decl.name),
                         TypeShape {
                             id,
                             variants,
@@ -565,7 +565,7 @@ impl<'a> Walker<'a> {
                 Vec::new()
             };
             types.insert(
-                ParameterType::named(&imported.name),
+                ParameterType::declared(&imported.name),
                 TypeShape {
                     id,
                     variants,
@@ -692,7 +692,7 @@ impl<'a> Walker<'a> {
                             };
                             self.validate_package_type(
                                 &package_file,
-                                &ParameterType::named(&export.name),
+                                &ParameterType::declared(&export.name),
                                 &context,
                                 import.line,
                                 &mut HashSet::new(),
@@ -1176,7 +1176,7 @@ impl<'a> Walker<'a> {
         if let Some((type_name, _)) = first.split_once("::") {
             return self
                 .types
-                .get(&ParameterType::named(type_name))
+                .get(&ParameterType::declared(type_name))
                 .is_some_and(|info| {
                     !info.members.is_empty()
                         && info
@@ -2309,9 +2309,9 @@ impl<'a> Walker<'a> {
         let base_name = base.name();
         crate::codegen::resource::builtin_resource_close_function(&base_name).is_some()
             || self.resource_types.contains(&base)
-            || base_name
-                .rsplit_once('.')
-                .is_some_and(|(_, bare)| self.resource_types.contains(&ParameterType::named(bare)))
+            || base_name.rsplit_once('.').is_some_and(|(_, bare)| {
+                self.resource_types.contains(&ParameterType::declared(bare))
+            })
     }
 
     /// Type compatibility as the source checker judged it (the former source checker's `compatible`):
@@ -2382,7 +2382,7 @@ impl<'a> Walker<'a> {
                 let expected_info = self
                     .types
                     .get(&expected)
-                    .or_else(|| self.types.get(&ParameterType::named(expected_bare)));
+                    .or_else(|| self.types.get(&ParameterType::declared(expected_bare)));
                 // A union accepts any of its variant values; a variant may be
                 // spelled qualified (`fs.File`) or bare.
                 if expected_info.is_some_and(|info| {
@@ -2401,7 +2401,7 @@ impl<'a> Walker<'a> {
                 let actual_info = self
                     .types
                     .get(&actual)
-                    .or_else(|| self.types.get(&ParameterType::named(actual_bare)));
+                    .or_else(|| self.types.get(&ParameterType::declared(actual_bare)));
                 match (expected_info, actual_info) {
                     (Some(expected_info), Some(actual_info)) => expected_info.id == actual_info.id,
                     _ => true,

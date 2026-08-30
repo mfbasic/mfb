@@ -352,7 +352,7 @@ impl<'a> Resolver<'a> {
             functions: HashMap::new(),
             types: BUILTIN_TYPES
                 .iter()
-                .map(|name| crate::types::ParameterType::named(name))
+                .map(|name| crate::types::ParameterType::declared(name))
                 .collect(),
             link_functions: HashMap::new(),
             active_template_params: HashSet::new(),
@@ -422,7 +422,7 @@ impl<'a> Resolver<'a> {
                             type_decl.visibility,
                         ) {
                             self.types
-                                .insert(crate::types::ParameterType::named(&type_decl.name));
+                                .insert(crate::types::ParameterType::declared(&type_decl.name));
                         }
                     }
                     // A native resource declaration introduces an opaque type at
@@ -435,7 +435,7 @@ impl<'a> Resolver<'a> {
                             resource.visibility,
                         ) {
                             self.types
-                                .insert(crate::types::ParameterType::named(&resource.name));
+                                .insert(crate::types::ParameterType::declared(&resource.name));
                         }
                     }
                     // A re-export alias publishes a LINK function under a package
@@ -1087,7 +1087,7 @@ mod tests {
         let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &hir));
         assert!(resolver
             .types
-            .contains(&crate::types::ParameterType::named("Widget")));
+            .contains(&crate::types::ParameterType::declared("Widget")));
         assert!(resolver.had_error, "duplicate top-level should report");
     }
 

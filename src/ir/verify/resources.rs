@@ -364,7 +364,7 @@ impl TypeEnv {
                 }
                 let result = match self.unions.get(other) {
                     Some(union) => union.variant_order.iter().all(|variant| {
-                        let variant = ParameterType::named(variant);
+                        let variant = ParameterType::declared(variant);
                         self.close_op_for(&variant).is_none()
                             && self.record_fields_copyable(&variant, seen)
                     }),
@@ -398,7 +398,8 @@ impl TypeEnv {
                     || self.unions.get(other).is_some_and(|union| {
                         !union.variant_order.is_empty()
                             && union.variant_order.iter().all(|variant| {
-                                self.close_op_for(&ParameterType::named(variant)).is_some()
+                                self.close_op_for(&ParameterType::declared(variant))
+                                    .is_some()
                             })
                     })
             }
@@ -454,7 +455,7 @@ impl TypeEnv {
                 }
                 let result = match self.unions.get(other) {
                     Some(union) => union.variant_order.iter().all(|variant| {
-                        let variant = ParameterType::named(variant);
+                        let variant = ParameterType::declared(variant);
                         if self.close_op_for(&variant).is_some() {
                             return self.is_resource_sendable(&variant);
                         }
