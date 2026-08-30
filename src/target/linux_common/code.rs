@@ -1267,6 +1267,37 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         "21" // SO_SNDTIMEO on Linux
     }
 
+    fn so_rcvbuf(&self) -> &'static str {
+        "8" // SO_RCVBUF on Linux
+    }
+
+    // plan-110-A §C5: measured with `scripts/icmp-constants-probe.c` on 2227
+    // (x86_64 musl), 2228 (x86_64 glibc), 2229 (riscv64 musl) and 2223 (aarch64
+    // glibc) — identical on all four, so one Linux row is correct for every ISA.
+
+    fn ipproto_ip(&self) -> &'static str {
+        "0" // IPPROTO_IP
+    }
+
+    fn ip_ttl(&self) -> &'static str {
+        "2" // IP_TTL on Linux (Darwin uses 4)
+    }
+
+    fn ip_recvttl(&self) -> &'static str {
+        "12" // IP_RECVTTL on Linux (Darwin uses 24)
+    }
+
+    fn cmsg_ip_ttl_type(&self) -> &'static str {
+        // The cmsg the kernel delivers is typed IP_TTL (2), NOT the IP_RECVTTL (12)
+        // used to enable it. Comparing against 12 finds no match and loses a TTL the
+        // kernel did supply (plan-110-A §C5 trap 2).
+        "2"
+    }
+
+    fn clock_monotonic(&self) -> &'static str {
+        "1" // CLOCK_MONOTONIC on Linux (Darwin uses 6)
+    }
+
     fn socket_would_block_code(&self) -> &'static str {
         "11" // EAGAIN on Linux
     }

@@ -1,0 +1,49 @@
+' net::ping's runtime argument validation (plan-110-A).
+'
+' Every case here must RAISE rather than return a PingStatus. The distinction is
+' the heart of the contract: a status answers a question about the network, while
+' a bad argument or an unresolvable name is a failure of the call itself. All of
+' these are rejected before anything is resolved or opened, so nothing leaks.
+'
+' None of these touch the network, so this fixture runs identically on a machine
+' where the OS forbids ICMP.
+
+IMPORT net
+IMPORT io
+
+FUNC attempt(label AS String, host AS String, t AS Integer, ttl AS Integer, size AS Integer) AS Nothing
+  LET r = net::ping(host, t, ttl, size) TRAP(e)
+    io::print(label & " raised " & e.message)
+    RETURN
+  END TRAP
+  io::print(label & " DID NOT RAISE")
+END FUNC
+
+FUNC main AS Integer
+  ' The unbounded sentinel is the only negative timeout the convention allows;
+  ' anything else is invalid.
+  attempt("negative timeout", "127.0.0.1", -1, 64, 56)
+  attempt("very negative timeout", "127.0.0.1", -100000, 64, 56)
+
+  ' ttl is written into a one-byte IP header field, so it must be 1..=255.
+  attempt("ttl zero", "127.0.0.1", 100, 0, 56)
+  attempt("ttl negative", "127.0.0.1", 100, -1, 56)
+  attempt("ttl too large", "127.0.0.1", 100, 256, 56)
+
+  ' size is 0..=8184, the smallest maximum across the supported platforms.
+  attempt("size negative", "127.0.0.1", 100, 64, -1)
+  attempt("size too large", "127.0.0.1", 100, 64, 8185)
+
+  ' A name with no address record is an error, not an Unreachable status.
+  attempt("unresolvable host", "no-such-host.invalid", 100, 64, 56)
+
+  ' The boundary values on each range are accepted, so the guards are not
+  ' off-by-one. These reach the network, so only the absence of a raise is
+  ' asserted; the loopback behaviour itself lives in the rt-behavior fixture.
+  attempt("ttl minimum", "127.0.0.1", 100, 1, 56)
+  attempt("ttl maximum", "127.0.0.1", 100, 255, 56)
+  attempt("size minimum", "127.0.0.1", 100, 64, 0)
+  attempt("size maximum", "127.0.0.1", 100, 64, 8184)
+
+  RETURN 0
+END FUNC

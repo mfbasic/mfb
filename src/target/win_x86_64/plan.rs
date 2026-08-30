@@ -23,6 +23,10 @@ const SHELL32: &str = "shell32.dll"; // os.args: CommandLineToArgvW (plan-66-B)
                                      // WASAPI audio (plan-66 G+H): the COM runtime (object activation) rides ole32; the
                                      // endpoint objects themselves are called through their vtables (no import).
 const OLE32: &str = "ole32.dll";
+/// `net::ping`'s ICMP API (plan-110-A). Present on every supported Windows: the
+/// `Icmp*` exports were confirmed in `C:\Windows\System32\IPHLPAPI.DLL` on the
+/// Windows 11 test box (10.0.26100.9168).
+const IPHLPAPI: &str = "iphlpapi.dll";
 
 pub(crate) fn lower_module(module: &NirModule) -> Result<NativePlan, String> {
     plan::lower_module_for_platform(module, &Platform)
@@ -479,6 +483,26 @@ impl NativePlanPlatform for Platform {
             // whenever any socket call is reachable. `close`→`closesocket`,
             // `poll`→`WSAPoll`, the non-blocking toggle→`ioctlsocket`; the error
             // channel reuses kernel32's GetLastError (== WSAGetLastError on Win32).
+            // plan-110-A: Windows has no unprivileged ICMP socket (Winsock's raw
+            // ICMP needs Administrator), so ping rides iphlpapi's ICMP API, which
+            // builds and matches the echo itself. It still needs Winsock for
+            // getaddrinfo/inet_ntop, and QPC for the sub-millisecond round-trip
+            // time (the API's own RoundTripTime is whole milliseconds and reads 0
+            // on loopback). Matched before the general `net.` arm so ordinary
+            // socket programs do not pull iphlpapi in.
+            "net.ping" | "net.pingAddr" => vec![
+                import("IcmpCreateFile", IPHLPAPI, required_by),
+                import("IcmpSendEcho", IPHLPAPI, required_by),
+                import("IcmpCloseHandle", IPHLPAPI, required_by),
+                import("WSAStartup", WS2_32, required_by),
+                import("WSACleanup", WS2_32, required_by),
+                import("getaddrinfo", WS2_32, required_by),
+                import("freeaddrinfo", WS2_32, required_by),
+                import("inet_ntop", WS2_32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+                import("QueryPerformanceCounter", KERNEL32, required_by),
+                import("QueryPerformanceFrequency", KERNEL32, required_by),
+            ],
             call if call.starts_with("net.") => vec![
                 import("WSAStartup", WS2_32, required_by),
                 import("WSACleanup", WS2_32, required_by),

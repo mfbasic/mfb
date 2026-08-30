@@ -1,0 +1,67 @@
+{
+  "project": "func_net_ping_range_invalid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "net", "line": 11 },
+    { "module": "io", "line": 12 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "attempt",
+      "line": 14,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 14 },
+      { "name": "host", "type": "String", "default": null, "line": 14 },
+      { "name": "t", "type": "Integer", "default": null, "line": 14 },
+      { "name": "ttl", "type": "Integer", "default": null, "line": 14 },
+      { "name": "size", "type": "Integer", "default": null, "line": 14 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 15,
+        "expression": { "kind": "call", "callee": "net.ping", "arguments": [{ "kind": "identifier", "value": "host" }, { "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "ttl" }, { "kind": "identifier", "value": "size" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " raised " } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "message" } }] }, "line": 16 },
+        { "kind": "return", "value": null, "line": 17 }
+        ]
+      }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " DID NOT RAISE" } }] }, "line": 19 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 22,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "negative timeout" }, { "kind": "string", "value": "127.0.0.1" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "56" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "very negative timeout" }, { "kind": "string", "value": "127.0.0.1" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "100000" } }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "56" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "ttl zero" }, { "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "100" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "56" }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "ttl negative" }, { "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "100" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, { "kind": "number", "value": "56" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "ttl too large" }, { "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "100" }, { "kind": "number", "value": "256" }, { "kind": "number", "value": "56" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "size negative" }, { "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "100" }, { "kind": "number", "value": "64" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "size too large" }, { "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "100" }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "8185" }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "unresolvable host" }, { "kind": "string", "value": "no-such-host.invalid" }, { "kind": "number", "value": "100" }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "56" }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "ttl minimum" }, { "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "100" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "56" }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "ttl maximum" }, { "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "100" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "56" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "size minimum" }, { "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "100" }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "0" }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "size maximum" }, { "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "100" }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "8184" }] }, "line": 46 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 48 }
+      ]
+    }
+    ]
+  }
+  ]
+}

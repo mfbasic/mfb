@@ -1986,6 +1986,28 @@ impl CodeBuilder<'_> {
                     value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
                 });
             }
+        } else if target == "net.ping" {
+            // plan-110-A: `ping(host|address, timeoutMs?, ttl?, size?)`. Both
+            // overloads take the same three optional trailing arguments, so the
+            // padding is shape-independent — unlike `connectTcp`, whose Address form
+            // has a different positional layout. An omitted `timeoutMs` follows the
+            // timeout convention (unbounded); `ttl`/`size` take the documented
+            // defaults, which are public contract (plan-110-A §C3).
+            const PING_DEFAULT_TTL: &str = "64";
+            const PING_DEFAULT_SIZE: &str = "56";
+            for value in [
+                TIMEOUT_UNBOUNDED_SENTINEL,
+                PING_DEFAULT_TTL,
+                PING_DEFAULT_SIZE,
+            ]
+            .into_iter()
+            .skip(helper_args.len().saturating_sub(1))
+            {
+                helper_args.push(NirValue::Const {
+                    type_: ParameterType::Integer,
+                    value: value.to_string(),
+                });
+            }
         } else if target == "net.listenTcp" && helper_args.len() == 2 {
             helper_args.push(NirValue::Const {
                 type_: ParameterType::Integer,
@@ -2122,6 +2144,21 @@ impl CodeBuilder<'_> {
                     "net.connectTcpAddr"
                 } else {
                     "net.connectTcp"
+                }
+            }
+            // plan-110-A: `ping(Address, …)` lowers through `net.pingAddr`, which
+            // reads the host out of the record. Unlike `connectTcp`, the two ping
+            // overloads share a positional layout, so the first argument's type
+            // decides on its own at every arity.
+            "net.ping" => {
+                if args
+                    .first()
+                    .and_then(|arg| self.static_type_name(arg))
+                    .is_some_and(|type_| type_.is_named("Address"))
+                {
+                    "net.pingAddr"
+                } else {
+                    "net.ping"
                 }
             }
             // plan-76-A: the readiness-multiplex overload `poll(List OF RES Socket)`

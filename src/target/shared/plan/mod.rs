@@ -65,8 +65,32 @@ pub(crate) fn net_libc_symbols(call: &str) -> &'static [&'static str] {
         "net.bindUdp" => &["getaddrinfo", "freeaddrinfo", "socket", "bind", "close"],
         "net.receiveFrom" | "net.receiveTextFrom" => &["recvfrom", "inet_ntop"],
         "net.sendTo" | "net.sendTextTo" => &["getaddrinfo", "freeaddrinfo", "sendto"],
+        // plan-110-A. The receive call is deliberately absent: macOS uses `recvfrom`
+        // and Linux `recvmsg` (only Linux can reach the reply TTL, and only through a
+        // control message), so each backend appends its own via
+        // [`net_ping_receive_symbol`] rather than importing a symbol it never
+        // references — the same reason bug-300 E10 filters `write` here.
+        "net.ping" | "net.pingAddr" => &[
+            "getaddrinfo",
+            "freeaddrinfo",
+            "socket",
+            "setsockopt",
+            "sendto",
+            "poll",
+            "close",
+            "inet_ntop",
+            "clock_gettime",
+        ],
         _ => &[],
     }
+}
+
+/// The receive symbol `net::ping` references on this platform, or `None` for a call
+/// that is not ping. macOS reads the reply with `recvfrom` (the IPv4 header, and so
+/// the TTL, is already in the buffer); Linux must use `recvmsg` to collect the
+/// `IP_RECVTTL` control message, because it strips the header (plan-110-A §C1).
+pub(crate) fn net_ping_receive_symbol(call: &str, darwin: bool) -> Option<&'static str> {
+    matches!(call, "net.ping" | "net.pingAddr").then(|| if darwin { "recvfrom" } else { "recvmsg" })
 }
 
 pub(crate) struct PlannedFunction {

@@ -731,6 +731,13 @@ impl plan::NativePlanPlatform for Platform {
                         required_by: required_by.clone(),
                     })
                     .collect::<Vec<_>>();
+                if let Some(receive) = plan::net_ping_receive_symbol(call, true) {
+                    imports.push(PlatformImport {
+                        library: "libSystem".to_string(),
+                        symbol: format!("_{receive}"),
+                        required_by: required_by.clone(),
+                    });
+                }
                 imports.push(PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "___error".to_string(),

@@ -527,6 +527,9 @@ impl LinuxPlan<'_> {
                     .filter(|base| !(self.abi.raw_write && **base == "write"))
                     .map(|base| self.libc_import(base, required_by))
                     .collect::<Vec<_>>();
+                if let Some(receive) = plan::net_ping_receive_symbol(call, false) {
+                    imports.push(self.libc_import(receive, required_by));
+                }
                 imports.push(self.libc_import("__errno_location", required_by));
                 imports
             }

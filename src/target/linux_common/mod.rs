@@ -155,6 +155,8 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "fs.canonicalPath",
     "fs.isWithin",
     "net.lookup",
+    "net.ping",
+    "net.pingAddr",
     "net.connectTcp",
     "net.listenTcp",
     "net.accept",

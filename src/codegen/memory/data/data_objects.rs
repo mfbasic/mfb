@@ -334,6 +334,8 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         module,
         &[
             "net.lookup",
+            "net.ping",
+            "net.pingAddr",
             "net.connectTcp",
             "net.listenTcp",
             "net.accept",

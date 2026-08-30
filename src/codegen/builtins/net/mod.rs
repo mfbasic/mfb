@@ -31,8 +31,8 @@
 //! custom resolver (the datetime/net idiom).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Parameter, RecordProp, Registry, RegistryOverride, RegistryPackage,
-    RegistryRecord, RegistryResource,
+    Body, DefaultValue, EnumVariant, Parameter, RecordProp, Registry, RegistryEnum,
+    RegistryOverride, RegistryPackage, RegistryRecord, RegistryResource,
 };
 use crate::types::ParameterType;
 
@@ -87,6 +87,7 @@ mod func_local_address;
 mod func_lookup;
 mod func_parse_query;
 mod func_percent_decode;
+mod func_ping;
 mod func_poll;
 mod func_read;
 mod func_read_text;
@@ -112,6 +113,7 @@ mod helper_slice;
 mod helper_url_to_string;
 
 mod gen_io;
+mod gen_ping;
 mod gen_poll;
 pub(crate) mod gen_shared;
 
@@ -124,6 +126,11 @@ pub(crate) const UDP_SOCKET_TYPE: &str = "UdpSocket";
 pub(crate) const ADDRESS_TYPE: &str = "Address";
 pub(crate) const DATAGRAM_TYPE: &str = "Datagram";
 pub(crate) const DATAGRAM_TEXT_TYPE: &str = "DatagramText";
+/// The `PingStatus` enum and `PingResult` record `net::ping` reports through
+/// (plan-110-A). `PingStatus`'s variant ORDER is its wire contract: a variant's
+/// ordinal is its declaration index, and `gen_ping` emits those ordinals directly.
+pub(crate) const PING_STATUS_TYPE: &str = "PingStatus";
+pub(crate) const PING_RESULT_TYPE: &str = "PingResult";
 /// The `Url` value record's name — registry-modeled (`add_record`, DOC
 /// round-tripped via `description`).
 pub(crate) const URL_TYPE: &str = "Url";
@@ -145,7 +152,8 @@ const MODULE_DESC: &str = r#"The `net` package resolves host names and opens pla
 connections. `net::connectTcp` opens an outbound TCP stream; `net::listenTcp` and
 `net::accept` run a TCP server; `net::bindUdp`, `net::sendTo`, and
 `net::receiveFrom` exchange UDP datagrams; and `net::read`/`net::write` (and their
-text forms) transfer bytes. For encrypted TLS connections use `tls`; for HTTP use
+text forms) transfer bytes. `net::ping` sends an ICMP echo request and reports
+whether the host answered. For encrypted TLS connections use `tls`; for HTTP use
 `http`.
 
 The package also parses and renders URLs: `net::toUrl` decomposes an absolute
@@ -280,6 +288,73 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
+    // `net::ping`'s two value types (plan-110-A). The enum's variant ORDER is the
+    // contract, not just documentation: a variant's ordinal is its declaration
+    // index, and `gen_ping` writes those ordinals into `PingResult.status`
+    // directly, so reordering these silently changes what a ping reports.
+    pkg.add_enum(RegistryEnum {
+        name: PING_STATUS_TYPE,
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Ok",
+                description: "An echo reply came back; `rttMs`, `ttl`, and `size` are measured.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Timeout",
+                description: "No reply arrived before the deadline.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Unreachable",
+                description: "A router reported the destination unreachable.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "TtlExceeded",
+                description: "The request outlived its TTL in transit and a router reported it.",
+                advisory: None,
+            },
+        ],
+    });
+    // Field ORDER is likewise contract: `gen_ping` builds this record by writing
+    // five consecutive 8-byte slots at the offsets these declarations fix.
+    pkg.add_record(RegistryRecord {
+        name: PING_RESULT_TYPE,
+        export: true,
+        description: "The outcome of one `net::ping`. Only an `Ok` status carries measured `rttMs`, `ttl`, and `size`; every other status zeroes all three.",
+        props: vec![
+            RecordProp {
+                name: "status",
+                ty: ParameterType::named(PING_STATUS_TYPE),
+                description: "How the host answered.",
+            },
+            RecordProp {
+                name: "address",
+                ty: ParameterType::named(ADDRESS_TYPE),
+                description: "Who answered — the responder for `Ok`, the reporting router for `Unreachable`/`TtlExceeded`, and the destination that was aimed at for `Timeout`. Its `port` is always `0`: ICMP has no transport port.",
+            },
+            RecordProp {
+                name: "rttMs",
+                // Float, not Integer: a loopback round trip is tens of
+                // microseconds and would always truncate to 0 (plan-110-A §C3).
+                ty: ParameterType::Float,
+                description: "The round-trip time in milliseconds, or `0.0` when the status is not `Ok`.",
+            },
+            RecordProp {
+                name: "ttl",
+                ty: ParameterType::Integer,
+                description: "The TTL observed on the reply, or `0` when the status is not `Ok`.",
+            },
+            RecordProp {
+                name: "size",
+                ty: ParameterType::Integer,
+                description: "The number of payload bytes echoed back, or `0` when the status is not `Ok`.",
+            },
+        ],
+    });
+
     // The three opaque socket handles. All share the public `net.close` close op;
     // a `Listener` accepts on its owning thread and is not thread-sendable.
     pkg.add_resource(RegistryResource {
@@ -336,6 +411,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_decode_query_component::register(&mut pkg);
 
     func_lookup::register(&mut pkg);
+    func_ping::register(&mut pkg);
     func_connect_tcp::register(&mut pkg);
     func_listen_tcp::register(&mut pkg);
     func_accept::register(&mut pkg);

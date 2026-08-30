@@ -152,6 +152,8 @@ impl NativeBackend for Backend {
                 "thread.openStdIn",
                 "thread.closeStdIn",
                 "net.lookup",
+                "net.ping",
+                "net.pingAddr",
                 "net.connectTcp",
                 "net.listenTcp",
                 "net.accept",

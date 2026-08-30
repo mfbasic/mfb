@@ -61,9 +61,14 @@ already render from descriptors (`src/codegen/builtins/process/mod.rs:register`)
 
 - `net::Address` already crosses native helpers as a record whose field order is ABI-relevant;
   verified by reading `net::register` and `src/codegen/builtins/net/gen_shared.rs`.
-- Resource ownership is not descriptor-generic for ordinary consuming calls; close consumption is
-  selected in `src/syntaxcheck/builtins.rs:net_consumes_argument`. `tls::wrap` therefore needs an
-  explicit ownership task in plan 110-D.
+- ~~Resource ownership is not descriptor-generic for ordinary consuming calls; close consumption is
+  selected in `src/syntaxcheck/builtins.rs:net_consumes_argument`.~~ — **false, corrected §C4**:
+  that file and symbol no longer exist. Close consumption *is* descriptor-generic today, keyed off
+  `RegistryResource::close_function` and resolved in `src/ir/verify/link.rs:929`
+  (`consumed_resource` → `close_op_for` → `builtin_resource_close_function`). The conclusion
+  survives the correction and gets stronger: because consumption is keyed to the resource's *own*
+  registered close op, `tls::wrap` consuming a `tcp::Socket` is not expressible by any existing
+  seam, so plan 110-D needs a genuinely new ownership mechanism, not a table row.
 - ICMP permission differs by OS and deployment configuration. The contract must translate the
   actual permission failure into an Error, not `Unreachable` and not a fake PingResult.
 
@@ -122,32 +127,74 @@ constant.
 **MET** — §C1 names a route for all six target rows. Permission denial is *reproducible on real
 hardware* (box 2223, `EACCES`) and additionally reproducible anywhere via `unshare -Un`, so the
 stronger half of the acceptance ("reproducible") holds and the unit-test fallback is not needed.
-Commit: 4a30df2b0
+Commit: cadd99a25
 
 ### Phase 2 — Registry contract and frontend
 
-- [ ] Add `PingStatus`, `PingResult`, and both `ping` implementations under
+- [x] Add `PingStatus`, `PingResult`, and both `ping` implementations under
       `src/codegen/builtins/net/`; preserve the existing Address/Url layouts.
-- [ ] Add argument normalization, return typing, enum/record source injection, and errors; audit
+      → `func_ping.rs` (descriptor, two overloads) and the enum/record in `mod.rs`. Address and
+      Url are untouched: the only `.ir` change to existing fixtures is the two added declarations
+      plus a uniform 24-line `ErrorLoc` shift (§C11).
+- [x] Add argument normalization, return typing, enum/record source injection, and errors; audit
       AST, HIR, IR, link verifier, resource, and binary-representation seams for the new names.
-- [ ] Tests: add valid and invalid fixtures under `tests/rt-behavior/net/`,
+      → padding + `net.pingAddr` routing in `builder_values.rs`; per-target
+      `SUPPORTED_RUNTIME_CALLS`; libc/DLL imports in the three `plan.rs`; the error-message pool in
+      `data_objects.rs`; the alias force-emit in `builder/mod.rs` (§C8). No resource or
+      binary-representation seam needed: `PingStatus`/`PingResult` are *value* types, so unlike
+      `net.Socket` they never reach the resource registry or the `.mfp` type table.
+- [x] Tests: add valid and invalid fixtures under `tests/rt-behavior/net/`,
       `tests/rt-error/net/`, and `tests/syntax/net/`, covering both overloads and all defaults.
+      → `func_net_ping_valid`, `func_net_ping_range_invalid`, `func_net_ping_invalid`, plus
+      `ping` coverage added to `tests/byte-identity/net` so the backend's codegen is gated on all
+      five targets, plus four unit tests in `gen_ping.rs` pinning the enum ordinals, the record
+      field offsets, the documented maximum, and the overload shapes.
+- [x] Added task: fix the two pre-existing compiler bugs that blocked the contract's own spelling
+      (§C7) — enum variants named `Ok`/`Error`/`Err` were unmatchable, and no enum-typed value
+      could be bound through an inline `TRAP`.
 
 Acceptance: `mfb man net ping` and a fixture compile to the exact requested signatures; invalid
 arity/types/ranges fail with the specified diagnostics.
-Commit: —
+**MET** — `mfb man net ping` renders both requested signatures verbatim:
+`net::ping(host AS String, [timeoutMs AS Integer], [ttl AS Integer], [size AS Integer]) AS PingResult`
+and the `Address` form. `func_net_ping_invalid`'s golden pins the diagnostics: arity is reported as
+"expected 1 to 4" and a wrong argument type names both overloads. Range violations are runtime
+(the values are not constant-folded), and `func_net_ping_range_invalid` proves all seven raise
+while every boundary value is accepted.
+Commit: 46e3b7203
 
 ### Phase 3 — Native ICMP execution
 
-- [ ] Implement packet construction, monotonic deadline, reply/error parsing, and OS error mapping
+- [x] Implement packet construction, monotonic deadline, reply/error parsing, and OS error mapping
       in per-platform emitters, preserving caller-saved register and stack-alignment invariants.
-- [ ] Add deterministic parser/checksum/unit tests plus loopback runtime tests for host and Address.
-- [ ] Add a permission-denial runtime test using an isolated test environment that actually denies
+      → `gen_ping.rs`: `lower_ping_posix` (macOS and Linux arms) and `lower_ping_windows`. Every
+      value that must survive an external call lives in a stack slot, never a vreg, matching the
+      rest of `net`; the Windows 8-argument call stages arguments 4–7 to the outgoing-args area
+      rather than through `c_arg(7)`, which is `rbp` (§C2).
+- [x] Add deterministic parser/checksum/unit tests plus loopback runtime tests for host and Address.
+      → four `gen_ping.rs` unit tests (each RED-checked, §C12) and the `func_net_ping_valid`
+      fixture covering both overloads, the defaults, size 0 and size 8184. The **checksum is
+      genuinely covered by the macOS loopback run**, which is where the golden harness executes:
+      measured with `/tmp/p110-probe/cksum-matters.c`, a deliberately corrupted checksum gets no
+      reply on macOS (`correct -> 1, corrupt -> 0`). On Linux the kernel recomputes it
+      (`corrupt -> 1`), so a Linux run would *not* validate it — which is exactly why the claim is
+      recorded with the platform it holds on rather than stated flatly.
+- [x] Add a permission-denial runtime test using an isolated test environment that actually denies
       ICMP socket creation; do not accept a mocked errno as end-to-end proof.
+      → proven two independent ways, neither mocked: box 2223 denies ICMP for an ordinary user by
+      shipping `ping_group_range = 1 0`, and `unshare -Un` on any Linux box maps the caller to gid
+      65534 with the same effect. Both run the real program and both raise `ErrNetworkFailed`
+      (7-707-0003), exit 255 (§C10).
 
 Acceptance: loopback returns `Ok` with the responder, positive elapsed/TTL/size values; a silent
 address returns `Timeout`; denied permission raises Error; malformed/unrelated replies are ignored.
-Commit: —
+**MET** on all five target families (§C10). Loopback: `Ok`, responder `127.0.0.1`, `rttMs > 0.0`,
+`ttl > 0`, `size = 56`. Silent address (192.0.2.1): `Timeout`, address still the destination, all
+three measurements zeroed. Denied permission: Error, not a status. Unrelated replies are ignored by
+construction — the receive loop re-polls against the deadline rather than accepting the first
+packet, which is what makes the call correct on macOS, where **every** ICMP socket receives
+**every** reply on the host (§C1).
+Commit: 46e3b7203
 
 ## Validation Plan
 
@@ -302,6 +349,213 @@ Export presence on 2230 verified by scanning the DLL image for the export names:
 - Consequence for plan 110-D: because consumption is keyed off *the resource's own registered close
   op*, `tls::wrap` consuming a `tcp::Socket` is **not** expressible by any existing seam — D's
   "extend builtin argument ownership metadata" is a genuinely new mechanism, not a table row.
+
+### C5 — Measured socket constants and struct layouts (Phase 2)
+
+`net::ping` bakes numeric socket options, clock ids, and struct offsets into emitted machine code,
+where a wrong value fails silently on a platform the build host cannot execute. Every number below
+was printed from the platform's own headers by `scripts/icmp-constants-probe.c`, run on macOS
+AArch64 (this host) and on 2227 (Alpine x86_64 musl), 2228 (Debian x86_64 glibc), 2229 (Alpine
+riscv64 musl) and 2223 (Kali AArch64 glibc). **Every value that the ping backend uses differs
+between macOS and Linux**, so none of them could have been shared:
+
+| Constant | macOS | Linux (all four arch/libc combinations) |
+|---|---:|---:|
+| `AF_INET` | 2 | 2 |
+| `SOCK_DGRAM` | 2 | 2 |
+| `IPPROTO_IP` | 0 | 0 |
+| `IPPROTO_ICMP` | 1 | 1 |
+| **`IP_TTL`** | **4** | **2** |
+| **`IP_RECVTTL`** | **24** | **12** |
+| **`CLOCK_MONOTONIC`** | **6** | **1** |
+
+Linux `recvmsg` structure offsets (identical on x86_64/aarch64/riscv64 and on glibc/musl — only the
+*declared width* of `msg_iovlen`, `msg_controllen` and `cmsg_len` varies, which is invisible when
+the emitter stores and reads 8-byte values at these 8-aligned little-endian offsets):
+
+| Field | Offset | Note |
+|---|---:|---|
+| `msghdr.msg_name` | 0 | |
+| `msghdr.msg_namelen` | 8 | u32 |
+| `msghdr.msg_iov` | 16 | |
+| `msghdr.msg_iovlen` | 24 | glibc `size_t`, musl `int`+pad; a u64 store of `1` is correct for both |
+| `msghdr.msg_control` | 32 | |
+| `msghdr.msg_controllen` | 40 | a u64 store is safe **on Linux only** — `msg_flags` sits at 48 |
+| `msghdr.msg_flags` | 48 | |
+| `sizeof(struct msghdr)` | 56 | macOS is 48 |
+| `cmsghdr.cmsg_len` | 0 | glibc 8 bytes, musl 4+pad |
+| `cmsghdr.cmsg_level` | 8 | u32 |
+| `cmsghdr.cmsg_type` | 12 | u32 |
+| `CMSG_DATA` offset | 16 | |
+| `CMSG_LEN(sizeof(int))` | 20 | `CMSG_SPACE` = 24 |
+
+Two traps this measurement caught that a from-memory transcription would have got wrong:
+
+1. **`msg_controllen` cannot be written with a u64 store on macOS** — `msg_flags` is at offset 44
+   there (48 on Linux), so an 8-byte store at 40 clobbers it. This is harmless in the shipped
+   design only because macOS uses `recvfrom` and never builds a `msghdr` at all; had the "one
+   uniform POSIX `recvmsg` path" of §3 been implemented, it would have been a live bug.
+2. **The control message arrives as `IP_TTL`, not `IP_RECVTTL`.** `IP_RECVTTL` (Linux 12) is the
+   value passed to `setsockopt` to *enable* the option; the resulting `cmsg_type` is `IP_TTL`
+   (Linux 2). The first version of the Phase 1 probe compared `cmsg_type == IP_RECVTTL`, found no
+   match, and reported no TTL at all despite the kernel having supplied one — the reply-TTL source
+   looked unavailable on Linux until the comparison was fixed.
+
+These are carried into codegen as `CodegenPlatform` methods (`ipproto_ip`, `ip_ttl`,
+`ip_recvttl`, `cmsg_ip_ttl_type`, `clock_monotonic`, `so_rcvbuf`), matching the existing
+`sol_socket`/`so_rcvtimeo` idiom rather than as literals at the emission sites.
+
+### C6 — The documented maximum payload did not round-trip, and why
+
+Phase 1 froze `size`'s maximum at **8184** as the smaller of the two platforms' `sendto` limits
+(§C3). Executing the finished backend showed that number was measured on the wrong side of the
+exchange: on macOS a 8184-byte ping **sent successfully and then reported `Timeout`**, as though
+the host were down.
+
+Binary-searching the real limit through the shipped implementation gave **8132** payload bytes
+(IP total 8160). The cause is the *receive* path, not the send path: macOS's default raw receive
+space is `net.inet.raw.recvspace` = 8192, and BSD socket-buffer accounting charges per-datagram
+overhead on top of the bytes, so a reply at the documented maximum is dropped by the socket layer
+before `recvfrom` ever sees it. The Phase 1 probe missed this because it measured the largest
+payload `sendto` would *accept* and separately round-tripped only small payloads — it never
+round-tripped a large one.
+
+The response was **not** to trim the published maximum to 8132. That number is an artifact of a
+tunable default, and lowering the contract to match a default would have made the documentation
+true by weakening the feature. `/tmp/p110-probe/rcvbuf.c` measured the alternative:
+
+```
+default SO_RCVBUF reported = 8192
+largest round-tripping payload, default buffer = 8132
+request SO_RCVBUF=32768   -> reported 32768   largest payload = 8184
+request SO_RCVBUF=65536   -> reported 65536   largest payload = 8184
+```
+
+So the backend now sets `SO_RCVBUF` to 65536 on the ICMP socket before sending, and the frozen
+8184 maximum is honest on both platforms — verified end to end: `8184` returns `Ok size=8184` and
+`8185` raises `ErrInvalidArgument`. §C3 is unchanged; the implementation was corrected to meet it.
+
+The general lesson, worth more than the constant: **a send-side limit is not a round-trip limit.**
+Any future probe of a request/response protocol must measure the largest message that comes back,
+not the largest the kernel accepts.
+
+### C7 — Two pre-existing compiler bugs this letter had to fix first
+
+Both were found by writing the first real `net::ping` program, both reproduce with **no ping and
+no plan-110 surface at all**, and both are fixed here rather than deferred (a deferred bug is one
+the next session inherits).
+
+1. **A user enum with an `Ok`, `Error`, or `Err` variant could not be matched.**
+   `CASE Outcome.Ok` was rejected with `TYPE_RESULT_NOT_MATCHABLE` — the guard that stops
+   `CASE Ok` from being read as the internal `Result` member consulted only the UNION variant
+   table, which is `None` for an enum, so every enum variant sharing one of those three names was
+   caught by it. Repro (pre-existing, no ping):
+
+   ```
+   ENUM Outcome
+     Ok
+     Failed
+   END ENUM
+   ' MATCH o / CASE Outcome.Ok -> error[2-203-0071 TYPE_RESULT_NOT_MATCHABLE]
+   ```
+
+   Fixed in `src/ir/verify/matching.rs:check_match_patterns` by exempting the scrutinee's own
+   enum variants alongside its union variants. `net::PingStatus.Ok` is the contract-mandated
+   spelling, so this was not optional.
+
+2. **No enum-typed value could be bound through an inline `TRAP`.**
+   `native code cannot materialize default value for type 'Outcome'` — the default-value
+   materializer in `src/codegen/memory/value/builder_value_semantics.rs` had arms for every scalar,
+   collection, record, union and resource shape but none for an enum, so the error-path temp could
+   not be built. This also blocked any *record* carrying an enum field, because the record arm
+   defaults each field in turn — which is exactly how `PingResult` hit it. Fixed by adding the
+   enum arm: an enum value is its ordinal at run time, so its default is ordinal 0, the first
+   declared variant, precisely as `Integer`'s default is 0.
+
+   Repro (pre-existing, no ping): any `LET o = <fallible returning an ENUM> TRAP(e) … END TRAP`.
+
+### C8 — A code-form alias needs an explicit force-emit entry
+
+`net.pingAddr` is an `os_alias` synthesized by `builder_values`, so the NIR only ever names
+`net.ping`. The plan's runtime-symbol scan reads the NIR, so the alias body was never emitted and
+the call site relocated against an undefined `_mfb_rt_net_net_pingAddr`. Registering the alias in
+the registry and in the per-target supported-call lists is **not** sufficient — there is a separate
+hand-maintained list in `src/codegen/engine/builder/mod.rs` that force-emits each synthesized
+alias whenever its base symbol is present (`connectTcpAddr` off `connectTcp`, `pollList` off
+`poll`, process's `spawnEnv` off `spawn`, …). Added the `pingAddr`-off-`ping` entry there. Any
+future `os_alias` needs the same, and the symptom is a link-time undefined symbol, not a
+compile error.
+
+### C9 — Windows execution findings (box 2230)
+
+Running the contract program on Windows 11 x86_64 confirmed the `iphlpapi` backend and turned up
+two divergences worth recording:
+
+- **`IcmpSendEcho` rejects a `0` timeout.** With `timeoutMs = 0` the call failed outright and the
+  status mapped to an Error, instead of the convention's "one immediate attempt, report `Timeout`
+  unless a reply is already waiting". The per-attempt timeout is now clamped up to 1 ms — the
+  smallest expressible wait — which is precisely the accommodation
+  `lower_net_set_timeout_helper` already makes for Winsock's `SO_RCVTIMEO`, where `0` means
+  *infinite* rather than *don't wait* (plan-73-C). After the clamp, `timeoutMs = 0` reports
+  `Timeout` on Windows exactly as it does on POSIX.
+- **The API's own `RoundTripTime` is unusable for `rttMs`.** It is a whole-millisecond `ULONG`, so
+  a loopback ping would report `0.0` and break the contract's measured-rtt guarantee. The backend
+  times the exchange with `QueryPerformanceCounter`/`QueryPerformanceFrequency` instead, mirroring
+  the POSIX `clock_gettime(CLOCK_MONOTONIC)` path; `rttMs > 0.0` holds on Windows loopback.
+- Windows loopback reports `ttl = 128` against Unix's `64`. That is the platform's default hop
+  limit, not a defect, and is why the fixtures assert `ttl > 0` rather than a literal.
+
+`IcmpSendEcho`'s 8 arguments are staged as §C2 requires — 0..3 in the register bank, 4..7 written
+directly to the outgoing-args area — rather than through `emit_external_int_call`, whose `c_arg(7)`
+would be `rbp`.
+
+### C10 — Cross-target execution ledger for Phase 3
+
+Every row is the same contract program, cross-built on the macOS host and executed natively.
+
+| Target | Box | Result |
+|---|---|---|
+| macos-aarch64 | this host | all 13 cases pass; `TtlExceeded` observed naming the real first hop (192.168.1.1) |
+| linux-x86_64 musl | 2227 | all pass; reply TTL via cmsg (64 loopback, 255 off-link) |
+| linux-x86_64 glibc | 2228 | all pass |
+| linux-riscv64 musl | 2229 | all pass |
+| linux-aarch64 glibc | 2223 | **ICMP denied by the OS** → `ErrNetworkFailed` (7-707-0003) raised, exit 255 — the contract's required behavior |
+| windows-x86_64 | 2230 | all pass after the `0`-timeout clamp; `ttl = 128` (platform default) |
+
+The portable denial environment was verified independently on 2227: under `unshare -Un`,
+`ping_group_range` reads `65534 65534` and the same program raises `ErrNetworkFailed`. So the
+permission-denied path is proven on real hardware *and* reproducibly anywhere, not mocked.
+
+`TtlExceeded` is reproducible only from the macOS host: both Linux boxes and the Windows box sit
+behind a NAT that re-originates the echo, so `ttl = 1` returns a normal reply there (the Phase 1
+probe found the same, §C1). `Unreachable` was not reproducible from any available network.
+
+### C11 — Golden drift: measured, classified, and fully explained
+
+Adding two declarations to `net`'s injected source drifted **54 `.ir` goldens and one `.ast`** —
+every fixture that imports `net`, directly or through `http`/`tls`/the resource-union tests. This
+is the documented consequence of editing the injected package source, not a surprise.
+
+The drift was classified rather than assumed. Normalizing every `"line": N` field away and diffing
+each golden against `HEAD` shows exactly two kinds of change and nothing else:
+
+1. The `PingResult` type and `PingStatus` enum declarations appearing.
+2. `ErrorLoc` line numbers inside `builtins/net.mfb` shifting by a uniform **+24** — the number of
+   lines the two declarations add (130→154, 133→157, 136→160, 139→163, 190→214, 204→228, 222→246,
+   226→250).
+
+53 of the 54 files carry a byte-for-byte identical added/removed signature; the 54th is
+`tests/byte-identity/net`, which additionally gained the six `ping` calls I added to it. No
+semantic change appears in any of them, so regenerating is correct.
+
+### C12 — The unit tests were RED-checked
+
+A test that cannot fail is not a test. `ping_status_literals_match_the_declared_variant_order` was
+verified to fail by changing `STATUS_TIMEOUT` from `"1"` to `"9"`
+(`assertion left == right failed, left: "9", right: "1"`), then reverted and re-confirmed green.
+The pin matters because the emitters write status ordinals as literals while the *declaration
+order* in `net::register` is what actually assigns them — reordering the enum while editing its
+documentation would silently change what every ping reports, with nothing failing.
 
 ## Summary
 

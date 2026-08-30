@@ -1517,6 +1517,18 @@ pub(crate) fn lower_module_for_platform(
     {
         runtime_symbols.push("_mfb_rt_net_net_connectTcpAddr".to_string());
     }
+    // plan-110-A: `ping(Address, …)` routes to `net.pingAddr` the same way — the
+    // NIR names only `net.ping`, so without this the call site relocates against a
+    // symbol nothing defines. It shares `ping`'s libc imports.
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_net_net_ping")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_net_net_pingAddr")
+    {
+        runtime_symbols.push("_mfb_rt_net_net_pingAddr".to_string());
+    }
     // plan-90-A: the 4-arg `spawn(args, cwd, env, envReplace)` overload routes to
     // `process.spawnEnv`, a synthesized target the NIR never names (it carries only
     // `process.spawn`), so emit its helper body whenever `spawn` is present —

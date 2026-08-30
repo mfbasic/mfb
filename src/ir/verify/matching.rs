@@ -124,15 +124,23 @@ impl TypeEnv {
             return;
         }
         let union_variants = self.union_variants(&scrutinee_name);
+        // An ENUM scrutinee's own variants are equally exempt from the `Result`
+        // guard below. Without this, declaring `ENUM Outcome { Ok, … }` makes
+        // `CASE Outcome.Ok` unmatchable — the arm is a perfectly ordinary enum
+        // variant reference, but the guard only consulted the UNION table, which is
+        // `None` for an enum. `net::PingStatus.Ok` (plan-110-A) hit exactly this,
+        // and so did every user enum with an `Ok`/`Error`/`Err` variant.
+        let enum_variants = self.enums.get(scrutinee_name.as_ref());
         let check_pattern = |v: &IrValue| {
             // `Result` is internal: `CASE Ok`/`CASE Error` are never valid
             // match arms (the former source checker's TYPE_RESULT_NOT_MATCHABLE). Only fires
-            // when the name is not a real variant of the scrutinee's union.
+            // when the name is not a real variant of the scrutinee's union or enum.
             if let IrValue::Local(n) | IrValue::MemberAccess { member: n, .. } = v {
                 if matches!(n.as_str(), "Ok" | "Error" | "Err")
                     && !union_variants
                         .as_ref()
                         .is_some_and(|vs| vs.contains(n.as_str()))
+                    && !enum_variants.is_some_and(|vs| vs.contains(n.as_str()))
                 {
                     self.emit(
                         "TYPE_RESULT_NOT_MATCHABLE",

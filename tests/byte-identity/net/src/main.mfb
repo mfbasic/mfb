@@ -60,6 +60,22 @@ FUNC main() AS Integer
     io::print(toString(addr2.port))
   NEXT
 
+  ' ping: both overloads and every arity, so the ICMP backend's codegen is gated
+  ' on all five targets. Compile-only like the rest of this fixture — no packet is
+  ' ever sent.
+  LET p1 = net::ping("example.com")
+  io::print(toString(p1.ttl))
+  LET p2 = net::ping("example.com", 1000)
+  io::print(toString(p2.size))
+  LET p3 = net::ping("example.com", 1000, 32)
+  io::print(toString(p3.rttMs))
+  LET p4 = net::ping("example.com", 1000, 32, 128)
+  io::print(p4.address.host)
+  LET p5 = net::ping(locAddr)
+  io::print(toString(p5.ttl))
+  LET p6 = net::ping(locAddr, 1000, 32, 128)
+  io::print(toString(p6.size))
+
   ' URL and query string helpers.
   LET url = net::toUrl("http://user:pass@example.com:8080/a/b?x=1#frag")
   io::print(url.host)

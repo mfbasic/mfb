@@ -169,6 +169,8 @@ const RUNTIME_CALLS: &[&str] = &[
     "net.lookup",
     "net.connectTcp",
     "net.connectTcpAddr",
+    "net.ping",
+    "net.pingAddr",
     "net.listenTcp",
     "net.accept",
     "net.bindUdp",

@@ -217,6 +217,14 @@ impl CodegenPlatform for TlsReadTestPlatform {
     fn so_reuseaddr(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_reuseaddr") }
     fn so_rcvtimeo(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_rcvtimeo") }
     fn so_sndtimeo(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_sndtimeo") }
+    // plan-110-A net::ping constants: this platform drives only the TLS read path
+    // and never reaches them, so keep the stub's fail-loudly convention.
+    fn so_rcvbuf(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_rcvbuf") }
+    fn ipproto_ip(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::ipproto_ip") }
+    fn ip_ttl(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::ip_ttl") }
+    fn ip_recvttl(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::ip_recvttl") }
+    fn cmsg_ip_ttl_type(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::cmsg_ip_ttl_type") }
+    fn clock_monotonic(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::clock_monotonic") }
     fn socket_would_block_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_would_block_code") }
     fn socket_message_size_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_message_size_code") }
     fn socket_in_progress_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_in_progress_code") }

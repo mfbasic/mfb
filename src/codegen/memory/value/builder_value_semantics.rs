@@ -167,6 +167,30 @@ impl CodeBuilder<'_> {
                     text: "default String".to_string(),
                 })
             }
+            _ if self
+                .type_model
+                .enum_members
+                .keys()
+                .any(|(enum_type, _)| enum_type == type_) =>
+            {
+                // An enum value IS its ordinal at run time, so its default is
+                // ordinal 0 — the first declared variant — exactly as `Integer`'s
+                // default is 0. Without this arm, ANY enum-typed binding reached
+                // through an inline `TRAP` fails to build ("cannot materialize
+                // default value"), and so does any record carrying an enum field,
+                // because the record arm below defaults each field in turn. As with
+                // every other default here, the value is superseded by the
+                // `RECOVER` value (or handler divergence) on the taken error path,
+                // so no program observes it.
+                let register = self.allocate_register();
+                self.emit(abi::move_immediate(&register, "Integer", "0"));
+                Ok(ValueResult {
+                    origin: None,
+                    type_: ParameterType::parse(&type_),
+                    location: Operand::from(register.render()),
+                    text: format!("default {type_}"),
+                })
+            }
             _ if is_collection_type(type_) => {
                 let result = self.lower_empty_collection(&ParameterType::parse(type_))?;
                 Ok(ValueResult {
