@@ -193,6 +193,54 @@ fn macos_canvas_surface_runs() {
     let _ = fs::remove_dir_all(&project);
 }
 
+/// Every path through `present`'s skip/publish branch, in one program: first
+/// present (nothing installed), identical re-present (skip), different content
+/// (publish), back to the first content (publish — the comparison is against what
+/// is *currently* installed, not anything remembered), an empty scene both ways,
+/// and non-empty again.
+///
+/// A runtime test cannot see *whether* a frame was skipped — nothing reads the
+/// published scene until plan-98-D — so what this covers is that the branch itself
+/// is sound on every shape, including the empty list and the size-changed case that
+/// the byte comparison has to short-circuit rather than read past.
+#[cfg(target_os = "macos")]
+const PRESENT_SKIP_SOURCE: &str = "IMPORT app\n\
+     IMPORT canvas\n\
+     FUNC one(r AS Float) AS List OF DrawItem\n\
+    \x20 LET c AS Color = canvas::rgb(10, 20, 30)\n\
+    \x20 LET a AS DrawItem = Circle[x := 1.0, y := 2.0, radius := r, paint := canvas::fill(c)]\n\
+    \x20 LET b AS DrawItem = Text[x := 0.0, y := 0.0, text := \"abc\", font := FontRef[id := 3], size := 8.0, paint := canvas::fill(c)]\n\
+    \x20 RETURN [a, b]\n\
+     END FUNC\n\
+     FUNC main AS Integer\n\
+    \x20 app::setMode(Mode.Canvas)\n\
+    \x20 canvas::present(one(5.0))\n\
+    \x20 canvas::present(one(5.0))\n\
+    \x20 canvas::present(one(7.0))\n\
+    \x20 canvas::present(one(7.0))\n\
+    \x20 canvas::present(one(5.0))\n\
+    \x20 LET empty AS List OF DrawItem = []\n\
+    \x20 canvas::present(empty)\n\
+    \x20 canvas::present(empty)\n\
+    \x20 canvas::present(one(5.0))\n\
+    \x20 RETURN 0\n\
+     END FUNC\n";
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_repeated_and_changed_presents_are_sound() {
+    let (project, ok, log) = build("canvas_present_skip_rt", PRESENT_SKIP_SOURCE, true);
+    assert!(ok, "build should succeed:\n{log}");
+    let exe =
+        project.join("build/canvas_present_skip_rt.app/Contents/MacOS/canvas_present_skip_rt");
+    let (code, _) = run_headless(&exe);
+    assert_eq!(
+        code, 0,
+        "repeated, changed, and empty presents must all be sound"
+    );
+    let _ = fs::remove_dir_all(&project);
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn macos_paint_zero_values_are_no_ops() {

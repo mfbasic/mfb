@@ -38,8 +38,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-98-B complete (scene arena, hashing, cache mechanics, RES resources) | `ls planning/completed/plan-98-B-*` → hit | NOT MET |
-| Geometry cache miss reaches a generation hook | plan-98-B Phase 3 acceptance met | NOT MET |
+| plan-98-B complete (scene arena, deep copy, frame skip, RES resources) | `ls planning/completed/plan-98-B-*` → hit | NOT MET |
+| ~~Geometry cache miss reaches a generation hook~~ **N/A** — the cache moved into this letter's Phase 1 (B Correction 18), so there is no cross-letter hook to check | — | N/A |
+| The scene region reserves a slot for the per-item hashes | `rg -n "CANVAS_SCENE_HASHES_OFFSET" src/codegen/error/constants/error_constants.rs` → hit | MET (reserved by B Phase 2) |
 | Working tree builds | `cargo build` → pass | UNVERIFIED (run before starting) |
 
 > Per A's invariant 8: no "full suite green at HEAD" row, no byte-identity obligation;
@@ -154,6 +155,26 @@ wrong gate; C writes the tolerance comparator they will use.
 
 ### Phase 1 — Deterministic geometry generation + software rasteriser core
 
+> **Two tasks moved here from plan-98-B Phase 3** (B's Correction 18): the per-item
+> content hashing and the geometry cache. B had them landing over a *stub* geometry
+> generator, i.e. a cache whose every entry is a zero-length vertex range — machinery
+> with no content, whose eviction "under arena pressure" cannot be exercised because
+> the entries occupy nothing. AGENTS.md forbids shipping that. They land here, in the
+> phase that first produces geometry to cache, so the cache is built once against real
+> vertex data rather than built empty and re-shaped when the data arrives. B kept the
+> whole-scene frame skip, which is real without them.
+
+- [ ] **Per-item content hashing** (moved from B Phase 3): hash each item's bytes
+      within the published scene block and store into the scene region's reserved
+      `hashes` slot (`CANVAS_SCENE_HASHES_OFFSET`, already allocated by B). The block
+      is contiguous and pointer-free (B Correction 13), so the hash spans the copied
+      bytes directly.
+- [ ] **Geometry cache** (moved from B Phase 3):
+      `GeoCacheEntry{hash, vtxOffset, vtxCount, bounds, lastUsedRev}`; probe on the
+      item hash, hit reuses the vertex range, miss generates and inserts, LRU-evict by
+      `lastUsedRev` under pressure. This is what makes plan-98-A invariant 2 true —
+      re-presenting an unchanged item must be free — so its test must show a **hit
+      skipping generation**, which is only observable now that generation does work.
 - [ ] Implement geometry generation for Rect, Line (stroke expansion), Polygon
       (tessellation), Image (textured quad), RoundedRect / Circle / Arc (SDF quad; Arc =
       angle-wedge-clipped stroked ring) — feeding B's cache miss path with real `Vertex`
@@ -166,7 +187,9 @@ wrong gate; C writes the tolerance comparator they will use.
       `0..PI`). The smiley scene from plan-98-api.md is a good golden fixture.
 
 Acceptance: each primitive rasterises to expected pixels deterministically on the test
-machine; AA and sRGB encode are reproducible (same bytes on re-run). No GPU, no blit yet.
+machine; AA and sRGB encode are reproducible (same bytes on re-run); and a re-`present`
+that changes one item of many regenerates exactly one cache entry, the rest hitting.
+No GPU, no blit yet.
 Commit: —
 
 ### Phase 2 — Golden-image harness + tolerance comparator

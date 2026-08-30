@@ -367,29 +367,50 @@ that is gone by the time `present` is called installs cleanly at runtime.
 `cargo test --test rt_trapped_call_capability_gate` = 3 passed (RED-checked);
 `cargo test --bin mfb` = 3555 passed. Cross-builds green for `linux-aarch64`,
 `linux-x86_64`, `windows-x86_64`.
-Commit: —
+Commit: 118837f5a (goldens: 7b5330083)
 
 ### Phase 3 — Content hashing, geometry cache, frame-skip
 
-- [ ] Hash each copied item (flat-union byte hash over `params[]`); store into
-      `hashes[]`.
-- [ ] Implement the geometry cache: `GeoCacheEntry{hash, vtxOffset, vtxCount, bounds,
-      lastUsedRev}`; probe on hash; hit reuses vtx range; miss inserts with a **stub
-      empty geometry** (real generation is C); LRU-evict by `lastUsedRev` under arena
-      pressure.
-- [ ] Implement zero-work frame skip: if incoming hash sequence == live scene's hash
+- [x] ~~Hash each copied item (flat-union byte hash over `params[]`); store into
+      `hashes[]`.~~ — **moved to plan-98-C Phase 1** (Correction 18). The per-item
+      hash exists to key the geometry cache; it moves with it. The scene region's
+      `hashes` slot is already reserved (`CANVAS_SCENE_HASHES_OFFSET`, B Phase 2), so
+      C fills a slot rather than growing the layout.
+- [x] ~~Implement the geometry cache … miss inserts with a **stub empty geometry**
+      (real generation is C)~~ — **moved to plan-98-C Phase 1** (Correction 18), where
+      geometry exists to cache. Its own acceptance ("changing one item invalidates
+      exactly one cache entry") is only observable once a miss does work.
+- [x] Implement zero-work frame skip: if incoming hash sequence == live scene's hash
       sequence and same length, return without publishing.
-- [ ] Implement positional diff/damage: per-index hash compare, union old∪new bounds
-      on divergence, length-differ → dirty from divergence point. (Damage is *computed*
-      only if cheap to keep; if it adds work with no consumer yet, defer to G and note
-      it — see Open Decisions.)
-- [ ] Tests: identical re-present publishes nothing; one changed item regenerates one
+      → Landed, and **exactly rather than by hash**: `present` byte-compares the
+      shrink-to-fit copy against the installed scene, so equal content is equal bytes
+      and there are no collisions. Comparing the *copy* (not the caller's block) is
+      what makes it exact — a working buffer carries capacity headroom the installed
+      scene does not, so the same content in the two shapes has different bytes.
+      The copy still happens on a skipped frame; that is plan-98-A invariant 2, which
+      charges the deep copy to the caller's frame budget. What the skip buys is not
+      re-publishing, which is what would make the renderer redraw.
+- [x] ~~Implement positional diff/damage~~ — **deferred to G**, taking the plan's own
+      Open Decision recommendation. It has no consumer until damage-rect present, and
+      computing an unused bounds-union every frame is exactly the per-frame waste
+      invariant 1 forbids.
+- [x] Tests: identical re-present publishes nothing; one changed item regenerates one
       cache entry; LRU eviction fires under a forced small arena; hash sequence compare
       is O(n) and correct across length changes.
+      → For what remains in B: `an_identical_re_present_skips_the_publish` asserts on
+      the emitted body that the skip path **bypasses the scene-region stores
+      entirely** — the substantive claim, since a "skip" that still bumped the
+      revision would be a skip in name only. Plus
+      `macos_repeated_and_changed_presents_are_sound`, which runs every shape through
+      the branch: first present, identical re-present, changed content, back to the
+      earlier content, empty both ways, non-empty again. The cache-entry and eviction
+      cases move to C with the cache.
 
-Acceptance: re-`present()` of an identical list publishes no new revision; changing one
-item invalidates exactly one cache entry; eviction is `lastUsedRev`-ordered — all
-test-proven, no GPU.
+Acceptance (**corrected, Correction 18** — the cache half moved to C): re-`present()`
+of an identical list takes a path that writes nothing to the scene region, and the
+skip/publish branch is sound on first-present, identical, changed, and empty scenes.
+→ MET. `cargo test --test rt_canvas_present_deep_copy` = 4 passed;
+`cargo test --test cli_canvas_package` = 6 passed.
 Commit: —
 
 ### Phase 4 — `Image`/`Font` as a native RES backend (largest blast radius last)
@@ -458,10 +479,11 @@ Commit: —
   collections are inlined into the block, not referenced from it, which is why one
   `copy_flat_block` is the whole transitive copy. Phase 3's hash spans those bytes
   directly. (§Design 2)
-- **Compute damage in B or defer to G** — recommended: **defer the bounds-union damage
-  to G** (it has no consumer until damage-rect present); keep only the cheap
-  whole-sequence frame-skip in B. Note the deferral in Phase 3 rather than computing
-  unused work (invariant against per-frame waste). (§Phase 3)
+- ~~**Compute damage in B or defer to G**~~ — **RESOLVED: deferred to G** (the
+  recommendation, taken). It has no consumer until damage-rect present, and computing
+  an unused bounds-union every `present` is exactly the per-frame waste plan-98-A
+  invariant 1 forbids. B keeps the whole-scene frame skip, which is real now.
+  (§Phase 3, Correction 19)
 - ~~**`DrawItem` variant constructor qualification**~~ — **RESOLVED 2026-08-30: bare
   `Circle[…]`.** `.ai/resources-packages.md:24` states the rule directly for a new
   native backend: "Declare union variants with BARE ids (no `pkg::Type`
@@ -680,6 +702,64 @@ false surface.
     all three cases — supported+trapped builds, general+trapped builds, and
     unsupported+trapped is rejected exactly as unsupported+bare is (with the premise
     asserted, so it cannot pass vacuously if that call is ever advertised).
+
+17. **A full-suite run after Phase 2 found four golden drifts, all mine and all
+    intended.** Run early (not at G's closeout) because Phase 2 changed a tree-wide
+    validation seam. Attribution was measured, not assumed: a baseline binary built
+    from `main` via `git archive` reproduces the committed golden exactly
+    (`e91927b1…`) while the current one does not, so the drift is this branch's.
+    - **byte-identity fs/http/thread** — a structural diff of the two plans shows the
+      *sole* difference is the `_mfb_str_error_wrong_mode` data object growing
+      224 → 376 bytes: plan-98-A Phase 2's `ErrWrongMode` message rewrite. No
+      instruction changed. Those three fixtures embed the error-message table.
+    - **syntax/app/app_mode_surface_valid `.ir`** — two lines: the `Mode` enum gains
+      `Canvas` (plan-98-A Phase 1).
+    - **syntax/app/macos-app-mode-{io,plumbing,term}** — the `windows-x86_64` golden
+      only, from Phase 3/4's new wndproc arms. macOS is unchanged because those
+      fixtures are `Console`-default, so no reconcile helpers are emitted for them —
+      which is the "a `Console`-default program keeps its exact function set"
+      property holding rather than a gap.
+    - **`rt_gtk_term_utf8_grid`'s derived GTK state size**, +16 for the two Phase 3
+      slots. That test sums the state's enumerated members precisely so adding one is
+      a deliberate edit; its comment already records two earlier extensions handled
+      the same way, and the bug-203 assertion (char grid at 4 B/cell) is untouched.
+
+    Regenerated per AGENTS.md ("a churn from a correct change means regenerate the
+    golden") with `sync-goldens.sh`, `regen-ncodesum.sh` and — the one the first two
+    do not sweep — `regen-outside-ncode.sh`. `regen-ncodesum.sh` refreshed all 117
+    goldens and exactly the 15 above changed, which independently confirms the blast
+    radius.
+
+**2026-08-30 — Phase 3.**
+
+18. **The per-item hashing and the geometry cache moved to plan-98-C Phase 1; the
+    frame skip stayed and became exact.** The plan had the cache landing here over a
+    "stub empty geometry" generator. That is a cache whose every entry is a
+    zero-length vertex range: real code, no content, and — decisively — its own
+    acceptance is unobservable. "Changing one item invalidates exactly one cache
+    entry" and "eviction is `lastUsedRev`-ordered under arena pressure" cannot be
+    demonstrated when a miss does no work and an entry occupies no bytes. AGENTS.md
+    forbids shipping a placeholder, and building the cache empty here would mean
+    re-shaping its keying and sizing in C when real vertex data arrives.
+
+    They move **one letter**, to the phase that first generates geometry — not out of
+    the plan. C's Phase 1 now carries both tasks, its Prerequisites row for the
+    "generation hook" is marked N/A (there is no cross-letter hook left to check), and
+    its acceptance gained the cache claim. The scene region's `hashes` slot stays
+    reserved here, so C fills a slot rather than growing the layout.
+
+    What B keeps is real without them: the **whole-scene** frame skip. And it is
+    better than the planned hash comparison — `present` byte-compares the
+    shrink-to-fit copy against the installed scene, so equal content is equal bytes
+    and there are no collisions to reason about. Comparing the *copy* rather than the
+    caller's block is what makes that exact: a working buffer carries capacity
+    headroom that the installed scene does not, so identical content in the two shapes
+    has different bytes and a naive comparison would never match.
+
+19. **Damage computation deferred to G**, taking the plan's own Open Decision
+    recommendation rather than overriding it. It has no consumer until damage-rect
+    present, and computing an unused bounds-union on every `present` is precisely the
+    per-frame waste plan-98-A invariant 1 exists to prevent.
 
 <Further corrections filled in during execution — especially the RES record wiring and
 payload encoding.>

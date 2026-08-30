@@ -148,6 +148,67 @@ fn the_revision_is_published_after_the_items_and_count() {
     );
 }
 
+/// The index of the first `label` instruction whose name contains `needle`.
+fn label_at(ins: &[Value], needle: &str) -> Option<usize> {
+    ins.iter().position(|i| {
+        i["op"].as_str() == Some("label") && i["name"].as_str().is_some_and(|n| n.contains(needle))
+    })
+}
+
+/// plan-98-B Phase 3: re-presenting identical content must publish nothing, so an
+/// animation loop that redraws an unchanged frame does not make the renderer
+/// redraw.
+///
+/// The skip must **bypass the revision bump**, which is the whole mechanism: the
+/// revision is what a reader gates on, so a skip that still bumped it would be a
+/// skip in name only. Asserting the revision store sits after the publish label —
+/// and that the skip label and its `ret` come first — is what pins that.
+#[test]
+fn an_identical_re_present_skips_the_publish() {
+    let plan = app_ncode("canvas_present_skip", SOURCE);
+    let ins = instructions(&plan, PRESENT);
+
+    // It must read the currently-installed scene to have anything to compare
+    // against, and compare it byte-wise (the loop the compare helper emits).
+    assert!(
+        label_at(ins, "canvas_present_same").is_some(),
+        "present must byte-compare the new scene against the installed one"
+    );
+
+    let skip = label_at(ins, "canvas_present_skip").expect("a skip path");
+    let publish = label_at(ins, "canvas_present_publish").expect("a publish path");
+    assert!(
+        skip < publish,
+        "the skip path returns before the publish path"
+    );
+
+    // The revision bump — the only `add_imm … 1` on an arena-state value that is
+    // then stored back — must be reachable only past the publish label.
+    let revision_store = ins
+        .iter()
+        .enumerate()
+        .position(|(index, i)| {
+            index > publish
+                && i["op"].as_str() == Some("str_u64")
+                && i["base"].as_str() == Some(ARENA_STATE_REGISTER)
+        })
+        .expect("the publish path must store to the scene region");
+    assert!(
+        revision_store > publish,
+        "every scene-region store must be on the publish path; a store before the \
+         publish label would run on a skipped frame too"
+    );
+    // And nothing writes the scene region between the skip label and the publish
+    // label — that span is the early return.
+    let stray = ins[skip..publish].iter().any(|i| {
+        i["op"].as_str() == Some("str_u64") && i["base"].as_str() == Some(ARENA_STATE_REGISTER)
+    });
+    assert!(
+        !stray,
+        "the skip path must not touch the scene region at all"
+    );
+}
+
 /// The wrong-mode gate must come before the allocation. A gate placed after it
 /// would strand an arena block on every `present` from the wrong mode — and the
 /// program would still behave correctly, so nothing but this would catch it.

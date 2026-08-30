@@ -114,6 +114,77 @@ pub(crate) fn lower_present(
     builder.emit(abi::load_u64(&source, abi::stack_pointer(), source_slot));
     builder.emit(abi::load_u64(&count, &source, COLLECTION_OFFSET_COUNT));
 
+    // ---- Frame skip: an identical re-present publishes nothing ----------------
+    //
+    // Comparing the *tight copy* against the installed scene, rather than the
+    // caller's block, is what makes this exact: a working buffer carries capacity
+    // headroom and the installed scene does not, so the same content in the two
+    // shapes has different bytes. Both sides here are shrink-to-fit, so equal
+    // content is equal bytes — no hash, and therefore no collisions.
+    //
+    // The copy still happens on a skipped frame. That is the design (plan-98-A
+    // invariant 2 charges the deep copy to the caller's frame budget); what the skip
+    // buys is not re-publishing, which is what would make the renderer redraw.
+    let skip = builder.label("canvas_present_skip");
+    let publish = builder.label("canvas_present_publish");
+    let size_slot = builder.allocate_stack_object("canvas_present_size", 8);
+    let installed_size_slot = builder.allocate_stack_object("canvas_present_prev_size", 8);
+    let installed_slot = builder.allocate_stack_object("canvas_present_prev", 8);
+
+    let installed = builder.temporary_vreg();
+    builder.emit(abi::load_u64(
+        &installed,
+        ARENA_STATE_REGISTER,
+        scene_offset + CANVAS_SCENE_ITEMS_OFFSET,
+    ));
+    builder.emit(abi::store_u64(
+        &installed,
+        abi::stack_pointer(),
+        installed_slot,
+    ));
+    // Nothing installed yet — the first `present` always publishes.
+    builder.emit(abi::compare_immediate(&installed, "0"));
+    builder.emit(abi::branch_eq(&publish));
+
+    builder.emit_inlined_block_size_from_ptr_slot(&scene_type(), copy_slot, size_slot)?;
+    builder.emit_inlined_block_size_from_ptr_slot(
+        &scene_type(),
+        installed_slot,
+        installed_size_slot,
+    )?;
+    let new_size = builder.temporary_vreg();
+    let old_size = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&new_size, abi::stack_pointer(), size_slot));
+    builder.emit(abi::load_u64(
+        &old_size,
+        abi::stack_pointer(),
+        installed_size_slot,
+    ));
+    builder.emit(abi::compare_registers(&new_size, &old_size));
+    builder.emit(abi::branch_ne(&publish));
+
+    let left = builder.temporary_vreg();
+    let right = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&left, abi::stack_pointer(), copy_slot));
+    builder.emit(abi::load_u64(&right, abi::stack_pointer(), installed_slot));
+    builder.emit_compare_bytes_branch(
+        &left,
+        &right,
+        &new_size,
+        &skip,
+        &publish,
+        "canvas_present_same",
+    );
+
+    builder.emit(abi::label(&skip));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+    builder.emit(abi::label(&publish));
+
     // Publish: items pointer, then count, then bump the revision. The revision is
     // written LAST and is what a reader gates on, so a reader can never observe a
     // bumped revision alongside a half-written scene.
