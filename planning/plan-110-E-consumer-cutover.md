@@ -15,8 +15,8 @@ References: plan-110-D; `.ai/resources-packages.md`; `.ai/man-content.md`;
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-110-D complete | `ls planning/plan-110-D-* 2>/dev/null` returns no matches | NOT MET |
-| New packages pass their standalone runtime gates | `rustup run 1.96.0 cargo test` plus B/C/D runtime commands | NOT MET |
+| plan-110-D complete | `ls planning/plan-110-D-* 2>/dev/null` returns no matches | MET — measured 2026-08-30: no matches; archived at `planning/completed/plan-110-D-tls-wrap-and-surface.md` (commit 9a08b48f3). |
+| New packages pass their standalone runtime gates | `rustup run 1.96.0 cargo test` plus B/C/D runtime commands | MET — measured 2026-08-30: 65 test binaries, exit 0. Acceptance 1297 tests / 0 mismatches; `artifact-gate.sh all` 1281 tests, 1438 builds, 1770 goldens, 0 diffs. B/C/D runtime commands re-run cross-target on macOS aarch64, Alpine x86_64 musl (2227) and Windows 11 (2230) with identical output. |
 
 ## 1. Goal
 
@@ -59,8 +59,45 @@ the correct API.
 
 ### Phase 1 — Fresh census and HTTP migration
 
-- [ ] Re-run `rg -l`/`rg -n` census after plan 110-D and record exact per-symbol counts here before
+- [x] Re-run `rg -l`/`rg -n` census after plan 110-D and record exact per-symbol counts here before
       scheduling edits; include source, tests, scripts, specs, planning citations, and man examples.
+
+      **Census, measured 2026-08-30** (file counts, `grep -rlE 'net::<sym>([^A-Za-z0-9_]|$)'`).
+      The boundary is load-bearing: an unanchored `net::read` also matches `net::readText` and
+      `net::write` matches `net::writeText`, which inflated the first run's `read` from 14 to 18
+      source files and its tests from 3 to 10. Goldens are listed separately because they are
+      regenerated, never edited.
+
+      | symbol | src | tests | scripts | examples | plan/bugs | goldens |
+      |---|---|---|---|---|---|---|
+      | `net::Socket` | 18 | 27 | 0 | 0 | 24 | 1 |
+      | `net::Listener` | 7 | 5 | 0 | 0 | 13 | 0 |
+      | `net::connectTcp` | 24 | 26 | 3 | 0 | 34 | 3 |
+      | `net::listenTcp` | 20 | 25 | 0 | 0 | 28 | 1 |
+      | `net::accept` | 14 | 20 | 0 | 0 | 24 | 1 |
+      | `net::read` | 14 | 3 | 0 | 0 | 20 | 1 |
+      | `net::readText` | 11 | 8 | 0 | 0 | 16 | 1 |
+      | `net::write` | 8 | 5 | 0 | 0 | 10 | 1 |
+      | `net::writeText` | 14 | 11 | 0 | 0 | 15 | 1 |
+      | `net::poll` | 15 | 7 | 0 | 0 | 20 | 2 |
+      | `net::close` | 11 | 6 | 0 | 0 | 18 | 1 |
+      | `net::localAddress` | 14 | 24 | 0 | 0 | 24 | 1 |
+      | `net::remoteAddress` | 4 | 3 | 0 | 0 | 7 | 1 |
+      | `net::setReadTimeout` | 7 | 5 | 0 | 0 | 19 | 1 |
+      | `net::setWriteTimeout` | 5 | 4 | 0 | 0 | 14 | 1 |
+
+      Totals: **270 non-golden files** mention `net::` or `tls::`
+      (`grep -rln 'net::\|tls::' src tests scripts examples | grep -v /golden/ | wc -l`), and
+      **20 files** under `src/codegen/builtins/http` do
+      (`grep -rln 'net::\|tls::' src/codegen/builtins/http --include='*.rs' | wc -l`) — up from
+      the 231/18 the plan recorded before A–D, as it predicted.
+
+      HTTP's own dependence on the stream surface is **40 references across 11 files**
+      (`grep -rnE "net::(Socket|Listener|connectTcp|listenTcp|accept|read|readText|write|writeText|poll|close|localAddress|remoteAddress|setReadTimeout|setWriteTimeout)([^A-Za-z0-9_]|$)" src/codegen/builtins/http`):
+      `func_read.rs`, `helper_read_net.rs`, `func_respond_path.rs`, `func_start_read.rs`,
+      `func_ready.rs`, `mod.rs`, `func_handle_request.rs`, `helper_wait_readable.rs`,
+      `func_server.rs`, `helper_start_exchange.rs`, `func_pump.rs`. That list is Phase 1's
+      work-list and the acceptance grep's target.
 - [ ] Migrate `src/codegen/builtins/http/` Stream variants, server return types, helpers, docs, and
       imports to tcp/tls while leaving net Url/query calls intact.
 - [ ] Update HTTP runtime/syntax tests to prove plaintext and TLS client/server/async workflows,
