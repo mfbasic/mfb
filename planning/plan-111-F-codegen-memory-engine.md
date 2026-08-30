@@ -41,7 +41,7 @@ See plan-111-A §Prerequisites. Additionally:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-111-E complete | E's 25 files read 0 on all six needle classes | NOT MET until E lands |
-| Scope re-measured at kickoff | the four census commands from plan-111-A §2, restricted to this letter's file list | UNMEASURED — C, D and E all reduce it |
+| Scope re-measured at kickoff | the four census commands from plan-111-A §2, restricted to this letter's file list | UNMEASURED — C, D and E all reduce it **Use `census_by_file`, not `rg`** — `cargo test --test no_type_strings census_by_file -- --ignored --nocapture`, with `MFB_CENSUS_DETAIL=<substring>` for the offending lines. `rg` over-counts by including `#[cfg(test)]` modules (Corrections A3, C3) and this letter's §2 table additionally UNDER-counts, because it was built before plan-111-D Correction D1 strengthened three scanners: tuple match arms, `== Some("X")` compares, and ten missing `*type*: &str` parameter names. Expect this letter's real population to be LARGER than §2 says. |
 
 ## 1. Goal
 

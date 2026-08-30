@@ -3001,11 +3001,19 @@ impl<'a> Walker<'a> {
     /// RECORD; `Ok`/`Result`, a compiler-owned record, a union, an enum or an
     /// unknown name typed `Unknown`.
     fn constructor_typed(&self, type_: &ParameterType) -> bool {
-        match type_.name().as_ref() {
-            "AttributedString" | "Error" | "ErrorLoc" => true,
-            "Ok" | "Result" => false,
-            _ => self.declared_record_constructible(type_),
+        // Nominal tests, not a render-and-match: every name here is a bare
+        // `Named`, so `is_named` decides identically for every input while
+        // dropping the `name()` render. (plan-111-D Correction D1 — a letter-B
+        // site the arm scanner could not see until it learned to read a whole
+        // pattern rather than only a leading spelling.)
+        if type_.is_named("AttributedString") || type_.is_named("Error") || type_.is_named("ErrorLoc")
+        {
+            return true;
         }
+        if type_.is_named("Ok") || type_.is_named("Result") {
+            return false;
+        }
+        self.declared_record_constructible(type_)
     }
 
     /// A declared (or imported) record the calling file may construct — the

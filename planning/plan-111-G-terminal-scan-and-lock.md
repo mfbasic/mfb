@@ -147,10 +147,21 @@ Where risk sits:
 - [ ] `src/target/shared/abi.rs:460` — convert `move_immediate`'s `type_` to
       `&ParameterType`. This has many call sites; convert the signature and let
       the compiler enumerate them.
-- [ ] Lower the `target` gate budgets to 0.
+- [ ] **The three `optimizer` CONSUMERS of that same attribute**, added by
+      plan-111-D Correction D1: `src/optimizer/opt2/constant_folding.rs:101`,
+      `lvn.rs:143`, `gvn.rs:267` — each is
+      `instruction.get("type").as_deref() == Some("Integer")`, reading the NIR
+      `mov_imm` operand-class attribute that `move_immediate` writes. They were
+      invisible until D1 taught `spelling_compares` the `== Some("X")` form, and
+      they are in this phase because a producer and its consumers must convert
+      together: changing `move_immediate`'s parameter without them leaves three
+      reads matching a spelling that is no longer written the same way.
+      The attribute is stored in a `HashMap<String, String>` instruction
+      encoding, so the conversion is at the SET/GET pair, not the map.
+- [ ] Lower the `target` **and `optimizer`** gate budgets to 0.
 
-Acceptance: `src/target` reads 0 on all six needle classes;
-`cargo test --no-fail-fast -- --skip artifact_gate_all` green.
+Acceptance: `src/target` **and `src/optimizer`** read 0 on all six needle
+classes; `cargo test --no-fail-fast -- --skip artifact_gate_all` green.
 Commit: —
 
 ### Phase 2 — the `.mfp` encoder takes a type, not a spelling

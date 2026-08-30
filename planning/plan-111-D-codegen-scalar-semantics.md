@@ -37,8 +37,40 @@ See plan-111-A §Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-111-C complete | `rg -n '\b(resolve_call\|call_return_type\|argument_types)\(' src/ --glob '!**/tests*'` → definitions only; `string_keyed_type_maps` budget 0 | NOT MET until C lands |
-| Scope re-measured at kickoff | the four census commands from plan-111-A §2, restricted to this letter's file list | UNMEASURED — C reduces the parse denominator; re-measure before starting |
+| plan-111-C complete | `rg -n '\b(resolve_call\|call_return_type\|argument_types)\(' src/ --glob '!**/tests*'` → definitions only; `string_keyed_type_maps` budget 0 | **MET** (2026-08-30, `38b69d72d`). Every C box ticked, every acceptance verified, spot-check 0 diffs on 4 builtins. `string_keyed_type_maps` has no budget row at all — the class is 0 tree-wide. The literal `rg` still shows `resolve_call`, but every live hit is the `#[cfg(test)]` spelling shim or a registration assertion (Correction C4); the production population is 0. |
+| Scope re-measured at kickoff | the four census commands from plan-111-A §2, restricted to this letter's file list | **MET** (2026-08-30) — and re-measured with the gate's own `test_free_lines` stripper, not `rg`, per Correction C3. See the kickoff table below. |
+
+### Kickoff re-measurement (2026-08-30)
+
+`cargo test --test no_type_strings census_by_file -- --ignored --nocapture` — a
+per-FILE dump added to the gate in this letter's first commit, so D/E/F can each
+scope themselves without repeating the `rg` over-count that Corrections A3 and
+C3 both record.
+
+| File (under `src/codegen/`) | plan §2 | live | delta |
+|---|---|---|---|
+| `builtins/math/gen_math.rs` | 28 | 28 | — |
+| `engine/convert/builder_conversions.rs` | 25 | 25 | — |
+| `engine/operators/builder_numeric.rs` | 23 | 23 | — |
+| `string/repr/builder_strings.rs` | 12 | 12 | — |
+| `builtins/vector/builder_vector_inline.rs` | 8 | 8 | — |
+| `builtins/money/gen_money_math.rs` | 6 | 6 | — |
+| `builtins/astrings/gen_astrings.rs` | 3 | 3 | — |
+| `builtins/vector/builder_simd_math.rs` | 3 | 3 | — |
+| `error/emission/builder_error_emission.rs` | 3 | 3 | — |
+| `engine/function/entry.rs` | 3 | **4** | **+1** |
+| `builtins/vector/builder_simd_float_math.rs` | 2 | 2 | — |
+| `builtins/vector/builder_simd_fixed_math.rs` | 2 | 2 | — |
+| `link/thunk/link_thunk.rs` | 2 | **0** | **−2** |
+| `builtins/math/gen_pow.rs` | 1 | 1 | — |
+| `builtins/money/func_get_rounding.rs` | 1 | 1 | — |
+| **Total** | **122** | **121** | **−1** |
+
+Two deltas, both explained and both corrected in the phase bodies below
+(Correction D1). Unlike letters A and C, the `rg`-based §2 table is very nearly
+right here — this letter's classes are match arms and compares, which barely
+occur in test modules, so the blind spot that cost A and C a correction each
+does not bite. **Thirteen of fifteen files match exactly.**
 
 ## 1. Goal
 
@@ -142,13 +174,51 @@ they are what catches a wrong conversion arm producing a wrong *number*. Drop
 > moot tasks `- [x] ~~text~~ — moot: <evidence>`; fill `Commit:` when a phase
 > lands. **An unticked box means NOT DONE.**
 
-### Phase 1 — arithmetic and money (34 sites, no `&str` params)
+### Phase 0 — strengthen the gate before scoping anything against it (Correction D1)
+
+Not in the original plan. Added because the kickoff re-measurement agreed with
+§2 almost exactly, and reading one file against its own census showed why: the
+gate could not see a tuple arm. Scoping D, E and F against a gate with a blind
+spot would have shipped the blind spot into all three.
+
+- [x] `spelling_match_arms`: scan the whole arm PATTERN, not just its head, so a
+      tuple arm `("sin", "Float") =>` is a hit. Stop the pattern at ` if ` — a
+      guard decides by comparing, which is class 4's needle.
+- [x] `spelling_compares`: catch the wrapped form `== Some("Integer")`.
+- [x] `TYPE_PARAM_NAMES`: sweep `src/` for `*type*: &str` and add every
+      type-system name the hand-seeded list missed (10). Record the deliberate
+      exclusions (`ctype`/`socktype`/`abi_return_ctype`, `type_code`) in the
+      constant so they are not re-litigated.
+- [x] Pin every new behavior in `scanners_fire_on_their_own_needles`, in BOTH
+      directions — a tuple arm counts, a spelling right of the arrow does not, a
+      guard compare counts once and in class 4, a constructed `Some("Integer")`
+      is not a compare.
+- [x] Add `census_by_file` — an `#[ignore]`d per-FILE census, plus
+      `MFB_CENSUS_DETAIL=<substring>` to dump offending lines. This is the tool
+      that avoids BOTH failure directions seen so far: `rg`'s over-count
+      (Corrections A3, C3) and the gate's under-count (D1).
+- [x] Re-measure `BUDGETS` wholesale against the strengthened scanners; tight in
+      both directions.
+- [x] Fix `src/ir/shape.rs:3005` `constructor_typed` — a letter-B site the old
+      scanner could not see. `is_named` calls, identical decision, render dropped.
+- [x] Add the three `optimizer` sites to letter G (they read the NIR `mov_imm`
+      operand-class attribute whose producer is already a counted `target` row).
+- [x] Note in letters E and F that their §2 tables need the same re-scope.
+
+Acceptance: **MET.** `cargo test --test no_type_strings` → 4 passed, budgets
+tight both ways. The census total moved 525 → 584: **59 sites that were live the
+whole time and invisible to three letters of gating.**
+Commit: —
+
+### Phase 1 — arithmetic and money (51 sites, no `&str` params)
 
 Pure arm conversion; these two files take no type as `&str`, so the change is
 local to their `match` bodies.
 
-- [ ] `builtins/math/gen_math.rs` — convert 28 spelling arms to `ParameterType`
-      variant patterns.
+- [ ] `builtins/math/gen_math.rs` — convert ~~28~~ **45** spelling arms to
+      `ParameterType` variant patterns. Correction D1: the extra 17 are
+      `(function, spelling)` tuple arms in the SIMD kernel selectors, which the
+      pre-D1 scanner could not see.
 - [ ] `builtins/money/gen_money_math.rs` — convert 6 arms.
 - [ ] `builtins/math/gen_pow.rs`, `builtins/money/func_get_rounding.rs` — delete
       the 1 parse each.
@@ -168,8 +238,8 @@ The highest-value files in this letter, and the one real correctness risk.
 - [ ] `engine/convert/builder_conversions.rs` — convert 22 arms and delete 3
       parses. Convert **one arm per commit or in small named groups**; a 22-arm
       rewrite in one commit cannot be reviewed against the conversion matrix.
-- [ ] `engine/operators/builder_numeric.rs` — convert 19 arms, 2 compares, delete
-      2 parses. Where an arm re-derives numeric promotion, call
+- [ ] `engine/operators/builder_numeric.rs` — convert ~~19~~ **20** arms, 2
+      compares, delete 2 parses (Correction D1: +1 tuple arm). Where an arm re-derives numeric promotion, call
       `src/numeric.rs`'s typed algebra instead of reimplementing it — but only
       where it is already equivalent; a behavior change here is out of scope and
       belongs in Corrections.
@@ -193,8 +263,11 @@ Scheduled last: these are the files where a mistake does not show up on the host
       `builder_simd_float_math.rs` (2), `builder_simd_fixed_math.rs` (2).
 - [ ] `builtins/astrings/gen_astrings.rs` — 3 parses.
 - [ ] `error/emission/builder_error_emission.rs` — 3 compares.
-- [ ] `engine/function/entry.rs` — 3 compares.
-- [ ] `link/thunk/link_thunk.rs` — 2 compares.
+- [ ] `engine/function/entry.rs` — ~~3~~ **4** compares (kickoff re-measurement).
+- [x] ~~`link/thunk/link_thunk.rs` — 2 compares.~~ — moot: 0 sites remain.
+      Letter C converted `record_native_resources` to a `ParameterType` key,
+      which removed both compares as a side effect. Confirmed by
+      `census_by_file`: the file does not appear in the live table at all.
 - [ ] **Do not touch arch dispatch in any of these files.** The conversion is to
       the type argument only; if a change appears to require touching an
       arch branch, stop and record why in Corrections.
@@ -261,7 +334,85 @@ stop and record it in Corrections.
 
 ## Corrections
 
-<Filled in DURING execution.>
+**D1 — the ratchet gate had three blind spots, and they hid 59 sites.** The
+kickoff re-measurement (§Prerequisites) came back almost exactly matching the
+plan, which is the opposite of letters A and C. That was worth being suspicious
+of, and the suspicion paid: the plan and the gate agreed because they share the
+same needles, not because the needles are complete.
+
+Reading `gen_math.rs` against its own census found arms the gate does not count:
+
+```rust
+("sin", "Float") => FloatKernel::Sin,          // invisible
+("min", "Integer" | "Fixed") => Kernel::MinSigned,  // invisible
+"Float" => FloatKernel::Exp,                   // counted
+```
+
+`spelling_match_arms` required the arm to *begin* with a quoted spelling
+(`quoted_name_end(t, 0, …)` on the trimmed line), so a tuple pattern —
+dispatching on a spelling every bit as much — was not a hit. Three blind spots
+in total, each fixed by strengthening the scanner and each pinned by a new
+fixture in `scanners_fire_on_their_own_needles`:
+
+| Blind spot | Fix | Sites revealed |
+|---|---|---|
+| a tuple/nested arm pattern | scan the whole pattern, not just its head | +25 arms |
+| `== Some("Integer")` — a compare behind an `Option` shell | class 4 learns the wrapped form | +6 compares |
+| ten `*type*: &str` parameter names absent from the hand-seeded `TYPE_PARAM_NAMES` | swept `src/` for `*type*: &str` and added every type-system one | +27 params |
+| | **total** | **+59** |
+
+Splitting the first two correctly mattered: `_ if t == "Integer" =>` is a
+**guard**, which decides by comparing, so the arm scanner now stops the pattern
+at ` if ` and hands it to `spelling_compares`. Without that split the same site
+would be counted twice and filed under the wrong class. Both directions are
+pinned.
+
+The ten added parameter names are `record_type`, `result_type`, `payload_type`,
+`success_type`, `ret_type`, `resource_type`, `function_type`, `stride_type`,
+`block_type`, `type_str`. Deliberately **not** added, with the reason recorded
+in the constant: `ctype` / `socktype` / `abi_return_ctype` (the C FFI type
+vocabulary — `CInt8`, `CBool` — a different grammar, LINK's rather than
+MFBASIC's) and `type_code` (a numeric collection type-code rendered as a string
+immediate, not a type name).
+
+Consequences, all of them real scope:
+
+1. **`gen_math.rs` is 28 arms, not 45.** Phase 1 grew by 17 — every one a
+   `(function, spelling)` tuple arm in the SIMD kernel selectors.
+2. **A letter-B site was still live.** `src/ir/shape.rs:3005`
+   `constructor_typed` matched `type_.name().as_ref()` against six nominals.
+   Letter B reported `ir` clean because the scanner could not see it. Fixed here
+   rather than deferred — it is `is_named` calls now, identical decision on
+   every input (each of the six is a bare `Named`; `parse("Result")` has no
+   special arm, the ` OF ` guard at `src/types.rs:515` is the template path),
+   with the render dropped. This is the skill's "go do that letter's relevant
+   track now, then return".
+3. **`optimizer` is a new bucket, and it belongs to letter G.** Its three sites
+   (`constant_folding.rs:101`, `lvn.rs:143`, `gvn.rs:267`) all read
+   `instruction.get("type").as_deref() == Some("Integer")` — the NIR `mov_imm`
+   **operand-class** attribute. That is not a separate vocabulary to be waved
+   off: its producer is `target/shared/abi.rs`'s
+   `move_immediate(type_: &str, …)`, which the gate *already* counts in the
+   `target` bucket that letter G owns. Producer and consumers convert together,
+   so the three rows are added to G's scope, not D's. Recorded as a task in G.
+4. **Letters E and F must re-scope too.** Their §2 tables were built from the
+   same weak needles. `builder_collection_layout.rs` gains params, `general/mod.rs`
+   gains 6 tuple arms, and three files appear that no letter lists
+   (`fs/gen_path_builder.rs`, `strings/func_join.rs`, `strings/gen_with_any.rs`,
+   1 compare each). Re-run `census_by_file` at each kickoff.
+
+The budget table is re-measured wholesale against the strengthened scanners and
+is tight in both directions. The measuring instrument itself is now committed —
+`cargo test --test no_type_strings census_by_file -- --ignored --nocapture`
+prints the live per-file table, and `MFB_CENSUS_DETAIL=<substring>` adds every
+offending line — so no later letter has to reconstruct a census with `rg` and
+inherit its over-count (Corrections A3 and C3) or the gate's under-count (this
+one). **Both failure directions now have one tool that avoids them.**
+
+The honest summary of this correction: the plan's stated goal is "delete every
+type string after the AST", and for three letters the gate certifying that goal
+could not see a `("sin", "Float")` arm. Letters A–C are not wrong about what
+they converted; they were wrong about what was left.
 
 ## Summary
 

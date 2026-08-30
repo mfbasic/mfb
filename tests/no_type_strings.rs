@@ -208,6 +208,22 @@ const TYPE_PARAM_NAMES: &[&str] = &[
     "member_type",
     "collection_type",
     "scrutinee_type",
+    // plan-111-D Correction D1. The list was hand-seeded and missed these; a
+    // sweep for `*type*: &str` across `src/` found them all at once. Deliberately
+    // NOT added: `ctype` / `socktype` / `abi_return_ctype` (the C FFI type
+    // vocabulary — `CInt8`, `CBool`, a genuinely different grammar, LINK's, not
+    // MFBASIC's) and `type_code` (a numeric collection type-code rendered as a
+    // string immediate, not a type name).
+    "record_type",
+    "result_type",
+    "payload_type",
+    "success_type",
+    "ret_type",
+    "resource_type",
+    "function_type",
+    "stride_type",
+    "block_type",
+    "type_str",
 ];
 
 /// The language's built-in scalar spellings, as they appear in a `match` arm.
@@ -530,26 +546,43 @@ fn str_type_params(src: &str) -> Vec<Hit> {
 fn spelling_match_arms(src: &str) -> Vec<Hit> {
     let mut out = Vec::new();
     for (n, line) in code_lines(src) {
-        let t = line.trim_start();
-        let Some(mut i) = quoted_name_end(t, 0, SPELLINGS_MATCH) else {
+        // The arm PATTERN is everything left of the arrow. Scanning the pattern
+        // (rather than requiring the line to *begin* with a quoted spelling)
+        // is what catches a tuple arm — `("sin", "Float") => …` — which
+        // dispatches on a spelling exactly as much as a bare arm does but was
+        // invisible to this scanner until plan-111-D Correction D1.
+        let Some(arrow) = line.find("=>") else {
             continue;
         };
-        // ( ` | "Word"` )*
-        loop {
-            if t[i..].starts_with(" | \"") {
-                let rest = &t[i + 4..];
-                match rest.find('"') {
-                    Some(q) if rest[..q].chars().all(|c| c.is_ascii_alphabetic()) => {
-                        i += 4 + q + 1;
-                    }
-                    _ => break,
+        // The pattern ends at a match GUARD if there is one: `_ if t == "X" =>`
+        // makes its decision by COMPARING, which is class 4's needle, not this
+        // one. Counting it here would both double-count and mislabel it.
+        let head = &line[..arrow];
+        let pattern = match head.find(" if ") {
+            Some(g) => &head[..g],
+            None => head,
+        };
+        let mut found: Vec<&str> = Vec::new();
+        let mut i = 0;
+        while let Some(q) = pattern[i..].find('"') {
+            let at = i + q;
+            match quoted_name_end(pattern, at, SPELLINGS_MATCH) {
+                Some(end) => {
+                    found.push(&pattern[at..end]);
+                    i = end;
                 }
-            } else {
-                break;
+                None => {
+                    // Skip the whole quoted run so a non-spelling literal
+                    // (`"sin"`, `"someKey"`) cannot desynchronize the scan.
+                    match pattern[at + 1..].find('"') {
+                        Some(close) => i = at + 1 + close + 1,
+                        None => break,
+                    }
+                }
             }
         }
-        if t[i..].starts_with(" =>") {
-            out.push(hit(n, t[..i].to_string()));
+        if !found.is_empty() {
+            out.push(hit(n, found.join(" ")));
         }
     }
     out
@@ -565,6 +598,18 @@ fn spelling_compares(src: &str) -> Vec<Hit> {
                 continue;
             }
             if let Some(end) = quoted_name_end(line, i + 2, SPELLINGS_COMPARE) {
+                out.push(hit(n, line[i - 1..end].to_string()));
+            }
+        }
+        // plan-111-D Correction D1: the same decision through a wrapper —
+        // `== Some("Integer")`, `!= Ok("Float")`. The comparison is against a
+        // spelling either way; only the `Option`/`Result` shell differs, and
+        // hiding behind one was enough to stay invisible through letters A-C.
+        for (i, _) in line.match_indices("= Some(\"") {
+            if i == 0 || !matches!(bytes[i - 1], b'=' | b'!') {
+                continue;
+            }
+            if let Some(end) = quoted_name_end(line, i + 7, SPELLINGS_COMPARE) {
                 out.push(hit(n, line[i - 1..end].to_string()));
             }
         }
@@ -658,37 +703,46 @@ fn string_keyed_type_maps(rel: &str, src: &str) -> Vec<Hit> {
 /// `assert_eq!(count, 0)` (letter G). A row missing from this table is a
 /// ceiling of 0, so a new violation in a clean directory fails immediately.
 const BUDGETS: &[(&str, &str, usize)] = &[
-    // --- 1. `ParameterType::parse` below a boundary — 125. Letters B, D, E, F.
+    // Re-measured 2026-08-30 after plan-111-D Correction D1 strengthened three
+    // scanners (tuple match arms, `== Some("X")` compares, ten missing
+    // `*type*: &str` parameter names). That surfaced 59 sites letters A-C could
+    // not see; every row below is the live count, tight in both directions.
+    //
+    // --- 1. `ParameterType::parse` below a boundary. Letters D, E, F.
+    // --- 2. a type taken as `&str`. Letters D, E, F, G.
+    // --- 3. a `match` arm on a spelling, INCLUDING a tuple arm. Letters D, E, F, G.
+    // --- 4. `==` / `!=` against a spelling, incl. through `Some(...)`. D, E, F, G.
+    //     `optimizer` is new and belongs to G: its three sites read the NIR
+    //     `mov_imm` "type" operand-class attribute, whose producer is
+    //     `target/shared/abi.rs`'s `move_immediate(type_: &str)` — already a
+    //     counted `target` row. Producer and consumers convert together.
+    // --- 5. a hand-rolled second grammar. Letter A, then B, E, G. `types` 25
+    //     is `ParameterType::contains_state`'s one `contains(" STATE ")` for the
+    //     composite-base spelling `parse` declines to split, plus the parser's
+    //     own recursion; letter G retires the rest.
+    // --- 6. a spelling built with `format!`. Letters E, F, G. `codegen` reached
+    //     0 in letter C and its row is gone.
+    // --- 7. a type-keyed map keyed by `String`. Reached 0 tree-wide in letter C;
+    //     the class has no row at all, which is the shape every class ends in.
     ("parse_sites", "codegen", 92),
-    // --- 2. a type taken as `&str` — 173. Letters B, D, E, F, G.
-    ("str_type_params", "binary_repr", 4),
-    ("str_type_params", "codegen", 139),
+    ("str_type_params", "binary_repr", 5),
+    ("str_type_params", "codegen", 166),
     ("str_type_params", "hir", 1),
     ("str_type_params", "numeric", 1),
     ("str_type_params", "target", 4),
     ("str_type_params", "types", 2),
-    // --- 3. a `match` arm on a spelling — 186. Letters B, D, E, F, G.
     ("spelling_match_arms", "binary_repr", 19),
-    ("spelling_match_arms", "codegen", 147),
+    ("spelling_match_arms", "codegen", 172),
     ("spelling_match_arms", "types", 9),
-    // --- 4. `==` / `!=` against a spelling — 73. Letters B, D, E, F, G.
-    ("spelling_compares", "codegen", 57),
+    ("spelling_compares", "codegen", 60),
+    ("spelling_compares", "optimizer", 3),
     ("spelling_compares", "target", 2),
     ("spelling_compares", "types", 2),
-    // --- 5. a hand-rolled second grammar — 37, then 38. Letter A (types/codegen,
-    //     the `STATE` variant), then B, E, G. `types` went 24 -> 25 in
-    //     plan-111-B: `ParameterType::contains_state` needs one
-    //     `contains(" STATE ")` for the composite-base spelling `parse`
-    //     declines to split, which no structural match can see. It lives in the
-    //     one file that owns the grammar, and letter G retires it with the rest.
     ("hand_rolled_grammar", "binary_repr", 3),
     ("hand_rolled_grammar", "codegen", 7),
     ("hand_rolled_grammar", "types", 25),
-    // --- 6. a spelling built with `format!` — 12. Letters E, F, G.
     ("format_type_construction", "binary_repr", 5),
     ("format_type_construction", "types", 6),
-    // --- 7. a type-keyed map keyed by `String` — 24. Letter C (codegen's
-    //     `TypeModel`), then B (ir/monomorph/resolver) and G (binary_repr).
 ];
 
 /// First path component under `src/`, or the stem of a file directly in `src/`.
@@ -865,6 +919,41 @@ fn scanners_fire_on_their_own_needles() {
         "spelling_match_arms must count a multi-spelling arm"
     );
     assert_eq!(
+        spelling_match_arms("        (\"sin\", \"Float\") => Kernel::Sin,").len(),
+        1,
+        "plan-111-D Correction D1: a TUPLE arm dispatches on a spelling too"
+    );
+    assert_eq!(
+        spelling_match_arms("        (\"min\", \"Integer\" | \"Fixed\") => Kernel::MinSigned,").len(),
+        1,
+        "a tuple arm with an or-pattern is still one arm"
+    );
+    assert_eq!(
+        spelling_match_arms("            other => self.render(other, \"Integer\"),").len(),
+        0,
+        "a spelling to the RIGHT of the arrow is an argument, not a pattern"
+    );
+    assert_eq!(
+        spelling_match_arms("        _ if t == \"Integer\" => 8,").len(),
+        0,
+        "a compare inside a guard belongs to spelling_compares, not here"
+    );
+    assert_eq!(
+        spelling_compares("        _ if t == \"Integer\" => 8,").len(),
+        1,
+        "…and spelling_compares must be the one that counts it"
+    );
+    assert_eq!(
+        spelling_compares("            if x.get(\"type\").as_deref() == Some(\"Integer\") {").len(),
+        1,
+        "plan-111-D Correction D1: a compare wrapped in Some() is still a compare"
+    );
+    assert_eq!(
+        spelling_compares("            let v = Some(\"Integer\");").len(),
+        0,
+        "…but constructing a Some() is not a comparison"
+    );
+    assert_eq!(
         spelling_match_arms("        \"someKey\" => 8,").len(),
         0,
         "a non-type string arm is not a violation"
@@ -936,6 +1025,125 @@ fn scanners_fire_on_their_own_needles() {
         0,
         "a table not on the curated list is not scanned"
     );
+}
+
+/// A per-FILE census of the live population, for scoping a letter at kickoff.
+///
+/// The budget table above is per-`(class, directory)`, which is the right
+/// granularity for a ratchet but the wrong one for planning: letters D, E and F
+/// each own a *file list*, and each of their §2 tables was built with `rg`,
+/// which counts inline `#[cfg(test)]` modules and therefore over-counts (see
+/// plan-111-A Correction 3, plan-111-C Correction C3 — three times now). This
+/// dump uses the gate's own `test_free_lines` stripper, so re-scoping a letter
+/// against it cannot repeat that mistake.
+///
+/// `#[ignore]`d because it asserts nothing; it is a measuring instrument.
+///
+/// ```text
+/// cargo test --test no_type_strings census_by_file -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "measuring instrument, not an assertion — run with --ignored --nocapture"]
+fn census_by_file() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    // (file, class) -> count, plus a per-file total for ordering.
+    let mut per_file: BTreeMap<String, BTreeMap<&'static str, usize>> = BTreeMap::new();
+
+    for path in rs_files(&[manifest.join("src")]) {
+        let rel = path
+            .strip_prefix(manifest)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        if is_excluded_from_scan(&rel) || is_test_file(&rel) {
+            continue;
+        }
+        let src = std::fs::read_to_string(&path).expect("read source");
+        let mut row: BTreeMap<&'static str, usize> = BTreeMap::new();
+        if !is_boundary_file(&rel) {
+            row.insert("parse_sites", parse_sites(&src).len());
+        }
+        row.insert("str_type_params", str_type_params(&src).len());
+        row.insert("spelling_match_arms", spelling_match_arms(&src).len());
+        row.insert("spelling_compares", spelling_compares(&src).len());
+        row.insert("hand_rolled_grammar", hand_rolled_grammar(&src).len());
+        row.insert(
+            "format_type_construction",
+            format_type_construction(&src).len(),
+        );
+        row.insert(
+            "string_keyed_type_maps",
+            string_keyed_type_maps(&rel, &src).len(),
+        );
+        row.retain(|_, n| *n > 0);
+
+        // `MFB_CENSUS_DETAIL=<substring>` additionally prints every offending
+        // line for the matching files, which is how a phase finds its work.
+        if let Ok(filter) = std::env::var("MFB_CENSUS_DETAIL") {
+            if !filter.is_empty() && rel.contains(&filter) {
+                println!("\n--- {rel}");
+                let mut all: Vec<(&str, Hit)> = Vec::new();
+                if !is_boundary_file(&rel) {
+                    all.extend(parse_sites(&src).into_iter().map(|h| ("parse", h)));
+                }
+                all.extend(str_type_params(&src).into_iter().map(|h| ("param", h)));
+                all.extend(spelling_match_arms(&src).into_iter().map(|h| ("arm", h)));
+                all.extend(spelling_compares(&src).into_iter().map(|h| ("cmp", h)));
+                all.extend(hand_rolled_grammar(&src).into_iter().map(|h| ("gram", h)));
+                all.extend(
+                    format_type_construction(&src)
+                        .into_iter()
+                        .map(|h| ("fmt", h)),
+                );
+                all.extend(
+                    string_keyed_type_maps(&rel, &src)
+                        .into_iter()
+                        .map(|h| ("map", h)),
+                );
+                all.sort_by_key(|(_, h)| h.line);
+                for (class, h) in all {
+                    println!("  {:<6} {}:{} — {}", class, rel, h.line, h.what);
+                }
+            }
+        }
+
+        if !row.is_empty() {
+            per_file.insert(rel, row);
+        }
+    }
+
+    let mut rows: Vec<(String, usize, BTreeMap<&'static str, usize>)> = per_file
+        .into_iter()
+        .map(|(f, r)| {
+            let total = r.values().sum();
+            (f, total, r)
+        })
+        .collect();
+    rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    println!("\nplan-111 live census by file ({} files with any hit)", rows.len());
+    println!(
+        "{:<62} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>6}",
+        "file", "parse", "param", "arm", "cmp", "gram", "fmt", "map", "total"
+    );
+    let mut grand = 0usize;
+    for (file, total, row) in &rows {
+        grand += total;
+        let g = |c: &str| row.get(c).copied().unwrap_or(0);
+        println!(
+            "{:<62} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>6}",
+            file,
+            g("parse_sites"),
+            g("str_type_params"),
+            g("spelling_match_arms"),
+            g("spelling_compares"),
+            g("hand_rolled_grammar"),
+            g("format_type_construction"),
+            g("string_keyed_type_maps"),
+            total
+        );
+    }
+    println!("{:<62} {:>50}", "TOTAL", grand);
 }
 
 /// The curated `TYPE_KEYED_TABLES` list is only trustworthy if every entry
