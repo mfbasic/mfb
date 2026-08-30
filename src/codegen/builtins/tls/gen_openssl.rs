@@ -2126,7 +2126,7 @@ pub(crate) fn lower_tls_read_openssl(
     } else {
         instructions.extend([
             abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
-            abi::move_immediate(&v11, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+            abi::move_immediate(&v11, "Integer", &byte_list_entry_stride().to_string()),
             abi::multiply_registers(&v12, &v10, &v11),
             abi::add_immediate(&v12, &v12, COLLECTION_HEADER_SIZE),
             abi::add_registers(abi::return_register(), &v12, &v10),
@@ -2148,7 +2148,7 @@ pub(crate) fn lower_tls_read_openssl(
             abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_DATA_LENGTH),
             abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_DATA_CAPACITY),
             abi::add_immediate(&v11, abi::mfb_return(1), COLLECTION_HEADER_SIZE),
-            abi::move_immediate(&v12, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+            abi::move_immediate(&v12, "Integer", &byte_list_entry_stride().to_string()),
             abi::multiply_registers(&v13, &v10, &v12),
             abi::add_registers(&v14, &v11, &v13),
             abi::load_u64(&v15, abi::stack_pointer(), BUF_OFFSET),
@@ -2156,18 +2156,31 @@ pub(crate) fn lower_tls_read_openssl(
             abi::label(&entry_loop),
             abi::compare_registers(&v9, &v10),
             abi::branch_eq(&entry_done),
-            abi::move_immediate(&v12, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-            abi::store_u8(&v12, &v11, COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-            abi::store_u64(&v9, &v11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-            abi::move_immediate(&v12, "Integer", "1"),
-            abi::store_u64(&v12, &v11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+            // A packed fixed-width byte list (kind 2, plan-57-D) has NO entry
+            // array: its stride is 0 and the data region starts right after the
+            // header. Writing 40-byte entry descriptors here put an entry-flags
+            // byte (COLLECTION_ENTRY_FLAG_USED == 1) where element 0's payload
+            // belongs, so `tls::read` handed back a list whose first byte was
+            // always 1. Mirrors the guard in `gen_macos/client.rs`.
+        ]);
+        if byte_list_entry_stride() != 0 {
+            instructions.extend([
+                abi::move_immediate(&v12, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+                abi::store_u8(&v12, &v11, COLLECTION_ENTRY_OFFSET_FLAGS),
+                abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+                abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+                abi::store_u64(&v9, &v11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+                abi::move_immediate(&v12, "Integer", "1"),
+                abi::store_u64(&v12, &v11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+            ]);
+        }
+        // The payload copy runs for BOTH representations.
+        instructions.extend([
             abi::add_registers(&v12, &v14, &v9),
             abi::load_u8(&v13, &v15, 0),
             abi::store_u8(&v13, &v12, 0),
             abi::add_immediate(&v15, &v15, 1),
-            abi::add_immediate(&v11, &v11, COLLECTION_ENTRY_SIZE),
+            abi::add_immediate(&v11, &v11, byte_list_entry_stride()),
             abi::add_immediate(&v9, &v9, 1),
             abi::branch(&entry_loop),
             abi::label(&entry_done),
@@ -2936,6 +2949,66 @@ mod error_path_release_tests {
         assert!(
             reloc_count(&rel, "sym_SSL_free") > 2,
             "accept alloc_fail must free the SSL session in addition to ssl_fail"
+        );
+    }
+
+    // A `List OF Byte` is a PACKED fixed-width block (kind 2, plan-57-D): its
+    // entry stride is zero and the payload starts immediately after the header,
+    // with no entry-descriptor array. The OpenSSL `tls::read` byte path was
+    // missed by that change and kept writing 40-byte descriptors, so element 0
+    // landed on an entry-flags byte and every read reported a first byte of
+    // COLLECTION_ENTRY_FLAG_USED (1) instead of the wire byte. Measured on
+    // Alpine x86_64 (box 2227) before the fix: `first byte=1` for an HTTP reply
+    // whose first byte is 'H' (72); after: `first byte=72`.
+    //
+    // The guard is on the fill loop: with a zero stride its body may only copy
+    // the payload, never store an entry descriptor. Windowed between the loop's
+    // own labels because the block header legitimately stores at the same
+    // offsets (COLLECTION_OFFSET_CAPACITY == COLLECTION_ENTRY_OFFSET_KEY_LENGTH
+    // == 16) before the loop begins.
+    #[test]
+    fn byte_read_fill_loop_writes_no_entry_descriptor() {
+        mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+        let imports = HashMap::new();
+        let (ins, _rel, _s) =
+            lower_tls_read_openssl("r", &imports, &TestPlatform, false).expect("lower read");
+        let start = ins
+            .iter()
+            .position(|i| {
+                i.op == CodeOp::Label && i.get("name").as_deref() == Some("r_entry_loop")
+            })
+            .expect("byte read must emit the fill loop");
+        let end = ins
+            .iter()
+            .position(|i| {
+                i.op == CodeOp::Label && i.get("name").as_deref() == Some("r_entry_done")
+            })
+            .expect("byte read must emit the fill loop terminator");
+        let body = &ins[start..end];
+        if byte_list_entry_stride() == 0 {
+            for off in [
+                COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+                COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ] {
+                assert!(
+                    !body.iter().any(|i| {
+                        i.op == CodeOp::StrU64 && i.get("offset").as_deref() == Some(&off.to_string())
+                    }),
+                    "packed byte list has no entry array, but the fill loop stores an \
+                     entry descriptor field at offset {off}"
+                );
+            }
+        }
+        // Either way the cursor must advance by the real stride, never by a
+        // hardcoded COLLECTION_ENTRY_SIZE.
+        assert!(
+            body.iter().any(|i| {
+                i.op == CodeOp::AddImm
+                    && i.get("imm").as_deref() == Some(&byte_list_entry_stride().to_string())
+            }),
+            "the fill loop must advance its entry cursor by byte_list_entry_stride()"
         );
     }
 
