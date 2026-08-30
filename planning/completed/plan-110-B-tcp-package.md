@@ -88,7 +88,7 @@ Acceptance: a minimal package can declare/drop each tcp resource, and move-after
 the rest by lexical drop) and runs clean. Cross-identity substitution is rejected, which is the
 sharper form of the same guarantee: `func_tcp_invalid` pins
 `Call to \`tcp.read\` has argument type(s) (net.Socket, Integer), expected Socket, Integer.`
-Commit: 3d97ac1e5
+Commit: 008d745c2
 
 ### Phase 2 — Constructors, endpoints, close, timeouts
 
@@ -108,7 +108,7 @@ language convention, and closes exactly once under explicit close and lexical dr
 port, connects by host/port and by resolved `net::Address`, reports both endpoints, and fires a
 read timeout. Windows cannot be certified because its TCP loopback is broken *on main* (§C5);
 carried to plan-110-F Phase 2 with the repro.
-Commit: 3d97ac1e5
+Commit: 008d745c2
 
 ### Phase 3 — I/O and readiness
 
@@ -137,7 +137,7 @@ Acceptance: loopback transfers binary and UTF-8 String payloads losslessly, poll
 ready borrowed socket, and the blackhole script proves the requested deadline.
 **MET** — `text=hello` and `bytes=4 last=255` (255 proves no sign extension), `list poll=pick`
 returns the borrowed socket whose data is then read through it, and the blackhole script passes.
-Commit: 3d97ac1e5
+Commit: 008d745c2
 
 ## Validation Plan
 
