@@ -263,7 +263,7 @@ needle classes are 0 tree-wide**, the two exemptions are each pinned by a test
 that says why they are closed (`the_grammar_file_is_exactly_one`,
 `boundary_list_is_closed`), and the gate now carries 7 assertions where it
 carried 4.
-Commit: —
+Commit: `16e0db44e`
 
 ### Phase 4 — the single byte-identity sweep: attribute, then regenerate once
 
@@ -427,7 +427,7 @@ Acceptance: **MET.** The seven letters and `plan-111-verification.txt` are in
 rot introduced by this plan — both fixed, both recorded above. `cargo test
 --no-fail-fast` with **no `--skip`**: **4056 passed, 0 failed** across 67 test
 binaries, `artifact_gate_all` included and green.
-Commit: —
+Commit: `b8f3c507f` (docs), `a4ccdf6db` (archive)
 
 ## The terminal census
 
