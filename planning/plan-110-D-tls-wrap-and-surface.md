@@ -134,12 +134,25 @@ Commit: 2247bf10f
       `0` is one immediate attempt on every path. §C10 records a defect this uncovered: expiry
       raised a *different error on each backend* (ErrTimeout on macOS, ErrTlsFailed on Linux,
       ErrNetworkFailed on Windows) until each was taught to classify it.
-- [ ] Tests: every overload, wrong types/arity, endpoints, timeout conventions, close/drop, and
+- [x] Tests: every overload, wrong types/arity, endpoints, timeout conventions, close/drop, and
       certificate-name verification.
+      `tests/syntax/tls/endpoints_valid` exercises all six `connect` arities (host and
+      `net::Address`), both endpoint queries and both timeout setters; `endpoints_invalid` pins
+      their wrong types and arities (4 argument-mismatch + 10 arity-mismatch + 8 unknown-value
+      diagnostics). `tests/rt-behavior/tls/tls-read-timeout-rt` pins the runtime timeout contract
+      including the error code, and `tests/rt-behavior/tcp/tcp-udp-poll-list-trap-rt` the
+      inline-TRAP'd list poll over loopback. Certificate-name verification is covered by the
+      existing `tls-connect-google-rt` (`serverName` validating 8.8.8.8 against dns.google) and by
+      the Address form's `addr/1`/`addr/2` failures, which reach certificate validation and are
+      rejected because a `net::lookup` address carries a numeric host.
 
 Acceptance: existing direct client/server workflows run under the new types and exact requested
-signatures on all target families.
-Commit: —
+signatures on all target families. **MET.** Verified on all three backends (macOS aarch64, Alpine
+x86_64 musl on box 2227, Windows 11 on box 2230) with identical output for the full connect matrix,
+the endpoint queries, the read/write deadlines and the multi-read/poll-handoff probe. Gates:
+`cargo test --no-fail-fast` green; `scripts/test-accept.sh` 1297 tests, 0 mismatches;
+`scripts/artifact-gate.sh all` 1281 tests, 1438 builds, 1770 goldens, **0 diffs**.
+Commit: d2b844c95, 3016059f5, 6c402be37, 53cfe7a78, 4971c6b50, and the ncodesum regeneration below
 
 ### Phase 3 — Implement wrap — CUT
 
