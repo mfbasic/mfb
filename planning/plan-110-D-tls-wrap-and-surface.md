@@ -641,6 +641,46 @@ arrive after the deadline reach the next read. That also collapsed two receive p
 and two release policies into one, which is why the fresh-receive map block and the `MAPPED != 0`
 release branch are deleted rather than adapted.
 
+### C11 — the `readText` removal changed a fixture's error handling, and exposed bug-457
+
+Verifying the receive unification by running `tests/rt-behavior/tls/tls-poll-rt` directly — before
+the acceptance harness could — found it dying with `7-707-0004` where its golden says `loop=TRUE`.
+
+Bisected rather than assumed. It fails at `d2b844c95` (**before** the unification) and passes at
+main tip `f79f6212a`, so the unification was not the cause. The cause is 26e5d057c, the rename
+commit, which removed `tls::readText` and rewrote the fixture's read:
+
+```basic
+LET chunk AS String = tls::readText(conn, 4096) TRAP(e)          ' before
+LET chunk AS String = encoding::utf8Decode(tls::read(conn, 4096)) TRAP(e)   ' after
+```
+
+That moved the fallible call one level in — and an inline `TRAP` does not cover a nested fallible
+call. The read's EOF, which is what terminates the fixture's read loop, escaped the handler,
+propagated out of `fetch()` and out of `main`.
+
+Two separable defects, handled separately:
+
+1. **Mine.** The rewrite silently changed the fixture's semantics. Fixed by binding the read before
+   decoding, so the trapped call is outermost as it was: `loop=TRUE`, exit 0, matching the golden.
+2. **Not mine, and much more serious.** The compiler silently defeats an inline `TRAP` whenever the
+   fallible call is nested. Reduced to a four-line repro with no TLS involved, confirmed identical
+   on main tip, and filed as **bug-457** (HIGH, miscompile). `mfb spec language error-model` §8.8
+   is explicit that a call's error propagates "to enclosing TRAP region", and an inline `TRAP` is
+   one — so this contradicts the spec, not merely intuition. `lower_inline_trap` converts only the
+   outermost `IrValue::Call` to a `CallResult`; a nested `Call` stays plain and auto-propagates
+   past the handler.
+
+bug-457 is **not** folded into this plan. It is a core error-model lowering change — one check per
+fallible call, nested because the IR is structured, plus a fallibility source `LowerContext` does
+not have — with a blast radius across every inline `TRAP`, and it is entirely independent of the
+TLS surface. The bug file records the required shape, the two constraints a fix must respect, and
+the second known live instance (`examples/browser/fetch/src/lib.mfb:141`), so nothing is lost.
+
+The lesson worth carrying: a mechanical member-removal rewrite is not always semantics-preserving.
+`f(g(x))` is not the same program as `g(x)` when a `TRAP` is attached, and the compiler will not
+tell you.
+
 ## Summary
 
 The macOS adoption path and ownership transfer are the highest-risk premises in the whole feature.

@@ -29,12 +29,16 @@ FUNC fetch AS Boolean
   MUT eof AS Boolean = FALSE
   WHILE eof = FALSE
     IF tls::poll(conn) THEN
-      LET chunk AS String = encoding::utf8Decode(tls::read(conn, 4096)) TRAP(e)
+      ' The read is bound on its own before decoding. Nesting it inside
+      ' encoding::utf8Decode(...) would put the fallible call one level in,
+      ' where the inline TRAP does not cover it (bug-457) -- the EOF that ends
+      ' this loop would then escape fetch() entirely.
+      LET bytes AS List OF Byte = tls::read(conn, 4096) TRAP(e)
         eof = TRUE
-        RECOVER ""
+        RECOVER []
       END TRAP
       IF eof = FALSE THEN
-        raw = raw & chunk
+        raw = raw & encoding::utf8Decode(bytes)
       END IF
     END IF
   END WHILE
