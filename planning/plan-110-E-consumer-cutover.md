@@ -85,8 +85,21 @@ Commit: —
 
 ### Phase 3 — Remove legacy surface
 
-- [ ] Remove net Socket/Listener/UdpSocket/Datagram/DatagramText records/resources, transport
+- [ ] Remove net Socket/Listener/~~UdpSocket/Datagram/DatagramText~~ records/resources, transport
       descriptors, compatibility shims, aliases, cleanup/type recognition, and now-dead code.
+      **The datagram half is already done** — `UdpSocket`, `Datagram`, `DatagramText`, `bindUdp`,
+      `sendTo`, `sendTextTo`, `receiveFrom`, `receiveTextFrom` and the `UdpSocket` overloads were
+      removed by plan-110-C (commit 2dd8f30fd), which was forced to absorb this slice: two packages
+      cannot both declare a record named `Datagram`, so `udp` could not be added while net's
+      remained. See plan-110-C §C1. What is left here is the **stream** half: net's `Socket`,
+      `Listener`, `connectTcp`, `listenTcp`, `accept`, `read`, `readText`, `write`, `writeText`,
+      `poll`, `close`, `localAddress`, `remoteAddress`, `setReadTimeout`, `setWriteTimeout`.
+- [ ] Physically move the shared native emitters into `tcp/` and `udp/` (deferred here from
+      plan-110-B §C2 and plan-110-C): `tcp` and `udp` currently lower through the
+      `lower_net_*_helper` emitters in `net::{gen_shared, gen_io, gen_poll}`. Once net's stream
+      descriptors are deleted, split them so each package owns its own, leaving `net` only the
+      resolver/address/URL emitters `lookup` and `ping` still need. Doing it here rather than in
+      B/C means editing those ~2,700 lines once instead of twice.
 - [ ] Remove `TlsSocket`/`TlsListener`, readText/writeText, and old aliases after confirming zero
       live consumers; keep only the exact requested package surfaces.
 - [ ] Add negative syntax tests proving legacy calls/types are no longer exported.
