@@ -130,17 +130,61 @@ deliberately left here.
   `src/codegen/registry/mod.rs:1766` (`call_return_type_typed`), `:2211`
   (`resolve_call_typed`), `:2480` (`argument_types_typed`). This letter mostly
   deletes the string originals and repoints callers, not writes new queries.
-- **UNVERIFIED: whether `union_variants`, `resource_closers` and `enum_members`
-  are type-keyed at all.** Their values are call targets and member names —
-  `resource_closers`' doc comment (`src/codegen/engine/builder/mod.rs:611-641`)
-  says the value is "the op's *name* as the importing module routes it, not a
-  resolved symbol." A nominal→nominal symbol table is **not** a type map and must
-  not be converted (plan-106-E census line 4 classified three such maps
-  correctly). Phase 1 classifies each of the nine fields before any is touched.
-- **UNVERIFIED: whether re-keying merges or splits any key.** Two distinct
-  spellings that parse to the same `ParameterType`, or one spelling that two
-  code paths render differently, would change lookup results. Phase 1 task 3
-  measures this directly rather than assuming.
+### Phase 1 decision table (VERIFIED)
+
+Every key in all nine fields is inserted from `NirType.name` or a variant's
+`name` in `TypeModel::from_module` (`src/codegen/engine/validation/validation.rs:240-300`)
+and in the imported-package pass (`:452-466`) — i.e. every key is a **declared
+type name**, and none is a routing symbol. The VALUES differ, and that is where
+the three UNVERIFIED entries land:
+
+| Field | Key | Value | Verdict |
+|---|---|---|---|
+| `record_fields` | record type | `Vec<(field name, ParameterType)>` | key → `ParameterType`. The `String` in the value is a FIELD name; it stays. |
+| `enum_members` | `(enum type, member name)` | `usize` | first element → `ParameterType`; the member name stays a `String`. |
+| `union_names` | union type | — | → `ParameterType` |
+| `union_variants` | variant type | **union type** | **both** → `ParameterType`. Not a symbol table: the value is looked up as a type (`builder_value_semantics.rs:1165`). |
+| `union_variant_unions` | variant type | set of union types | **both** → `ParameterType` |
+| `union_variant_tags` | variant type | tag `usize` | key → `ParameterType` |
+| `union_variant_fields` | variant type | `Vec<(field name, ParameterType)>` | key → `ParameterType` |
+| `resource_names` | resource type | — | → `ParameterType` |
+| `resource_closers` | resource type | **routing name** | key → `ParameterType`; **value stays `String`** |
+
+**`resource_closers` — the Open Decision's "recommended: no" is half right, and
+the half it protects is the half that matters.** Read
+`validation.rs:381-384` (key `resource.name`, value `resource.close_function`),
+`:452-466` (key `resource.type_name`, value
+`format!("{identity}.{package_name}.{close_function}")`) and its only two
+consumers: `builder_resource_cleanup.rs:33` looks it up **by a resource type**
+and hands the value straight to `resolve_closer_symbol`, and
+`builder/mod.rs:970` iterates `.values()` into the same function.
+`resolve_closer_symbol` (`builder/mod.rs:2409`) resolves that value through
+`function_symbols`, peeling a 16-hex-digit identity prefix — a *routing* name in
+exactly the sense bug-374 and bug-377 established. So the value is untouchable
+and stays a `String`; the KEY is a type name like every other, and the gate
+counts it as one.
+
+**`union_variants` and `enum_members` ARE type-keyed.** `union_variants`' value
+is the union a variant belongs to, consumed as a type
+(`builder_value_semantics.rs:1165-1168` looks a variant up and then reads its
+tag). `enum_members`' key is a pair whose first element is the enum type and
+whose second is a member name — only the first is a type.
+
+**Key type: `ParameterType`, not `Symbol`** (§Open Decisions). Every key is a
+nominal today, so `Symbol` would fit — but it would diverge from the tables
+letter B already keyed by `ParameterType` (`ir::verify`'s nine, `ir::lower`'s
+`TypeIndex`, `ir::shape`'s two), and it would force each caller to destructure
+`Named(sym) => sym` and decide what a composite means. `ParameterType` lets an
+emitter pass what it holds.
+
+**Merge/split: measured, and it FAILED — see Correction C1.** The round-trip
+property this task named (`parse(key).name() == key`) holds, but it is the wrong
+question. A declared type may shadow a built-in spelling (`TYPE Integer`
+compiles), so the string tables MERGED the record with the scalar, and building
+the key with `ParameterType::named` SPLITS them. Keys are therefore built with
+`ParameterType::declared` (= `parse`), which is what an `AS Integer` annotation
+elaborates to. Verified against a pre-plan-111 binary over seven shadowing
+programs: 7/7 identical after the fix, 5/7 before.
 
 ## 3. Design Overview
 
@@ -196,25 +240,42 @@ If the spot-check or G surfaces a diff, C's tables are the first place to look.
 
 No code changes. Produces the decision table Phase 2 executes.
 
-- [ ] For each of the nine fields, read every construction site and every read
+- [x] For each of the nine fields, read every construction site and every read
       site, and record in this file: is the key a **type** (convert to
       `ParameterType`), a **nominal name** (convert to `Symbol`), or a
       **routing symbol** (leave `String`)? Cite the code that decides it.
-- [ ] Specifically resolve `union_variants`, `resource_closers` and
+      → §2 "Phase 1 decision table (VERIFIED)". All nine keys are declared type
+      names; `ParameterType` for every one (§Open Decisions resolved there).
+- [x] Specifically resolve `union_variants`, `resource_closers` and
       `enum_members`, whose doc comments suggest they are symbol tables, not type
       maps. `resource_closers`' value is a routing name (bug-374, bug-377) —
       confirm from `resolve_closer_symbol` and do not convert it on a guess.
-- [ ] Measure the merge/split hazard: for every key inserted into each map to be
+      → Confirmed from `resolve_closer_symbol` (`builder/mod.rs:2409`) and both
+      consumers: its VALUE stays a `String`, its KEY is a type like the rest.
+      `union_variants` and `enum_members` are type-keyed.
+- [x] ~~Measure the merge/split hazard: for every key inserted into each map to be
       converted, assert across the whole corpus that
-      `ParameterType::parse(key).name() == key` — a key that does not round-trip
+      `ParameterType::parse(key).name() == key`~~ — a key that does not round-trip
       would change identity under re-keying. Record the result.
-- [ ] Write the decision table into §2 of this file, replacing the UNVERIFIED
+      → **The named property holds and is the wrong question.** Measured the
+      right one instead, against a pre-plan-111 binary: **Correction C1**. A
+      declared type may shadow a built-in spelling, so the string tables merged
+      the record with the scalar and `named` would split them. Keys use
+      `ParameterType::declared`. 7/7 probes match the baseline; a bug letter B
+      had already shipped is fixed and pinned by
+      `tests/rt_shadowing_type_name_diagnostics.rs`.
+- [x] Write the decision table into §2 of this file, replacing the UNVERIFIED
       entries.
 
-Acceptance: every one of the nine fields has a recorded verdict with its
-citation, and the round-trip measurement is recorded with its command and count.
-No code changed.
-Commit: —
+Acceptance: **MET** — every one of the nine fields has a recorded verdict with
+its citation, and the merge/split measurement is recorded with the command that
+produced it (`git worktree add --detach f79f6212a` + a seven-program probe
+battery) and its counts (5/7 matching before the fix, 7/7 after).
+~~No code changed.~~ **Correction**: this phase was specified as read-only, but
+its measurement found a live bug in already-landed work. Per `AGENTS.md`
+("never leave a bug you found — fix it now, outranking scope") it is fixed here
+rather than recorded for later.
+Commit: 219de05cd
 
 ### Phase 2 — re-key the type maps
 
@@ -335,15 +396,27 @@ attribution (plan-111-A §3).
 
 ## Open Decisions
 
-- **Key type for nominal-only maps** — recommended: `Symbol` for maps whose key
+**Both RESOLVED in Phase 1 — see the decision table in §2.**
+
+- ~~**Key type for nominal-only maps**~~ — recommended: `Symbol` for maps whose key
   is genuinely a bare nominal name (`union_variant_tags`, `resource_names`),
   `ParameterType` for maps whose key can be a composite. Using `ParameterType`
   everywhere is simpler but boxes a nominal into a tree node for no gain.
   Phase 1 decides per field. (§Phase 1)
-- **Whether `resource_closers` is in scope** — recommended: **no**. Its value is
+  → **`ParameterType` for all nine.** `Symbol` would fit (every key is a nominal
+  today) but would diverge from the tables letter B already keyed by
+  `ParameterType`, and would force each caller to destructure `Named(sym) => sym`
+  and decide what a composite means. And Correction C1 makes the point sharper
+  than "no gain": the key must equal what the LOOKUP passes, and a lookup passes
+  what an annotation elaborated to — a `ParameterType`.
+- ~~**Whether `resource_closers` is in scope**~~ — recommended: **no**. Its value is
   a routing name and its key is a resource *name*; bug-374 and bug-377 both live
   here and neither is a type-representation bug. Convert only if Phase 1's read
   of `resolve_closer_symbol` contradicts this. (§Phase 1)
+  → **Half in scope.** The read of `resolve_closer_symbol` confirms the VALUE is
+  a routing name and it stays a `String` — the half bug-374/bug-377 live in. The
+  KEY is a declared resource type name like every other key in `TypeModel`, is
+  looked up by a resource TYPE, and is converted.
 
 ## Corrections
 
