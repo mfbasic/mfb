@@ -104,6 +104,12 @@ const RUNTIME_CALLS: &[&str] = &[
     "app.setMode",
     // plan-98-B: the canvas:: scene surface.
     "canvas.present",
+    "canvas.createImage",
+    "canvas.destroyImage",
+    "canvas.imageRef",
+    "canvas.getSize",
+    "canvas.getBytes",
+    "canvas.setBytes",
     "fs.exists",
     "fs.fileExists",
     "fs.directoryExists",

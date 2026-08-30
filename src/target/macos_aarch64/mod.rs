@@ -38,6 +38,12 @@ impl NativeBackend for Backend {
                 // plan-98-B: the canvas:: scene surface (app builds only, and gated
                 // on Mode.Canvas at runtime).
                 "canvas.present",
+                "canvas.createImage",
+                "canvas.destroyImage",
+                "canvas.imageRef",
+                "canvas.getSize",
+                "canvas.getBytes",
+                "canvas.setBytes",
                 "crypto.randomBytes",
                 "crypto.generate",
                 "crypto.sign",

@@ -15,7 +15,17 @@ pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool 
     // program's own ops, which is the same reason the recursive-transfer copy
     // functions force it in `lower_module` — that path just cannot key on a call
     // name, and this one can.
-    if module_uses_call(module, "canvas.present") {
+    if module_uses_any_call(
+        module,
+        &[
+            "canvas.present",
+            "canvas.createImage",
+            "canvas.imageRef",
+            "canvas.getSize",
+            "canvas.getBytes",
+            "canvas.setBytes",
+        ],
+    ) {
         return true;
     }
     let type_model = TypeModel::from_module(module).unwrap_or_else(|_| TypeModel::empty());

@@ -140,6 +140,7 @@ registry order. [[src/codegen/builtins/errorcode/mod.rs:register]]
 | `7-703-0009` | `77030009` | `ErrResourceMoved`            | Resource handle was moved to another thread by `thread::transfer` and is no longer usable by the sender. |
 | `7-703-0010` | `77030010` | `ErrNativeBufferOverrun`      | Native `LINK` `OUT CBuffer` callee wrote past its declared `SIZE` (buffer overrun detected). |
 | `7-708-0001` | `77080001` | `ErrSpawnFailed`              | Child process could not be spawned (fork/exec failed, or the program was not found). |
+| `7-705-0021` | `77050021` | `ErrBadPixelCount`            | Pixel list length does not match the image dimensions: an RGBA8 image needs exactly `width * height * 4` bytes (`canvas::createImage`, `canvas::setBytes`). |
 
 ## Resolution API
 

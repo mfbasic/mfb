@@ -59,9 +59,20 @@ covers exactly three calls today — `io::input`, `io::readLine`, `io::readChar`
 ## canvas:: — resources (integer ids, no refs)
 
 - `canvas::loadImage(path AS String) AS Image` *(fallible)*: load an image into the
-  backend; returns an opaque `Image` id.
+  backend; returns an opaque `Image` id. **Moved to plan-98-G** (plan-98-B
+  Correction 20): decoding a real image format needs inflate, and
+  `grep -rn "inflate\|deflate" src/codegen/builtins/` returns nothing — that is
+  plan-93-A's scope. G already owns vendoring a stb single-header library and the
+  licence question it raises, so `loadImage` lands there on `stb_image` beside
+  `loadFont` on `stb_truetype`.
 - `canvas::createImage(width AS Integer, height AS Integer, pixels AS List OF Byte) AS Image` *(fallible)*:
   create an image from raw RGBA8 pixels (`width * height * 4` bytes); returns an `Image` id.
+  A wrong length is `ErrBadPixelCount`. This is the primitive `loadImage` will feed,
+  and it is what makes images usable without a decoder at all — a program that
+  generates or parses its own pixels needs nothing else.
+- `canvas::imageRef(image AS Image) AS ImageRef`: the handle a `Picture` item
+  carries. Added by plan-98-B Correction 5 — a scene cannot hold a resource, and
+  must not own one.
 - `canvas::destroyImage(img AS Image)`: mark the image for destruction; the runtime
   frees it once no scene or in-flight frame references it. Safe to call anytime.
 - `canvas::loadFont(path AS String) AS Font` *(fallible)*: load a font; returns an
@@ -138,6 +149,13 @@ only the pixels behind the id change. The effect appears on the next rendered fr
 - `Size` *(record)*: `width`, `height AS Integer` (pixels).
 - `Image`, `Font` *(RES resource)*: a plain owned value holding an integer id; the
   backend owns the one real copy, MFB holds only the id. Closed-flag lifetime, no refs.
+  Bound with `RES` and named **package-qualified** —
+  `RES logo AS canvas::Image = canvas::createImage(…)` — exactly like `fs::File`,
+  and unlike the value types above, which are bare. (Measured 2026-08-30: a bare
+  `AS Image` is `SYMBOL_UNKNOWN_TYPE`.) The compiler additionally rejects a
+  statically-visible use-after-close as `TYPE_USE_AFTER_MOVE`, so the runtime
+  `ErrResourceClosed` is the backstop for closes it cannot see — through a `RES`
+  parameter, where ownership floats up.
 - `Bounds` *(record, internal)*: `x`, `y`, `w`, `h` — item/damage bounds.
 - `TextMetrics` *(record)*: `width`, `height`, `ascent`, `descent`, `lineGap`.
 

@@ -30,18 +30,32 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::registry::{
     EnumVariant, RecordProp, Registry, RegistryEnum, RegistryPackage, RegistryRecord,
-    RegistryUnion, UnionVariant,
+    RegistryResource, RegistryUnion, UnionVariant,
 };
 use crate::types::ParameterType;
 
+mod func_create_image;
+mod func_destroy_image;
 mod func_fill;
 mod func_fill_stroke;
+mod func_get_bytes;
+mod func_get_size;
+mod func_image_ref;
 mod func_present;
 mod func_rgb;
 mod func_rgba;
+mod func_set_bytes;
 mod func_stroke;
+pub(crate) mod gen_image;
 mod helper_clamp_byte;
 mod helper_paint_defaults;
+
+/// The `Image` resource's bare type name, and the package-qualified id members
+/// spell in their signatures.
+pub(crate) const IMAGE_TYPE: &str = "Image";
+pub(crate) const IMAGE_TYPE_ID: &str = "canvas.Image";
+/// The close op the resource's scope-drop and `destroyImage` both route to.
+const DESTROY_IMAGE: &str = "canvas.destroyImage";
 
 const MODULE_INTRO: &str = r#"2D drawing for `Mode.Canvas` — a retained scene of `DrawItem`s"#;
 const MODULE_DESC: &str = r#"The `canvas` package draws 2D graphics on the surface `app::setMode(Mode.Canvas)`
@@ -85,7 +99,19 @@ shape": every field the caller did not name is already inert.
 An item that draws an image or text names it through an `ImageRef` / `FontRef` —
 a plain value holding the id the backend knows the resource by. The scene holds
 that id and nothing more, which is what makes a published scene independent of
-every resource's lifetime."#;
+every resource's lifetime. `canvas::imageRef` takes that handle from an `Image`.
+
+`Image` is an owned resource, so it is bound with `RES` and named
+**package-qualified**, exactly like `fs::File`:
+
+```
+RES logo AS canvas::Image = canvas::createImage(w, h, pixels)
+```
+
+The value types — `Color`, `DrawItem`, `Paint` and the rest — are referenced bare.
+An image is released when it leaves scope, or earlier with
+`canvas::destroyImage`; releasing one a presented scene still draws is safe,
+because the scene holds only its id."#;
 
 /// Register the `canvas` package on the clean-room registry.
 ///
@@ -654,12 +680,35 @@ pub(crate) fn register(r: &mut Registry) {
     // hold a resource, so `Picture`/`Text` name the value handles `ImageRef` /
     // `FontRef` instead — see their declarations above.
 
+    pkg.add_resource(RegistryResource {
+        name: IMAGE_TYPE,
+        export: true,
+        description: "An opaque, owned handle to an image the drawing backend holds, \
+                      released automatically when it leaves scope. A scene names one \
+                      through an `ImageRef`, never directly, so destroying an image a \
+                      scene still draws is safe.",
+        close_function: DESTROY_IMAGE,
+        // An image belongs to the drawing surface's thread; it does not cross a
+        // thread boundary in v1.
+        sendable: false,
+        // `destroyImage` sets the closed flag and returns; the backend frees the real
+        // object later, on its own schedule, so there is nothing here that can fail.
+        close_may_fail: false,
+        kind: crate::codegen::resource::ResourceKind::Builtin,
+    });
+
     func_rgb::register(&mut pkg);
     func_rgba::register(&mut pkg);
     func_fill::register(&mut pkg);
     func_stroke::register(&mut pkg);
     func_fill_stroke::register(&mut pkg);
     func_present::register(&mut pkg);
+    func_create_image::register(&mut pkg);
+    func_destroy_image::register(&mut pkg);
+    func_image_ref::register(&mut pkg);
+    func_get_size::register(&mut pkg);
+    func_get_bytes::register(&mut pkg);
+    func_set_bytes::register(&mut pkg);
     helper_clamp_byte::register(&mut pkg);
     helper_paint_defaults::register(&mut pkg);
 

@@ -28,9 +28,8 @@ IMPORT canvas
 SUB main()
   app::setMode(Mode.Canvas)
   LET yellow AS Color = canvas::rgb(255, 255, 0)
-  canvas::present([
-    Circle[x := 200.0, y := 200.0, radius := 150.0, paint := Paint[fill := yellow]]
-  ])
+  LET face AS DrawItem = Circle[x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow)]
+  canvas::present([face])
 END SUB
 ```"#;
 

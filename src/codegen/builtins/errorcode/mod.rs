@@ -63,7 +63,8 @@ fn constant(
 
 /// Register the `errorCode` package on the clean-room registry.
 ///
-/// A constants-only package: 45 `Integer` constants and nothing else. Each row is
+/// A constants-only package: the migration's 45 `Integer` constants plus any added
+/// since (currently one, `ErrBadPixelCount`), and nothing else. Each legacy row is
 /// reproduced verbatim from the legacy `ERRORCODE_CONSTANTS` table — the values are
 /// decimal strings equal to the hyphen-stripped `G-SSS-EEEE` code, and several
 /// message symbols are historical/irregular, so they are copied exactly (byte-identity
@@ -118,7 +119,11 @@ pub(crate) fn register(r: &mut Registry) {
         .add_constant(constant("ErrWrongMode", "77050020", "Operation requires a presentation mode the program is not in. In an `--app` build, `term::*` requires `app::Mode.Console` — the character grid exists only there, so `Mode.None` and `Mode.Canvas` both trap. The console-reading `io::` calls (`io::input`/`io::readLine`/`io::readChar`) need only a window to take key events from, so they trap in `Mode.None` alone.", "_mfb_str_error_wrong_mode"))
         .add_constant(constant("ErrResourceMoved", "77030009", "Resource handle was moved to another thread by `thread::transfer` and is no longer usable by the sender.", "_mfb_str_error_resource_moved"))
         .add_constant(constant("ErrNativeBufferOverrun", "77030010", "Native `LINK` `OUT CBuffer` callee wrote past its declared `SIZE` (buffer overrun detected).", "_mfb_str_error_native_buffer_overrun"))
-        .add_constant(constant("ErrSpawnFailed", "77080001", "Child process could not be spawned (fork/exec failed, or the program was not found).", "_mfb_str_error_spawn_failed"));
+        .add_constant(constant("ErrSpawnFailed", "77080001", "Child process could not be spawned (fork/exec failed, or the program was not found).", "_mfb_str_error_spawn_failed"))
+        // plan-98-B: an RGBA8 image is exactly `width * height * 4` bytes, so a
+        // wrong-length pixel list is a distinct, actionable mistake rather than a
+        // generic bad argument — the message can say what the count should have been.
+        .add_constant(constant("ErrBadPixelCount", "77050021", "Pixel list length does not match the image dimensions: an RGBA8 image needs exactly `width * height * 4` bytes.", "_mfb_str_error_bad_pixel_count"));
 
     r.add_package(pkg);
 }
@@ -257,8 +262,23 @@ mod tests {
                 "duplicate message symbol `{symbol}`"
             );
         }
-        // The migration reproduces every legacy row: 45 constants.
-        assert_eq!(names.len(), 45);
+        // The migration reproduced every legacy row: 45 constants. Codes added since
+        // are counted separately so that claim stays checkable — a bare total would
+        // let a *lost* legacy row hide behind a newly added one.
+        //
+        //   +1  ErrBadPixelCount (plan-98-B): an RGBA8 image is exactly
+        //       `width * height * 4` bytes, so a wrong-length pixel list is a
+        //       distinct, actionable mistake rather than a generic bad argument.
+        const LEGACY_ROWS: usize = 45;
+        const ADDED_SINCE_MIGRATION: &[&str] = &["ErrBadPixelCount"];
+        for added in ADDED_SINCE_MIGRATION {
+            assert!(names.contains(added), "{added} is not in the table");
+        }
+        assert_eq!(
+            names.len() - ADDED_SINCE_MIGRATION.len(),
+            LEGACY_ROWS,
+            "the migration's legacy rows must all still be present"
+        );
     }
 
     /// plan-88-D drift guard: every error a builtin declares in its `errors` list must

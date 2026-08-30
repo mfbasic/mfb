@@ -211,6 +211,29 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             push_string_value(&mut values, value);
         }
     }
+    // The image members allocate (so they can raise `ErrOutOfMemory`), guard the
+    // resource's closed flag, and validate the RGBA8 pixel count. Keyed on the
+    // members themselves rather than on `canvas.present` so a program that only
+    // manipulates image contents — which needs no scene at all — still gets them.
+    if module_uses_any_call(
+        module,
+        &[
+            "canvas.createImage",
+            "canvas.imageRef",
+            "canvas.getSize",
+            "canvas.getBytes",
+            "canvas.setBytes",
+        ],
+    ) {
+        for value in [
+            err_msg("ErrOutOfMemory"),
+            err_msg("ErrResourceClosed"),
+            err_msg("ErrBadPixelCount"),
+            err_msg("ErrWrongMode"),
+        ] {
+            push_string_value(&mut values, value);
+        }
+    }
     if module_uses_any_call(
         module,
         &[

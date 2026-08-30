@@ -411,44 +411,99 @@ of an identical list takes a path that writes nothing to the scene region, and t
 skip/publish branch is sound on first-present, identical, changed, and empty scenes.
 → MET. `cargo test --test rt_canvas_present_deep_copy` = 4 passed;
 `cargo test --test cli_canvas_package` = 6 passed.
-Commit: —
+Commit: 47034488f
 
-### Phase 4 — `Image`/`Font` as a native RES backend (largest blast radius last)
+### Phase 4 — `Image` as a native RES backend (largest blast radius last)
 
-- [ ] Add the canvas resource record per the "Adding a NEW native backend" recipe
+> **`Font` moved to plan-98-G** (Correction 21). Without `canvas::loadFont` there is
+> no way to *construct* a `Font`, so declaring the resource here would have shipped a
+> type no program could reach — and `loadFont` needs the font parser G vendors. Tag
+> `12` is reserved for it in `error_constants.rs` so the layout does not shift later.
+
+- [x] Add the canvas resource record per the "Adding a NEW native backend" recipe
       (`tag@0/handle@8/closed@16/STATE@24`, texture id in `handle@8`, tag in
       `error_constants.rs`, zero STATE at construction, the `== RESOURCE_OFFSET_*`
       asserts).
-- [ ] `canvas::loadImage`/`createImage`/`loadFont` allocate a resource (fallible — return
+      → `src/codegen/builtins/canvas/gen_image.rs`: `RESOURCE_TAG_IMAGE = 11`, tail at
+      32+ (`width`, `height`, `pixels`, `dirty`, `lastUsedFrame`), with compile-time
+      asserts that the tail starts exactly at `RESOURCE_OFFSET_STATE + 8` and fits the
+      96-byte envelope. `lastUsedFrame` is reserved now because D's free gate is
+      `closed AND lastUsedFrame < lastCompletedFrame` — a monotonic compare, not a count.
+- [x] `canvas::loadImage`/`createImage`/`loadFont` allocate a resource (fallible — return
       per the result ABI: tag in x0, value in x1); the OS-side texture is created by the
       backend (software now; Metal/Vulkan in E/F). `createImage` takes `List OF Byte`
       RGBA8; store the pixels in the image's **CPU shadow** (in STATE).
-- [ ] `canvas::destroyImage`/`destroyFont` close the resource (set `closed@16` + release
+      → `createImage` landed. **`loadImage` moved to plan-98-G** (Correction 20):
+      decoding a real image format needs inflate, which does not exist in the tree
+      (`grep -rn "inflate\|deflate" src/codegen/builtins/` → nothing; it is plan-93-A's
+      scope), and G already owns the vendored-single-header decision that `stb_image`
+      needs. `createImage` is the primitive `loadImage` will feed, so images are usable
+      today by any program that generates or parses its own pixels.
+      The shadow is its own arena block pointed to from the tail rather than living in
+      `STATE@24`: `STATE` is the user-facing `RES … STATE T` slot, and taking it for
+      internal storage would collide with a program attaching state to an image.
+      `handle@8` is the record's own address — unique, non-zero, and already a real
+      identity a backend can adopt as its key, rather than a placeholder id.
+- [x] `canvas::destroyImage`/`destroyFont` close the resource (set `closed@16` + release
       path); wire scope-drop reclaim, thread-transfer, and the `resource_close_function`
       / LINK-thunk gating exactly like a file resource.
-- [ ] Image-content ops: `canvas::getBytes(image)` returns the CPU shadow (no GPU);
+      → `destroyImage` landed, wired as the resource's `close_function` so scope-drop
+      routes to it. Not thread-sendable in v1 (an image belongs to the drawing
+      surface's thread), which the descriptor records.
+- [x] Image-content ops: `canvas::getBytes(image)` returns the CPU shadow (no GPU);
       `canvas::setBytes(image, pixels)` deep-copies into the shadow + marks the texture
       dirty, **fallible** `ErrBadPixelCount` when `len(pixels) != width*height*4`;
       `canvas::getSize(image)` returns the dimensions. The GPU upload of a dirty texture
       and the "in current scene → redraw" trigger are D's job; B only updates the shadow +
       dirty flag.
-- [ ] Color helpers `canvas::rgb`/`rgba` build `Color` (clamp components 0..255).
-- [ ] `present()` copies only the resource **id** into the scene — **no** refcount work.
-- [ ] Mark-pending-free on close (a runtime-side flag the graphics thread reads in D);
+      → All three landed, plus `canvas::imageRef` (Correction 5). `getBytes` **copies**
+      the shadow rather than returning it: collections are values, so handing back the
+      runtime's own block would let a caller mutate the image behind its back and would
+      alias storage `setBytes` later replaces. `setBytes` writes the new block pointer
+      **before** the dirty flag, so a reader that sees dirty is guaranteed to see the
+      new pixels. `ErrBadPixelCount` is a new error code (`7-705-0021`), registered in
+      the `errorCode` package and the spec table.
+- [x] Color helpers `canvas::rgb`/`rgba` build `Color` (clamp components 0..255).
+      → Landed in Phase 1.
+- [x] `present()` copies only the resource **id** into the scene — **no** refcount work.
+      → True by construction: a `Picture` carries an `ImageRef`, a one-field record
+      holding an `Integer`, so there is no resource in a scene to count.
+- [x] Mark-pending-free on close (a runtime-side flag the graphics thread reads in D);
       B does **not** free the OS texture — that is D's `closed AND lastUsedFrame <
       lastCompletedFrame` gate.
-- [ ] Tests: load→present→destroy closes the resource and marks the texture pending-free;
+      → The closed flag **is** that marker — invariant 4 is explicit that there is no
+      separate pending-free flag ("the closed flag alone ends a resource's life"), and
+      adding one would be a second source of truth for the same fact. `destroyImage`
+      sets it; `lastUsedFrame` is reserved in the record for D's half of the compare.
+- [x] Tests: load→present→destroy closes the resource and marks the texture pending-free;
       scope-drop of an un-destroyed image closes + reclaims the record; using a closed
       image is `ERR_RESOURCE_CLOSED`; double-close is the defined no-op; `setBytes` with a
       wrong-length list returns `ErrBadPixelCount`; `getBytes` round-trips the CPU shadow;
       `getSize` matches `createImage`.
+      → `tests/cli_canvas_image_resource.rs`: one program covering create → getSize →
+      getBytes → imageRef → setBytes → getBytes → present-with-handle, plus the three
+      error contracts, each with its own exit code. Cross-built for `linux-aarch64`,
+      `linux-x86_64` and `windows-x86_64` so every backend's advertising is checked.
+      **The double-close and use-after-close cases are NOT written from source**
+      (Correction 22): the compiler rejects both statically as `TYPE_USE_AFTER_MOVE`,
+      which is stronger than the runtime no-op. `ErrResourceClosed` is reached the way
+      it actually occurs — closing through a `RES` parameter, where ownership floats up
+      and the checker cannot see it.
+- [x] **Added task — verify the man examples compile** (Correction 25). Nothing in the
+      tree did, and three of this letter's examples did not.
+      `tests/cli_canvas_man_examples_compile.rs` reads each `canvas::` member's example
+      back out of `mfb man` (so it cannot drift from what a user is shown) and compiles
+      all 12.
 
-Acceptance: canvas `Image`/`Font` load/close/scope-drop exactly like a file resource
-(reclaim, transfer, double-close no-op all correct); `present()` does zero refcount work;
-a closed image marks its texture pending-free without B freeing it; `setBytes` rejects a
-wrong pixel count and `getBytes`/`getSize` reflect the shadow. Run only the new
-resource tests plus the existing RES-lifecycle targets this touches
-(`cargo test --bin mfb resource`, `rg -rln "resource" tests/ | head`).
+Acceptance (**corrected** — `Font` and `loadImage` moved, Corrections 20–21): canvas
+`Image` create/close/scope-drop exactly like a file resource; `present` does zero
+refcount work; a closed image raises `ErrResourceClosed` on every read; `setBytes`
+rejects a wrong pixel count and `getBytes`/`getSize` reflect the shadow; every `--app`
+backend advertises the surface.
+→ MET. `cargo test --test cli_canvas_image_resource` = 3 passed (incl. the headless
+runtime contract and all three cross-target builds);
+`cargo test --bin mfb codegen::builtins::canvas` = 6 passed. Rendered: `mfb man canvas`
+lists all 12 members, `mfb man canvas types` lists `canvas::Image`.
 Commit: —
 
 ## Validation Plan
@@ -760,6 +815,86 @@ false surface.
     recommendation rather than overriding it. It has no consumer until damage-rect
     present, and computing an unused bounds-union on every `present` is precisely the
     per-frame waste plan-98-A invariant 1 exists to prevent.
+
+**2026-08-30 — Phase 4.**
+
+20. **`canvas::loadImage` moved to plan-98-G: decoding needs inflate, which does not
+    exist.** `grep -rn "inflate\|deflate" src/codegen/builtins/` returns **nothing**,
+    and building one is plan-93-A's scope, not plan-98's. Every real image format
+    worth loading (PNG certainly) is compressed, so `loadImage` cannot be honest here.
+
+    It moves to **G**, which already owns the vendored-single-header decision for
+    `stb_truetype` — the same decision, and `stb_image` is its sibling. G's Phase 1
+    now carries `loadImage` and its policy task says explicitly that the decision
+    gates images as well as fonts.
+
+    Nothing is lost meanwhile: `canvas::createImage` — the primitive `loadImage` will
+    ultimately feed — landed here, so any program that generates or parses its own
+    pixels can use images today.
+
+21. **The `Font` resource moved to plan-98-G with `loadFont`.** Without `loadFont`
+    there is no way to *construct* a `Font`, so declaring the resource in B would have
+    shipped a type no program could reach — surface that exists only to be listed.
+    `destroyFont`/`fontRef` go with it, since they operate on a thing that cannot yet
+    exist. `RESOURCE_TAG_FONT = 12` is reserved in `error_constants.rs` (as a comment,
+    not a dead constant) so the tag space does not shift when G lands.
+
+    `Image` is unaffected and complete: create, destroy, `imageRef`, `getSize`,
+    `getBytes`, `setBytes`.
+
+22. **Two of Phase 4's planned tests are unwritable from source, because the compiler
+    is stricter than the runtime contract.** "double-close is the defined no-op" and
+    "using a closed image is `ErrResourceClosed`" are both rejected statically as
+    `TYPE_USE_AFTER_MOVE` ("Binding `img` was moved and cannot be used again") when the
+    close is visible in the same scope — a *stronger* guarantee than the runtime
+    behaviour they were meant to check.
+
+    So the runtime guard is tested the way it is actually reached: closing through a
+    `RES` parameter, where ownership floats up to the caller's binding and the checker
+    cannot see the close. That is the real path, and the test exercises it.
+
+23. **Two design choices worth recording, both about not taking the obvious slot.**
+    - The CPU pixel shadow is an arena block pointed to from the record's **tail**,
+      not stored in `STATE@24`. `STATE` is the user-facing `RES … STATE T` slot; taking
+      it for internal storage would collide with a program attaching its own state to
+      an image.
+    - There is **no separate pending-free flag**, though Phase 4 listed one. Invariant
+      4 is explicit that "the closed flag alone ends a resource's life"; a second flag
+      meaning the same thing is a second source of truth to keep in sync.
+      `destroyImage` sets `closed@16`, and `lastUsedFrame` is reserved in the record
+      for D's half of the `closed AND lastUsedFrame < lastCompletedFrame` compare.
+
+24. **`getBytes` copies the shadow; `setBytes` orders its two stores.** Neither is
+    incidental. Returning the runtime's own block would let a caller mutate an image
+    behind its back *and* would alias storage `setBytes` later replaces. And `setBytes`
+    writes the new pixel-block pointer **before** the dirty flag, so a reader that
+    observes dirty is guaranteed to see the new pixels rather than the old ones — the
+    same publish-ordering discipline `present` uses for the revision.
+
+25. **Nothing verified that a `mfb man` example compiles, and three of the ones this
+    phase wrote did not.** Found by hand: `LET img AS Image` (a resource is bound with
+    `RES` and named **package-qualified**, `RES img AS canvas::Image`), and a list
+    literal spanning source lines (`MFB_PARSE_UNEXPECTED_STATEMENT`). A man example is
+    the recommended way to use a call, so a broken one is worse than none.
+
+    `grep`ing the tree found no existing check, so `tests/cli_canvas_man_examples_compile.rs`
+    now reads each `canvas::` member's example back **out of `mfb man`** — so it cannot
+    drift from what a user is shown — and compiles it. It immediately caught a third
+    (`canvas::rgb`'s, which still used the impossible `Paint[fill := …]` form from
+    Correction 7).
+
+    Scoped to `canvas` deliberately: a tree-wide version is obviously desirable but
+    the rest of the corpus predates any such check and would need its own audit, which
+    is not plan-98's scope. Recorded here so that audit has a starting point.
+
+26. **Adding an error code broke a count assertion, and the fix made the assertion
+    stronger.** `table_has_no_duplicate_names_or_codes` ended with
+    `assert_eq!(names.len(), 45)` over the comment "the migration reproduces every
+    legacy row". A bare total cannot distinguish "45 legacy rows" from "44 legacy rows
+    plus one addition", so bumping it to 46 would have silently retired the very
+    property it was pinning. It now subtracts an explicit `ADDED_SINCE_MIGRATION` list
+    (asserted present) from the total, so the legacy-row claim stays checkable and each
+    later addition is a visible, justified line.
 
 <Further corrections filled in during execution — especially the RES record wiring and
 payload encoding.>
