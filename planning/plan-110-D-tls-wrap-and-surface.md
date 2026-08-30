@@ -276,9 +276,52 @@ modern `openssl req` key gets an opaque failure today. Worth a `tls::listen` doc
 clearer diagnostic; carried to plan-110-F Phase 2's defect list.
 
 **Status: partially implemented.** Phase 2's rename and the `write`/`readText` merge are landed
-(commit 26e5d057c) and green. Remaining in this letter: the macOS backend unification, the four
-endpoint/timeout members on top of it, the `connect(Address, …)` overload, and all of Phase 3
-(`wrap` itself, including the new consuming-argument ownership seam).
+(commit 26e5d057c) and green.
+
+### C4 — C3's unification recommendation is WITHDRAWN: Secure Transport cannot do TLS 1.3
+
+§C3 concluded macOS should move `connect`/`listen`/`accept` onto Secure Transport so there is one
+backend. **That is wrong, and would have been a security regression.** Checking the protocol
+ceiling before implementing:
+
+```
+SSLSetProtocolVersionMax(TLS 1.3) -> -9830 (REJECTED -- 1.3 not expressible)
+SSLGetProtocolVersionMax          -> 8 (TLS 1.2)
+SSLHandshake                      -> 0
+negotiated                        -> 8 (TLS 1.2)
+RESULT: Secure Transport capped BELOW TLS 1.3 against a 1.3-capable peer.
+```
+
+`kTLSProtocol13` is not even an accepted argument (`errSSLIllegalParam`), and against a peer that
+certainly offers 1.3 the handshake settles on 1.2. Network.framework negotiates 1.3 today. So
+unifying would have taken every macOS TLS connection from 1.3 down to 1.2 — for the sake of
+internal tidiness. That is not a trade worth making, and the tidiness argument in §C3 never
+weighed it because I had not measured the ceiling.
+
+**Corrected architecture for macOS — two backends, deliberately:**
+
+| Member | Backend | Why |
+|---|---|---|
+| `connect` / `listen` / `accept` | Network.framework (unchanged) | negotiates TLS 1.3; owns its socket, which is fine because it creates it |
+| `wrap` | Secure Transport | the *only* API on macOS that can adopt a caller's fd; TLS 1.2 ceiling is the price |
+
+This means a **wrapped** socket on macOS is limited to TLS 1.2 while a `tls::connect`ed one reaches
+1.3. That is a real, user-visible difference in a security property, so it is a documented part of
+the `wrap` contract rather than an implementation detail — the member's docs must say it, and the
+`.ai/net-tls.md` topic must record it.
+
+Consequence for the four endpoint/timeout members: they cannot be "the same code on all three
+platforms" as §C3 hoped. On macOS they need Network.framework implementations
+(`nw_connection_copy_endpoint` / `nw_connection_copy_current_path` for the addresses; the timeouts
+grafted onto the existing read-wait, whose release/leak hazard `.ai/net-tls.md` already flags) —
+except on a wrapped socket, which does have an fd. Whether the members are therefore
+backend-conditional on macOS, or simply raise `ErrUnsupported` on a Network.framework socket, is a
+contract decision that must be made explicitly and is **not** yet made.
+
+**Remaining in this letter:** the four endpoint/timeout members (with the macOS split above
+resolved), the `connect(Address, …)` overload, and all of Phase 3 — `wrap` itself, its Secure
+Transport implementation on macOS, and the new consuming-argument ownership seam that plan-110-A
+§C4 showed does not exist yet.
 
 ## Summary
 
