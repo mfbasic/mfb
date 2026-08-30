@@ -73,7 +73,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::fill("headers", "Optional request headers. Names matching `Host`/`User-Agent`/`Accept` override the defaults case-insensitively; others are appended. No name or value may contain a control byte. Defaults to an empty map.", super::header_map(), "{}"),
                 super::fill("method", "Optional request method; uppercased before sending. Must be non-empty and contain no space. Defaults to `GET`.", ParameterType::String, "GET"),
             ],
-            return_type: ParameterType::named(super::STREAM_STATE),
+            return_type: super::stream_state(),
             errors: vec![],
             body: Body::mfb(BODY, "__http_startRead"),
         }],

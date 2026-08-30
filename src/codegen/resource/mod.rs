@@ -28,36 +28,32 @@ pub(crate) enum ResourceKind {
     Builtin,
 }
 
-/// Split a resource type string at its **own** top-level `STATE` clause, if any.
-/// A bare stateful resource is spelled `<ResourceName> STATE <StateType>`, where
-/// `<ResourceName>` is a single type token (a bare name or a `pkg.Name`, never
-/// containing a space). A `STATE` nested inside a composite type — a thread
-/// plane's `RES` element (`Thread OF RES File STATE Cursor TO Out`, plan-54), or
-/// a `List`/`Map` of a stateful resource — is the inner resource's state, not the
-/// composite's own, so it must NOT be split off here (doing so truncated
-/// `ThreadWorker OF RES File STATE Cursor TO Integer` to `ThreadWorker OF RES
-/// File`). Keying on a space in the base distinguishes the two.
-fn split_state_clause(type_name: &str) -> Option<(&str, &str)> {
-    let (base, state) = type_name.split_once(" STATE ")?;
-    if base.contains(' ') {
-        return None; // nested STATE inside a composite type — not this type's own.
-    }
-    Some((base, state))
-}
-
 /// The bare resource type name, with any `STATE T` suffix removed. A stateful
 /// resource carries its `STATE` type in the type string (`File STATE FileState`)
 /// once lowered to IR/NIR; recognition keys on the bare resource name.
+///
+/// plan-111-A deleted this module's own copy of the split. The grammar now
+/// lives once, in `crate::types::split_state_clause`, which is also what
+/// [`ParameterType::parse`](crate::types::ParameterType::parse) calls to build
+/// a [`Stateful`](crate::types::ParameterType::Stateful) — so there is one rule
+/// and it cannot drift. The two copies used to be pinned to each other by a
+/// parity test, which is the lockstep-edit hazard
+/// `planning/Compiler Pipeline.md:25` named.
+///
+/// Still `&str -> &str`: the result is borrowed from the input, which the owned
+/// `ParameterType::split_state` cannot give. That signature dies in plan-111-E,
+/// where the callers take a `&ParameterType` and ask `without_state()` directly.
 pub(crate) fn base_resource_name(type_name: &str) -> &str {
-    match split_state_clause(type_name) {
+    match crate::types::split_state_clause(type_name) {
         Some((base, _)) => base,
         None => type_name,
     }
 }
 
-/// The `STATE` record type carried by a resource type string, if any.
+/// The `STATE` record type carried by a resource type string, if any. See
+/// [`base_resource_name`] for why the grammar is not restated here.
 pub(crate) fn state_type_name(type_name: &str) -> Option<&str> {
-    split_state_clause(type_name).map(|(_, state)| state)
+    crate::types::split_state_clause(type_name).map(|(_, state)| state)
 }
 
 /// Whether `type_name` is a built-in resource type. Used by stages that only

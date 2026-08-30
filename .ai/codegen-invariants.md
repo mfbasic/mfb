@@ -24,6 +24,19 @@ Two traps this cost real time to learn:
 
 Adding a variant means wiring, in lockstep: `parse` arm, `name()` arm, `with_vars`, registry `unify` + container fail-set + `substitute` + `contains_var`, and monomorph's `unify_type` / `substitute_type_params`. Nothing errors if you miss one — every consumer has a `_` catch-all, so an unwired variant silently falls into wildcard behavior. Grep an existing variant (`MapEntryOf`) to enumerate the sites.
 
+**Measured (plan-111-A Phase 3, adding `Stateful`): the tree has 81 `match`es on a `ParameterType` with a top-level `_` arm, and adding a variant compiles CLEAN — zero exhaustiveness errors.** So the compiler tells you nothing; the audit is yours. What makes it tractable is asking the right question: a new variant only changes behavior where the value **used to take a different arm**. `File STATE Cursor` reached all 81 as `Named(...)`, so only the sites with their own `Named(..)` arm can move — **7 of 81**. (Script: walk each `match` block by brace depth, keep the ones whose top-level arm *patterns* name `ParameterType::`, then split on whether any pattern names the variant the value used to be.) Do not forget the non-`match` forms — `if let`, `matches!`, `while let` — which a `match`-block scan misses entirely; there were 5, found with `rg 'if let (Some\()?(ParameterType|Self)::Named|matches!\([^,]*, *(ParameterType|Self)::Named'`.
+
+## `tests/no_type_strings.rs` is a ratcheted budget, not a boolean (plan-111)
+
+It scans `src/` (minus `src/ast`, `src/lexer.rs`, `src/docs` — the string domain) for seven ways a type SPELLING reaches a decision: `ParameterType::parse` outside the five boundary files, a type-named `&str` parameter, a `match` arm or `==` on a spelling, a hand-rolled grammar op, a `format!`-built spelling, and a `String`-keyed type map. Each `(class, directory)` has a hardcoded ceiling.
+
+Two things to know before you touch it:
+
+- **The table is asserted tight in BOTH directions.** A count above its budget fails with every offending `file:line`; a budget *above* the live count also fails with "lower this budget to N". So clearing sites without lowering the row is a red test, and so is lowering a row too far. Lower it **in the same commit as the work**, and take the number from the failure message — it prints the whole live table paste-ready.
+- **It does not use `architecture_guards.rs`'s `code_above_tests`.** That helper truncates a file at its first `#[cfg(test)]`, which is safe for `src/codegen` + `src/target` but wrong across `src/`, where `#[cfg(test)]` also sits on mid-file items (`ir/shape.rs`'s `bound_types`, `resolver/mod.rs`'s `resolve_hir_project`) — it scanned 4202-line `shape.rs` down to 158 lines. `test_free_lines` strips each `#[cfg(test)]` item by brace depth instead. `architecture_guards.rs` still carries the naive version; harmless only because of its narrower roots.
+
+The `string_keyed_type_maps` class is a **curated** `(file, identifier)` list, not a regex: the broad needle matches 1209 lines in `src/`, nearly all keyed by a symbol (function name, binding name, package alias), which is legitimately a string. Its doc comment names the four nearest non-type-keyed lookalikes so they do not get "fixed".
+
 ### User-generic limitations that are GRAMMAR, not bugs
 
 `Holder OF Pairing OF Integer, String` does not compile (`cannot infer template arguments`), and it cannot be fixed in the parser: the spelling is textually indistinguishable from a two-argument `Holder OF (Pairing OF Integer), String`, and the language has no bracketing. `parse` splits on top-level commas and yields 2 arguments for a 1-parameter template; it holds no arity table and is deliberately dependency-light. Same root cause: a user-generic-typed **parameter must come LAST** in a parameter list — `FUNC f OF T(b AS Box OF T, v AS T)` does not parse, because `OF`'s argument list is read greedily across commas. Write `FUNC f OF T(v AS T, b AS Box OF T)`.

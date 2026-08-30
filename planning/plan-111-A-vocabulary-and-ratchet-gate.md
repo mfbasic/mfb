@@ -457,56 +457,99 @@ captured directly, not through a `| tail` pipeline — in zsh a pipeline reports
 the *last* command's status, so `cargo test … | tail -40` reports `tail`'s 0
 whatever cargo did. (A derive cannot move codegen; if letter G later shows it
 did, root-cause it there.)
-Commit: 5be4b7ec5
+Commit: 0d034a522
 
 ### Phase 3 — `STATE` becomes a variant
 
 Kills the last construct the type enum cannot express, and with it both
 hand-rolled grammar copies. Highest design uncertainty in plan-111.
 
-- [ ] **First, measure the silent-variant risk**: list every `match` on a
+- [x] **First, measure the silent-variant risk**: list every `match` on a
       `ParameterType` with a `_` or `_ =>` arm
-      (`rg -n 'match .*(type_|ptype|parameter_type)' src/ -A30 | rg '_ =>'`),
+      ~~(`rg -n 'match .*(type_|ptype|parameter_type)' src/ -A30 | rg '_ =>'`)~~,
       record the count in the Corrections section, and review each for whether a
       `Stateful` value reaching it would be silently mishandled.
-- [ ] Add `Stateful { base: Box<ParameterType>, state: Box<ParameterType> }` to
-      `ParameterType` (`src/types.rs:23`).
-- [ ] Add the `name()` arm rendering exactly `"{base} STATE {state}"`
+      **Correction 6**: the plan's command reads 74 but counts `_ =>` lines from
+      unrelated *nested* matches inside its 30-line window. Measured properly by
+      brace-depth block extraction: **152** `ParameterType` matches, **81** with a
+      top-level `_` arm. Narrowed to 7 reviewable sites, all reviewed; plus 5
+      non-`match` forms the plan's needle could not see.
+- [x] Add `Stateful { base: Box<ParameterType>, state: Box<ParameterType> }` to
+      `ParameterType` (`src/types.rs:23`). Struct variant, per §Open Decisions'
+      recommendation.
+- [x] Add the `name()` arm rendering exactly `"{base} STATE {state}"`
       (`src/types.rs:558`-family), byte-identical to today's
       `with_state` output (`src/types.rs:483`).
-- [ ] Add the `parse` arm, splitting on the **top-level** ` STATE ` only —
-      reuse the depth-tracking precedent `split_top_level_to` (`src/types.rs:794`)
-      rather than `split_once` + a `contains(' ')` heuristic. A nested `STATE`
+- [x] Add the `parse` arm, splitting on the **top-level** ` STATE ` only —
+      ~~reuse the depth-tracking precedent `split_top_level_to` (`src/types.rs:794`)
+      rather than `split_once` + a `contains(' ')` heuristic~~. A nested `STATE`
       inside a `Thread OF … RES File STATE Cursor TO …` plane stays with the inner
-      type (plan-54).
-- [ ] Rewrite `split_state`/`state`/`without_state` (`src/types.rs:512-535`) as
-      structural matches on the new variant. Delete `split_state_clause`
-      (`src/types.rs:785`).
-- [ ] Delete `codegen::resource::split_state_clause` (`src/codegen/resource/mod.rs:40`)
-      and reimplement `base_resource_name`/`state_type_name` on top of the typed
-      accessors. (Their `&str` signatures die in letter E; this phase only removes
-      the duplicated *grammar*.)
-- [ ] Delete the now-vacuous parity test `split_state_matches_the_name_domain_helpers`
-      (`src/types.rs:1356`) — with one grammar there is nothing to pin. Replace it
-      with `stateful_parses_top_level_only`, asserting the nested-plane cases the
-      old `contains(' ')` guard protected.
-- [ ] Extend the `round_trip` corpus (`src/types.rs:999`) with every stateful
+      type (plan-54). **Correction 7**: the depth-tracking rule is a *different*
+      rule and would have changed behavior. The arm reuses the existing
+      `split_state_clause` unchanged and is ordered last, after every container
+      arm.
+- [x] Rewrite `split_state`/`state`/`without_state` (`src/types.rs:512-535`) as
+      structural matches on the new variant. ~~Delete `split_state_clause`
+      (`src/types.rs:785`).~~ **Correction 8**: kept as the compiler's ONE
+      `STATE` grammar, now with two callers (`parse` and the two `&str` adapters)
+      instead of a second copy — deleting it would have forced 52 call-site
+      signature changes that the plan assigns to letter E.
+- [x] Delete `codegen::resource::split_state_clause` (`src/codegen/resource/mod.rs:40`)
+      and reimplement `base_resource_name`/`state_type_name` on top of the ~~typed
+      accessors~~ single shared grammar. (Their `&str` signatures die in letter E; this phase only removes
+      the duplicated *grammar*.) See Correction 8.
+- [x] ~~Delete the now-vacuous parity test `split_state_matches_the_name_domain_helpers`
+      (`src/types.rs:1356`) — with one grammar there is nothing to pin.~~ Replace it
+      with Add `stateful_parses_top_level_only`, asserting the nested-plane cases the
+      old `contains(' ')` guard protected. **Correction 9**: the parity test is
+      NOT vacuous — it now pins the *structural* `split_state` against the string
+      grammar, which is the entire safety argument for this phase. Kept unmodified
+      and passing, and joined by
+      `structural_split_state_agrees_with_the_string_grammar` (15 spellings,
+      including the composites and a non-splitting `A B STATE C`).
+- [x] Extend the `round_trip` corpus (`src/types.rs:999`) with every stateful
       spelling in the tree: `File STATE Cursor`, `RES File STATE Cursor`,
       `List OF RES File STATE Cursor`, `Result OF Stream STATE Pending`,
       `Thread OF RES fs.File STATE Cursor TO Integer`,
       `ThreadWorker OF RES File STATE Cursor TO Integer`, `pkg.Name STATE S`.
-- [ ] Lower the `hand_rolled_grammar` budget for `types` and `codegen` by what
-      this phase removed, in this phase's commit.
-- [ ] Tests: `stateful_round_trips_byte_exact`, `stateful_parses_top_level_only`,
+      Delivered as `stateful_round_trips_byte_exact`, 16 spellings — the plan's 7
+      plus `fs.File STATE Cursor`, `File STATE List OF Integer`,
+      `Set OF …`, `Map OF String TO …`, `List OF List OF …`,
+      `Thread OF Integer RES fs.File STATE Cursor TO String`,
+      `Pair OF Integer, String STATE Cursor`, `FUNC(Integer) AS File STATE Cursor`,
+      and the non-splitting `A B STATE C`.
+- [x] Lower the `hand_rolled_grammar` budget for ~~`types` and~~ `codegen` by what
+      this phase removed, in this phase's commit. `hand_rolled_grammar/codegen`
+      8 → 7 and `str_type_params/codegen` 142 → 141 (the deleted copy's
+      `type_name: &str` parameter, which the plan did not anticipate — the gate's
+      tightness assertion found it). `types` is unchanged at 24: the one surviving
+      grammar lives there (Correction 8) and letter G retires it.
+- [x] Tests: `stateful_round_trips_byte_exact`, `stateful_parses_top_level_only`,
       `split_state_is_top_level_only` (existing, `src/types.rs:1332` — must still
       pass unmodified), plus the `.mfp` nested-`Map`-key regression from
       plan-106-E Correction 3 must stay green.
+- [x] **Added task** — correct the one stale line in
+      `res_collection_element_parses_into_variant`: it asserted
+      `parse("List OF RES File STATE Cursor")`'s element is
+      `Named("File STATE Cursor")`. Its contract — the clause rides the ELEMENT
+      and `RES` wraps it — is unchanged and still asserted; only the element's
+      representation stopped being opaque, which is what this phase exists to do.
+      Corrected that assertion alone, with the reason in place (AGENTS.md
+      "never re-baseline a whole file").
 
-Acceptance: the full `round_trip` corpus is byte-exact including every new
-stateful spelling; `cargo test --no-fail-fast -- --skip artifact_gate_all` green;
-`scripts/diag-set-diff.sh` 0 differing with exit code and unlocated `error:`
-lines captured (A is one of the two letters that runs it — §3).
-Commit: —
+Acceptance: **MET.**
+- Round trip: `stateful_round_trips_byte_exact` (16 spellings) plus the three
+  pre-existing corpora, all byte-exact.
+- Fast suite: `cargo test --no-fail-fast -- --skip artifact_gate_all` →
+  `CARGO_EXIT=0`, `grep -c '^failures:'` → 0. (The first run was **red** — two
+  tests, one root cause, recorded as Correction 11 and fixed here.)
+- Diagnostics: `scripts/diag-set-diff.sh target/release/mfb` →
+  `530 fixture(s) with diagnostics — 530 same, 0 reordered, 0 set-diff`,
+  exit 0. The harness records `[exit N]` for every replayed `$ mfb build/test`
+  section and unlocated `error: RULE:` lines (`scripts/diag-set-diff.sh:62,73`),
+  so a build that started failing would be a SETDIFF rather than a silent
+  "same" — the failure mode a 518-same reading once hid.
+Commit: 8ac1f2d3e
 
 ### End-of-letter spot-check (scoped, read-only)
 
@@ -531,6 +574,12 @@ root-cause it with objdump on one fixture and fix the conversion. **Do not
 regenerate a golden here.** All regeneration happens once, in letter G, after
 attribution (plan-111-A §3).
 
+**Result: 0 diffs, all three.** Each reported
+`1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)` and exited 0 — 21 goldens
+across every target, nothing regenerated. So the `STATE` variant and the `Hash`
+derive are byte-neutral on the surface this letter can see, and any diff letter G
+finds is attributable to B–G rather than here.
+
 ## Validation Plan
 
 Run at the end of this letter, and repeated per letter B–G.
@@ -544,6 +593,24 @@ Run at the end of this letter, and repeated per letter B–G.
   suite; confirm `src/types.rs`'s new arms are executed by the round-trip corpus
   rather than assumed (`cargo llvm-cov --bin mfb` per `.ai/build-tooling.md` —
   `mfb` is a binary crate, measure with `--bin`, not `--lib`).
+  **Measured** with `cargo llvm-cov --bin mfb --no-report -- types::tests::`
+  (the round-trip corpus alone), then reading per-line execution counts out of
+  the JSON report — `src/types.rs` 83.82% region / 86.60% line from those 15
+  tests, and every new arm hit:
+
+  | New code | Line | Executions |
+  |---|---|---|
+  | `parse`'s `Stateful` arm | 452 | 267 |
+  | `with_state`'s leaf arm | 574 | 141 |
+  | `split_state`'s `Stateful` arm | 607 | 66 |
+  | `name()`'s `Stateful` arm | 662 | 100 |
+  | `split_state_clause` (now shared) | 893 | 1101 |
+  | `ParameterType::stateful` | 214 | 0 *from this filtered run* |
+
+  `stateful()` is 0 here only because its one caller is `http::stream_state()`,
+  outside `types::tests`. It is executed — `descriptor_named_types_are_bare_nominals`
+  and `rt_http_async_stream` both went from red to green precisely because
+  `func_start_read` now calls it (Correction 11).
 - Runtime proof: **deferred to letter G.** The acceptance corpus is swept once,
   at the end (§3). When G does run it, the second argument is an `rm -rf`
   target — use `/tmp/accept-111g`, never `tests/` or any real directory.
@@ -660,6 +727,154 @@ each read and confirmed type-keyed, with the four nearest non-type-keyed
 lookalikes named in its doc comment so a later reader does not "fix" them.
 `curated_type_keyed_tables_all_exist` (an added task) fails if an entry stops
 naming something real, so a rename cannot masquerade as progress.
+
+**6 — the silent-variant census command under-counts and mis-attributes; the
+real number is 81, and only 7 of them matter.** §Phase 3 task 1 gives
+`rg -n 'match .*(type_|ptype|parameter_type)' src/ -A30 | rg '_ =>'` → **74**.
+That number is not the population: `-A30` prints a 30-line window after any line
+containing `match …type_…`, and the `_ =>` count includes wildcard arms of
+*nested, unrelated* matches inside that window while missing any `_` arm more
+than 30 lines down. It is the same shape as the awk-range hazard recorded in
+plan-107.
+
+Measured instead by extracting each `match` block by brace depth and looking only
+at its **top-level arm patterns**: **152** matches on a `ParameterType`, of which
+**81** carry a top-level `_` arm (`ir/lower.rs` 15, `type_utils.rs` 8,
+`monomorph/helpers.rs` 6, `ir/shape.rs` 5, `monomorph/lower.rs` 5, and 24 files
+with ≤4 each).
+
+Reviewing 81 sites by hand is unnecessary, because the question has a mechanical
+answer: **a `File STATE Cursor` reaches every one of them today as
+`Named(...)`**, so a site's decision can only move if it has its own `Named(..)`
+arm that a `Stateful` would now miss. That is **7 sites**, and all 7 were read:
+
+| Site | Why a `Stateful` behaves identically |
+|---|---|
+| `monomorph/helpers.rs:74` `leaf_param_symbol` | returns the leaf's symbol to test against template-param names; `Symbol("File STATE Cursor")` is never a bare param, so it missed. `None` misses the same way, and all three callers wrap the lookup in `if let Some(..) { if <bound> { … } }` — so "no symbol" and "symbol with no binding" fall through identically. |
+| `monomorph/lower.rs:1648` `leaf_symbol` | same shape, same caller pattern (`lower.rs:1689`). |
+| `ir/shape.rs:423` `is_printable` | `Named(_) => name() == "Scalar"` → false; `_` → false. |
+| `ir/shape.rs:2280` `compatible` | the scrutinee is `strip_res(..).without_state()` on **both** sides, so a `Stateful` cannot reach the match at all. This is the site that makes `without_state`'s structural rewrite load-bearing. |
+| `target/shared/plan/lower.rs:161` | `Named(n) if n == "Scalar"` → miss; falls to the `_ if is_resource_type(base)` guards, and `base` is computed from `type_.name()` *before* the match, which renders byte-identically. Its own comment already reads "A resource (optionally `File STATE T`)". |
+| `codegen/engine/types/type_utils.rs:112` `collection_type_code` | `Named(name) if name == "Scalar"` → miss → `OBJECT`; `_` → `OBJECT`. |
+| `resolver/resolution.rs:1299` `resolve_type` | `Named(name) if name is "Result"\|"Ok"` → miss → `_ => resolve_leaf`, which calls `split_state()` and resolves base and state separately. Unchanged, given `split_state` agrees (pinned by `structural_split_state_agrees_with_the_string_grammar`). |
+
+**A `match`-block scan also cannot see `if let` / `matches!` / `while let`,** which
+the plan's needle likewise misses. `rg 'if let (Some\()?(ParameterType|Self)::Named|matches!\([^,]*, *(ParameterType|Self)::Named'`
+finds 5: `types.rs:610` `is_named` (all 6 callers ask for `"Ok"`, `"Address"`,
+`"AttributedString"`, `"Scalar"` — none is a stateful spelling, so `false` before
+and after), `type_utils.rs:504` (an empty-name test), `ir/verify/tests.rs:7688`
+(parses `"Thread OF Integer"`, no ` STATE `), and `registry/mod.rs:3142-3145`
+(`descriptor_named_types_are_bare_nominals`, which now additionally *catches* any
+descriptor built as `named("X STATE Y")` — a detector gained, not a risk).
+
+**And the compiler confirms the shape of the risk**: adding the variant compiled
+**clean**, zero exhaustiveness errors across `cargo check --all-targets`. Nothing
+was forced to grow an arm, so the audit above is the only signal there is.
+
+**7 — `parse`'s `STATE` arm must NOT use the `split_top_level_to` depth-tracking
+rule.** §Phase 3 says to "reuse the depth-tracking precedent `split_top_level_to`
+… rather than `split_once` + a `contains(' ')` heuristic". Those are two
+*different rules*, and swapping one for the other is a behavior change the plan's
+own §Non-goals forbids ("A converted site must make the same decision on the same
+input").
+
+`split_top_level_to` tracks parenthesis depth and pending ` OF ` constructs — it
+answers "which ` TO ` belongs to *this* `Map OF`". The ` STATE ` question is not
+that: a stateful base is always a **single bare token** (`File`, `fs.File`), and
+`base.contains(' ')` is exactly the top-level test for it. `List OF RES File STATE Cursor`
+has parenthesis depth 0 at its ` STATE `, so a depth-aware scan would split it at
+the container — which is the truncation bug-429 fixed
+(`ThreadWorker OF RES File STATE Cursor TO Integer` → `ThreadWorker OF RES File`).
+The arm therefore calls `split_state_clause` unchanged, and is ordered **after**
+every container arm so the composites are claimed structurally first.
+
+**8 — `types::split_state_clause` is kept, as the ONE grammar, not deleted.**
+§Phase 3 says to delete it and "reimplement `base_resource_name` /
+`state_type_name` on top of the typed accessors", while also stating those
+functions' `&str` signatures belong to letter E. Both cannot hold:
+`base_resource_name(&str) -> &str` returns a slice **borrowed from its input**,
+and `ParameterType::split_state()` returns owned `ParameterType`s, so there is
+nothing to borrow from. Deriving the slice from the parsed base's rendered length
+is unsound (`parse` normalizes a group, so `"(Integer) STATE X"` would slice
+short), and changing the return type to `String` ripples through **52 call sites**
+(`rg -o 'base_resource_name\(' src/` → 32, `state_type_name` → 20) — which is
+letter E's work, explicitly.
+
+What the phase actually needs is *one* grammar, and that is what it now has:
+`split_state_clause` stays in `src/types.rs`, becomes `pub(crate)`, and is called
+by `ParameterType::parse` (which turns it into a `Stateful`) and by the two
+`&str` adapters in `codegen::resource`. The duplicate copy — the thing the parity
+test existed to pin, and the lockstep-edit hazard
+`planning/Compiler Pipeline.md:25` named — is deleted. Letter G retires the last
+caller when the `&str` adapters go.
+
+**9 — the parity test is not vacuous; it is the safety proof.** §Phase 3 says to
+delete `split_state_matches_the_name_domain_helpers` as "now-vacuous — with one
+grammar there is nothing to pin". Under Correction 8 that is false: the test
+compares the **structural** `parse(s).split_state()` against the string-domain
+`codegen::resource::{base_resource_name, state_type_name}` over 9 spellings, and
+those two are now genuinely different code paths (a variant match vs. the shared
+grammar). It is precisely the evidence that replacing render-and-re-split with a
+variant match changed nothing. Kept unmodified and passing.
+
+Added alongside it, not instead of it: `stateful_parses_top_level_only` (the
+nested-plane structures the guard protects, plus the non-splitting
+`A B STATE C`), `structural_split_state_agrees_with_the_string_grammar` (the same
+equivalence over 15 spellings, asserted directly against `split_state_clause`),
+and `stateful_round_trips_byte_exact` (16 spellings). `split_state_is_top_level_only`
+and `with_state_matches_parse_of_the_concatenated_spelling` (60 cases) both still
+pass **unmodified**.
+
+**10 — `with_state`'s leaf arm routes through `parse`, and must.** Its documented
+contract, asserted over 60 shapes by
+`with_state_matches_parse_of_the_concatenated_spelling`, is
+`t.with_state(s) == parse("{t} STATE {s}")`. A structural
+`Stateful { base: leaf.clone(), .. }` breaks it for exactly the leaves `parse`
+never produces: `with_state` on a `Var("T")` would hold `Var("T")` where the
+concatenated spelling reads back `Named("T")`. That divergence did not exist
+while both sides collapsed into one opaque `Named`. The leaf arm is therefore
+`parse(&format!("{leaf} STATE {state}"))` — one line, definitionally satisfying
+the contract, and correct for a space-containing base too (`parse` declines to
+split it, yielding the same opaque `Named` as before).
+
+**11 — a bug the variant found and this letter fixed: `http.startRead`'s
+descriptor spelled a stateful type it did not build.** plan-111-A §Non-goals
+requires that a converted site "make the same decision on the same input; if it
+cannot, that is a bug found — file it, fix it, and say so in the commit". This
+is that case.
+
+Making [`split_state`](src/types.rs) structural means a `ParameterType` that
+merely *spells* ` STATE ` no longer has one. `src/codegen/builtins/http/func_start_read.rs:76`
+built its return as `ParameterType::named("Stream STATE PendingState")` — an
+opaque nominal — so after the change the two sides of a binding disagreed:
+
+```
+RES s AS http::Stream STATE PendingState = http::startRead(u)
+  error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not
+  match declared type
+    Binding `s` has initializer type Stream STATE PendingState, expected Stream.
+```
+
+The declared side came through `parse` (a `Stateful`, whose state strips), the
+initializer side from the descriptor (a `Named`, whose state no longer strips).
+Caught by two independent tests at once: `descriptor_named_types_are_bare_nominals`
+named the exact descriptor and why, and `rt_http_async_stream`'s
+`async_stream_client_drives_a_full_exchange_over_the_union` failed to build.
+
+Fixed by adding `ParameterType::stateful(base, state)` and an
+`http::stream_state()` that uses it, replacing the `STREAM_STATE: &str` const.
+Both now pass.
+
+**The population is exactly one, and that was measured, not assumed.**
+`descriptor_named_types_are_bare_nominals` recurses through every registry
+descriptor type and reported 1. Outside the registry:
+`rg 'named\("[^"]* STATE |intern\("[^"]* STATE '` finds only this letter's own
+test fixture; no `*_TYPE`-style const holds a ` STATE ` spelling; and every other
+route into a stateful type (HIR elaborate, `.mfp` decode, IR decode) goes through
+`parse`. The two `ParameterType::named(&other.name())` re-wraps in
+`src/ir/shape.rs:870` and `:2249` are safe by inspection — they deliberately
+normalize *to* the old opaque nominal form, which is byte-for-byte what a
+`Named("File STATE Cursor")` already produced there.
 
 ## Summary
 

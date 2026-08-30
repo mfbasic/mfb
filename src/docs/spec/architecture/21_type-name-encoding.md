@@ -129,10 +129,26 @@ STATE rides the *element* (not the binding), so an extracted element reads
 element (a `STATE` is only meaningful on a resource).
 [[src/ast/expr.rs:parse_optional_element_state]]
 
+In the type model this clause is a variant: `ParameterType::parse` builds a
+`Stateful { base, state }` for a resource's own top-level ` STATE T`, so
+`File STATE Cursor` decomposes structurally instead of surviving as one opaque
+`Named` whose spelling every consumer had to re-split. `name()` renders it back
+byte-exact, so the encoding on this page is unchanged.
+[[src/types.rs:ParameterType]]
+
+**Top-level only.** A `Stateful` is built only when the text before ` STATE ` is
+a single bare token, so a clause nested inside an enclosing `List`/`Map`/`Thread`
+stays on the *element*: `List OF RES fs::File STATE Cursor` is
+`ListOf(Res(Stateful { .. }))`, and the outer list reports no state of its own.
+`ParameterType::split_state` is therefore a plain match on that variant.
+[[src/types.rs:split_state]]
+
 Consumers recover the underlying resource by first `strip_prefix("RES ")` and
 then splitting the ` STATE T` suffix with `base_resource_name` / `state_type_name`
 (composite-safe: they leave a ` STATE ` nested inside an enclosing `List`/`Map`/
-`Thread` intact). Element insertion (`append`/`insert`/`set`) compares the
+`Thread` intact). Those two are `&str` adapters over the single grammar
+`types::split_state_clause`, which is also what `parse` calls — the rule exists
+once. Element insertion (`append`/`insert`/`set`) compares the
 element and the item by their bare resource type, so an item passed with or
 without its STATE clause both resolve. [[src/codegen/resource/mod.rs:base_resource_name]]
 [[src/codegen/builtins/general/mod.rs:element_accepts_item]]

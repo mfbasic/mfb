@@ -33,6 +33,21 @@ To show a codegen fix changed only what it should: `scripts/linux-artifact-basel
 ### Scope: execution-free BY DESIGN
 `artifact-gate.sh` and `test-accept.sh` both source `scripts/artifact-kinds.sh` (one table of dump kinds: host `ast ir hex`, native `nir nplan nobj ncode mir`, app `nir nplan ncode`; `hex`→`-br`, else `-<kind>`). Add a new codegen-dump kind = edit ONE file. The 11 kinds NOT in the gate (`mfp`, `info`, `audit`, `testrun`, `covmap.json`, `covdata`, `covfail`) each need a link / `pkg info` / `audit` / `test` RUN step, so they're deliberately out of scope — do NOT "bring the gate to 19 kinds"; its `checked` count is correct. Baseline is literal `diffs=0`.
 
+## `cargo test … | tail` reports tail's exit code, not cargo's
+
+zsh gives a pipeline the **last** command's status, so `cargo test --no-fail-fast … 2>&1 | tail -40` exits 0 no matter how many tests failed — and `tail -40` also shows only the last target's summary, which is usually a tiny one. A green-looking tail is not a green suite. Redirect to a file and check cargo's own status:
+
+```
+cargo test --no-fail-fast -- --skip artifact_gate_all > /tmp/run.log 2>&1; echo "EXIT=$?"
+grep -c '^failures:' /tmp/run.log     # must be 0
+```
+
+`--skip artifact_gate_all` matters too: `tests/golden.rs` holds exactly one test and it shells out to `scripts/artifact-gate.sh all`, so a plain `cargo test` **is** the full cross-target sweep.
+
+## The plan-111 no-type-strings ratchet (`tests/no_type_strings.rs`)
+
+A budgeted whole-tree scan, not a boolean — see `.ai/codegen-invariants.md` for the seven classes and the two traps (the table is tight in both directions, so clearing sites without lowering the row is a red test; and it must not use `architecture_guards.rs`'s `code_above_tests`, which truncates a file at its first `#[cfg(test)]`).
+
 ## Linker-stage changes are invisible to the artifact-gate
 
 The `.ncodesum` artifact-gate golden is generated PRE-link. A `write_executable` section/header change cannot shift it, because the gate stops at the codegen dump stages before any linking happens, and there is no full linked-executable golden anywhere in the tree. To verify a linker-stage change, dump a real *built* executable (section/header layout of an actually-linked exe) and inspect that — do NOT rely on the artifact-gate, which will stay green regardless.

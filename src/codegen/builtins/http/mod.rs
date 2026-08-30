@@ -95,7 +95,20 @@ mod helper_wait_readable;
 pub(crate) const RESPONSE_TYPE: &str = "Response";
 pub(crate) const REQUEST_TYPE: &str = "Request";
 pub(crate) const ROUTE_TYPE: &str = "Route";
-pub(crate) const STREAM_STATE: &str = "Stream STATE PendingState";
+/// The stateful `Stream` a non-blocking exchange hands back. Built
+/// structurally, not as `named(STREAM_STATE)`: a `ParameterType` that merely
+/// *spells* ` STATE ` is an opaque nominal, and since plan-111-A gave `STATE` a
+/// variant that nominal reports no state and compares unequal to the same
+/// spelling parsed from a source annotation. As `named(...)` this made
+/// `RES s AS http::Stream STATE PendingState = http::startRead(u)` fail with
+/// `TYPE_BINDING_MISMATCH` ("initializer type Stream STATE PendingState,
+/// expected Stream").
+pub(crate) fn stream_state() -> ParameterType {
+    ParameterType::stateful(
+        ParameterType::named("Stream"),
+        ParameterType::named("PendingState"),
+    )
+}
 pub(crate) const LISTENER_TYPE: &str = "net.Listener";
 pub(crate) const TLS_LISTENER_TYPE: &str = "tls.TlsListener";
 pub(crate) const FILE_TYPE: &str = "fs.File";

@@ -581,7 +581,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     ("parse_sites", "resolver", 1),
     // --- 2. a type taken as `&str` — 173. Letters B, D, E, F, G.
     ("str_type_params", "binary_repr", 4),
-    ("str_type_params", "codegen", 142),
+    ("str_type_params", "codegen", 141),
     ("str_type_params", "hir", 1),
     ("str_type_params", "ir", 13),
     ("str_type_params", "monomorph", 3),
@@ -605,7 +605,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // --- 5. a hand-rolled second grammar — 37. Letter A (types/codegen, the
     //     `STATE` variant), then B, E, G.
     ("hand_rolled_grammar", "binary_repr", 3),
-    ("hand_rolled_grammar", "codegen", 8),
+    ("hand_rolled_grammar", "codegen", 7),
     ("hand_rolled_grammar", "ir", 1),
     ("hand_rolled_grammar", "resolver", 1),
     ("hand_rolled_grammar", "types", 24),
