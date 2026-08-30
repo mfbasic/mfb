@@ -198,7 +198,13 @@ Commit: 9b62dcf23, and the fixture move below
 Acceptance: `mfb man net --all`, `tcp --all`, `udp --all`, and `tls --all` enumerate exactly the
 requested public members/types (plus the established `toString(net::Url)` general override), and
 legacy source fails with a precise unknown-member/type diagnostic.
-Commit: —
+Verified 2026-08-30: `mfb man net` lists exactly `lookup`, `parseQuery`, `percentDecode`, `ping`,
+`toUrl` and `mfb man net types` exactly `Url`, `Address`, `PingResult`, `PingStatus` -- **no
+Resources section at all**; `tcp` 11 members + `Socket`/`Listener`; `udp` 8 + `Socket`/`Datagram`;
+`tls` 11 + `Socket`/`Listener`, no `wrap`, no `readText`/`writeText`. Legacy source fails per
+`tests/syntax/net/net_stream_surface_removed_invalid` (20 "does not export" diagnostics) and
+`tests/syntax/tcp/func_tcp_removed_members_invalid`.
+Commit: fb1d1b0f1 (descriptor removal), fadcbc04e (emitter split + the sweep it exposed)
 
 ## Validation Plan
 
