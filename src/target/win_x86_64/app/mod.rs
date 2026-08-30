@@ -31,6 +31,7 @@ use crate::codegen::engine::types::CodeFrame;
 use crate::codegen::engine::types::CodeFunction;
 use crate::codegen::engine::types::CodeInstruction;
 use crate::codegen::engine::types::CodeRelocation;
+use crate::codegen::engine::types::PresentationMode;
 use crate::codegen::engine::types::RelocIntent;
 use crate::codegen::error::constants::ARENA_ALLOC_SYMBOL;
 use crate::codegen::error::constants::ARENA_STATE_REGISTER;
@@ -123,6 +124,27 @@ const INPUT_BUF_SYM: &str = "_mfb_winapp_inputbuf";
 /// so the UI thread — which owns the window — performs teardown; a worker-thread
 /// `ExitProcess` while the window/message-loop is live faults in GDI teardown.
 const WM_APP_QUIT: &str = "32768"; // WM_APP (0x8000)
+/// plan-98-A Phase 3: a custom worker→UI presentation-mode reconcile signal
+/// (`WM_APP + 1`), `wParam` = the new `Mode` discriminant. Sent with `SendMessageW`,
+/// not posted: `SendMessageW` from a non-owning thread blocks until the owning
+/// thread's message pump dispatches it, which is the Win32 analogue of macOS's
+/// `performSelectorOnMainThread:waitUntilDone:YES` — the worker's next `getMode` or
+/// `io::` call must observe the reconciled surface, so the marshal has to be
+/// synchronous.
+const WM_APP_RECONCILE: &str = "32769"; // WM_APP + 1 (0x8001)
+/// Writable 8-byte global holding the main window's HWND *while in `Mode.Canvas`*,
+/// and 0 otherwise. On Windows the HWND itself is the native surface handle
+/// (`VK_KHR_win32_surface` takes an `HWND`), so there is nothing to create — this
+/// records that a canvas surface is currently presented, which is what makes
+/// "retrievable in canvas mode, released after exit" observable, and is where
+/// plan-98-F reads the handle from.
+const CANVAS_HWND_SYM: &str = "_mfb_winapp_canvas_hwnd";
+/// Writable 8-byte global holding the transcript EDIT's HWND *unconditionally* —
+/// the surviving copy of [`EDIT_HWND_SYM`], which the reconcile zeroes outside
+/// `Console` so `io::` writes degrade to the fd sink (the mode's write contract, and
+/// the exact analogue of the macOS `ASSOC_KEY` clear). Restoring `Console` copies
+/// this back, so the transcript control is never lost, only unrouted.
+const EDIT_HWND_SAVED_SYM: &str = "_mfb_winapp_edit_hwnd_saved";
 
 // WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_AUTOVSCROLL. NOT ES_READONLY: a
 // read-only EDIT ignores EM_REPLACESEL, so programmatic transcript appends would
@@ -306,11 +328,11 @@ fn code_function(
 /// shim, and `WndProc`. The io/term bodies are supplied by the separate
 /// `emit_app_*_helper` trait methods.
 pub(super) fn emit_app_program_entry(
-    _spec: &AppEntrySpec,
+    spec: &AppEntrySpec,
     _platform_imports: &HashMap<String, String>,
 ) -> Result<Vec<CodeFunction>, String> {
     Ok(vec![
-        emit_main(),
+        emit_main(spec.initial_mode),
         emit_worker(),
         emit_wndproc(),
         emit_editproc(),
@@ -322,7 +344,7 @@ pub(super) fn emit_app_program_entry(
 /// stack args [0x20..0x60], WNDCLASSEXW [0x60..0xB0], MSG [0xB0..0xE0],
 /// hInstance @0xE0, hwnd @0xE8, worker HANDLE @0xF0. FRAME 0xF8 keeps the PE
 /// entry's `sp % 16 == 8` arrival 16-aligned before the first call.
-fn emit_main() -> CodeFunction {
+fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     const FRAME: usize = 0x118;
     const WNDCLASS: usize = 0x60;
     const MSG: usize = 0xB0;
@@ -489,6 +511,18 @@ fn emit_main() -> CodeFunction {
     // the return register, so the fresh handle survives the address computation).
     load_addr(abi::mfb_arg(1), EDIT_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::return_register(), abi::mfb_arg(1), 0));
+    // plan-98-A Phase 3: the surviving copy. The reconcile zeroes EDIT_HWND_SYM
+    // outside `Console` so `io::` writes degrade to the fd sink; without this second
+    // global the control's handle would be lost on the first mode switch and
+    // `Console` could never be restored.
+    load_addr(
+        abi::mfb_arg(1),
+        EDIT_HWND_SAVED_SYM,
+        from,
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::store_u64(abi::return_register(), abi::mfb_arg(1), 0));
 
     // ---- plan-66-J-4 input wiring (GUI path) ----
     // CreatePipe(&hRead, &hWrite, NULL, 0): a byte pipe whose READ end becomes the
@@ -558,6 +592,21 @@ fn emit_main() -> CodeFunction {
         abi::stack_pointer(),
         WORKERH,
     ));
+
+    // ---- plan-98-A Phase 3: honour the static initial presentation mode ----
+    // A program that references `app::setMode` starts in `None` (the compiler's
+    // static rule), so it must start windowless — otherwise a canvas program would
+    // flash a transcript window before its first `setMode`. The window and its EDIT
+    // are still fully built above: only their visibility differs, so a later
+    // `setMode(Console)` re-shows an already-wired transcript, and the io routing
+    // global starts cleared so writes degrade to the fd sink until then.
+    if initial_mode == PresentationMode::None {
+        load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
+        ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(0), 0));
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HWND));
+        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", SW_HIDE));
+        call_external(from, "ShowWindow", USER32, &mut ins, &mut rel);
+    }
 
     // ---- plan-66-J-4 keystroke injection (test affordance) ----
     // If MFB_WINAPP_INPUT is set, post each of its characters as a WM_CHAR to the
@@ -891,9 +940,125 @@ fn emit_wndproc() -> CodeFunction {
     ins.push(abi::return_());
     ins.push(abi::label("wnd_check_destroy"));
     ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_DESTROY));
-    ins.push(abi::branch_ne("wnd_default"));
+    ins.push(abi::branch_ne("wnd_check_reconcile"));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     call_external(from, "PostQuitMessage", USER32, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+
+    // ---- plan-98-A Phase 3: WM_APP_RECONCILE (wParam = the new Mode) ----
+    //
+    // Runs on the UI thread, which owns the window, because the worker sent this
+    // with `SendMessageW` and is blocked until it returns. Three-way dispatch:
+    //
+    //   Console (0): route io back to the transcript, show the EDIT and the window.
+    //   None    (1): unroute io (writes degrade to the fd sink), hide the window.
+    //   Canvas  (2): unroute io, hide the EDIT so the client area is bare, show the
+    //                window, and publish the HWND as the canvas surface handle.
+    //
+    // On Windows the HWND *is* the native surface handle (`VK_KHR_win32_surface`
+    // takes one), so there is nothing to create: baring the client area and
+    // publishing the handle is the whole surface build, and clearing the handle is
+    // the whole teardown.
+    ins.push(abi::label("wnd_check_reconcile"));
+    ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_APP_RECONCILE));
+    ins.push(abi::branch_ne("wnd_default"));
+    ins.push(abi::compare_immediate(abi::mfb_arg(2), "2"));
+    ins.push(abi::branch_eq("wnd_reconcile_canvas"));
+    ins.push(abi::compare_immediate(abi::mfb_arg(2), "0"));
+    ins.push(abi::branch_ne("wnd_reconcile_none"));
+
+    // --- Console: re-route io to the transcript, show the EDIT, show the window ---
+    // EDIT_HWND_SYM = EDIT_HWND_SAVED_SYM (the io write helper's routing test).
+    load_addr(
+        abi::mfb_arg(0),
+        EDIT_HWND_SAVED_SYM,
+        from,
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    load_addr(abi::mfb_arg(1), EDIT_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
+    // The canvas teardown: clear the published handle and re-show the EDIT. Safe to
+    // run unconditionally — the mode being *left* is recorded nowhere, so a
+    // conditional would have to invent that state, and ShowWindow on an already
+    // visible control is a no-op.
+    load_addr(abi::mfb_arg(0), CANVAS_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(0), 0));
+    load_addr(
+        abi::mfb_arg(0),
+        EDIT_HWND_SAVED_SYM,
+        from,
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_eq("wnd_reconcile_show"));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", SW_SHOW));
+    call_external(from, "ShowWindow", USER32, &mut ins, &mut rel);
+    ins.push(abi::label("wnd_reconcile_show"));
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", SW_SHOW));
+    call_external(from, "ShowWindow", USER32, &mut ins, &mut rel);
+    ins.push(abi::branch("wnd_reconcile_done"));
+
+    // --- Canvas: bare client area, window shown, HWND published ---
+    ins.push(abi::label("wnd_reconcile_canvas"));
+    // Unroute io: canvas mode has no transcript, so writes degrade to the fd sink.
+    load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(0), 0));
+    // Hide the transcript EDIT so the client area is the canvas surface.
+    load_addr(
+        abi::mfb_arg(0),
+        EDIT_HWND_SAVED_SYM,
+        from,
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_eq("wnd_reconcile_canvas_show"));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", SW_HIDE));
+    call_external(from, "ShowWindow", USER32, &mut ins, &mut rel);
+    ins.push(abi::label("wnd_reconcile_canvas_show"));
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", SW_SHOW));
+    call_external(from, "ShowWindow", USER32, &mut ins, &mut rel);
+    // Publish the HWND *after* showing it: a hidden window is still a valid
+    // `VK_KHR_win32_surface` target, but publishing only once presented keeps the
+    // handle's meaning "a canvas surface is currently on screen".
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
+    load_addr(abi::mfb_arg(1), CANVAS_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
+    ins.push(abi::branch("wnd_reconcile_done"));
+
+    // --- None: unroute io, tear the canvas down, hide the window ---
+    ins.push(abi::label("wnd_reconcile_none"));
+    load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(0), 0));
+    load_addr(abi::mfb_arg(0), CANVAS_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::ZERO, abi::mfb_arg(0), 0));
+    load_addr(
+        abi::mfb_arg(0),
+        EDIT_HWND_SAVED_SYM,
+        from,
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_eq("wnd_reconcile_hide"));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", SW_SHOW));
+    call_external(from, "ShowWindow", USER32, &mut ins, &mut rel);
+    ins.push(abi::label("wnd_reconcile_hide"));
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", SW_HIDE));
+    call_external(from, "ShowWindow", USER32, &mut ins, &mut rel);
+
+    ins.push(abi::label("wnd_reconcile_done"));
     ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
@@ -2833,6 +2998,58 @@ fn emit_term_sync(
     relocations.extend(rel);
 }
 
+/// plan-98-A Phase 3 (worker side): the `app::setMode` reconcile seam. `setMode`
+/// has already stored the new mode into the presentation slot; this reloads it and
+/// `SendMessageW`s `WM_APP_RECONCILE` to the main window, so the UI thread — which
+/// owns the window — performs the surface build/teardown.
+///
+/// `SendMessageW`, not `PostMessageW`: a cross-thread `SendMessageW` blocks until
+/// the owning thread's message pump dispatches it, so `setMode` returns only once
+/// the surface matches. That is required, not stylistic — the worker's next
+/// `getMode`/`io::` call must observe the reconciled surface, and it is the same
+/// synchronous contract macOS gets from `waitUntilDone:YES`.
+///
+/// A no-op when `MAIN_HWND_SYM` is 0. That is the headless case: `_main` takes the
+/// `headless_spawn` path, which builds no window and runs no message loop, so a
+/// `SendMessageW` would have no pump to dispatch it and would block the worker
+/// forever. Same shape, same reason, as the macOS marshal's nil-delegate skip.
+///
+/// Appended into the shared (vreg-lowered) `setMode` helper, so it names only the
+/// `mfb_arg` role tokens — never a physical register (plan-34-D), and never
+/// `c_arg`/`SCRATCH`, whose Win64 realizations alias the callee-saved bank.
+pub(super) fn emit_reconcile_seam(
+    symbol: &str,
+    presentation_mode_offset: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let from = symbol;
+    let skip = format!("{symbol}_reconcile_skip");
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    load_addr(abi::mfb_arg(0), MAIN_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_eq(&skip));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(1),
+        "Integer",
+        WM_APP_RECONCILE,
+    ));
+    // wParam = the authoritative mode, reloaded from the slot rather than trusted to
+    // a register the address loads above have already clobbered.
+    ins.push(abi::load_u64(
+        abi::mfb_arg(2),
+        ARENA_STATE_REGISTER,
+        presentation_mode_offset,
+    ));
+    ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "0")); // lParam
+    call_external(from, "SendMessageW", USER32, &mut ins, &mut rel);
+    ins.push(abi::label(&skip));
+    instructions.extend(ins);
+    relocations.extend(rel);
+}
+
 /// `term::terminalSize()`: return `{ columns, rows }` (the fixed grid dims) as an
 /// arena-allocated 16-byte record. Result value = record ptr, tag = OK.
 fn emit_term_size(
@@ -2936,6 +3153,11 @@ pub(super) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         // transcript EDIT HWND and the main window HWND, both 0 until built.
         writable_qword(EDIT_HWND_SYM),
         writable_qword(MAIN_HWND_SYM),
+        // plan-98-A Phase 3: the presentation-mode reconcile's globals — the
+        // canvas-mode HWND (0 outside canvas mode) and the unrouted-but-surviving
+        // copy of the transcript EDIT HWND.
+        writable_qword(CANVAS_HWND_SYM),
+        writable_qword(EDIT_HWND_SAVED_SYM),
         // plan-66-J-4 input state: the pipe write handle and the EDIT's original
         // window proc, both written by `_main` at window build (0 until then).
         writable_qword(STDIN_WRITE_SYM),
@@ -3314,5 +3536,183 @@ mod tests {
             "the wbuf NUL offset must be clamped to ≤ 32767 wchars so it stays within \
              the 65536-byte wbuf (bug-418); found no `cmp_imm rhs=32767` before the store"
         );
+    }
+}
+
+#[cfg(test)]
+/// plan-98-A Phase 3: the Windows presentation-mode reconcile and its
+/// `Mode.Canvas` arm.
+///
+/// Structural, not behavioral: the dev/CI host is macOS and cannot execute a PE.
+/// This mirrors how the rest of this backend's coverage works.
+mod canvas_reconcile_tests {
+    use super::*;
+    use crate::arch::ops::CodeOp;
+
+    fn spec(initial_mode: PresentationMode) -> AppEntrySpec {
+        AppEntrySpec {
+            language_entry_accepts_args: false,
+            uses_term: false,
+            initial_mode,
+        }
+    }
+
+    fn func(symbol: &str, initial_mode: PresentationMode) -> CodeFunction {
+        emit_app_program_entry(&spec(initial_mode), &HashMap::new())
+            .expect("app entry")
+            .into_iter()
+            .find(|f| f.symbol == symbol)
+            .unwrap_or_else(|| panic!("{symbol} must be emitted"))
+    }
+
+    fn externals(f: &CodeFunction, name: &str) -> usize {
+        f.relocations.iter().filter(|r| r.to == name).count()
+    }
+
+    fn compare_immediates(f: &CodeFunction) -> Vec<String> {
+        f.instructions
+            .iter()
+            .filter(|i| i.op == CodeOp::CmpImm)
+            .filter_map(|i| {
+                i.fields
+                    .iter()
+                    .find(|(name, _)| *name == "rhs")
+                    .map(|(_, value)| value.to_string())
+            })
+            .collect()
+    }
+
+    /// The seam must marshal to the UI thread with SendMessageW, not PostMessageW:
+    /// a cross-thread SendMessageW blocks until the owning thread's pump dispatches
+    /// it, so `setMode` returns only once the surface matches. Posting would let
+    /// the worker's next `getMode`/`io::` call observe the OLD surface.
+    #[test]
+    fn reconcile_seam_marshals_synchronously() {
+        let mut ins = Vec::new();
+        let mut rel = Vec::new();
+        emit_reconcile_seam("_mfb_rt_app_app_setMode", 4096, &mut ins, &mut rel);
+        assert_eq!(
+            rel.iter().filter(|r| r.to == "SendMessageW").count(),
+            1,
+            "the seam must SendMessageW (synchronous) the reconcile to the UI thread"
+        );
+        assert_eq!(
+            rel.iter().filter(|r| r.to == "PostMessageW").count(),
+            0,
+            "PostMessageW would return before the surface was reconciled"
+        );
+    }
+
+    /// Headless builds no window and runs no message pump, so a SendMessageW would
+    /// have nothing to dispatch it and would block the worker forever. The seam
+    /// must therefore test the main-window global and skip when it is null — the
+    /// same shape, and the same reason, as the macOS nil-delegate skip.
+    #[test]
+    fn reconcile_seam_skips_when_there_is_no_window() {
+        let mut ins = Vec::new();
+        let mut rel = Vec::new();
+        emit_reconcile_seam("_mfb_rt_app_app_setMode", 4096, &mut ins, &mut rel);
+        assert!(
+            rel.iter().any(|r| r.to == MAIN_HWND_SYM),
+            "the seam must read the main-window global to detect headless"
+        );
+        let guard = ins.iter().position(|i| i.op == CodeOp::BranchEq);
+        let send = ins.iter().position(|i| i.op == CodeOp::BranchLink);
+        assert!(
+            matches!((guard, send), (Some(g), Some(s)) if g < s),
+            "the null-window guard must precede the SendMessageW, or a headless \
+             worker deadlocks"
+        );
+    }
+
+    /// `Canvas` (2) must be dispatched before the `Console`-or-not test: with a
+    /// third variant "not Console" no longer implies `None`, so the two-way shape
+    /// would hide the window the instant a program entered canvas mode.
+    #[test]
+    fn wndproc_dispatches_canvas_before_the_console_test() {
+        let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
+        let immediates = compare_immediates(&wndproc);
+        let message = immediates
+            .iter()
+            .position(|value| value == WM_APP_RECONCILE)
+            .expect("the wndproc must handle WM_APP_RECONCILE");
+        let canvas = immediates
+            .iter()
+            .skip(message)
+            .position(|value| value == "2")
+            .expect("the reconcile arm must test for the Canvas discriminant");
+        let console = immediates
+            .iter()
+            .skip(message)
+            .position(|value| value == "0")
+            .expect("the reconcile arm must test for the Console discriminant");
+        assert!(
+            canvas < console,
+            "Canvas (2) must be dispatched before the Console/not-Console test; \
+             got {immediates:?}"
+        );
+    }
+
+    /// The canvas arm publishes the HWND (Windows' native surface handle) and both
+    /// non-canvas arms clear it, so "retrievable in canvas mode, released after
+    /// exit" is a real invariant rather than a stale last-value.
+    #[test]
+    fn canvas_hwnd_is_published_by_one_arm_and_cleared_by_the_others() {
+        let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
+        assert_eq!(
+            externals(&wndproc, CANVAS_HWND_SYM),
+            6,
+            "3 address loads (Canvas publishes, Console and None clear), each an \
+             adrp/add pair = 2 relocations"
+        );
+    }
+
+    /// The transcript EDIT's handle must survive being unrouted. The reconcile
+    /// zeroes EDIT_HWND_SYM outside Console so io writes degrade to the fd sink;
+    /// without the saved copy the control would be unreachable forever after the
+    /// first mode switch and Console could never be restored.
+    #[test]
+    fn edit_hwnd_has_a_surviving_copy() {
+        let main = func(MAIN_SYMBOL, PresentationMode::Console);
+        assert!(
+            externals(&main, EDIT_HWND_SAVED_SYM) >= 2,
+            "_main must stash the EDIT hwnd where the reconcile can restore it from"
+        );
+        let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
+        assert!(
+            externals(&wndproc, EDIT_HWND_SAVED_SYM) >= 2,
+            "the reconcile must read the saved EDIT hwnd to restore Console routing"
+        );
+    }
+
+    /// A program referencing `app::setMode` starts in `None`, so it must start
+    /// windowless — otherwise a canvas program flashes a transcript window before
+    /// its first setMode. Console-default `_main` must NOT gain that hide.
+    #[test]
+    fn none_default_starts_windowless_and_console_default_does_not() {
+        let none = func(MAIN_SYMBOL, PresentationMode::None);
+        let console = func(MAIN_SYMBOL, PresentationMode::Console);
+        assert_eq!(
+            externals(&console, "ShowWindow"),
+            0,
+            "a Console-default program must keep its exact startup path"
+        );
+        assert_eq!(
+            externals(&none, "ShowWindow"),
+            1,
+            "a None-default program must hide the window at startup"
+        );
+    }
+
+    /// Every global the arm addresses must be emitted, or the relocations dangle.
+    #[test]
+    fn canvas_globals_are_emitted() {
+        let objects = app_mode_data_objects("proj");
+        for symbol in [CANVAS_HWND_SYM, EDIT_HWND_SAVED_SYM] {
+            assert!(
+                objects.iter().any(|d| d.symbol == symbol),
+                "{symbol} must be emitted as a writable global"
+            );
+        }
     }
 }

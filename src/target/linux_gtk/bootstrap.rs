@@ -337,24 +337,20 @@ pub(crate) fn emit_reconcile_seam(
     relocations.extend(asm.rel);
 }
 
-/// plan-62-D Phase 2 (GTK main loop): the `g_idle_add` callback that reconciles the
-/// window to the presentation mode. `x0` = the new mode (the user-data). `Console`
-/// builds the transcript window on the first switch (or re-shows it), re-points the
-/// io-routing text buffer, and releases the windowless hold; `None` hides the
-/// window, clears the buffer (io → stdout fd), and re-takes the hold. Exactly one
-/// aliveness source is kept via `ST_HELD`. Returns `G_SOURCE_REMOVE` (0) so the
-/// idle fires once. The state lives in `STATE_SYMBOL` globals (not the arena), so
-/// this main-thread callback needs no arena register.
-pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
-    let mut asm = Asm::new(RECONCILE_IDLE_SYMBOL);
-    let frame = 16; // lr@0, x19(mode)@8
-    let none = format!("{RECONCILE_IDLE_SYMBOL}_none");
-    let show = format!("{RECONCILE_IDLE_SYMBOL}_show");
-    let after_console = format!("{RECONCILE_IDLE_SYMBOL}_after_console");
-    let release_skip = format!("{RECONCILE_IDLE_SYMBOL}_release_skip");
-    let hide_skip = format!("{RECONCILE_IDLE_SYMBOL}_hide_skip");
-    let hold_skip = format!("{RECONCILE_IDLE_SYMBOL}_hold_skip");
-    let done = format!("{RECONCILE_IDLE_SYMBOL}_done");
+/// plan-98-A Phase 3 (GTK main loop): build the transcript window — window +
+/// scrolled container + non-editable monospace text view + its buffer — and install
+/// the scrolled window as the window's child. Factored out of the reconcile's
+/// `Console` arm so the `Canvas` arm can reuse it: a canvas-first program has never
+/// presented a surface, so `ST_WINDOW` is null when it enters canvas mode, and both
+/// arms must be able to create the window. Building the transcript even for a canvas
+/// program is deliberate — it is what the canvas teardown restores the window's
+/// child *to* on mode exit.
+///
+/// The scrolled window is `g_object_ref_sink`ed so it survives `gtk_window_set_child`
+/// swapping it out for the canvas area and back.
+pub(super) fn emit_reconcile_build_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(RECONCILE_BUILD_SYMBOL);
+    let frame = 16;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(
@@ -362,16 +358,7 @@ pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
         abi::stack_pointer(),
         0,
     ));
-    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
-    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // mode
-    asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
-    asm.push(abi::branch_ne(&none)); // mode != Console → None path
-
-    // --- Console: build (first time) or re-show the transcript window ---
-    asm.load_state(abi::c_arg(0), ST_WINDOW);
-    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
-    asm.push(abi::branch_ne(&show)); // window already built → present it
-                                     // window = gtk_application_window_new(app); title; default size.
+    // window = gtk_application_window_new(app); title; default size.
     asm.load_state(abi::c_arg(0), ST_APPLICATION);
     asm.call_external("gtk_application_window_new");
     asm.store_state(abi::c_return(0), ST_WINDOW);
@@ -405,6 +392,94 @@ pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
     asm.load_state(abi::c_arg(0), ST_WINDOW);
     asm.load_state(abi::c_arg(1), ST_SCROLLED);
     asm.call_external("gtk_window_set_child");
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    asm.finish(RECONCILE_BUILD_SYMBOL, "Nothing")
+}
+
+/// plan-98-A Phase 3 (GTK main loop): tear the canvas surface down on the way *out*
+/// of `Mode.Canvas` — restore the transcript's scrolled window as the window's
+/// child and clear `ST_CANVAS_SURFACE`, so the native handle is genuinely
+/// unavailable outside canvas mode rather than left dangling at its last value.
+///
+/// A no-op when no canvas area was ever built, so both non-canvas arms can call it
+/// unconditionally: the mode being *left* is recorded nowhere, so a conditional
+/// would have to invent that state.
+fn emit_canvas_teardown(asm: &mut Asm, label: &str) {
+    let done = format!("{label}_no_canvas");
+    asm.load_state(abi::c_arg(0), ST_CANVAS_AREA);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&done));
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&done));
+    asm.load_state(abi::c_arg(1), ST_SCROLLED);
+    asm.push(abi::compare_immediate(abi::c_arg(1), "0"));
+    asm.push(abi::branch_eq(&done));
+    // gtk_window_set_child(window, scrolled) — unparents the canvas area, which
+    // survives on its ref_sink reference for the next entry.
+    asm.call_external("gtk_window_set_child");
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    asm.store_state("x10", ST_CANVAS_SURFACE);
+    asm.push(abi::label(&done));
+}
+
+/// plan-62-D Phase 2 / plan-98-A Phase 3 (GTK main loop): the `g_idle_add` callback
+/// that reconciles the window to the presentation mode. `x0` = the new mode (the
+/// user-data).
+///
+/// - `Console` builds the transcript window on the first switch (or re-shows it),
+///   re-points the io-routing text buffer, and releases the windowless hold.
+/// - `None` hides the window, clears the buffer (io → stdout fd), and re-takes the
+///   hold.
+/// - `Canvas` ensures the window exists, installs the `GtkDrawingArea` canvas
+///   surface as its child, clears the io buffer (io → stdout fd, as canvas mode has
+///   no transcript to append to), presents, reads the native `GdkSurface*` into
+///   `ST_CANVAS_SURFACE`, and releases the hold — a presented window owns aliveness.
+///
+/// Both non-canvas arms run the canvas teardown first, so leaving canvas by either
+/// route restores the transcript child. The dispatch is an explicit three-way test
+/// rather than the old "`0` or not-`0`": with a third variant "not `Console`" no
+/// longer implies `None`, and treating `Canvas` as `None` would hide the window the
+/// instant a program entered canvas mode.
+///
+/// Exactly one aliveness source is kept via `ST_HELD`. Returns `G_SOURCE_REMOVE`
+/// (0) so the idle fires once. The state lives in `STATE_SYMBOL` globals (not the
+/// arena), so this main-thread callback needs no arena register.
+pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(RECONCILE_IDLE_SYMBOL);
+    let frame = 16; // lr@0, x19(mode)@8
+    let none = format!("{RECONCILE_IDLE_SYMBOL}_none");
+    let canvas = format!("{RECONCILE_IDLE_SYMBOL}_canvas");
+    let show = format!("{RECONCILE_IDLE_SYMBOL}_show");
+    let after_console = format!("{RECONCILE_IDLE_SYMBOL}_after_console");
+    let release_skip = format!("{RECONCILE_IDLE_SYMBOL}_release_skip");
+    let hide_skip = format!("{RECONCILE_IDLE_SYMBOL}_hide_skip");
+    let hold_skip = format!("{RECONCILE_IDLE_SYMBOL}_hold_skip");
+    let done = format!("{RECONCILE_IDLE_SYMBOL}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // mode
+                                                                // Three-way dispatch: Console(0) falls through, Canvas(2) and None(1) branch.
+    asm.push(abi::compare_immediate(abi::LOCAL[0], "2"));
+    asm.push(abi::branch_eq(&canvas));
+    asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+    asm.push(abi::branch_ne(&none)); // mode != Console → None path
+
+    // --- Console: build (first time) or re-show the transcript window ---
+    // Leaving canvas (if we were in it) restores the transcript child first.
+    emit_canvas_teardown(&mut asm, &format!("{RECONCILE_IDLE_SYMBOL}_console_td"));
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_ne(&show)); // window already built → present it
+    asm.call_internal(RECONCILE_BUILD_SYMBOL);
     asm.push(abi::branch(&after_console));
     // Re-show an existing window: re-point the io-routing buffer (a prior None
     // cleared it) at the surviving text view, then present.
@@ -426,8 +501,60 @@ pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
     asm.push(abi::label(&release_skip));
     asm.push(abi::branch(&done));
 
+    // --- Canvas (plan-98-A Phase 3): the layer/renderer-ready drawing surface ---
+    asm.push(abi::label(&canvas));
+    let canvas_have_window = format!("{RECONCILE_IDLE_SYMBOL}_canvas_have_window");
+    let canvas_have_area = format!("{RECONCILE_IDLE_SYMBOL}_canvas_have_area");
+    let canvas_release_skip = format!("{RECONCILE_IDLE_SYMBOL}_canvas_release_skip");
+    // Ensure a window exists (a canvas-first program never took the Console path).
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_ne(&canvas_have_window));
+    asm.call_internal(RECONCILE_BUILD_SYMBOL);
+    asm.push(abi::label(&canvas_have_window));
+    // Ensure the canvas drawing area exists. ref_sink so `gtk_window_set_child`
+    // swapping it away on mode exit unparents rather than destroys it — enter →
+    // exit → re-enter reuses this one widget.
+    asm.load_state(abi::c_arg(0), ST_CANVAS_AREA);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_ne(&canvas_have_area));
+    asm.call_external("gtk_drawing_area_new");
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+    asm.call_external("g_object_ref_sink");
+    asm.store_state(abi::c_return(0), ST_CANVAS_AREA);
+    asm.push(abi::label(&canvas_have_area));
+    // gtk_window_set_child(window, canvasArea) — the canvas replaces the transcript.
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.load_state(abi::c_arg(1), ST_CANVAS_AREA);
+    asm.call_external("gtk_window_set_child");
+    // Clear the io-routing buffer: canvas mode has no transcript, so `io::` writes
+    // degrade to the fd sink (stdout), matching the mode's I/O contract.
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    asm.store_state("x10", ST_TEXT_BUFFER);
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.call_external("gtk_window_present");
+    // Read the native surface handle. Must come *after* `gtk_window_present`: an
+    // unrealized window has no `GdkSurface`, so reading it earlier would store null
+    // and plan-98-F would have nothing to build a `VkSurfaceKHR` from.
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.call_external("gtk_native_get_surface");
+    asm.store_state(abi::c_return(0), ST_CANVAS_SURFACE);
+    // A presented window owns aliveness — drop the windowless hold if one is active.
+    asm.load_state(abi::c_arg(0), ST_HELD);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&canvas_release_skip));
+    asm.load_state(abi::c_arg(0), ST_APPLICATION);
+    asm.call_external("g_application_release");
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    asm.store_state("x10", ST_HELD);
+    asm.push(abi::label(&canvas_release_skip));
+    asm.push(abi::branch(&done));
+
     // --- None: hide the window, route io to the fd, keep the app alive ---
     asm.push(abi::label(&none));
+    // Leaving canvas (if we were in it) restores the transcript child, so the canvas
+    // area is not left installed on a hidden window.
+    emit_canvas_teardown(&mut asm, &format!("{RECONCILE_IDLE_SYMBOL}_none_td"));
     asm.load_state(abi::c_arg(0), ST_WINDOW);
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
     asm.push(abi::branch_eq(&hide_skip));

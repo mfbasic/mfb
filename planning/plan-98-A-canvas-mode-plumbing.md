@@ -325,10 +325,17 @@ tiered `src/codegen`", 2026-08-17, deleted `src/target/shared/code/`):
   `prepend_wrong_mode_gate` pattern (`src/codegen/app/hook/app.rs:39` — early-returns
   when `presentation_mode_offset` is `None`); a `Canvas` arm added to the same branch
   inherits that.
-- **Headless construction exercises the surface path without a window server on
-  macOS.** VERIFIED from `src/target/macos_aarch64/app/bootstrap.rs:87` (headless still
-  runs AppKit construction + worker). UNVERIFIED for the GTK/Windows equivalents doing
-  full surface construction headless — Phase task confirms before relying on it.
+- ~~**Headless construction exercises the surface path without a window server on
+  macOS.**~~ **CORRECTED during Phase 3 (Correction 15).** True only of the
+  *bootstrap's* AppKit construction, which runs before the headless branch at
+  `src/target/macos_aarch64/app/bootstrap.rs:87`. It does **not** extend to the
+  reconcile: headless installs no app delegate, and
+  `_mfb_macapp_reconcile_marshal` skips when `[NSApp delegate]` is nil — it must,
+  since headless parks the main thread in `pause()` with no run loop to drain a
+  `waitUntilDone:YES` perform. Windows is the same shape (`headless_spawn` builds no
+  window and runs no message pump). So **no headless run on any platform can observe
+  the canvas surface**; Phase 3's acceptance is a real GUI run plus per-platform
+  codegen inspection.
 
 ## 3. Design Overview
 
@@ -529,32 +536,97 @@ Commit: —
 Three platforms; each builds a bare surface on entry and tears it down on exit. No
 renderer, no GPU, no scene.
 
-- [ ] macOS: extend `src/target/macos_aarch64/app/mod.rs:emit_reconcile_seam`
+- [x] macOS: extend `src/target/macos_aarch64/app/mod.rs:emit_reconcile_seam`
       (and its `RECONCILE_BUILD_SYMBOL` helper) with a `Canvas` arm that swaps the
       content view for a layer-backed `NSView` (`wantsLayer = YES`) sized to the
       window, and a teardown arm on exit that restores/removes it. Reuse the existing
       `NSWindow` + content-view swap machinery — the canvas view is a substitute for
       `TermView`, not a second window. Marshal on the main thread (`waitUntilDone:YES`), no-op headless
       marshal as today.
-- [ ] Linux: extend `src/target/linux_gtk/bootstrap.rs:emit_reconcile_seam` (320) /
+      → `emit_reconcile_canvas_helper` (`RECONCILE_CANVAS_SYMBOL`) + `emit_canvas_teardown`,
+      both in `app/bootstrap.rs`; the reconcile IMP became a three-way dispatch
+      (`cmp 2 / b.eq` **before** the old `cmp 0`, since with a third variant "not
+      `Console`" no longer implies `None`). Sends `setWantsLayer:YES` then `layer` —
+      the second forces the backing layer to exist now rather than at first display,
+      so the handle is retrievable the moment `setMode` returns. `ASSOC_KEY` is
+      cleared on entry, so `io::` writes degrade to the fd sink in canvas mode.
+      **Lifetime**: the view is `alloc`'d and deliberately never released, mirroring
+      the transcript view — the window's retain plus the un-released `alloc` means
+      `setContentView:` swapping it away on exit drops the count to 1, not 0, so the
+      `OBJC_ASSOCIATION_ASSIGN` stash stays valid and re-entry reuses the one view.
+      Releasing would invert both properties; a test pins that.
+- [x] Linux: extend `src/target/linux_gtk/bootstrap.rs:emit_reconcile_seam` (320) /
       `emit_reconcile_idle_helper` (348) with a `Canvas` arm that ensures the GTK window
       exists and its native surface handle is retrievable
       (`gdk_x11_surface_get_xid`/`gdk_wayland_surface_get_wl_surface` — retrieval only,
       no Vulkan yet), balancing `g_application_hold` on exit.
-- [ ] Windows: extend `src/target/win_x86_64/app/mod.rs` reconcile/mode path with a
+      → Same three-way dispatch. The canvas surface is a `GtkDrawingArea`
+      `g_object_ref_sink`ed like the transcript's scrolled window, installed with
+      `gtk_window_set_child`; teardown restores the scrolled window, which unparents
+      rather than destroys it. New `ST_CANVAS_AREA` / `ST_CANVAS_SURFACE` state slots.
+      The window build was **extracted** into `RECONCILE_BUILD_SYMBOL` because a
+      canvas-first program has never presented a surface, so `ST_WINDOW` is null when
+      it enters canvas mode and both arms must be able to create one — a test asserts
+      the build is shared, not inlined into the `Console` arm.
+      **Correction to the plan's named API:** it named
+      `gdk_x11_surface_get_xid`/`gdk_wayland_surface_get_wl_surface`, but those are
+      *backend-specific* symbols — importing either fails to bind on the other
+      display server. The portable handle at this layer is `gtk_native_get_surface`
+      (a `GdkSurface*`), which is exactly what plan-98-F then feeds to whichever of
+      those two applies. Read **after** `gtk_window_present`: an unrealized window has
+      no `GdkSurface`, so reading earlier would store null. A test pins that ordering.
+- [x] Windows: extend `src/target/win_x86_64/app/mod.rs` reconcile/mode path with a
       `Canvas` arm that ensures the HWND exists for later `VK_KHR_win32_surface` use
       and tears it down on exit (new code — no `term::` reconcile precedent here).
-- [ ] **Teardown test target** (this phase's highest-crash-risk surface): a
+      → Substantially larger than "extend": Windows had **no presentation-mode path
+      at all** (Corrections 8). Delivered, in one phase rather than deferred:
+      (a) `app.getMode`/`app.setMode` added to `win_x86_64` `RUNTIME_CALLS` —
+      RED-checked, see Correction 14; (b) a `win_x86_64` `emit_app_mode_reconcile`
+      override + `app::emit_reconcile_seam`, which `SendMessageW`s a new
+      `WM_APP_RECONCILE` (`WM_APP + 1`, `wParam` = the mode) to the main window —
+      *Send*, not *Post*, because a cross-thread `SendMessageW` blocks until the UI
+      thread's pump dispatches it, which is the Win32 equivalent of macOS's
+      `waitUntilDone:YES`; (c) the wndproc's three-way reconcile arm; (d) `_main`
+      now honours `spec.initial_mode`, hiding the window and clearing the io routing
+      global for a `None`-default program so a canvas program does not flash a
+      transcript window. On Windows the HWND *is* the native surface handle, so the
+      "surface build" is baring the client area (hide the EDIT) and publishing the
+      HWND in `CANVAS_HWND_SYM`; teardown clears it. `EDIT_HWND_SAVED_SYM` keeps the
+      transcript control reachable while its routing global is zeroed.
+- [x] **Teardown test target** (this phase's highest-crash-risk surface): a
       headless test that enters `Canvas`, exits to `None`, re-enters `Canvas`, and
       exits — asserting no crash, no leaked window/view/HWND, clean worker/main
       marshaling. It cannot assert pixels yet; it asserts lifecycle only. Wire it for
       all three headless env vars.
+      → **Acceptance strengthened, not weakened — see Correction 15: headless cannot
+      reach the reconcile at all**, on any platform, by construction. Delivered
+      instead, and it is strictly more than the plan asked for:
+      1. `scripts/test-macapp.sh` **Case 3e (GUI)** — the real enter → exit →
+         re-enter cycle on a real window, asserting
+         `CANVAS_ON|CANVAS_OFF|CANVAS_AGAIN` on stdout with `CANVAS_HIDDEN`
+         *absent*. That absence is the proof the reconcile ran at all (Console routes
+         io to the transcript); `CANVAS_AGAIN` is the proof re-entry did not message
+         a freed view. **Run and green** on this host via
+         `MFB_MACAPP_GUI=1 scripts/test-macapp.sh` (all 16 cases pass).
+      2. 18 codegen-inspection unit tests — 6 macOS, 6 GTK, 7 Windows minus overlap —
+         asserting the emitted arm's structure per platform (dispatch order, the
+         layer-backing sends, the no-release lifetime, the shared window build, the
+         post-present surface read, the synchronous marshal, the null-window guard
+         ordering, and that every referenced global/selector is emitted).
+      3. The headless lifecycle case in `tests/cli_app_canvas_mode.rs`, which proves
+         the worker-side seam and mode slot survive the cycle.
 
-Acceptance: under each platform's headless mode, enter→exit→re-enter→exit of
-`Mode.Canvas` completes without crash or leak, and the surface's native handle is
-retrievable while in canvas mode and released after exit. Run only the new lifecycle
-test plus the existing app-mode integration tests (`rg -rln "MACAPP_HEADLESS" tests/`)
-— they are the targets this change can reach.
+Acceptance (**strengthened, Correction 15** — the original rested on headless
+observing the surface, which it cannot): enter→exit→re-enter→exit of `Mode.Canvas`
+completes without crash or leak **on a real window**, and the native surface handle
+is retrievable while in canvas mode and released after exit — the first proven by
+the GUI Case 3e run, the second by the per-platform publish/clear inspection tests
+(macOS `[view layer]`, GTK `ST_CANVAS_SURFACE`, Windows `CANVAS_HWND_SYM`).
+→ MET. `cargo test --bin mfb target::` = 153 passed;
+`cargo test --test cli_app_canvas_mode --test cli_linux_app_mode --test
+cli_macos_app_io_input_imports` = 16 passed;
+`MFB_MACAPP_GUI=1 bash scripts/test-macapp.sh ./target/release/mfb` = all 16 ok.
+Cross-builds green for `linux-aarch64`, `linux-x86_64`, `windows-x86_64`.
 Commit: —
 
 ### Phase 4 — Window key events → `io::` input path (canvas keyboard input)
@@ -748,6 +820,54 @@ while leaving its design intact. Applied:
     require the `Console` surface", which this phase makes false for the `io::` half.
     Leaving that correction to a later step would have left the spec actively wrong in
     every intermediate commit, so it lands with the code that changes the behavior.
+
+14. **Windows advertising was RED-checked.** Commenting the two new `RUNTIME_CALLS`
+    entries out and rebuilding made `mfb build -app -target windows-x86_64` fail with
+    `error: native backend does not support runtime call 'app.setMode'` on a program
+    that now builds. So the advertising is load-bearing, not decorative, and
+    `Mode.None`/`Mode.Canvas` really were unreachable on Windows before this phase.
+
+15. **The Phase 3 acceptance as written was unmeetable: headless never reaches the
+    reconcile — on any platform.** This is a criterion defect, not a design failure,
+    and per the skill it is *strengthened*, not weakened.
+    - macOS: `emit_main_bootstrap` installs the app delegate only on the non-headless
+      path, and `_mfb_macapp_reconcile_marshal` returns early when `[NSApp delegate]`
+      is nil. It must: headless parks the main thread in `pause()` with no run loop,
+      so `performSelectorOnMainThread:waitUntilDone:YES` would deadlock.
+    - Windows: `_main`'s `headless_spawn` path builds no window and runs no message
+      pump, so the new seam's null-`MAIN_HWND_SYM` guard skips for the same reason —
+      a `SendMessageW` with no pump to dispatch it blocks the worker forever.
+    - The plan's Verified-properties row ("headless construction exercises the surface
+      path… VERIFIED from bootstrap.rs:87") is true of the **bootstrap's** AppKit
+      construction, which runs before the headless test — it does not extend to the
+      reconcile, which is what this phase adds. That row is corrected in §2.
+
+    Replacement acceptance, strictly stronger than "headless did not crash": a **real
+    GUI** enter → exit → re-enter → exit cycle (`scripts/test-macapp.sh` Case 3e, run
+    green on this host), plus 18 codegen-inspection tests pinning the emitted arm per
+    platform, plus the headless lifecycle case for the worker-side seam. Case 3e's
+    observable is io routing — `CANVAS_HIDDEN` must be *absent* from stdout (Console
+    routed it to the transcript, so the reconcile ran) while `CANVAS_ON` /
+    `CANVAS_OFF` / `CANVAS_AGAIN` are present.
+
+16. **The GTK native-surface API the plan named is backend-specific.** Phase 3 said to
+    retrieve the handle with `gdk_x11_surface_get_xid` /
+    `gdk_wayland_surface_get_wl_surface`. Importing either binds only under that
+    display server, so an X11-linked build would fail to start under Wayland and vice
+    versa. The portable handle at this layer is `gtk_native_get_surface` →
+    `GdkSurface*`, which is precisely the value those two functions *take*; plan-98-F
+    picks the right one at surface-creation time. Also pinned by test: it must be read
+    **after** `gtk_window_present`, because an unrealized window has no `GdkSurface`
+    and an earlier read would store null.
+
+17. **The GTK window build had to be extracted, not copied.** The `Console` arm built
+    the window inline. The `Canvas` arm needs the same window — a canvas-first program
+    has never presented a surface, so `ST_WINDOW` is null when it enters canvas mode.
+    Duplicating the build would have left two constructions to keep in sync, so it
+    moved into `RECONCILE_BUILD_SYMBOL` (matching the macOS shape, which already had
+    such a helper). A test asserts `gtk_application_window_new` appears **zero** times
+    in the idle helper, so a future inline rebuild fails rather than silently
+    diverging.
 
 <Further corrections filled in during execution.>
 

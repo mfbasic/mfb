@@ -92,6 +92,16 @@ const RUNTIME_CALLS: &[&str] = &[
     "term.fillRect",
     "term.drawText",
     "term.drawGlyph",
+    // plan-98-A Phase 3 — app:: presentation mode. Windows already returned true
+    // from `supports_app_mode` and built a real Win32 window, but advertised
+    // neither `app.` call, so `validate_capabilities` rejected any Windows `--app`
+    // program that touched `app::` ("native backend does not support runtime call
+    // 'app.setMode'") — `Mode.None` and `Mode.Canvas` were both unreachable there.
+    // Both members are the shared `abi_function` load/store of the presentation
+    // slot; the Windows-specific part is the reconcile seam
+    // (`app::emit_reconcile_seam`) that `setMode` appends.
+    "app.getMode",
+    "app.setMode",
     "fs.exists",
     "fs.fileExists",
     "fs.directoryExists",

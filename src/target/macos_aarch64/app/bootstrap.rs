@@ -851,17 +851,189 @@ pub(super) fn emit_reconcile_build_helper() -> CodeFunction {
     reconcile_code_function(RECONCILE_BUILD_SYMBOL, asm)
 }
 
-/// plan-62-C Phase 2 (main thread): `mfbReconcile:` IMP. `x2` = the boxed new mode
-/// (`NSNumber`). Reconciles the window surface to the mode: `Console` builds (first
-/// time) or re-shows the window and re-points `ASSOC_KEY` at the transcript (io →
-/// transcript); `None` clears `ASSOC_KEY` (io → stdout fd) and orders the window
-/// out. Only `None`-start programs ever reach here (a program referencing `setMode`
-/// is always `None`-start; a `Console`-start program never references it), so this
-/// never touches a startup-built Console window and cannot churn its goldens.
+/// plan-98-A Phase 3 (main thread): `_mfb_macapp_reconcile_canvas`. `x0` = the
+/// shared `NSApplication`. Reconciles the surface *into* `Mode.Canvas` and returns
+/// the window in `x0`.
+///
+/// The canvas surface is a bare layer-backed `NSView` swapped in as the window's
+/// content view — a substitute for the transcript / TermView, not a second window,
+/// so it inherits the existing `NSWindow`, its key handling and its teardown. No
+/// renderer is attached and nothing is drawn: plan-98-E replaces (or hosts a
+/// `CAMetalLayer` on) `[view layer]`, which `setWantsLayer:YES` is what makes
+/// non-nil.
+///
+/// Lifetime, and why nothing leaks across an enter → exit → re-enter cycle. The
+/// view is `alloc`'d once (retain count 1) and installed with `setContentView:`
+/// (the window retains it → 2). That `alloc` reference is deliberately never
+/// released, exactly as [`emit_reconcile_build_helper`] does for the transcript
+/// view: leaving canvas mode swaps the content view away, the window releases its
+/// retain, and the count falls back to 1 rather than to 0. So the view stashed under
+/// `CANVAS_VIEW_ASSOC_KEY` (an `OBJC_ASSOCIATION_ASSIGN`, non-retaining key) stays
+/// valid, re-entry reuses it instead of allocating a second one, and the associated
+/// pointer never dangles. Releasing here would invert both properties: the stash
+/// would dangle on exit and re-entry would message a freed view.
+///
+/// `ASSOC_KEY` is cleared on the way in, so `io::` writes degrade to the fd sink
+/// while in canvas mode — a canvas surface has no transcript to append to. That is
+/// the write half of the mode's I/O contract; the read half (window key events) is
+/// Phase 4.
+pub(super) fn emit_reconcile_canvas_helper() -> CodeFunction {
+    let mut asm = Asm::new(RECONCILE_CANVAS_SYMBOL);
+    let frame = 48;
+    let have_window = format!("{RECONCILE_CANVAS_SYMBOL}_have_window");
+    let have_view = format!("{RECONCILE_CANVAS_SYMBOL}_have_view");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // app
+
+    // window = objc_getAssociatedObject(app, WINDOW_ASSOC_KEY), building one if the
+    // program has never presented a surface (a canvas-first program never took the
+    // `None`->`Console` path, so no window exists yet).
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.local_address("x1", WINDOW_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0)));
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_ne(&have_window));
+    asm.call_internal(RECONCILE_BUILD_SYMBOL);
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // window
+    asm.push(abi::label(&have_window));
+
+    // view = objc_getAssociatedObject(app, CANVAS_VIEW_ASSOC_KEY), building one the
+    // first time canvas mode is entered.
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.local_address("x1", CANVAS_VIEW_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0)));
+    asm.push(abi::compare_immediate(abi::LOCAL[2], "0"));
+    asm.push(abi::branch_ne(&have_view));
+
+    // view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 900, 640)]
+    asm.external_data(abi::LOCAL[2], CLASS_NS_VIEW, LIB_APPKIT);
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0)));
+    asm.load_selector(SEL_INIT_FRAME.0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], 900);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], 640);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // view
+
+    // [view setWantsLayer:YES] — the whole point of the canvas surface. Without it
+    // `[view layer]` is nil and plan-98-E has nothing to attach a CAMetalLayer to.
+    asm.load_selector(SEL_SET_WANTS_LAYER.0);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // [view layer] — force the backing layer to be created now rather than lazily at
+    // first display, so the native handle is retrievable the moment `setMode`
+    // returns rather than only after the first frame.
+    asm.load_selector(SEL_LAYER.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // Stash the view (ASSIGN — see the doc comment on the retain-count reasoning).
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.local_address("x1", CANVAS_VIEW_ASSOC_KEY);
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
+    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+    asm.push(abi::label(&have_view));
+
+    // [window setContentView:view]
+    asm.load_selector(SEL_SET_CONTENT_VIEW.0);
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // Clear ASSOC_KEY: io writes degrade to the fd sink in canvas mode.
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.local_address("x1", ASSOC_KEY);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // nil
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // ASSIGN
+    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1])); // return the window
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::load_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    reconcile_code_function(RECONCILE_CANVAS_SYMBOL, asm)
+}
+
+/// plan-98-A Phase 3 (main thread): tear the canvas surface down on the way *out*
+/// of `Mode.Canvas`. `x0` = the shared `NSApplication`, `x1` = the window (may be
+/// nil). Restores the transcript view as the content view, which releases the
+/// window's retain on the canvas view.
+///
+/// A no-op when no canvas view was ever built, so the `Console` and `None` arms can
+/// call it unconditionally rather than each carrying their own "was I in canvas?"
+/// test — the mode we are leaving is not recorded anywhere, so a conditional would
+/// have to invent that state.
+fn emit_canvas_teardown(asm: &mut Asm, app: &str, window: &str, scratch: &str, label: &str) {
+    let done = format!("{label}_no_canvas");
+    // view = objc_getAssociatedObject(app, CANVAS_VIEW_ASSOC_KEY)
+    asm.push(abi::move_register(abi::c_arg(0), app));
+    asm.local_address("x1", CANVAS_VIEW_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&done));
+    // Nothing to restore the content view *to* without a window.
+    asm.push(abi::compare_immediate(window, "0"));
+    asm.push(abi::branch_eq(&done));
+    // tv = objc_getAssociatedObject(app, RECONCILE_TV_KEY)
+    asm.push(abi::move_register(abi::c_arg(0), app));
+    asm.local_address("x1", RECONCILE_TV_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(scratch, abi::c_arg(0)));
+    asm.push(abi::compare_immediate(scratch, "0"));
+    asm.push(abi::branch_eq(&done));
+    // [window setContentView:tv] — drops the window's retain on the canvas view.
+    asm.load_selector(SEL_SET_CONTENT_VIEW.0);
+    asm.push(abi::move_register(abi::c_arg(2), scratch));
+    asm.push(abi::move_register(abi::c_arg(0), window));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::label(&done));
+}
+
+/// plan-62-C Phase 2 / plan-98-A Phase 3 (main thread): `mfbReconcile:` IMP. `x2` =
+/// the boxed new mode (`NSNumber`). Reconciles the window surface to the mode:
+///
+/// - `Console` (0) builds (first time) or re-shows the window and re-points
+///   `ASSOC_KEY` at the transcript (io → transcript).
+/// - `None` (1) clears `ASSOC_KEY` (io → stdout fd) and orders the window out.
+/// - `Canvas` (2) installs the layer-backed canvas view as the content view and
+///   shows the window ([`emit_reconcile_canvas_helper`]).
+///
+/// Both of the non-canvas arms run the canvas teardown first, so leaving canvas mode
+/// by *either* route restores the transcript content view and releases the window's
+/// retain on the canvas view. The dispatch is an explicit three-way test rather than
+/// the old "`0` or not-`0`": with a third variant, "not Console" no longer implies
+/// `None`, and treating `Canvas` as `None` would order the window out the instant a
+/// program entered canvas mode.
+///
+/// Only `None`-start programs ever reach here (a program referencing `setMode` is
+/// always `None`-start; a `Console`-start program never references it), so this never
+/// touches a startup-built Console window.
 pub(super) fn emit_reconcile_helper() -> CodeFunction {
     let mut asm = Asm::new(RECONCILE_SYMBOL);
     let frame = 64;
     let none_path = format!("{RECONCILE_SYMBOL}_none");
+    let canvas_path = format!("{RECONCILE_SYMBOL}_canvas");
     let have_window = format!("{RECONCILE_SYMBOL}_have_window");
     let show = format!("{RECONCILE_SYMBOL}_show");
     let done = format!("{RECONCILE_SYMBOL}_done");
@@ -894,10 +1066,20 @@ pub(super) fn emit_reconcile_helper() -> CodeFunction {
     asm.local_address("x1", WINDOW_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // window (or nil)
-                                                                // mode != Console(0) -> None path
+                                                                // Three-way dispatch: Console(0) falls through, Canvas(2) and None(1) branch.
+    asm.push(abi::compare_immediate(abi::LOCAL[4], "2"));
+    asm.push(abi::branch_eq(&canvas_path));
     asm.push(abi::compare_immediate(abi::LOCAL[4], "0"));
     asm.push(abi::branch_ne(&none_path));
     // --- Console ---
+    // Leaving canvas (if we were in it) restores the transcript content view.
+    emit_canvas_teardown(
+        &mut asm,
+        abi::LOCAL[0],
+        abi::LOCAL[1],
+        abi::LOCAL[2],
+        &format!("{RECONCILE_SYMBOL}_console"),
+    );
     asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
     asm.push(abi::branch_ne(&have_window));
     // build the window fresh (returns it in x0)
@@ -922,8 +1104,28 @@ pub(super) fn emit_reconcile_helper() -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::branch(&done));
+    // --- Canvas (plan-98-A Phase 3) ---
+    asm.push(abi::label(&canvas_path));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0])); // app
+    asm.call_internal(RECONCILE_CANVAS_SYMBOL);
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // window
+                                                                // [window makeKeyAndOrderFront:nil]
+    asm.load_selector(SEL_MAKE_KEY_AND_ORDER_FRONT.0);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::branch(&done));
     // --- None ---
     asm.push(abi::label(&none_path));
+    // Leaving canvas (if we were in it) restores the transcript content view, so the
+    // canvas view is not left installed on a hidden window.
+    emit_canvas_teardown(
+        &mut asm,
+        abi::LOCAL[0],
+        abi::LOCAL[1],
+        abi::LOCAL[2],
+        &format!("{RECONCILE_SYMBOL}_none_td"),
+    );
     // clear ASSOC_KEY so io falls back to the fd sink (stdout)
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.local_address("x1", ASSOC_KEY);

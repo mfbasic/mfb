@@ -365,6 +365,28 @@ const RECONCILE_BUILD_SYMBOL: &str = "_mfb_macapp_reconcile_build";
 /// `None`→`Console` re-points `ASSOC_KEY` (the io-routing key) at it without
 /// rebuilding the window. Only reconcile-built (None-start) windows use it.
 const RECONCILE_TV_KEY: &str = "_mfb_macapp_reconcile_tv_key";
+// plan-98-A Phase 3: the `Mode.Canvas` arm of the reconcile. Canvas swaps the
+// window's content view for a bare layer-backed `NSView` — a substitute for the
+// transcript / TermView, not a second window — so plan-98-E can later attach a
+// `CAMetalLayer` to it. No renderer, no GPU, no drawing here.
+/// Main-thread helper the reconcile IMP calls for the `Canvas` arm: ensures the
+/// window exists (reusing [`RECONCILE_BUILD_SYMBOL`] when it does not), ensures the
+/// layer-backed canvas view exists, installs it as the content view, and clears
+/// `ASSOC_KEY` so `io::` writes degrade to the fd sink. Returns the window in `x0`.
+const RECONCILE_CANVAS_SYMBOL: &str = "_mfb_macapp_reconcile_canvas";
+/// Assoc key stashing the canvas view. Held with `OBJC_ASSOCIATION_ASSIGN`, exactly
+/// like [`RECONCILE_TV_KEY`]: the view is kept alive by the `alloc` reference the
+/// build deliberately never releases (the window's own retain is the second), so
+/// swapping the content view away on mode exit drops it back to one rather than
+/// deallocating it. That is what makes enter → exit → re-enter allocate exactly one
+/// canvas view and leave no dangling associated pointer.
+const CANVAS_VIEW_ASSOC_KEY: &str = "_mfb_macapp_canvas_view_key";
+/// `setWantsLayer:` — makes the plain `NSView` layer-backed, which is the whole
+/// point of the canvas surface: `[view layer]` is then non-nil and can be replaced
+/// by (or host) a `CAMetalLayer` in plan-98-E.
+const SEL_SET_WANTS_LAYER: (&str, &str) = ("_mfb_macapp_sel_setWantsLayer", "setWantsLayer:");
+/// `layer` — reads the backing layer back, proving `setWantsLayer:` took effect.
+const SEL_LAYER: (&str, &str) = ("_mfb_macapp_sel_layer", "layer");
 /// `NSForegroundColorAttributeName` — attributed-string key for the glyph colour.
 const NS_FOREGROUND_COLOR_ATTRIBUTE_NAME: &str = "_NSForegroundColorAttributeName";
 /// IMP for the TermView `mfbWriteString:` main-thread write entry point.
@@ -708,6 +730,11 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
     if spec.initial_mode == PresentationMode::None {
         functions.push(emit_reconcile_marshal_helper());
         functions.push(emit_reconcile_build_helper());
+        // plan-98-A Phase 3: the `Canvas` arm's surface builder. Emitted alongside
+        // the other reconcile helpers rather than behind a "does this program use
+        // canvas mode?" test — the mode is a runtime value, so there is no static
+        // answer to that question.
+        functions.push(emit_reconcile_canvas_helper());
         functions.push(emit_reconcile_helper());
     }
     Ok(functions)
@@ -925,17 +952,20 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
     objects
 }
 
-/// plan-62-C Phase 2: the selector strings and the one associated-object key the
-/// runtime `setMode` reconcile needs. Emitted only for a program whose static
-/// default is `None` (it references `app::setMode`, so its reconcile helpers exist)
-/// — a `Console`-default program never reconciles and keeps its exact data-object
-/// set (and native goldens) unchanged.
+/// plan-62-C Phase 2 / plan-98-A Phase 3: the selector strings and the
+/// associated-object keys the runtime `setMode` reconcile needs. Emitted only for a
+/// program whose static default is `None` (it references `app::setMode`, so its
+/// reconcile helpers exist) — a `Console`-default program never reconciles and keeps
+/// its exact data-object set unchanged.
 pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
     let mut objects: Vec<CodeDataObject> = [
         SEL_ORDER_OUT,
         SEL_INT_VALUE,
         SEL_DELEGATE,
         SEL_MFB_RECONCILE,
+        // plan-98-A Phase 3: the `Canvas` arm's layer-backing sends.
+        SEL_SET_WANTS_LAYER,
+        SEL_LAYER,
     ]
     .iter()
     .map(|(symbol, text)| CodeDataObject {
@@ -947,14 +977,16 @@ pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
         value: hex_cstring(text),
     })
     .collect();
-    objects.push(CodeDataObject {
-        symbol: RECONCILE_TV_KEY.to_string(),
-        kind: "raw".to_string(),
-        layout: "associated-object key (unique address)".to_string(),
-        align: 1,
-        size: 1,
-        value: "00".to_string(),
-    });
+    for key in [RECONCILE_TV_KEY, CANVAS_VIEW_ASSOC_KEY] {
+        objects.push(CodeDataObject {
+            symbol: key.to_string(),
+            kind: "raw".to_string(),
+            layout: "associated-object key (unique address)".to_string(),
+            align: 1,
+            size: 1,
+            value: "00".to_string(),
+        });
+    }
     objects
 }
 
@@ -1048,5 +1080,163 @@ mod release_tests {
                 .any(|d| d.symbol.as_str() == SEL_RELEASE.0),
             "the `release` selector C-string must be emitted (bug-53)"
         );
+    }
+}
+
+#[cfg(test)]
+/// plan-98-A Phase 3: the `Mode.Canvas` arm of the macOS reconcile.
+///
+/// These inspect the emitted code directly rather than running it, because the
+/// reconcile IMP is **unreachable under `MFB_MACAPP_HEADLESS=1`**: headless installs
+/// no app delegate (`emit_main_bootstrap` skips `emit_gui_delegate`), and
+/// `_mfb_macapp_reconcile_marshal` no-ops when `[NSApp delegate]` is nil — it must,
+/// since `waitUntilDone:YES` with no run loop to drain the perform would deadlock.
+/// So a headless run proves the mode slot and the worker-side seam, but cannot
+/// observe the surface at all. The real surface build/teardown is proven by the
+/// GUI-gated `scripts/test-macapp.sh` case; these tests are what keeps the emitted
+/// arm honest in `cargo test`.
+mod canvas_reconcile_tests {
+    use super::*;
+
+    /// Count the sends of a given selector in a body: `load_selector` lays down an
+    /// `adrp`/`add` page pair per send, contributing exactly one `DataAddrHi`
+    /// relocation to that selector's C-string.
+    fn selector_send_count(rel: &[CodeRelocation], selector: &str) -> usize {
+        rel.iter()
+            .filter(|r| r.to.as_str() == selector && r.kind == RelocIntent::DataAddrHi)
+            .count()
+    }
+
+    fn calls(rel: &[CodeRelocation], target: &str) -> usize {
+        rel.iter()
+            .filter(|r| r.to.as_str() == target && r.kind == RelocIntent::Call)
+            .count()
+    }
+
+    /// The compare immediates the reconcile dispatch tests, in emitted order.
+    fn compare_immediates(func: &CodeFunction) -> Vec<String> {
+        func.instructions
+            .iter()
+            .filter(|i| i.op == crate::arch::ops::CodeOp::CmpImm)
+            .filter_map(|i| {
+                i.fields
+                    .iter()
+                    .find(|(name, _)| *name == "rhs")
+                    .map(|(_, value)| value.to_string())
+            })
+            .collect()
+    }
+
+    /// The canvas surface is a *layer-backed* view: without `setWantsLayer:YES`,
+    /// `[view layer]` is nil and plan-98-E has nothing to attach a `CAMetalLayer`
+    /// to. Both sends must be there — the second forces the layer to exist
+    /// eagerly, so the handle is retrievable the moment `setMode` returns.
+    #[test]
+    fn canvas_helper_makes_the_view_layer_backed() {
+        let func = emit_reconcile_canvas_helper();
+        assert_eq!(
+            selector_send_count(&func.relocations, SEL_SET_WANTS_LAYER.0),
+            1,
+            "the canvas view must be sent setWantsLayer:"
+        );
+        assert_eq!(
+            selector_send_count(&func.relocations, SEL_LAYER.0),
+            1,
+            "the canvas build must force the backing layer to exist"
+        );
+        assert_eq!(
+            selector_send_count(&func.relocations, SEL_SET_CONTENT_VIEW.0),
+            1,
+            "the canvas view must be installed as the window's content view"
+        );
+    }
+
+    /// The canvas view is `alloc`'d but deliberately never `-release`d, mirroring
+    /// the transcript view: the window's retain plus the un-released `alloc`
+    /// reference is what lets `setContentView:` swap it away on mode exit without
+    /// deallocating it, so `CANVAS_VIEW_ASSOC_KEY` (a non-retaining ASSIGN key)
+    /// stays valid and re-entry reuses the same view. A `-release` here would make
+    /// the stash dangle on the first exit.
+    #[test]
+    fn canvas_view_is_not_released_so_the_assign_stash_cannot_dangle() {
+        let func = emit_reconcile_canvas_helper();
+        assert_eq!(
+            selector_send_count(&func.relocations, SEL_RELEASE.0),
+            0,
+            "releasing the canvas view would leave CANVAS_VIEW_ASSOC_KEY dangling \
+             after the first mode exit"
+        );
+    }
+
+    /// A canvas-first program has never presented a surface, so no window exists
+    /// yet — the canvas arm must be able to build one rather than messaging nil.
+    #[test]
+    fn canvas_helper_builds_a_window_when_none_exists() {
+        let func = emit_reconcile_canvas_helper();
+        assert_eq!(
+            calls(&func.relocations, RECONCILE_BUILD_SYMBOL),
+            1,
+            "the canvas arm must fall back to the window builder when no window \
+             has been created yet"
+        );
+    }
+
+    /// The dispatch must test `Canvas` (2) *before* the old `Console`-or-not test.
+    /// With a third variant "not Console" no longer implies `None`, so the old
+    /// two-way shape would take the `None` arm for `Canvas` and order the window
+    /// out the instant a program entered canvas mode.
+    #[test]
+    fn reconcile_dispatches_canvas_before_the_console_test() {
+        let func = emit_reconcile_helper();
+        let immediates = compare_immediates(&func);
+        let canvas = immediates
+            .iter()
+            .position(|value| value == "2")
+            .expect("reconcile must test for the Canvas discriminant");
+        let console = immediates
+            .iter()
+            .position(|value| value == "0")
+            .expect("reconcile must test for the Console discriminant");
+        assert!(
+            canvas < console,
+            "Canvas (2) must be dispatched before the Console/not-Console test, \
+             else Canvas falls into the None arm; got {immediates:?}"
+        );
+        assert_eq!(
+            calls(&func.relocations, RECONCILE_CANVAS_SYMBOL),
+            1,
+            "the Canvas arm must call the canvas surface builder"
+        );
+    }
+
+    /// Leaving canvas by *either* route must restore the transcript content view,
+    /// so the canvas view is not left installed on a re-shown transcript window or
+    /// on a hidden one. The teardown reads `CANVAS_VIEW_ASSOC_KEY` once per
+    /// non-canvas arm; the canvas arm reaches the key through its own builder.
+    #[test]
+    fn both_non_canvas_arms_tear_the_canvas_view_down() {
+        let func = emit_reconcile_helper();
+        let key_reads = func
+            .relocations
+            .iter()
+            .filter(|r| r.to.as_str() == CANVAS_VIEW_ASSOC_KEY && r.kind == RelocIntent::DataAddrHi)
+            .count();
+        assert_eq!(
+            key_reads, 2,
+            "the Console and None arms must each run the canvas teardown"
+        );
+    }
+
+    /// Every symbol the arm references must be emitted, or the relocations added
+    /// above dangle at link time.
+    #[test]
+    fn canvas_selectors_and_key_are_emitted() {
+        let objects = app_mode_reconcile_data_objects();
+        for symbol in [SEL_SET_WANTS_LAYER.0, SEL_LAYER.0, CANVAS_VIEW_ASSOC_KEY] {
+            assert!(
+                objects.iter().any(|d| d.symbol.as_str() == symbol),
+                "{symbol} must be emitted as a data object"
+            );
+        }
     }
 }

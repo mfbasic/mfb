@@ -401,6 +401,73 @@ else
   fi
 fi
 
+# Case 3e (plan-98-A Phase 3, GUI): the Mode.Canvas reconcile arm builds and tears
+# down the canvas surface across a full enter -> exit -> re-enter cycle.
+#
+# This case MUST be GUI: the reconcile IMP is unreachable headless. Headless
+# installs no app delegate, and _mfb_macapp_reconcile_marshal no-ops on a nil
+# delegate (waitUntilDone:YES with no run loop to drain the perform would
+# deadlock), so a headless run observes the mode slot but never the surface.
+#
+# io routing is the observable. Console points the io ASSOC_KEY at the transcript
+# view, so a Console print does NOT reach stdout; entering Canvas installs the
+# layer-backed canvas view and clears that key, so a Canvas print DOES. Hence:
+#
+#   CANVAS_HIDDEN  Console  -> transcript, absent from stdout (the reconcile ran)
+#   CANVAS_ON      Canvas   -> stdout      (the canvas arm ran and cleared the key)
+#   CANVAS_OFF     None     -> stdout      (teardown restored the transcript view)
+#   CANVAS_AGAIN   Canvas   -> stdout      (re-entry reused the stashed view, no crash)
+#
+# CANVAS_AGAIN is the part that would catch a teardown that released the canvas
+# view: re-entry would then message a freed object rather than print.
+proj="$work/canvasmode"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "canvasmode", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT io
+SUB main()
+  app::setMode(Mode.Console)
+  io::print("CANVAS_HIDDEN")
+  io::flush()
+  app::setMode(Mode.Canvas)
+  io::print("CANVAS_ON")
+  io::flush()
+  app::setMode(Mode.None)
+  io::print("CANVAS_OFF")
+  io::flush()
+  app::setMode(Mode.Canvas)
+  io::print("CANVAS_AGAIN")
+  io::flush()
+  WHILE TRUE
+  END WHILE
+END SUB
+MFB
+if ! gui_enabled; then
+  echo "skip: Mode.Canvas reconcile GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app canvasmode"
+else
+  out=$(perl -e '
+    my $pid = open(my $fh, "-|");
+    if ($pid == 0) { exec($ARGV[0]) or exit 127; }
+    local $SIG{ALRM} = sub { kill "KILL", $pid; };
+    alarm 10;
+    my @l; while (my $x = <$fh>) { chomp $x; push @l, $x; last if @l >= 4; }
+    kill "KILL", $pid; waitpid($pid, 0);
+    print join("|", @l);
+  ' "$(bundle "$proj" canvasmode)/Contents/MacOS/canvasmode")
+  if [ "$out" = "CANVAS_ON|CANVAS_OFF|CANVAS_AGAIN" ]; then
+    pass "Mode.Canvas builds, tears down and rebuilds the canvas surface ($out)"
+  else
+    fail "expected CANVAS_ON|CANVAS_OFF|CANVAS_AGAIN, got '$out'"
+  fi
+fi
+
 # Case 4 (GUI): keep window open after completion (plan §5.7). Launched WITHOUT
 # the headless gate so the real window + event loop run; a program whose main
 # returns immediately must leave the process alive (window open) rather than
