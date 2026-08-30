@@ -1,6 +1,6 @@
 IMPORT io
 IMPORT fs
-IMPORT net
+IMPORT tcp
 IMPORT collections
 
 ' bug-427: a `List OF RES <ResourceUnion> STATE <S>` element could not be
@@ -18,7 +18,7 @@ END TYPE
 
 UNION Handle
   fs::File
-  net::Socket
+  tcp::Socket
 END UNION
 
 FUNC main AS Integer

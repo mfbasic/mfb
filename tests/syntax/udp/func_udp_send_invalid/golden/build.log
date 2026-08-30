@@ -1,62 +1,62 @@
 $ mfb build -ast -ir tests/syntax/udp/func_udp_send_invalid
-   9 |   LET dest = net::lookup("127.0.0.1", 9931)
-  10 | 
-  11 |   LET missing = udp::send()
+  10 |   LET dest = net::lookup("127.0.0.1", 9931)
+  11 | 
+  12 |   LET missing = udp::send()
      | ^
-tests/syntax/udp/func_udp_send_invalid/src/main.mfb:11 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/syntax/udp/func_udp_send_invalid/src/main.mfb:12 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `udp.send` has 0 argument(s), expected 3.
-   9 |   LET dest = net::lookup("127.0.0.1", 9931)
-  10 | 
-  11 |   LET missing = udp::send()
-     | ^
-tests/syntax/udp/func_udp_send_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `missing` does not have a known type.
-  10 | 
-  11 |   LET missing = udp::send()
-  12 |   LET wrongType = udp::send(1, 2, 3)
-     | ^
-tests/syntax/udp/func_udp_send_invalid/src/main.mfb:12 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `udp.send` has argument type(s) (Integer, Integer, Integer), expected Socket, Address, List OF Byte or Socket, Address, String.
-  10 | 
-  11 |   LET missing = udp::send()
-  12 |   LET wrongType = udp::send(1, 2, 3)
+  10 |   LET dest = net::lookup("127.0.0.1", 9931)
+  11 | 
+  12 |   LET missing = udp::send()
      | ^
 tests/syntax/udp/func_udp_send_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongType` does not have a known type.
-  11 |   LET missing = udp::send()
-  12 |   LET wrongType = udp::send(1, 2, 3)
-  13 |   LET tooMany = udp::send(1, 2, 3, 4)
+               Initializer for binding `missing` does not have a known type.
+  11 | 
+  12 |   LET missing = udp::send()
+  13 |   LET wrongType = udp::send(1, 2, 3)
      | ^
-tests/syntax/udp/func_udp_send_invalid/src/main.mfb:13 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `udp.send` has 4 argument(s), expected 3.
-  11 |   LET missing = udp::send()
-  12 |   LET wrongType = udp::send(1, 2, 3)
-  13 |   LET tooMany = udp::send(1, 2, 3, 4)
+tests/syntax/udp/func_udp_send_invalid/src/main.mfb:13 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `udp.send` has argument type(s) (Integer, Integer, Integer), expected Socket, Address, List OF Byte or Socket, Address, String.
+  11 | 
+  12 |   LET missing = udp::send()
+  13 |   LET wrongType = udp::send(1, 2, 3)
      | ^
 tests/syntax/udp/func_udp_send_invalid/src/main.mfb:13 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `tooMany` does not have a known type.
-  12 |   LET wrongType = udp::send(1, 2, 3)
-  13 |   LET tooMany = udp::send(1, 2, 3, 4)
-  14 |   LET badPayload = udp::send(sock, dest, 42)
+               Initializer for binding `wrongType` does not have a known type.
+  12 |   LET missing = udp::send()
+  13 |   LET wrongType = udp::send(1, 2, 3)
+  14 |   LET tooMany = udp::send(1, 2, 3, 4)
      | ^
-tests/syntax/udp/func_udp_send_invalid/src/main.mfb:14 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `udp.send` has argument type(s) (udp.Socket, List OF Address, Integer), expected Socket, Address, List OF Byte or Socket, Address, String.
-  12 |   LET wrongType = udp::send(1, 2, 3)
-  13 |   LET tooMany = udp::send(1, 2, 3, 4)
-  14 |   LET badPayload = udp::send(sock, dest, 42)
+tests/syntax/udp/func_udp_send_invalid/src/main.mfb:14 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `udp.send` has 4 argument(s), expected 3.
+  12 |   LET missing = udp::send()
+  13 |   LET wrongType = udp::send(1, 2, 3)
+  14 |   LET tooMany = udp::send(1, 2, 3, 4)
      | ^
 tests/syntax/udp/func_udp_send_invalid/src/main.mfb:14 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+  13 |   LET wrongType = udp::send(1, 2, 3)
+  14 |   LET tooMany = udp::send(1, 2, 3, 4)
+  15 |   LET badPayload = udp::send(sock, dest, 42)
+     | ^
+tests/syntax/udp/func_udp_send_invalid/src/main.mfb:15 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `udp.send` has argument type(s) (udp.Socket, List OF Address, Integer), expected Socket, Address, List OF Byte or Socket, Address, String.
+  13 |   LET wrongType = udp::send(1, 2, 3)
+  14 |   LET tooMany = udp::send(1, 2, 3, 4)
+  15 |   LET badPayload = udp::send(sock, dest, 42)
+     | ^
+tests/syntax/udp/func_udp_send_invalid/src/main.mfb:15 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badPayload` does not have a known type.
-  16 |   ' A tcp stream socket is not a datagram socket.
-  17 |   RES stream = net::connectTcp("127.0.0.1", 9931)
-  18 |   LET wrongSocket = udp::send(stream, dest, "x")
+  17 |   ' A tcp stream socket is not a datagram socket.
+  18 |   RES stream = tcp::connect("127.0.0.1", 9931)
+  19 |   LET wrongSocket = udp::send(stream, dest, "x")
      | ^
-tests/syntax/udp/func_udp_send_invalid/src/main.mfb:18 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `udp.send` has argument type(s) (net.Socket, List OF Address, String), expected Socket, Address, List OF Byte or Socket, Address, String.
-  16 |   ' A tcp stream socket is not a datagram socket.
-  17 |   RES stream = net::connectTcp("127.0.0.1", 9931)
-  18 |   LET wrongSocket = udp::send(stream, dest, "x")
+tests/syntax/udp/func_udp_send_invalid/src/main.mfb:19 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `udp.send` has argument type(s) (tcp.Socket, List OF Address, String), expected Socket, Address, List OF Byte or Socket, Address, String.
+  17 |   ' A tcp stream socket is not a datagram socket.
+  18 |   RES stream = tcp::connect("127.0.0.1", 9931)
+  19 |   LET wrongSocket = udp::send(stream, dest, "x")
      | ^
-tests/syntax/udp/func_udp_send_invalid/src/main.mfb:18 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/syntax/udp/func_udp_send_invalid/src/main.mfb:19 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongSocket` does not have a known type.
 [exit 1]

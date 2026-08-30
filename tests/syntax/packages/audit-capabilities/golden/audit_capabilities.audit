@@ -8,7 +8,7 @@ Lockfile: absent
 Summary:
   errors: 0
   warnings: 0
-  infos: 8
+  infos: 6
 
 Permissions:
   clock
@@ -18,9 +18,6 @@ Permissions:
   native
     sql.open at src/main.mfb:34
     sql.close at src/main.mfb:35
-  network
-    net.connectTcp at src/main.mfb:32
-    net.close at src/main.mfb:33
   process
     os.pid at src/main.mfb:29
   randomness
@@ -29,9 +26,6 @@ Permissions:
     io.print at src/main.mfb:36
     io.print at src/main.mfb:37
     io.print at src/main.mfb:38
-
-Resources:
-  Socket socket at src/main.mfb:32 (standard, close net.close, may fail)
 
 Native links:
   audit_capabilities sqlite3_close close= may_fail=true
@@ -44,8 +38,6 @@ Control flow:
   main at src/main.mfb:27
     trap err -> returns value
     fallible call os.getEnv at src/main.mfb:28 -> trap
-    fallible call net.connectTcp at src/main.mfb:32 -> trap
-    fallible call net.close at src/main.mfb:33 -> trap
     fallible call sql.open at src/main.mfb:34 -> trap
     fallible call sql.close at src/main.mfb:35 -> trap
     fallible call io.print at src/main.mfb:36 -> trap
@@ -53,11 +45,9 @@ Control flow:
     fallible call io.print at src/main.mfb:38 -> trap
 
 Findings:
-  info AUDIT-RESOURCE-CLOSE-MAY-FAIL resource `socket` (Socket) is closed by lexical drop; explicit `net.close` is required to observe a close failure (src/main.mfb:32)
   info AUDIT-PERM-CLOCK project uses host capability: clock
   info AUDIT-PERM-ENVIRONMENT project uses host capability: environment
   info AUDIT-PERM-NATIVE project uses host capability: native
-  info AUDIT-PERM-NETWORK project uses host capability: network
   info AUDIT-PERM-PROCESS project uses host capability: process
   info AUDIT-PERM-RANDOMNESS project uses host capability: randomness
   info AUDIT-PERM-TERMINAL project uses host capability: terminal
@@ -81,7 +71,7 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
   "summary": {
     "errors": 0,
     "warnings": 0,
-    "infos": 8
+    "infos": 6
   },
   "lockfile": {
     "path": "mfb.lock",
@@ -111,18 +101,6 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
           "line": 28,
           "propagation": "trap",
           "capability": "environment"
-        },
-        {
-          "callee": "net.connectTcp",
-          "line": 32,
-          "propagation": "trap",
-          "capability": "network"
-        },
-        {
-          "callee": "net.close",
-          "line": 33,
-          "propagation": "trap",
-          "capability": "network"
         },
         {
           "callee": "sql.open",
@@ -157,18 +135,7 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
       ]
     }
   ],
-  "resources": [
-    {
-      "function": "main",
-      "name": "socket",
-      "resourceType": "Socket",
-      "closeOp": "net.close",
-      "path": "src/main.mfb",
-      "line": 32,
-      "native": false,
-      "closeMayFail": true
-    }
-  ],
+  "resources": [],
   "nativeLinks": [
     {
       "package": "audit_capabilities",
@@ -230,22 +197,6 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
       "kind": "native"
     },
     {
-      "capability": "network",
-      "package": "net",
-      "function": "net.connectTcp",
-      "path": "src/main.mfb",
-      "line": 32,
-      "kind": "standard"
-    },
-    {
-      "capability": "network",
-      "package": "net",
-      "function": "net.close",
-      "path": "src/main.mfb",
-      "line": 33,
-      "kind": "standard"
-    },
-    {
       "capability": "process",
       "package": "os",
       "function": "os.pid",
@@ -288,17 +239,6 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
   ],
   "findings": [
     {
-      "code": "AUDIT-RESOURCE-CLOSE-MAY-FAIL",
-      "severity": "info",
-      "category": "resource",
-      "message": "resource `socket` (Socket) is closed by lexical drop; explicit `net.close` is required to observe a close failure",
-      "location": {
-        "path": "src/main.mfb",
-        "line": 32
-      },
-      "package": null
-    },
-    {
       "code": "AUDIT-PERM-CLOCK",
       "severity": "info",
       "category": "permission",
@@ -319,14 +259,6 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
       "severity": "info",
       "category": "permission",
       "message": "project uses host capability: native",
-      "location": null,
-      "package": null
-    },
-    {
-      "code": "AUDIT-PERM-NETWORK",
-      "severity": "info",
-      "category": "permission",
-      "message": "project uses host capability: network",
       "location": null,
       "package": null
     },

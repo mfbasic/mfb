@@ -1,5 +1,6 @@
+IMPORT tcp
 ' bug-441 / plan-97: a user RESOURCE MAY reuse a bare built-in resource name.
-' The built-in resources are package-qualified (`fs::File`, `net::Socket`), so
+' The built-in resources are package-qualified (`fs::File`, `tcp::Socket`), so
 ' bare `File` and `Socket` no longer name builtins — they are free for user
 ' declarations. Each RESOURCE below names a distinct user resource, closed by the
 ' user's own `CLOSE BY`, and the package compiles cleanly.

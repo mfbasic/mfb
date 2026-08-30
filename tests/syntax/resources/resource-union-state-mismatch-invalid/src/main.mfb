@@ -1,5 +1,5 @@
 IMPORT fs
-IMPORT net
+IMPORT tcp
 
 TYPE StateA
   a AS Integer
@@ -11,7 +11,7 @@ END TYPE
 
 UNION Stream
   fs::File
-  net::Socket
+  tcp::Socket
 END UNION
 
 ' plan-74: union STATE agreement is checked exactly as a concrete resource's.

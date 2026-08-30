@@ -1,5 +1,5 @@
 IMPORT fs
-IMPORT net
+IMPORT tcp
 IMPORT io
 
 TYPE Cursor
@@ -8,7 +8,7 @@ END TYPE
 
 UNION Stream
   fs::File
-  net::Socket
+  tcp::Socket
 END UNION
 
 ' plan-74: mutate a resource union's STATE through a union-typed RES parameter;
@@ -27,7 +27,7 @@ FUNC main AS Integer
   MATCH s
     CASE fs::File(f)
       io::print(toString(f.state.pos)) ' 15 — same payload via a MATCH-extracted variant
-    CASE net::Socket(sock)
+    CASE tcp::Socket(sock)
       io::print("-1")
   END MATCH
   RETURN 0

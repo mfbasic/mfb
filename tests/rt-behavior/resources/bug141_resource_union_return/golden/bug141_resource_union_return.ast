@@ -5,7 +5,7 @@
     "path": "src/main.mfb",
     "imports": [
     { "module": "fs", "line": 1 },
-    { "module": "net", "line": 2 },
+    { "module": "tcp", "line": 2 },
     { "module": "io", "line": 3 }
     ],
     "items": [
@@ -17,7 +17,7 @@
       "includes": [],
       "variants": [
       { "name": "fs.File", "line": 10 },
-      { "name": "net.Socket", "line": 11 }
+      { "name": "tcp.Socket", "line": 11 }
       ]
     },
     {
@@ -60,7 +60,7 @@
           ]
         },
         {
-          "pattern": { "kind": "union", "type": "net.Socket", "binding": "sock" },
+          "pattern": { "kind": "union", "type": "tcp.Socket", "binding": "sock" },
           "guard": null,
           "line": 25,
           "body": [

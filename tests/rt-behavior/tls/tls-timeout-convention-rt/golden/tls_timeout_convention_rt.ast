@@ -4,7 +4,7 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "net", "line": 8 },
+    { "module": "tcp", "line": 8 },
     { "module": "tls", "line": 9 },
     { "module": "io", "line": 10 }
     ],
@@ -42,8 +42,8 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": null, "value": { "kind": "call", "callee": "net.listenTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 22 },
-      { "kind": "binding", "mutable": false, "name": "bound", "type": null, "value": { "kind": "call", "callee": "net.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": null, "value": { "kind": "call", "callee": "tcp.listen", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "bound", "type": null, "value": { "kind": "call", "callee": "tcp.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 23 },
       { "kind": "binding", "mutable": false, "name": "nc", "type": null, "value": { "kind": "call", "callee": "connectNeg", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, "line": 25 },
       {
         "kind": "if",

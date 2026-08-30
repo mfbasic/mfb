@@ -98,13 +98,13 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
     // handle is used for real TLS I/O — the exact sequence that SIGSEGV'd
     // pre-plan-80.
     let source = format!(
-        "IMPORT tls\nIMPORT net\nIMPORT collections\n\n\
+        "IMPORT collections\nIMPORT tcp\nIMPORT tls\n\n\
          TYPE PendingState\n\
         \x20 raw AS List OF Byte\n\
         \x20 sentAll AS Boolean\n\
          END TYPE\n\n\
          UNION Stream\n\
-        \x20 net::Socket\n\
+        \x20 tcp::Socket\n\
         \x20 tls::Socket\n\
          END UNION\n\n\
          FUNC serveOnce(RES listener AS tls::Listener) AS Integer\n\
@@ -118,8 +118,8 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
         \x20 MATCH client\n\
         \x20   CASE tls::Socket(t)\n\
         \x20     tls::write(t, client.state.raw)\n\
-        \x20   CASE net::Socket(p)\n\
-        \x20     net::write(p, client.state.raw)\n\
+        \x20   CASE tcp::Socket(p)\n\
+        \x20     tcp::write(p, client.state.raw)\n\
         \x20 END MATCH\n\
         \x20 RETURN 0\n\
          END FUNC\n\n\

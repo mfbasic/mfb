@@ -1,140 +1,128 @@
 $ mfb build -ast -ir tests/syntax/tcp/func_tcp_invalid
-  15 | 
-  16 |   ' connect: arity and both argument types, on both overload families.
-  17 |   RES missing = tcp::connect()
+  14 | 
+  15 |   ' connect: arity and both argument types, on both overload families.
+  16 |   RES missing = tcp::connect()
      | ^
-tests/syntax/tcp/func_tcp_invalid/src/main.mfb:17 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/syntax/tcp/func_tcp_invalid/src/main.mfb:16 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `tcp.connect` has 0 argument(s), expected 1 to 3.
-  15 | 
-  16 |   ' connect: arity and both argument types, on both overload families.
-  17 |   RES missing = tcp::connect()
+  14 | 
+  15 |   ' connect: arity and both argument types, on both overload families.
+  16 |   RES missing = tcp::connect()
+     | ^
+tests/syntax/tcp/func_tcp_invalid/src/main.mfb:16 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+  15 |   ' connect: arity and both argument types, on both overload families.
+  16 |   RES missing = tcp::connect()
+  17 |   RES wrongHost = tcp::connect(1, 80)
+     | ^
+tests/syntax/tcp/func_tcp_invalid/src/main.mfb:17 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `tcp.connect` has argument type(s) (Integer, Integer), expected String, Integer, Integer or Address, Integer.
+  15 |   ' connect: arity and both argument types, on both overload families.
+  16 |   RES missing = tcp::connect()
+  17 |   RES wrongHost = tcp::connect(1, 80)
      | ^
 tests/syntax/tcp/func_tcp_invalid/src/main.mfb:17 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `missing` does not have a known type.
-  16 |   ' connect: arity and both argument types, on both overload families.
-  17 |   RES missing = tcp::connect()
-  18 |   RES wrongHost = tcp::connect(1, 80)
+               Initializer for binding `wrongHost` does not have a known type.
+  16 |   RES missing = tcp::connect()
+  17 |   RES wrongHost = tcp::connect(1, 80)
+  18 |   RES wrongPort = tcp::connect("h", "p")
      | ^
 tests/syntax/tcp/func_tcp_invalid/src/main.mfb:18 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tcp.connect` has argument type(s) (Integer, Integer), expected String, Integer, Integer or Address, Integer.
-  16 |   ' connect: arity and both argument types, on both overload families.
-  17 |   RES missing = tcp::connect()
-  18 |   RES wrongHost = tcp::connect(1, 80)
+               Call to `tcp.connect` has argument type(s) (String, String), expected String, Integer, Integer or Address, Integer.
+  16 |   RES missing = tcp::connect()
+  17 |   RES wrongHost = tcp::connect(1, 80)
+  18 |   RES wrongPort = tcp::connect("h", "p")
      | ^
 tests/syntax/tcp/func_tcp_invalid/src/main.mfb:18 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongHost` does not have a known type.
-  17 |   RES missing = tcp::connect()
-  18 |   RES wrongHost = tcp::connect(1, 80)
-  19 |   RES wrongPort = tcp::connect("h", "p")
+               Initializer for binding `wrongPort` does not have a known type.
+  17 |   RES wrongHost = tcp::connect(1, 80)
+  18 |   RES wrongPort = tcp::connect("h", "p")
+  19 |   RES tooMany = tcp::connect("h", 80, 0, 0)
      | ^
-tests/syntax/tcp/func_tcp_invalid/src/main.mfb:19 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tcp.connect` has argument type(s) (String, String), expected String, Integer, Integer or Address, Integer.
-  17 |   RES missing = tcp::connect()
-  18 |   RES wrongHost = tcp::connect(1, 80)
-  19 |   RES wrongPort = tcp::connect("h", "p")
+tests/syntax/tcp/func_tcp_invalid/src/main.mfb:19 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `tcp.connect` has 4 argument(s), expected 1 to 3.
+  17 |   RES wrongHost = tcp::connect(1, 80)
+  18 |   RES wrongPort = tcp::connect("h", "p")
+  19 |   RES tooMany = tcp::connect("h", 80, 0, 0)
      | ^
 tests/syntax/tcp/func_tcp_invalid/src/main.mfb:19 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongPort` does not have a known type.
-  18 |   RES wrongHost = tcp::connect(1, 80)
-  19 |   RES wrongPort = tcp::connect("h", "p")
-  20 |   RES tooMany = tcp::connect("h", 80, 0, 0)
-     | ^
-tests/syntax/tcp/func_tcp_invalid/src/main.mfb:20 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `tcp.connect` has 4 argument(s), expected 1 to 3.
-  18 |   RES wrongHost = tcp::connect(1, 80)
-  19 |   RES wrongPort = tcp::connect("h", "p")
-  20 |   RES tooMany = tcp::connect("h", 80, 0, 0)
-     | ^
-tests/syntax/tcp/func_tcp_invalid/src/main.mfb:20 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
-  21 |   ' `timeoutMs` names the timeout, so it must never silently fill the port slot:
-  22 |   ' this omits `port` and is an arity error, not a connection to port 5000.
-  23 |   RES timeoutAsPort = tcp::connect(host := "h", timeoutMs := 5000)
+  20 |   ' `timeoutMs` names the timeout, so it must never silently fill the port slot:
+  21 |   ' this omits `port` and is an arity error, not a connection to port 5000.
+  22 |   RES timeoutAsPort = tcp::connect(host := "h", timeoutMs := 5000)
      | ^
-tests/syntax/tcp/func_tcp_invalid/src/main.mfb:23 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/syntax/tcp/func_tcp_invalid/src/main.mfb:22 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `tcp.connect` omits parameter `port` before a later supplied argument.
-  22 |   ' this omits `port` and is an arity error, not a connection to port 5000.
-  23 |   RES timeoutAsPort = tcp::connect(host := "h", timeoutMs := 5000)
-  24 |   RES unknownName = tcp::connect(host := "h", port := 80, deadline := 1)
+  21 |   ' this omits `port` and is an arity error, not a connection to port 5000.
+  22 |   RES timeoutAsPort = tcp::connect(host := "h", timeoutMs := 5000)
+  23 |   RES unknownName = tcp::connect(host := "h", port := 80, deadline := 1)
      | ^
-tests/syntax/tcp/func_tcp_invalid/src/main.mfb:24 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+tests/syntax/tcp/func_tcp_invalid/src/main.mfb:23 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
                Call to `tcp.connect` does not have a parameter named `deadline`.
-  25 | 
-  26 |   ' listen / accept.
-  27 |   RES wrongBacklog = tcp::listen("h", 80, "many")
+  24 | 
+  25 |   ' listen / accept.
+  26 |   RES wrongBacklog = tcp::listen("h", 80, "many")
+     | ^
+tests/syntax/tcp/func_tcp_invalid/src/main.mfb:26 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `tcp.listen` has argument type(s) (String, Integer, String), expected String, Integer, Integer.
+  24 | 
+  25 |   ' listen / accept.
+  26 |   RES wrongBacklog = tcp::listen("h", 80, "many")
+     | ^
+tests/syntax/tcp/func_tcp_invalid/src/main.mfb:26 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongBacklog` does not have a known type.
+  25 |   ' listen / accept.
+  26 |   RES wrongBacklog = tcp::listen("h", 80, "many")
+  27 |   RES acceptOnSocket = tcp::accept(client)
      | ^
 tests/syntax/tcp/func_tcp_invalid/src/main.mfb:27 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tcp.listen` has argument type(s) (String, Integer, String), expected String, Integer, Integer.
-  25 | 
-  26 |   ' listen / accept.
-  27 |   RES wrongBacklog = tcp::listen("h", 80, "many")
+               Call to `tcp.accept` has argument type(s) (tcp.Socket), expected Listener, Integer.
+  25 |   ' listen / accept.
+  26 |   RES wrongBacklog = tcp::listen("h", 80, "many")
+  27 |   RES acceptOnSocket = tcp::accept(client)
      | ^
 tests/syntax/tcp/func_tcp_invalid/src/main.mfb:27 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongBacklog` does not have a known type.
-  26 |   ' listen / accept.
-  27 |   RES wrongBacklog = tcp::listen("h", 80, "many")
-  28 |   RES acceptOnSocket = tcp::accept(client)
-     | ^
-tests/syntax/tcp/func_tcp_invalid/src/main.mfb:28 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tcp.accept` has argument type(s) (tcp.Socket), expected Listener, Integer.
-  26 |   ' listen / accept.
-  27 |   RES wrongBacklog = tcp::listen("h", 80, "many")
-  28 |   RES acceptOnSocket = tcp::accept(client)
-     | ^
-tests/syntax/tcp/func_tcp_invalid/src/main.mfb:28 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `acceptOnSocket` does not have a known type.
-  29 | 
-  30 |   ' read / write payload types.
-  31 |   LET badMax = tcp::read(client, "lots")
+  28 | 
+  29 |   ' read / write payload types.
+  30 |   LET badMax = tcp::read(client, "lots")
+     | ^
+tests/syntax/tcp/func_tcp_invalid/src/main.mfb:30 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `tcp.read` has argument type(s) (tcp.Socket, String), expected Socket, Integer.
+  28 | 
+  29 |   ' read / write payload types.
+  30 |   LET badMax = tcp::read(client, "lots")
+     | ^
+tests/syntax/tcp/func_tcp_invalid/src/main.mfb:30 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badMax` does not have a known type.
+  29 |   ' read / write payload types.
+  30 |   LET badMax = tcp::read(client, "lots")
+  31 |   tcp::write(client, 42)
      | ^
 tests/syntax/tcp/func_tcp_invalid/src/main.mfb:31 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tcp.read` has argument type(s) (tcp.Socket, String), expected Socket, Integer.
-  29 | 
-  30 |   ' read / write payload types.
-  31 |   LET badMax = tcp::read(client, "lots")
-     | ^
-tests/syntax/tcp/func_tcp_invalid/src/main.mfb:31 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `badMax` does not have a known type.
-  30 |   ' read / write payload types.
-  31 |   LET badMax = tcp::read(client, "lots")
-  32 |   tcp::write(client, 42)
-     | ^
-tests/syntax/tcp/func_tcp_invalid/src/main.mfb:32 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `tcp.write` has argument type(s) (tcp.Socket, Integer), expected Socket, List OF Byte or Socket, String.
-  34 |   ' Cross-package identity: a net handle cannot be used through tcp.
-  35 |   RES legacy = net::connectTcp("127.0.0.1", 9931)
-  36 |   LET wrongPackage = tcp::read(legacy, 16)
+  36 | 
+  37 |   ' A listener is not a stream, and has no single peer.
+  38 |   LET listenerRead = tcp::read(server, 16)
      | ^
-tests/syntax/tcp/func_tcp_invalid/src/main.mfb:36 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tcp.read` has argument type(s) (net.Socket, Integer), expected Socket, Integer.
-  34 |   ' Cross-package identity: a net handle cannot be used through tcp.
-  35 |   RES legacy = net::connectTcp("127.0.0.1", 9931)
-  36 |   LET wrongPackage = tcp::read(legacy, 16)
+tests/syntax/tcp/func_tcp_invalid/src/main.mfb:38 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `tcp.read` has argument type(s) (tcp.Listener, Integer), expected Socket, Integer.
+  36 | 
+  37 |   ' A listener is not a stream, and has no single peer.
+  38 |   LET listenerRead = tcp::read(server, 16)
      | ^
-tests/syntax/tcp/func_tcp_invalid/src/main.mfb:36 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongPackage` does not have a known type.
-  37 | 
-  38 |   ' A listener is not a stream, and has no single peer.
-  39 |   LET listenerRead = tcp::read(server, 16)
+tests/syntax/tcp/func_tcp_invalid/src/main.mfb:38 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `listenerRead` does not have a known type.
+  37 |   ' A listener is not a stream, and has no single peer.
+  38 |   LET listenerRead = tcp::read(server, 16)
+  39 |   LET listenerPeer = tcp::remoteAddress(server)
      | ^
 tests/syntax/tcp/func_tcp_invalid/src/main.mfb:39 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tcp.read` has argument type(s) (tcp.Listener, Integer), expected Socket, Integer.
-  37 | 
-  38 |   ' A listener is not a stream, and has no single peer.
-  39 |   LET listenerRead = tcp::read(server, 16)
+               Call to `tcp.remoteAddress` has argument type(s) (tcp.Listener), expected Socket.
+  37 |   ' A listener is not a stream, and has no single peer.
+  38 |   LET listenerRead = tcp::read(server, 16)
+  39 |   LET listenerPeer = tcp::remoteAddress(server)
      | ^
 tests/syntax/tcp/func_tcp_invalid/src/main.mfb:39 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `listenerRead` does not have a known type.
-  38 |   ' A listener is not a stream, and has no single peer.
-  39 |   LET listenerRead = tcp::read(server, 16)
-  40 |   LET listenerPeer = tcp::remoteAddress(server)
-     | ^
-tests/syntax/tcp/func_tcp_invalid/src/main.mfb:40 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tcp.remoteAddress` has argument type(s) (tcp.Listener), expected Socket.
-  38 |   ' A listener is not a stream, and has no single peer.
-  39 |   LET listenerRead = tcp::read(server, 16)
-  40 |   LET listenerPeer = tcp::remoteAddress(server)
-     | ^
-tests/syntax/tcp/func_tcp_invalid/src/main.mfb:40 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `listenerPeer` does not have a known type.
 [exit 1]

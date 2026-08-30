@@ -1,5 +1,5 @@
 IMPORT fs
-IMPORT net
+IMPORT tcp
 IMPORT io
 
 TYPE Cursor
@@ -8,7 +8,7 @@ END TYPE
 
 UNION Stream
   fs::File
-  net::Socket
+  tcp::Socket
 END UNION
 
 ' Normal scope-drop: open a stateful union, touch its STATE, return with no
@@ -28,7 +28,7 @@ SUB earlyClose(path AS String)
   MATCH s
     CASE fs::File(f)
       fs::close(f)
-    CASE net::Socket(sock)
+    CASE tcp::Socket(sock)
       io::print("unexpected socket")
   END MATCH
 END SUB

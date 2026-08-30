@@ -1,12 +1,12 @@
 IMPORT io
 IMPORT thread
 IMPORT fs
-IMPORT net
+IMPORT tcp
 IMPORT union_xfer_stateless_workers
 
 UNION Stream
   fs::File
-  net::Socket
+  tcp::Socket
 END UNION
 
 ' plan-75: a *stateless* resource union was equally broken — its variant record

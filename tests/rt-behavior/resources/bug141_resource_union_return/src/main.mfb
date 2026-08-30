@@ -1,5 +1,5 @@
 IMPORT fs
-IMPORT net
+IMPORT tcp
 IMPORT io
 
 ' bug-141: RETURNing a resource union truncated it to 8 bytes (dropping the
@@ -8,7 +8,7 @@ IMPORT io
 ' and be usable by the caller.
 UNION Stream
   fs::File
-  net::Socket
+  tcp::Socket
 END UNION
 
 FUNC openIt() AS Stream
@@ -22,7 +22,7 @@ FUNC main AS Integer
     CASE fs::File(f)
       fs::writeAll(f, "union-data")
       io::print("file-ok")
-    CASE net::Socket(sock)
+    CASE tcp::Socket(sock)
       io::print("socket")
   END MATCH
   RETURN 0

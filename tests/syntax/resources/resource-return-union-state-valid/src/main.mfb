@@ -1,5 +1,5 @@
 IMPORT fs
-IMPORT net
+IMPORT tcp
 
 TYPE StreamState
   bytes AS Integer
@@ -7,7 +7,7 @@ END TYPE
 
 UNION Stream
   fs::File
-  net::Socket
+  tcp::Socket
 END UNION
 
 ' plan-74: a FUNC may return a resource union carrying a uniform STATE; the

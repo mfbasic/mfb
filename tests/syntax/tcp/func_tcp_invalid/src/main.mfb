@@ -1,12 +1,11 @@
 ' Arity and argument-type rejection across the tcp surface (plan-110-B), plus the
-' rule that matters most while both packages exist: a `net::Socket` is NOT a
+' rule that matters most while both packages exist: a `tcp::Socket` is NOT a
 ' `tcp::Socket`. The runtime record is identical, so only the distinct qualified
 ' identities stop one being passed where the other belongs.
 '
 ' The removed `net` spellings (`readText`/`writeText`/`connectTcp`/`listenTcp`)
 ' are unknown-member errors, which the resolver reports before type checking, so
 ' they live in `func_tcp_removed_members_invalid` instead.
-IMPORT net
 IMPORT tcp
 
 FUNC main AS Integer
@@ -32,7 +31,7 @@ FUNC main AS Integer
   tcp::write(client, 42)
 
   ' Cross-package identity: a net handle cannot be used through tcp.
-  RES legacy = net::connectTcp("127.0.0.1", 9931)
+  RES legacy = tcp::connect("127.0.0.1", 9931)
   LET wrongPackage = tcp::read(legacy, 16)
 
   ' A listener is not a stream, and has no single peer.

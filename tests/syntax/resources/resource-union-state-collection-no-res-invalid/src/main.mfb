@@ -3,7 +3,7 @@
 ' rejected with a clear parse diagnostic rather than being left as a dangling
 ' token — a resource in a collection still requires `RES` (§15.6).
 IMPORT fs
-IMPORT net
+IMPORT tcp
 
 TYPE PendingState
   bytes AS Integer
@@ -11,7 +11,7 @@ END TYPE
 
 UNION Stream
   fs::File
-  net::Socket
+  tcp::Socket
 END UNION
 
 FUNC main AS Integer

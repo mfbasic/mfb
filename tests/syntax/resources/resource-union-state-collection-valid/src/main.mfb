@@ -1,5 +1,5 @@
 IMPORT fs
-IMPORT net
+IMPORT tcp
 
 ' bug-427: a `List`/`Map` element may carry a uniform `STATE T` clause when its
 ' element is a resource union (`List OF RES Stream STATE PendingState`,
@@ -12,7 +12,7 @@ END TYPE
 
 UNION Stream
   fs::File
-  net::Socket
+  tcp::Socket
 END UNION
 
 FUNC countList(streams AS List OF RES Stream STATE PendingState) AS Integer

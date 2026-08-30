@@ -5,7 +5,7 @@
     "path": "src/main.mfb",
     "imports": [
     { "module": "fs", "line": 1 },
-    { "module": "net", "line": 2 },
+    { "module": "tcp", "line": 2 },
     { "module": "io", "line": 3 }
     ],
     "items": [
@@ -41,11 +41,11 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sock", "type": "net.Socket", "value": {
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sock", "type": "tcp.Socket", "value": {
         "kind": "trapped",
         "binding": "e",
         "line": 32,
-        "expression": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "500" }] },
+        "expression": { "kind": "call", "callee": "tcp.connect", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "500" }] },
         "handler": [
         { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 33 }
         ]

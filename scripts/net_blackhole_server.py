@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TCP "blackhole" server for validating net::connectTcp timeout behavior.
+"""TCP "blackhole" server for validating tcp::connect timeout behavior.
 
 Listens on 127.0.0.1 with a tiny accept backlog and then saturates that backlog
 with pending half-open connections. Once the backlog is full the kernel drops
