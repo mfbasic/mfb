@@ -79,12 +79,18 @@ pub(super) fn package_exports(
                         Ok::<BinaryReprExportParam, String>(BinaryReprExportParam {
                             name: string_at(&package.project.strings.values, param.name)?
                                 .to_string(),
-                            type_: type_name(&type_names, param.type_id)?.to_string(),
+                            type_: crate::types::ParameterType::parse(type_name(
+                                &type_names,
+                                param.type_id,
+                            )?),
                             has_default: param.flags & 1 != 0,
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?,
-                return_type: type_name(&type_names, function.return_type)?.to_string(),
+                return_type: crate::types::ParameterType::parse(type_name(
+                    &type_names,
+                    function.return_type,
+                )?),
             };
             Ok(built)
         })

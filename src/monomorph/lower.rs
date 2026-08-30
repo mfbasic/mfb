@@ -186,18 +186,16 @@ impl<'a> Monomorphizer<'a> {
                     candidate.param_types.len() == arg_types.len()
                         && candidate.param_types.iter().zip(arg_types.iter()).all(
                             |(param, actual)| {
-                                // The candidate side is a DECODED PACKAGE signature
-                                // (`ImportedOverload::param_types`, stored bare as the
-                                // wire format spelled it), and `normalize_type` /
-                                // `types_compatible` are token algorithms over that
-                                // name domain — qualifier stripping and positional
-                                // `Unknown` wildcarding, neither expressible on the
-                                // typed side. So the call's argument type renders here,
-                                // at the wire boundary, rather than the package's
-                                // strings being parsed into types they may not spell.
+                                // plan-111-B: both sides are types now. The decoded
+                                // package signature (`ImportedOverload::param_types`)
+                                // arrives typed from `binary_repr::builder`
+                                // (boundary #4), and both algorithms below turned out
+                                // to be expressible structurally after all — see their
+                                // doc comments and the equivalence tests that pin them
+                                // against the token forms they replace.
                                 self.types_compatible(
                                     &self.normalize_type(param),
-                                    &self.normalize_type(actual.name().as_ref()),
+                                    &self.normalize_type(actual),
                                 )
                             },
                         )
@@ -222,24 +220,106 @@ impl<'a> Monomorphizer<'a> {
     }
 
     /// Whether a declared parameter type and an actual argument type match,
-    /// token-wise, treating `Unknown` (e.g. from an empty `[]` literal) as a
-    /// wildcard so an untyped empty collection still selects an overload.
-    fn types_compatible(&self, param: &str, actual: &str) -> bool {
+    /// treating `Unknown` (e.g. from an empty `[]` literal) as a wildcard so an
+    /// untyped empty collection still selects an overload.
+    ///
+    /// plan-111-B: this was a token algorithm over the two RENDERED spellings —
+    /// equal token counts, then each pair equal or either literally `"Unknown"`.
+    /// The structural form reproduces it exactly, and the one subtlety is worth
+    /// stating because it looks like a bug: **`Unknown` is a LEAF wildcard, not
+    /// a universal one.** It stood in for a single whitespace token, so
+    /// `Unknown` never matched `List OF Integer` — the token counts differed (1
+    /// vs 3) — and it must not start matching it now. That is what the
+    /// "an untyped `[]` selects none of them" half of `TYPE_OVERLOAD_AMBIGUOUS`
+    /// depends on: a wholly-unknown argument selects NO overload rather than
+    /// every one of them. `types_compatible_matches_the_token_algorithm` pins
+    /// the equivalence over a corpus that includes exactly that case.
+    fn types_compatible(&self, param: &ParameterType, actual: &ParameterType) -> bool {
         if param == actual {
             return true;
         }
-        let param_tokens: Vec<&str> = param.split_whitespace().collect();
-        let actual_tokens: Vec<&str> = actual.split_whitespace().collect();
-        param_tokens.len() == actual_tokens.len()
-            && param_tokens
-                .iter()
-                .zip(actual_tokens.iter())
-                .all(|(p, a)| p == a || *p == "Unknown" || *a == "Unknown")
+        // A single-token type: what one `Unknown` token could stand in for.
+        fn is_leaf(type_: &ParameterType) -> bool {
+            match type_ {
+                ParameterType::ListOf(_)
+                | ParameterType::SetOf(_)
+                | ParameterType::MapOf(_, _)
+                | ParameterType::MapEntryOf(_, _)
+                | ParameterType::ResultOf(_)
+                | ParameterType::Res(_)
+                | ParameterType::Stateful { .. }
+                | ParameterType::UserOf(_, _)
+                | ParameterType::Func(_, _, _)
+                | ParameterType::ThreadHandle { .. } => false,
+                // A nominal is one token only if its spelling holds no space; a
+                // composite that `parse` declined to decompose is not.
+                ParameterType::Named(sym) => !sym.resolve().contains(' '),
+                _ => true,
+            }
+        }
+        match (param, actual) {
+            (ParameterType::Unknown, other) | (other, ParameterType::Unknown) => is_leaf(other),
+            (ParameterType::ListOf(p), ParameterType::ListOf(a))
+            | (ParameterType::SetOf(p), ParameterType::SetOf(a))
+            | (ParameterType::ResultOf(p), ParameterType::ResultOf(a))
+            | (ParameterType::Res(p), ParameterType::Res(a)) => self.types_compatible(p, a),
+            (ParameterType::MapOf(pk, pv), ParameterType::MapOf(ak, av))
+            | (ParameterType::MapEntryOf(pk, pv), ParameterType::MapEntryOf(ak, av)) => {
+                self.types_compatible(pk, ak) && self.types_compatible(pv, av)
+            }
+            (
+                ParameterType::Stateful {
+                    base: pb,
+                    state: ps,
+                },
+                ParameterType::Stateful {
+                    base: ab,
+                    state: as_,
+                },
+            ) => self.types_compatible(pb, ab) && self.types_compatible(ps, as_),
+            (ParameterType::UserOf(ph, pa), ParameterType::UserOf(ah, aa)) => {
+                ph == ah
+                    && pa.len() == aa.len()
+                    && pa
+                        .iter()
+                        .zip(aa.iter())
+                        .all(|(p, a)| self.types_compatible(p, a))
+            }
+            (ParameterType::Func(pp, pr, pi), ParameterType::Func(ap, ar, ai)) => {
+                pi == ai
+                    && pp.len() == ap.len()
+                    && pp
+                        .iter()
+                        .zip(ap.iter())
+                        .all(|(p, a)| self.types_compatible(p, a))
+                    && self.types_compatible(pr, ar)
+            }
+            (
+                ParameterType::ThreadHandle {
+                    worker: pw,
+                    msg: pm,
+                    res: pres,
+                    out: po,
+                },
+                ParameterType::ThreadHandle {
+                    worker: aw,
+                    msg: am,
+                    res: ares,
+                    out: ao,
+                },
+            ) => {
+                pw == aw
+                    && self.types_compatible(pm, am)
+                    && self.types_compatible(pres, ares)
+                    && self.types_compatible(po, ao)
+            }
+            _ => false,
+        }
     }
 
     /// Strip package/import-binding qualifiers from each user/resource type name
     /// inside `type_` so an importer's `sqlite.Db` matches the package's bare `Db`.
-    fn normalize_type(&self, type_: &str) -> String {
+    fn normalize_type(&self, type_: &ParameterType) -> ParameterType {
         // Strip each qualifier only where it prefixes a type-name token — at the
         // start of the string or after a non-identifier byte — never as a bare
         // substring. An unanchored `replace` lets a short qualifier (`io.`) eat
@@ -248,12 +328,59 @@ impl<'a> Monomorphizer<'a> {
         // seed, so the same source produced different overload resolutions and
         // flapping diagnostics run-to-run (bug-104). Sort longest-first for a
         // stable, prefix-preferring order.
+        //
+        // plan-111-B: applied per NOMINAL rather than over the whole rendered
+        // spelling. Every qualifier is `"<binding>."` or `"<package>."`
+        // (`helpers.rs:419`), and a `.` appears nowhere else in the type
+        // grammar, so a qualifier can only ever match at the head of a nominal —
+        // which is exactly what the byte-anchored scan found. Pinned by
+        // `normalize_type_matches_the_string_algorithm`.
         let mut qualifiers: Vec<&str> =
             self.package_qualifiers.iter().map(String::as_str).collect();
         qualifiers.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
-        let mut normalized = type_.to_string();
-        for qualifier in qualifiers {
-            normalized = strip_qualifier_prefixes(&normalized, qualifier);
+        let strip = |name: &str| {
+            let mut normalized = name.to_string();
+            for qualifier in &qualifiers {
+                normalized = strip_qualifier_prefixes(&normalized, qualifier);
+            }
+            normalized
+        };
+        fn walk(type_: &ParameterType, strip: &impl Fn(&str) -> String) -> ParameterType {
+            match type_ {
+                ParameterType::Named(sym) => ParameterType::named(&strip(sym.resolve())),
+                ParameterType::UserOf(head, args) => ParameterType::user_of(
+                    &strip(head.resolve()),
+                    args.iter().map(|a| walk(a, strip)).collect(),
+                ),
+                ParameterType::ListOf(e) => ParameterType::list_of(walk(e, strip)),
+                ParameterType::SetOf(e) => ParameterType::set_of(walk(e, strip)),
+                ParameterType::ResultOf(e) => ParameterType::result_of(walk(e, strip)),
+                ParameterType::Res(e) => ParameterType::res(walk(e, strip)),
+                ParameterType::MapOf(k, v) => ParameterType::map_of(walk(k, strip), walk(v, strip)),
+                ParameterType::MapEntryOf(k, v) => {
+                    ParameterType::map_entry_of(walk(k, strip), walk(v, strip))
+                }
+                ParameterType::Stateful { base, state } => {
+                    ParameterType::stateful(walk(base, strip), walk(state, strip))
+                }
+                ParameterType::Func(params, ret, isolated) => ParameterType::Func(
+                    params.iter().map(|p| walk(p, strip)).collect(),
+                    Box::new(walk(ret, strip)),
+                    *isolated,
+                ),
+                ParameterType::ThreadHandle {
+                    worker,
+                    msg,
+                    res,
+                    out,
+                } => ParameterType::ThreadHandle {
+                    worker: *worker,
+                    msg: Box::new(walk(msg, strip)),
+                    res: Box::new(walk(res, strip)),
+                    out: Box::new(walk(out, strip)),
+                },
+                other => other.clone(),
+            }
         }
         // Drop a resource's `STATE T` suffix, exactly as the former source checker's `parse_type`
         // does and for the same reason (plan-52-D §4): an imported signature
@@ -262,7 +389,7 @@ impl<'a> Monomorphizer<'a> {
         // this, `types_compatible` compares 3 tokens against 1 and NO overload
         // whose first parameter is a stateful resource can ever match — the call
         // silently resolved to `Type::Unknown` instead of reporting an error.
-        crate::codegen::resource::base_resource_name(&normalized).to_string()
+        walk(type_, &strip).without_state()
     }
 
     pub(super) fn run(&mut self) {
@@ -2849,6 +2976,210 @@ END FUNC
         );
     }
 
+    /// plan-111-B: `types_compatible` was a token algorithm over two RENDERED
+    /// spellings — equal token counts, then each pair equal or either literally
+    /// `"Unknown"`. It is structural now, and this pins the two forms to the
+    /// same answer over every shape the overload filter can see.
+    ///
+    /// Two things this pins.
+    ///
+    /// **The rule that must survive**: `Unknown` stood in for ONE token, so it
+    /// never matched a composite. A structural "Unknown matches anything" would
+    /// silently turn "an untyped `[]` selects no overload" into "it selects
+    /// every one of them" — inverting `TYPE_OVERLOAD_AMBIGUOUS`'s own advice.
+    /// The last block asserts that asymmetry directly.
+    ///
+    /// **The bug that must NOT survive**: the token form only wildcarded an
+    /// `Unknown` that whitespace happened to delimit. A comma or a paren glues
+    /// it to its neighbour — `"Unknown,"`, `"FUNC(Unknown)"` — so it stopped
+    /// being a wildcard in a non-final user-generic argument and anywhere
+    /// inside `FUNC(...)`, while the FINAL argument of the same spelling still
+    /// worked. Overload selection depending on whether an argument is last is
+    /// an accident of `split_whitespace`, not a rule; the `fixed` list below is
+    /// every pair where the two forms therefore differ, and each is asserted to
+    /// have been broken before.
+    #[test]
+    fn types_compatible_matches_the_token_algorithm() {
+        // The algorithm this replaced, verbatim.
+        fn token_form(param: &str, actual: &str) -> bool {
+            if param == actual {
+                return true;
+            }
+            let param_tokens: Vec<&str> = param.split_whitespace().collect();
+            let actual_tokens: Vec<&str> = actual.split_whitespace().collect();
+            param_tokens.len() == actual_tokens.len()
+                && param_tokens
+                    .iter()
+                    .zip(actual_tokens.iter())
+                    .all(|(p, a)| p == a || *p == "Unknown" || *a == "Unknown")
+        }
+        let ast = project(&[(
+            "src/main.mfb",
+            "FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n",
+        )]);
+        let dir = std::env::temp_dir();
+        let hir = crate::hir::elaborate(&ast);
+        let mono = Monomorphizer::new(&dir, &hir);
+
+        let corpus = [
+            "Integer",
+            "String",
+            "Unknown",
+            "Db",
+            "fs.File",
+            "List OF Integer",
+            "List OF Unknown",
+            "List OF String",
+            "Set OF Integer",
+            "Map OF String TO Integer",
+            "Map OF Unknown TO Integer",
+            "Map OF String TO Unknown",
+            "Result OF Integer",
+            "MapEntry OF String TO Integer",
+            "RES fs.File",
+            "List OF List OF Integer",
+            "List OF List OF Unknown",
+            "Pair OF Integer, String",
+            "Pair OF Unknown, String",
+            "FUNC(Integer) AS String",
+            "FUNC(Unknown) AS String",
+            "ISOLATED FUNC(Integer) AS String",
+            "Thread OF Integer TO String",
+            "ThreadWorker OF Integer TO String",
+            "Thread OF Unknown TO String",
+        ];
+        // The token form only wildcarded an `Unknown` that whitespace happened
+        // to delimit. A comma or a paren glues it to its neighbour
+        // (`"Unknown,"`, `"FUNC(Unknown)"`), so it silently stopped being a
+        // wildcard in a non-final user-generic argument and anywhere inside
+        // `FUNC(...)` — while the FINAL argument of the same spelling still
+        // worked. That is a bug, not a rule, and the structural form fixes it;
+        // these are the pairs where the two therefore disagree, on purpose.
+        let fixed: &[(&str, &str)] = &[
+            ("Pair OF Integer, String", "Pair OF Unknown, String"),
+            ("Pair OF Unknown, String", "Pair OF Integer, String"),
+            ("FUNC(Integer) AS String", "FUNC(Unknown) AS String"),
+            ("FUNC(Unknown) AS String", "FUNC(Integer) AS String"),
+            (
+                "ISOLATED FUNC(Integer) AS String",
+                "FUNC(Unknown) AS String",
+            ),
+            (
+                "FUNC(Unknown) AS String",
+                "ISOLATED FUNC(Integer) AS String",
+            ),
+        ];
+        let mut checked = 0usize;
+        let mut diverged = 0usize;
+        for param in corpus {
+            for actual in corpus {
+                let structural = mono
+                    .types_compatible(&ParameterType::parse(param), &ParameterType::parse(actual));
+                if fixed.contains(&(param, actual)) {
+                    // The isolation flag still has to disagree independently of
+                    // the wildcard, so assert the exact outcome rather than
+                    // "different".
+                    let expected =
+                        !param.starts_with("ISOLATED") && !actual.starts_with("ISOLATED");
+                    assert_eq!(
+                        structural, expected,
+                        "known-fixed pair `{param}` vs `{actual}`"
+                    );
+                    assert!(
+                        !token_form(param, actual),
+                        "`{param}` vs `{actual}` is listed as fixed, but the token \
+                         form already agreed — drop it from the list"
+                    );
+                    diverged += 1;
+                    continue;
+                }
+                assert_eq!(
+                    structural,
+                    token_form(param, actual),
+                    "types_compatible disagrees for `{param}` vs `{actual}`"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked + diverged, corpus.len() * corpus.len());
+        assert_eq!(diverged, fixed.len(), "every listed divergence must be hit");
+
+        // The load-bearing asymmetry, stated directly: a wholly-unknown argument
+        // matches a leaf and NOT a composite, so it selects no container overload.
+        assert!(mono.types_compatible(&ParameterType::Unknown, &ParameterType::Integer));
+        assert!(!mono.types_compatible(
+            &ParameterType::Unknown,
+            &ParameterType::list_of(ParameterType::Integer)
+        ));
+        // ...while an element-position `Unknown` still matches, which is what
+        // makes an untyped `[]` (`List OF Unknown`) ambiguous across two
+        // element-typed overloads (bug-36, the test below).
+        assert!(mono.types_compatible(
+            &ParameterType::list_of(ParameterType::Unknown),
+            &ParameterType::list_of(ParameterType::Integer)
+        ));
+    }
+
+    /// plan-111-B: `normalize_type` stripped import qualifiers by scanning the
+    /// whole RENDERED spelling byte-wise. It walks the type now. Every qualifier
+    /// is `"<binding>."` / `"<package>."` and a `.` appears nowhere else in the
+    /// grammar, so the two must agree — pinned here rather than argued.
+    #[test]
+    fn normalize_type_matches_the_string_algorithm() {
+        let ast = project(&[(
+            "src/main.mfb",
+            "FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n",
+        )]);
+        let dir = std::env::temp_dir();
+        let hir = crate::hir::elaborate(&ast);
+        let mut mono = Monomorphizer::new(&dir, &hir);
+        mono.package_qualifiers = vec![
+            "sqlite.".to_string(),
+            "io.".to_string(),
+            "radio.".to_string(),
+            "fs.".to_string(),
+        ];
+        // The string form this replaced, verbatim.
+        let string_form = |type_: &str| -> String {
+            let mut qualifiers: Vec<&str> =
+                mono.package_qualifiers.iter().map(String::as_str).collect();
+            qualifiers.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+            let mut normalized = type_.to_string();
+            for qualifier in qualifiers {
+                normalized = super::strip_qualifier_prefixes(&normalized, qualifier);
+            }
+            crate::codegen::resource::base_resource_name(&normalized).to_string()
+        };
+        for spelled in [
+            "Integer",
+            "sqlite.Db",
+            "fs.File",
+            // The bug-104 shape: a short qualifier must not eat into a longer name.
+            "radio.Station",
+            "List OF sqlite.Db",
+            "Set OF fs.File",
+            "Map OF String TO sqlite.Db",
+            "Result OF sqlite.Db",
+            "RES fs.File",
+            "List OF RES fs.File",
+            "Pair OF sqlite.Db, io.Stream",
+            "FUNC(sqlite.Db) AS io.Stream",
+            "Thread OF sqlite.Db TO io.Stream",
+            "Thread OF Integer RES fs.File TO String",
+            // The STATE peel, on a bare resource and inside a container.
+            "sqlite.Db STATE sqlite.DbInfo",
+            "fs.File STATE Cursor",
+            "List OF RES fs.File STATE Cursor",
+            "Unknown",
+        ] {
+            assert_eq!(
+                mono.normalize_type(&ParameterType::parse(spelled)).name(),
+                string_form(spelled),
+                "normalize_type disagrees for `{spelled}`"
+            );
+        }
+    }
+
     /// bug-36: `Unknown` (from an untyped `[]`) is a wildcard, so an element-typed
     /// overload set matches it twice. Taking the first candidate bound the call to
     /// whichever overload the package exported first, silently.
@@ -2865,11 +3196,11 @@ END FUNC
             "pkg.f".to_string(),
             vec![
                 ImportedOverload {
-                    param_types: vec!["List OF Integer".to_string()],
+                    param_types: vec![ParameterType::parse("List OF Integer")],
                     qualified_name: "pkg.f$ListOFInteger".to_string(),
                 },
                 ImportedOverload {
-                    param_types: vec!["List OF String".to_string()],
+                    param_types: vec![ParameterType::parse("List OF String")],
                     qualified_name: "pkg.f$ListOFString".to_string(),
                 },
             ],

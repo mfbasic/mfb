@@ -166,6 +166,15 @@ const BOUNDARY_FILES: &[(&str, &str)] = &[
     // 4 — `.mfp` wire codec: the package type table is text on disk.
     ("src/binary_repr/writer.rs", ".mfp wire codec"),
     ("src/binary_repr/sections.rs", ".mfp type-table codec"),
+    // Same codec, decode side: `builder` resolves a wire `type_id` through the
+    // package string table into the public `BinaryRepr*` view. plan-111-A named
+    // the two files that HAD parses when it was written; this one acquired its
+    // in plan-111-B, when the export signature stopped being decoded as text and
+    // started being decoded as a type — which is what a boundary is for.
+    (
+        "src/binary_repr/builder.rs",
+        ".mfp wire codec (decode side)",
+    ),
     // 5 — manifest entry decode: project.json carries type spellings.
     ("src/manifest/package.rs", "manifest entry decode"),
 ];
@@ -641,14 +650,13 @@ fn string_keyed_type_maps(rel: &str, src: &str) -> Vec<Hit> {
 const BUDGETS: &[(&str, &str, usize)] = &[
     // --- 1. `ParameterType::parse` below a boundary — 125. Letters B, D, E, F.
     ("parse_sites", "codegen", 94),
-    ("parse_sites", "ir", 2),
     ("parse_sites", "monomorph", 15),
     ("parse_sites", "resolver", 1),
     // --- 2. a type taken as `&str` — 173. Letters B, D, E, F, G.
     ("str_type_params", "binary_repr", 4),
     ("str_type_params", "codegen", 141),
     ("str_type_params", "hir", 1),
-    ("str_type_params", "monomorph", 3),
+    ("str_type_params", "monomorph", 2),
     ("str_type_params", "numeric", 1),
     ("str_type_params", "resolver", 1),
     ("str_type_params", "target", 4),
@@ -660,7 +668,6 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     ("spelling_match_arms", "types", 9),
     // --- 4. `==` / `!=` against a spelling — 73. Letters B, D, E, F, G.
     ("spelling_compares", "codegen", 57),
-    ("spelling_compares", "monomorph", 2),
     ("spelling_compares", "resolver", 1),
     ("spelling_compares", "target", 2),
     ("spelling_compares", "types", 2),

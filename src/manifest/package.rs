@@ -535,11 +535,11 @@ fn package_export_signature(export: &binary_repr::BinaryReprExport) -> ir::Exter
             .iter()
             .map(|param| ir::ExternalFunctionParam {
                 name: param.name.clone(),
-                type_: crate::types::ParameterType::parse(&param.type_),
+                type_: param.type_.clone(),
                 has_default: param.has_default,
             })
             .collect(),
-        returns: crate::types::ParameterType::parse(&export.return_type),
+        returns: export.return_type.clone(),
         isolated: export.isolated,
         sub: export.kind == binary_repr::BinaryReprExportKind::Sub,
     }
@@ -1172,16 +1172,16 @@ mod tests {
             params: vec![
                 binary_repr::BinaryReprExportParam {
                     name: "a".to_string(),
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::Integer,
                     has_default: false,
                 },
                 binary_repr::BinaryReprExportParam {
                     name: "b".to_string(),
-                    type_: "String".to_string(),
+                    type_: crate::types::ParameterType::String,
                     has_default: false,
                 },
             ],
-            return_type: "Boolean".to_string(),
+            return_type: crate::types::ParameterType::Boolean,
         };
         let signature = package_export_signature(&export);
         // Params and return are decoded structurally (parse-once), and render
@@ -1225,7 +1225,7 @@ mod tests {
     fn package_export_signature_round_trips_every_export_shape() {
         let param = |type_: &str| binary_repr::BinaryReprExportParam {
             name: "p".to_string(),
-            type_: type_.to_string(),
+            type_: crate::types::ParameterType::parse(type_),
             has_default: false,
         };
         // (param types, return type, isolated) -> the hand-formatted spelling.
@@ -1276,7 +1276,7 @@ mod tests {
                 kind: binary_repr::BinaryReprExportKind::Func,
                 isolated,
                 params: param_types.iter().map(|t| param(t)).collect(),
-                return_type: return_type.to_string(),
+                return_type: crate::types::ParameterType::parse(return_type),
             };
             let expected = format!(
                 "{}FUNC({}) AS {return_type}",

@@ -217,7 +217,11 @@ pub struct BinaryReprExport {
     pub kind: BinaryReprExportKind,
     pub isolated: bool,
     pub params: Vec<BinaryReprExportParam>,
-    pub return_type: String,
+    /// plan-111-B: typed. The `.mfp` wire still carries the spelling — this is
+    /// the DECODED view, and `binary_repr::builder` (the `.mfp` codec, boundary
+    /// #4) is where the type table's text becomes a type, once, instead of at
+    /// each consumer.
+    pub return_type: crate::types::ParameterType,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
@@ -232,7 +236,7 @@ pub enum BinaryReprExportKind {
 #[derive(Clone)]
 pub struct BinaryReprExportParam {
     pub name: String,
-    pub type_: String,
+    pub type_: crate::types::ParameterType,
     pub has_default: bool,
 }
 

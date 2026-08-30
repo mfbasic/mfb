@@ -21,7 +21,7 @@ fn package_exports_lists_callables_with_signatures() {
     assert!(names.contains(&"main"));
     assert!(names.contains(&"doThing"));
     let main = exports.iter().find(|e| e.name == "main").unwrap();
-    assert_eq!(main.return_type, "Integer");
+    assert_eq!(main.return_type.name(), "Integer");
     assert_eq!(main.params.len(), 2);
     // The defaulted parameter carries has_default.
     assert!(main.params[1].has_default);

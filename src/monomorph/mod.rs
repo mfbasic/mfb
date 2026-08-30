@@ -85,7 +85,9 @@ struct Monomorphizer<'a> {
 /// One overload of an imported package function.
 struct ImportedOverload {
     /// Declared parameter types in order (bare, as the package stored them).
-    param_types: Vec<String>,
+    /// plan-111-B: typed — the `.mfp` export view they come from is decoded
+    /// into types by `binary_repr::builder` (boundary #4).
+    param_types: Vec<crate::types::ParameterType>,
     /// The fully package-qualified mangled name (`package.base$Types`) the merge
     /// expects.
     qualified_name: String,

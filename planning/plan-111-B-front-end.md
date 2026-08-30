@@ -488,6 +488,57 @@ spelling split to a structural accessor, every such re-wrap upstream of it has
 to be checked — the compiler cannot see it, and a permissive tail turns it into
 a silently wrong answer rather than a crash.
 
+**15 — a second bug the conversion found: `types_compatible`'s `Unknown`
+wildcard silently depended on whitespace.** `monomorph::lower::types_compatible`
+matched two RENDERED spellings token-wise: equal `split_whitespace` counts, then
+each pair equal or either literally `"Unknown"`. Converting it structurally, the
+equivalence test disagreed on `Pair OF Integer, String` vs
+`Pair OF Unknown, String`.
+
+The cause is that a comma or a paren glues `Unknown` to its neighbour. The
+tokens are `["Pair", "OF", "Unknown,", "String"]` — `"Unknown,"`, not
+`"Unknown"` — so the wildcard did not fire. Measured across the shapes:
+
+| Pair | wildcard fired? |
+|---|---|
+| `List OF Integer` vs `List OF Unknown` | yes |
+| `Map OF String TO Integer` vs `Map OF Unknown TO Integer` | yes |
+| `Thread OF Integer TO String` vs `Thread OF Unknown TO String` | yes |
+| `Pair OF Integer, String` vs `Pair OF Integer, **Unknown**` (last arg) | yes |
+| `Pair OF Integer, String` vs `Pair OF **Unknown**, String` (not last) | **no** |
+| `FUNC(Integer) AS String` vs `FUNC(Integer) AS **Unknown**` (return) | yes |
+| `FUNC(Integer) AS String` vs `FUNC(**Unknown**) AS String` (param) | **no** |
+
+So imported-overload selection depended on whether the unknown argument
+happened to be in the last position of a user generic, or outside a `FUNC(...)`
+paren. That is an accident of `split_whitespace`, not a rule — the method's own
+doc comment says only "treating `Unknown` … as a wildcard". **Fixed** by the
+structural form, per §Non-goals ("if it cannot make the same decision, that is a
+bug found — fix it, and say so").
+
+What must NOT change, and is asserted separately: `Unknown` is a **leaf**
+wildcard, not a universal one. It stood in for a single token, so it never
+matched `List OF Integer` (1 token vs 3). Making it universal would turn "an
+untyped `[]` selects none of them" — which `TYPE_OVERLOAD_AMBIGUOUS`'s own
+message tells the user — into "it selects every one of them".
+
+`types_compatible_matches_the_token_algorithm` sweeps a 25-spelling corpus
+(625 pairs), asserts the two forms agree on all but the six enumerated
+divergences, and asserts each of those six was genuinely broken before — so the
+list cannot rot into a silent allowance. `normalize_type_matches_the_string_algorithm`
+pins the qualifier-stripping half the same way, including the bug-104
+short-qualifier shape and the `STATE` peel.
+
+**16 — `src/binary_repr/builder.rs` is boundary #4's decode side.** plan-111-A
+listed `writer.rs` and `sections.rs` for the `.mfp` codec because those were the
+two files that *had* parses when the census ran. `builder.rs` is the same codec:
+it resolves a wire `type_id` through the package string table into the public
+`BinaryRepr*` view. It acquired a parse in this letter, when the export
+signature stopped being decoded as text and started being decoded as a type —
+which is exactly what a boundary file is for. Added to `BOUNDARY_FILES` with
+that justification. It is a *seventh file* in the five boundary GROUPS, not a
+sixth boundary.
+
 ## Summary
 
 Risk is concentrated in two places: `ir/verify/values.rs`'s literal-range arms

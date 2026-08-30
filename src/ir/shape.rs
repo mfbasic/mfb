@@ -750,7 +750,7 @@ impl<'a> Walker<'a> {
                             for param in &export.params {
                                 self.validate_package_type(
                                     &package_file,
-                                    &ParameterType::parse(&param.type_),
+                                    &param.type_,
                                     &format!(
                                         "exported function `{}` parameter `{}`",
                                         export.name, param.name
@@ -761,7 +761,7 @@ impl<'a> Walker<'a> {
                             }
                             self.validate_package_type(
                                 &package_file,
-                                &ParameterType::parse(&export.return_type),
+                                &export.return_type,
                                 &format!("exported function `{}` return type", export.name),
                                 import.line,
                                 &mut seen,
