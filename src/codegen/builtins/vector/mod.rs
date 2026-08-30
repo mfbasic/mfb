@@ -497,13 +497,16 @@ fn select(qualified: &str, arg_types: &[String]) -> Option<&'static Implementati
 /// `Float3` → `"Float"`, over an `Integer2` → `"Integer"`; `vector.normalize` over a
 /// `Float3` → `"Float3"`), or `None` when the arguments match no overload. Consulted by
 /// `builtins::resolve_call_return_type` before the generic coarse registry path.
-pub(crate) fn resolve_return_type(qualified: &str, arg_types: &[String]) -> Option<String> {
-    Some(
-        select(qualified, arg_types)?
-            .return_type
-            .name()
-            .into_owned(),
-    )
+pub(crate) fn resolve_return_type(
+    qualified: &str,
+    arg_types: &[crate::types::ParameterType],
+) -> Option<crate::types::ParameterType> {
+    // plan-111-C: typed at the boundary. `select` dispatches by EXACT record type
+    // over a hand-authored spelling table, so the arguments render for it; its
+    // `return_type` is already a `ParameterType` and no longer gets rendered only
+    // to be parsed back by the caller.
+    let names: Vec<String> = arg_types.iter().map(|a| a.name().into_owned()).collect();
+    Some(select(qualified, &names)?.return_type.clone())
 }
 
 /// The type-specific `__vector_<op>_<type>` rewrite target of a `vector` call, or
@@ -579,6 +582,14 @@ mod tests {
         items.iter().map(|s| s.to_string()).collect()
     }
 
+    /// plan-111-C: `resolve_return_type` takes and returns types now.
+    fn types(items: &[&str]) -> Vec<crate::types::ParameterType> {
+        items
+            .iter()
+            .map(|s| crate::types::ParameterType::parse(s))
+            .collect()
+    }
+
     #[test]
     fn vector_registered_on_the_clean_room_registry() {
         let pkg = registry()
@@ -598,7 +609,9 @@ mod tests {
     fn exact_overload_selection_reproduces_the_legacy_resolver() {
         // vector dispatches by EXACT record type through `super::resolve_return_type`
         // (the generic coarse registry matcher cannot distinguish the nine nominals).
-        let r = |name: &str, args: &[&str]| super::resolve_return_type(name, &strings(args));
+        let r = |name: &str, args: &[&str]| {
+            super::resolve_return_type(name, &types(args)).map(|t| t.name().into_owned())
+        };
         // Scalar-returning members echo the element type.
         assert_eq!(r("vector.length", &["Float3"]).as_deref(), Some("Float"));
         assert_eq!(
@@ -690,7 +703,9 @@ mod tests {
     fn record_constants_fold_to_constructors() {
         assert!(registry::is_package_constant("vector.zeroFloat3"));
         assert_eq!(
-            registry::constant_type_name("vector.upFloat3"),
+            registry::constant_type_name("vector.upFloat3")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Float3")
         );
         assert_eq!(
@@ -709,14 +724,26 @@ mod tests {
     #[test]
     fn tostring_override_routes_to_the_companion_renderer() {
         assert_eq!(
-            registry::general_override_target("toString", "Float2"),
+            registry::general_override_target(
+                "toString",
+                &crate::types::ParameterType::parse("Float2")
+            ),
             Some("__vector_toString_float2")
         );
         assert_eq!(
-            registry::general_override_target("toString", "Integer4"),
+            registry::general_override_target(
+                "toString",
+                &crate::types::ParameterType::parse("Integer4")
+            ),
             Some("__vector_toString_integer4")
         );
-        assert_eq!(registry::general_override_target("toString", "Nope"), None);
+        assert_eq!(
+            registry::general_override_target(
+                "toString",
+                &crate::types::ParameterType::parse("Nope")
+            ),
+            None
+        );
     }
 
     #[test]

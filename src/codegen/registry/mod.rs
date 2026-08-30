@@ -1473,7 +1473,30 @@ impl Registry {
         // The head token of a parametric spelling (`Thread OF …`): a source-declared
         // opaque type used with type arguments. `List`/`Map`/… are never source types,
         // so their `X OF …` spellings are correctly not matched here.
-        let head = name.split_once(" OF ").map(|(head, _)| head);
+        //
+        // plan-111-F: taken from the one grammar's own variants rather than a
+        // local `split_once(" OF ")`.
+        //
+        // `UserOf` alone is NOT enough: `Thread OF Integer TO String` parses to
+        // `ThreadHandle`, not `UserOf`, so a `UserOf`-only read silently stopped
+        // recognizing the thread handles — which are precisely the
+        // "source-declared opaque type used with type arguments" this exists for
+        // (caught by `thread::tests::opaque_handle_types_recognized`). `List`,
+        // `Set`, `Map` and `Result` are never source types, so they still yield
+        // no head, exactly as the string split did.
+        let head_owned = match crate::types::ParameterType::declared(name) {
+            crate::types::ParameterType::UserOf(base, _) => Some(base.resolve().to_string()),
+            crate::types::ParameterType::ThreadHandle { worker, .. } => Some(
+                if worker {
+                    crate::types::THREAD_WORKER_TYPE
+                } else {
+                    crate::types::THREAD_TYPE
+                }
+                .to_string(),
+            ),
+            _ => None,
+        };
+        let head = head_owned.as_deref();
         self.packages().iter().any(|package| {
             package.records().iter().any(|record| record.name == name)
                 || package.unions().iter().any(|union| union.name == name)
@@ -1664,20 +1687,14 @@ pub(crate) fn is_package_constant(qualified: &str) -> bool {
 
 /// The type name the migrated constant `qualified` evaluates to (scalar type or record
 /// type), or `None`.
-pub(crate) fn constant_type_name(qualified: &str) -> Option<&'static str> {
-    find_constant(qualified).map(|constant| constant.type_name)
-}
-
-/// The typed twin of [`constant_type_name`] (plan-106-A), for the checkers
-/// and IR lowering.
-///
-/// [`RegistryConstant::type_name`] is a `&'static str` *descriptor literal*, so
-/// this is the one place the canonical grammar is applied to it — the callers
-/// then stay typed instead of each classifying the spelling themselves. Storing
-/// a `ParameterType` in the descriptor directly is a const-context change
-/// (interning is not `const`), recorded as a candidate in letter E.
-pub(crate) fn constant_type(qualified: &str) -> Option<ParameterType> {
-    constant_type_name(qualified).map(ParameterType::parse)
+pub(crate) fn constant_type_name(qualified: &str) -> Option<ParameterType> {
+    // plan-111-C: one API, typed. [`RegistryConstant::type_name`] is a
+    // `&'static str` DESCRIPTOR literal and stays one (§Non-goals forbids a
+    // descriptor change), so this is the single place the canonical grammar is
+    // applied to it — callers stay typed instead of each classifying the
+    // spelling themselves. Storing a `ParameterType` in the descriptor directly
+    // is a const-context change, not this plan's.
+    find_constant(qualified).map(|constant| ParameterType::declared(constant.type_name))
 }
 
 /// The literal a migrated **scalar** constant `qualified` folds to, or `None` (a record
@@ -1743,23 +1760,23 @@ pub(crate) fn runtime_error_triple(
 /// overridable general builtin `builtin` over `arg_type`, or `None` — the registry half
 /// of the `builtins::general_override_target` dual-path. `None` (fall through to the
 /// hand match) for every un-migrated package.
-pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&'static str> {
+pub(crate) fn general_override_target(
+    builtin: &str,
+    arg_type: &ParameterType,
+) -> Option<&'static str> {
+    // plan-111-C: the QUERY takes a type; the DESCRIPTOR still spells its
+    // `arg_type` (a `&'static str` row, and §Non-goals forbids changing a
+    // descriptor), so the comparison renders the argument. Identical by the
+    // `parse`<->`name` round trip — the old form compared the same two
+    // spellings.
+    let spelled = arg_type.name();
     registry().packages().iter().find_map(|package| {
         package
             .overrides()
             .iter()
-            .find(|o| o.builtin == builtin && o.arg_type == arg_type)
+            .find(|o| o.builtin == builtin && o.arg_type == spelled)
             .map(|o| o.helper)
     })
-}
-
-/// The *static* nominal return type of the migrated call `qualified`, independent of
-/// its arguments, or `None`. A generic member whose return type mentions a
-/// [`ParameterType::Var`] (`collections::get AS T`) has no static nominal — its return
-/// is only known once the arguments are known — so this yields `None` for it, and the
-/// argument-aware [`resolve_call`] is used instead.
-pub(crate) fn call_return_type(qualified: &str) -> Option<Cow<'static, str>> {
-    call_return_type_typed(qualified).map(|return_type| Cow::Owned(return_type.name().into_owned()))
 }
 
 /// The typed twin of [`call_return_type`] (plan-106-A). The descriptor already
@@ -2089,9 +2106,7 @@ fn resource_base_eq(a: &ParameterType, b: &ParameterType) -> bool {
     if a == b {
         return true;
     }
-    let (an, bn) = (a.name(), b.name());
-    crate::codegen::resource::base_resource_name(&an)
-        == crate::codegen::resource::base_resource_name(&bn)
+    a.without_state() == b.without_state()
 }
 
 /// Substitute `bindings` into a (possibly generic) type `pattern`, producing a
@@ -2174,34 +2189,21 @@ fn contains_var(ty: &ParameterType) -> bool {
         _ => false,
     }
 }
-
-/// Resolve the migrated call `qualified` against `arg_types`, returning its concrete
-/// return type only when the arguments are a valid arity and type match — the
-/// clean-room equivalent of the old `DefaultResolver::resolve_call` *and* every
-/// package's `BuiltinResolver::resolve_return_type`. Delegates to
-/// [`RegistryFunction::select`], which unifies the arguments against each overload
-/// (binding type variables) and substitutes them into the return type, so a generic
-/// member like `collections::get(List OF Integer, 0)` resolves to `Integer`. `None`
-/// means "no migrated package accepts this call with these arguments" (wrong arity or
-/// a type mismatch), which the type checker turns into an arity / argument-type error.
+/// The spelling form of [`resolve_call_typed`], for the per-package
+/// registration tests **only**.
 ///
-/// This is a boundary function: it takes/returns type-name strings because the type
-/// checker still speaks strings. The conversion happens here ([`ParameterType::parse`]
-/// in, [`ParameterType::name`] out); nothing inside the registry is a string.
+/// plan-111-C collapsed this query's dual API: `resolve_call_typed` is the one
+/// production entry, and the `&[String]`-in/`Option<String>`-out original is
+/// gone. What is left is ~140 registration assertions across the per-package
+/// modules, and a SPELLING is the right thing for those to assert — a
+/// descriptor's job is to resolve to a particular type, and its name is how the
+/// test says which. Rewriting each as `.map(|t| t.name().into_owned())` would
+/// make them harder to read for no behavioural gain, so the shim is
+/// `#[cfg(test)]` and cannot become a second production API.
+#[cfg(test)]
 pub(crate) fn resolve_call(qualified: &str, arg_types: &[String], strict: bool) -> Option<String> {
-    let call = CallShape {
-        args: arg_types
-            .iter()
-            .map(|arg| ParameterType::parse(arg))
-            .collect(),
-    };
-    resolved_return_type(qualified, &call, strict).map(|return_type| match return_type {
-        // Echo the caller's original argument-type string verbatim, preserving any
-        // non-canonical spelling byte-exactly (e.g. a `RES ` ownership marker on
-        // `collections::append(List OF RES File STATE Cursor, x)`).
-        ParameterType::Arg(n) => arg_types[n].clone(),
-        other => other.name().into_owned(),
-    })
+    let args: Vec<ParameterType> = arg_types.iter().map(|a| ParameterType::parse(a)).collect();
+    resolve_call_typed(qualified, &args, strict).map(|type_| type_.name().into_owned())
 }
 
 /// The typed resolution entry (plan-104-C): the same selection as
@@ -2247,13 +2249,10 @@ fn resolved_return_type(qualified: &str, call: &CallShape, strict: bool) -> Opti
 /// overloads rewrite to `__datetime_instant{N}`) carries a distinct rewrite target per
 /// overload, so the call's argument types select which one. A single-overload member
 /// resolves the same regardless of the arguments.
-pub(crate) fn rewrite_target(qualified: &str, arg_types: &[String]) -> Option<&'static str> {
+pub(crate) fn rewrite_target(qualified: &str, arg_types: &[ParameterType]) -> Option<&'static str> {
     let function = registry().resolve_func(qualified)?.function;
     let call = CallShape {
-        args: arg_types
-            .iter()
-            .map(|arg| ParameterType::parse(arg))
-            .collect(),
+        args: arg_types.to_vec(),
     };
     // Prefer STRICT selection: a call whose arguments precisely name one overload's
     // types picks that overload. This is required to disambiguate two overloads that
@@ -3147,6 +3146,86 @@ fn hir_expr_callees(expr: &crate::hir::HirExpression, out: &mut std::collections
 mod tests {
     use super::*;
 
+    /// plan-111-C Phase 3's overload-resolution regression guard.
+    ///
+    /// Collapsing the dual API means every overload is now selected from typed
+    /// arguments. The distinction that must survive is the one `leaf_matches`
+    /// draws in STRICT mode between a **resource** parameter and a **value**
+    /// nominal parameter — and it is asymmetric on purpose:
+    ///
+    /// * a resource parameter demands exact base-resource identity, so a
+    ///   resource UNION does not satisfy a concrete resource close-op parameter.
+    ///   `fs::close(<some union>)` must stay rejected — the legacy exact-name
+    ///   resolver caught it, and it is a use-after-free class error;
+    /// * a value nominal stays coarse, so a variant still widens into its union
+    ///   (`json::stringify(JsonNull)` against a `Json` parameter);
+    /// * and STATE/ownership are transparent either way (bug-427): a
+    ///   `File STATE Cursor` argument satisfies a bare `File` parameter, and a
+    ///   `RES ` marker matches through on either side.
+    ///
+    /// Getting any of these backwards changes which overload wins, which
+    /// plan-111-C §Non-goals names as the single failure mode this letter must
+    /// not have.
+    #[test]
+    fn strict_matching_separates_resource_params_from_value_union_params() {
+        let file = ParameterType::parse("fs.File");
+        let stateful_file = ParameterType::parse("fs.File STATE Cursor");
+        let res_file = ParameterType::parse("RES fs.File");
+        let socket = ParameterType::parse("net.Socket");
+
+        // A resource parameter: exact base identity, STATE- and RES-transparent.
+        assert!(leaf_matches(&file, &file, true));
+        assert!(
+            leaf_matches(&file, &stateful_file, true),
+            "bug-427: a stateful resource still satisfies its bare parameter"
+        );
+        assert!(
+            leaf_matches(&file, &res_file, true),
+            "the RES ownership marker is transparent to matching"
+        );
+        assert!(
+            !leaf_matches(&file, &socket, true),
+            "a DIFFERENT resource must not satisfy a concrete resource parameter"
+        );
+        assert!(
+            !leaf_matches(&file, &ParameterType::parse("Json"), true),
+            "a non-resource nominal must not widen into a concrete resource parameter"
+        );
+        assert!(
+            !leaf_matches(&file, &ParameterType::String, true),
+            "bug-443: a scalar never satisfies a nominal parameter in strict mode"
+        );
+
+        // A VALUE nominal parameter stays coarse, so a variant widens into it.
+        let json = ParameterType::parse("Json");
+        assert!(
+            leaf_matches(&json, &ParameterType::parse("JsonNull"), true),
+            "a value-union parameter must still accept a variant that widens into it"
+        );
+        assert!(
+            !leaf_matches(&json, &ParameterType::String, true),
+            "bug-443: but not a scalar"
+        );
+
+        // LENIENT mode (overload dispatch / return inference) stays coarse
+        // everywhere, so an unresolved or nominally-spelled argument does not
+        // perturb selection.
+        assert!(leaf_matches(&file, &ParameterType::parse("Json"), false));
+        assert!(leaf_matches(&json, &ParameterType::String, false));
+
+        // Two unequal scalars never match, in either mode.
+        assert!(!leaf_matches(
+            &ParameterType::Integer,
+            &ParameterType::String,
+            true
+        ));
+        assert!(!leaf_matches(
+            &ParameterType::Integer,
+            &ParameterType::String,
+            false
+        ));
+    }
+
     /// No registered descriptor may declare a [`ParameterType::Named`] whose name
     /// *spells something with structure*: for every `Named(n)` in the catalog,
     /// `parse(n)` must be that same `Named`.
@@ -3438,10 +3517,13 @@ mod tests {
         assert_eq!(constant_value("demo.pi"), None);
         assert_eq!(constant_components("demo.zero3"), None);
         // A general override the frozen registry does NOT own falls through.
-        assert_eq!(general_override_target("toString", "Nope"), None);
+        assert_eq!(
+            general_override_target("toString", &crate::types::ParameterType::parse("Nope")),
+            None
+        );
         // The migrated `vector` package DOES own `toString(Float3)` now (add_override).
         assert_eq!(
-            general_override_target("toString", "Float3"),
+            general_override_target("toString", &crate::types::ParameterType::parse("Float3")),
             Some("__vector_toString_float3")
         );
 

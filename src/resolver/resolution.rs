@@ -308,6 +308,9 @@ impl Resolver<'_> {
                     DocHeaderKind::Union => TypeDeclKind::Union,
                     _ => TypeDeclKind::Enum,
                 };
+                // plan-111-B: a union's members are types now, so their names
+                // are materialized once here for the borrowed `valid` set.
+                let variant_names: Vec<String>;
                 let resolved = match types.get(doc.header_name.as_str()) {
                     Some(type_decl) if type_decl.kind == want => {
                         let valid: HashSet<&str> = match want {
@@ -315,7 +318,12 @@ impl Resolver<'_> {
                                 type_decl.fields.iter().map(|f| f.name.as_str()).collect()
                             }
                             TypeDeclKind::Union => {
-                                type_decl.variants.iter().map(|v| v.name.as_str()).collect()
+                                variant_names = type_decl
+                                    .variants
+                                    .iter()
+                                    .map(|v| v.type_.name().into_owned())
+                                    .collect::<Vec<_>>();
+                                variant_names.iter().map(String::as_str).collect()
                             }
                             TypeDeclKind::Enum => {
                                 type_decl.members.iter().map(|m| m.name.as_str()).collect()
@@ -602,8 +610,8 @@ impl Resolver<'_> {
             && close_sig
                 .params
                 .first()
-                .and_then(|param| param.as_deref())
-                .is_some_and(|param| resource_base_type(param) == resource.name);
+                .and_then(|param| param.as_ref())
+                .is_some_and(|param| resource_base_type(param).is_named(&resource.name));
         if !single_resource_param {
             self.report(
                 "RESOURCE_CLOSE_SIGNATURE",
@@ -642,27 +650,28 @@ impl Resolver<'_> {
     fn resolve_link_block(
         &mut self,
         file: &HirFile,
-        link: &crate::ast::LinkBlock,
+        link: &crate::hir::HirLinkBlock,
         imports: &HashMap<String, String>,
     ) {
-        // A `LINK` block is the one node HIR keeps as the verbatim AST struct (it
-        // declares a native ABI signature, not a source-language type), so its
-        // parameter spellings enter the type domain here, at that boundary.
+        // plan-111-B: a `LINK` block used to be the one node HIR kept as the
+        // verbatim AST struct, so its parameter spellings entered the type
+        // domain HERE. HIR elaborates it now (`hir::elaborate_link_block`), so
+        // this reads types.
         for function in &link.functions {
             for param in &function.params {
-                if let Some(type_name) = &param.type_name {
+                if let Some(type_) = &param.type_ {
                     // A raw C ABI type in a wrapper signature is reported by
                     // the former source checker as NATIVE_CPTR_ESCAPE; don't double-report it here
                     // as an unknown type.
-                    if is_c_abi_type(type_name) {
+                    if is_c_abi_type(type_) {
                         continue;
                     }
-                    self.resolve_type_by_name(file, type_name, param.line, imports);
+                    self.resolve_type(file, type_, param.line, imports);
                 }
             }
             if let Some(return_type) = &function.return_type {
                 if !is_c_abi_type(return_type) {
-                    self.resolve_type_by_name(file, return_type, function.line, imports);
+                    self.resolve_type(file, return_type, function.line, imports);
                 }
             }
         }
@@ -711,23 +720,25 @@ impl Resolver<'_> {
             }
             TypeDeclKind::Union => {
                 for include in &type_decl.includes {
-                    self.resolve_type_by_name(file, include, type_decl.line, imports);
+                    self.resolve_type(file, include, type_decl.line, imports);
                 }
 
                 let mut variants = HashMap::new();
                 for variant in &type_decl.variants {
-                    if let Some(previous) = variants.insert(variant.name.clone(), variant.line) {
+                    if let Some(previous) = variants.insert(variant.type_.clone(), variant.line) {
                         self.report(
                             "TYPE_DUPLICATE_VARIANT",
                             &format!(
                                 "Member type `{}` in UNION `{}` was already declared on line {}.",
-                                variant.name, type_decl.name, previous
+                                variant.type_.name(),
+                                type_decl.name,
+                                previous
                             ),
                             file,
                             variant.line,
                         );
                     }
-                    self.resolve_type_by_name(file, &variant.name, variant.line, imports);
+                    self.resolve_type(file, &variant.type_, variant.line, imports);
                 }
             }
             TypeDeclKind::Enum => {
@@ -1172,7 +1183,7 @@ impl Resolver<'_> {
             }
             HirExpression::MemberAccess { target, .. } => {
                 if let HirExpression::Identifier(name) = target.as_ref() {
-                    if self.types.contains(name) {
+                    if self.types.contains(&ParameterType::declared(name)) {
                         return;
                     }
                 }
@@ -1261,21 +1272,6 @@ impl Resolver<'_> {
 
     /// Resolve a type spelling that HIR still stores as a `String`.
     ///
-    /// Exactly three nodes reach this: a `UNION`'s `INCLUDES` list, a `UNION`
-    /// variant's name, and a `LINK` block's parameter/return types. HIR keeps all
-    /// three as the verbatim AST struct, so the source spelling enters the type
-    /// domain here — the one boundary, rather than a grammar the resolver used to
-    /// re-implement for every position (plan-106-D).
-    fn resolve_type_by_name(
-        &mut self,
-        file: &HirFile,
-        type_name: &str,
-        line: usize,
-        imports: &HashMap<String, String>,
-    ) {
-        self.resolve_type(file, &ParameterType::parse(type_name), line, imports);
-    }
-
     /// Resolve every nominal reachable from `type_`, structurally.
     ///
     /// This replaces `resolve_type_name(&str)`, which was 120 lines of grammar
@@ -1347,7 +1343,9 @@ impl Resolver<'_> {
             // names the whole spelling.
             ParameterType::UserOf(head, args) => {
                 let head = head.resolve();
-                if self.types.contains(head) || self.active_template_params.contains(head) {
+                if self.types.contains(&ParameterType::declared(head))
+                    || self.active_template_params.contains(head)
+                {
                     for arg in args {
                         self.resolve_type(file, arg, line, imports);
                     }
@@ -1399,14 +1397,18 @@ impl Resolver<'_> {
             return;
         }
 
+        // plan-111-B: `Unknown` is a nominal here — the `ParameterType::Unknown`
+        // variant has its own arm above, so a spelling reaching this leaf tail
+        // is a decoded-IR `Named("Unknown")`. The template-parameter membership
+        // is a NAME set (the declaring scope's parameter list), so it renders.
         let name = type_.name();
         let name = name.as_ref();
-        if name == "Unknown" || self.active_template_params.contains(name) {
+        if type_.is_named("Unknown") || self.active_template_params.contains(name) {
             return;
         }
         if name.contains('.') {
             self.resolve_package_qualified_name(file, name, line, imports);
-        } else if !self.types.contains(name) {
+        } else if !self.types.contains(&ParameterType::declared(name)) {
             self.report_unknown_type(file, name, line);
         }
     }

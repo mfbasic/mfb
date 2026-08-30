@@ -199,7 +199,10 @@ mod tests {
                 registry::is_package_constant(&key),
                 "`{key}` not recognized"
             );
-            assert_eq!(registry::constant_type_name(&key), Some("Integer"));
+            assert_eq!(
+                registry::constant_type_name(&key),
+                Some(crate::types::ParameterType::Integer)
+            );
             assert_eq!(registry::constant_value(&key), c.value);
         }
     }

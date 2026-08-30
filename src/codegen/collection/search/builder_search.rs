@@ -93,9 +93,7 @@ impl CodeBuilder<'_> {
         let scratch23 = self.temporary_vreg();
         let scratch24 = self.temporary_vreg();
         let haystack = self.lower_value(&args[0])?;
-        if let Some(element_type) =
-            typed_list_element_type(&haystack.type_).map(|type_| type_.name().into_owned())
-        {
+        if let Some(element_type) = typed_list_element_type(&haystack.type_).cloned() {
             let haystack_slot = self.allocate_stack_object("find_list_haystack", 8);
             self.emit(abi::store_u64(
                 &haystack.location,
@@ -125,7 +123,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), start_slot));
             }
 
-            if needle.type_.name() == element_type.as_str() {
+            if needle.type_ == element_type {
                 return self.lower_list_find_item(
                     haystack_slot,
                     needle_slot,
@@ -355,7 +353,7 @@ impl CodeBuilder<'_> {
         needle_slot: usize,
         start_slot: usize,
         list_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
@@ -486,7 +484,7 @@ impl CodeBuilder<'_> {
         needle_slot: usize,
         start_slot: usize,
         list_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         let sub_payload = kind2_payload_size(element_type);
         let scratch8 = self.temporary_vreg();
@@ -680,9 +678,7 @@ impl CodeBuilder<'_> {
         let scratch24 = self.temporary_vreg();
         let scratch25 = self.temporary_vreg();
         let value = self.lower_value(&args[0])?;
-        if let Some(element_type) =
-            typed_list_element_type(&value.type_).map(|type_| type_.name().into_owned())
-        {
+        if let Some(element_type) = typed_list_element_type(&value.type_).cloned() {
             let value_slot = self.allocate_stack_object("mid_list_value", 8);
             self.emit(abi::store_u64(
                 &value.location,
@@ -946,7 +942,7 @@ impl CodeBuilder<'_> {
         start_slot: usize,
         count_slot: usize,
         list_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
@@ -1232,7 +1228,7 @@ impl CodeBuilder<'_> {
             abi::mfb_return(1),
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, &element_type);
         self.emit(abi::multiply_registers(&scratch21, &scratch10, &scratch14));
         self.emit(abi::add_registers(&scratch21, &scratch17, &scratch21));
         // Fast path — an in-order, gap-free slice (the probe found no disorder) is

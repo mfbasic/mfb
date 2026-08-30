@@ -318,7 +318,7 @@ impl TypeEnv {
                 // rejects (plan-01-overload §A.3.2) — never reject those.
                 if crate::codegen::builtins::general::is_overridable(target)
                     && arg_types.len() == 1
-                    && builtins::general_override_target(target, &arg_types[0].name()).is_some()
+                    && builtins::general_override_target(target, &arg_types[0]).is_some()
                 {
                     return;
                 }
@@ -343,11 +343,14 @@ impl TypeEnv {
             if crate::codegen::registry::callback_member(target) && args.len() == 2 {
                 if let Some(predicate) = builtin_predicate_name(&args[1], locals) {
                     let collection_type_name = arg_types[0].name().into_owned();
+                    // plan-111-B: `filter_predicate_type_typed` (plan-106-A) is
+                    // the same rule returning a `Func` instead of a `format!`ed
+                    // spelling, so the predicate type no longer round-trips
+                    // through a string on its way to `resolve_call_return_type_typed`.
                     let predicate_type = match &arg_types[0] {
                         ParameterType::ListOf(element) => {
-                            crate::codegen::builtins::general::filter_predicate_type(
-                                predicate,
-                                &element.name(),
+                            crate::codegen::builtins::general::filter_predicate_type_typed(
+                                predicate, element,
                             )
                         }
                         _ => None,
@@ -360,8 +363,9 @@ impl TypeEnv {
                         );
                         return;
                     };
-                    let trial = vec![arg_types[0].clone(), ParameterType::parse(&predicate_type)];
+                    let trial = vec![arg_types[0].clone(), predicate_type.clone()];
                     if builtins::resolve_call_return_type_typed(target, &trial, true).is_none() {
+                        let predicate_type = predicate_type.name();
                         self.emit_argument_mismatch(format!(
                                 "Call to `{target}` has argument type(s) ({collection_type_name}, {predicate_type}), expected {}.",
                                 expected_overloads()
@@ -563,14 +567,14 @@ impl TypeEnv {
         // package-qualified end to end since plan-97/bug-441 -- so for them a
         // differing qualifier really does mean a differing type.
         let distinct_builtin_resources = expected_name != actual_name
-            && crate::codegen::resource::is_builtin_resource_type(&expected_name)
-            && crate::codegen::resource::is_builtin_resource_type(&actual_name);
+            && crate::codegen::resource::is_builtin_resource_type(expected)
+            && crate::codegen::resource::is_builtin_resource_type(actual);
         if expected_bare == actual_bare && !distinct_builtin_resources {
             return true;
         }
         // A union accepts any of its variants. A variant may be spelled qualified
         // (a package-scoped resource, `fs.File`) or bare, so match either form.
-        if let Some(variants) = self.union_variants(&expected_name) {
+        if let Some(variants) = self.union_variants(expected) {
             if variants.contains(actual_name.as_ref()) || variants.contains(actual_bare) {
                 return true;
             }
@@ -742,12 +746,21 @@ impl TypeEnv {
     /// arguments into field order, so positional checking covers both forms.
     pub(super) fn check_constructor(
         &self,
-        type_name: &str,
+        type_: &ParameterType,
         args: &[IrValue],
         locals: &HashMap<String, ParameterType>,
     ) {
+        // plan-111-B: `IrValue::Constructor` already carries a `ParameterType`
+        // (`src/ir/value.rs:72`), so the caller was rendering it only to hand a
+        // spelling to this rule. The three name questions below are nominal ones
+        // — `is_named` compares the interned `Symbol` — and the
+        // `read_only_record_type` call no longer parses the name it just built.
+        // Below them the name is still needed as a `records` map key, which
+        // plan-111-C re-keys.
+        let type_name = type_.name();
+        let type_name = type_name.as_ref();
         // `Ok`/`Result` are compiler-owned (the former source checker's TYPE_RESULT_IS_IMPLICIT).
-        if matches!(type_name, "Ok" | "Result") {
+        if type_.is_named("Ok") || type_.is_named("Result") {
             self.emit(
                 "TYPE_RESULT_IS_IMPLICIT",
                 format!("`{type_name}` is compiler-owned and cannot be constructed directly."),
@@ -757,7 +770,7 @@ impl TypeEnv {
         // `AttributedString` is an opaque built-in with no user-visible fields
         // (plan-89-A): it is created with `astrings::fromString(text)`, never
         // with `AttributedString[...]` (the source checker's arm, plan-107-D).
-        if type_name == "AttributedString" {
+        if type_.is_named("AttributedString") {
             self.emit(
                 "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
                 "`AttributedString` is an opaque built-in type and cannot be constructed; use `astrings::fromString(text)` to create one.".to_string(),
@@ -769,19 +782,19 @@ impl TypeEnv {
         // rule is `ir::shape`'s: lowering itself emits `Constructor{Error}`
         // for the `error()` builtin and trap machinery, so on the IR a user
         // `Error[..]` is indistinguishable from a legitimate synthesized one.
-        if read_only_record_type(&ParameterType::parse(type_name)) {
+        if read_only_record_type(type_) {
             self.emit(
                 "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
                 format!("TYPE `{type_name}` is compiler-owned and cannot be constructed."),
             );
             return;
         }
-        if !self.records.contains_key(type_name) {
+        if !self.records.contains_key(type_) {
             // A constructor naming a declared non-record type is malformed; an
             // unknown name is left alone (could be a builtin record).
-            let kind = if self.unions.contains_key(type_name) {
+            let kind = if self.unions.contains_key(type_) {
                 Some("UNION")
-            } else if self.enums.contains_key(type_name) {
+            } else if self.enums.contains_key(type_) {
                 Some("ENUM")
             } else {
                 None
@@ -796,7 +809,7 @@ impl TypeEnv {
         }
         // A private type (or one with hidden fields) may only be constructed
         // from its declaring file (the former source checker's TYPE_MEMBER_NOT_VISIBLE arms).
-        if let Some((file, visibility)) = self.type_decl_info.get(type_name) {
+        if let Some((file, visibility)) = self.type_decl_info.get(type_) {
             if visibility == "private" && !file.is_empty() && *file != *self.current_file.borrow() {
                 self.emit(
                     "TYPE_MEMBER_NOT_VISIBLE",
@@ -805,10 +818,10 @@ impl TypeEnv {
                 return;
             }
         }
-        if let Some(private) = self.private_fields.get(type_name) {
+        if let Some(private) = self.private_fields.get(type_) {
             if self
                 .type_decl_info
-                .get(type_name)
+                .get(type_)
                 .is_some_and(|(file, _)| !file.is_empty() && *file != *self.current_file.borrow())
             {
                 for field in private {
@@ -821,7 +834,7 @@ impl TypeEnv {
                 }
             }
         }
-        let Some(fields) = self.record_field_lists.get(type_name) else {
+        let Some(fields) = self.record_field_lists.get(type_) else {
             return;
         };
         if args.len() != fields.len() {
@@ -865,30 +878,36 @@ impl TypeEnv {
     /// (`lower.rs:3312`) — never rejects.
     pub(super) fn check_union_wrap(
         &self,
-        union_type: &str,
-        member_type: &str,
+        union_type: &ParameterType,
+        member_type: &ParameterType,
         value: &IrValue,
         locals: &HashMap<String, ParameterType>,
     ) {
-        if member_type.is_empty() {
+        // plan-111-B: both arrive typed on `IrValue::UnionWrap`
+        // (`src/ir/value.rs:76`). The names below are `union_variants` map keys
+        // and diagnostic text; the compatibility check now takes the type it was
+        // handed instead of re-parsing the spelling of it.
+        let union_type_name = union_type.name();
+        let member_type_name = member_type.name();
+        if member_type_name.is_empty() {
             return;
         }
         if let Some(variants) = self.union_variants(union_type) {
-            if !variants.contains(member_type) {
+            if !variants.contains(member_type_name.as_ref()) {
                 self.emit(
                     VERIFY_TYPE,
-                    format!("`{member_type}` is not a variant of union `{union_type}`"),
+                    format!("`{member_type_name}` is not a variant of union `{union_type_name}`"),
                 );
                 return;
             }
         }
         if let Some(actual) = self.infer_type(value, locals) {
-            if !self.expression_compatible(&ParameterType::parse(member_type), &actual, value) {
+            if !self.expression_compatible(member_type, &actual, value) {
                 let actual = actual.name();
                 self.emit(
                     VERIFY_TYPE,
                     format!(
-                        "UnionWrap payload has type {actual}, expected variant `{member_type}`"
+                        "UnionWrap payload has type {actual}, expected variant `{member_type_name}`"
                     ),
                 );
             }
@@ -903,22 +922,26 @@ impl TypeEnv {
     /// union, so a legitimate extract never rejects.
     pub(super) fn check_union_extract(
         &self,
-        type_: &str,
+        type_: &ParameterType,
         value: &IrValue,
         locals: &HashMap<String, ParameterType>,
     ) {
-        if type_.is_empty() {
+        // plan-111-B: typed on `IrValue::UnionExtract` (`src/ir/value.rs:81`).
+        // The name is a `union_variants` membership key and diagnostic text.
+        let type_name = type_.name();
+        if type_name.is_empty() {
             return;
         }
         let Some(union_type) = self.infer_type(value, locals) else {
             return;
         };
-        let union_type = resource_base_type(&union_type).name();
+        let union_type = resource_base_type(&union_type);
+        let union_type_name = union_type.name();
         if let Some(variants) = self.union_variants(&union_type) {
-            if !variants.contains(type_) {
+            if !variants.contains(type_name.as_ref()) {
                 self.emit(
                     VERIFY_TYPE,
-                    format!("`{type_}` is not a variant of union `{union_type}`"),
+                    format!("`{type_name}` is not a variant of union `{union_type_name}`"),
                 );
             }
         }

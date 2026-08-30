@@ -1,13 +1,23 @@
 # Type-Name Encoding
 
-Every type in MFBASIC is carried between compiler stages as a single **flat
-string** — never a structured AST node. The parser builds this string when it
-reads a type annotation; the resolver, monomorphizer, source checker,
-and the IR — including the IR semantic verifier — all
-**re-derive structure by prefix-stripping and separator-splitting** the same
-string. This document is the canonical contract for that encoding. A mismatch in
-spacing, keyword casing, or separator width silently breaks every consumer, so
-the grammar below is exact down to single spaces.
+A type name is a **flat string in the AST, and a rendering everywhere after
+it.** The parser builds the string when it reads a type annotation, and
+`hir::elaborate` turns it into a `ParameterType` once. From there to the
+emitted byte the compiler carries the variant tree: the resolver, monomorphizer,
+`ir::shape`, `ir::verify`, the `TypeModel` builder and codegen all **match
+variants**, and none of them re-derives structure by prefix-stripping (plan-111,
+enforced by `tests/no_type_strings.rs`).
+
+The string still matters, because it is what the wire formats store and what
+diagnostics print. This document is the canonical contract for that encoding,
+and the round trip `parse(name).name() == name` is what makes rendering
+lossless. A mismatch in spacing, keyword casing, or separator width breaks every
+*decoder*, so the grammar below is exact down to single spaces.
+
+Where the two worlds meet is a short, closed list — the parser, the `.mfp` type
+codec, the IR binary codec, the package manifest, and the AST→HIR seam. Those
+are the "boundary files" the gate names, and they are the only places allowed to
+call `ParameterType::parse` or build a spelling by hand.
 
 The source-level type system these strings denote is [language types](./mfb spec
 language types); the stage that parses them while specializing generics is
@@ -59,11 +69,13 @@ one leading and one trailing space each:
 - `"RES "` — the leading resource-transfer prefix on a collection element/value
   or thread plane (see below).
 
-`OF`, `TO`, and `AS` are **infix keywords**: every downstream consumer recovers
-them by `strip_prefix`/`split_once` on the surrounding literal, not by tokenizing.
-The resolver, for example, dispatches purely on `strip_prefix("List OF ")`,
-`strip_prefix("Map OF ")`, `split_once(" TO ")`, `split_once(") AS ")`.
-[[src/resolver/resolution.rs:resolve_type_name]] [[src/monomorph/helpers.rs:func_type_parts]]
+`OF`, `TO`, and `AS` are **infix keywords**, recovered by
+`strip_prefix`/`split_once` on the surrounding literal rather than by tokenizing.
+That recovery happens in exactly one place: `ParameterType::parse`, which turns a
+name into the variant tree. Downstream stages do not re-derive it — the resolver,
+for example, is a plain `match` on `ListOf`/`MapOf`/`Func`/`ThreadHandle`, and a
+new shape reaches it as a new variant, not as a new prefix test (plan-111).
+[[src/types.rs:parse]] [[src/resolver/resolution.rs:resolve_type]]
 
 ## Base names and bare-id normalization
 
@@ -91,7 +103,7 @@ separator**. Two distinct surface syntaxes collapse onto it at parse time:
 - A member access `EnumType.Member` is already written with `.`, so an
   enum-member reference and a (non-built-in) package-qualified name share one
   flat spelling. The resolver routes any name containing `.` to
-  package-qualified resolution. [[src/resolver/resolution.rs:resolve_type_name]]
+  package-qualified resolution. [[src/resolver/resolution.rs:resolve_type]]
 
 A non-built-in user/dependency type therefore keeps its dotted qualifier in the
 flat string; only built-in package types are stripped to bare ids.
@@ -113,7 +125,7 @@ scope-ownership transfers across a function boundary.
 `Result` base does *not* consume `RES`, so `Result OF RES fs::File` is a parse error
 (`MFB_PARSE_INVALID_IDENTIFIER`), consistent with the table above. Consumers strip it with
 `strip_prefix("RES ").unwrap_or(...)` before resolving the underlying type.
-[[src/ast/expr.rs:parse_type_name]] [[src/resolver/resolution.rs:resolve_type_name]]
+[[src/ast/expr.rs:parse_type_name]] [[src/resolver/resolution.rs:resolve_type]]
 
 ### Trailing ` STATE T` on a `RES` collection element
 
@@ -129,13 +141,32 @@ STATE rides the *element* (not the binding), so an extracted element reads
 element (a `STATE` is only meaningful on a resource).
 [[src/ast/expr.rs:parse_optional_element_state]]
 
-Consumers recover the underlying resource by first `strip_prefix("RES ")` and
-then splitting the ` STATE T` suffix with `base_resource_name` / `state_type_name`
-(composite-safe: they leave a ` STATE ` nested inside an enclosing `List`/`Map`/
-`Thread` intact). Element insertion (`append`/`insert`/`set`) compares the
+In the type model this clause is a variant: `ParameterType::parse` builds a
+`Stateful { base, state }` for a resource's own top-level ` STATE T`, so
+`File STATE Cursor` decomposes structurally instead of surviving as one opaque
+`Named` whose spelling every consumer had to re-split. `name()` renders it back
+byte-exact, so the encoding on this page is unchanged.
+[[src/types.rs:ParameterType]]
+
+**Top-level only.** A `Stateful` is built only when the text before ` STATE ` is
+a single bare token, so a clause nested inside an enclosing `List`/`Map`/`Thread`
+stays on the *element*: `List OF RES fs::File STATE Cursor` is
+`ListOf(Res(Stateful { .. }))`, and the outer list reports no state of its own.
+`ParameterType::split_state` is therefore a plain match on that variant.
+[[src/types.rs:split_state]]
+
+Consumers recover the underlying resource **structurally**: `strip_res` peels
+the `Res` wrapper and `ParameterType::without_state` / `state` peel the clause,
+both plain matches on the variant. The old `&str` adapters over the same grammar
+(`base_resource_name` / `state_type_name`) are down to `base_resource_name`'s
+last few callers and a `cfg(test)` parity partner; they were composite-safe by
+construction because they shared `types::split_state_clause` with `parse`, and
+the variant form inherits that property from the parse itself. Element insertion (`append`/`insert`/`set`) compares the
 element and the item by their bare resource type, so an item passed with or
-without its STATE clause both resolve. [[src/codegen/resource/mod.rs:base_resource_name]]
-[[src/codegen/builtins/general/mod.rs:element_accepts_item]]
+without its STATE clause both resolve; that comparison is now the registry
+matcher's `resource_base_eq`, which every builtin overload goes through.
+[[src/codegen/resource/mod.rs:base_resource_name]]
+[[src/codegen/registry/mod.rs:resource_base_eq]]
 
 The thread resource plane is structurally distinct: it is an **infix** ` RES `
 clause between message and `" TO "`, not a leading prefix — see threads below.
@@ -169,45 +200,57 @@ naive `split_once`, and each segment is unwrapped of redundant grouping by
 
 ## User templates
 
-`user_template_parts` decodes the `Name OF A, B` form. It first **excludes**
-every built-in `OF`-bearing shape (`List OF`, `Set OF`, `Map OF`, `MapEntry OF`,
-`Result OF`, `Thread OF`, `ThreadWorker OF`, and the `FUNC(`/`ISOLATED FUNC(`
-prefixes); only a base that is none of these is treated as a user template. The
-remainder after `" OF "` is split on top-level `", "` into the argument list.
-[[src/monomorph/helpers.rs:user_template_parts]] [[src/monomorph/helpers.rs:split_top_level_commas]]
+`ParameterType::parse` decodes the `Name OF A, B` form into
+`UserOf(name, args)`. It first **excludes** every built-in `OF`-bearing shape
+(`List OF`, `Set OF`, `Map OF`, `MapEntry OF`, `Result OF`, `Thread OF`,
+`ThreadWorker OF`, and the `FUNC(`/`ISOLATED FUNC(` prefixes); only a base that
+is none of these is treated as a user template. The remainder after `" OF "` is
+split on top-level `", "` into the argument list. Monomorph's private
+`user_template_parts` was retired into this arm by plan-105-B, so the exclusion
+list exists once. [[src/types.rs:parse]]
+[[src/codegen/builtins/mod.rs:split_top_level_commas]]
 
-The resolver applies the same precedence: it checks the built-in prefixes first,
-then treats `base OF args` as a template only when `base` is a known type or an
-active template parameter, splitting `args` on `", "`. [[src/resolver/resolution.rs:resolve_type_name]]
+The resolver no longer applies this precedence itself — it receives the decoded
+`UserOf` and resolves the base and each argument. [[src/resolver/resolution.rs:resolve_type]]
 The template machinery itself is [language templates](./mfb spec language
 templates).
 
-## Round-trip: rebuild by prefix-stripping
+## Round-trip: render out, parse back
 
-The encoding's defining property is that it round-trips through pure string
-operations. `concrete_type_name` (the monomorphizer's substitution pass)
-reconstructs each form by the identical prefix tests the parser used to build it,
-recursing on the sub-strings and re-joining with the same separators:
-[[src/monomorph/lower.rs:concrete_type_name]]
-
-```
-strip_prefix("List OF ")        -> "List OF " + recurse(element)
-strip_prefix("Set OF ")         -> "Set OF " + recurse(element)
-strip_prefix("Result OF ")      -> "Result OF " + recurse(success)
-strip_prefix("Map OF ") + split_once(" TO ")   -> "Map OF " K " TO " V
-func_type_parts + ") AS "       -> prefix + params.join(", ") + ") AS " + R
-thread_parts_full               -> format_thread_type(kind, msg, res, out)
-user_template_parts             -> instantiate_type(name, args)
-```
+The encoding's defining property is that `ParameterType::parse(name).name()`
+returns `name` byte-for-byte, for every spelling this document describes. That
+round trip is load-bearing at the wire seams — the `.mfp` type section, the IR
+binary, and the manifest all store the *rendered* spelling and read it back —
+and it is asserted directly. It is also the reason plan-111 could retype the
+whole pipeline without touching a single golden: rendering is lossless, so the
+bytes a stage emits do not depend on whether it held a string or a variant tree. [[src/types.rs:parse]] [[src/types.rs:name]]
 
 Map/MapEntry bodies are split with `split_top_level_to` (a `" TO "`
 `split_once`) and function/template argument lists with `split_top_level_commas`
-(a `", "` split). [[src/monomorph/helpers.rs:split_top_level_to]]
-[[src/monomorph/helpers.rs:func_type_parts]] Any new type shape must be added in lockstep
-to **all** of: `parse_type_name`, `resolve_type_name`, `concrete_type_name`
-(plus its sibling substitution passes), the source checker, and
-the IR semantic verifier — there is no shared parser to change in one
-place.
+(a `", "` split). Both live behind `parse`. [[src/types.rs:split_top_level_to]]
+[[src/codegen/builtins/mod.rs:split_top_level_commas]]
+
+**A new type shape is added in one place: a `ParameterType` variant, with its
+`parse` and `name` arms.** This is the inversion plan-111 performed. It used to
+be true that a shape had to be added in lockstep to `parse_type_name`,
+`resolve_type_name`, `concrete_type_name` and its sibling substitution passes,
+the source checker, and the IR semantic verifier, because each re-derived the
+grammar from the string; `concrete_type_name` and its siblings are deleted, and
+the rest match variants. The remaining obligation is the opposite one, and it is
+quieter: every consumer has a `_` arm, so an **unwired** variant is silently
+mis-handled rather than failing to compile. Adding a variant means auditing the
+matches that need it — the resolver, `ir::shape`, `ir::verify`, monomorph's
+`unify`/`normalize`, and the `TypeModel` builder — not just `types.rs`.
+
+`Stateful` is the worked example, and it cost a real bug. Before plan-111 a
+stateful resource was one opaque `Named("Stream STATE Cursor")` whose spelling
+`split_state` string-split on demand; afterwards it is a variant. Two guards
+elsewhere asked `matches!(t, Named(_))` meaning "is this a nominal?", and both
+silently changed answer — `ir::shape::checker_binds_pattern` stopped binding
+`CASE Variant(v)` over a stateful union, and `ir::verify`'s member check started
+rejecting `.state` on every stateful resource. Neither failed to compile; the
+signal was one acceptance fixture that no longer built. **Audit every
+`Named(_)` when the new variant is one a `Named` used to stand in for.**
 
 ## See Also
 

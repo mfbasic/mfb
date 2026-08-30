@@ -70,7 +70,7 @@ pub(crate) fn lower_seal(
 
     Ok(ValueResult {
         origin: None,
-        type_: ParameterType::parse("Sealed"),
+        type_: ParameterType::named("Sealed"),
         location: Operand::from("void"),
         text: "crypto.seal".to_string(),
     })

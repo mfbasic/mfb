@@ -71,3 +71,43 @@ Whether `MUT xs AS <collection>` (no initializer) compiles is decided by three I
 3. **Element comparability** (`src/ir/verify/values.rs:is_comparable_seen`) → `2-203-0061 TYPE_REQUIRES_COMPARABLE`: a `Set` element and a `Map` KEY must be comparable (a union/FUNC/resource is not); a `Map` VALUE has no such constraint.
 
 Upshot for future work: a plan/bug claiming "collection defaultability now makes `Set OF File` / `List OF RES X` valid" is wrong — those stay rejected on the ownership (and, for Set/key, comparability) axes. When a test asserted the *old* defaultability rejection of such a type, after a defaultability change repoint it to the axis that STILL rejects (ownership), don't assert acceptance. The `RES … STATE <collection>` and `FUNC … return STATE <collection>` checks (`ops.rs`, `calls.rs`) share the same `is_defaultable`, so STATE-of-a-collection fell out as valid for free.
+
+
+## Layout/model tables are keyed by `ParameterType`, not by a spelling (plan-111-C)
+
+`TypeModel`'s nine tables (`records`, `record_fields`, `union_names`,
+`union_variants`, `union_variant_tags`, `enums`, `resource_names`,
+`resource_closers`' key, `native_resources`) are keyed by `ParameterType`. So are
+`ir::shape`'s `types`/`resource_types` and `ir::verify`'s `TypeEnv`. What this
+changes for collection-layout work:
+
+- **Build every key with `ParameterType::declared` (= `parse`), never
+  `ParameterType::named`.** A declared type may shadow a builtin spelling
+  (`TYPE Integer` compiles). `named` makes the record `Integer` and the scalar
+  `Integer` two different keys; the string tables merged them, so `named` is a
+  silent behavior change, not a refactor. `union_is_data` and
+  `inline_collection_payload_size` in `builder_collection_layout.rs` are the
+  collection-side sites.
+- **The STATE clause is still peeled before a union lookup.** A transferred
+  stateful union arrives as `Stateful { base: Stream, state: Cursor }` and the
+  union set is keyed on the bare `Stream` (plan-75 gap 3): `without_state()`
+  first, then look up.
+
+  **But peel for the RIGHT table, and only that one.** Peeling before a *record*
+  lookup is a rule change, not a tidy-up, and plan-111-G6 shipped it as a bug:
+  `File STATE Cursor` is absent from the record table, so the member access was
+  left unchecked; the bare `File` base IS present — a resource declares inline
+  fields — so `.state` got rejected on every stateful resource. When a
+  conversion changes a lookup KEY, ask what the OLD key resolved to, not which
+  key reads more nicely.
+- **Do not re-wrap a type through its own name to "normalize" it.** An
+  `other => named(&other.name())` catch-all in a structural match flattens
+  `Stateful { base, state }` back into an opaque nominal and destroys the
+  structure the arms above it depend on. Both `ir/shape.rs`'s
+  `validate_package_type` and its sibling `is_comparable_seen` had this shape;
+  the second one silently reported a stateful RESOURCE as **comparable** (so a
+  `Set OF <stateful resource>` would have passed the comparability gate above)
+  and no test caught it. Add the explicit variant arm ahead of the catch-all.
+- **`refined_list_literal_type` builds `ListOf(Box::new(element))`
+  structurally** — it no longer `format!("List OF {element}")`s and the caller
+  no longer parses the spelling back.

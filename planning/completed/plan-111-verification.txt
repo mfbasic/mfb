@@ -1,0 +1,55 @@
+plan-111 — verification evidence (letter G Phase 4), 2026-08-30
+
+Attribution binary: `git archive edd3f049d` (= `git merge-base HEAD main`,
+the commit before letter A) extracted to /tmp/base111 and built --release.
+The plan called for `git worktree add ../mfb-pre111`; the executing session was
+confined to the P-111 worktree, so a sibling worktree could not be created.
+Same tree, same binary.
+
+== scripts/artifact-gate.sh target/release/mfb all ==
+artifact-gate [all]: 1274 tests, 1421 build(s), 1750 golden(s) checked, 0 diff(s)
+
+== scripts/test-accept.sh target/release/mfb /tmp/accept-111g ==
+acceptance tests passed (1290 test(s) ran)
+
+== MFB_OPT=3 scripts/test-accept.sh target/release/mfb /tmp/accept-111g-o3 ==
+acceptance tests failed: 9 mismatch(es) (1290 test(s) ran)
+mismatch: rt-behavior/collections/func_map_getor_hash_probe/func_map_getor_hash_probe.macos-aarch64.ncode
+mismatch: rt-behavior/collections/list-ops-codegen-rt/list_ops_codegen_rt.macos-aarch64.ncode
+mismatch: rt-behavior/control-flow/control-flow-if/control_flow_if.macos-aarch64.ncode
+mismatch: rt-behavior/control-flow/control-flow-if/control_flow_if.macos-aarch64.mir
+mismatch: syntax/app/macos-app-mode-io/macos_app_mode_io.macos-aarch64.app.ncode
+mismatch: syntax/app/macos-app-mode-plumbing/macos_app_mode_plumbing.macos-aarch64.app.ncode
+mismatch: syntax/lexical/parser-hello-world/parser_hello_world.macos-aarch64.ncode
+mismatch: syntax/lexical/parser-hello-world/parser_hello_world.macos-aarch64.mir
+mismatch: syntax/match/control-flow-match/control_flow_match.macos-aarch64.ncode
+
+== MFB_OPT=3, the same 7 fixtures, PRE-plan-111 binary (attribution) ==
+acceptance tests failed: 9 mismatch(es) (7 test(s) ran)
+mismatch: rt-behavior/collections/func_map_getor_hash_probe/func_map_getor_hash_probe.macos-aarch64.ncode
+mismatch: rt-behavior/collections/list-ops-codegen-rt/list_ops_codegen_rt.macos-aarch64.ncode
+mismatch: rt-behavior/control-flow/control-flow-if/control_flow_if.macos-aarch64.ncode
+mismatch: rt-behavior/control-flow/control-flow-if/control_flow_if.macos-aarch64.mir
+mismatch: syntax/app/macos-app-mode-io/macos_app_mode_io.macos-aarch64.app.ncode
+mismatch: syntax/app/macos-app-mode-plumbing/macos_app_mode_plumbing.macos-aarch64.app.ncode
+mismatch: syntax/lexical/parser-hello-world/parser_hello_world.macos-aarch64.ncode
+mismatch: syntax/lexical/parser-hello-world/parser_hello_world.macos-aarch64.mir
+mismatch: syntax/match/control-flow-match/control_flow_match.macos-aarch64.ncode
+-> identical mismatch set: the 9 are pre-existing, not plan-111's. Every one
+   is a .ncode/.mir artifact golden (none is a .run), and the diffs are
+   stack-slot coalescing, which is what a higher -O level does to goldens
+   recorded at the default level.
+
+== scripts/test-accept.sh, PRE-plan-111 binary (N-ran baseline) ==
+acceptance tests passed (1288 test(s) ran)
+-> 1290 - 1288 = exactly the two fixtures plan-111 added
+   (rt-behavior/arena/member-iterable-mutate, letter E;
+    rt-behavior/trap/inline-trap-default-able-types, letter D).
+   Nothing was silently skipped.
+
+== scripts/diag-set-diff.sh target/release/mfb ==
+diag-set-diff: 530 fixture(s) with diagnostics — 530 same, 0 reordered, 0 set-diff
+
+== cargo test --no-fail-fast (NO --skip, so artifact_gate_all ran) ==
+4056 tests passed, 0 failed, across 67 test binaries
+EXIT=0

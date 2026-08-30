@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::codegen::engine::operand::AbiConvention;
 use crate::codegen::engine::operand::AbiRole;
 use crate::codegen::engine::operand::Operand;
@@ -456,11 +458,91 @@ pub(crate) fn move_register(dst: impl Into<Operand>, src: impl Into<Operand>) ->
         .field("src", src)
 }
 
+/// The `mov_imm` operand classes — the immediate encoder's width/interpretation
+/// tokens, and the whole vocabulary of the instruction's `"type"` attribute.
+///
+/// These are NOT types (see [`move_immediate`]). They live here, next to the
+/// producer, so the optimizer rows that read the attribute back compare against
+/// the same definition the writer used rather than a re-typed literal — which is
+/// how a lattice goes silently blind if the token ever changes.
+pub(crate) const IMMEDIATE_CLASS_INTEGER: &str = "Integer";
+/// See [`IMMEDIATE_CLASS_INTEGER`].
+pub(crate) const IMMEDIATE_CLASS_BYTE: &str = "Byte";
+/// See [`IMMEDIATE_CLASS_INTEGER`].
+pub(crate) const IMMEDIATE_CLASS_BOOLEAN: &str = "Boolean";
+/// See [`IMMEDIATE_CLASS_INTEGER`].
+pub(crate) const IMMEDIATE_CLASS_FIXED: &str = "Fixed";
+/// See [`IMMEDIATE_CLASS_INTEGER`].
+pub(crate) const IMMEDIATE_CLASS_FLOAT: &str = "Float";
+/// See [`IMMEDIATE_CLASS_INTEGER`].
+pub(crate) const IMMEDIATE_CLASS_MONEY: &str = "Money";
+/// See [`IMMEDIATE_CLASS_INTEGER`]. A `Nothing` immediate is the zero a
+/// value-less default materializes into a register.
+pub(crate) const IMMEDIATE_CLASS_NOTHING: &str = "Nothing";
+/// A union's discriminant. Names no MFBASIC type.
+pub(crate) const IMMEDIATE_CLASS_UNION_TAG: &str = "UnionTag";
+/// An enum member's ordinal. Names no MFBASIC type.
+pub(crate) const IMMEDIATE_CLASS_ENUM_ORDINAL: &str = "EnumOrdinal";
+
+/// The operand class for an immediate whose class is DERIVED from the value's
+/// scalar type rather than written as a literal at the emit site.
+///
+/// plan-111-G Correction G7: three emitters passed `&type_.name()` straight into
+/// [`move_immediate`]'s class slot — a default-scalar materialization, a scalar
+/// `Const`, and `collections::sum`'s accumulator seed. The
+/// `immediate_operand_class_vocabulary_is_closed` test reads only *literal*
+/// class arguments, so it could not see them, and its "closed vocabulary of six"
+/// claim was false: the committed `.ncode` goldens contain `"type": "Money"` and
+/// `"type": "Nothing"`, neither of which is in that six.
+///
+/// Routing the three through here does two things. The tokens those emitters can
+/// produce are now enumerated in one place instead of being whatever `name()`
+/// happened to render, and the scan test can require that a non-literal class
+/// argument is a call to *this* function — which is what makes "closed" a
+/// property rather than a comment.
+///
+/// The fallback still renders. It is reachable: `native_immediate_value` ends in
+/// a pass-through arm, so a `Const` of any type at all can arrive at the second
+/// site. Mapping such a type to a fixed token would change the emitted `.ncode`
+/// for it, so the fallback reproduces exactly what the three sites did before —
+/// and every token an emitter is *known* to produce is named above it.
+pub(crate) fn immediate_class(type_: &crate::types::ParameterType) -> Cow<'static, str> {
+    use crate::types::ParameterType as P;
+    match type_ {
+        P::Integer => Cow::Borrowed(IMMEDIATE_CLASS_INTEGER),
+        P::Byte => Cow::Borrowed(IMMEDIATE_CLASS_BYTE),
+        P::Boolean => Cow::Borrowed(IMMEDIATE_CLASS_BOOLEAN),
+        P::Fixed => Cow::Borrowed(IMMEDIATE_CLASS_FIXED),
+        P::Float => Cow::Borrowed(IMMEDIATE_CLASS_FLOAT),
+        P::Money => Cow::Borrowed(IMMEDIATE_CLASS_MONEY),
+        P::Nothing => Cow::Borrowed(IMMEDIATE_CLASS_NOTHING),
+        other => other.name(),
+    }
+}
+
+/// `mov_imm dst, <class>, value` — load an immediate.
+///
+/// **`operand_class` is NOT a type**, and plan-111-G renamed it to stop it
+/// reading like one. It is the immediate encoder's width/interpretation class,
+/// and its vocabulary is exactly six tokens — `Integer`, `Byte`, `Boolean`,
+/// `Fixed`, `UnionTag`, `EnumOrdinal`. Two of those (`UnionTag`, `EnumOrdinal`)
+/// name no MFBASIC type at all; they are a union's discriminant and an enum's
+/// ordinal, both encoder concepts. The four that *look* like type names are the
+/// coincidence that made plan-111-G's §Phase 1 treat this as a type site.
+///
+/// Pinned by `immediate_operand_class_vocabulary_is_closed` in
+/// `tests/no_type_strings.rs`: if a real type spelling ever reaches this
+/// parameter — a `List OF Integer`, a `Map OF …`, a user nominal — that test
+/// fails, which is the property the plan actually wants here.
 #[track_caller]
-pub(crate) fn move_immediate(dst: impl Into<Operand>, type_: &str, value: &str) -> CodeInstruction {
+pub(crate) fn move_immediate(
+    dst: impl Into<Operand>,
+    operand_class: &str,
+    value: &str,
+) -> CodeInstruction {
     CodeInstruction::new("mov_imm")
         .field("dst", dst)
-        .field("type", type_)
+        .field("type", operand_class)
         .field("value", value)
 }
 

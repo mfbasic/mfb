@@ -16,6 +16,16 @@ merged into the `IrProject` (see `merge_packages`), so every function flows
 through this one lowering and there are no package-level imports left to resolve.
 [[src/target/shared/nir/lower.rs:merge_packages]]
 
+**A `type` field in the tables below is a rendering, not the representation.**
+NIR nodes carry `ParameterType`, the same variant tree the shared IR carries; the
+`-nir` dump and the `.ncode` goldens print `ParameterType::name()` because a JSON
+dump needs a string. Nothing in NIR or in a target backend recovers structure by
+splitting that string — the shape is read off the variant
+([architecture type-name-encoding](./mfb spec architecture type-name-encoding)).
+The one apparent exception is `mov_imm`'s `"type"` attribute, which is not a type
+at all: it is the immediate encoder's width/interpretation class, and its tokens
+are enumerated by `target::shared::abi::immediate_class`.
+
 ## Module shape
 
 ```text

@@ -5,7 +5,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::{callable_return_type, typed_list_element_type};
+use crate::codegen::engine::types::{typed_callable_return_type, typed_list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -21,7 +21,12 @@ pub(crate) fn partition_fast_path(
         return Ok(None);
     };
     if matches!(t, "Integer" | "Float" | "Fixed" | "Money" | "String") && args.len() == 2 {
-        return builder.lower_collection_partition_call(args, t).map(Some);
+        // `t` is the monomorph suffix of a `#collections_partition$T` runtime
+        // target -- a NAME the NIR carries, so it is parsed once here, at the
+        // symbol boundary, rather than threaded onward as a spelling.
+        return builder
+            .lower_collection_partition_call(args, &ParameterType::declared(t))
+            .map(Some);
     }
     Ok(None)
 }
@@ -43,16 +48,12 @@ impl CodeBuilder<'_> {
     pub(crate) fn lower_collection_partition_call(
         &mut self,
         args: &[NirValue],
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         let scratch9 = self.temporary_vreg();
         let scratch17 = self.temporary_vreg();
         let collection = self.lower_value(&args[0])?;
-        if typed_list_element_type(&collection.type_)
-            .map(|type_| type_.name().into_owned())
-            .as_deref()
-            != Some(element_type)
-        {
+        if typed_list_element_type(&collection.type_).cloned().as_ref() != Some(element_type) {
             return Err(format!(
                 "native partition element mismatch: {} vs {element_type}",
                 collection.type_
@@ -65,13 +66,15 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         let action = self.lower_value(&args[1])?;
-        let output_type = callable_return_type(&action.type_.name()).ok_or_else(|| {
-            format!(
-                "native collection partition predicate must be a function, got {}",
-                action.type_
-            )
-        })?;
-        if output_type != "Boolean" {
+        let output_type = typed_callable_return_type(&action.type_)
+            .cloned()
+            .ok_or_else(|| {
+                format!(
+                    "native collection partition predicate must be a function, got {}",
+                    action.type_
+                )
+            })?;
+        if output_type != ParameterType::Boolean {
             return Err(format!(
                 "native collection partition predicate must return Boolean, got {output_type}"
             ));
@@ -152,12 +155,12 @@ impl CodeBuilder<'_> {
                     self.emit(abi::store_u64(reg, abi::stack_pointer(), *slot));
                 }
                 self.emit_owned_value_drop(&OwnedValueCleanup {
-                    type_: collection.type_.name().into_owned(),
+                    type_: collection.type_.clone(),
                     stack_offset: matched_slot,
                     closure_captures: None,
                 })?;
                 self.emit_owned_value_drop(&OwnedValueCleanup {
-                    type_: collection.type_.name().into_owned(),
+                    type_: collection.type_.clone(),
                     stack_offset: unmatched_slot,
                     closure_captures: None,
                 })?;
@@ -170,7 +173,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&ok_label));
         self.emit(abi::compare_immediate(RESULT_VALUE_REGISTER, "0"));
         self.emit(abi::branch_eq(&to_unmatched));
-        self.lower_list_append_in_place(matched_slot, item_slot, &collection.type_, element_type)?;
+        self.lower_list_append_in_place(matched_slot, item_slot, &collection.type_, &element_type)?;
         self.emit(abi::branch(&after_append));
         self.emit(abi::label(&to_unmatched));
         self.lower_list_append_in_place(
@@ -199,12 +202,15 @@ impl CodeBuilder<'_> {
         // The monomorphized generic record is NIR-mangled `Partition$<T>` (the same
         // key `record_fields` holds and the interpreted `Partition[...]` constructor
         // looks up), NOT the surface `Partition OF <T>`.
-        let record_type = format!("Partition${element_type}");
+        // The mangled monomorph key (`Partition$Integer`) the `record_fields`
+        // table holds — a NAME built from the element's spelling, then read back
+        // as the nominal it denotes.
+        let record_type = ParameterType::named(&format!("Partition${element_type}"));
         let record_reg =
             self.emit_build_inlined_record(&record_type, &[matched_slot, unmatched_slot])?;
         let record = ValueResult {
             origin: None,
-            type_: ParameterType::parse(&record_type),
+            type_: record_type.clone(),
             location: Operand::from(record_reg.render()),
             text: format!("partition({}, {})", collection.type_, action.text),
         };

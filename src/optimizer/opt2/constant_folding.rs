@@ -98,7 +98,9 @@ pub(super) fn fold_one(
         CodeOp::MovImm => {
             // Only Integer immediates enter the domain (an FP payload's bits
             // don't feed GPR arithmetic).
-            if instruction.get("type").as_deref() == Some("Integer") {
+            if instruction.get("type").as_deref()
+                == Some(crate::target::shared::abi::IMMEDIATE_CLASS_INTEGER)
+            {
                 match (dst(), imm("value")) {
                     (Some(dst), Some(value)) => return Step::Record(dst, value),
                     _ => return Step::KillDst,

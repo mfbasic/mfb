@@ -44,16 +44,7 @@ pub(crate) mod vector;
 // is the relocated resource registry (`codegen::resource`).
 // ---------------------------------------------------------------------------
 use crate::codegen::resource;
-/// bug-340 A3: exact argument-type match, `arg_types == expected` element-wise.
-/// The single home for what were fifteen byte-identical `fn exact` copies, one
-/// per builtin-package module.
-pub(super) fn exact(arg_types: &[String], expected: &[&str]) -> bool {
-    arg_types.len() == expected.len()
-        && arg_types
-            .iter()
-            .zip(expected.iter())
-            .all(|(actual, expected)| actual == expected)
-}
+use crate::types::ParameterType;
 
 pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
@@ -96,7 +87,10 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
 /// builtin dispatch symbol. Keyed by `(builtin, arg_type)`. The `toString(net::Url)`
 /// renderer now rides on the migrated `net` package's `add_override`
 /// (`registry::general_override_target`); the remaining hand row is `vector`'s.
-pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&'static str> {
+pub(crate) fn general_override_target(
+    builtin: &str,
+    arg_type: &crate::types::ParameterType,
+) -> Option<&'static str> {
     // Every override — `toString(net::Url)` and the nine `toString(VecN)` renderers — is
     // now registered on the clean-room registry via `add_override`; no hand rows remain.
     crate::codegen::registry::general_override_target(builtin, arg_type)
@@ -109,7 +103,7 @@ pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&
 /// table (keyed by the qualified identity), so it covers every resource uniformly —
 /// clean-room registry (`process`) and old-branch (`fs`/`net`/`tls`/`audio`) alike.
 pub(crate) fn is_qualified_builtin_resource(qualified: &str) -> bool {
-    resource::is_builtin_resource_type(qualified)
+    resource::is_builtin_resource_type(&ParameterType::declared(qualified))
 }
 
 /// Resolve a package-qualified built-in type reference (`net.Url`,
@@ -124,16 +118,16 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
     crate::codegen::registry::registry().qualified_builtin_type(qualified)
 }
 
-pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
-    resource::builtin_resource_close_function(type_name)
+pub(crate) fn resource_close_function(type_: &ParameterType) -> Option<&'static str> {
+    resource::builtin_resource_close_function(&type_)
 }
 
-pub(crate) fn is_resource_type(type_name: &str) -> bool {
-    resource::is_builtin_resource_type(type_name)
+pub(crate) fn is_resource_type(type_: &ParameterType) -> bool {
+    resource::is_builtin_resource_type(&type_)
 }
 
-pub(crate) fn is_thread_sendable_resource_type(type_name: &str) -> bool {
-    resource::is_builtin_sendable_resource_type(type_name)
+pub(crate) fn is_thread_sendable_resource_type(type_: &ParameterType) -> bool {
+    resource::is_builtin_sendable_resource_type(&type_)
 }
 
 /// The bare native lowering name for a migrated `collections::`/`strings::`
@@ -307,77 +301,54 @@ pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
 /// This is the single arg-typed return-type oracle shared by monomorph lowering
 /// and `ir::verify` (which reconciles a decoded package's attacker-controlled
 /// `Call` annotation against it — bug-162).
-/// The argument-validated return type of a builtin call, resolved through the
-/// descriptor registry (plan-72-BB). The module owning `callee` resolves it via
-/// its `BuiltinResolver` (every computed-return / argument-union package overrides
-/// `resolve_return_type`) or, for a fully data-only package, via
-/// `DefaultResolver::resolve_call`'s exact per-position match. The registry
-/// guarantees each qualified name is owned by exactly one module
-/// (`duplicate_function_name` is `None`), so this is order-independent — replacing
-/// the hand-ordered per-package `resolve_call` chain it grew from.
-pub(crate) fn resolve_call_return_type(
+///
+/// The module owning `callee` resolves it via its own co-located resolver, or,
+/// for a fully data-only package, via the registry's exact per-position match.
+/// The registry guarantees each qualified name is owned by exactly one module
+/// (`duplicate_function_name` is `None`), so this is order-independent —
+/// replacing the hand-ordered per-package `resolve_call` chain it grew from.
+///
+/// plan-111-G: this doc used to open "Typed twin of `resolve_call_return_type`
+/// (plan-104-C)" and describe a render-in/parse-out pocket at the three bespoke
+/// resolvers. Both are gone — letter C retyped `general`/`vector`/`strings` and
+/// deleted the string twin, so this is no longer a twin of anything and there is
+/// no pocket. The old text survived as an ORPHANED doc block after its item was
+/// deleted, silently concatenated onto its neighbour's docs.
+pub(crate) fn resolve_call_return_type_typed(
     callee: &str,
-    arg_types: &[String],
+    arg_types: &[crate::types::ParameterType],
     strict: bool,
-) -> Option<String> {
-    // Migrated (clean-room registry) packages first: resolve_call validates the
-    // argument arity + types (returning None on a mismatch, which the type checker
-    // turns into an error), so this cannot blindly hand back the return type. `strict`
-    // (argument validation, from the former source checker) rejects a scalar-for-nominal argument;
-    // the lenient callers (return-type inference feeding IR lowering / codegen) keep the
-    // coarse match so a nominally-spelled argument does not perturb type propagation.
-    // `vector` is a registry member but dispatches by EXACT record type (`Float2` ≠
-    // `Integer2`) with a per-type return type, which the generic coarse-nominal matcher
-    // below cannot select. It keeps its own exact resolver over the same overload data.
-    // `general` (the unqualified global builtins) is bare-named, so it is disjoint from
-    // every qualified registry member and order-independent here. Its argument-dependent
-    // returns come from the co-located bespoke resolver, not the generic matcher.
+) -> Option<crate::types::ParameterType> {
+    // Migrated (clean-room registry) packages resolve through the generic
+    // matcher: `resolve_call_typed` validates arity and argument types (yielding
+    // `None` on a mismatch, which the type checker turns into an error), so this
+    // cannot blindly hand back the return type. `strict` rejects a
+    // scalar-for-nominal argument; the lenient callers (return-type inference
+    // feeding IR lowering / codegen) keep the coarse match so a nominally-spelled
+    // argument does not perturb type propagation.
+    //
+    // Three packages carry a computed return the generic matcher cannot express
+    // and keep their own co-located resolver:
+    //
+    // * `general` — bare-named, so disjoint from every qualified member and
+    //   order-independent here; its argument-dependent returns come from its own
+    //   hand-authored table.
+    // * `vector` — dispatches by EXACT record type (`Float2` != `Integer2`) with
+    //   a per-type return, which the coarse-nominal matcher cannot select.
+    // * `strings` — carries the `AttributedString` Tier-A/Tier-B return typing,
+    //   deferring to the generic path for every other call (plan-99 PART B).
+    //
+    // plan-111-C: all three take and return `ParameterType` now, so this is the
+    // ONE entry — the render-in/parse-out pocket plan-104-C recorded here as a
+    // deliberate boundary is gone, and so is the string twin that fed it.
     if general::is_general_call(callee) {
         return general::resolve_return_type(callee, arg_types);
     }
     if crate::codegen::registry::registry().owning_package(callee) == Some("vector") {
         return crate::codegen::builtins::vector::resolve_return_type(callee, arg_types);
     }
-    // `strings` is a registry member but carries the `AttributedString` Tier-A/Tier-B
-    // return typing (astrings' still-hardcoded type), which the generic coarse-nominal
-    // matcher below cannot express. Its co-located resolver reproduces the deleted
-    // `StringsResolver::resolve_return_type`, deferring to `registry::resolve_call` for
-    // every non-`AttributedString` call (plan-99 PART B).
     if crate::codegen::registry::registry().owning_package(callee) == Some("strings") {
         return crate::codegen::builtins::strings::resolve_return_type(callee, arg_types, strict);
-    }
-    if crate::codegen::registry::registry().is_member(callee) {
-        return crate::codegen::registry::resolve_call(callee, arg_types, strict);
-    }
-    None
-}
-
-/// Typed twin of [`resolve_call_return_type`] (plan-104-C): the entry codegen
-/// uses so no type is rendered only to be re-parsed at the registry boundary.
-/// The generic registry path goes through
-/// [`crate::codegen::registry::resolve_call_typed`] with **no strings**. The
-/// three bespoke per-package resolvers (`general`, `vector`, `strings` — each a
-/// computed-return special case the generic matcher cannot express) still speak
-/// strings, so that pocket renders `name()` in and parses the result out —
-/// a deliberate boundary recorded in plan-104-C, retired if those resolvers
-/// ever retype.
-pub(crate) fn resolve_call_return_type_typed(
-    callee: &str,
-    arg_types: &[crate::types::ParameterType],
-    strict: bool,
-) -> Option<crate::types::ParameterType> {
-    let bespoke = general::is_general_call(callee)
-        || matches!(
-            crate::codegen::registry::registry().owning_package(callee),
-            Some("vector") | Some("strings")
-        );
-    if bespoke {
-        let arg_names: Vec<String> = arg_types
-            .iter()
-            .map(|type_| type_.name().into_owned())
-            .collect();
-        return resolve_call_return_type(callee, &arg_names, strict)
-            .map(|return_type| crate::types::ParameterType::parse(&return_type));
     }
     if crate::codegen::registry::registry().is_member(callee) {
         return crate::codegen::registry::resolve_call_typed(callee, arg_types, strict);
@@ -385,10 +356,16 @@ pub(crate) fn resolve_call_return_type_typed(
     None
 }
 
-/// The static (argument-independent) nominal return type of a builtin call —
-/// plan-72-BB: the owning module's `DefaultResolver::return_type_name` (a
-/// `Custom`-return call has no static nominal and yields `None`; the arg-validated
-/// return lives in [`resolve_call_return_type`]). The lowered-only internal names
+/// The static (argument-independent) nominal return type of a builtin call, as a
+/// rendered SPELLING — plan-72-BB: the owning module's static return (a
+/// `Custom`-return call has no static nominal and yields `None`; the
+/// arg-validated return lives in [`resolve_call_return_type_typed`]).
+///
+/// plan-111-G: its only production callers are in `binary_repr/writer.rs`, the
+/// `.mfp` ENCODER, which needs the spelling because that is what the wire stores.
+/// The render is therefore the point here, not a leftover — everything on the
+/// compiler side asks [`call_return_type`], the typed twin below. The
+/// lowered-only internal names
 /// (`audio` device opens / timed I/O, `tls.closeListener`) are not descriptor
 /// functions, so IR lowering's queries for their rewritten targets fall back to
 /// those two packages' explicit internal-name maps.
@@ -397,7 +374,8 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<std::borrow::Cow<'stat
     // numeric narrowing conversions carry a static nominal return; every other general
     // call is `Custom` and yields `None`, reproducing the legacy fast-oracle exactly.
     if general::is_general_call(name) {
-        return general::nominal_return_type(name).map(std::borrow::Cow::Borrowed);
+        return general::nominal_return_type(name)
+            .map(|type_| std::borrow::Cow::Owned(type_.name().into_owned()));
     }
     // `vector` members have an ARGUMENT-dependent return type (`length(Float3) AS
     // Float`, `length(Integer3) AS Integer`) with no static nominal — the pre-migration
@@ -408,8 +386,11 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<std::borrow::Cow<'stat
     if crate::codegen::registry::registry().owning_package(name) == Some("vector") {
         return None;
     }
-    if let Some(return_type) = crate::codegen::registry::call_return_type(name) {
-        return Some(return_type);
+    // plan-111-C: the registry has ONE query, typed. This oracle still hands its
+    // seven codegen callers a NAME, so it renders here — those signatures are
+    // letters D-F's.
+    if let Some(return_type) = crate::codegen::registry::call_return_type_typed(name) {
+        return Some(std::borrow::Cow::Owned(return_type.name().into_owned()));
     }
     None
 }
@@ -421,16 +402,8 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<std::borrow::Cow<'stat
 /// preserve its `None`, and the registry path clones the descriptor's already-
 /// typed return instead of rendering it.
 pub(crate) fn call_return_type(name: &str) -> Option<crate::types::ParameterType> {
-    use crate::types::ParameterType;
     if general::is_general_call(name) {
-        return general::nominal_return_type(name).map(|type_name| match type_name {
-            "Integer" => ParameterType::Integer,
-            "Float" => ParameterType::Float,
-            "Fixed" => ParameterType::Fixed,
-            "Byte" => ParameterType::Byte,
-            "Money" => ParameterType::Money,
-            other => ParameterType::named(other),
-        });
+        return general::nominal_return_type(name);
     }
     if crate::codegen::registry::registry().owning_package(name) == Some("vector") {
         return None;
@@ -542,16 +515,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
 /// path below: a member with a concrete positional signature renders one, and the
 /// non-signature shapes (variadic `"1 to 5 Integer"`, zero-arg `"()"`, the
 /// optional-tail brackets, `utf8Decode`'s `"or"`-union) decline via the guard.
-pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
-    Some(
-        argument_types_typed(callee)?
-            .into_iter()
-            .map(|type_| type_.name().into_owned())
-            .collect(),
-    )
-}
-
-/// The typed twin of [`argument_types`] (plan-106-A). Same dispatch and the same
+/// The typed form (plan-106-A). Same dispatch and the same
 /// `None`s; the registry half clones already-typed descriptor params, and the
 /// `general` half classifies its *descriptor text* through the canonical grammar
 /// — `general::expected_arguments` is a hand-authored signature string, so this
@@ -561,45 +525,16 @@ pub(crate) fn argument_types_typed(callee: &str) -> Option<Vec<crate::types::Par
     // types), decoupled from the human `expected_arguments` diagnostic string so
     // widening the diagnostic never changes per-argument coercion (bug-443). A generic
     // or overloaded member yields `None` here and needs no coercion table.
-    if let Some(types) = crate::codegen::registry::argument_types_typed(callee) {
-        return Some(types);
-    }
-
-    let expected = general::expected_arguments(callee)?;
-    // A description that is not a concrete positional signature is not a coercion
-    // table: an optional-argument bracket (`strings.find`'s
-    // `"String, String[, Integer]"`), an argument union (`" or "`), a variadic range
-    // (`datetime.instant`'s `"1 to 5 Integer"`), or a zero-argument `"()"`. Skip
-    // them so we don't hand the lowerer a mangled expected type.
-    if expected.contains('[')
-        || expected.contains(" or ")
-        || expected.contains(" to ")
-        || expected == "()"
-    {
-        return None;
-    }
-    let params = expected.split(", ").collect::<Vec<_>>();
-    if params.iter().any(|param| uses_generic_placeholder(param)) {
-        return None;
-    }
-    Some(
-        params
-            .into_iter()
-            .map(crate::types::ParameterType::parse)
-            .collect(),
-    )
-}
-
-/// Whether a type name is a generic placeholder (`T`/`K`/`V` bare or inside a
-/// container), used by [`argument_types`] to skip generic member signatures.
-fn uses_generic_placeholder(type_: &str) -> bool {
-    matches!(type_, "T" | "K" | "V")
-        || type_.contains(" OF T")
-        || type_.contains(" OF K")
-        || type_.contains(" OF V")
-        || type_.contains(" TO T")
-        || type_.contains(" TO K")
-        || type_.contains(" TO V")
+    // plan-111-F: this used to fall back to splitting `general`'s hand-authored
+    // `expected_arguments` diagnostic string and parsing each piece. That tail is
+    // DEAD and is deleted: every arm of that table is an argument union
+    // (`" or "`), a bracketed optional, a variadic range, or a bare placeholder —
+    // except `isNumeric`, `isEven` and `isOdd`, and the registry branch above
+    // answers for all three. Pinned by
+    // `plan111f_probe::general_scalar_predicates_resolve_through_the_registry`,
+    // which fails if any of them ever stops resolving here, rather than silently
+    // falling through to a text split that no longer exists.
+    crate::codegen::registry::argument_types_typed(callee)
 }
 
 /// Whether parameter `index` of the built-in `callee` is a compiler-known
@@ -666,7 +601,7 @@ pub(crate) fn is_package_constant(name: &str) -> bool {
 
 /// A package constant's type (plan-106-A).
 pub(crate) fn package_constant_type(name: &str) -> Option<crate::types::ParameterType> {
-    crate::codegen::registry::constant_type(name)
+    crate::codegen::registry::constant_type_name(name)
 }
 
 pub(crate) fn package_constant_value(name: &str) -> Option<&'static str> {
@@ -1120,12 +1055,21 @@ mod tests {
     #[test]
     fn general_override_target_cases() {
         assert_eq!(
-            general_override_target("toString", crate::codegen::builtins::net::URL_TYPE),
+            general_override_target(
+                "toString",
+                &crate::types::ParameterType::parse(crate::codegen::builtins::net::URL_TYPE),
+            ),
             Some("__net_urlToString")
         );
-        assert_eq!(general_override_target("toString", "Integer"), None);
         assert_eq!(
-            general_override_target("len", crate::codegen::builtins::net::URL_TYPE),
+            general_override_target("toString", &crate::types::ParameterType::parse("Integer")),
+            None
+        );
+        assert_eq!(
+            general_override_target(
+                "len",
+                &crate::types::ParameterType::parse(crate::codegen::builtins::net::URL_TYPE),
+            ),
             None
         );
     }
@@ -1149,12 +1093,20 @@ mod tests {
     #[test]
     fn resource_helpers() {
         // File is a builtin resource type.
-        assert!(is_resource_type("fs.File"));
-        assert!(!is_resource_type("Integer"));
-        assert!(resource_close_function("fs.File").is_some());
-        assert!(resource_close_function("Integer").is_none());
+        assert!(is_resource_type(&crate::types::ParameterType::declared(
+            "fs.File"
+        )));
+        assert!(!is_resource_type(&crate::types::ParameterType::declared(
+            "Integer"
+        )));
+        assert!(
+            resource_close_function(&crate::types::ParameterType::declared("fs.File")).is_some()
+        );
+        assert!(
+            resource_close_function(&crate::types::ParameterType::declared("Integer")).is_none()
+        );
         // is_thread_sendable_resource_type routes to resource module.
-        let _ = is_thread_sendable_resource_type("fs.File");
+        let _ = is_thread_sendable_resource_type(&crate::types::ParameterType::declared("fs.File"));
     }
 
     #[test]
@@ -1254,5 +1206,28 @@ mod tests {
         // thread
         assert!(call_param_names("thread.start").is_some());
         assert!(call_param_names("nope").is_none());
+    }
+}
+
+#[cfg(test)]
+mod plan111f_probe {
+    /// plan-111-F: is `argument_types_typed`'s `general::expected_arguments`
+    /// fallback reachable? Every arm of that table is a union (`" or "`), a
+    /// bracketed optional, or a bare placeholder — EXCEPT `isNumeric`, `isEven`
+    /// and `isOdd`. If the registry branch above answers for those three, the
+    /// string-splitting tail is dead and its `ParameterType::parse` with it.
+    #[test]
+    fn general_scalar_predicates_resolve_through_the_registry() {
+        for (call, expected) in [
+            ("general.isNumeric", crate::types::ParameterType::String),
+            ("general.isEven", crate::types::ParameterType::Integer),
+            ("general.isOdd", crate::types::ParameterType::Integer),
+        ] {
+            assert_eq!(
+                crate::codegen::registry::argument_types_typed(call),
+                Some(vec![expected]),
+                "{call} must resolve through the registry, not the string tail"
+            );
+        }
     }
 }

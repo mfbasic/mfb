@@ -76,7 +76,7 @@ impl TypeEnv {
                 for arg in args {
                     self.check_value_depth(arg, locals, depth + 1);
                 }
-                self.check_constructor(&type_.name(), args, locals);
+                self.check_constructor(type_, args, locals);
             }
             IrValue::UnionWrap {
                 union_type,
@@ -84,7 +84,7 @@ impl TypeEnv {
                 value,
             } => {
                 self.check_value_depth(value, locals, depth + 1);
-                self.check_union_wrap(&union_type.name(), &member_type.name(), value, locals);
+                self.check_union_wrap(union_type, member_type, value, locals);
             }
             IrValue::Closure { captures, .. } => {
                 for capture in captures {
@@ -94,7 +94,7 @@ impl TypeEnv {
             }
             IrValue::UnionExtract { type_, value } => {
                 self.check_value_depth(value, locals, depth + 1);
-                self.check_union_extract(&type_.name(), value, locals);
+                self.check_union_extract(type_, value, locals);
             }
             IrValue::ResultValue { type_, value } => {
                 self.check_value_depth(value, locals, depth + 1);
@@ -169,9 +169,7 @@ impl TypeEnv {
                 }
                 // Each WITH update must match its field's declared type —
                 // the former source checker's WITH arm of TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH.
-                let fields = self
-                    .field_types
-                    .get(resource_base_type(type_).name().as_ref());
+                let fields = self.field_types.get(&resource_base_type(type_));
                 let mut seen_fields: HashSet<&str> = HashSet::new();
                 for update in updates {
                     self.check_value_depth(&update.value, locals, depth + 1);
@@ -441,8 +439,13 @@ impl TypeEnv {
 
     /// The positive/overflow direction of the literal-range check.
     pub(super) fn check_const_literal(&self, type_: &ParameterType, value: &str) {
-        match type_.name().as_ref() {
-            "Byte" if !value.contains('.') => {
+        // plan-111-B: matched on the RENDERED name until now. The arms are the
+        // same, in the same order, and `Scalar` is still a nominal (it has no
+        // variant) — asked through `ParameterType::is_named`, which compares the
+        // interned `Symbol`. A guard that fails falls to `_ => {}` exactly as it
+        // did when the scrutinee was a string, because no two arms share a name.
+        match type_ {
+            ParameterType::Byte if !value.contains('.') => {
                 if value.parse::<u16>().map_or(true, |n| n > u8::MAX as u16) {
                     self.emit(
                         "TYPE_BYTE_LITERAL_OVERFLOW",
@@ -450,7 +453,7 @@ impl TypeEnv {
                     );
                 }
             }
-            "Integer" if !value.contains('.') => {
+            ParameterType::Integer if !value.contains('.') => {
                 if value.parse::<i64>().is_err() {
                     self.emit(
                         "TYPE_INTEGER_LITERAL_OVERFLOW",
@@ -458,7 +461,7 @@ impl TypeEnv {
                     );
                 }
             }
-            "Float" => {
+            ParameterType::Float => {
                 if let Ok(f) = value.parse::<f64>() {
                     if !f.is_finite() {
                         self.emit(
@@ -468,7 +471,7 @@ impl TypeEnv {
                     }
                 }
             }
-            "Fixed" => {
+            ParameterType::Fixed => {
                 if let Ok(f) = value.parse::<f64>() {
                     if f >= 2147483648.0 {
                         self.emit(
@@ -483,7 +486,7 @@ impl TypeEnv {
             // range-checked at lex time; a hand-crafted `.mfp` can carry an
             // arbitrary decimal here, so the verifier is the sole rejecter on the
             // package-decode path (bug-265 / PKG-08).
-            "Scalar" if !value.contains('.') => {
+            _ if type_.is_named("Scalar") && !value.contains('.') => {
                 let invalid = match value.parse::<u64>() {
                     Ok(cp) => cp > 0x10_FFFF || (0xD800..=0xDFFF).contains(&cp),
                     Err(_) => true,
@@ -499,7 +502,7 @@ impl TypeEnv {
             }
             // Money is exact base-10: range and excess-precision are decided by the
             // exact converter, not an `f64` bound (plan-29-A §4.4, plan-29-B).
-            "Money" => match crate::numeric::money_conversion_from_decimal(value) {
+            ParameterType::Money => match crate::numeric::money_conversion_from_decimal(value) {
                 Ok(converted) if converted.lost_precision => self.emit(
                     "TYPE_MONEY_LITERAL_PRECISION",
                     format!(
@@ -518,14 +521,15 @@ impl TypeEnv {
 
     /// The underflow direction of the literal-range check for a `-<literal>`.
     pub(super) fn check_negated_const_literal(&self, type_: &ParameterType, value: &str) {
-        match type_.name().as_ref() {
-            "Byte" if !value.contains('.') && value != "0" => {
+        // plan-111-B: same conversion as `check_const_literal`, same arm order.
+        match type_ {
+            ParameterType::Byte if !value.contains('.') && value != "0" => {
                 self.emit(
                     "TYPE_BYTE_LITERAL_UNDERFLOW",
                     format!("Integer literal `-{value}` is outside the Byte range 0..255."),
                 );
             }
-            "Integer" if !value.contains('.') => {
+            ParameterType::Integer if !value.contains('.') => {
                 if format!("-{value}").parse::<i64>().is_err() {
                     self.emit(
                         "TYPE_INTEGER_LITERAL_OVERFLOW",
@@ -535,7 +539,7 @@ impl TypeEnv {
             }
             // A negative codepoint is never a Unicode scalar value (only `-0`
             // would coincide with 0); reject the negated form outright.
-            "Scalar" if !value.contains('.') && value != "0" => {
+            _ if type_.is_named("Scalar") && !value.contains('.') && value != "0" => {
                 self.emit(
                     "TYPE_SCALAR_LITERAL_INVALID",
                     format!(
@@ -543,7 +547,7 @@ impl TypeEnv {
                     ),
                 );
             }
-            "Fixed" => {
+            ParameterType::Fixed => {
                 if let Ok(f) = value.parse::<f64>() {
                     if -f < -2147483648.0 {
                         self.emit(
@@ -556,7 +560,7 @@ impl TypeEnv {
             // The most-negative Money (`-92233720368547.75808`) has no
             // positive-magnitude literal, so the negated path checks the exact
             // converter on the signed text (plan-29-B §4.2).
-            "Money" => match crate::numeric::money_conversion_from_decimal(&format!("-{value}")) {
+            ParameterType::Money => match crate::numeric::money_conversion_from_decimal(&format!("-{value}")) {
                 Ok(converted) if converted.lost_precision => self.emit(
                     "TYPE_MONEY_LITERAL_PRECISION",
                     format!(
@@ -569,7 +573,7 @@ impl TypeEnv {
                     format!("Numeric literal `-{value}` is outside the Money range."),
                 ),
             },
-            "Float" => {
+            ParameterType::Float => {
                 if let Ok(f) = value.parse::<f64>() {
                     if !(-f).is_finite() {
                         self.emit(
@@ -601,7 +605,8 @@ impl TypeEnv {
         if !self.source_path.get() || self.current_file.borrow().starts_with("builtins/") {
             return;
         }
-        let Some((owner_file, _)) = self.type_decl_info.get(enum_name) else {
+        let Some((owner_file, _)) = self.type_decl_info.get(&ParameterType::declared(enum_name))
+        else {
             return;
         };
         let Some(import_name) = owner_file
@@ -632,7 +637,8 @@ impl TypeEnv {
         // members — the former source checker's TYPE_UNKNOWN_ENUM_MEMBER.
         if let IrValue::Local(name) = target {
             if !locals.contains_key(name) {
-                if let Some(members) = self.enums.get(name) {
+                // The target is a bare ENUM type name (no local shadows it).
+                if let Some(members) = self.enums.get(&ParameterType::declared(name)) {
                     if !members.contains(member) {
                         self.emit(
                             "TYPE_UNKNOWN_ENUM_MEMBER",
@@ -648,8 +654,20 @@ impl TypeEnv {
         let Some(target_type) = self.infer_type(target, locals) else {
             return;
         };
-        // The declaration tables below (STATE clause, primitive set, record field
-        // sets) are keyed by type NAME; render once.
+        // plan-111-B: the record-field tables are keyed by the TYPE now; the
+        // rendered name is still needed for the primitive-set membership test
+        // and for diagnostic text.
+        //
+        // Correction G6: the record-field lookup below keys on `target_type`
+        // ITSELF, not on its resource base. Stripping `RES`/`STATE` first looks
+        // like a tidier key, but it changes the RULE: a `fs.File STATE Cursor`
+        // spelling is absent from the record table, so the member access is left
+        // unchecked (`.state` is handled structurally above, and by `ir::shape`),
+        // whereas the bare `fs.File` base IS present as a record — a resource
+        // declares its inline fields — and the check then rejects `f.state` on
+        // every stateful resource. `resource_base_type` is the right key for
+        // `field_types` (which wants the base's field TYPES) and for the
+        // resource/thread predicates below; it is the wrong key here.
         let type_name = target_type.name();
         // Reading `.state` off a resource that declares none. Diagnosed here so it
         // names STATE, matching the write path's `TYPE_STATE_INVALID` (plan-52-C
@@ -671,7 +689,7 @@ impl TypeEnv {
         if member == "state"
             && !self.checking_state_assign.get()
             && target_type.state().is_none()
-            && self.is_resource_or_resource_union(&resource_base_type(&target_type).name())
+            && self.is_resource_or_resource_union(&resource_base_type(&target_type))
         {
             let base = resource_base_type(&target_type).name();
             self.emit(
@@ -703,13 +721,13 @@ impl TypeEnv {
         // record whose complete field set is known, the member must be present;
         // otherwise (collections, unions, unresolved includes, unknown types)
         // the access is left unchecked.
-        if let Some(fields) = self.record_fields(&type_name) {
+        if let Some(fields) = self.record_fields(&target_type) {
             if !fields.contains(member) {
                 self.emit(
                     "TYPE_UNKNOWN_FIELD",
                     format!("record `{type_name}` has no member `{member}`."),
                 );
-            } else if self.hidden_from_here(&type_name, member) {
+            } else if self.hidden_from_here(&target_type, member) {
                 self.emit(
                     "TYPE_MEMBER_NOT_VISIBLE",
                     format!("Field `{type_name}::{member}` is not visible from this file."),
@@ -720,16 +738,16 @@ impl TypeEnv {
 
     /// Whether `member` of `type_name` is explicitly private and the current
     /// file is not the type's declaring file (the former source checker's `visible_from`).
-    pub(super) fn hidden_from_here(&self, type_name: &str, member: &str) -> bool {
+    pub(super) fn hidden_from_here(&self, type_: &ParameterType, member: &str) -> bool {
         if !self
             .private_fields
-            .get(type_name)
+            .get(type_)
             .is_some_and(|p| p.contains(member))
         {
             return false;
         }
         self.type_decl_info
-            .get(type_name)
+            .get(type_)
             .is_some_and(|(file, _)| !file.is_empty() && *file != *self.current_file.borrow())
     }
 
@@ -1005,10 +1023,10 @@ impl TypeEnv {
     pub(super) fn is_comparable_seen(
         &self,
         type_: &ParameterType,
-        seen: &mut HashSet<String>,
+        seen: &mut HashSet<ParameterType>,
     ) -> bool {
         let name = type_.name();
-        if is_comparable_defaultable_primitive(&name) {
+        if is_comparable_defaultable_primitive(type_) {
             return true;
         }
         if matches!(
@@ -1025,10 +1043,10 @@ impl TypeEnv {
         if is_resource_name(&name) {
             return false;
         }
-        if self.unions.contains_key(name.as_ref()) {
+        if self.unions.contains_key(type_) {
             return false;
         }
-        if self.enums.contains_key(name.as_ref()) {
+        if self.enums.contains_key(type_) {
             return true;
         }
         // `AttributedString` wraps a list overlay (like `List`): not comparable
@@ -1037,14 +1055,14 @@ impl TypeEnv {
         if name == "AttributedString" {
             return false;
         }
-        if !seen.insert(name.clone().into_owned()) {
+        if !seen.insert(type_.clone()) {
             return false; // a cycle → not a base case
         }
-        if let Some(fields) = self.field_types.get(name.as_ref()) {
+        if let Some(fields) = self.field_types.get(type_) {
             let all = fields
                 .values()
                 .all(|ft| self.is_comparable_seen(&resource_base_type(ft), seen));
-            seen.remove(name.as_ref());
+            seen.remove(type_);
             return all;
         }
         // Unknown user type — permissive (no false rejection).

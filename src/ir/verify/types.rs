@@ -34,7 +34,8 @@ impl TypeEnv {
                             self.current_line.set(ty.loc.line);
                         }
                     }
-                    if self.record_field_cycle(&ty.name, &ty.name, &mut HashSet::new()) {
+                    let record = ParameterType::declared(&ty.name);
+                    if self.record_field_cycle(&record, &record, &mut HashSet::new()) {
                         self.emit(
                             "TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION",
                             format!(
@@ -50,9 +51,12 @@ impl TypeEnv {
                     // include. (Undeclared names are a different, resolve-time
                     // rule, so only reject names the IR positively knows.)
                     for include in &ty.includes {
-                        if !self.unions.contains_key(include)
-                            && (self.records.contains_key(include)
-                                || self.enums.contains_key(include))
+                        // An `INCLUDES` entry names a declared type; the tables
+                        // are keyed by that nominal (plan-111-B).
+                        let include_type = ParameterType::declared(include);
+                        if !self.unions.contains_key(&include_type)
+                            && (self.records.contains_key(&include_type)
+                                || self.enums.contains_key(&include_type))
                         {
                             self.emit(
                                 "TYPE_UNION_INCLUDE_REQUIRES_UNION",
@@ -68,8 +72,9 @@ impl TypeEnv {
                     // type. (Records-registered variant names are fine; only a
                     // name that is *also* a declared union/enum is rejected.)
                     for variant in &ty.variants {
-                        if self.unions.contains_key(&variant.name)
-                            || self.enums.contains_key(&variant.name)
+                        let variant_type = ParameterType::declared(&variant.name);
+                        if self.unions.contains_key(&variant_type)
+                            || self.enums.contains_key(&variant_type)
                         {
                             self.current_line.set(variant.loc.line);
                             self.emit(
@@ -115,20 +120,22 @@ impl TypeEnv {
     /// `expanded_union_variants`, but names only — dup detection needs no fields.
     pub(super) fn expanded_union_variant_names(
         &self,
-        union_name: &str,
-        visiting: &mut HashSet<String>,
+        union_type: &ParameterType,
+        visiting: &mut HashSet<ParameterType>,
     ) -> Vec<String> {
-        if !visiting.insert(union_name.to_string()) {
+        if !visiting.insert(union_type.clone()) {
             return Vec::new();
         }
         let mut names = Vec::new();
-        if let Some(info) = self.unions.get(union_name) {
+        if let Some(info) = self.unions.get(union_type) {
             for include in &info.includes {
-                names.extend(self.expanded_union_variant_names(include, visiting));
+                names.extend(
+                    self.expanded_union_variant_names(&ParameterType::declared(include), visiting),
+                );
             }
-            names.extend(info.variants.iter().cloned());
+            names.extend(info.variants.iter().map(|v| v.name().into_owned()));
         }
-        visiting.remove(union_name);
+        visiting.remove(union_type);
         names
     }
 
@@ -137,14 +144,16 @@ impl TypeEnv {
     /// include and a local declaration. On decoded package IR a duplicated
     /// variant is an ambiguous tag → mis-dispatch, so this must run here too.
     pub(super) fn check_union_include_conflicts(&self, ty: &IrType) {
-        let Some(info) = self.unions.get(&ty.name) else {
+        let Some(info) = self.unions.get(&ParameterType::declared(&ty.name)) else {
             return;
         };
         // A member provided by two distinct includes.
         let mut included_members: HashMap<String, String> = HashMap::new();
         for include in &info.includes {
             let mut visiting = HashSet::new();
-            for name in self.expanded_union_variant_names(include, &mut visiting) {
+            for name in
+                self.expanded_union_variant_names(&ParameterType::declared(include), &mut visiting)
+            {
                 if let Some(previous) = included_members.insert(name.clone(), include.clone()) {
                     self.current_line.set(ty.loc.line);
                     self.emit(
@@ -176,11 +185,11 @@ impl TypeEnv {
     /// fields (no List/Map/Union indirection) — i.e. an infinitely-sized record.
     pub(super) fn record_field_cycle(
         &self,
-        record: &str,
-        target: &str,
-        seen: &mut HashSet<String>,
+        record: &ParameterType,
+        target: &ParameterType,
+        seen: &mut HashSet<ParameterType>,
     ) -> bool {
-        if !seen.insert(record.to_string()) {
+        if !seen.insert(record.clone()) {
             return false;
         }
         let Some(fields) = self.field_types.get(record) else {
@@ -189,14 +198,11 @@ impl TypeEnv {
         for field_type in fields.values() {
             // Only *direct* record fields propagate the cycle; a List/Map/Union
             // field is a legitimate base-case indirection.
-            // The record tables are keyed by type NAME.
-            let base = resource_base_type(field_type).name();
-            if base == target {
+            let base = resource_base_type(field_type);
+            if base == *target {
                 return true;
             }
-            if self.records.contains_key(base.as_ref())
-                && self.record_field_cycle(&base, target, seen)
-            {
+            if self.records.contains_key(&base) && self.record_field_cycle(&base, target, seen) {
                 return true;
             }
         }

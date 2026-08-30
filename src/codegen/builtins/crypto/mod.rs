@@ -1024,7 +1024,10 @@ mod tests {
     #[test]
     fn bytes_text_overloads_select_distinct_rewrite_targets() {
         let sel = |call: &str, args: &[&str]| -> Option<&'static str> {
-            let types: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+            let types: Vec<crate::types::ParameterType> = args
+                .iter()
+                .map(|s| crate::types::ParameterType::declared(s))
+                .collect();
             registry::rewrite_target(call, &types)
         };
         // The unified `hash(Hash, data)`: the `List OF Byte` overload is a native

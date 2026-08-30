@@ -1484,7 +1484,7 @@ mod tests {
         let spec = ProgramEntrySpec {
             entry_symbol: "_main",
             language_entry_symbol: "main",
-            language_entry_returns: "Integer",
+            language_entry_returns: &crate::types::ParameterType::Integer,
             language_entry_accepts_args: false,
             global_initializer_symbol: None,
             link_init_symbol: None,

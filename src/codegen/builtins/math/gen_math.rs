@@ -86,12 +86,12 @@ impl CodeBuilder<'_> {
         matches!(arg.type_, ParameterType::ListOf(_))
     }
 
-    /// Map a numeric element type name to its collection value-type code.
-    fn numeric_element_type_code(element: &str) -> Option<usize> {
+    /// Map a numeric element type to its collection value-type code.
+    fn numeric_element_type_code(element: &ParameterType) -> Option<usize> {
         match element {
-            "Integer" => Some(COLLECTION_TYPE_INTEGER),
-            "Float" => Some(COLLECTION_TYPE_FLOAT),
-            "Fixed" => Some(COLLECTION_TYPE_FIXED),
+            ParameterType::Integer => Some(COLLECTION_TYPE_INTEGER),
+            ParameterType::Float => Some(COLLECTION_TYPE_FLOAT),
+            ParameterType::Fixed => Some(COLLECTION_TYPE_FIXED),
             _ => None,
         }
     }
@@ -103,11 +103,11 @@ impl CodeBuilder<'_> {
     /// plan-106-E: reads the `ListOf` variant instead of stripping its spelling.
     /// The diagnostic still names the type, which is what a diagnostic is for.
     fn list_element_type(
-        input_type: &crate::types::ParameterType,
+        input_type: &ParameterType,
         function: &str,
-    ) -> Result<String, String> {
+    ) -> Result<ParameterType, String> {
         match input_type {
-            crate::types::ParameterType::ListOf(element) => Ok(element.name().into_owned()),
+            ParameterType::ListOf(element) => Ok((**element).clone()),
             _ => Err(format!(
                 "math.{function} array overload requires a list, got {input_type}"
             )),
@@ -120,27 +120,27 @@ impl CodeBuilder<'_> {
         let input = arg.clone();
         let text = format!("math.abs({})", input.text);
         let element = Self::list_element_type(&input.type_, "abs")?;
-        match element.as_str() {
-            "Integer" => self.lower_simd_unary(
+        match element {
+            ParameterType::Integer => self.lower_simd_unary(
                 SimdUnaryKernel::AbsInteger,
                 input,
-                "List OF Integer",
+                &ParameterType::ListOf(Box::new(ParameterType::Integer)),
                 COLLECTION_TYPE_INTEGER,
                 text,
             ),
             // Fixed is a raw Q32.32 i64; |x| and the INT64_MIN overflow check are
             // the same integer operation as Integer.
-            "Fixed" => self.lower_simd_unary(
+            ParameterType::Fixed => self.lower_simd_unary(
                 SimdUnaryKernel::AbsInteger,
                 input,
-                "List OF Fixed",
+                &ParameterType::ListOf(Box::new(ParameterType::Fixed)),
                 COLLECTION_TYPE_FIXED,
                 text,
             ),
-            "Float" => self.lower_simd_unary(
+            ParameterType::Float => self.lower_simd_unary(
                 SimdUnaryKernel::AbsFloat,
                 input,
-                "List OF Float",
+                &ParameterType::ListOf(Box::new(ParameterType::Float)),
                 COLLECTION_TYPE_FLOAT,
                 text,
             ),
@@ -157,16 +157,16 @@ impl CodeBuilder<'_> {
         let input = arg.clone();
         let text = format!("math.sqrt({})", input.text);
         let element = Self::list_element_type(&input.type_, "sqrt")?;
-        match element.as_str() {
-            "Float" => self.lower_simd_unary(
+        match element {
+            ParameterType::Float => self.lower_simd_unary(
                 SimdUnaryKernel::SqrtFloat,
                 input,
-                "List OF Float",
+                &ParameterType::ListOf(Box::new(ParameterType::Float)),
                 COLLECTION_TYPE_FLOAT,
                 text,
             ),
             // Fixed sqrt is a genuine 2-lane NEON restoring sqrt (plan-01-simd §4.5).
-            "Fixed" => self.lower_simd_sqrt_fixed(input, text),
+            ParameterType::Fixed => self.lower_simd_sqrt_fixed(input, text),
             other => Err(format!(
                 "math.sqrt array overload does not accept List OF {other}"
             )),
@@ -187,8 +187,8 @@ impl CodeBuilder<'_> {
         // `d`-native float into one first (plan-01 float-dnative).
         let value = arg.clone();
         let value = self.materialize_float(value)?;
-        match value.type_.name().as_ref() {
-            "Float" => {
+        match &value.type_ {
+            ParameterType::Float => {
                 let text = format!("math.{function}({})", value.text);
                 // The kernels raise the matching float error themselves
                 // (ErrFloatDomain for log/log10 ≤0, ErrFloatInf/ErrFloatNan for
@@ -207,7 +207,7 @@ impl CodeBuilder<'_> {
                 };
                 self.lower_simd_float_scalar(kernel, &value.location, text)
             }
-            "Fixed" => self.lower_fixed_external_math(function, &[value]),
+            ParameterType::Fixed => self.lower_fixed_external_math(function, &[value]),
             other => Err(format!("math.{function} does not accept {other}")),
         }
     }
@@ -247,8 +247,8 @@ impl CodeBuilder<'_> {
             ));
         }
         let text = format!("math.{function}({}, {})", left.text, right.text);
-        match left.type_.name().as_ref() {
-            "Float" if function == "pow" => {
+        match &left.type_ {
+            ParameterType::Float if function == "pow" => {
                 // pow is a scalar GPR+FP fdlibm kernel (not SIMD); it produces inf
                 // on overflow and NaN for a negative base with a non-integer
                 // exponent, which the result check turns into ErrFloatInf /
@@ -267,10 +267,10 @@ impl CodeBuilder<'_> {
                     text,
                 })
             }
-            "Float" => {
+            ParameterType::Float => {
                 let kernel = match function {
                     "atan2" => FloatBinaryKernel::Atan2,
-                    // `pow` never reaches here — the `"Float" if function == "pow"`
+                    // `pow` never reaches here — the guarded `ParameterType::Float`
                     // arm above diverts it to the scalar fdlibm kernel.
                     _ => return Err(format!("math.{function} has no scalar Float binary kernel")),
                 };
@@ -281,7 +281,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&right_reg, abi::stack_pointer(), right_slot));
                 self.lower_simd_float_binary_scalar(kernel, &left_reg, &right_reg, text)
             }
-            "Fixed" => {
+            ParameterType::Fixed => {
                 self.reset_temporary_registers();
                 let left_reg = self.allocate_register();
                 self.emit(abi::load_u64(&left_reg, abi::stack_pointer(), left_slot));
@@ -358,8 +358,8 @@ impl CodeBuilder<'_> {
         let input = arg.clone();
         let text = format!("math.exp({})", input.text);
         let element = Self::list_element_type(&input.type_, "exp")?;
-        match element.as_str() {
-            "Float" => self.lower_simd_float_unary(FloatKernel::Exp, input, text),
+        match element {
+            ParameterType::Float => self.lower_simd_float_unary(FloatKernel::Exp, input, text),
             other => Err(format!(
                 "math.exp array overload does not accept List OF {other}"
             )),
@@ -376,13 +376,13 @@ impl CodeBuilder<'_> {
         let input = arg.clone();
         let text = format!("math.{function}({})", input.text);
         let element = Self::list_element_type(&input.type_, function)?;
-        let kernel = match (function, element.as_str()) {
-            ("sin", "Float") => FloatKernel::Sin,
-            ("cos", "Float") => FloatKernel::Cos,
-            ("tan", "Float") => FloatKernel::Tan,
-            ("atan", "Float") => FloatKernel::Atan,
-            ("asin", "Float") => FloatKernel::Asin,
-            ("acos", "Float") => FloatKernel::Acos,
+        let kernel = match (function, &element) {
+            ("sin", ParameterType::Float) => FloatKernel::Sin,
+            ("cos", ParameterType::Float) => FloatKernel::Cos,
+            ("tan", ParameterType::Float) => FloatKernel::Tan,
+            ("atan", ParameterType::Float) => FloatKernel::Atan,
+            ("asin", ParameterType::Float) => FloatKernel::Asin,
+            ("acos", ParameterType::Float) => FloatKernel::Acos,
             (_, other) => {
                 return Err(format!(
                     "math.{function} array overload does not accept List OF {other}"
@@ -402,9 +402,9 @@ impl CodeBuilder<'_> {
         let input = arg.clone();
         let text = format!("math.{function}({})", input.text);
         let element = Self::list_element_type(&input.type_, function)?;
-        match element.as_str() {
-            "Fixed" => self.lower_simd_log_fixed(input, function == "log10", text),
-            "Float" => {
+        match element {
+            ParameterType::Fixed => self.lower_simd_log_fixed(input, function == "log10", text),
+            ParameterType::Float => {
                 use crate::codegen::builtins::vector::builder_simd_float_math::FloatKernel;
                 let kernel = if function == "log10" {
                     FloatKernel::Log10
@@ -430,13 +430,13 @@ impl CodeBuilder<'_> {
         let input = arg.clone();
         let text = format!("math.{function}({})", input.text);
         let element = Self::list_element_type(&input.type_, function)?;
-        let kernel = match (function, element.as_str()) {
-            ("floor", "Float") => SimdUnaryKernel::FloorFloat,
-            ("ceil", "Float") => SimdUnaryKernel::CeilFloat,
-            ("round", "Float") => SimdUnaryKernel::RoundFloat,
-            ("floor", "Fixed") => SimdUnaryKernel::FloorFixed,
-            ("ceil", "Fixed") => SimdUnaryKernel::CeilFixed,
-            ("round", "Fixed") => SimdUnaryKernel::RoundFixed,
+        let kernel = match (function, &element) {
+            ("floor", ParameterType::Float) => SimdUnaryKernel::FloorFloat,
+            ("ceil", ParameterType::Float) => SimdUnaryKernel::CeilFloat,
+            ("round", ParameterType::Float) => SimdUnaryKernel::RoundFloat,
+            ("floor", ParameterType::Fixed) => SimdUnaryKernel::FloorFixed,
+            ("ceil", ParameterType::Fixed) => SimdUnaryKernel::CeilFixed,
+            ("round", ParameterType::Fixed) => SimdUnaryKernel::RoundFixed,
             (_, other) => {
                 return Err(format!(
                     "math.{function} array overload does not accept List OF {other}"
@@ -446,7 +446,7 @@ impl CodeBuilder<'_> {
         self.lower_simd_unary(
             kernel,
             input,
-            "List OF Integer",
+            &ParameterType::ListOf(Box::new(ParameterType::Integer)),
             COLLECTION_TYPE_INTEGER,
             text,
         )
@@ -457,10 +457,10 @@ impl CodeBuilder<'_> {
         let value = self.materialize_float(value)?;
         let dst = self.allocate_register();
         let bound = self.temporary_vreg();
-        match value.type_.name().as_ref() {
+        match &value.type_ {
             // Money is a raw i64, so |x| and the INT64_MIN overflow check are the
             // same integer op as Integer/Fixed (plan-29-G §4.7).
-            "Integer" | "Fixed" | "Money" => {
+            ParameterType::Integer | ParameterType::Fixed | ParameterType::Money => {
                 let ok = self.label("math_abs_ok");
                 self.emit(abi::compare_immediate(&value.location, "0"));
                 self.emit(abi::branch_ge(&ok));
@@ -479,7 +479,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::subtract_registers(&dst, abi::ZERO, &value.location));
                 self.emit(abi::label(&done));
             }
-            "Float" => {
+            ParameterType::Float => {
                 // Hardware `fabs` clears the sign bit in the FP domain (plan-02
                 // §4). Bit-identical to the old GPR sign-mask AND for every finite
                 // MFBASIC `Float`, but a single hardware instruction.
@@ -536,12 +536,12 @@ impl CodeBuilder<'_> {
         let code = Self::numeric_element_type_code(&element).ok_or_else(|| {
             format!("math.{function} array overload does not accept List OF {element}")
         })?;
-        let kernel = match (function, element.as_str()) {
-            ("min", "Float") => SimdBinaryKernel::MinFloat,
-            ("max", "Float") => SimdBinaryKernel::MaxFloat,
+        let kernel = match (function, &element) {
+            ("min", ParameterType::Float) => SimdBinaryKernel::MinFloat,
+            ("max", ParameterType::Float) => SimdBinaryKernel::MaxFloat,
             // Integer and raw Q32.32 Fixed are both signed-i64 lane compares.
-            ("min", "Integer" | "Fixed") => SimdBinaryKernel::MinSigned,
-            ("max", "Integer" | "Fixed") => SimdBinaryKernel::MaxSigned,
+            ("min", ParameterType::Integer | ParameterType::Fixed) => SimdBinaryKernel::MinSigned,
+            ("max", ParameterType::Integer | ParameterType::Fixed) => SimdBinaryKernel::MaxSigned,
             _ => {
                 return Err(format!(
                     "math.{function} array overload does not accept List OF {element}"
@@ -549,14 +549,7 @@ impl CodeBuilder<'_> {
             }
         };
         let text = format!("math.{function}({}, {})", left.text, right.text);
-        self.lower_simd_binary(
-            kernel,
-            left_slot,
-            right_slot,
-            &result_type.name(),
-            code,
-            text,
-        )
+        self.lower_simd_binary(kernel, left_slot, right_slot, &result_type, code, text)
     }
 
     /// `math.clamp(values AS T[], low AS T, high AS T) AS T[]` — vectorized clamp
@@ -592,9 +585,9 @@ impl CodeBuilder<'_> {
         let code = Self::numeric_element_type_code(&element).ok_or_else(|| {
             format!("math.clamp array overload does not accept List OF {element}")
         })?;
-        let kernel = match element.as_str() {
-            "Float" => SimdClampKernel::Float,
-            "Integer" | "Fixed" => SimdClampKernel::Signed,
+        let kernel = match element {
+            ParameterType::Float => SimdClampKernel::Float,
+            ParameterType::Integer | ParameterType::Fixed => SimdClampKernel::Signed,
             other => {
                 return Err(format!(
                     "math.clamp array overload does not accept List OF {other}"
@@ -607,7 +600,7 @@ impl CodeBuilder<'_> {
             in_slot,
             low_slot,
             high_slot,
-            &result_type.name(),
+            &result_type,
             code,
             text,
         )
@@ -645,9 +638,9 @@ impl CodeBuilder<'_> {
                 left.type_, right.type_
             ));
         }
-        match left.type_.name().as_ref() {
+        match &left.type_ {
             // Money min/max is the signed-i64 compare+select (plan-29-G §4.7).
-            "Integer" | "Fixed" | "Money" => {
+            ParameterType::Integer | ParameterType::Fixed | ParameterType::Money => {
                 let take_left = self.label("math_minmax_take_left");
                 let done = self.label("math_minmax_done");
                 self.emit(abi::compare_registers(&lhs, &rhs));
@@ -662,7 +655,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&dst, &lhs));
                 self.emit(abi::label(&done));
             }
-            "Float" => {
+            ParameterType::Float => {
                 // Hardware `fminnm`/`fmaxnm` (plan-02 §4): a single instruction in
                 // place of the subtract/compare/branch. For the finite operands
                 // MFBASIC produces this is bit-identical to the old ordered
@@ -730,9 +723,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&low_reg, abi::stack_pointer(), low_slot));
         self.emit(abi::load_u64(&high_reg, abi::stack_pointer(), high_slot));
 
-        match value.type_.name().as_ref() {
+        match &value.type_ {
             // Money clamp is the signed-i64 bounds compare+select (plan-29-G §4.7).
-            "Integer" | "Fixed" | "Money" => {
+            ParameterType::Integer | ParameterType::Fixed | ParameterType::Money => {
                 let bounds_valid = self.label("math_clamp_bounds_valid");
                 let take_low = self.label("math_clamp_take_low");
                 let take_high = self.label("math_clamp_take_high");
@@ -754,7 +747,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&dst, &high_reg));
                 self.emit(abi::label(&done));
             }
-            "Float" => {
+            ParameterType::Float => {
                 let bounds_valid = self.label("math_clamp_float_bounds_valid");
                 let take_low = self.label("math_clamp_float_take_low");
                 let take_high = self.label("math_clamp_float_take_high");
@@ -814,8 +807,8 @@ impl CodeBuilder<'_> {
         let value = arg.clone();
         let value = self.materialize_float(value)?;
         let dst = self.allocate_register();
-        match value.type_.name().as_ref() {
-            "Float" => {
+        match &value.type_ {
+            ParameterType::Float => {
                 self.emit(abi::float_move_d_from_x(
                     abi::FP_SCRATCH[0],
                     &value.location,
@@ -828,7 +821,7 @@ impl CodeBuilder<'_> {
                     _ => unreachable!(),
                 }
             }
-            "Fixed" => {
+            ParameterType::Fixed => {
                 // Deterministic raw Q32.32 rounding: the integer result of
                 // rounding a Fixed always fits in `Integer` range (|real| < 2^31),
                 // so no host floating-point conversion is required.
@@ -837,7 +830,7 @@ impl CodeBuilder<'_> {
             // floor/ceil/round(Money) → the whole-unit count `raw / 100000`, a
             // fixed rule (round uses half-away-from-zero, not the global mode —
             // an explicit call is presentation-like) (plan-29-G §4.7).
-            "Money" => {
+            ParameterType::Money => {
                 self.emit_money_rounding_to_integer(function, &value.location, &dst)?;
             }
             other => return Err(format!("math.{function} does not accept {other}")),
@@ -1133,9 +1126,9 @@ impl CodeBuilder<'_> {
             });
         }
         let value = self.materialize_float(value)?;
-        match value.type_.name().as_ref() {
-            "Float" => unreachable!("Float handled above"),
-            "Fixed" => {
+        match &value.type_ {
+            ParameterType::Float => unreachable!("Float handled above"),
+            ParameterType::Fixed => {
                 self.emit(abi::compare_immediate(&value.location, "0"));
                 let valid = self.label("math_fixed_sqrt_valid");
                 self.emit(abi::branch_ge(&valid));
@@ -1168,7 +1161,7 @@ impl CodeBuilder<'_> {
                 let one = self.allocate_register();
                 self.emit(abi::move_immediate(
                     &one,
-                    "Fixed",
+                    abi::IMMEDIATE_CLASS_FIXED,
                     &(1u64 << 32).to_string(),
                 ));
                 self.emit_fixed_atan2(&values[0].location, &one)?

@@ -66,11 +66,7 @@ impl CodeBuilder<'_> {
     /// identically.
     fn lower_fs_path_join(&mut self, parts: &ValueResult) -> Result<ValueResult, String> {
         let parts = parts.clone();
-        if typed_list_element_type(&parts.type_)
-            .map(|type_| type_.name().into_owned())
-            .as_deref()
-            != Some("String")
-        {
+        if typed_list_element_type(&parts.type_).cloned() != Some(ParameterType::String) {
             return Err(format!(
                 "fs.pathJoin parts must be List OF String, got {}",
                 parts.type_

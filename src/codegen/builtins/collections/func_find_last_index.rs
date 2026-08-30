@@ -11,7 +11,7 @@
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::{callable_return_type, typed_list_element_type};
+use crate::codegen::engine::types::{typed_callable_return_type, typed_list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -27,7 +27,9 @@ pub(crate) fn find_last_index_fast_path(
     let Some(t) = target.strip_prefix("#collections_findLastIndex$") else {
         return Ok(None);
     };
-    if !(t == "String" && args.len() == 3) {
+    // The monomorph suffix of a `#collections_*$T` runtime target is a NAME
+    // the NIR carries; parsed once here, at the symbol boundary.
+    if !(ParameterType::declared(t) == ParameterType::String && args.len() == 3) {
         return Ok(None);
     }
     builder
@@ -56,9 +58,7 @@ impl CodeBuilder<'_> {
         let scratch9 = self.temporary_vreg();
         let scratch17 = self.temporary_vreg();
         let collection = self.lower_value(&args[0])?;
-        let Some(element_type) =
-            typed_list_element_type(&collection.type_).map(|type_| type_.name().into_owned())
-        else {
+        let Some(element_type) = typed_list_element_type(&collection.type_).cloned() else {
             return Err(format!(
                 "native collection findLastIndex does not accept {}",
                 collection.type_
@@ -71,13 +71,15 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         let action = self.lower_value(&args[1])?;
-        let output_type = callable_return_type(&action.type_.name()).ok_or_else(|| {
-            format!(
-                "native collection findLastIndex predicate must be a function, got {}",
-                action.type_
-            )
-        })?;
-        if output_type != "Boolean" {
+        let output_type = typed_callable_return_type(&action.type_)
+            .cloned()
+            .ok_or_else(|| {
+                format!(
+                    "native collection findLastIndex predicate must be a function, got {}",
+                    action.type_
+                )
+            })?;
+        if output_type != ParameterType::Boolean {
             return Err(format!(
                 "native collection findLastIndex predicate must return Boolean, got {output_type}"
             ));

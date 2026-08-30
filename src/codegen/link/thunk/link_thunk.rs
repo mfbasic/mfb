@@ -219,7 +219,10 @@ struct ThunkContext {
 pub(crate) fn emit_link_support(
     link_functions: &[IrLinkFunction],
     link_cstructs: &[crate::ir::IrCStruct],
-    record_fields: &HashMap<String, Vec<(String, crate::types::ParameterType)>>,
+    record_fields: &HashMap<
+        crate::types::ParameterType,
+        Vec<(String, crate::types::ParameterType)>,
+    >,
     options: LinkCodegenOptions,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -309,10 +312,10 @@ pub(crate) fn emit_link_support(
     // record-resource param from a scalar one, and it must stay in lockstep with
     // the return-side wrap below — widening one without the other hands `FD@0` a
     // raw handle to dereference.
-    let record_native_resources: HashSet<String> = link_functions
+    let record_native_resources: HashSet<crate::types::ParameterType> = link_functions
         .iter()
         .filter(|f| f.return_resource)
-        .map(|f| crate::codegen::resource::base_resource_name(&f.return_type).to_string())
+        .map(|f| f.return_type.without_state())
         .collect();
 
     // plan-59-B: the guard's two error strings, emitted HERE rather than relying
@@ -327,9 +330,9 @@ pub(crate) fn emit_link_support(
     // guard self-contained: whatever else the program does or does not import,
     // a thunk that can emit the guard also carries the strings it names.
     if link_functions.iter().any(|f| {
-        f.params.iter().any(|(_, type_)| {
-            record_native_resources.contains(crate::codegen::resource::base_resource_name(type_))
-        })
+        f.params
+            .iter()
+            .any(|(_, type_)| record_native_resources.contains(&type_.without_state()))
     }) {
         for (_, message, symbol) in ["ErrResourceClosed", "ErrResourceMoved"].map(|name| {
             crate::codegen::registry::runtime_error_triple(name).expect("errorCode name")
@@ -532,9 +535,12 @@ fn lower_link_initializer(
 fn lower_link_thunk(
     function: &IrLinkFunction,
     link_cstructs: &[crate::ir::IrCStruct],
-    record_fields: &HashMap<String, Vec<(String, crate::types::ParameterType)>>,
+    record_fields: &HashMap<
+        crate::types::ParameterType,
+        Vec<(String, crate::types::ParameterType)>,
+    >,
     ctx: ThunkContext,
-    record_native_resources: &HashSet<String>,
+    record_native_resources: &HashSet<crate::types::ParameterType>,
     is_close_op: bool,
 ) -> Result<CodeFunction, String> {
     let ThunkContext {
@@ -693,7 +699,7 @@ fn lower_link_thunk(
     let needs_encoding = struct_has_cstring_field
         || (returns_value
             && function.abi_return_ctype == "CPtr"
-            && function.return_type == "String");
+            && matches!(function.return_type, crate::types::ParameterType::String));
     // `needs_float` gates the `d0`-stash below (a `double` ABI *return* arrives
     // in `d0`, not `x0`), so it must stay narrow to the direct-return case.
     let needs_float = returns_value && function.abi_return_ctype == "CDouble";
@@ -782,7 +788,7 @@ fn lower_link_thunk(
     // emission covers every `RES`-taking LINK function.
     let mut resource_guard_params: Vec<usize> = Vec::new();
     for (pidx, (_, type_)) in function.params.iter().enumerate() {
-        if record_native_resources.contains(crate::codegen::resource::base_resource_name(type_)) {
+        if record_native_resources.contains(&type_.without_state()) {
             resource_guard_params.push(pidx);
         }
     }
@@ -1098,10 +1104,10 @@ fn lower_link_thunk(
                     abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
                 ]);
             } else if slot.ctype == "CPtr"
-                && function.params.get(pidx).is_some_and(|(_, t)| {
-                    record_native_resources
-                        .contains(crate::codegen::resource::base_resource_name(t))
-                })
+                && function
+                    .params
+                    .get(pidx)
+                    .is_some_and(|(_, t)| record_native_resources.contains(&t.without_state()))
             {
                 // plan-59-A: a param whose resource TYPE is a native resource is a
                 // RECORD pointer, but the native symbol wants the handle it wraps.
@@ -1746,7 +1752,7 @@ fn lower_link_thunk(
             .map(|(idx, (name, type_))| {
                 Ok(CodeParam {
                     name: name.clone(),
-                    type_: type_.clone(),
+                    type_: type_.name().into_owned(),
                     // The wrapper's incoming MFB argument register, as a role
                     // token — the thunk body saves from the same bank
                     // (plan-34-D; ≤8 params, enforced by `argument_register`).
@@ -1754,7 +1760,7 @@ fn lower_link_thunk(
                 })
             })
             .collect::<Result<Vec<_>, String>>()?,
-        returns: function.return_type.clone(),
+        returns: function.return_type.name().into_owned(),
         frame: frame_obj,
         stack_slots,
         instructions,
@@ -1785,7 +1791,7 @@ fn emit_return_passthrough(
     let cret_off = m.cret_off;
     let status_off = m.status_off;
     match function.abi_return_ctype.as_str() {
-        "CPtr" if function.return_type == "String" => {
+        "CPtr" if matches!(function.return_type, crate::types::ParameterType::String) => {
             emit_copy_cstring_to_string(
                 symbol,
                 cret_off,
@@ -2352,7 +2358,10 @@ fn marshal_struct_out(
     decl: &crate::ir::IrCStruct,
     layout: &crate::ir::CLayout,
     buf_off: usize,
-    record_fields: &HashMap<String, Vec<(String, crate::types::ParameterType)>>,
+    record_fields: &HashMap<
+        crate::types::ParameterType,
+        Vec<(String, crate::types::ParameterType)>,
+    >,
     symbol: &str,
     cstr_area: usize,
     cursor_off: usize,
@@ -2652,7 +2661,7 @@ mod tests {
         let cstruct = IrCStruct {
             alias: "lib".to_string(),
             name: "Pair".to_string(),
-            maps_to: "PairRec".to_string(),
+            maps_to: crate::types::ParameterType::parse("PairRec"),
             fields: vec![
                 IrCStructField {
                     name: "n".to_string(),
@@ -2666,7 +2675,7 @@ mod tests {
         };
         let mut record_fields = HashMap::new();
         record_fields.insert(
-            "PairRec".to_string(),
+            crate::types::ParameterType::named("PairRec"),
             vec![
                 ("n".to_string(), crate::types::ParameterType::Integer),
                 ("x".to_string(), crate::types::ParameterType::Float),
@@ -2678,7 +2687,7 @@ mod tests {
             library: "demo".to_string(),
             symbol: "demo_make_pair".to_string(),
             params: vec![],
-            return_type: "PairRec".to_string(),
+            return_type: crate::types::ParameterType::parse("PairRec"),
             return_resource: false,
             return_state_type: None,
             abi_slots: vec![IrAbiSlot {
@@ -2723,7 +2732,7 @@ mod tests {
             library: "demo".to_string(),
             symbol: "demo_read_double".to_string(),
             params: vec![],
-            return_type: "Float".to_string(),
+            return_type: crate::types::ParameterType::parse("Float"),
             return_resource: false,
             return_state_type: None,
             abi_slots: vec![IrAbiSlot {
@@ -2774,10 +2783,12 @@ mod tests {
     #[test]
     fn only_the_builtin_file_resource_uses_io_buffers() {
         // The one type that owns the two fixed-capacity I/O buffers.
-        assert!(CodeBuilder::resource_uses_io_buffers("fs.File"));
+        assert!(CodeBuilder::resource_uses_io_buffers(
+            &crate::types::ParameterType::declared("fs.File")
+        ));
         // A `STATE`-carrying spelling is still the same base type.
         assert!(CodeBuilder::resource_uses_io_buffers(
-            "fs.File STATE Cursor"
+            &crate::types::ParameterType::declared("fs.File STATE Cursor")
         ));
 
         // Every resource type a native `LINK` block declares in-tree, plus the
@@ -2794,7 +2805,9 @@ mod tests {
             "audio.AudioOutput",
         ] {
             assert!(
-                !CodeBuilder::resource_uses_io_buffers(type_),
+                !CodeBuilder::resource_uses_io_buffers(&crate::types::ParameterType::declared(
+                    type_
+                )),
                 "{type_} must not take the I/O-buffer free path: its record's \
                  words 24..72 are not buffer pointers"
             );
@@ -2818,9 +2831,9 @@ mod tests {
             symbol: "demo_seven".to_string(),
             // Each ABI slot is sourced from a wrapper parameter of the same name.
             params: (0..count)
-                .map(|i| (format!("a{i}"), "Integer".to_string()))
+                .map(|i| (format!("a{i}"), crate::types::ParameterType::Integer))
                 .collect(),
-            return_type: "Integer".to_string(),
+            return_type: crate::types::ParameterType::parse("Integer"),
             return_resource: false,
             return_state_type: None,
             abi_slots: (0..count)
@@ -2939,7 +2952,11 @@ mod tests {
                 params: vec![],
                 // A `CPtr` return with an `Integer` wrapper takes the raw path; the
                 // `String` copy-out path is covered by the sqlite3 runtime tests.
-                return_type: if returns_value { "Integer" } else { "Nothing" }.to_string(),
+                return_type: if returns_value {
+                    crate::types::ParameterType::parse("Integer")
+                } else {
+                    crate::types::ParameterType::parse("Nothing")
+                },
                 return_resource: false,
                 return_state_type: None,
                 abi_slots: vec![],
@@ -2979,7 +2996,7 @@ mod tests {
                 library: "demo".to_string(),
                 symbol: "demo_f".to_string(),
                 params: vec![],
-                return_type: "Nothing".to_string(),
+                return_type: crate::types::ParameterType::parse("Nothing"),
                 return_resource: false,
                 return_state_type: None,
                 abi_slots: vec![IrAbiSlot {
@@ -3024,8 +3041,11 @@ mod tests {
                 name: format!("out_{ctype}"),
                 library: "demo".to_string(),
                 symbol: "demo_f".to_string(),
-                params: vec![("n".to_string(), "Integer".to_string())],
-                return_type: crate::ir::BYTE_LIST_TYPE.to_string(),
+                params: vec![(
+                    "n".to_string(),
+                    crate::types::ParameterType::parse("Integer"),
+                )],
+                return_type: crate::types::ParameterType::parse(crate::ir::BYTE_LIST_TYPE),
                 return_resource: false,
                 return_state_type: None,
                 abi_slots: vec![IrAbiSlot {
@@ -3116,8 +3136,11 @@ mod tests {
             name: "answer".to_string(),
             library: "demo".to_string(),
             symbol: "demo_answer".to_string(),
-            params: vec![("n".to_string(), "Integer".to_string())],
-            return_type: "Integer".to_string(),
+            params: vec![(
+                "n".to_string(),
+                crate::types::ParameterType::parse("Integer"),
+            )],
+            return_type: crate::types::ParameterType::parse("Integer"),
             return_resource: false,
             return_state_type: None,
             abi_slots: vec![IrAbiSlot {
@@ -3183,7 +3206,7 @@ mod tests {
             library: "demo".to_string(),
             symbol: "demo_answer".to_string(),
             params: vec![],
-            return_type: "Integer".to_string(),
+            return_type: crate::types::ParameterType::parse("Integer"),
             return_resource: false,
             return_state_type: None,
             abi_slots: vec![],

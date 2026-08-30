@@ -24,8 +24,8 @@ impl CodeBuilder<'_> {
         key_slot: usize,
         value_slot: usize,
         map_type: &ParameterType,
-        key_type: &str,
-        value_type: &str,
+        key_type: &ParameterType,
+        value_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         let scratch20 = self.temporary_vreg();
         let scratch21 = self.temporary_vreg();
@@ -54,11 +54,11 @@ impl CodeBuilder<'_> {
         let value_align = self.collection_payload_alignment(value_type);
         let key_payload = PayloadSlot {
             slot: key_slot,
-            type_: key_type.to_string(),
+            type_: key_type.clone(),
         };
         let value_payload = PayloadSlot {
             slot: value_slot,
-            type_: value_type.to_string(),
+            type_: value_type.clone(),
         };
         let key_len_slot = self.emit_payload_length_to_stack(&key_payload, "mapset_klen")?;
         let val_len_slot = self.emit_payload_length_to_stack(&value_payload, "mapset_vlen")?;
@@ -147,22 +147,22 @@ impl CodeBuilder<'_> {
             self.emit(abi::compare_registers(&index, &count));
             self.emit(abi::branch_ge(&not_found));
             self.emit(abi::load_u64(
-                &key_offset,
+                key_offset,
                 &entry,
                 COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
             ));
             self.emit(abi::load_u64(
-                &key_length,
+                key_length,
                 &entry,
                 COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
             ));
             self.emit_collection_payload_match_branch(
                 key_type,
-                "",
+                &ParameterType::named(""),
                 &collection,
-                &key_offset,
-                &key_length,
-                &key,
+                key_offset,
+                key_length,
+                key,
                 &found,
                 &next,
             )?;
@@ -220,7 +220,7 @@ impl CodeBuilder<'_> {
             val_len_slot,
             &value_payload,
             voff_slot,
-            "",
+            &ParameterType::named(""),
         )?;
         self.emit(abi::load_u64(
             &scratch8,
@@ -392,9 +392,9 @@ impl CodeBuilder<'_> {
         );
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
-        self.emit_collection_data_pointer_for(&scratch17, &nb, "");
+        self.emit_collection_data_pointer_for(&scratch17, &nb, &ParameterType::named(""));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit_collection_data_pointer_for(&scratch20, &scratch8, "");
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, &ParameterType::named(""));
         self.emit(abi::load_u64(
             &scratch14,
             &scratch8,
@@ -502,7 +502,7 @@ impl CodeBuilder<'_> {
             val_len_slot,
             &value_payload,
             data_offset_slot,
-            "",
+            &ParameterType::named(""),
         )?;
         // dataLength = final data offset (includes the alignment pad + new value).
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
@@ -703,9 +703,9 @@ impl CodeBuilder<'_> {
         );
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
-        self.emit_collection_data_pointer_for(&scratch17, &nb, "");
+        self.emit_collection_data_pointer_for(&scratch17, &nb, &ParameterType::named(""));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit_collection_data_pointer_for(&scratch20, &scratch8, "");
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, &ParameterType::named(""));
         self.emit(abi::load_u64(
             &scratch14,
             &scratch8,
@@ -823,7 +823,7 @@ impl CodeBuilder<'_> {
             key_len_slot,
             &key_payload,
             data_offset_slot,
-            "",
+            &ParameterType::named(""),
         )?;
         // Value: align, record valueOffset/valueLength, copy bytes.
         self.emit_align_offset_slot(data_offset_slot, value_align);
@@ -857,7 +857,7 @@ impl CodeBuilder<'_> {
             val_len_slot,
             &value_payload,
             data_offset_slot,
-            "",
+            &ParameterType::named(""),
         )?;
         // Header: count++, dataLength = final data offset.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
@@ -930,7 +930,7 @@ impl CodeBuilder<'_> {
         map_slot: usize,
         key_slot: usize,
         map_type: &ParameterType,
-        key_type: &str,
+        key_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         let s8 = self.temporary_vreg();
         let s9 = self.temporary_vreg();
@@ -974,7 +974,7 @@ impl CodeBuilder<'_> {
         // arg7 = on-MATCH, arg8 = on-NO-MATCH (per `lower_map_remove_key`).
         self.emit_collection_payload_matches_value_branch(
             key_type,
-            "",
+            &ParameterType::named(""),
             &s8,
             &s13,
             &s16,

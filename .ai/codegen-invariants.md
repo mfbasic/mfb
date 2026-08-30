@@ -24,6 +24,45 @@ Two traps this cost real time to learn:
 
 Adding a variant means wiring, in lockstep: `parse` arm, `name()` arm, `with_vars`, registry `unify` + container fail-set + `substitute` + `contains_var`, and monomorph's `unify_type` / `substitute_type_params`. Nothing errors if you miss one — every consumer has a `_` catch-all, so an unwired variant silently falls into wildcard behavior. Grep an existing variant (`MapEntryOf`) to enumerate the sites.
 
+**Measured (plan-111-A Phase 3, adding `Stateful`): the tree has 81 `match`es on a `ParameterType` with a top-level `_` arm, and adding a variant compiles CLEAN — zero exhaustiveness errors.** So the compiler tells you nothing; the audit is yours. What makes it tractable is asking the right question: a new variant only changes behavior where the value **used to take a different arm**. `File STATE Cursor` reached all 81 as `Named(...)`, so only the sites with their own `Named(..)` arm can move — **7 of 81**. (Script: walk each `match` block by brace depth, keep the ones whose top-level arm *patterns* name `ParameterType::`, then split on whether any pattern names the variant the value used to be.) Do not forget the non-`match` forms — `if let`, `matches!`, `while let` — which a `match`-block scan misses entirely; there were 5, found with `rg 'if let (Some\()?(ParameterType|Self)::Named|matches!\([^,]*, *(ParameterType|Self)::Named'`.
+
+**That census still missed the two sites that actually broke (plan-111-G6).**
+Both were `Named(_)` guards meaning "is this a nominal?", and both silently
+changed answer when `File STATE Cursor` stopped being a `Named`:
+
+* `let ParameterType::Named(_) = matched_type else { return false };` — a
+  **`let`-else**, which is neither a `match` block nor any of the three
+  non-`match` forms the `rg` above looks for. Add `let ... else` to the sweep.
+  This one stopped `ir::shape` binding `CASE Variant(v)` over a stateful union,
+  so `v.state` typed `Unknown` and the error surfaced two layers away as
+  `toString(Unknown)`.
+* A sibling defect that no variant sweep can find: a conversion that changes a
+  table **KEY** from the full type to `resource_base_type(...)`. `File STATE
+  Cursor` is absent from the record table (so the access stayed unchecked); the
+  bare `File` base is present, because a resource declares inline fields — so
+  `.state` was rejected on every stateful resource. Retyping a lookup, always
+  ask what the OLD key was, not what the new one reads more nicely as.
+
+Neither failed to compile and neither reddened a unit test. The signal was one
+acceptance fixture that stopped building, found only by the full cross-target
+gate. **Budget an `artifact-gate all` run for any variant addition.**
+
+## `tests/no_type_strings.rs` is a hard floor with two named remainders (plan-111)
+
+It scans `src/` (minus `src/ast`, `src/lexer.rs`, `src/docs` — the string domain) for **eight** ways a type SPELLING reaches a decision: `ParameterType::parse` outside the boundary files, `ParameterType::declared` (class 1b — where a declared NAME crosses into the type domain), a type-named `&str` parameter, a `match` arm or `==` on a spelling, a hand-rolled grammar op, a `format!`-built spelling, and a `String`-keyed type map.
+
+Since plan-111-G it is a **floor, not a ratchet**: six of the eight classes are 0 tree-wide, and `BUDGETS` is down to two classes whose remainder is enumerated site-by-site in the table's own comment. Two exemptions carry the rest, each pinned by its own test:
+
+- `is_grammar_file` — `src/types.rs` DEFINES `parse`/`name`, so it is totally exempt. Exactly one file (`the_grammar_file_is_exactly_one`).
+- `is_boundary_file` — the six boundaries (in five groups: the parser, the AST→HIR seam, the `.mfp` codec both directions, the IR binary codec, the manifest) are exempt from the four NAME-HANDLING classes and from **none** of the three DECISION classes. A boundary may parse a spelling and may render one; it may not decide anything by comparing one. The exact membership is asserted (`boundary_list_is_closed`), so a seventh entry is a deliberate edit, not a quiet one.
+
+Two things to know before you touch it:
+
+- **The table is asserted tight in BOTH directions.** A count above its budget fails with every offending `file:line`; a budget *above* the live count also fails with "lower this budget to N". So clearing sites without lowering the row is a red test, and so is lowering a row too far. Lower it **in the same commit as the work**, and take the number from the failure message — it prints the whole live table paste-ready.
+- **It does not use `architecture_guards.rs`'s `code_above_tests`.** That helper truncates a file at its first `#[cfg(test)]`, which is safe for `src/codegen` + `src/target` but wrong across `src/`, where `#[cfg(test)]` also sits on mid-file items (`ir/shape.rs`'s `bound_types`, `resolver/mod.rs`'s `resolve_hir_project`) — it scanned 4202-line `shape.rs` down to 158 lines. `test_free_lines` strips each `#[cfg(test)]` item by brace depth instead. `architecture_guards.rs` still carries the naive version; harmless only because of its narrower roots.
+
+The `string_keyed_type_maps` class is a **curated** `(file, identifier)` list, not a regex: the broad needle matches 1209 lines in `src/`, nearly all keyed by a symbol (function name, binding name, package alias), which is legitimately a string. Its doc comment names the four nearest non-type-keyed lookalikes so they do not get "fixed".
+
 ### User-generic limitations that are GRAMMAR, not bugs
 
 `Holder OF Pairing OF Integer, String` does not compile (`cannot infer template arguments`), and it cannot be fixed in the parser: the spelling is textually indistinguishable from a two-argument `Holder OF (Pairing OF Integer), String`, and the language has no bracketing. `parse` splits on top-level commas and yields 2 arguments for a 1-parameter template; it holds no arity table and is deliberately dependency-light. Same root cause: a user-generic-typed **parameter must come LAST** in a parameter list — `FUNC f OF T(b AS Box OF T, v AS T)` does not parse, because `OF`'s argument list is read greedily across commas. Write `FUNC f OF T(v AS T, b AS Box OF T)`.
@@ -201,3 +240,56 @@ Measured blow-ups: benchmark `liststr reshape` at base=1000/k=50 = 458 s; `strin
 Repro shape: `FOR r ... FOR i=0..N { g=graphemes(u); ...=toBytes(u); ...=normalizeNfc(u) }` — times per run climb 21→146→409→833→…→16818ms as cumulative allocations grow.
 
 Likely a residual path not covered by the earlier mixed-churn fix (arena-allocator-quadratic-mixed-churn) / large-block bins. The benchmark works around it by keeping those two rows at coverage-only counts. A real fix belongs in the arena free-list allocator (src/), not the benchmark.
+
+
+## A type argument is a `ParameterType`, and the ratchet gate has known edges
+
+Since plan-111 an emitter takes `&ParameterType`, never a rendered spelling, and
+`tests/no_type_strings.rs` enforces it with per-`(class, directory)` budgets that
+only ever shrink. Two things about that gate are worth knowing before trusting a
+zero:
+
+**1. It had three blind spots, fixed in plan-111-D; assume there are more.**
+The scanners are text heuristics, and each miss hid live sites for three whole
+letters:
+
+* `spelling_match_arms` required the arm to *begin* with a quoted spelling, so a
+  **tuple arm** — `("sin", "Float") => FloatKernel::Sin` — was invisible. It now
+  scans the whole arm pattern, stopping at ` if ` (a guard decides by
+  *comparing*, which is class 4's needle, not class 3's).
+* `spelling_compares` matched `== "Integer"` but not the **wrapped** form
+  `== Some("Integer")`.
+* `TYPE_PARAM_NAMES` was hand-seeded and missed ten `*type*: &str` parameter
+  names (`record_type`, `result_type`, `stride_type`, `block_type`, …).
+
+Those three fixes surfaced **59 sites** and a new `optimizer` bucket. If you add
+a needle class or a spelling, re-run the census rather than assuming the budget
+table is the population.
+
+**Measure with the gate, not with `rg`:**
+
+```
+cargo test --test no_type_strings census_by_file -- --ignored --nocapture
+MFB_CENSUS_DETAIL=<path-substring>   # adds every offending line
+```
+
+`rg` counts inline `#[cfg(test)]` modules and over-reports (one plan's census
+read 84 where the production population was 21). The gate's `test_free_lines`
+stripper does not.
+
+**2. Convert a producer and its consumers together.** A type that is *written*
+as a spelling and *read* as one is a single site, however far apart the two ends
+are. `target/shared/abi.rs`'s `move_immediate(type_: &str)` writes the NIR
+`mov_imm` operand-class attribute; `optimizer/opt2/{lvn,gvn,constant_folding}.rs`
+read it back with `instruction.get("type") == Some("Integer")`. Converting
+either end alone leaves the other matching a spelling that is no longer written
+the same way.
+
+**3. At a boundary with a not-yet-converted cluster, render ONCE and say so.**
+The codegen `&str`-type plane is one connected graph, and plan-111's letters cut
+across it. When a converted function calls a still-untyped helper
+(`list_entry_stride`, `emit_inlined_block_size_from_ptr_slot`,
+`inline_collection_payload_size` — all keyed by a spelling), put a single
+`type_.name()` at that call and name the letter that deletes it. What this rule
+forbids is the opposite move: typing a signature and pushing the render *out* to
+its callers, which multiplies renders while the gate count goes down.

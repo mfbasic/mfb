@@ -153,15 +153,16 @@ pub(crate) fn lower_sum(
     let scratch15 = builder.temporary_vreg();
     let scratch16 = builder.temporary_vreg();
     let collection = &args[0];
-    let Some(element_type) =
-        typed_list_element_type(&collection.type_).map(|type_| type_.name().into_owned())
-    else {
+    let Some(element_type) = typed_list_element_type(&collection.type_).cloned() else {
         return Err(format!(
             "native collection sum does not accept {}",
             collection.type_
         ));
     };
-    if !matches!(element_type.as_str(), "Integer" | "Float" | "Fixed") {
+    if !matches!(
+        element_type,
+        ParameterType::Integer | ParameterType::Float | ParameterType::Fixed
+    ) {
         return Err(format!(
             "native collection sum does not accept {}",
             collection.type_
@@ -187,7 +188,11 @@ pub(crate) fn lower_sum(
         &scratch8,
         COLLECTION_HEADER_SIZE,
     ));
-    builder.emit(abi::move_immediate(&scratch14, &element_type, "0"));
+    builder.emit(abi::move_immediate(
+        &scratch14,
+        &abi::immediate_class(&element_type),
+        "0",
+    ));
     builder.emit(abi::label(&loop_label));
     builder.emit(abi::compare_registers(&scratch10, &scratch9));
     builder.emit(abi::branch_ge(&done));
@@ -204,12 +209,12 @@ pub(crate) fn lower_sum(
         builder.emit_collection_data_pointer_for(&scratch15, &scratch8, &element_type);
         builder.emit(abi::add_registers(&scratch15, &scratch15, &scratch12));
     }
-    match element_type.as_str() {
-        "Integer" => {
+    match element_type {
+        ParameterType::Integer => {
             builder.emit(abi::load_u64(&scratch16, &scratch15, 0));
             builder.emit_checked_integer_add(&scratch14, &scratch14, &scratch16)?;
         }
-        "Float" => {
+        ParameterType::Float => {
             builder.emit(abi::load_u64(&scratch16, &scratch15, 0));
             builder.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &scratch14));
             builder.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[1], &scratch16));
@@ -220,7 +225,7 @@ pub(crate) fn lower_sum(
             ));
             builder.emit(abi::float_move_x_from_d(&scratch14, abi::FP_SCRATCH[0]));
         }
-        "Fixed" => {
+        ParameterType::Fixed => {
             builder.emit(abi::load_u64(&scratch16, &scratch15, 0));
             builder.emit_checked_integer_add(&scratch14, &scratch14, &scratch16)?;
         }
@@ -238,7 +243,7 @@ pub(crate) fn lower_sum(
     builder.emit(abi::move_register(&result, &scratch14));
     Ok(ValueResult {
         origin: None,
-        type_: ParameterType::parse(&element_type),
+        type_: element_type.clone(),
         location: Operand::from(result.render()),
         text: format!("sum({})", collection.type_),
     })

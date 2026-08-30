@@ -79,9 +79,7 @@ pub(crate) fn lower_to_list(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let set = &args[0];
-    let Some(element_type) =
-        typed_set_element_type(&set.type_).map(|type_| type_.name().into_owned())
-    else {
+    let Some(element_type) = typed_set_element_type(&set.type_).cloned() else {
         return Err(format!(
             "native collection toList does not accept {}",
             set.type_

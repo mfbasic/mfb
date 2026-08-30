@@ -95,9 +95,7 @@ pub(crate) fn lower_remove(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let set = args[0].clone();
-    let Some(element_type) =
-        typed_set_element_type(&set.type_).map(|type_| type_.name().into_owned())
-    else {
+    let Some(element_type) = typed_set_element_type(&set.type_).cloned() else {
         return Err(format!(
             "native collection remove does not accept {}",
             set.type_
@@ -110,7 +108,7 @@ pub(crate) fn lower_remove(
         set_slot,
     ));
     let item = args[1].clone();
-    if item.type_.name() != element_type.as_str() {
+    if item.type_ != element_type {
         return Err(format!(
             "native collection remove element must be {element_type}, got {}",
             item.type_

@@ -542,7 +542,7 @@ pub(super) fn validate_value(
     used_helpers: &mut Vec<RuntimeHelper>,
 ) -> Result<(), String> {
     match value {
-        NirValue::Const { type_, .. } => validate_type_name(&type_.name()),
+        NirValue::Const { type_, .. } => validate_type_name(type_),
         NirValue::Local(name) => {
             // bug-176 B: resolve a capitalized `Local` against the explicit name
             // tables — union variant / enum member constructors, type namespaces,
@@ -561,7 +561,7 @@ pub(super) fn validate_value(
             }
         }
         NirValue::LocalRef { name, type_ } => {
-            validate_type_name(&type_.name())?;
+            validate_type_name(type_)?;
             if locals.contains_key(name) {
                 Ok(())
             } else {
@@ -570,7 +570,7 @@ pub(super) fn validate_value(
         }
         NirValue::Global { name, type_ } => {
             if !type_.name().is_empty() {
-                validate_type_name(&type_.name())?;
+                validate_type_name(type_)?;
             }
             if global_names.contains(name) {
                 Ok(())
@@ -579,14 +579,11 @@ pub(super) fn validate_value(
             }
         }
         NirValue::FunctionRef { name, type_ } => {
-            validate_type_name(&type_.name())?;
+            validate_type_name(type_)?;
             if function_names.contains(name)
                 || import_names.contains(name)
-                || crate::codegen::builtins::general::builtin_function_id_for_type(
-                    name,
-                    &type_.name(),
-                )
-                .is_some()
+                || crate::codegen::builtins::general::builtin_function_id_for_type(name, type_)
+                    .is_some()
             {
                 Ok(())
             } else {
@@ -598,7 +595,7 @@ pub(super) fn validate_value(
             type_,
             captures,
         } => {
-            validate_type_name(&type_.name())?;
+            validate_type_name(type_)?;
             if !(function_names.contains(name) || import_names.contains(name)) {
                 return Err(format!("NIR closure target '{name}' does not resolve"));
             }
@@ -615,7 +612,7 @@ pub(super) fn validate_value(
             }
             Ok(())
         }
-        NirValue::Capture { type_, .. } => validate_type_name(&type_.name()),
+        NirValue::Capture { type_, .. } => validate_type_name(type_),
         NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
             for arg in args {
                 validate_value(
@@ -702,7 +699,7 @@ pub(super) fn validate_value(
             Ok(())
         }
         NirValue::Constructor { type_, args } => {
-            validate_type_name(&type_.name())?;
+            validate_type_name(type_)?;
             for arg in args {
                 validate_value(
                     arg,
@@ -721,8 +718,8 @@ pub(super) fn validate_value(
             member_type,
             value,
         } => {
-            validate_type_name(&union_type.name())?;
-            validate_type_name(&member_type.name())?;
+            validate_type_name(union_type)?;
+            validate_type_name(member_type)?;
             validate_value(
                 value,
                 locals,
@@ -734,7 +731,7 @@ pub(super) fn validate_value(
             )
         }
         NirValue::UnionExtract { type_, value } => {
-            validate_type_name(&type_.name())?;
+            validate_type_name(type_)?;
             validate_value(
                 value,
                 locals,
@@ -761,7 +758,7 @@ pub(super) fn validate_value(
             target,
             updates,
         } => {
-            validate_type_name(&type_.name())?;
+            validate_type_name(type_)?;
             validate_value(
                 target,
                 locals,
@@ -785,7 +782,7 @@ pub(super) fn validate_value(
             Ok(())
         }
         NirValue::ListLiteral { type_, values } | NirValue::SetLiteral { type_, values } => {
-            validate_type_name(&type_.name())?;
+            validate_type_name(type_)?;
             for value in values {
                 validate_value(
                     value,
@@ -800,7 +797,7 @@ pub(super) fn validate_value(
             Ok(())
         }
         NirValue::MapLiteral { type_, entries } => {
-            validate_type_name(&type_.name())?;
+            validate_type_name(type_)?;
             for (key, value) in entries {
                 validate_value(
                     key,
@@ -867,8 +864,14 @@ pub(super) fn validate_value(
     }
 }
 
-pub(super) fn validate_type_name(type_: &str) -> Result<(), String> {
-    if type_.is_empty() {
+/// A NIR type slot must carry a type, not the EMPTY nominal.
+///
+/// plan-111-G: takes the `ParameterType` its callers already hold. The emptiness
+/// it checks is `type_utils::is_unset_type` — the "no declared type" marker a
+/// synthesized node carries — so the question is asked of the type, not of a
+/// rendering of it. Every caller dropped a `.name()` render.
+pub(super) fn validate_type_name(type_: &ParameterType) -> Result<(), String> {
+    if crate::codegen::engine::types::is_unset_type(type_) {
         Err("NIR type name must not be empty".to_string())
     } else {
         Ok(())

@@ -21,53 +21,173 @@ fn string_pool_interns_and_dedups() {
 fn type_id_maps_primitives_and_composites() {
     let mut strings = StringPool::new();
     let mut types = TypeTable::new();
-    assert_eq!(types.type_id(&mut strings, "Nothing"), TYPE_NOTHING);
-    assert_eq!(types.type_id(&mut strings, "Boolean"), TYPE_BOOLEAN);
-    assert_eq!(types.type_id(&mut strings, "Integer"), TYPE_INTEGER);
-    assert_eq!(types.type_id(&mut strings, "Float"), TYPE_FLOAT);
-    assert_eq!(types.type_id(&mut strings, "Fixed"), TYPE_FIXED);
-    assert_eq!(types.type_id(&mut strings, "Money"), TYPE_MONEY);
-    assert_eq!(types.type_id(&mut strings, "String"), TYPE_STRING);
-    assert_eq!(types.type_id(&mut strings, "Byte"), TYPE_BYTE);
-    assert_eq!(types.type_id(&mut strings, "fs.File"), TYPE_FILE_HANDLE);
     assert_eq!(
-        types.type_id(&mut strings, "tcp.Socket"),
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("Nothing")
+        ),
+        TYPE_NOTHING
+    );
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("Boolean")
+        ),
+        TYPE_BOOLEAN
+    );
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("Integer")
+        ),
+        TYPE_INTEGER
+    );
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("Float")
+        ),
+        TYPE_FLOAT
+    );
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("Fixed")
+        ),
+        TYPE_FIXED
+    );
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("Money")
+        ),
+        TYPE_MONEY
+    );
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("String")
+        ),
+        TYPE_STRING
+    );
+    assert_eq!(
+        types.type_id(&mut strings, &crate::types::ParameterType::declared("Byte")),
+        TYPE_BYTE
+    );
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("fs.File")
+        ),
+        TYPE_FILE_HANDLE
+    );
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("tcp.Socket")
+        ),
         TYPE_SOCKET_HANDLE
     );
     assert_eq!(
-        types.type_id(&mut strings, "tcp.Listener"),
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("tcp.Listener")
+        ),
         TYPE_LISTENER_HANDLE
     );
-    assert_eq!(types.type_id(&mut strings, "Error"), TYPE_ERROR);
-    assert_eq!(types.type_id(&mut strings, "TermColor"), TYPE_TERM_COLOR);
-    assert_eq!(types.type_id(&mut strings, "TermSize"), TYPE_TERM_SIZE);
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("Error")
+        ),
+        TYPE_ERROR
+    );
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("TermColor")
+        ),
+        TYPE_TERM_COLOR
+    );
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("TermSize")
+        ),
+        TYPE_TERM_SIZE
+    );
 
     // Composite names get fresh table ids (>= FIRST_TABLE_TYPE_ID) and are
     // interned so a repeated name resolves to the same id.
-    let list = types.type_id(&mut strings, "List OF Integer");
+    let list = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("List OF Integer"),
+    );
     assert!(list >= FIRST_TABLE_TYPE_ID);
-    assert_eq!(types.type_id(&mut strings, "List OF Integer"), list);
-    let nested = types.type_id(&mut strings, "List OF List OF String");
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("List OF Integer")
+        ),
+        list
+    );
+    let nested = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("List OF List OF String"),
+    );
     assert_ne!(nested, list);
-    let result = types.type_id(&mut strings, "Result OF Integer");
+    let result = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("Result OF Integer"),
+    );
     assert_ne!(result, list);
-    let map = types.type_id(&mut strings, "Map OF String TO Integer");
+    let map = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("Map OF String TO Integer"),
+    );
     assert_ne!(map, result);
-    let entry = types.type_id(&mut strings, "MapEntry OF String TO Integer");
+    let entry = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("MapEntry OF String TO Integer"),
+    );
     assert_ne!(entry, map);
     // `Set OF T` gets its own id, distinct from a `List OF T` of the same element.
-    let set = types.type_id(&mut strings, "Set OF Integer");
+    let set = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("Set OF Integer"),
+    );
     assert!(set >= FIRST_TABLE_TYPE_ID);
     assert_ne!(set, list);
-    assert_eq!(types.type_id(&mut strings, "Set OF Integer"), set);
-    let func = types.type_id(&mut strings, "FUNC(Integer) AS Boolean");
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("Set OF Integer")
+        ),
+        set
+    );
+    let func = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("FUNC(Integer) AS Boolean"),
+    );
     assert_ne!(func, entry);
-    let iso = types.type_id(&mut strings, "ISOLATED FUNC() AS Nothing");
+    let iso = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("ISOLATED FUNC() AS Nothing"),
+    );
     assert_ne!(iso, func);
     // An unknown bare name registers as a fresh opaque record type.
-    let opaque = types.type_id(&mut strings, "MyType");
+    let opaque = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("MyType"),
+    );
     assert!(opaque >= FIRST_TABLE_TYPE_ID);
-    assert_eq!(types.type_id(&mut strings, "MyType"), opaque);
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("MyType")
+        ),
+        opaque
+    );
 }
 
 #[test]
@@ -84,7 +204,7 @@ fn type_id_composites_decode_back_to_source_names() {
         "FUNC(Integer, String) AS Boolean",
         "ISOLATED FUNC() AS Nothing",
     ] {
-        types.type_id(&mut strings, name);
+        types.type_id(&mut strings, &crate::types::ParameterType::declared(name));
     }
     let names = type_entry_names(&types, &strings.values).expect("decode names");
     let decoded: std::collections::HashSet<&str> = names.values().map(String::as_str).collect();
@@ -117,14 +237,23 @@ fn state_carrying_resource_type_round_trips() {
         put_u32(&mut payload, 0);
         payload
     });
-    let id = types.type_id(&mut strings, "File STATE Cursor");
+    let id = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("File STATE Cursor"),
+    );
     let names = type_entry_names(&types, &strings.values).expect("decode names");
     assert_eq!(
         names.get(&id).map(String::as_str),
         Some("File STATE Cursor")
     );
     // Interning the same spelling twice reuses the entry (keyed `State#b#s`).
-    assert_eq!(types.type_id(&mut strings, "File STATE Cursor"), id);
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("File STATE Cursor")
+        ),
+        id
+    );
 }
 
 #[test]
@@ -194,8 +323,14 @@ fn thread_types_round_trip_with_and_without_resource() {
 fn type_table_encode_decode_round_trips_payloads() {
     let mut strings = StringPool::new();
     let mut types = TypeTable::new();
-    types.type_id(&mut strings, "List OF Integer");
-    types.type_id(&mut strings, "Map OF String TO Integer");
+    types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("List OF Integer"),
+    );
+    types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("Map OF String TO Integer"),
+    );
     let bytes = types.encode();
     let decoded = read_type_entries(&bytes, &strings.values).expect("decode types");
     assert_eq!(decoded.entries.len(), types.entries.len());
@@ -215,7 +350,10 @@ fn type_table_encode_decode_round_trips_payloads() {
 fn a_nested_map_key_splits_at_the_top_level_separator() {
     let mut strings = StringPool::new();
     let mut types = TypeTable::new();
-    types.type_id(&mut strings, "Map OF Map OF String TO Integer TO Boolean");
+    types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("Map OF Map OF String TO Integer TO Boolean"),
+    );
     let names = type_entry_names(&types, &strings.values).expect("names");
     let interned: Vec<&String> = names.values().collect();
     assert!(
@@ -406,21 +544,145 @@ fn abi_index_encode_decode_round_trips() {
     assert_eq!(decoded.encode(), bytes);
 }
 
+/// A spelling that OPENS a structural shape without parsing as one interns as an
+/// opaque entry — **with the kind its old non-splitting `else` branch wrote**.
+///
+/// plan-111-G strengthened this. It used to assert only that an id came back and
+/// that it was stable, which is why it did not notice when the typed rewrite of
+/// `type_id` first dropped `opaque_structural_kind` and started writing the
+/// plain record kind 1 for all four. The KIND is what goes on the wire and what
+/// a decoder dispatches on, so the kind is what this pins.
 #[test]
 fn type_id_falls_back_for_malformed_composites() {
     let mut strings = StringPool::new();
     let mut types = TypeTable::new();
+    let id_of = |types: &mut TypeTable, strings: &mut StringPool, spelling: &str| {
+        types.type_id(strings, &crate::types::ParameterType::declared(spelling))
+    };
     // No " AS " terminator: the Thread/ThreadWorker parser rejects the name, so
     // it interns as an opaque entry rather than a structured composite.
-    let t = types.type_id(&mut strings, "Thread OF Garbage");
-    let tw = types.type_id(&mut strings, "ThreadWorker OF Garbage");
+    let t = id_of(&mut types, &mut strings, "Thread OF Garbage");
+    let tw = id_of(&mut types, &mut strings, "ThreadWorker OF Garbage");
     // No " TO " separator: Map/MapEntry fall back to an opaque entry.
-    let m = types.type_id(&mut strings, "Map OF Garbage");
-    let me = types.type_id(&mut strings, "MapEntry OF Garbage");
+    let m = id_of(&mut types, &mut strings, "Map OF Garbage");
+    let me = id_of(&mut types, &mut strings, "MapEntry OF Garbage");
     for id in [t, tw, m, me] {
         assert!(id >= FIRST_TABLE_TYPE_ID);
     }
+
+    // The wire kinds, which are the part a decoder acts on.
+    let kind = |id: u32| types.entries[(id - FIRST_TABLE_TYPE_ID) as usize].kind;
+    assert_eq!(kind(t), 7, "a malformed `Thread OF …` keeps kind 7");
+    assert_eq!(
+        kind(tw),
+        10,
+        "a malformed `ThreadWorker OF …` keeps kind 10"
+    );
+    assert_eq!(kind(m), 5, "a malformed `Map OF …` keeps kind 5");
+    assert_eq!(kind(me), 9, "a malformed `MapEntry OF …` keeps kind 9");
+
     // Each is stable on a second intern.
-    assert_eq!(types.type_id(&mut strings, "Thread OF Garbage"), t);
-    assert_eq!(types.type_id(&mut strings, "Map OF Garbage"), m);
+    assert_eq!(id_of(&mut types, &mut strings, "Thread OF Garbage"), t);
+    assert_eq!(id_of(&mut types, &mut strings, "Map OF Garbage"), m);
+}
+
+/// The wire ids for every shape the encoder knows, pinned against the values
+/// they had BEFORE plan-111-G retyped `type_id`.
+///
+/// The phase asks for exactly this, "asserting the same wire ids as before this
+/// phase — record them". The scalars and the builtin resource handles are fixed
+/// constants; the composites are table ids, so what is pinned is the ORDER they
+/// intern in, which is what makes a `.mfp` written by an older compiler decode
+/// against a newer one.
+#[test]
+fn wire_type_ids_are_unchanged_by_the_typed_encoder() {
+    let mut strings = StringPool::new();
+    let mut types = TypeTable::new();
+    let id_of = |types: &mut TypeTable, strings: &mut StringPool, spelling: &str| {
+        types.type_id(strings, &crate::types::ParameterType::declared(spelling))
+    };
+
+    // Fixed ids: not table entries at all.
+    assert_eq!(id_of(&mut types, &mut strings, "Nothing"), TYPE_NOTHING);
+    assert_eq!(id_of(&mut types, &mut strings, "Boolean"), TYPE_BOOLEAN);
+    assert_eq!(id_of(&mut types, &mut strings, "Integer"), TYPE_INTEGER);
+    assert_eq!(id_of(&mut types, &mut strings, "Float"), TYPE_FLOAT);
+    assert_eq!(id_of(&mut types, &mut strings, "Fixed"), TYPE_FIXED);
+    assert_eq!(id_of(&mut types, &mut strings, "String"), TYPE_STRING);
+    assert_eq!(id_of(&mut types, &mut strings, "Byte"), TYPE_BYTE);
+    assert_eq!(id_of(&mut types, &mut strings, "Money"), TYPE_MONEY);
+    assert_eq!(id_of(&mut types, &mut strings, "Scalar"), TYPE_SCALAR);
+    assert_eq!(id_of(&mut types, &mut strings, "fs.File"), TYPE_FILE_HANDLE);
+    // plan-110-E: the wire ids are unchanged, but the identity that carries them
+    // is `tcp`'s now -- net has no stream resources left.
+    assert_eq!(
+        id_of(&mut types, &mut strings, "tcp.Socket"),
+        TYPE_SOCKET_HANDLE
+    );
+    assert_eq!(
+        id_of(&mut types, &mut strings, "tcp.Listener"),
+        TYPE_LISTENER_HANDLE
+    );
+
+    // Table entries, in intern order. A composite interns its children first,
+    // so the ids below are the whole encoding order, not just the heads.
+    let table_start = FIRST_TABLE_TYPE_ID;
+    // `List OF Integer`: Integer is a fixed id, so only the list is a new entry.
+    assert_eq!(
+        id_of(&mut types, &mut strings, "List OF Integer"),
+        table_start
+    );
+    assert_eq!(
+        id_of(&mut types, &mut strings, "Set OF String"),
+        table_start + 1
+    );
+    assert_eq!(
+        id_of(&mut types, &mut strings, "Map OF String TO Integer"),
+        table_start + 2
+    );
+    // plan-106-E Correction 3's nested-key case: the key is itself a `Map`, so it
+    // interns BEFORE the outer map. A leftmost ` TO ` split encoded key
+    // `Map OF String` and value `Integer TO Boolean` — two types that do not
+    // exist — and the table did not decode at all.
+    let nested_key = id_of(&mut types, &mut strings, "Map OF String TO Integer");
+    assert_eq!(
+        nested_key,
+        table_start + 2,
+        "the inner map is already interned"
+    );
+    assert_eq!(
+        id_of(
+            &mut types,
+            &mut strings,
+            "Map OF Map OF String TO Integer TO Boolean"
+        ),
+        table_start + 3
+    );
+    // A stateful resource is a composite of two ids (plan-52-D §4): the base is
+    // the fixed `fs.File` id, so only `Cursor` and the state entry are new.
+    let cursor = id_of(&mut types, &mut strings, "Cursor");
+    assert_eq!(cursor, table_start + 4);
+    assert_eq!(
+        id_of(&mut types, &mut strings, "fs.File STATE Cursor"),
+        table_start + 5
+    );
+    assert_eq!(
+        id_of(&mut types, &mut strings, "Result OF Integer"),
+        table_start + 6
+    );
+    assert_eq!(
+        id_of(&mut types, &mut strings, "Thread OF Integer TO String"),
+        table_start + 7
+    );
+
+    // And every one is stable on a second intern — the property that makes an
+    // older `.mfp` decode against a newer compiler.
+    assert_eq!(
+        id_of(&mut types, &mut strings, "List OF Integer"),
+        table_start
+    );
+    assert_eq!(
+        id_of(&mut types, &mut strings, "fs.File STATE Cursor"),
+        table_start + 5
+    );
 }

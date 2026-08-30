@@ -2,6 +2,7 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn emit_compare_bytes_branch(
         &mut self,
@@ -89,7 +90,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_comparable_values_match_branch(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         left: impl Into<Operand>,
         right: impl Into<Operand>,
         equal_label: &str,
@@ -110,7 +111,7 @@ impl CodeBuilder<'_> {
 
     fn emit_comparable_values_match_branch_from_slots(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         left_slot: usize,
         right_slot: usize,
         equal_label: &str,
@@ -131,7 +132,7 @@ impl CodeBuilder<'_> {
         let lval = &lval_v;
         let rval = &rval_v;
         match type_ {
-            "Nothing" => {
+            ParameterType::Nothing => {
                 self.emit(abi::branch(equal_label));
             }
             // bug-147: `Float` is compared BITWISE here (loaded bits via
@@ -142,14 +143,23 @@ impl CodeBuilder<'_> {
             // Scalar joins here: a value operand is a full zero-extended register
             // spilled to an 8-byte slot, so the 64-bit equality compare is correct
             // (the packed 4-byte form is handled by the memory-read arms below).
-            "Boolean" | "Byte" | "Integer" | "Fixed" | "Float" | "Money" | "Scalar" => {
+            __t if matches!(
+                __t,
+                ParameterType::Boolean
+                    | ParameterType::Byte
+                    | ParameterType::Integer
+                    | ParameterType::Fixed
+                    | ParameterType::Float
+                    | ParameterType::Money
+            ) || __t.is_named("Scalar") =>
+            {
                 self.emit(abi::load_u64(lval, abi::stack_pointer(), left_slot));
                 self.emit(abi::load_u64(rval, abi::stack_pointer(), right_slot));
                 self.emit(abi::compare_registers(lval, rval));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            "String" => {
+            ParameterType::String => {
                 let loop_label = self.label("compare_string_value_loop");
                 self.emit(abi::load_u64(lcur, abi::stack_pointer(), left_slot));
                 self.emit(abi::load_u64(rcur, abi::stack_pointer(), right_slot));
@@ -184,7 +194,7 @@ impl CodeBuilder<'_> {
                 }
                 let inline_string_field = fields
                     .iter()
-                    .map(|(_, ft)| self.record_field_is_inlined(other, &ft.name()))
+                    .map(|(_, ft)| self.record_field_is_inlined(other, ft))
                     .collect::<Vec<_>>();
                 for (index, (_, field_type)) in fields.iter().enumerate() {
                     let next_field = self.label("compare_record_next_field");
@@ -206,7 +216,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::store_u64(lcur, abi::stack_pointer(), field_left_slot));
                     self.emit(abi::store_u64(rcur, abi::stack_pointer(), field_right_slot));
                     self.emit_comparable_values_match_branch_from_slots(
-                        &field_type.name(),
+                        field_type,
                         field_left_slot,
                         field_right_slot,
                         &next_field,
@@ -246,8 +256,8 @@ impl CodeBuilder<'_> {
     /// (plan-57-D).
     pub(crate) fn emit_collection_payload_match_branch(
         &mut self,
-        type_: &str,
-        stride_type: &str,
+        type_: &ParameterType,
+        stride_type: &ParameterType,
         collection: impl Into<Operand>,
         offset: impl Into<Operand>,
         length: impl Into<Operand>,
@@ -261,28 +271,31 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer_for(&data, collection, stride_type);
         self.emit(abi::add_registers(&data, &data, offset));
         match type_ {
-            "Boolean" | "Byte" => {
+            ParameterType::Boolean | ParameterType::Byte => {
                 let candidate = self.allocate_register();
                 self.emit(abi::load_u8(&candidate, &data, 0));
                 self.emit(abi::compare_registers(&candidate, value.clone()));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            "Scalar" => {
+            type_ if type_.is_named("Scalar") => {
                 let candidate = self.allocate_register();
                 self.emit(abi::load_u32(&candidate, &data, 0));
                 self.emit(abi::compare_registers(&candidate, value.clone()));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            "Integer" | "Float" | "Fixed" | "Money" => {
+            ParameterType::Integer
+            | ParameterType::Float
+            | ParameterType::Fixed
+            | ParameterType::Money => {
                 let candidate = self.allocate_register();
                 self.emit(abi::load_u64(&candidate, &data, 0));
                 self.emit(abi::compare_registers(&candidate, value.clone()));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            "String" => {
+            ParameterType::String => {
                 let value_len = self.allocate_register();
                 let value_cursor = self.allocate_register();
                 let remaining = self.allocate_register();
@@ -296,10 +309,10 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&remaining, length.clone()));
                 self.emit_byte_compare_loop(
                     &data,
-                    &value_cursor,
+                    value_cursor,
                     &remaining,
                     &packed_byte,
-                    &value_byte,
+                    value_byte,
                     &loop_label,
                     equal_label,
                     not_equal_label,
@@ -348,8 +361,8 @@ impl CodeBuilder<'_> {
     /// (plan-57-D).
     pub(crate) fn emit_collection_payload_matches_value_branch(
         &mut self,
-        type_: &str,
-        stride_type: &str,
+        type_: &ParameterType,
+        stride_type: &ParameterType,
         collection: impl Into<Operand>,
         offset: impl Into<Operand>,
         length: impl Into<Operand>,
@@ -377,25 +390,28 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer_for(cur, cur, stride_type);
         self.emit(abi::add_registers(cur, cur, tmp));
         match type_ {
-            "Boolean" | "Byte" => {
+            ParameterType::Boolean | ParameterType::Byte => {
                 self.emit(abi::load_u8(cval, cur, 0));
                 self.emit(abi::compare_registers(cval, value.clone()));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            "Scalar" => {
+            type_ if type_.is_named("Scalar") => {
                 self.emit(abi::load_u32(cval, cur, 0));
                 self.emit(abi::compare_registers(cval, value.clone()));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            "Integer" | "Float" | "Fixed" | "Money" => {
+            ParameterType::Integer
+            | ParameterType::Float
+            | ParameterType::Fixed
+            | ParameterType::Money => {
                 self.emit(abi::load_u64(cval, cur, 0));
                 self.emit(abi::compare_registers(cval, value.clone()));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            "String" => {
+            ParameterType::String => {
                 let loop_label = self.label("collection_string_value_match_loop");
                 self.emit(abi::load_u64(tmp, value.clone(), 0));
                 self.emit(abi::compare_registers(length.clone(), tmp));
@@ -455,8 +471,8 @@ impl CodeBuilder<'_> {
     /// (plan-57-D).
     pub(crate) fn emit_collection_payloads_match_branch(
         &mut self,
-        type_: &str,
-        stride_type: &str,
+        type_: &ParameterType,
+        stride_type: &ParameterType,
         left_collection: impl Into<Operand>,
         left_offset: impl Into<Operand>,
         left_length: impl Into<Operand>,
@@ -490,28 +506,31 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer_for(rcur, rcur, stride_type);
         self.emit(abi::add_registers(rcur, rcur, roff));
         match type_ {
-            "Boolean" | "Byte" => {
+            ParameterType::Boolean | ParameterType::Byte => {
                 self.emit(abi::load_u8(lval, lcur, 0));
                 self.emit(abi::load_u8(rval, rcur, 0));
                 self.emit(abi::compare_registers(lval, rval));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            "Scalar" => {
+            type_ if type_.is_named("Scalar") => {
                 self.emit(abi::load_u32(lval, lcur, 0));
                 self.emit(abi::load_u32(rval, rcur, 0));
                 self.emit(abi::compare_registers(lval, rval));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            "Integer" | "Float" | "Fixed" | "Money" => {
+            ParameterType::Integer
+            | ParameterType::Float
+            | ParameterType::Fixed
+            | ParameterType::Money => {
                 self.emit(abi::load_u64(lval, lcur, 0));
                 self.emit(abi::load_u64(rval, rcur, 0));
                 self.emit(abi::compare_registers(lval, rval));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            "String" => {
+            ParameterType::String => {
                 let loop_label = self.label("collection_payload_string_match_loop");
                 self.emit(abi::compare_registers(
                     left_length.clone(),

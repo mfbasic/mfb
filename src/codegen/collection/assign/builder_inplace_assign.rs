@@ -82,7 +82,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             item_slot,
         ));
-        self.lower_list_append_in_place(stack_offset, item_slot, &list_type, &element_type.name())?;
+        self.lower_list_append_in_place(stack_offset, item_slot, &list_type, &element_type)?;
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
         }
@@ -140,11 +140,11 @@ impl CodeBuilder<'_> {
             return Ok(false);
         }
         let Some((field_index, field_type)) =
-            self.record_collection_last_inlined(&type_.name(), &update.field)
+            self.record_collection_last_inlined(type_, &update.field)
         else {
             return Ok(false);
         };
-        let field_type_parsed = crate::types::ParameterType::parse(&field_type);
+        let field_type_parsed = field_type.clone();
         let Some(element_type) =
             crate::codegen::engine::types::typed_list_element_type(&field_type_parsed).cloned()
         else {
@@ -201,7 +201,7 @@ impl CodeBuilder<'_> {
                 stack_offset,
                 field_index,
                 &field_type_parsed,
-                &element_type.name(),
+                &element_type,
                 rhs_slot,
             )?;
         } else {
@@ -209,7 +209,7 @@ impl CodeBuilder<'_> {
                 stack_offset,
                 field_index,
                 &field_type_parsed,
-                &element_type.name(),
+                &element_type,
                 rhs_slot,
             )?;
         }
@@ -304,8 +304,8 @@ impl CodeBuilder<'_> {
             item_slot,
             true_slot,
             &set_type,
-            &element_type.name(),
-            "Boolean",
+            &element_type,
+            &ParameterType::Boolean,
         )?;
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
@@ -368,7 +368,7 @@ impl CodeBuilder<'_> {
         let key = self.materialize_value(key)?;
         let key_slot = self.allocate_stack_object("inplace_remove_key", 8);
         self.store_value_at(&key, abi::stack_pointer(), key_slot);
-        self.lower_map_remove_key_in_place(stack_offset, key_slot, &map_type, &key_type.name())?;
+        self.lower_map_remove_key_in_place(stack_offset, key_slot, &map_type, &key_type)?;
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
         }
@@ -416,8 +416,8 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let list_type = local.type_.clone();
-        let Some(element_type) = crate::codegen::engine::types::typed_list_element_type(&list_type)
-            .map(|type_| type_.name().into_owned())
+        let Some(element_type) =
+            crate::codegen::engine::types::typed_list_element_type(&list_type).cloned()
         else {
             return Ok(false);
         };
@@ -502,8 +502,7 @@ impl CodeBuilder<'_> {
             return Ok(false);
         }
         if let Some(element_type) =
-            crate::codegen::engine::types::typed_list_element_type(&collection_type)
-                .map(|type_| type_.name().into_owned())
+            crate::codegen::engine::types::typed_list_element_type(&collection_type).cloned()
         {
             // The list `set` item is always a single element of type `T`
             // (source-checker-enforced), so — unlike append's bulk-vs-single gate — no
@@ -526,7 +525,7 @@ impl CodeBuilder<'_> {
             // Observation boundary: an in-place replacement `Float` element must
             // be finite (plan-17).
             self.observe_float(&args[2], &item)?;
-            if item.type_.name() != element_type.as_str() {
+            if item.type_ != element_type {
                 return Err(format!(
                     "native collection set list item must be {element_type}, got {}",
                     item.type_
@@ -553,13 +552,13 @@ impl CodeBuilder<'_> {
         }
         if let Some((key_type, value_type)) =
             crate::codegen::engine::types::typed_map_type_parts(&collection_type)
-                .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
+                .map(|(k, v)| (k.clone(), v.clone()))
         {
             let key = self.lower_value(&args[1])?;
             // Observation boundary: an in-place `Float` map key must be finite
             // (plan-17).
             self.observe_float(&args[1], &key)?;
-            if key.type_.name() != key_type.as_str() {
+            if key.type_ != key_type {
                 return Err(format!(
                     "native collection set map key must be {key_type}, got {}",
                     key.type_
@@ -576,7 +575,7 @@ impl CodeBuilder<'_> {
             // Observation boundary: an in-place `Float` map value must be finite
             // (plan-17).
             self.observe_float(&args[2], &val)?;
-            if val.type_.name() != value_type.as_str() {
+            if val.type_ != value_type {
                 return Err(format!(
                     "native collection set map value must be {value_type}, got {}",
                     val.type_
@@ -644,8 +643,8 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let list_type = local.type_.clone();
-        let Some(element_type) = crate::codegen::engine::types::typed_list_element_type(&list_type)
-            .map(|type_| type_.name().into_owned())
+        let Some(element_type) =
+            crate::codegen::engine::types::typed_list_element_type(&list_type).cloned()
         else {
             return Ok(false);
         };
@@ -659,7 +658,7 @@ impl CodeBuilder<'_> {
         // Observation boundary: an in-place prepended `Float` must be finite
         // (plan-17).
         self.observe_float(&args[1], &item)?;
-        if item.type_.name() != element_type.as_str() {
+        if item.type_ != element_type {
             return Err(format!(
                 "native collection prepend item must be {element_type}, got {}",
                 item.type_

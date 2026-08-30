@@ -277,7 +277,9 @@ mod tests {
         assert!(!registry().is_member("encoding.nope"));
         // Fixed-return non-overloaded members have a static nominal return.
         assert_eq!(
-            registry::call_return_type("encoding.hexEncode").as_deref(),
+            registry::call_return_type_typed("encoding.hexEncode")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("String")
         );
     }
@@ -351,12 +353,14 @@ mod tests {
         // The overloaded member has no single positional signature; the per-position
         // render of a unary member is its one argument type.
         assert_eq!(
-            crate::codegen::builtins::argument_types("encoding.utf8Decode"),
+            crate::codegen::builtins::argument_types_typed("encoding.utf8Decode"),
             None
         );
         assert_eq!(
-            crate::codegen::builtins::argument_types("encoding.hexEncode"),
-            Some(vec!["List OF Byte".to_string()])
+            crate::codegen::builtins::argument_types_typed("encoding.hexEncode"),
+            Some(vec![crate::types::ParameterType::list_of(
+                crate::types::ParameterType::Byte
+            )])
         );
         assert_eq!(
             registry::call_param_names("encoding.utf8Encode"),

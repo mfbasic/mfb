@@ -313,7 +313,9 @@ fn resource_closers_from_files(packages: &[PathBuf]) -> Vec<ir::ImportedResource
             // referenced builtin may be recorded by its bare base name (`File`) even
             // though the builtin's own identity is package-qualified (`fs.File`,
             // plan-97), so recognize it by bare name.
-            if crate::codegen::resource::is_builtin_backed_resource(&resource.type_name) {
+            if crate::codegen::resource::is_builtin_backed_resource(
+                &crate::types::ParameterType::declared(&resource.type_name),
+            ) {
                 continue;
             }
             let Some(close_function) = resource.close_function else {
@@ -465,7 +467,9 @@ pub(crate) fn imported_type_defs_from_files(packages: &[PathBuf]) -> Vec<ir::Imp
 fn imported_type_field(field: binary_repr::BinaryReprTypeField) -> ir::ImportedTypeField {
     ir::ImportedTypeField {
         name: field.name,
-        type_: field.type_,
+        // plan-111-B: boundary #5 — the `.mfp` package entry's type table is
+        // text on disk, and this is where it stops being one.
+        type_: crate::types::ParameterType::parse(&field.type_),
     }
 }
 
@@ -533,11 +537,11 @@ fn package_export_signature(export: &binary_repr::BinaryReprExport) -> ir::Exter
             .iter()
             .map(|param| ir::ExternalFunctionParam {
                 name: param.name.clone(),
-                type_: crate::types::ParameterType::parse(&param.type_),
+                type_: param.type_.clone(),
                 has_default: param.has_default,
             })
             .collect(),
-        returns: crate::types::ParameterType::parse(&export.return_type),
+        returns: export.return_type.clone(),
         isolated: export.isolated,
         sub: export.kind == binary_repr::BinaryReprExportKind::Sub,
     }
@@ -1170,16 +1174,16 @@ mod tests {
             params: vec![
                 binary_repr::BinaryReprExportParam {
                     name: "a".to_string(),
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::Integer,
                     has_default: false,
                 },
                 binary_repr::BinaryReprExportParam {
                     name: "b".to_string(),
-                    type_: "String".to_string(),
+                    type_: crate::types::ParameterType::String,
                     has_default: false,
                 },
             ],
-            return_type: "Boolean".to_string(),
+            return_type: crate::types::ParameterType::Boolean,
         };
         let signature = package_export_signature(&export);
         // Params and return are decoded structurally (parse-once), and render
@@ -1223,7 +1227,7 @@ mod tests {
     fn package_export_signature_round_trips_every_export_shape() {
         let param = |type_: &str| binary_repr::BinaryReprExportParam {
             name: "p".to_string(),
-            type_: type_.to_string(),
+            type_: crate::types::ParameterType::parse(type_),
             has_default: false,
         };
         // (param types, return type, isolated) -> the hand-formatted spelling.
@@ -1274,7 +1278,7 @@ mod tests {
                 kind: binary_repr::BinaryReprExportKind::Func,
                 isolated,
                 params: param_types.iter().map(|t| param(t)).collect(),
-                return_type: return_type.to_string(),
+                return_type: crate::types::ParameterType::parse(return_type),
             };
             let expected = format!(
                 "{}FUNC({}) AS {return_type}",
@@ -1762,7 +1766,7 @@ mod tests {
         assert!(matches!(def.kind, ir::ImportedTypeKind::Record));
         assert_eq!(def.fields.len(), 2);
         assert_eq!(def.fields[0].name, "x");
-        assert_eq!(def.fields[0].type_, "Integer");
+        assert_eq!(def.fields[0].type_.name(), "Integer");
         assert_eq!(def.fields[1].name, "y");
         assert!(def.variants.is_empty());
         assert!(def.members.is_empty());
@@ -1787,7 +1791,7 @@ mod tests {
         assert_eq!(def.variants[0].name, "Circle");
         assert_eq!(def.variants[0].fields.len(), 1);
         assert_eq!(def.variants[0].fields[0].name, "r");
-        assert_eq!(def.variants[0].fields[0].type_, "Float");
+        assert_eq!(def.variants[0].fields[0].type_.name(), "Float");
         assert!(def.variants[1].fields.is_empty());
     }
 

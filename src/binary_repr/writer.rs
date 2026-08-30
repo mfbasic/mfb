@@ -252,7 +252,7 @@ pub(super) fn lower_project_with_external_functions(
             };
             GlobalEntry {
                 name: strings.intern(&binding.name),
-                type_id: types.type_id(&mut strings, &binding.type_.name()),
+                type_id: types.type_id(&mut strings, &binding.type_),
                 flags,
             }
         })
@@ -265,14 +265,17 @@ pub(super) fn lower_project_with_external_functions(
         // The return type is interned even though the map that once held it was
         // never read (bug-100): the interning still fixes the string/type table
         // order, so the emitted bytes stay byte-identical.
-        let _ = types.type_id(&mut strings, &function.returns.name());
+        let _ = types.type_id(&mut strings, &function.returns);
     }
     for (name, id) in external_function_ids {
         function_ids.insert(name.clone(), *id);
     }
     for return_type_name in external_function_returns.values() {
         // Interning kept for table-order stability; the result is unused (bug-100).
-        let _ = types.type_id(&mut strings, return_type_name);
+        let _ = types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared(return_type_name),
+        );
     }
 
     let mut functions = Vec::new();
@@ -451,7 +454,9 @@ pub(super) fn value_uses_resource_type(value: &IrValue) -> bool {
 }
 
 pub(super) fn is_resource_type_name(type_name: &str) -> bool {
-    builtins::is_resource_type(type_name)
+    // A wire-section type NAME (boundary file #4), classified through the one
+    // grammar rather than a second copy of it.
+    builtins::is_resource_type(&crate::types::ParameterType::declared(type_name))
 }
 
 /// Collect the package-qualified resource type identities (`fs.File`,
@@ -618,7 +623,7 @@ pub(super) fn lower_function(
 ) -> Result<Function, String> {
     let mut params = Vec::new();
     for param in &function.params {
-        let type_id = types.type_id(strings, &param.type_.name());
+        let type_id = types.type_id(strings, &param.type_);
         params.push(Param {
             name: strings.intern(&param.name),
             type_id,
@@ -656,7 +661,7 @@ pub(super) fn lower_function(
         name: strings.intern(&function.name),
         kind: FUNCTION_BINARY_REPR,
         flags,
-        return_type: types.type_id(strings, &function.returns.name()),
+        return_type: types.type_id(strings, &function.returns),
         params,
         registers: Vec::new(),
         cleanups: Vec::new(),
@@ -876,7 +881,7 @@ pub(super) fn source_type_payload(
                 put_u32(&mut payload, variant.fields.len() as u32);
                 for field in &variant.fields {
                     put_u32(&mut payload, strings.intern(&field.name));
-                    put_u32(&mut payload, types.type_id(strings, &field.type_.name()));
+                    put_u32(&mut payload, types.type_id(strings, &field.type_));
                 }
             }
         }
@@ -917,7 +922,7 @@ pub(super) fn put_field_payload(
     field: &crate::ir::IrField,
 ) {
     put_u32(payload, strings.intern(&field.name));
-    put_u32(payload, types.type_id(strings, &field.type_.name()));
+    put_u32(payload, types.type_id(strings, &field.type_));
     put_u32(
         payload,
         match field.visibility.as_deref() {
@@ -990,7 +995,9 @@ pub(super) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
 /// "sendable to thread" bit (bit 2) when the registry marks the type sendable.
 pub(super) fn standard_resource_flags(type_name: &str) -> u32 {
     let mut flags = RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD | RESOURCE_FLAG_CLOSE_MAY_FAIL;
-    if crate::codegen::resource::is_builtin_sendable_resource_type(type_name) {
+    if crate::codegen::resource::is_builtin_sendable_resource_type(
+        &crate::types::ParameterType::declared(type_name),
+    ) {
         flags |= RESOURCE_FLAG_SENDABLE;
     }
     flags

@@ -435,7 +435,7 @@ fn emit_macos_ec(
     emit_build_inlined_record(
         symbol,
         "kp",
-        "KeyPair",
+        &ParameterType::named("KeyPair"),
         &builder.type_model,
         &[COLL, PUBCOLL],
         &scratch,
@@ -879,7 +879,7 @@ fn emit_linux_ec(
     emit_build_inlined_record(
         symbol,
         "kp",
-        "KeyPair",
+        &ParameterType::named("KeyPair"),
         &builder.type_model,
         &[L_COLL, L_PUBCOLL],
         &scratch,
@@ -1226,7 +1226,7 @@ fn emit_windows_ec(
     emit_build_inlined_record(
         symbol,
         "wkp",
-        "KeyPair",
+        &ParameterType::named("KeyPair"),
         &builder.type_model,
         &[W_COLL, W_PUBCOLL],
         &scratch,
@@ -1537,7 +1537,7 @@ pub(crate) fn lower_generate(
 
     Ok(ValueResult {
         origin: None,
-        type_: ParameterType::parse("KeyPair"),
+        type_: ParameterType::named("KeyPair"),
         location: Operand::from("void"),
         text: "crypto.generate".to_string(),
     })

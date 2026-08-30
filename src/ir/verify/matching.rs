@@ -21,23 +21,36 @@ impl TypeEnv {
         let Some(ty) = self.infer_type(value, locals) else {
             return;
         };
-        let ty = resource_base_type(&ty).to_string();
+        let base = resource_base_type(&ty);
         // A Result scrutinee's CASE Ok/Error arms are rejected by
         // TYPE_RESULT_NOT_MATCHABLE; suppress the secondary exhaustiveness
         // cascade like the former source checker does. Unknown types are skipped as always.
-        if ty.is_empty()
-            || ty == "Unknown"
-            || ty == "Result"
-            || crate::codegen::engine::types::is_result_type(&ty)
+        //
+        // plan-111-B: these four were decided on the RENDERED name — the last of
+        // them by handing that name to `codegen::engine::types::is_result_type`,
+        // which parsed it straight back. `is_result_type(&t.name())` is
+        // `matches!(t, ResultOf(_))` by the `parse`↔`name` round trip, so the
+        // whole guard is a variant question. `Unknown` keeps both spellings it
+        // could arrive as: the variant, and a decoded-IR `Named("Unknown")`,
+        // which is what the string compare accepted.
+        if matches!(base, ParameterType::Unknown | ParameterType::ResultOf(_))
+            || base.is_named("Unknown")
+            || base.is_named("Result")
         {
+            return;
+        }
+        // Still a NAME below here: `union_variants` / `enums` / `unions` are
+        // `String`-keyed symbol tables. plan-111-C re-keys them.
+        let ty = base.name().into_owned();
+        if ty.is_empty() {
             return;
         }
         // The complete member/variant set, and whether it is a union (for the
         // diagnostic wording). Any other *known* type is an open type: only an
         // unguarded CASE ELSE can make its MATCH exhaustive.
-        let (all, is_union) = if let Some(variants) = self.union_variants(&ty) {
+        let (all, is_union) = if let Some(variants) = self.union_variants(&base) {
             (variants, true)
-        } else if let Some(members) = self.enums.get(&ty) {
+        } else if let Some(members) = self.enums.get(&base) {
             (members.clone(), false)
         } else {
             if !cases.iter().any(|case| {
@@ -63,7 +76,7 @@ impl TypeEnv {
         let missing = if is_union {
             let mut ordered: Vec<String> = self
                 .unions
-                .get(&ty)
+                .get(&base)
                 .map(|info| {
                     info.variant_order
                         .iter()
@@ -123,14 +136,14 @@ impl TypeEnv {
         if scrutinee_name.is_empty() || matches!(scrutinee, ParameterType::Unknown) {
             return;
         }
-        let union_variants = self.union_variants(&scrutinee_name);
+        let union_variants = self.union_variants(&scrutinee);
         // An ENUM scrutinee's own variants are equally exempt from the `Result`
         // guard below. Without this, declaring `ENUM Outcome { Ok, … }` makes
         // `CASE Outcome.Ok` unmatchable — the arm is a perfectly ordinary enum
         // variant reference, but the guard only consulted the UNION table, which is
         // `None` for an enum. `net::PingStatus.Ok` (plan-110-A) hit exactly this,
         // and so did every user enum with an `Ok`/`Error`/`Err` variant.
-        let enum_variants = self.enums.get(scrutinee_name.as_ref());
+        let enum_variants = self.enums.get(&scrutinee);
         let check_pattern = |v: &IrValue| {
             // `Result` is internal: `CASE Ok`/`CASE Error` are never valid
             // match arms (the former source checker's TYPE_RESULT_NOT_MATCHABLE). Only fires
@@ -158,9 +171,12 @@ impl TypeEnv {
                 _ => None,
             }
             .filter(|n| {
-                self.records.contains_key(n.as_str())
-                    || self.unions.contains_key(n.as_str())
-                    || self.enums.contains_key(n.as_str())
+                // The pattern names a declared type; the tables are keyed by
+                // that nominal (plan-111-B).
+                let named = ParameterType::declared(n);
+                self.records.contains_key(&named)
+                    || self.unions.contains_key(&named)
+                    || self.enums.contains_key(&named)
             });
             if let Some(type_name) = type_name {
                 match &union_variants {

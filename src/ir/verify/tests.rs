@@ -4096,8 +4096,11 @@ fn link_fn() -> crate::ir::IrLinkFunction {
         name: "open".to_string(),
         library: "sqlite3".to_string(),
         symbol: "sqlite3_open".to_string(),
-        params: vec![("path".to_string(), "String".to_string())],
-        return_type: "Integer".to_string(),
+        params: vec![(
+            "path".to_string(),
+            crate::types::ParameterType::parse("String"),
+        )],
+        return_type: crate::types::ParameterType::parse("Integer"),
         return_resource: false,
         return_state_type: None,
         abi_slots: vec![crate::ir::IrAbiSlot {
@@ -4153,7 +4156,7 @@ fn cstruct(name: &str, fields: &[(&str, &str)]) -> crate::ir::IrCStruct {
     crate::ir::IrCStruct {
         alias: "lib".to_string(),
         name: name.to_string(),
-        maps_to: "Rec".to_string(),
+        maps_to: crate::types::ParameterType::parse("Rec"),
         fields: fields
             .iter()
             .map(|(n, t)| crate::ir::IrCStructField {
@@ -4257,7 +4260,10 @@ fn rejects_oversized_cstruct() {
 #[test]
 fn rejects_cstruct_escape_into_wrapper_signature() {
     let mut lf = link_fn();
-    lf.params = vec![("info".to_string(), "SfInfo".to_string())];
+    lf.params = vec![(
+        "info".to_string(),
+        crate::types::ParameterType::parse("SfInfo"),
+    )];
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "info".to_string(),
         ctype: "CInt32".to_string(),
@@ -4296,7 +4302,7 @@ fn rejects_cstruct_maps_to_non_record() {
     lf.params = vec![];
     lf.abi_slots = vec![abi_slot("cfg", "Cfg", crate::ir::AbiDirection::In)];
     lf.result = None;
-    lf.return_type = "Nothing".to_string();
+    lf.return_type = crate::types::ParameterType::parse("Nothing");
     // cstruct maps_to defaults to "Rec"; no "Rec" type is declared.
     let p = project_with_link(lf, vec![cstruct("Cfg", &[("a", "CInt32")])]);
     expect_rule(&p, "NATIVE_STRUCT_FIELD_MISMATCH");
@@ -4306,7 +4312,7 @@ fn rejects_cstruct_maps_to_non_record() {
 #[test]
 fn rejects_cstruct_escape_in_return_type() {
     let mut lf = link_fn();
-    lf.return_type = "Cfg".to_string();
+    lf.return_type = crate::types::ParameterType::parse("Cfg");
     let p = project_with_link(lf, vec![cstruct("Cfg", &[("a", "CInt32")])]);
     expect_rule(&p, "NATIVE_CSTRUCT_ESCAPE");
 }
@@ -4341,7 +4347,10 @@ fn rejects_bind_in_slot_not_cstruct() {
 #[test]
 fn rejects_bind_in_unknown_field() {
     let mut lf = link_fn();
-    lf.params = vec![("p".to_string(), "Integer".to_string())];
+    lf.params = vec![(
+        "p".to_string(),
+        crate::types::ParameterType::parse("Integer"),
+    )];
     lf.abi_slots = vec![abi_slot("cfg", "Cfg", crate::ir::AbiDirection::In)];
     lf.bind_in = vec![crate::ir::IrBindIn {
         slot: "cfg".to_string(),
@@ -4352,7 +4361,7 @@ fn rejects_bind_in_unknown_field() {
         }],
     }];
     lf.result = None;
-    lf.return_type = "Nothing".to_string();
+    lf.return_type = crate::types::ParameterType::parse("Nothing");
     let p = project_with_link(lf, vec![cstruct("Cfg", &[("a", "CInt32")])]);
     expect_rule(&p, "NATIVE_BIND_IN_INVALID");
 }
@@ -4361,7 +4370,10 @@ fn rejects_bind_in_unknown_field() {
 #[test]
 fn rejects_bind_in_field_both_param_and_literal() {
     let mut lf = link_fn();
-    lf.params = vec![("p".to_string(), "Integer".to_string())];
+    lf.params = vec![(
+        "p".to_string(),
+        crate::types::ParameterType::parse("Integer"),
+    )];
     lf.abi_slots = vec![abi_slot("cfg", "Cfg", crate::ir::AbiDirection::In)];
     lf.bind_in = vec![crate::ir::IrBindIn {
         slot: "cfg".to_string(),
@@ -4372,7 +4384,7 @@ fn rejects_bind_in_field_both_param_and_literal() {
         }],
     }];
     lf.result = None;
-    lf.return_type = "Nothing".to_string();
+    lf.return_type = crate::types::ParameterType::parse("Nothing");
     let p = project_with_link(lf, vec![cstruct("Cfg", &[("a", "CInt32")])]);
     expect_rule(&p, "NATIVE_BIND_IN_INVALID");
 }
@@ -4381,7 +4393,10 @@ fn rejects_bind_in_field_both_param_and_literal() {
 #[test]
 fn rejects_bind_in_field_unknown_param() {
     let mut lf = link_fn();
-    lf.params = vec![("p".to_string(), "Integer".to_string())];
+    lf.params = vec![(
+        "p".to_string(),
+        crate::types::ParameterType::parse("Integer"),
+    )];
     lf.abi_slots = vec![abi_slot("cfg", "Cfg", crate::ir::AbiDirection::In)];
     lf.bind_in = vec![crate::ir::IrBindIn {
         slot: "cfg".to_string(),
@@ -4392,7 +4407,7 @@ fn rejects_bind_in_field_unknown_param() {
         }],
     }];
     lf.result = None;
-    lf.return_type = "Nothing".to_string();
+    lf.return_type = crate::types::ParameterType::parse("Nothing");
     let p = project_with_link(lf, vec![cstruct("Cfg", &[("a", "CInt32")])]);
     expect_rule(&p, "NATIVE_BIND_IN_INVALID");
 }
@@ -4428,8 +4443,8 @@ fn rejects_bind_state_maps_to_mismatch() {
     lf.abi_slots = vec![abi_slot("st", "State", crate::ir::AbiDirection::Out)];
     lf.bind_state = Some("st".to_string());
     lf.return_resource = true;
-    lf.return_state_type = Some("Other".to_string());
-    lf.return_type = "Db".to_string();
+    lf.return_state_type = Some(crate::types::ParameterType::parse("Other"));
+    lf.return_type = crate::types::ParameterType::parse("Db");
     // cstruct maps_to defaults to "Rec" which differs from "Other".
     let p = project_with_link(lf, vec![cstruct("State", &[("a", "CInt32")])]);
     expect_rule(&p, "NATIVE_BIND_STATE_INVALID");
@@ -4444,8 +4459,8 @@ fn rejects_bind_state_resource_wrong_slot() {
     lf.abi_slots = vec![abi_slot("st", "State", crate::ir::AbiDirection::Out)];
     lf.bind_state = Some("st".to_string());
     lf.return_resource = true;
-    lf.return_state_type = Some("Rec".to_string());
-    lf.return_type = "Db".to_string();
+    lf.return_state_type = Some(crate::types::ParameterType::parse("Rec"));
+    lf.return_type = crate::types::ParameterType::parse("Db");
     lf.bind_state_resource = Some("wrong".to_string());
     // cstruct maps_to defaults to "Rec", matching return_state_type.
     let p = project_with_link(lf, vec![cstruct("State", &[("a", "CInt32")])]);
@@ -4461,8 +4476,8 @@ fn bind_state_resource_with_computed_result_is_skipped() {
     lf.abi_slots = vec![abi_slot("st", "State", crate::ir::AbiDirection::Out)];
     lf.bind_state = Some("st".to_string());
     lf.return_resource = true;
-    lf.return_state_type = Some("Rec".to_string());
-    lf.return_type = "Db".to_string();
+    lf.return_state_type = Some(crate::types::ParameterType::parse("Rec"));
+    lf.return_type = crate::types::ParameterType::parse("Db");
     lf.bind_state_resource = Some("wrong".to_string());
     lf.result = Some(crate::ir::IrLinkExpr::Int(100));
     let p = project_with_link(lf, vec![cstruct("State", &[("a", "CInt32")])]);
@@ -4482,8 +4497,8 @@ fn rejects_bind_state_resource_against_abi_return() {
     lf.abi_slots = vec![abi_slot("st", "State", crate::ir::AbiDirection::Out)];
     lf.bind_state = Some("st".to_string());
     lf.return_resource = true;
-    lf.return_state_type = Some("Rec".to_string());
-    lf.return_type = "Db".to_string();
+    lf.return_state_type = Some(crate::types::ParameterType::parse("Rec"));
+    lf.return_type = crate::types::ParameterType::parse("Db");
     lf.bind_state_resource = Some("wrong".to_string());
     lf.result = None; // produced = abi_return_name ("value") != "wrong"
     let p = project_with_link(lf, vec![cstruct("State", &[("a", "CInt32")])]);
@@ -4498,16 +4513,22 @@ fn rejects_native_resource_state_disagreement() {
     let mut producer = link_fn();
     producer.name = "prod".to_string();
     producer.return_resource = true;
-    producer.return_state_type = Some("S1".to_string());
-    producer.return_type = "Db".to_string();
+    producer.return_state_type = Some(crate::types::ParameterType::parse("S1"));
+    producer.return_type = crate::types::ParameterType::parse("Db");
 
     let mut agree = link_fn();
     agree.name = "agree".to_string();
-    agree.params = vec![("x".to_string(), "Db STATE S1".to_string())];
+    agree.params = vec![(
+        "x".to_string(),
+        crate::types::ParameterType::parse("Db STATE S1"),
+    )];
 
     let mut bad = link_fn();
     bad.name = "bad".to_string();
-    bad.params = vec![("x".to_string(), "Db STATE S2".to_string())];
+    bad.params = vec![(
+        "x".to_string(),
+        crate::types::ParameterType::parse("Db STATE S2"),
+    )];
 
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![producer, agree, bad];
@@ -4597,7 +4618,7 @@ fn accepts_link_expr_naming_an_abi_slot() {
 #[test]
 fn rejects_struct_slot_with_uncovered_record_field() {
     let mut lf = link_fn();
-    lf.return_type = "Rec".to_string();
+    lf.return_type = crate::types::ParameterType::parse("Rec");
     lf.params = vec![];
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "s".to_string(),
@@ -4620,7 +4641,7 @@ fn rejects_struct_slot_with_uncovered_record_field() {
 #[test]
 fn rejects_struct_slot_with_mistyped_record_field() {
     let mut lf = link_fn();
-    lf.return_type = "Rec".to_string();
+    lf.return_type = crate::types::ParameterType::parse("Rec");
     lf.params = vec![];
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "s".to_string(),
@@ -4680,7 +4701,7 @@ fn rejects_link_cvoid_argument_slot() {
 #[test]
 fn rejects_link_cptr_escape_in_param() {
     let mut lf = link_fn();
-    lf.params = vec![("p".to_string(), "CPtr".to_string())];
+    lf.params = vec![("p".to_string(), crate::types::ParameterType::parse("CPtr"))];
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "p".to_string(),
         ctype: "CPtr".to_string(),
@@ -4694,7 +4715,7 @@ fn rejects_link_cptr_escape_in_param() {
 #[test]
 fn rejects_link_cptr_escape_in_return() {
     let mut lf = link_fn();
-    lf.return_type = "CPtr".to_string();
+    lf.return_type = crate::types::ParameterType::parse("CPtr");
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![lf];
     expect_rule(&p, "NATIVE_CPTR_ESCAPE");
@@ -4803,8 +4824,14 @@ fn rejects_link_no_result() {
 fn rejects_link_unbound_param() {
     let mut lf = link_fn();
     lf.params = vec![
-        ("path".to_string(), "String".to_string()),
-        ("extra".to_string(), "Integer".to_string()),
+        (
+            "path".to_string(),
+            crate::types::ParameterType::parse("String"),
+        ),
+        (
+            "extra".to_string(),
+            crate::types::ParameterType::parse("Integer"),
+        ),
     ];
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![lf];
@@ -5303,7 +5330,7 @@ fn rejects_link_return_on_a_nothing_wrapper() {
     // single RETURN clause. The surviving RESULT_MARKER case is a wrapper that
     // surfaces no value yet names one.
     let mut lf = link_fn();
-    lf.return_type = "Nothing".to_string();
+    lf.return_type = crate::types::ParameterType::parse("Nothing");
     lf.result = Some(crate::ir::IrLinkExpr::Var("value".to_string()));
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![lf];
@@ -7418,8 +7445,11 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
 /// fixture drifted into some other rejection.
 fn cbuffer_fn() -> crate::ir::IrLinkFunction {
     let mut lf = link_fn();
-    lf.params = vec![("n".to_string(), "Integer".to_string())];
-    lf.return_type = crate::ir::BYTE_LIST_TYPE.to_string();
+    lf.params = vec![(
+        "n".to_string(),
+        crate::types::ParameterType::parse("Integer"),
+    )];
+    lf.return_type = crate::types::ParameterType::parse(crate::ir::BYTE_LIST_TYPE);
     lf.abi_slots = vec![
         crate::ir::IrAbiSlot {
             name: "buf".to_string(),
@@ -7534,7 +7564,7 @@ fn rejects_cbuffer_as_abi_return() {
 #[test]
 fn rejects_cbuffer_not_named_by_return() {
     let mut lf = cbuffer_fn();
-    lf.return_type = "Integer".to_string();
+    lf.return_type = crate::types::ParameterType::parse("Integer");
     lf.result = Some(crate::ir::IrLinkExpr::Var("status".to_string()));
     expect_rule(&cbuffer_project(lf), "NATIVE_BUFFER_INVALID");
 }
@@ -7543,7 +7573,7 @@ fn rejects_cbuffer_not_named_by_return() {
 #[test]
 fn rejects_cbuffer_return_with_wrong_wrapper_type() {
     let mut lf = cbuffer_fn();
-    lf.return_type = "String".to_string();
+    lf.return_type = crate::types::ParameterType::parse("String");
     expect_rule(&cbuffer_project(lf), "NATIVE_BUFFER_INVALID");
 }
 
@@ -7555,7 +7585,7 @@ fn rejects_cbuffer_return_with_wrong_wrapper_type() {
 #[test]
 fn rejects_byte_list_return_without_cbuffer_slot() {
     let mut lf = link_fn();
-    lf.return_type = crate::ir::BYTE_LIST_TYPE.to_string();
+    lf.return_type = crate::types::ParameterType::parse(crate::ir::BYTE_LIST_TYPE);
     expect_rule(&cbuffer_project(lf), "NATIVE_BUFFER_INVALID");
 }
 
@@ -8362,7 +8392,7 @@ fn rejects_returning_an_in_struct_slot() {
     // An IN slot is zeroed and never read back, so `RETURN s` names nothing.
     let (mut p, mut f) = struct_slot_project(crate::ir::AbiDirection::In);
     f.bind_in = vec![bind_in("s", &[("a", None, Some(1))])];
-    f.return_type = "Rec".to_string();
+    f.return_type = crate::types::ParameterType::parse("Rec");
     f.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
     p.link_functions = vec![f];
     expect_rule(&p, "NATIVE_ABI_RESULT_MARKER");
@@ -8372,7 +8402,7 @@ fn rejects_returning_an_in_struct_slot() {
 fn rejects_returning_a_struct_slot_as_another_type() {
     // A wrapper that returns a struct slot must declare its mapped record.
     let (mut p, mut f) = struct_slot_project(crate::ir::AbiDirection::Out);
-    f.return_type = "Integer".to_string();
+    f.return_type = crate::types::ParameterType::parse("Integer");
     f.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
     p.link_functions = vec![f];
     expect_rule(&p, "NATIVE_STRUCT_FIELD_MISMATCH");
@@ -8383,7 +8413,7 @@ fn rejects_bind_in_on_an_out_slot() {
     let (mut p, mut f) = struct_slot_project(crate::ir::AbiDirection::Out);
     f.bind_in = vec![bind_in("s", &[("a", None, Some(1))])];
     f.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
-    f.return_type = "Rec".to_string();
+    f.return_type = crate::types::ParameterType::parse("Rec");
     p.link_functions = vec![f];
     expect_rule(&p, "NATIVE_BIND_IN_INVALID");
 }

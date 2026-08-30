@@ -23,7 +23,7 @@
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::{callable_return_type, typed_list_element_type};
+use crate::codegen::engine::types::{typed_callable_return_type, typed_list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
@@ -31,7 +31,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn lower_map_projection(
         &mut self,
         collection: &ValueResult,
-        element_type: &str,
+        element_type: &ParameterType,
         project_key: bool,
     ) -> Result<ValueResult, String> {
         // The projected list's own entry stride: zero when the element type is
@@ -58,12 +58,10 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             collection_slot,
         ));
-        let layout = CollectionTypeLayout::from_type(&ParameterType::list_of(
-            ParameterType::parse(&element_type),
-        ))
-        .ok_or_else(|| {
-            format!("native code collection type 'List OF {element_type}' is not supported")
-        })?;
+        let layout = CollectionTypeLayout::from_type(&ParameterType::list_of(element_type.clone()))
+            .ok_or_else(|| {
+                format!("native code collection type 'List OF {element_type}' is not supported")
+            })?;
         let data_len_slot = self.allocate_stack_object("map_projection_data_len", 8);
         let result_slot = self.allocate_stack_object("map_projection_result", 8);
         let length_loop = self.label("map_projection_length_loop");
@@ -250,7 +248,7 @@ impl CodeBuilder<'_> {
             abi::mfb_return(1),
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit_collection_data_pointer_for(&scratch20, &scratch8, "");
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, &ParameterType::named(""));
         self.emit(abi::move_immediate(
             &scratch14,
             "Integer",
@@ -344,7 +342,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::list_of(ParameterType::parse(&element_type)),
+            type_: ParameterType::list_of(element_type.clone()),
             location: Operand::from(result.render()),
             text: if project_key {
                 format!("keys({})", collection.type_)
@@ -362,9 +360,7 @@ impl CodeBuilder<'_> {
         let scratch9 = self.temporary_vreg();
         let scratch17 = self.temporary_vreg();
         let collection = args[0].clone();
-        let Some(element_type) =
-            typed_list_element_type(&collection.type_).map(|type_| type_.name().into_owned())
-        else {
+        let Some(element_type) = typed_list_element_type(&collection.type_).cloned() else {
             return Err(format!(
                 "native collection reduce does not accept {}",
                 collection.type_
@@ -384,13 +380,15 @@ impl CodeBuilder<'_> {
             accumulator_slot,
         ));
         let action = args[2].clone();
-        let output_type = callable_return_type(&action.type_.name()).ok_or_else(|| {
-            format!(
-                "native collection reduce reducer must be a function, got {}",
-                action.type_
-            )
-        })?;
-        if output_type != initial.type_.name().as_ref() {
+        let output_type = typed_callable_return_type(&action.type_)
+            .cloned()
+            .ok_or_else(|| {
+                format!(
+                    "native collection reduce reducer must be a function, got {}",
+                    action.type_
+                )
+            })?;
+        if output_type != initial.type_ {
             return Err(format!(
                 "native collection reduce reducer must return {}, got {output_type}",
                 initial.type_
@@ -443,7 +441,8 @@ impl CodeBuilder<'_> {
         // This machinery is emitted only when a String block is actually at risk
         // of leaking (String accumulator and/or String element); scalar folds keep
         // their prior byte-identical codegen.
-        let manages_owned = initial.type_ == ParameterType::String || element_type == "String";
+        let manages_owned =
+            initial.type_ == ParameterType::String || element_type == ParameterType::String;
         let (item_slot, acc_owned_slot, new_slot, new_owned_slot) = if manages_owned {
             let item_slot = self.allocate_stack_object("reduce_item", 8);
             let acc_owned_slot = self.allocate_stack_object("reduce_acc_owned", 8);
@@ -547,7 +546,7 @@ impl CodeBuilder<'_> {
             // Free the loop item unless the reducer adopted it as the new
             // accumulator (item == new). Only String items own a standalone block;
             // fixed-width items materialize nothing.
-            if element_type == "String" {
+            if element_type == ParameterType::String {
                 let r_item = self.temporary_vreg();
                 let r_new2 = self.temporary_vreg();
                 let item_kept = self.label("reduce_item_kept");
@@ -555,7 +554,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&r_new2, abi::stack_pointer(), new_slot));
                 self.emit(abi::compare_registers(&r_item, &r_new2));
                 self.emit(abi::branch_eq(&item_kept));
-                self.free_collection_loop_item(item_slot, "String")?;
+                self.free_collection_loop_item(item_slot, &ParameterType::String)?;
                 self.emit(abi::label(&item_kept));
             }
 
@@ -575,7 +574,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&r_n, abi::stack_pointer(), new_slot));
                 self.emit(abi::compare_registers(&r_a, &r_n));
                 self.emit(abi::branch_eq(&acc_kept));
-                self.free_collection_loop_item(accumulator_slot, "String")?;
+                self.free_collection_loop_item(accumulator_slot, &ParameterType::String)?;
                 self.emit(abi::label(&acc_kept));
             }
 

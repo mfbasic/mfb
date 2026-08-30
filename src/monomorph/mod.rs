@@ -1,4 +1,4 @@
-use crate::ast::{TypeDeclKind, UnionVariant};
+use crate::ast::TypeDeclKind;
 use crate::hir::{
     HirCallArg, HirConstructorArg, HirExpression, HirFile, HirFunction, HirItem, HirMatchCase,
     HirMatchPattern, HirParam, HirProject, HirRecordUpdate, HirStatement, HirTopLevelBinding,
@@ -30,9 +30,12 @@ pub fn monomorphize_project(project_dir: &Path, hir: &HirProject) -> Result<HirP
 struct Monomorphizer<'a> {
     project_dir: &'a Path,
     source: &'a HirProject,
-    type_templates: HashMap<String, HirTypeDecl>,
+    /// plan-111-B: keyed by the template TYPE (a nominal).
+    type_templates: HashMap<crate::types::ParameterType, HirTypeDecl>,
     function_templates: HashMap<String, HirFunction>,
-    concrete_types: HashMap<String, HirTypeDecl>,
+    /// plan-111-B: keyed by the concrete TYPE — for an instantiation, the
+    /// mangled nominal `instantiate_type` hands back.
+    concrete_types: HashMap<crate::types::ParameterType, HirTypeDecl>,
     concrete_functions: HashMap<String, HirFunction>,
     function_overloads: HashMap<String, Vec<HirFunction>>,
     overload_names: HashMap<String, String>,
@@ -45,7 +48,13 @@ struct Monomorphizer<'a> {
     /// to normalize an argument's qualified user/resource type to the bare name
     /// the package stored in its mangled overload names.
     package_qualifiers: Vec<String>,
-    type_instantiations: HashMap<String, (String, Vec<String>)>,
+    /// The mangled concrete nominal -> (template name, its type arguments).
+    /// plan-111-B: keyed by the TYPE and holding types. It is looked up with a
+    /// `ParameterType` in `template_view`, which is what makes it type-keyed;
+    /// the mangled name itself stays a `String` inside the value, because there
+    /// it is a symbol.
+    type_instantiations:
+        HashMap<crate::types::ParameterType, (String, Vec<crate::types::ParameterType>)>,
     emitted_type_keys: HashSet<String>,
     emitted_function_keys: HashSet<String>,
     /// Claimed concrete symbol -> the unambiguous `name<args>` key that owns it.
@@ -85,7 +94,9 @@ struct Monomorphizer<'a> {
 /// One overload of an imported package function.
 struct ImportedOverload {
     /// Declared parameter types in order (bare, as the package stored them).
-    param_types: Vec<String>,
+    /// plan-111-B: typed — the `.mfp` export view they come from is decoded
+    /// into types by `binary_repr::builder` (boundary #4).
+    param_types: Vec<crate::types::ParameterType>,
     /// The fully package-qualified mangled name (`package.base$Types`) the merge
     /// expects.
     qualified_name: String,
@@ -104,7 +115,8 @@ struct FunctionContext {
     locals: HashMap<String, ParameterType>,
     function_returns: HashMap<String, ParameterType>,
     function_types: HashMap<String, ParameterType>,
-    record_fields: HashMap<String, Vec<HirTypeField>>,
+    /// plan-111-B: keyed by the record TYPE.
+    record_fields: HashMap<crate::types::ParameterType, Vec<HirTypeField>>,
     /// Declared type of each top-level `LET`/`MUT` binding, keyed by name. Lets
     /// `expression_type` resolve an identifier that names a global so a generic /
     /// overloaded call taking that global infers its type instead of being falsely

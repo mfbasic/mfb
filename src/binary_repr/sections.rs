@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::ParameterType;
 
 impl StringPool {
     pub(super) fn new() -> Self {
@@ -75,159 +76,154 @@ impl TypeTable {
         Ok(())
     }
 
-    pub(super) fn type_id(&mut self, strings: &mut StringPool, name: &str) -> u32 {
-        /// Whether a spelling OPENS one of the structural shapes, i.e. whether the
-        /// structural arm below should claim it. Kept as a prefix test on purpose:
-        /// it decides *which arm*, not what the type is — the shape itself comes
-        /// from `ParameterType::parse` inside the arm.
-        fn is_structural(name: &str) -> bool {
-            [
-                "List OF ",
-                "Set OF ",
-                "Result OF ",
-                "Thread OF ",
-                "ThreadWorker OF ",
-                "Map OF ",
-                "MapEntry OF ",
-                "FUNC(",
-                "ISOLATED FUNC(",
-            ]
-            .iter()
-            .any(|prefix| name.starts_with(prefix))
+    /// The wire kind for an opaque entry.
+    ///
+    /// A name that OPENS a structural shape without parsing as one keeps the kind
+    /// its old non-splitting `else` branch wrote (7/10/9); everything else is the
+    /// plain record kind 1. Kept for wire compatibility — see [`Self::type_id`].
+    fn opaque_entry_kind(name: &str) -> u16 {
+        if name.starts_with("Thread OF ") {
+            7
+        } else if name.starts_with("ThreadWorker OF ") {
+            10
+        } else if name.starts_with("MapEntry OF ") {
+            9
+        } else if name.starts_with("Map OF ")
+            || name.starts_with("List OF ")
+            || name.starts_with("Set OF ")
+            || name.starts_with("Result OF ")
+            || name.starts_with("FUNC(")
+            || name.starts_with("ISOLATED FUNC(")
+        {
+            5
+        } else {
+            1
         }
+    }
 
-        /// The wire kind for a structural spelling that did not parse — the kind
-        /// each old non-splitting `else` branch wrote.
-        fn opaque_structural_kind(name: &str) -> u16 {
-            if name.starts_with("Thread OF ") {
-                7
-            } else if name.starts_with("ThreadWorker OF ") {
-                10
-            } else if name.starts_with("MapEntry OF ") {
-                9
-            } else {
-                5
-            }
-        }
-
-        match name {
-            // A resource carrying `STATE T` is a composite of two type ids, encoded
-            // like `List`/`Map`/`Thread` rather than as an opaque name (plan-52-D
-            // §4). Before this it matched no arm and fell to the `_` fallback, which
-            // interned "File STATE Cursor" as an empty RECORD entry (kind 1) — a
-            // type that does not exist, with no fields — and the reader then failed
-            // outright with "truncated binary representation".
-            //
-            // It must round-trip rather than be stripped: a consumer reads an
-            // imported function's signature from the ABI exports
-            // (the former source checker's `collect_package_functions` →
-            // `binary_repr::read_package_exports`), NOT from the `.mfp`'s IR
-            // section. Erasing the STATE here would compile the exporter fine and
-            // silently degrade every importer to a bare `File` — which would leave
-            // `bindings/libsnd`, a package boundary, exactly as blocked as before.
-            name if crate::codegen::resource::state_type_name(name).is_some() => {
-                let base = crate::codegen::resource::base_resource_name(name);
-                let state = crate::codegen::resource::state_type_name(name).unwrap_or(name);
-                let base = self.type_id(strings, base);
-                let state = self.type_id(strings, state);
+    /// The wire type id for `type_`, interning whatever the entry needs.
+    ///
+    /// plan-111-G: takes the TYPE, and the match is FLAT — the nested
+    /// `match parse(name)` inside a `match name` collapses to one match on the
+    /// variant, and `is_structural` (which only ever answered "which arm claims
+    /// this spelling") goes with it.
+    ///
+    /// `opaque_structural_kind` does NOT go with it, and the first version of
+    /// this change was wrong to delete it. A spelling that OPENS a structural
+    /// shape but does not parse as one — `Thread OF Garbage`, `Map OF Garbage` —
+    /// arrives here as a `Named`, and it used to intern with kind 7/10/9/5, not
+    /// the plain kind 1 the fallback writes. That is a WIRE change, which
+    /// plan-111-A §1 forbids, and `type_id_falls_back_for_malformed_composites`
+    /// did not catch it because it asserted only that an id came back. The rule
+    /// is kept, as the name-domain compatibility rule it always was, and that
+    /// test now asserts the KINDS.
+    ///
+    /// Arm order is not observable: every arm is a distinct variant or a distinct
+    /// nominal, except the leading STATE guard, which must stay first for the
+    /// same reason it always did — `File STATE Cursor` is a composite of two ids,
+    /// not an opaque name (plan-52-D §4). Erasing it would compile the exporter
+    /// and silently degrade every importer to a bare `File`, because a consumer
+    /// reads an imported signature from the ABI exports, not from the `.mfp`'s IR
+    /// section.
+    ///
+    /// The ids are unchanged and pinned by
+    /// `wire_type_ids_are_unchanged_by_the_typed_encoder`.
+    pub(super) fn type_id(&mut self, strings: &mut StringPool, type_: &ParameterType) -> u32 {
+        let rendered = type_.name();
+        let name = rendered.as_ref();
+        match type_ {
+            // A resource carrying `STATE T` is a composite of two type ids (see
+            // the doc comment above). Must stay the FIRST arm.
+            _ if type_.state().is_some() => {
+                let (base, state) = type_.split_state();
+                let base = self.type_id(strings, &base);
+                let state = self.type_id(strings, &state.expect("state() is Some here"));
                 self.state_type(strings, base, state)
             }
-            "Nothing" => TYPE_NOTHING,
-            "Boolean" => TYPE_BOOLEAN,
-            "Integer" => TYPE_INTEGER,
-            "Float" => TYPE_FLOAT,
-            "Fixed" => TYPE_FIXED,
-            "String" => TYPE_STRING,
-            "Scalar" => TYPE_SCALAR,
-            "fs.File" => TYPE_FILE_HANDLE,
-            "tcp.Socket" => TYPE_SOCKET_HANDLE,
-            "tcp.Listener" => TYPE_LISTENER_HANDLE,
-            // The structural shapes, decomposed by the CANONICAL grammar
-            // (plan-106-E) rather than a prefix cascade with its own splitter.
-            //
-            // The `Map`/`MapEntry` arms used to `split_once(" TO ")`, which takes
-            // the LEFTMOST separator — the same mis-split bug-108.2 fixed in the
-            // front end. `Map OF Map OF String TO Integer TO Boolean` encoded key
-            // `Map OF String` and value `Integer TO Boolean`, two types that do
-            // not exist, and the resulting table did not decode at all
-            // ("truncated binary representation"). `ParameterType::parse` splits
-            // at the TOP-LEVEL ` TO `, which is where that rule lives once.
-            name if is_structural(name) => match crate::types::ParameterType::parse(name) {
-                crate::types::ParameterType::ListOf(element) => {
-                    let element = self.type_id(strings, &element.name());
-                    self.list_type(strings, element)
-                }
-                // `Set OF T` (plan-63): a single element type id, kind 13. Distinct
-                // from `List` (kind 4) so a decoded signature keeps the `Set`
-                // spelling every front-end stage pattern-matches on.
-                crate::types::ParameterType::SetOf(element) => {
-                    let element = self.type_id(strings, &element.name());
-                    self.set_type(strings, element)
-                }
-                crate::types::ParameterType::ResultOf(success) => {
-                    let success = self.type_id(strings, &success.name());
-                    self.result_type(strings, success)
-                }
-                crate::types::ParameterType::ThreadHandle {
-                    worker,
-                    msg,
-                    res,
-                    out,
-                } => {
-                    let message = self.type_id(strings, &msg.name());
-                    // An absent resource plane is `Nothing`, which the wire encodes
-                    // as no plane at all (`thread_parts_full` returned `None`).
-                    let resource = match res.as_ref() {
-                        crate::types::ParameterType::Nothing => None,
-                        res => Some(self.type_id(strings, &res.name())),
-                    };
-                    let output = self.type_id(strings, &out.name());
-                    if worker {
-                        self.thread_worker_type(strings, message, resource, output)
-                    } else {
-                        self.thread_type(strings, message, resource, output)
-                    }
-                }
-                crate::types::ParameterType::Func(_, _, _) => self.function_type(strings, name),
-                crate::types::ParameterType::MapOf(key, value) => {
-                    let key = self.type_id(strings, &key.name());
-                    let value = self.type_id(strings, &value.name());
-                    self.map_type(strings, key, value)
-                }
-                crate::types::ParameterType::MapEntryOf(key, value) => {
-                    let key = self.type_id(strings, &key.name());
-                    let value = self.type_id(strings, &value.name());
-                    self.map_entry_type(strings, key, value)
-                }
-                // A spelling that OPENS one of the structural shapes but does not
-                // parse as one (`Map OF K` with no ` TO `) keeps the opaque entry
-                // the old non-splitting `else` branches wrote.
-                _ => {
-                    let kind = opaque_structural_kind(name);
-                    self.add_entry(strings, "", name, kind, Vec::new())
-                }
-            },
-            "Byte" => TYPE_BYTE,
-            "Money" => TYPE_MONEY,
+            ParameterType::Nothing => TYPE_NOTHING,
+            ParameterType::Boolean => TYPE_BOOLEAN,
+            ParameterType::Integer => TYPE_INTEGER,
+            ParameterType::Float => TYPE_FLOAT,
+            ParameterType::Fixed => TYPE_FIXED,
+            ParameterType::String => TYPE_STRING,
+            ParameterType::Byte => TYPE_BYTE,
+            ParameterType::Money => TYPE_MONEY,
+            // Bare nominals: no variant, so matched by name.
+            t if t.is_named("Scalar") => TYPE_SCALAR,
+            t if t.is_named("fs.File") => TYPE_FILE_HANDLE,
+            t if t.is_named("tcp.Socket") => TYPE_SOCKET_HANDLE,
+            t if t.is_named("tcp.Listener") => TYPE_LISTENER_HANDLE,
             // plan-89-A: an opaque primitive-like type, identified on the wire by
             // its id alone (like `Scalar`/`Money`); its internal field layout is a
             // compiler-side hardcoded table, never serialized.
-            "AttributedString" => TYPE_ATTRIBUTED_STRING,
-            "Error" => {
+            t if t.is_named("AttributedString") => TYPE_ATTRIBUTED_STRING,
+            t if t.is_named("Error") => {
                 strings.intern("code");
                 strings.intern("message");
                 TYPE_ERROR
             }
-            "TermColor" => {
+            t if t.is_named("TermColor") => {
                 strings.intern("r");
                 strings.intern("g");
                 strings.intern("b");
                 TYPE_TERM_COLOR
             }
-            "TermSize" => {
+            t if t.is_named("TermSize") => {
                 strings.intern("columns");
                 strings.intern("rows");
                 TYPE_TERM_SIZE
+            }
+            ParameterType::ListOf(element) => {
+                let element = self.type_id(strings, element);
+                self.list_type(strings, element)
+            }
+            // `Set OF T` (plan-63): a single element type id, kind 13. Distinct
+            // from `List` (kind 4) so a decoded signature keeps the `Set`
+            // spelling every front-end stage pattern-matches on.
+            ParameterType::SetOf(element) => {
+                let element = self.type_id(strings, element);
+                self.set_type(strings, element)
+            }
+            ParameterType::ResultOf(success) => {
+                let success = self.type_id(strings, success);
+                self.result_type(strings, success)
+            }
+            ParameterType::ThreadHandle {
+                worker,
+                msg,
+                res,
+                out,
+            } => {
+                let message = self.type_id(strings, msg);
+                // An absent resource plane is `Nothing`, which the wire encodes
+                // as no plane at all (`thread_parts_full` returned `None`).
+                let resource = match res.as_ref() {
+                    ParameterType::Nothing => None,
+                    res => Some(self.type_id(strings, res)),
+                };
+                let output = self.type_id(strings, out);
+                if *worker {
+                    self.thread_worker_type(strings, message, resource, output)
+                } else {
+                    self.thread_type(strings, message, resource, output)
+                }
+            }
+            ParameterType::Func(_, _, _) => self.function_type(strings, name),
+            // The `Map`/`MapEntry` split is the CANONICAL grammar's, not a local
+            // `split_once(" TO ")` — which takes the LEFTMOST separator, the same
+            // mis-split bug-108.2 fixed in the front end.
+            // `Map OF Map OF String TO Integer TO Boolean` encoded key
+            // `Map OF String` and value `Integer TO Boolean`, two types that do
+            // not exist, and the table did not decode at all.
+            ParameterType::MapOf(key, value) => {
+                let key = self.type_id(strings, key);
+                let value = self.type_id(strings, value);
+                self.map_type(strings, key, value)
+            }
+            ParameterType::MapEntryOf(key, value) => {
+                let key = self.type_id(strings, key);
+                let value = self.type_id(strings, value);
+                self.map_entry_type(strings, key, value)
             }
             _ => {
                 if let Some(id) = self.ids.get(name) {
@@ -255,7 +251,7 @@ impl TypeTable {
                     // qualified `pkg.Type` reference reaches this arm.)
                     self.foreign_type(strings, bare, &fref)
                 } else {
-                    self.add_entry(strings, "", name, 1, Vec::new())
+                    self.add_entry(strings, "", name, Self::opaque_entry_kind(name), Vec::new())
                 }
             }
         }
@@ -359,10 +355,10 @@ impl TypeTable {
         if let Some(signature) = parse_function_type(name) {
             put_u32(&mut payload, if signature.isolated { 1 } else { 0 });
             put_u32(&mut payload, signature.params.len() as u32);
-            let return_type = self.type_id(strings, &signature.returns);
+            let return_type = self.type_id(strings, &ParameterType::declared(&signature.returns));
             put_u32(&mut payload, return_type);
             for param in signature.params {
-                let param_type = self.type_id(strings, &param);
+                let param_type = self.type_id(strings, &ParameterType::declared(&param));
                 put_u32(&mut payload, param_type);
             }
         }
@@ -594,17 +590,17 @@ impl ConstPool {
 
     pub(super) fn add(&mut self, strings: &mut StringPool, value: &IrValue) -> Result<u32, String> {
         let entry = match value {
-            IrValue::Const { type_, value } => match type_.name().as_ref() {
-                "Nothing" => ConstEntry {
+            IrValue::Const { type_, value } => match type_ {
+                ParameterType::Nothing => ConstEntry {
                     kind: 1,
                     payload: Vec::new(),
                 },
-                "String" => {
+                ParameterType::String => {
                     let mut payload = Vec::new();
                     put_u32(&mut payload, strings.intern(value));
                     ConstEntry { kind: 6, payload }
                 }
-                "Integer" => ConstEntry {
+                ParameterType::Integer => ConstEntry {
                     kind: 3,
                     payload: value
                         .parse::<i64>()
@@ -612,7 +608,7 @@ impl ConstPool {
                         .to_le_bytes()
                         .to_vec(),
                 },
-                "Float" => ConstEntry {
+                ParameterType::Float => ConstEntry {
                     kind: 4,
                     payload: value
                         .parse::<f64>()
@@ -621,23 +617,23 @@ impl ConstPool {
                         .to_le_bytes()
                         .to_vec(),
                 },
-                "Fixed" => ConstEntry {
+                ParameterType::Fixed => ConstEntry {
                     kind: 5,
                     payload: fixed_raw_from_decimal(value)?.to_le_bytes().to_vec(),
                 },
                 // Money's `kind` is its wire type id (`TYPE_MONEY` = 9); the raw
                 // is the exact base-10 scaled i64 (plan-29-B §4.3).
-                "Money" => ConstEntry {
+                ParameterType::Money => ConstEntry {
                     kind: TYPE_MONEY as u16,
                     payload: crate::numeric::money_raw_from_decimal(value)?
                         .to_le_bytes()
                         .to_vec(),
                 },
-                "Boolean" => ConstEntry {
+                ParameterType::Boolean => ConstEntry {
                     kind: 2,
                     payload: vec![if value == "true" { 1 } else { 0 }],
                 },
-                "Byte" => ConstEntry {
+                ParameterType::Byte => ConstEntry {
                     kind: 7,
                     payload: vec![value
                         .parse::<u8>()
@@ -645,7 +641,7 @@ impl ConstPool {
                 },
                 // Scalar's `kind` is its wire type id (`TYPE_SCALAR` = 10); the
                 // payload is the 4-byte LE Unicode codepoint (plan-41-B §3).
-                "Scalar" => ConstEntry {
+                t if t.is_named("Scalar") => ConstEntry {
                     kind: TYPE_SCALAR as u16,
                     payload: value
                         .parse::<u32>()
@@ -683,7 +679,10 @@ impl ResourceTable {
     }
 
     pub(super) fn add_standard_file(&mut self, types: &mut TypeTable, strings: &mut StringPool) {
-        let type_id = types.type_id(strings, crate::codegen::builtins::fs::FILE_TYPE);
+        let type_id = types.type_id(
+            strings,
+            &ParameterType::named(crate::codegen::builtins::fs::FILE_TYPE),
+        );
         self.entries.push(ResourceEntry {
             type_id,
             close_function_id: BUILTIN_FS_CLOSE_FUNCTION_ID,
@@ -692,7 +691,10 @@ impl ResourceTable {
     }
 
     pub(super) fn add_standard_socket(&mut self, types: &mut TypeTable, strings: &mut StringPool) {
-        let type_id = types.type_id(strings, crate::codegen::builtins::tcp::SOCKET_TYPE);
+        let type_id = types.type_id(
+            strings,
+            &ParameterType::named(crate::codegen::builtins::tcp::SOCKET_TYPE),
+        );
         self.entries.push(ResourceEntry {
             type_id,
             close_function_id: BUILTIN_STREAM_CLOSE_FUNCTION_ID,
@@ -705,7 +707,10 @@ impl ResourceTable {
         types: &mut TypeTable,
         strings: &mut StringPool,
     ) {
-        let type_id = types.type_id(strings, crate::codegen::builtins::tcp::LISTENER_TYPE);
+        let type_id = types.type_id(
+            strings,
+            &ParameterType::named(crate::codegen::builtins::tcp::LISTENER_TYPE),
+        );
         self.entries.push(ResourceEntry {
             type_id,
             close_function_id: BUILTIN_STREAM_CLOSE_FUNCTION_ID,

@@ -52,7 +52,14 @@ impl CodeBuilder<'_> {
         // plan-86 A3: both-String zip builds a variable-width `Pair$String$String`
         // per element (get + inlined-record build + append), since the flat
         // 16-byte-record path only fits fixed-width fields.
-        if parts[0] == "String" && parts[1] == "String" {
+        // `parts` are the `$K$V` suffixes of a `#collections_zip$K$V` runtime
+        // target -- NAMES the NIR carries. Parsed once here, at the symbol
+        // boundary, so the decision below is on types.
+        let (a, b) = (
+            ParameterType::declared(parts[0]),
+            ParameterType::declared(parts[1]),
+        );
+        if a == ParameterType::String && b == ParameterType::String {
             return Ok(Some(self.lower_list_zip_string(args)?));
         }
         if !is_fixed(parts[0]) || !is_fixed(parts[1]) {
@@ -259,11 +266,11 @@ impl CodeBuilder<'_> {
         // inputs are separate lists with their own element types, so each takes
         // its own stride (plan-57-D).
         let a_element = typed_list_element_type(&a.type_)
-            .map(|type_| type_.name().into_owned())
-            .unwrap_or_default();
+            .cloned()
+            .unwrap_or_else(|| ParameterType::named(""));
         let b_element = typed_list_element_type(&b.type_)
-            .map(|type_| type_.name().into_owned())
-            .unwrap_or_default();
+            .cloned()
+            .unwrap_or_else(|| ParameterType::named(""));
         // Both inputs are fixed-width by `try_inline_zip_op`'s guard, so under
         // the entry-free representation BOTH are kind 2 and neither has an entry
         // to read. s12/s13 then carry a byte OFFSET from the blob base rather
@@ -400,7 +407,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_free_owned_inlined_block(
         &mut self,
         ptr_slot: usize,
-        type_: &str,
+        type_: &ParameterType,
     ) -> Result<(), String> {
         let size_slot = self.allocate_stack_object("free_inlined_size", 8);
         self.emit_inlined_block_size_from_ptr_slot(type_, ptr_slot, size_slot)?;
@@ -433,8 +440,8 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let scratch = self.temporary_vreg();
         let scratch2 = self.temporary_vreg();
-        let record_type = "Pair$String$String";
-        let list_type = ParameterType::list_of(ParameterType::named(record_type));
+        let record_type = ParameterType::named("Pair$String$String");
+        let list_type = ParameterType::list_of(record_type.clone());
         let a = self.lower_value(&args[0])?;
         let a_slot = self.allocate_stack_object("zips_a", 8);
         self.emit(abi::store_u64(&a.location, abi::stack_pointer(), a_slot));
@@ -471,8 +478,18 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&n_done));
         self.emit(abi::store_u64(&scratch, abi::stack_pointer(), n_slot));
 
-        self.initialize_collection_loop_slots(a_slot, a_cur_slot, a_rem_slot, "String");
-        self.initialize_collection_loop_slots(b_slot, b_cur_slot, b_rem_slot, "String");
+        self.initialize_collection_loop_slots(
+            a_slot,
+            a_cur_slot,
+            a_rem_slot,
+            &ParameterType::String,
+        );
+        self.initialize_collection_loop_slots(
+            b_slot,
+            b_cur_slot,
+            b_rem_slot,
+            &ParameterType::String,
+        );
         self.emit(abi::move_immediate(&scratch, "Integer", "0"));
         self.emit(abi::store_u64(&scratch, abi::stack_pointer(), i_slot));
 
@@ -484,18 +501,18 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(&scratch, &scratch2));
         self.emit(abi::branch_ge(&done_l));
         // av = a[cursor], bv = b[cursor] (fresh materialized String blocks)
-        let av = self.load_collection_loop_item(a_slot, a_cur_slot, "String")?;
+        let av = self.load_collection_loop_item(a_slot, a_cur_slot, &ParameterType::String)?;
         self.emit(abi::store_u64(&av, abi::stack_pointer(), av_slot));
-        let bv = self.load_collection_loop_item(b_slot, b_cur_slot, "String")?;
+        let bv = self.load_collection_loop_item(b_slot, b_cur_slot, &ParameterType::String)?;
         self.emit(abi::store_u64(&bv, abi::stack_pointer(), bv_slot));
         // pair = Pair[av, bv]; append into outer (copies the record bytes).
-        let pair = self.emit_build_inlined_record(record_type, &[av_slot, bv_slot])?;
+        let pair = self.emit_build_inlined_record(&record_type, &[av_slot, bv_slot])?;
         self.emit(abi::store_u64(&pair, abi::stack_pointer(), pair_slot));
-        self.lower_list_append_in_place(outer_slot, pair_slot, &list_type, record_type)?;
+        self.lower_list_append_in_place(outer_slot, pair_slot, &list_type, &record_type)?;
         // Reclaim the two materialized items and the copied Pair record.
-        self.free_collection_loop_item(av_slot, "String")?;
-        self.free_collection_loop_item(bv_slot, "String")?;
-        self.emit_free_owned_inlined_block(pair_slot, record_type)?;
+        self.free_collection_loop_item(av_slot, &ParameterType::String)?;
+        self.free_collection_loop_item(bv_slot, &ParameterType::String)?;
+        self.emit_free_owned_inlined_block(pair_slot, &record_type)?;
         // Advance both cursors one entry; i++.
         self.emit(abi::load_u64(&scratch, abi::stack_pointer(), a_cur_slot));
         self.emit(abi::add_immediate(

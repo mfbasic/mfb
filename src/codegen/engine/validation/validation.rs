@@ -243,7 +243,7 @@ impl TypeModel {
         let mut record_fields = HashMap::new();
         let mut union_names = HashSet::new();
         let mut union_variants = HashMap::new();
-        let mut union_variant_unions = HashMap::<String, HashSet<String>>::new();
+        let mut union_variant_unions = HashMap::<ParameterType, HashSet<ParameterType>>::new();
         // bug-80: variant tags are assigned globally-canonically (keyed by variant
         // name, independent of position within any including union) by
         // recompute_canonical_variant_tags at the end, so a variant included at
@@ -257,7 +257,7 @@ impl TypeModel {
             match type_.kind.as_str() {
                 "type" | "record" => {
                     record_fields.insert(
-                        type_.name.clone(),
+                        ParameterType::declared(&type_.name),
                         type_
                             .fields
                             .iter()
@@ -267,21 +267,26 @@ impl TypeModel {
                 }
                 "enum" => {
                     for (index, member) in type_.members.iter().enumerate() {
-                        enum_members.insert((type_.name.clone(), member.name.clone()), index);
+                        enum_members.insert(
+                            (ParameterType::declared(&type_.name), member.name.clone()),
+                            index,
+                        );
                     }
                 }
                 "union" => {
-                    union_names.insert(type_.name.clone());
+                    let union_type = ParameterType::declared(&type_.name);
+                    union_names.insert(union_type.clone());
                     for variant in expanded_nir_union_variants(module, &type_.name).iter() {
+                        let variant_type = ParameterType::declared(&variant.name);
                         union_variants
-                            .entry(variant.name.clone())
-                            .or_insert_with(|| type_.name.clone());
+                            .entry(variant_type.clone())
+                            .or_insert_with(|| union_type.clone());
                         union_variant_unions
-                            .entry(variant.name.clone())
+                            .entry(variant_type.clone())
                             .or_default()
-                            .insert(type_.name.clone());
+                            .insert(union_type.clone());
                         union_variant_fields.insert(
-                            variant.name.clone(),
+                            variant_type,
                             variant
                                 .fields
                                 .iter()
@@ -291,7 +296,7 @@ impl TypeModel {
                     }
                 }
                 "resource" => {
-                    resource_names.insert(type_.name.clone());
+                    resource_names.insert(ParameterType::declared(&type_.name));
                 }
                 other => {
                     return Err(format!(
@@ -306,16 +311,14 @@ impl TypeModel {
         // derived from there as well as from the `"resource"` kind above.
         for function in &module.link_functions {
             if function.return_resource {
-                resource_names.insert(
-                    crate::codegen::resource::base_resource_name(&function.return_type).to_string(),
-                );
+                resource_names.insert(function.return_type.without_state());
             }
         }
         // `Error` and `ErrorLoc` are read-only compiler/runtime records laid out
         // as ordinary 3-field records so construction, field access, copying, and
         // cleanup reuse the generic record machinery.
         record_fields.insert(
-            "Error".to_string(),
+            ParameterType::named("Error"),
             vec![
                 ("code".to_string(), ParameterType::Integer),
                 ("message".to_string(), ParameterType::String),
@@ -323,7 +326,7 @@ impl TypeModel {
             ],
         );
         record_fields.insert(
-            "ErrorLoc".to_string(),
+            ParameterType::named("ErrorLoc"),
             vec![
                 ("filename".to_string(), ParameterType::String),
                 ("line".to_string(), ParameterType::Integer),
@@ -347,7 +350,7 @@ impl TypeModel {
         // companion declares a matching `AttrSpan` so the `.mfb` bridge can read and
         // build spans; the two must stay field-identical.
         record_fields.insert(
-            "AttrSpan".to_string(),
+            ParameterType::named("AttrSpan"),
             vec![
                 ("start".to_string(), ParameterType::Integer),
                 // `last` (not `end`): `end` is a reserved keyword and cannot follow
@@ -362,7 +365,7 @@ impl TypeModel {
             ],
         );
         record_fields.insert(
-            "AttributedString".to_string(),
+            ParameterType::named("AttributedString"),
             vec![
                 ("text".to_string(), ParameterType::String),
                 (
@@ -383,7 +386,12 @@ impl TypeModel {
         let resource_closers = module
             .native_resources
             .iter()
-            .map(|resource| (resource.name.clone(), resource.close_function.clone()))
+            .map(|resource| {
+                (
+                    ParameterType::declared(&resource.name),
+                    resource.close_function.clone(),
+                )
+            })
             .collect();
         let mut model = Self {
             enum_members,
@@ -400,6 +408,8 @@ impl TypeModel {
         // packages are also present, from_module_and_packages re-derives them over
         // the combined set.
         model.recompute_canonical_variant_tags();
+        #[cfg(debug_assertions)]
+        model.assert_type_keys_are_bijective();
         Ok(model)
     }
 
@@ -419,9 +429,9 @@ impl TypeModel {
                 .into_iter()
                 .filter(|resource| resource.native)
                 .collect();
-            let native_resources: HashSet<String> = exported_resources
+            let native_resources: HashSet<ParameterType> = exported_resources
                 .iter()
-                .map(|resource| resource.type_name.clone())
+                .map(|resource| ParameterType::declared(&resource.type_name))
                 .collect();
             // An imported binding's resource is still a resource here (bug-372):
             // it is skipped as a *record* above, but codegen must recognize the
@@ -458,12 +468,12 @@ impl TypeModel {
                     continue;
                 };
                 model.resource_closers.insert(
-                    resource.type_name,
+                    ParameterType::declared(&resource.type_name),
                     format!("{identity}.{package_name}.{close_function}"),
                 );
             }
             for type_export in binary_repr::read_package_type_exports(package)? {
-                if native_resources.contains(&type_export.name) {
+                if native_resources.contains(&ParameterType::declared(&type_export.name)) {
                     continue;
                 }
                 model.add_package_type_export(type_export)?;
@@ -473,7 +483,84 @@ impl TypeModel {
         // imported package union), so a variant shared across the boundary gets one
         // globally-consistent tag regardless of registration order (bug-80).
         model.recompute_canonical_variant_tags();
+        #[cfg(debug_assertions)]
+        model.assert_type_keys_are_bijective();
         Ok(model)
+    }
+
+    /// plan-111-C Phase 2: the equivalence check that stands in for the
+    /// byte-level gate this letter does not get.
+    ///
+    /// Re-keying a table from a SPELLING to a `ParameterType` is safe exactly
+    /// when the map from spellings to keys is a bijection over the keys actually
+    /// present. Two failure modes, both silent:
+    ///
+    /// * a **merge** — two distinct spellings collapsing to one key, so one
+    ///   table entry overwrites the other and a lookup returns the wrong record
+    ///   layout, union tag or close op;
+    /// * a **split** — one spelling reaching the table as two different keys, so
+    ///   a lookup that used to hit now misses. Correction C1 is a real instance:
+    ///   `ParameterType::named("Integer")` and the `Integer` variant are
+    ///   different keys for the same declaration.
+    ///
+    /// Both are ruled out by asserting, for every key present, that it survives
+    /// a round trip through its own spelling and that no two keys share one.
+    /// Debug-only, and checked at CONSTRUCTION so it covers every module the
+    /// corpus compiles rather than only the lookups a given program reaches.
+    ///
+    /// (plan-111-C Phase 2 specified this as temporary scaffolding with shadow
+    /// string tables, to be deleted once the corpus was clean. This form needs
+    /// no shadow table and costs nothing in release, so it stays — see the
+    /// letter's Corrections.)
+    #[cfg(debug_assertions)]
+    fn assert_type_keys_are_bijective(&self) {
+        use std::collections::HashMap as Keys;
+        let mut seen: Keys<String, ParameterType> = Keys::new();
+        let mut check = |key: &ParameterType, table: &str| {
+            let spelled = key.name().into_owned();
+            assert_eq!(
+                &ParameterType::declared(&spelled),
+                key,
+                "TypeModel.{table}: key `{spelled}` does not round-trip — re-keying \
+                 SPLIT it (plan-111-C Correction C1). Build the key with \
+                 `ParameterType::declared`, which is what an `AS {spelled}` \
+                 annotation elaborates to."
+            );
+            if let Some(previous) = seen.insert(spelled.clone(), key.clone()) {
+                assert_eq!(
+                    &previous, key,
+                    "TypeModel: two distinct keys share the spelling `{spelled}` — \
+                     re-keying MERGED them, so one table entry overwrites the other."
+                );
+            }
+        };
+        for key in self.record_fields.keys() {
+            check(key, "record_fields");
+        }
+        for key in self.union_names.iter() {
+            check(key, "union_names");
+        }
+        for key in self.union_variants.keys() {
+            check(key, "union_variants");
+        }
+        for key in self.union_variant_unions.keys() {
+            check(key, "union_variant_unions");
+        }
+        for key in self.union_variant_tags.keys() {
+            check(key, "union_variant_tags");
+        }
+        for key in self.union_variant_fields.keys() {
+            check(key, "union_variant_fields");
+        }
+        for key in self.resource_names.iter() {
+            check(key, "resource_names");
+        }
+        for key in self.resource_closers.keys() {
+            check(key, "resource_closers");
+        }
+        for (key, _) in self.enum_members.keys() {
+            check(key, "enum_members");
+        }
     }
 
     /// Assign each union variant a globally-canonical tag keyed by the variant
@@ -481,12 +568,20 @@ impl TypeModel {
     /// including union. `union_variant_fields` holds one entry per registered
     /// variant, so its keys are the complete variant set (bug-80).
     fn recompute_canonical_variant_tags(&mut self) {
-        let names: std::collections::BTreeSet<String> =
-            self.union_variant_fields.keys().cloned().collect();
+        // plan-111-C: the ORDER is load-bearing — a tag is an emitted constant,
+        // so the sort must stay by rendered NAME exactly as it was.
+        // `ParameterType` is deliberately not `Ord` (an ordering over a type
+        // tree would be arbitrary), so the sort key is the spelling and the map
+        // key is the type it denotes.
+        let names: std::collections::BTreeSet<String> = self
+            .union_variant_fields
+            .keys()
+            .map(|type_| type_.name().into_owned())
+            .collect();
         self.union_variant_tags = names
             .into_iter()
             .enumerate()
-            .map(|(tag, name)| (name, tag))
+            .map(|(tag, name)| (ParameterType::declared(&name), tag))
             .collect();
     }
 
@@ -497,39 +592,41 @@ impl TypeModel {
         match type_export.kind {
             binary_repr::BinaryReprExportKind::Type => {
                 self.record_fields.insert(
-                    type_export.name,
+                    ParameterType::declared(&type_export.name),
                     type_export
                         .fields
                         .into_iter()
-                        .map(|field| (field.name, ParameterType::parse(&field.type_)))
+                        .map(|field| (field.name, ParameterType::declared(&field.type_)))
                         .collect(),
                 );
             }
             binary_repr::BinaryReprExportKind::Enum => {
                 for (index, member) in type_export.members.into_iter().enumerate() {
                     self.enum_members
-                        .insert((type_export.name.clone(), member), index);
+                        .insert((ParameterType::declared(&type_export.name), member), index);
                 }
             }
             binary_repr::BinaryReprExportKind::Union => {
-                self.union_names.insert(type_export.name.clone());
+                let union_type = ParameterType::declared(&type_export.name);
+                self.union_names.insert(union_type.clone());
                 for variant in type_export.variants.into_iter() {
+                    let variant_type = ParameterType::declared(&variant.name);
                     self.union_variants
-                        .entry(variant.name.clone())
-                        .or_insert_with(|| type_export.name.clone());
+                        .entry(variant_type.clone())
+                        .or_insert_with(|| union_type.clone());
                     self.union_variant_unions
-                        .entry(variant.name.clone())
+                        .entry(variant_type.clone())
                         .or_default()
-                        .insert(type_export.name.clone());
+                        .insert(union_type.clone());
                     // Tags are assigned globally by recompute_canonical_variant_tags
                     // in from_module_and_packages once every module + package variant
                     // is registered (bug-80).
                     self.union_variant_fields.insert(
-                        variant.name,
+                        variant_type,
                         variant
                             .fields
                             .into_iter()
-                            .map(|field| (field.name, ParameterType::parse(&field.type_)))
+                            .map(|field| (field.name, ParameterType::declared(&field.type_)))
                             .collect(),
                     );
                 }
@@ -549,21 +646,25 @@ impl TypeModel {
     /// layout are untouched (only emitted instruction order was ever affected).
     pub(crate) fn variants_for_union<'a>(
         &'a self,
-        union: &'a str,
-    ) -> impl Iterator<Item = &'a String> + 'a {
-        let mut variants: Vec<&'a String> = self
+        union: &'a ParameterType,
+    ) -> impl Iterator<Item = &'a ParameterType> + 'a {
+        let mut variants: Vec<&'a ParameterType> = self
             .union_variant_unions
             .iter()
             .filter(move |(_, unions)| unions.contains(union))
             .map(|(variant, _)| variant)
             .collect();
+        // plan-111-C: the tiebreak is still the rendered NAME. `ParameterType`
+        // is not `Ord`, and more to the point an ordering over a type tree would
+        // be arbitrary where this one is observable — the emitted per-variant
+        // tag checks are in this order (bug-01).
         variants.sort_by_key(|variant| {
             (
                 self.union_variant_tags
                     .get(*variant)
                     .copied()
                     .unwrap_or(usize::MAX),
-                (*variant).clone(),
+                variant.name().into_owned(),
             )
         });
         variants.into_iter()
@@ -581,7 +682,7 @@ impl CollectionTypeLayout {
                 // The single point that chooses a list's block representation
                 // (plan-57-D). Every header writer takes `layout.kind` from
                 // here, so the `kind` byte and the layout cannot disagree.
-                kind: list_block_kind(&value_type.name()),
+                kind: list_block_kind(value_type),
                 key_type_code: COLLECTION_TYPE_NONE,
                 value_type_code: collection_type_code(value_type)?,
             });
@@ -653,6 +754,72 @@ mod union_tag_tests {
         }
     }
 
+    fn record(name: &str, fields: &[(&str, ParameterType)]) -> NirType {
+        NirType {
+            kind: "record".to_string(),
+            visibility: "private".to_string(),
+            name: name.to_string(),
+            fields: fields
+                .iter()
+                .map(|(field, type_)| crate::target::shared::nir::NirField {
+                    name: (*field).to_string(),
+                    type_: type_.clone(),
+                    visibility: None,
+                })
+                .collect(),
+            includes: Vec::new(),
+            variants: Vec::new(),
+            members: Vec::new(),
+        }
+    }
+
+    /// plan-111-C Phase 2: the two key shapes most likely to differ between a
+    /// spelling-keyed and a type-keyed lookup.
+    ///
+    /// A **nested container** (`List OF Map OF String TO Integer`) is the shape
+    /// where a naive re-key could decompose differently at each level; a
+    /// **stateful resource** (`File STATE Cursor`) is the one plan-111-A gave a
+    /// variant, so its spelling and its structure stopped being the same thing.
+    /// Both must resolve to the entry their declaration registered.
+    #[test]
+    fn a_type_model_resolves_nested_container_and_stateful_resource_keys() {
+        let nested = ParameterType::parse("List OF Map OF String TO Integer");
+        let stateful = ParameterType::parse("File STATE Cursor");
+        let model = TypeModel::from_module(&module(vec![
+            record("Holder", &[("items", nested.clone())]),
+            record("Handle", &[("state", stateful.clone())]),
+        ]))
+        .expect("model builds");
+
+        // The declarations are reachable by the type their own name denotes...
+        let holder = model
+            .record_fields
+            .get(&ParameterType::declared("Holder"))
+            .expect("Holder is registered");
+        assert_eq!(
+            holder[0].1, nested,
+            "the nested container survives re-keying"
+        );
+        let handle = model
+            .record_fields
+            .get(&ParameterType::declared("Handle"))
+            .expect("Handle is registered");
+        assert_eq!(
+            handle[0].1, stateful,
+            "the stateful resource survives re-keying"
+        );
+
+        // ...and a key built from the SPELLING finds the same entry, which is the
+        // property every emitter still holding a name depends on.
+        assert!(model.record_fields.contains_key(&ParameterType::declared(
+            &ParameterType::declared("Holder").name()
+        )));
+
+        // A composite is not a record key and must miss, both before and after.
+        assert!(model.record_fields.get(&nested).is_none());
+        assert!(model.record_fields.get(&stateful).is_none());
+    }
+
     /// Tags are globally-canonical: keyed by the (sorted) variant name, not by a
     /// variant's position within any including union (bug-80). Variants Sq, Tri,
     /// V1 sort to tags 0, 1, 2.
@@ -664,9 +831,20 @@ mod union_tag_tests {
             union("Wide", &["Shape"], &["Tri"]),
         ];
         let model = TypeModel::from_module(&module(types)).expect("must resolve");
-        assert_eq!(model.union_variant_tags.get("Sq"), Some(&0));
-        assert_eq!(model.union_variant_tags.get("Tri"), Some(&1));
-        assert_eq!(model.union_variant_tags.get("V1"), Some(&2));
+        assert_eq!(
+            model.union_variant_tags.get(&ParameterType::declared("Sq")),
+            Some(&0)
+        );
+        assert_eq!(
+            model
+                .union_variant_tags
+                .get(&ParameterType::declared("Tri")),
+            Some(&1)
+        );
+        assert_eq!(
+            model.union_variant_tags.get(&ParameterType::declared("V1")),
+            Some(&2)
+        );
     }
 
     /// A variant at *divergent* positions across two unions (`W1` follows `V1` in
@@ -683,7 +861,13 @@ mod union_tag_tests {
         ];
         let model =
             TypeModel::from_module(&module(types)).expect("divergent positions must now resolve");
-        assert_eq!(model.union_variant_tags.get("V1"), Some(&0));
-        assert_eq!(model.union_variant_tags.get("W1"), Some(&1));
+        assert_eq!(
+            model.union_variant_tags.get(&ParameterType::declared("V1")),
+            Some(&0)
+        );
+        assert_eq!(
+            model.union_variant_tags.get(&ParameterType::declared("W1")),
+            Some(&1)
+        );
     }
 }

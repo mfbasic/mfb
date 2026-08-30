@@ -95,8 +95,16 @@ const PRIMITIVE_TYPES: &[&str] = &[
 /// (bug-342 A9). It is the `PRIMITIVE_TYPES` base plus two deltas: `Error`/
 /// `ErrorLoc` (errors compare and default as ordinary values) and `Unknown`
 /// (treated permissively — an unresolved type is not rejected here).
-fn is_comparable_defaultable_primitive(type_: &str) -> bool {
-    PRIMITIVE_TYPES.contains(&type_) || matches!(type_, "Error" | "ErrorLoc" | "Unknown")
+fn is_comparable_defaultable_primitive(type_: &ParameterType) -> bool {
+    // plan-111-B: `PRIMITIVE_TYPES` is a `&'static str` name table (letter G
+    // retires it), so membership still renders; the three deltas are nominal
+    // questions. `Unknown` keeps both forms — the variant, and a decoded-IR
+    // `Named("Unknown")` — which is what the name compare accepted.
+    PRIMITIVE_TYPES.contains(&type_.name().as_ref())
+        || matches!(type_, ParameterType::Unknown)
+        || type_.is_named("Unknown")
+        || type_.is_named("Error")
+        || type_.is_named("ErrorLoc")
 }
 
 /// Collect every semantic-verification diagnostic for a merged `IrProject`, in
@@ -136,10 +144,10 @@ fn collect_diagnostics_with(
     // can see the source of.
     for imported in imported_resources {
         env.resource_closers
-            .entry(imported.type_name.clone())
+            .entry(ParameterType::declared(&imported.type_name))
             .or_insert_with(|| imported.close_function.clone());
         env.resource_sendable
-            .entry(imported.type_name.clone())
+            .entry(ParameterType::declared(&imported.type_name))
             .or_insert(imported.sendable);
     }
     let env = env;
@@ -160,7 +168,7 @@ fn collect_diagnostics_with(
                 .params
                 .iter()
                 .filter(|p| {
-                    env.is_resource_or_resource_union(&resource_base_type(&p.type_).name())
+                    env.is_resource_or_resource_union(&resource_base_type(&p.type_))
                         && p.type_.state().is_none()
                 })
                 .map(|p| p.name.clone())
@@ -307,7 +315,7 @@ fn collect_diagnostics_with(
         let mut non_owning: HashSet<String> = function
             .params
             .iter()
-            .filter(|p| env.is_resource_or_resource_union(&resource_base_type(&p.type_).name()))
+            .filter(|p| env.is_resource_or_resource_union(&resource_base_type(&p.type_)))
             .map(|p| p.name.clone())
             .collect();
         // A RES binding whose ownership floats into a collection
@@ -472,7 +480,9 @@ struct RecordInfo {
 }
 
 struct UnionInfo {
-    variants: HashSet<String>,
+    /// plan-111-B: the variant TYPES. Membership here is a type question — the
+    /// same one `codegen`'s `union_names` set answers.
+    variants: HashSet<ParameterType>,
     /// The direct variants in declaration order, for diagnostics that list
     /// missing members in source order (exhaustiveness).
     variant_order: Vec<String>,
@@ -497,9 +507,9 @@ struct FnSig {
 struct TypeEnv {
     /// Record-shaped types (`kind` = `type`/`record`) and every union variant
     /// (each variant is itself a record) → its declared field names + includes.
-    records: HashMap<String, RecordInfo>,
+    records: HashMap<ParameterType, RecordInfo>,
     /// Union types → their variant names + included unions.
-    unions: HashMap<String, UnionInfo>,
+    unions: HashMap<ParameterType, UnionInfo>,
     /// Internal (project + merged-package) function signatures, for arity.
     functions: HashMap<String, FnSig>,
     /// Global binding name → declared type.
@@ -509,12 +519,12 @@ struct TypeEnv {
     /// User-declared native resource type → its registered close op (dotted
     /// `alias.func`), complementing the builtin close table for the
     /// use-after-move pass.
-    resource_closers: HashMap<String, String>,
+    resource_closers: HashMap<ParameterType, String>,
     /// User-declared native resource type → whether it may cross a thread
     /// boundary (`RESOURCE … THREAD_SENDABLE`), plus the imported packages'
     /// `RESOURCE_TABLE` sendable bits. Built-in resources are not here; the
     /// registry answers for them (`is_builtin_sendable_resource_type`).
-    resource_sendable: HashMap<String, bool>,
+    resource_sendable: HashMap<ParameterType, bool>,
     /// The LINK declarations' source spans (plan-107-C), present on the source
     /// path only; the native-ABI rules report at these lines, and unlocated
     /// (the `<generated>` form) when a declaration has none.
@@ -525,13 +535,13 @@ struct TypeEnv {
     closure_counts: HashMap<String, HashSet<usize>>,
     /// Record type name → (member name → declared member type), for chained
     /// member-access type inference.
-    field_types: HashMap<String, HashMap<String, ParameterType>>,
+    field_types: HashMap<ParameterType, HashMap<String, ParameterType>>,
     /// Record type name → its direct fields as ordered (name, type) pairs, for
     /// positional constructor checking (mirrors the former source checker's `TypeInfo.fields`,
     /// which is declaration-ordered and not include-expanded).
-    record_field_lists: HashMap<String, Vec<(String, ParameterType)>>,
+    record_field_lists: HashMap<ParameterType, Vec<(String, ParameterType)>>,
     /// Enum type name → its complete member-name set, for MATCH exhaustiveness.
-    enums: HashMap<String, HashSet<String>>,
+    enums: HashMap<ParameterType, HashSet<String>>,
     /// Accumulated diagnostics (plan-20-E..I); the checker pushes here instead
     /// of short-circuiting, so it reproduces the full diagnostic sequence.
     diags: RefCell<Vec<Diagnostic>>,
@@ -596,10 +606,10 @@ struct TypeEnv {
     current_opaque_params: RefCell<HashSet<String>>,
     /// Type name → (declaring file, declared visibility) for cross-file
     /// visibility checks (private = same file only).
-    type_decl_info: HashMap<String, (String, String)>,
+    type_decl_info: HashMap<ParameterType, (String, String)>,
     /// Type name → its explicitly `private` fields (same-file only; other
     /// fields are at least package-visible).
-    private_fields: HashMap<String, HashSet<String>>,
+    private_fields: HashMap<ParameterType, HashSet<String>>,
 }
 
 /// Rules whose failure leaves the failing expression's type undeterminable in
@@ -626,34 +636,49 @@ impl TypeEnv {
     pub(super) fn build(project: &IrProject) -> Self {
         let mut records = HashMap::new();
         let mut unions = HashMap::new();
-        let mut enums: HashMap<String, HashSet<String>> = HashMap::new();
-        let mut field_types: HashMap<String, HashMap<String, ParameterType>> = HashMap::new();
-        let mut record_field_lists: HashMap<String, Vec<(String, ParameterType)>> = HashMap::new();
-        let mut private_fields: HashMap<String, HashSet<String>> = HashMap::new();
-        let type_decl_info: HashMap<String, (String, String)> = project
+        // plan-111-B: these nine tables are keyed BY THE TYPE, not by its
+        // spelling. A declared type is a nominal, so the key is
+        // `ParameterType::named(<decl name>)` — the same interned `Symbol` a
+        // `Named` arriving from `parse` carries, so a lookup with a type in hand
+        // needs no rendering at all.
+        let mut enums: HashMap<ParameterType, HashSet<String>> = HashMap::new();
+        let mut field_types: HashMap<ParameterType, HashMap<String, ParameterType>> =
+            HashMap::new();
+        let mut record_field_lists: HashMap<ParameterType, Vec<(String, ParameterType)>> =
+            HashMap::new();
+        let mut private_fields: HashMap<ParameterType, HashSet<String>> = HashMap::new();
+        let type_decl_info: HashMap<ParameterType, (String, String)> = project
             .types
             .iter()
-            .map(|t| (t.name.clone(), (t.file.clone(), t.visibility.clone())))
+            .map(|t| {
+                (
+                    ParameterType::declared(&t.name),
+                    (t.file.clone(), t.visibility.clone()),
+                )
+            })
             .collect();
         for ty in &project.types {
             match ty.kind.as_str() {
                 "enum" => {
                     enums.insert(
-                        ty.name.clone(),
+                        ParameterType::declared(&ty.name),
                         ty.members.iter().map(|m| m.name.clone()).collect(),
                     );
                 }
                 "type" | "record" => {
                     records.insert(
-                        ty.name.clone(),
+                        ParameterType::declared(&ty.name),
                         RecordInfo {
                             fields: ty.fields.iter().map(|f| f.name.clone()).collect(),
                             includes: ty.includes.clone(),
                         },
                     );
-                    field_types.insert(ty.name.clone(), field_type_map(&ty.fields));
+                    field_types.insert(
+                        ParameterType::declared(&ty.name),
+                        field_type_map(&ty.fields),
+                    );
                     record_field_lists.insert(
-                        ty.name.clone(),
+                        ParameterType::declared(&ty.name),
                         ty.fields
                             .iter()
                             .map(|f| (f.name.clone(), f.type_.clone()))
@@ -666,14 +691,18 @@ impl TypeEnv {
                         .map(|f| f.name.clone())
                         .collect();
                     if !private.is_empty() {
-                        private_fields.insert(ty.name.clone(), private);
+                        private_fields.insert(ParameterType::declared(&ty.name), private);
                     }
                 }
                 "union" => {
                     unions.insert(
-                        ty.name.clone(),
+                        ParameterType::declared(&ty.name),
                         UnionInfo {
-                            variants: ty.variants.iter().map(|v| v.name.clone()).collect(),
+                            variants: ty
+                                .variants
+                                .iter()
+                                .map(|v| ParameterType::declared(&v.name))
+                                .collect(),
                             variant_order: ty.variants.iter().map(|v| v.name.clone()).collect(),
                             includes: ty.includes.clone(),
                         },
@@ -682,16 +711,16 @@ impl TypeEnv {
                     // its payload fields so `variant.field` accesses resolve.
                     for variant in &ty.variants {
                         records
-                            .entry(variant.name.clone())
+                            .entry(ParameterType::declared(&variant.name))
                             .or_insert_with(|| RecordInfo {
                                 fields: variant.fields.iter().map(|f| f.name.clone()).collect(),
                                 includes: Vec::new(),
                             });
                         field_types
-                            .entry(variant.name.clone())
+                            .entry(ParameterType::declared(&variant.name))
                             .or_insert_with(|| field_type_map(&variant.fields));
                         record_field_lists
-                            .entry(variant.name.clone())
+                            .entry(ParameterType::declared(&variant.name))
                             .or_insert_with(|| {
                                 variant
                                     .fields
@@ -736,12 +765,12 @@ impl TypeEnv {
         let resource_closers = project
             .native_resources
             .iter()
-            .map(|r| (r.name.clone(), r.close_function.clone()))
+            .map(|r| (ParameterType::declared(&r.name), r.close_function.clone()))
             .collect();
         let resource_sendable = project
             .native_resources
             .iter()
-            .map(|r| (r.name.clone(), r.sendable))
+            .map(|r| (ParameterType::declared(&r.name), r.sendable))
             .collect();
 
         let mut closure_counts: HashMap<String, HashSet<usize>> = HashMap::new();
@@ -856,15 +885,15 @@ impl TypeEnv {
     /// transitively. Returns `None` when the type is not a known record or when
     /// an include cannot be resolved (so the field set is incomplete and the
     /// member-existence check must be skipped).
-    pub(super) fn record_fields(&self, type_name: &str) -> Option<HashSet<String>> {
+    pub(super) fn record_fields(&self, type_: &ParameterType) -> Option<HashSet<String>> {
         // The read-only compiler/runtime records `Error`/`ErrorLoc` carry their
         // fields in a local table rather than the project type table.
-        if let Some(fields) = builtin_type_fields(type_name) {
+        if let Some(fields) = builtin_type_fields(type_) {
             return Some(fields.iter().map(|(name, _)| (*name).to_string()).collect());
         }
         let mut out = HashSet::new();
         let mut seen = HashSet::new();
-        if self.collect_record_fields(type_name, &mut out, &mut seen) {
+        if self.collect_record_fields(type_, &mut out, &mut seen) {
             Some(out)
         } else {
             None
@@ -873,22 +902,23 @@ impl TypeEnv {
 
     pub(super) fn collect_record_fields(
         &self,
-        type_name: &str,
+        type_: &ParameterType,
         out: &mut HashSet<String>,
-        seen: &mut HashSet<String>,
+        seen: &mut HashSet<ParameterType>,
     ) -> bool {
-        if !seen.insert(type_name.to_string()) {
+        if !seen.insert(type_.clone()) {
             // A cycle in `includes` — treat as fully expanded to avoid looping.
             return true;
         }
-        let Some(info) = self.records.get(type_name) else {
+        let Some(info) = self.records.get(type_) else {
             return false;
         };
         for field in &info.fields {
             out.insert(field.clone());
         }
+        // An `includes` entry is a declared type NAME, so it names a nominal.
         for include in &info.includes {
-            if !self.collect_record_fields(include, out, seen) {
+            if !self.collect_record_fields(&ParameterType::declared(include), out, seen) {
                 return false;
             }
         }
@@ -897,7 +927,7 @@ impl TypeEnv {
 
     /// The complete variant-name set of a union, expanding included unions.
     /// `None` when the union or one of its includes is unknown.
-    pub(super) fn union_variants(&self, union_type: &str) -> Option<HashSet<String>> {
+    pub(super) fn union_variants(&self, union_type: &ParameterType) -> Option<HashSet<String>> {
         let mut out = HashSet::new();
         let mut seen = HashSet::new();
         if self.collect_union_variants(union_type, &mut out, &mut seen) {
@@ -909,21 +939,21 @@ impl TypeEnv {
 
     pub(super) fn collect_union_variants(
         &self,
-        union_type: &str,
+        union_type: &ParameterType,
         out: &mut HashSet<String>,
-        seen: &mut HashSet<String>,
+        seen: &mut HashSet<ParameterType>,
     ) -> bool {
-        if !seen.insert(union_type.to_string()) {
+        if !seen.insert(union_type.clone()) {
             return true;
         }
         let Some(info) = self.unions.get(union_type) else {
             return false;
         };
         for variant in &info.variants {
-            out.insert(variant.clone());
+            out.insert(variant.name().into_owned());
         }
         for include in &info.includes {
-            if !self.collect_union_variants(include, out, seen) {
+            if !self.collect_union_variants(&ParameterType::declared(include), out, seen) {
                 return false;
             }
         }
@@ -983,19 +1013,17 @@ impl TypeEnv {
     /// The declared type of a record member, for chained member-access
     /// inference. Only resolves through record types whose fields are known.
     pub(super) fn field_type(&self, type_: &ParameterType, member: &str) -> Option<ParameterType> {
-        // The record is identified by NAME (the field tables are name-keyed
-        // declaration maps), so the type renders for the lookup.
-        let type_name = type_.name();
-        if let Some(fields) = builtin_type_fields(&type_name) {
+        if let Some(fields) = builtin_type_fields(type_) {
             return fields
                 .iter()
                 .find(|(name, _)| *name == member)
                 .map(|(_, type_)| type_.clone());
         }
         // Project records store field types on the IrType; look them up via the
-        // dedicated map built alongside `records`.
+        // dedicated map built alongside `records`. plan-111-B: keyed by the
+        // type, so nothing renders here any more.
         self.field_types
-            .get(type_name.as_ref())
+            .get(type_)
             .and_then(|fields| fields.get(member).cloned())
     }
 }
@@ -1171,15 +1199,17 @@ fn read_only_record_type(type_: &ParameterType) -> bool {
     if matches!(type_, ParameterType::MapEntryOf(_, _)) {
         return true;
     }
-    let type_name = type_.name();
-    crate::codegen::builtins::term::is_read_only_record(&type_name)
-        || type_name == crate::codegen::builtins::net::ADDRESS_TYPE
-        || type_name == crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE
+    crate::codegen::builtins::term::is_read_only_record(type_)
+        || type_.is_named(crate::codegen::builtins::net::ADDRESS_TYPE)
+        || type_.is_named(crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE)
 }
 
 /// Whether `name` is a built-in resource type (has a registered close op).
 fn is_resource_name(name: &str) -> bool {
-    crate::codegen::resource::builtin_resource_close_function(name).is_some()
+    crate::codegen::resource::builtin_resource_close_function(
+        &crate::types::ParameterType::declared(name),
+    )
+    .is_some()
 }
 
 /// The base resource type name, stripping the `RES ` ownership marker and a
@@ -1192,18 +1222,6 @@ fn resource_base_type(type_: &ParameterType) -> ParameterType {
     // It keeps the same top-level guard, which leaves a `STATE` nested inside a
     // thread plane intact (plan-54).
     strip_res(type_).without_state()
-}
-
-/// The name-domain twin of [`resource_base_type`], for the callers that hold a
-/// type SPELLING rather than a type: the `LINK` block's raw AST strings (an
-/// un-elaborated `crate::ast::LinkBlock` — see `src/hir/mod.rs:435`).
-fn resource_base_type_name(type_: &str) -> String {
-    // plan-106-E: routed through [`resource_base_type`] so the `RES` peel and the
-    // top-level `STATE` guard are stated once, structurally, instead of a local
-    // `strip_prefix` beside them.
-    resource_base_type(&ParameterType::parse(type_))
-        .name()
-        .into_owned()
 }
 
 /// Whether a type is a thread handle — structurally, **or** by a spelling that
@@ -1306,20 +1324,25 @@ fn field_type_map(fields: &[IrField]) -> HashMap<String, ParameterType> {
 /// through this local table rather than the project type table. Syntaxcheck types
 /// their members inline in `infer_member`; listed here so member-access inference
 /// resolves `err.source.line` chains and the read-only WITH check sees ErrorLoc.
-fn builtin_type_fields(name: &str) -> Option<Vec<(&'static str, ParameterType)>> {
-    match name {
-        "Error" => Some(vec![
+fn builtin_type_fields(type_: &ParameterType) -> Option<Vec<(&'static str, ParameterType)>> {
+    // plan-111-B: `Error` and `ErrorLoc` are nominals (neither has a variant),
+    // so this asks `is_named` — an interned-`Symbol` compare — instead of
+    // matching the rendered spelling of a type the caller already holds.
+    if type_.is_named("Error") {
+        return Some(vec![
             ("code", ParameterType::Integer),
             ("message", ParameterType::String),
             ("source", ParameterType::named("ErrorLoc")),
-        ]),
-        "ErrorLoc" => Some(vec![
+        ]);
+    }
+    if type_.is_named("ErrorLoc") {
+        return Some(vec![
             ("filename", ParameterType::String),
             ("line", ParameterType::Integer),
             ("char", ParameterType::Integer),
-        ]),
-        _ => None,
+        ]);
     }
+    None
 }
 
 /// Record every `Closure { name, captures }` site's captured-slot count so the

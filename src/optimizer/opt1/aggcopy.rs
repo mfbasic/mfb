@@ -147,17 +147,28 @@ impl NirVisitor for Facts {
 
 /// The types whose binding copies a block rather than a register.
 fn is_aggregate(type_: &ParameterType) -> bool {
-    let name = type_.name();
-    name == "String"
-        || crate::codegen::engine::types::is_collection_type(&name)
-        // A record or union spells as a bare user type name; the primitives
-        // and the function/thread types do not copy a block.
-        || !matches!(
-            name.as_ref(),
-            "Integer" | "Float" | "Boolean" | "Byte" | "Nothing" | "Error" | "ErrorLoc"
-        ) && !name.contains("FUNC")
-            && !name.contains("Thread")
-            && !name.starts_with("RES")
+    // plan-111-G merge repair: `worktree-opts` wrote this against the string API
+    // that letters E and F deleted. Same decision, on variants — which also
+    // removes the three substring tests (`contains("FUNC")`, `contains("Thread")`,
+    // `starts_with("RES")`) that would have misfired on a user type merely
+    // NAMED e.g. `ThreadPool`.
+    match type_ {
+        ParameterType::String => true,
+        ParameterType::ListOf(_) | ParameterType::SetOf(_) | ParameterType::MapOf(..) => true,
+        // The primitives, the function and thread types, and a `RES` marker do
+        // not copy a block.
+        ParameterType::Integer
+        | ParameterType::Float
+        | ParameterType::Boolean
+        | ParameterType::Byte
+        | ParameterType::Nothing
+        | ParameterType::Func(..)
+        | ParameterType::ThreadHandle { .. }
+        | ParameterType::Res(_) => false,
+        // A record or union arrives as a bare nominal; `Error`/`ErrorLoc` are
+        // the two that do not copy a block.
+        other => !other.is_named("Error") && !other.is_named("ErrorLoc"),
+    }
 }
 
 /// The first `LET b = a` this row may forward, as `(b, a)`.

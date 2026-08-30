@@ -6,6 +6,7 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 /// plan-67-F: is arena hot-path perf instrumentation active? `--cfg perf`-built
 /// compiler (`perf_injection_enabled()`) on the macOS backend only, so ordinary
 /// and Linux/Windows arena helpers stay byte-identical to pre-plan-67 HEAD.
@@ -623,7 +624,7 @@ pub(crate) fn lower_simd_alloc_list() -> CodeFunction {
         abi::move_immediate(
             &stride,
             "Integer",
-            &(list_entry_stride("Integer") + 8).to_string(),
+            &(list_entry_stride(&ParameterType::Integer) + 8).to_string(),
         ),
         abi::multiply_registers(abi::c_arg(0), &count, &stride),
         abi::add_immediate(abi::c_arg(0), abi::c_arg(0), COLLECTION_HEADER_SIZE),
@@ -643,7 +644,7 @@ pub(crate) fn lower_simd_alloc_list() -> CodeFunction {
     // For kind 0 the KIND and KEY_TYPE stores share one zeroed register, exactly
     // as before; for kind 2 the kind byte is non-zero so KEY_TYPE needs its own.
     let kind_zero = vregs.next();
-    let zero_kind_scratch = if list_block_kind("Integer") == 0 {
+    let zero_kind_scratch = if list_block_kind(&ParameterType::Integer) == 0 {
         scratch.clone()
     } else {
         kind_zero.clone()
@@ -652,7 +653,7 @@ pub(crate) fn lower_simd_alloc_list() -> CodeFunction {
     let entry = vregs.next();
     let index = vregs.next();
     let value_off = vregs.next();
-    if list_block_kind("Integer") != 0 {
+    if list_block_kind(&ParameterType::Integer) != 0 {
         // Only kind 2 needs a separate zero register (see `zero_kind_scratch`);
         // emitting this unconditionally would change the kind-0 instruction
         // stream, which artifact-gate would — correctly — reject.
@@ -663,7 +664,11 @@ pub(crate) fn lower_simd_alloc_list() -> CodeFunction {
         // Header: kind, keyType=0, valueType=typeCode, flagsVersion=1. The kind-0
         // build keeps the shared zero register for both stores, so its emitted
         // sequence is unchanged.
-        abi::move_immediate(&scratch, "Integer", &list_block_kind("Integer").to_string()),
+        abi::move_immediate(
+            &scratch,
+            "Integer",
+            &list_block_kind(&ParameterType::Integer).to_string(),
+        ),
         abi::store_u8(&scratch, &base, COLLECTION_OFFSET_KIND),
         abi::store_u8(&zero_kind_scratch, &base, COLLECTION_OFFSET_KEY_TYPE),
         abi::store_u8(&type_code, &base, COLLECTION_OFFSET_VALUE_TYPE),
@@ -677,7 +682,7 @@ pub(crate) fn lower_simd_alloc_list() -> CodeFunction {
         abi::store_u64(&data_len, &base, COLLECTION_OFFSET_DATA_CAPACITY),
     ]);
     // kind 2 has no lookup array to fill.
-    if list_entry_stride("Integer") != 0 {
+    if list_entry_stride(&ParameterType::Integer) != 0 {
         instructions.extend([
             // Fill the lookup entries: flags=USED, valueOffset=i*8, valueLength=8.
             abi::add_immediate(&entry, &base, COLLECTION_HEADER_SIZE),

@@ -446,7 +446,7 @@ mod binary_repr_tests {
         let mut project = corpus_project();
         {
             let lf = &mut project.link_functions[0];
-            lf.return_state_type = Some("OpenState".to_string());
+            lf.return_state_type = Some(crate::types::ParameterType::parse("OpenState"));
             lf.bind_state = Some("cfg".to_string());
             lf.bind_state_resource = None;
             lf.bind_in = vec![crate::ir::IrBindIn {
@@ -469,7 +469,10 @@ mod binary_repr_tests {
         let decoded = decode_binary_repr(&bytes).expect("decode");
         assert_eq!(project.to_json(), decoded.to_json());
         let dlf = &decoded.link_functions[0];
-        assert_eq!(dlf.return_state_type.as_deref(), Some("OpenState"));
+        assert_eq!(
+            dlf.return_state_type.as_ref().map(|t| t.name()).as_deref(),
+            Some("OpenState")
+        );
         assert_eq!(dlf.bind_state.as_deref(), Some("cfg"));
         assert_eq!(dlf.bind_in.len(), 1);
         assert_eq!(dlf.bind_in[0].fields[1].literal, Some(-7));
@@ -5684,7 +5687,10 @@ END FUNC
 "#,
         );
         assert!(ir.link_functions.iter().any(|f| f.name == "version"));
-        assert!(ir.link_functions.iter().any(|f| f.return_type == "Integer"));
+        assert!(ir
+            .link_functions
+            .iter()
+            .any(|f| f.return_type == crate::types::ParameterType::Integer));
     }
 
     // ---- constructor with no known fields (fallback positional) ------------

@@ -27,14 +27,10 @@ fn op_requires_empty_string_constant(op: &NirOp, type_model: &TypeModel) -> bool
         // demands the sentinel even though `value` is `Some` — checking only
         // `value: None` left the relocation dangling (bug-256, bug-05 class).
         NirOp::Bind { type_, value, .. } => {
-            crate::codegen::resource::state_type_name(&type_.name()).is_some_and(|state| {
-                type_requires_empty_string_constant(state, type_model, &mut HashSet::new())
+            type_.state().is_some_and(|state| {
+                type_requires_empty_string_constant(&state, type_model, &mut HashSet::new())
             }) || (value.is_none()
-                && type_requires_empty_string_constant(
-                    &type_.name(),
-                    type_model,
-                    &mut HashSet::new(),
-                ))
+                && type_requires_empty_string_constant(type_, type_model, &mut HashSet::new()))
         }
         NirOp::If {
             then_body,
@@ -77,22 +73,22 @@ fn op_requires_empty_string_constant(op: &NirOp, type_model: &TypeModel) -> bool
 }
 
 fn type_requires_empty_string_constant(
-    type_: &str,
+    type_: &ParameterType,
     type_model: &TypeModel,
-    seen: &mut HashSet<String>,
+    seen: &mut HashSet<ParameterType>,
 ) -> bool {
-    if type_ == "String" {
+    if *type_ == ParameterType::String {
         return true;
     }
     let Some(fields) = type_model.record_fields.get(type_) else {
         return false;
     };
-    if !seen.insert(type_.to_string()) {
+    if !seen.insert(type_.clone()) {
         return false;
     }
-    let result = fields.iter().any(|(_, field_type)| {
-        type_requires_empty_string_constant(&field_type.name(), type_model, seen)
-    });
+    let result = fields
+        .iter()
+        .any(|(_, field_type)| type_requires_empty_string_constant(field_type, type_model, seen));
     seen.remove(type_);
     result
 }
@@ -131,12 +127,15 @@ fn module_drops_resource_union_close(module: &NirModule, target: &str) -> bool {
         .filter(|type_| {
             type_.kind == "union"
                 && !type_.variants.is_empty()
-                && type_
-                    .variants
-                    .iter()
-                    .all(|variant| crate::codegen::builtins::is_resource_type(&variant.name))
+                && type_.variants.iter().all(|variant| {
+                    crate::codegen::builtins::is_resource_type(
+                        &crate::types::ParameterType::declared(&variant.name),
+                    )
+                })
                 && type_.variants.iter().any(|variant| {
-                    crate::codegen::builtins::resource_close_function(&variant.name) == Some(target)
+                    crate::codegen::builtins::resource_close_function(
+                        &crate::types::ParameterType::declared(&variant.name),
+                    ) == Some(target)
                 })
         })
         .map(|type_| type_.name.as_str())
@@ -188,7 +187,7 @@ pub(crate) fn module_may_record_cleanup_failure(module: &NirModule) -> bool {
 fn ops_may_record_cleanup_failure(ops: &[NirOp]) -> bool {
     ops.iter().any(|op| match op {
         NirOp::Bind { type_, .. } => {
-            crate::codegen::builtins::resource_close_function(&type_.name()).is_some()
+            crate::codegen::builtins::resource_close_function(&type_).is_some()
         }
         NirOp::If {
             then_body,
@@ -570,15 +569,15 @@ fn value_uses_call(value: &NirValue, target: &str) -> bool {
 /// (`{code, env=0}`) so a `FunctionRef` loads that descriptor's address instead of
 /// arena-allocating a fresh descriptor on every evaluation (bug-78). Exhaustive:
 /// a missed ref would reference an undefined descriptor symbol at link time.
-pub(crate) fn collect_function_value_refs(module: &NirModule) -> Vec<(String, String)> {
+pub(crate) fn collect_function_value_refs(module: &NirModule) -> Vec<(String, ParameterType)> {
     use nir::visit::{walk_value, NirVisitor};
     struct Collector<'a> {
-        refs: &'a mut Vec<(String, String)>,
+        refs: &'a mut Vec<(String, ParameterType)>,
     }
     impl NirVisitor for Collector<'_> {
         fn visit_value(&mut self, value: &NirValue) {
             if let NirValue::FunctionRef { name, type_ } = value {
-                self.refs.push((name.clone(), type_.name().into_owned()));
+                self.refs.push((name.clone(), type_.clone()));
             }
             walk_value(self, value);
         }

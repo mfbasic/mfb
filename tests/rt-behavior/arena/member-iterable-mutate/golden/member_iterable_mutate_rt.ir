@@ -1,0 +1,116 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "member_iterable_mutate_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 18,
+    "visibility": "public",
+    "name": "Bag",
+    "fields": [
+    { "visibility": null, "line": 19, "name": "items", "type": "List OF Integer" },
+    { "visibility": null, "line": 20, "name": "seen", "type": "List OF Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "copyItems",
+    "line": 26,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "bag", "line": 26, "type": "Bag", "default": null }
+    ],
+    "returns": "Bag",
+    "body": [
+    { "op": "bind", "line": 27, "mutable": true, "name": "out", "type": "Bag", "value": { "kind": "local", "name": "bag" } },
+    {
+      "op": "forEach",
+      "line": 28,
+      "name": "n",
+      "type": "Integer",
+      "iterable": { "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "bag" }, "member": "items" },
+      "body": [
+      { "op": "assign", "line": 29, "name": "out", "value": { "kind": "with", "type": "Bag", "target": { "kind": "local", "name": "out" }, "updates": [{ "field": "seen", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "out" }, "member": "seen" }, { "kind": "local", "name": "n" }] } }] } }
+      ]
+    },
+    { "op": "return", "line": 31, "value": { "kind": "local", "name": "out" } }
+    ]
+  },
+  {
+    "name": "sumNested",
+    "line": 36,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "bags", "line": 36, "type": "List OF Bag", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 37, "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "line": 38,
+      "name": "b",
+      "type": "Bag",
+      "iterable": { "kind": "local", "name": "bags" },
+      "body": [
+      {
+        "op": "forEach",
+        "line": 39,
+        "name": "n",
+        "type": "Integer",
+        "iterable": { "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "b" }, "member": "items" },
+        "body": [
+        { "op": "assign", "line": 40, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "n" } } }
+        ]
+      }
+      ]
+    },
+    { "op": "return", "line": 43, "value": { "kind": "local", "name": "total" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 46,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 47, "mutable": false, "name": "start", "type": "Bag", "value": { "kind": "constructor", "type": "Bag", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "5" }] }, { "kind": "list", "type": "List OF Integer", "values": [] }] } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "done", "type": "Bag", "value": { "kind": "call", "type": "Bag", "target": "copyItems", "args": [{ "kind": "local", "name": "start" }] } },
+    { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "done" }, "member": "seen" }] }] }] } },
+    { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "done" }, "member": "seen" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
+    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "done" }, "member": "seen" }, { "kind": "const", "type": "Integer", "value": "4" }] }] }] } },
+    { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "start" }, "member": "seen" }] }] }] } },
+    { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "done" }, "member": "items" }] }] }] } },
+    { "op": "bind", "line": 58, "mutable": false, "name": "bags", "type": "List OF Bag", "value": { "kind": "list", "type": "List OF Bag", "values": [{ "kind": "constructor", "type": "Bag", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "list", "type": "List OF Integer", "values": [] }] }, { "kind": "constructor", "type": "Bag", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "3" }] }, { "kind": "list", "type": "List OF Integer", "values": [] }] }, { "kind": "constructor", "type": "Bag", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "6" }] }, { "kind": "list", "type": "List OF Integer", "values": [] }] }] } },
+    { "op": "eval", "line": 59, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "sumNested", "args": [{ "kind": "local", "name": "bags" }] }] }] } },
+    { "op": "bind", "line": 63, "mutable": false, "name": "acc", "type": "Bag", "value": { "kind": "constructor", "type": "Bag", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "7" }, { "kind": "const", "type": "Integer", "value": "8" }, { "kind": "const", "type": "Integer", "value": "9" }] }, { "kind": "list", "type": "List OF Integer", "values": [] }] } },
+    { "op": "bind", "line": 64, "mutable": true, "name": "tail", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "line": 65,
+      "name": "n",
+      "type": "Integer",
+      "iterable": { "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "acc" }, "member": "items" },
+      "body": [
+      { "op": "assign", "line": 66, "name": "tail", "value": { "kind": "local", "name": "n" } }
+      ]
+    },
+    { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "tail" }] }] } },
+    { "op": "eval", "line": 69, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "acc" }, "member": "items" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
+    { "op": "return", "line": 71, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

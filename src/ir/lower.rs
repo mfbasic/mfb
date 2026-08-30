@@ -88,7 +88,10 @@ pub enum ImportedTypeKind {
 #[derive(Clone)]
 pub struct ImportedTypeField {
     pub name: String,
-    pub type_: String,
+    /// plan-111-B: typed. It is decoded from the imported package's `.mfp` type
+    /// table by `src/manifest/package.rs` (boundary #5), which is where the
+    /// spelling stops being one.
+    pub type_: crate::types::ParameterType,
 }
 
 #[derive(Clone)]
@@ -367,7 +370,13 @@ fn lower_type(type_decl: &HirTypeDecl, type_index: &TypeIndex, file: &str) -> Ir
         visibility: visibility_name(type_decl.visibility).to_string(),
         name: type_decl.name.clone(),
         fields: type_decl.fields.iter().map(lower_field).collect(),
-        includes: type_decl.includes.clone(),
+        // The IR/`.mfp` wire keeps `includes` as spellings; HIR carries them
+        // typed (plan-111-B), so they render here at the encode boundary.
+        includes: type_decl
+            .includes
+            .iter()
+            .map(|i| i.name().into_owned())
+            .collect(),
         variants: type_decl
             .variants
             .iter()
@@ -439,12 +448,12 @@ fn lower_field(field: &HirTypeField) -> IrField {
     }
 }
 
-fn lower_variant(variant: &UnionVariant, type_index: &TypeIndex) -> IrVariant {
+fn lower_variant(variant: &crate::hir::HirUnionVariant, type_index: &TypeIndex) -> IrVariant {
     IrVariant {
-        name: variant.name.clone(),
+        name: variant.type_.name().into_owned(),
         fields: type_index
             .records
-            .get(&variant.name)
+            .get(&variant.type_)
             .cloned()
             .unwrap_or_default(),
         loc: IrSourceLoc {
@@ -1764,10 +1773,13 @@ fn lower_match_case(
         HirMatchPattern::Union { type_, .. }
             if matches!(matched_type, ParameterType::ResultOf(_)) =>
         {
-            let matched = match type_.name().as_ref() {
-                "Ok" => "true",
-                "Error" => "false",
-                _ => "false",
+            // plan-111-B: `Ok`/`Error` are nominals, so this asks the interned
+            // `Symbol` rather than matching a rendered spelling. Everything that
+            // is not `Ok` is `false`, exactly as the `_` arm said.
+            let matched = if type_.is_named("Ok") {
+                "true"
+            } else {
+                "false"
             };
             IrMatchPattern::Value(IrValue::Const {
                 type_: ParameterType::Boolean,
@@ -1827,30 +1839,33 @@ pub(super) fn match_case_binding(
 ) -> Option<(String, ParameterType, IrValue)> {
     match pattern {
         HirMatchPattern::Union { type_, binding } => {
-            let type_name = type_.name().into_owned();
             // coverage:off -- a `Result OF ...` scrutinee is rejected before
             // lowering (TYPE_RESULT_NOT_MATCHABLE); this Ok/Error case binding is
             // kept only for plan-20 total lowering when the checker is bypassed.
             if let ParameterType::ResultOf(success) = matched_type {
                 let success = (**success).clone();
-                return match type_name.as_str() {
-                    "Ok" => Some((
+                // plan-111-B: `Ok`/`Error` are nominals — interned-`Symbol`
+                // compares, not spelling matches. Same three outcomes, same order.
+                if type_.is_named("Ok") {
+                    return Some((
                         binding.clone(),
                         success.clone(),
                         IrValue::ResultValue {
                             type_: success,
                             value: Box::new(IrValue::Local(matched_local.to_string())),
                         },
-                    )),
-                    "Error" => Some((
+                    ));
+                }
+                if type_.is_named("Error") {
+                    return Some((
                         binding.clone(),
                         ParameterType::named("Error"),
                         IrValue::ResultError {
                             value: Box::new(IrValue::Local(matched_local.to_string())),
                         },
-                    )),
-                    _ => None,
-                };
+                    ));
+                }
+                return None;
             }
             // coverage:on
             // A stateful resource union's STATE is uniform across variants, so the
@@ -1916,7 +1931,7 @@ fn function_returns(hir: &HirProject) -> HashMap<String, ParameterType> {
                 }
                 HirItem::Link(link) => {
                     for native in &link.functions {
-                        let return_type = native_type(native.return_type.as_deref());
+                        let return_type = native_type(native.return_type.as_ref());
                         // Carry a stateful native producer's STATE, so a wrapper
                         // that calls `snd::rawOpen(p)` sees `SoundFile STATE
                         // FileInfo` and can RETURN it as its own stateful return
@@ -1924,9 +1939,7 @@ fn function_returns(hir: &HirProject) -> HashMap<String, ParameterType> {
                         // `SoundFile` and the wrapper's RETURN mismatches.
                         let return_type = match (native.return_resource, &native.return_state_type)
                         {
-                            (true, Some(state)) => {
-                                return_type.with_state(&ParameterType::parse(state))
-                            }
+                            (true, Some(state)) => return_type.with_state(state),
                             _ => return_type,
                         };
                         native_returns
@@ -1983,18 +1996,13 @@ fn function_types(hir: &HirProject) -> HashMap<String, ParameterType> {
                     let params = native
                         .params
                         .iter()
-                        .map(|param| {
-                            param
-                                .type_name
-                                .as_deref()
-                                .map_or(ParameterType::Unknown, ParameterType::parse)
-                        })
+                        .map(|param| param.type_.clone().unwrap_or(ParameterType::Unknown))
                         .collect::<Vec<_>>();
-                    let returns = native_type(native.return_type.as_deref());
+                    let returns = native_type(native.return_type.as_ref());
                     // Stateful native producer: carry its STATE in the callable
                     // type too (plan-53-A/B), matching `native_returns` above.
                     let returns = match (native.return_resource, &native.return_state_type) {
-                        (true, Some(state)) => returns.with_state(&ParameterType::parse(state)),
+                        (true, Some(state)) => returns.with_state(state),
                         _ => returns,
                     };
                     // A LINK native is never `ISOLATED`, matching the un-prefixed
@@ -2048,13 +2056,13 @@ fn declared_binding_types(hir: &HirProject) -> HashMap<String, ParameterType> {
 /// The declared type of a LINK native's return slot, defaulting an absent
 /// annotation to `Nothing` exactly as the string form did.
 ///
-/// `HirItem::Link` is the one HIR item that is NOT elaborated — it carries the
-/// raw [`crate::ast::LinkBlock`], whose `return_type`/`type_name` are still
-/// source strings (`src/hir/mod.rs:435`). So this call site IS that item kind's
-/// AST→typed boundary and the canonical parser belongs here; elaborating
-/// `LinkBlock` properly is recorded as a task in plan-106-E.
-fn native_type(declared: Option<&str>) -> ParameterType {
-    declared.map_or(ParameterType::Nothing, ParameterType::parse)
+/// plan-111-B did the elaboration plan-106-E recorded as a task:
+/// [`HirItem::Link`](crate::hir::HirItem::Link) now carries a
+/// [`HirLinkBlock`](crate::hir::HirLinkBlock) whose types are already
+/// `ParameterType`, so this is a defaulting helper rather than an AST→typed
+/// boundary and nothing here parses.
+fn native_type(declared: Option<&ParameterType>) -> ParameterType {
+    declared.cloned().unwrap_or(ParameterType::Nothing)
 }
 
 fn infer_binding_types(hir: &HirProject, context: &mut LowerContext<'_>) {
@@ -2106,12 +2114,11 @@ pub(super) fn expression_type(
             }
         }
         HirExpression::Constructor { type_, .. } => {
-            let type_name = type_.name();
-            let canonical_type_name = canonical_import_name(&type_name, context);
+            let canonical_type = canonical_import_type(type_, context);
             context
                 .type_index
-                .constructor_result(&canonical_type_name)
-                .or_else(|| context.type_index.constructor_result(&type_name))
+                .constructor_result(&canonical_type)
+                .or_else(|| context.type_index.constructor_result(type_))
         }
         HirExpression::WithUpdate { target, .. } => expression_type(target, locals, context),
         HirExpression::ListLiteral(values) => {
@@ -2133,10 +2140,10 @@ pub(super) fn expression_type(
                 if context
                     .type_index
                     .enums
-                    .get(type_name)
+                    .get(&ParameterType::declared(type_name))
                     .is_some_and(|members| members.iter().any(|name| name == member))
                 {
-                    return Some(ParameterType::named(type_name));
+                    return Some(ParameterType::declared(type_name));
                 }
             }
             let target_type = expression_type(target, locals, context)?;
@@ -2175,9 +2182,7 @@ pub(super) fn expression_type(
                     _ => None,
                 };
             }
-            context
-                .type_index
-                .record_field_type(target_type.name().as_ref(), member)
+            context.type_index.record_field_type(&target_type, member)
         }
         HirExpression::Call {
             callee, arguments, ..
@@ -2217,8 +2222,7 @@ pub(super) fn expression_type(
                 if resolved.is_none()
                     && crate::codegen::builtins::general::is_overridable(&canonical_callee)
                     && arg_types.len() == 1
-                    && builtins::general_override_target(&canonical_callee, &arg_types[0].name())
-                        .is_some()
+                    && builtins::general_override_target(&canonical_callee, &arg_types[0]).is_some()
                 {
                     return crate::codegen::builtins::general::override_result_type(
                         &canonical_callee,
@@ -2430,6 +2434,27 @@ fn thread_resource_plane_target(name: &str) -> &str {
         "thread.transfer" => "thread.transferResource",
         "thread.accept" => "thread.acceptResource",
         other => other,
+    }
+}
+
+/// [`canonical_import_name`] on a type, structurally.
+///
+/// plan-111-B. The name-domain form splits the WHOLE rendered spelling on its
+/// FIRST `.` and looks the prefix up as an import binding, so it only ever
+/// rewrites a HEAD nominal: `alias.Type` and `alias.Pair OF A, B` are rewritten,
+/// while `List OF alias.T` looks up `"List OF alias"`, misses, and comes back
+/// unchanged — as do a container's or a user generic's ARGUMENTS. This
+/// reproduces exactly that, which is why it does not recurse.
+fn canonical_import_type(type_: &ParameterType, context: &LowerContext<'_>) -> ParameterType {
+    match type_ {
+        ParameterType::Named(sym) => {
+            ParameterType::named(&canonical_import_name(sym.resolve(), context))
+        }
+        ParameterType::UserOf(head, args) => ParameterType::user_of(
+            &canonical_import_name(head.resolve(), context),
+            args.clone(),
+        ),
+        other => other.clone(),
     }
 }
 
@@ -2695,7 +2720,7 @@ fn registry_record_constant(name: &str) -> Option<IrValue> {
             _ => return None,
         };
     Some(IrValue::Constructor {
-        type_: ParameterType::named(type_name),
+        type_: type_name,
         args: components
             .iter()
             .enumerate()
@@ -3049,11 +3074,8 @@ fn lower_expression_with_expected(
                         .first()
                         .map(call_arg_value)
                         .and_then(|argument| expression_type(argument, locals, context))
-                        // The per-package override table is keyed by type NAME
-                        // (a hand-authored dispatch map in codegen), so the
-                        // operand type renders for that lookup.
                         .and_then(|type_| {
-                            builtins::general_override_target(&canonical_callee, &type_.name())
+                            builtins::general_override_target(&canonical_callee, &type_)
                         })
                         .map(crate::internal_name::internalize)
                 } else {
@@ -3186,13 +3208,12 @@ fn lower_expression_with_expected(
                     // These per-package selectors match on type NAMES (exact
                     // record-type dispatch tables in codegen), so the argument
                     // types render at that seam.
-                    let arg_types: Vec<String> = arguments
+                    let arg_types: Vec<crate::types::ParameterType> = arguments
                         .iter()
                         .map(call_arg_value)
                         .map(|argument| {
                             expression_type(argument, locals, context)
-                                .map(|type_| type_.name().into_owned())
-                                .unwrap_or_default()
+                                .unwrap_or_else(|| crate::types::ParameterType::named(""))
                         })
                         .collect();
                     // `strings`' seven scalar-seam members (`toScalars`/`isLetter`/…)
@@ -3368,21 +3389,21 @@ fn lower_expression_with_expected(
             type_: constructor_type,
             arguments,
         } => {
-            let type_name = constructor_type.name();
-            let canonical_type_name = canonical_import_name(&type_name, context);
+            // plan-111-B: `canonical_import_type` rewrites the import ALIAS on
+            // the head nominal STRUCTURALLY, so the result needs no
+            // re-classification — the name-domain form had to render, edit the
+            // spelling and `parse` it back so a user generic came out a `UserOf`
+            // rather than an opaque nominal.
+            let canonical_type = canonical_import_type(constructor_type, context);
             let fields = context
                 .type_index
                 .records
-                .get(&canonical_type_name)
-                .or_else(|| context.type_index.records.get(type_name.as_ref()))
-                .or_else(|| context.type_index.variant_fields.get(&canonical_type_name))
-                .or_else(|| context.type_index.variant_fields.get(type_name.as_ref()));
+                .get(&canonical_type)
+                .or_else(|| context.type_index.records.get(constructor_type))
+                .or_else(|| context.type_index.variant_fields.get(&canonical_type))
+                .or_else(|| context.type_index.variant_fields.get(constructor_type));
             let base = IrValue::Constructor {
-                // Deliberately `parse`, not `named`: `canonical_import_name` rewrites
-                // an import ALIAS inside the type's spelling (a name-domain edit), and
-                // the result must be re-classified — a user generic (`Pair OF A, B`)
-                // has to come back as a `UserOf`, not an opaque nominal.
-                type_: crate::types::ParameterType::parse(&canonical_type_name),
+                type_: canonical_type,
                 args: lower_constructor_args(arguments, fields, locals, context),
             };
             wrap_union_value(base, expression, expected, locals, context)
@@ -3397,9 +3418,7 @@ fn lower_expression_with_expected(
                     // declared type, mirroring `lower_constructor_args` — else an
                     // unsuffixed literal updating a `Fixed`/`Money` field is typed
                     // `Integer` and reinterpreted as raw bits (bug-156).
-                    let field_type = context
-                        .type_index
-                        .record_field_type(type_.name().as_ref(), &update.field);
+                    let field_type = context.type_index.record_field_type(&type_, &update.field);
                     IrRecordUpdate {
                         field: update.field.clone(),
                         value: lower_expression_with_expected(
@@ -3691,7 +3710,7 @@ fn wrap_union_value(
     // table), so both sides render for the lookup only.
     if context
         .type_index
-        .variant_belongs_to_union(actual_type.name().as_ref(), union_type.name().as_ref())
+        .variant_belongs_to_union(&actual_type, &union_type)
     {
         return IrValue::UnionWrap {
             union_type: union_type.clone(),
@@ -3878,12 +3897,19 @@ fn literal_expression_type(expression: &HirExpression) -> Option<ParameterType> 
     }
 }
 
+/// Lowering's picture of the module's declared types — the front-end twin of
+/// codegen's `TypeModel`.
+///
+/// plan-111-B: keyed BY THE TYPE. A declared type is a nominal, so a key is
+/// `ParameterType::named(<decl name>)` — the same interned `Symbol` a `Named`
+/// out of `parse` carries, so a lookup with a type in hand renders nothing.
 struct TypeIndex {
-    records: HashMap<String, Vec<IrField>>,
-    enums: HashMap<String, Vec<String>>,
-    variants: HashMap<String, String>,
-    variant_unions: HashMap<String, HashSet<String>>,
-    variant_fields: HashMap<String, Vec<IrField>>,
+    records: HashMap<ParameterType, Vec<IrField>>,
+    enums: HashMap<ParameterType, Vec<String>>,
+    /// A union VARIANT type -> the union type that declares it.
+    variants: HashMap<ParameterType, ParameterType>,
+    variant_unions: HashMap<ParameterType, HashSet<ParameterType>>,
+    variant_fields: HashMap<ParameterType, Vec<IrField>>,
 }
 
 impl TypeIndex {
@@ -3891,7 +3917,7 @@ impl TypeIndex {
         let mut records = HashMap::new();
         let mut enums = HashMap::new();
         let mut variants = HashMap::new();
-        let mut variant_unions = HashMap::<String, HashSet<String>>::new();
+        let mut variant_unions = HashMap::<ParameterType, HashSet<ParameterType>>::new();
         let mut variant_fields = HashMap::new();
         let union_decls = hir
             .files
@@ -3916,7 +3942,7 @@ impl TypeIndex {
                 match type_decl.kind {
                     TypeDeclKind::Type => {
                         records.insert(
-                            type_decl.name.clone(),
+                            ParameterType::declared(&type_decl.name),
                             type_decl.fields.iter().map(lower_field).collect(),
                         );
                     }
@@ -3924,22 +3950,24 @@ impl TypeIndex {
                         for variant in
                             expanded_union_variants(type_decl, &union_decls, &mut HashSet::new())
                         {
+                            let variant_type = variant.type_.clone();
+                            let union_type = ParameterType::declared(&type_decl.name);
                             variants
-                                .entry(variant.name.clone())
-                                .or_insert_with(|| type_decl.name.clone());
+                                .entry(variant_type.clone())
+                                .or_insert_with(|| union_type.clone());
                             variant_unions
-                                .entry(variant.name.clone())
+                                .entry(variant_type.clone())
                                 .or_default()
-                                .insert(type_decl.name.clone());
+                                .insert(union_type);
                             variant_fields.insert(
-                                variant.name.clone(),
-                                records.get(&variant.name).cloned().unwrap_or_default(),
+                                variant_type.clone(),
+                                records.get(&variant_type).cloned().unwrap_or_default(),
                             );
                         }
                     }
                     TypeDeclKind::Enum => {
                         enums.insert(
-                            type_decl.name.clone(),
+                            ParameterType::declared(&type_decl.name),
                             type_decl
                                 .members
                                 .iter()
@@ -3955,35 +3983,40 @@ impl TypeIndex {
         // so this only *adds* layouts the consumer would otherwise lack — the
         // reason an imported `record.field` used to type as `Unknown`. Built-in
         // packages are already covered above: their source is in the AST.
+        // plan-111-B: `ImportedTypeField.type_` arrives typed — the `.mfp`
+        // decode parses it in `src/manifest/package.rs` (boundary #5), where the
+        // package entry is read.
         let imported_field = |field: &ImportedTypeField| IrField {
             visibility: None,
             name: field.name.clone(),
-            type_: ParameterType::parse(&field.type_),
+            type_: field.type_.clone(),
             loc: IrSourceLoc::default(),
         };
         for imported in imported_types {
+            let imported_type = ParameterType::declared(&imported.name);
             match imported.kind {
                 ImportedTypeKind::Record => {
                     records
-                        .entry(imported.name.clone())
+                        .entry(imported_type)
                         .or_insert_with(|| imported.fields.iter().map(imported_field).collect());
                 }
                 ImportedTypeKind::Enum => {
                     enums
-                        .entry(imported.name.clone())
+                        .entry(imported_type)
                         .or_insert_with(|| imported.members.clone());
                 }
                 ImportedTypeKind::Union => {
                     for variant in &imported.variants {
+                        let variant_type = ParameterType::declared(&variant.name);
                         variants
-                            .entry(variant.name.clone())
-                            .or_insert_with(|| imported.name.clone());
+                            .entry(variant_type.clone())
+                            .or_insert_with(|| imported_type.clone());
                         variant_unions
-                            .entry(variant.name.clone())
+                            .entry(variant_type.clone())
                             .or_default()
-                            .insert(imported.name.clone());
+                            .insert(imported_type.clone());
                         variant_fields
-                            .entry(variant.name.clone())
+                            .entry(variant_type)
                             .or_insert_with(|| variant.fields.iter().map(imported_field).collect());
                     }
                 }
@@ -3998,35 +4031,39 @@ impl TypeIndex {
         }
     }
 
-    fn constructor_result(&self, name: &str) -> Option<ParameterType> {
-        if name == "Error" {
+    fn constructor_result(&self, type_: &ParameterType) -> Option<ParameterType> {
+        // plan-111-B: `Error`/`Ok` are nominals (neither has a variant), so
+        // these are interned-`Symbol` compares rather than name equality.
+        if type_.is_named("Error") {
             Some(ParameterType::named("Error"))
-        } else if name == "Ok" {
+        } else if type_.is_named("Ok") {
             Some(ParameterType::result_of(ParameterType::Unknown))
-        } else if self.records.contains_key(name) {
-            Some(ParameterType::named(name))
+        } else if self.records.contains_key(type_) {
+            Some(type_.clone())
         } else {
             // A union variant's owning union, held as a NAME (the index is keyed by
             // variant name); it denotes a nominal.
-            self.variants
-                .get(name)
-                .map(|union| ParameterType::named(union))
+            self.variants.get(type_).cloned()
         }
     }
 
-    fn record_field_type(&self, type_name: &str, member: &str) -> Option<ParameterType> {
+    fn record_field_type(&self, type_: &ParameterType, member: &str) -> Option<ParameterType> {
         self.records
-            .get(type_name)
-            .or_else(|| self.variant_fields.get(type_name))?
+            .get(type_)
+            .or_else(|| self.variant_fields.get(type_))?
             .iter()
             .find(|field| field.name == member)
             .map(|field| field.type_.clone())
     }
 
-    fn variant_belongs_to_union(&self, variant_name: &str, union_name: &str) -> bool {
+    fn variant_belongs_to_union(
+        &self,
+        variant: &ParameterType,
+        union_type: &ParameterType,
+    ) -> bool {
         self.variant_unions
-            .get(variant_name)
-            .is_some_and(|unions| unions.contains(union_name))
+            .get(variant)
+            .is_some_and(|unions| unions.contains(union_type))
     }
 }
 
@@ -4034,7 +4071,7 @@ fn expanded_union_variants<'a>(
     type_decl: &'a HirTypeDecl,
     union_decls: &HashMap<String, &'a HirTypeDecl>,
     visiting: &mut HashSet<String>,
-) -> Vec<&'a UnionVariant> {
+) -> Vec<&'a crate::hir::HirUnionVariant> {
     // Guard against an `INCLUDES` cycle (a self- or mutually-including union):
     // without this the recursion is unbounded and overflows the native stack with
     // no diagnostic (bug-194). Insert-before/remove-after tracks only the current
@@ -4045,11 +4082,12 @@ fn expanded_union_variants<'a>(
     }
     let mut variants = Vec::new();
     for include in &type_decl.includes {
-        if let Some(included) = union_decls.get(include) {
+        if let Some(included) = union_decls.get(include.name().as_ref()) {
             variants.extend(expanded_union_variants(included, union_decls, visiting));
         }
     }
     variants.extend(type_decl.variants.iter());
+
     visiting.remove(&type_decl.name);
     variants
 }

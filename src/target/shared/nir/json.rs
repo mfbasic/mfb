@@ -388,7 +388,7 @@ fn link_function_json(function: &crate::ir::IrLinkFunction, indent: usize) -> St
             format!(
                 "{{ \"name\": {}, \"type\": {} }}",
                 json_string(name),
-                json_string(type_)
+                json_string(&type_.name())
             )
         })
         .collect::<Vec<_>>()
@@ -452,7 +452,7 @@ fn link_function_json(function: &crate::ir::IrLinkFunction, indent: usize) -> St
         json_string(&function.library),
         json_string(&function.symbol),
         params,
-        json_string(&function.return_type),
+        json_string(&function.return_type.name()),
         function.return_resource,
         abi_slots,
         json_string(&function.abi_return_name),

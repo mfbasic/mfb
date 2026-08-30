@@ -194,7 +194,9 @@ mod tests {
         // Routes to udp's own close op, not net's — otherwise a udp socket would
         // be dropped through the wrong package's operation.
         assert_eq!(
-            crate::codegen::resource::builtin_resource_close_function(super::SOCKET_TYPE_ID),
+            crate::codegen::resource::builtin_resource_close_function(
+                &crate::types::ParameterType::declared(super::SOCKET_TYPE_ID)
+            ),
             Some("udp.close")
         );
         // net's datagram socket is GONE. Unlike `tcp`, `udp` could not coexist with
@@ -203,16 +205,18 @@ mod tests {
         // the program imports, so plan-110-C had to remove net's datagram surface
         // rather than defer it to plan-110-E (§C1 of that letter).
         assert!(
-            !crate::codegen::resource::is_builtin_resource_type("net.UdpSocket"),
+            !crate::codegen::resource::is_builtin_resource_type(
+                &crate::types::ParameterType::declared("net.UdpSocket")
+            ),
             "net.UdpSocket must be gone -- udp.Socket replaces it"
         );
         // plan-110-E has since removed net's stream surface too, so neither half
         // of what `net` used to carry is left.
         assert!(!crate::codegen::resource::is_builtin_resource_type(
-            "net.Socket"
+            &crate::types::ParameterType::declared("net.Socket")
         ));
         assert!(!crate::codegen::resource::is_builtin_resource_type(
-            "net.Listener"
+            &crate::types::ParameterType::declared("net.Listener")
         ));
     }
 

@@ -16,13 +16,13 @@ impl CodeBuilder<'_> {
         type_: &ParameterType,
         result: ValueResult,
     ) -> Result<ValueResult, String> {
-        if !self.is_freeable_flat_value(&type_.name()) {
+        if !self.is_freeable_flat_value(type_) {
             return Ok(result);
         }
         let keep = self.allocate_stack_object("intermediate_free_keep", 8);
         self.emit(abi::store_u64(&result.location, abi::stack_pointer(), keep));
         self.emit_owned_value_drop(&OwnedValueCleanup {
-            type_: type_.to_string(),
+            type_: type_.clone(),
             stack_offset: block_slot,
             closure_captures: None,
         })?;
@@ -278,21 +278,21 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(count.clone(), "0"));
         self.emit(abi::branch_eq(&fixup_done));
         self.emit(abi::load_u64(
-            &value_offset,
+            value_offset,
             &saved_dst,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         if subtract {
             self.emit(abi::subtract_registers(
-                &value_offset,
-                &value_offset,
+                value_offset,
+                value_offset,
                 delta_reg,
             ));
         } else {
             self.emit(abi::add_registers(&value_offset, &value_offset, delta_reg));
         }
         self.emit(abi::store_u64(
-            &value_offset,
+            value_offset,
             &saved_dst,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
@@ -335,7 +335,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(count.clone(), "0"));
         self.emit(abi::branch_eq(&done_label));
         self.emit(abi::load_u64(
-            &value_offset,
+            value_offset,
             entry_base.clone(),
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
@@ -344,12 +344,12 @@ impl CodeBuilder<'_> {
         // equivalent to unsigned here; `<= hole_offset` means before the hole.
         self.emit(abi::branch_le(&skip_label));
         self.emit(abi::subtract_registers(
-            &value_offset,
-            &value_offset,
+            value_offset,
+            value_offset,
             hole_len,
         ));
         self.emit(abi::store_u64(
-            &value_offset,
+            value_offset,
             entry_base.clone(),
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));

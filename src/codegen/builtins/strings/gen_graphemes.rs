@@ -158,7 +158,11 @@ pub(crate) fn lower_strings_graphemes(
         abi::mfb_return(1),
         COLLECTION_HEADER_SIZE,
     ));
-    builder.emit_collection_data_pointer_for(&scratch21, abi::mfb_return(1), "String");
+    builder.emit_collection_data_pointer_for(
+        &scratch21,
+        abi::mfb_return(1),
+        &ParameterType::String,
+    );
     builder.emit(abi::move_immediate(&scratch22, "Integer", "0"));
     builder.emit(abi::move_immediate(&scratch24, "Integer", "0"));
     builder.emit_utf8_decode_next(&scratch14, &scratch10, &scratch11);
@@ -264,7 +268,7 @@ pub(crate) fn lower_strings_graphemes(
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     Ok(ValueResult {
         origin: None,
-        type_: ParameterType::parse("List OF String"),
+        type_: ParameterType::list_of(ParameterType::String),
         location: Operand::from(result.render()),
         text: "strings.graphemes".to_string(),
     })

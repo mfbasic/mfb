@@ -29,8 +29,14 @@ pub(crate) fn window_fast_path(
             _ => None,
         }
     };
-    let elem_ok = matches!(t, "Integer" | "Float" | "Fixed" | "Money");
-    if (elem_ok || t == "String") && (args.len() == 2 || args.len() == 3) {
+    // The monomorph suffix of a `#collections_*$T` runtime target is a NAME
+    // the NIR carries; parsed once here, at the symbol boundary.
+    let element = ParameterType::declared(t);
+    let elem_ok = matches!(
+        element,
+        ParameterType::Integer | ParameterType::Float | ParameterType::Fixed | ParameterType::Money
+    );
+    if (elem_ok || element == ParameterType::String) && (args.len() == 2 || args.len() == 3) {
         let size = args.get(1).and_then(const_i64);
         let stride = if args.len() == 3 {
             args.get(2).and_then(const_i64)
@@ -38,7 +44,7 @@ pub(crate) fn window_fast_path(
             Some(1)
         };
         if let (Some(sz), Some(st)) = (size, stride) {
-            if sz >= 1 && st >= 1 && t == "String" {
+            if sz >= 1 && st >= 1 && element == ParameterType::String {
                 return builder
                     .lower_collection_window_string_call(args, sz, st)
                     .map(Some);
@@ -67,7 +73,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let source = self.lower_value(&args[0])?;
         let elem = typed_list_element_type(&source.type_)
-            .map(|type_| type_.name().into_owned())
+            .cloned()
             .ok_or_else(|| format!("native window does not accept {}", source.type_))?;
         let inner_type = source.type_.clone();
         let outer_type = ParameterType::list_of(inner_type.clone());
@@ -174,8 +180,8 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::multiply_registers(&t, &wc, &t));
         self.emit(abi::add_immediate(
-            &outer_data,
-            &outer,
+            outer_data,
+            outer,
             COLLECTION_HEADER_SIZE,
         ));
         self.emit(abi::add_registers(&outer_data, &outer_data, &t));
@@ -319,7 +325,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_gt(&done_l));
         // inner = source[start .. start+size]; append into outer; free inner.
         let inner_slot = self.emit_string_list_slice_block(source_slot, start_slot, count_slot)?;
-        self.lower_list_append_in_place(outer_slot, inner_slot, &outer_type, &inner_type.name())?;
+        self.lower_list_append_in_place(outer_slot, inner_slot, &outer_type, &inner_type)?;
         self.emit_free_owned_kind0_list_block(inner_slot)?;
         // start += stride
         self.emit(abi::load_u64(&scratch, abi::stack_pointer(), start_slot));

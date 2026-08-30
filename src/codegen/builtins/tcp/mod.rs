@@ -216,21 +216,25 @@ mod tests {
         // not net's. If these ever came back as `net.close`, a tcp socket would be
         // dropped through the wrong package's op.
         assert_eq!(
-            crate::codegen::resource::builtin_resource_close_function(super::SOCKET_TYPE_ID),
+            crate::codegen::resource::builtin_resource_close_function(
+                &crate::types::ParameterType::declared(super::SOCKET_TYPE_ID)
+            ),
             Some("tcp.close")
         );
         assert_eq!(
-            crate::codegen::resource::builtin_resource_close_function(super::LISTENER_TYPE_ID),
+            crate::codegen::resource::builtin_resource_close_function(
+                &crate::types::ParameterType::declared(super::LISTENER_TYPE_ID)
+            ),
             Some("tcp.close")
         );
         // plan-110-E removed net's transport surface, so the identity that this
         // one was "distinct from" no longer exists at all -- which is a stronger
         // guarantee than the two coexisting and not being substitutable.
         assert!(!crate::codegen::resource::is_builtin_resource_type(
-            "net.Socket"
+            &crate::types::ParameterType::declared("net.Socket")
         ));
         assert!(!crate::codegen::resource::is_builtin_resource_type(
-            "net.Listener"
+            &crate::types::ParameterType::declared("net.Listener")
         ));
     }
 
@@ -239,10 +243,12 @@ mod tests {
         // A connected stream may cross a thread boundary; a listener may not,
         // because it accepts on its owning thread.
         assert!(crate::codegen::resource::is_builtin_sendable_resource_type(
-            super::SOCKET_TYPE_ID
+            &crate::types::ParameterType::declared(super::SOCKET_TYPE_ID)
         ));
         assert!(
-            !crate::codegen::resource::is_builtin_sendable_resource_type(super::LISTENER_TYPE_ID)
+            !crate::codegen::resource::is_builtin_sendable_resource_type(
+                &crate::types::ParameterType::declared(super::LISTENER_TYPE_ID)
+            )
         );
     }
 

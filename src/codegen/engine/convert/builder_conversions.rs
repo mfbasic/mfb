@@ -52,11 +52,11 @@ impl CodeBuilder<'_> {
         self.reset_temporary_registers();
         let source = self.allocate_register();
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
-        match value.type_.name().as_ref() {
-            "Fixed" => self.emit_fixed_to_int_value(&source),
-            "Float" => self.emit_float_to_int_value(&source),
-            "Money" => self.emit_money_to_int_value(&source),
-            "String" => match base_slot {
+        match &value.type_ {
+            ParameterType::Fixed => self.emit_fixed_to_int_value(&source),
+            ParameterType::Float => self.emit_float_to_int_value(&source),
+            ParameterType::Money => self.emit_money_to_int_value(&source),
+            ParameterType::String => match base_slot {
                 Some(slot) => self.emit_string_to_int_value_base(&source, slot),
                 None => self.emit_string_to_int_value(&source),
             },
@@ -581,18 +581,18 @@ impl CodeBuilder<'_> {
     /// failing for an empty or multi-scalar string.
     pub(crate) fn lower_to_scalar(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
-        match value.type_.name().as_ref() {
-            "Byte" => {
+        match &value.type_ {
+            ParameterType::Byte => {
                 let register = self.allocate_register();
                 self.emit(abi::move_register(&register, &value.location));
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse("Scalar"),
+                    type_: ParameterType::named("Scalar"),
                     location: Operand::from(register.render()),
                     text: format!("toScalar({})", value.text),
                 })
             }
-            "Integer" => {
+            ParameterType::Integer => {
                 let cp = value.location.clone();
                 let ok = self.label("to_scalar_ok");
                 let invalid = self.label("to_scalar_invalid");
@@ -617,16 +617,16 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&register, &cp));
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse("Scalar"),
+                    type_: ParameterType::named("Scalar"),
                     location: Operand::from(register.render()),
                     text: format!("toScalar({})", value.text),
                 })
             }
-            "String" => {
+            ParameterType::String => {
                 let result = self.emit_string_to_scalar_value(&value.location)?;
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse("Scalar"),
+                    type_: ParameterType::named("Scalar"),
                     location: Operand::from(result.render()),
                     text: format!("toScalar({})", value.text),
                 })
@@ -865,12 +865,12 @@ impl CodeBuilder<'_> {
         let source = self.allocate_register();
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
         let result = self.allocate_register();
-        match value.type_.name().as_ref() {
-            "Integer" => {
+        match &value.type_ {
+            ParameterType::Integer => {
                 self.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[0], &source));
                 self.emit(abi::float_move_x_from_d(&result, abi::FP_SCRATCH[0]));
             }
-            "Fixed" => {
+            ParameterType::Fixed => {
                 let temp = ValueResult {
                     origin: None,
                     type_: ParameterType::Fixed,
@@ -881,7 +881,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::float_move_x_from_d(&result, abi::FP_SCRATCH[0]));
             }
             // `toFloat(Money)` = `raw / 100000.0` (plan-29-G §4.3).
-            "Money" => {
+            ParameterType::Money => {
                 let temp = ValueResult {
                     origin: None,
                     type_: ParameterType::Money,
@@ -891,7 +891,7 @@ impl CodeBuilder<'_> {
                 self.load_numeric_as_double(abi::FP_SCRATCH[0], &temp)?;
                 self.emit(abi::float_move_x_from_d(&result, abi::FP_SCRATCH[0]));
             }
-            "String" => {
+            ParameterType::String => {
                 let invalid = self.label("to_float_invalid");
                 let overflow = self.label("to_float_overflow");
                 self.emit_parse_decimal_string_to_double(&source, &invalid)?;
@@ -934,22 +934,22 @@ impl CodeBuilder<'_> {
         let source = self.allocate_register();
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
         let result = self.allocate_register();
-        match value.type_.name().as_ref() {
-            "Integer" => {
+        match &value.type_ {
+            ParameterType::Integer => {
                 self.emit_integer_to_fixed_value(&source, &result)?;
             }
-            "Float" => {
+            ParameterType::Float => {
                 self.emit_float_bits_to_fixed_value(&source, &result)?;
             }
             // `toFixed(Money)` = `raw * 2^32 / 100000` — exactly `emit_fixed_divide`
             // fed the Money raw and the base-10 scale; its range check traps a
             // Money too large for Fixed's 32-bit integer part (plan-29-G §4.3).
-            "Money" => {
+            ParameterType::Money => {
                 let scale = self.allocate_register();
                 self.emit(abi::move_immediate(&scale, "Integer", "100000"));
                 self.emit_fixed_divide(&result, &source, &scale)?;
             }
-            "String" => {
+            ParameterType::String => {
                 let invalid = self.label("to_fixed_invalid");
                 let overflow = self.label("to_fixed_overflow");
                 self.emit_parse_decimal_string_to_double(&source, &invalid)?;
@@ -999,29 +999,29 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
         let result = self.allocate_register();
         let scratch = self.temporary_vreg();
-        match value.type_.name().as_ref() {
+        match &value.type_ {
             // Exact: `value * 100000`, overflow-checked for Integer (a Byte is
             // always in range: 255 * 100000 fits i64).
-            "Integer" => {
+            ParameterType::Integer => {
                 let scale = self.allocate_register();
                 self.emit(abi::move_immediate(&scale, "Integer", "100000"));
                 self.emit_checked_integer_multiply(&result, &source, &scale)?;
             }
-            "Byte" => {
+            ParameterType::Byte => {
                 let scale = self.allocate_register();
                 self.emit(abi::move_immediate(&scale, "Integer", "100000"));
                 self.emit(abi::multiply_registers(&result, &source, &scale));
             }
             // `fixed_raw * 100000 / 2^32` is exactly `emit_fixed_multiply(fixed_raw,
             // 100000)`; its overflow check traps a Fixed too large for Money.
-            "Fixed" => {
+            ParameterType::Fixed => {
                 let scale = self.allocate_register();
                 self.emit(abi::move_immediate(&scale, "Integer", "100000"));
                 self.emit_fixed_multiply(&result, &source, &scale)?;
             }
             // Inexact: finiteness → ErrInvalidFormat, `value * 100000.0` rounded
             // under the mode, range → ErrOverflow.
-            "Float" => {
+            ParameterType::Float => {
                 let fval = self.allocate_fp_register();
                 self.emit(abi::float_move_d_from_x(&fval, &source));
                 self.emit_float_finite_or_invalid(&fval)?;
@@ -1036,7 +1036,7 @@ impl CodeBuilder<'_> {
             // f64 path overflowed the valid max and misrounded large ties. The
             // rare scientific-notation form (`e`/`E`) falls back to the f64 parse,
             // which is approximate anyway.
-            "String" => {
+            ParameterType::String => {
                 let invalid = self.label("to_money_invalid");
                 let overflow = self.label("to_money_overflow");
                 let scientific = self.label("to_money_scientific");
@@ -1164,9 +1164,11 @@ impl CodeBuilder<'_> {
         let true_label = self.label(name);
         let done_label = self.label(&format!("{name}_done"));
 
-        match value.type_.name().as_ref() {
-            "Integer" | "Fixed" => self.emit(abi::compare_immediate(&value.location, "0")),
-            "Float" => {
+        match &value.type_ {
+            ParameterType::Integer | ParameterType::Fixed => {
+                self.emit(abi::compare_immediate(&value.location, "0"))
+            }
+            ParameterType::Float => {
                 self.emit(abi::float_move_d_from_x(
                     abi::FP_SCRATCH[0],
                     &value.location,

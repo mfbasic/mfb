@@ -21,7 +21,7 @@ fn package_exports_lists_callables_with_signatures() {
     assert!(names.contains(&"main"));
     assert!(names.contains(&"doThing"));
     let main = exports.iter().find(|e| e.name == "main").unwrap();
-    assert_eq!(main.return_type, "Integer");
+    assert_eq!(main.return_type.name(), "Integer");
     assert_eq!(main.params.len(), 2);
     // The defaulted parameter carries has_default.
     assert!(main.params[1].has_default);
@@ -66,13 +66,17 @@ fn resolve_resource_close_name_maps_builtins_and_functions() {
     let package = decoded_package();
     assert_eq!(
         resolve_resource_close_name(&package, BUILTIN_FS_CLOSE_FUNCTION_ID).unwrap(),
-        builtins::resource_close_function(crate::codegen::builtins::fs::FILE_TYPE_ID)
-            .map(str::to_string)
+        builtins::resource_close_function(&crate::types::ParameterType::named(
+            crate::codegen::builtins::fs::FILE_TYPE_ID
+        ))
+        .map(str::to_string)
     );
     assert_eq!(
         resolve_resource_close_name(&package, BUILTIN_STREAM_CLOSE_FUNCTION_ID).unwrap(),
-        builtins::resource_close_function(crate::codegen::builtins::tcp::SOCKET_TYPE_ID)
-            .map(str::to_string)
+        builtins::resource_close_function(&crate::types::ParameterType::named(
+            crate::codegen::builtins::tcp::SOCKET_TYPE_ID
+        ))
+        .map(str::to_string)
     );
     // A function-id index resolves to that function's name.
     let named = resolve_resource_close_name(&package, 0).unwrap();

@@ -110,7 +110,7 @@ impl CodeBuilder<'_> {
         if Self::is_vector_native(result) {
             return;
         }
-        if !self.is_freeable_flat_value(&result.type_.name())
+        if !self.is_freeable_flat_value(&result.type_)
             || self.value_needs_owning_copy(value)
             || Self::value_is_runtime_managed(value)
         {
@@ -132,7 +132,7 @@ impl CodeBuilder<'_> {
         let slot = self.allocate_stack_object("pending_temp", 8);
         self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
         self.pending_temp_frees.push(PendingTemp {
-            type_: result.type_.name().into_owned(),
+            type_: result.type_.clone(),
             slot,
             location: result.location.clone(),
         });
@@ -201,8 +201,7 @@ impl CodeBuilder<'_> {
             self.claim_pending_temp(&block);
             return Ok(block);
         }
-        if self.value_needs_owning_copy(value) && self.is_freeable_flat_value(&result.type_.name())
-        {
+        if self.value_needs_owning_copy(value) && self.is_freeable_flat_value(&result.type_) {
             let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {
                 origin: None,
@@ -331,11 +330,11 @@ impl CodeBuilder<'_> {
     /// a flat data union, a flat collection, or a flat `Result`. Scalars (stored
     /// inline by value), resources, threads, and recursive/non-flat composites are
     /// excluded: they are never freed by the generic owned-value path.
-    pub(crate) fn is_freeable_flat_value(&self, type_: &str) -> bool {
+    pub(crate) fn is_freeable_flat_value(&self, type_: &ParameterType) -> bool {
         self.type_is_flat(type_)
-            && (type_ == "String"
-                || is_collection_type(type_)
-                || crate::codegen::engine::types::is_result_type(type_)
+            && (*type_ == ParameterType::String
+                || typed_is_collection_type(type_)
+                || matches!(type_, ParameterType::ResultOf(_))
                 || self.type_model.record_fields.contains_key(type_)
                 || self.union_is_data(type_))
     }
@@ -348,14 +347,16 @@ impl CodeBuilder<'_> {
     /// `by_ref` `Capture`) holds a pointer to another binding's slot, NOT an owned
     /// block, and a by-value scalar/float is stored inline; freeing either would
     /// be a wild free. Leaving them is a safe (bounded, arena-reclaimed) leak.
-    pub(crate) fn capture_free_type(&self, capture: &NirValue) -> String {
+    pub(crate) fn capture_free_type(&self, capture: &NirValue) -> ParameterType {
         match capture {
             NirValue::Local(name) => self
                 .locals
                 .get(name)
-                .map(|local| local.type_.name().into_owned())
-                .unwrap_or_default(),
-            _ => String::new(),
+                .map(|local| local.type_.clone())
+                // The EMPTY nominal is this tree's "no declared type" marker
+                // (`type_utils::is_unset_type`); it was `String::new()` here.
+                .unwrap_or_else(|| ParameterType::named("")),
+            _ => ParameterType::named(""),
         }
     }
 
@@ -384,10 +385,14 @@ impl CodeBuilder<'_> {
                 // A Const String is always intercepted by `static_string_value`
                 // above (builder_value_semantics.rs:562 returns Some for it), so this
                 // arm only reaches non-String scalar constants. bug-175 C: the dead
-                // `type_ == "String"` branch was removed.
+                // `*type_ == ParameterType::String` branch was removed.
                 let register = self.allocate_register();
-                let immediate = native_immediate_value(&type_.name(), value)?;
-                self.emit(abi::move_immediate(&register, &type_.name(), &immediate));
+                let immediate = native_immediate_value(&type_, value)?;
+                self.emit(abi::move_immediate(
+                    &register,
+                    &abi::immediate_class(&type_),
+                    &immediate,
+                ));
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
@@ -396,10 +401,14 @@ impl CodeBuilder<'_> {
                 })
             }
             NirValue::Local(name) => {
-                if self.type_model.union_variants.contains_key(name) {
+                if self
+                    .type_model
+                    .union_variants
+                    .contains_key(&ParameterType::declared(name))
+                {
                     return Ok(ValueResult {
                         origin: None,
-                        type_: ParameterType::parse("VariantTag"),
+                        type_: ParameterType::named("VariantTag"),
                         location: Operand::from(name.clone()),
                         text: name.clone(),
                     });
@@ -428,7 +437,7 @@ impl CodeBuilder<'_> {
                     .get(name)
                     .ok_or_else(|| format!("native code local '{name}' does not resolve"))?;
                 let type_ = local.type_.clone();
-                let type_name = type_.name().into_owned();
+                let type_name = type_.clone();
                 let stack_offset = local.stack_offset;
                 let by_ref = local.by_ref;
                 // A non-aliased `Float` local loads straight into an FP register
@@ -441,7 +450,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_double(&d, abi::stack_pointer(), stack_offset));
                     return Ok(ValueResult {
                         origin: None,
-                        type_: ParameterType::parse(&type_name),
+                        type_: type_name.clone(),
                         location: Operand::from(d.render()),
                         text: name.clone(),
                     });
@@ -457,7 +466,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse(&type_name),
+                    type_: type_name.clone(),
                     location: Operand::from(register.render()),
                     text: name.clone(),
                 })
@@ -526,7 +535,7 @@ impl CodeBuilder<'_> {
                 // descriptor on every evaluation, so a lambda in a loop no longer
                 // grows the arena (bug-78). All indirect-call/env-access consumers
                 // read `{code, env}` off this pointer exactly as before.
-                let symbol = builtin_function_symbol_for_type(name, &type_.name())
+                let symbol = builtin_function_symbol_for_type(name, &type_)
                     .or_else(|| self.function_symbols.get(name).cloned())
                     .unwrap_or_else(|| name.clone());
                 let desc_symbol = closure_descriptor_symbol(&symbol);
@@ -722,7 +731,7 @@ impl CodeBuilder<'_> {
                         let return_type_typed = typed_callable_return_type(&local.type_)
                             .expect("guarded by the Func match above")
                             .clone();
-                        let return_type = return_type_typed.name().into_owned();
+                        let return_type = return_type_typed.clone();
                         let callable = ValueResult {
                             origin: None,
                             type_: local.type_.clone(),
@@ -741,7 +750,7 @@ impl CodeBuilder<'_> {
                             target,
                             &callable,
                             args,
-                            Some(&return_type),
+                            Some(&return_type.name()),
                         );
                     }
                 }
@@ -886,7 +895,7 @@ impl CodeBuilder<'_> {
                         let return_type_typed = typed_callable_return_type(&local.type_)
                             .expect("guarded by the Func match above")
                             .clone();
-                        let return_type = return_type_typed.name().into_owned();
+                        let return_type = return_type_typed.clone();
                         let callable = ValueResult {
                             origin: None,
                             type_: local.type_.clone(),
@@ -958,8 +967,11 @@ impl CodeBuilder<'_> {
                             abi::stack_pointer(),
                             payload_slot,
                         ));
-                        let err_result =
-                            self.emit_build_result_inline(tag_slot, "Error", payload_slot)?;
+                        let err_result = self.emit_build_result_inline(
+                            tag_slot,
+                            &ParameterType::named("Error"),
+                            payload_slot,
+                        )?;
                         self.emit(abi::store_u64(
                             &err_result,
                             abi::stack_pointer(),
@@ -1038,13 +1050,12 @@ impl CodeBuilder<'_> {
                     .or_else(|| self.package_return_types.get(target).cloned())
                     .or_else(|| {
                         // A static descriptor name — a registry-literal boundary.
-                        builtins::call_return_type_name(target)
-                            .map(|type_| ParameterType::parse(&type_))
+                        builtins::call_return_type(target)
                     })
                     .ok_or_else(|| {
                         format!("native raw result call '{target}' has no return type")
                     })?;
-                let success_type = success_type_typed.name().into_owned();
+                let success_type = success_type_typed.clone();
                 let tag_slot = self.allocate_stack_object("raw_result_tag", 8);
                 let value_slot = self.allocate_stack_object("raw_result_value", 8);
                 let message_slot = self.allocate_stack_object("raw_result_message", 8);
@@ -1053,7 +1064,7 @@ impl CodeBuilder<'_> {
                 let wrap_error_label = self.label("result_wrap_error");
                 let have_payload_label = self.label("result_have_payload");
                 let result_slot = self.allocate_stack_object("raw_result", 8);
-                self.emit_call(target, &symbol, args, Some(&success_type))?;
+                self.emit_call(target, &symbol, args, Some(&success_type.name()))?;
                 self.emit(abi::store_u64(
                     RESULT_TAG_REGISTER,
                     abi::stack_pointer(),
@@ -1097,7 +1108,11 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     payload_slot,
                 ));
-                let err_result = self.emit_build_result_inline(tag_slot, "Error", payload_slot)?;
+                let err_result = self.emit_build_result_inline(
+                    tag_slot,
+                    &ParameterType::named("Error"),
+                    payload_slot,
+                )?;
                 self.emit(abi::store_u64(
                     &err_result,
                     abi::stack_pointer(),
@@ -1158,7 +1173,7 @@ impl CodeBuilder<'_> {
                 // (`vector_value_as_block`). Each lane is finiteness-observed exactly
                 // as the record-field boundary would (plan-17), so behavior is
                 // bit-identical to the heap-record constructor.
-                if let Some(count) = vector_field_count(&type_.name()) {
+                if let Some(count) = vector_field_count(type_) {
                     if args.len() == count {
                         let mut lanes = Vec::with_capacity(count);
                         for arg in args {
@@ -1166,7 +1181,7 @@ impl CodeBuilder<'_> {
                             self.observe_float(arg, &value)?;
                             lanes.push(value);
                         }
-                        return Ok(self.make_vector_native(&type_.name(), lanes));
+                        return Ok(self.make_vector_native(type_, lanes));
                     }
                 }
                 // A fresh nested owned block passed as a field (e.g. the `ErrorLoc`
@@ -1194,15 +1209,11 @@ impl CodeBuilder<'_> {
                     arg_values.push(value);
                     arg_slots.push(slot);
                 }
-                if self
-                    .type_model
-                    .record_fields
-                    .contains_key(type_.name().as_ref())
-                {
+                if self.type_model.record_fields.contains_key(type_) {
                     // A record inlines its `String` fields into a trailing data
                     // region (the slot holds a block-relative offset); scalar and
                     // pointer fields stay inline at `8*index` (plan-02 §4.2).
-                    let register = self.emit_build_inlined_record(&type_.name(), &arg_slots)?;
+                    let register = self.emit_build_inlined_record(type_, &arg_slots)?;
                     // The record now owns byte-inlined copies of every field, so the
                     // consumed nested arg blocks are dead — free them (the record
                     // register is live across these frees and preserved by the vreg
@@ -1224,7 +1235,7 @@ impl CodeBuilder<'_> {
                 let tag = self
                     .type_model
                     .union_variant_tags
-                    .get(type_.name().as_ref())
+                    .get(type_)
                     .copied()
                     .ok_or_else(|| {
                         format!("native code union variant '{type_}' does not resolve")
@@ -1232,9 +1243,9 @@ impl CodeBuilder<'_> {
                 let union_name = self
                     .type_model
                     .union_variants
-                    .get(type_.name().as_ref())
+                    .get(type_)
                     .cloned()
-                    .unwrap_or_else(|| type_.name().into_owned());
+                    .unwrap_or_else(|| type_.clone());
                 // bug-175 C: size the union block the same way the `UnionWrap` path
                 // does — a resource variant occupies one word (its handle pointer)
                 // rather than being skipped, so a union mixing resource and data
@@ -1243,7 +1254,7 @@ impl CodeBuilder<'_> {
                     .type_model
                     .variants_for_union(&union_name)
                     .map(|variant| {
-                        if crate::codegen::builtins::is_resource_type(variant) {
+                        if crate::codegen::builtins::is_resource_type(&variant) {
                             1
                         } else {
                             self.type_model
@@ -1281,7 +1292,7 @@ impl CodeBuilder<'_> {
                 let tag_register = self.allocate_register();
                 self.emit(abi::move_immediate(
                     &tag_register,
-                    "UnionTag",
+                    abi::IMMEDIATE_CLASS_UNION_TAG,
                     &tag.to_string(),
                 ));
                 self.emit(abi::store_u64(&tag_register, abi::mfb_return(1), 0));
@@ -1296,7 +1307,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse(&union_name),
+                    type_: union_name.clone(),
                     location: Operand::from(register.render()),
                     text: format!("construct {type_}({})", join_texts(&arg_values)),
                 })
@@ -1316,14 +1327,13 @@ impl CodeBuilder<'_> {
                 // A resource-union variant is a bare resource whose payload is
                 // the resource pointer itself (one word at offset 8), not record
                 // fields.
-                let is_resource_variant =
-                    crate::codegen::builtins::is_resource_type(&member_type.name());
+                let is_resource_variant = crate::codegen::builtins::is_resource_type(&member_type);
                 let fields = if is_resource_variant {
                     Vec::new()
                 } else {
                     self.type_model
                         .record_fields
-                        .get(member_type.name().as_ref())
+                        .get(member_type)
                         .cloned()
                         .ok_or_else(|| {
                             format!("native code union wrap member '{member_type}' is not a record")
@@ -1332,7 +1342,7 @@ impl CodeBuilder<'_> {
                 let tag = self
                     .type_model
                     .union_variant_tags
-                    .get(member_type.name().as_ref())
+                    .get(member_type)
                     .copied()
                     .ok_or_else(|| {
                         format!("native code union variant '{member_type}' does not resolve")
@@ -1344,7 +1354,7 @@ impl CodeBuilder<'_> {
                 if !is_resource_variant {
                     let _ = &fields;
                     let register =
-                        self.emit_wrap_record_in_union(&member_type.name(), tag, wrapped_slot)?;
+                        self.emit_wrap_record_in_union(member_type, tag, wrapped_slot)?;
                     return Ok(ValueResult {
                         origin: None,
                         type_: union_type.clone(),
@@ -1357,9 +1367,9 @@ impl CodeBuilder<'_> {
                 // field count.
                 let max_payload = self
                     .type_model
-                    .variants_for_union(&union_type.name())
+                    .variants_for_union(union_type)
                     .map(|variant| {
-                        if crate::codegen::builtins::is_resource_type(variant) {
+                        if crate::codegen::builtins::is_resource_type(&variant) {
                             1
                         } else {
                             self.type_model
@@ -1397,7 +1407,7 @@ impl CodeBuilder<'_> {
                 let tag_register = self.allocate_register();
                 self.emit(abi::move_immediate(
                     &tag_register,
-                    "UnionTag",
+                    abi::IMMEDIATE_CLASS_UNION_TAG,
                     &tag.to_string(),
                 ));
                 self.emit(abi::store_u64(&tag_register, abi::mfb_return(1), 0));
@@ -1419,7 +1429,7 @@ impl CodeBuilder<'_> {
             NirValue::UnionExtract { type_, value } => {
                 // A resource-union variant's payload is the resource pointer
                 // itself (offset 8): extracting it yields that pointer directly.
-                if crate::codegen::builtins::is_resource_type(&type_.name()) {
+                if crate::codegen::builtins::is_resource_type(&type_) {
                     let source = self.lower_value(value)?;
                     let register = self.allocate_register();
                     self.emit(abi::load_u64(&register, &source.location, 8));
@@ -1471,7 +1481,7 @@ impl CodeBuilder<'_> {
                         result.type_
                     ));
                 };
-                let type_ = payload.name().into_owned();
+                let type_ = (**payload).clone();
                 // The payload is inlined at +16 (plan-02 §4.3): a block payload
                 // yields an alias pointer into the Result; a scalar payload is the
                 // 8-byte value.
@@ -1483,7 +1493,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse(&type_),
+                    type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: "resultValue".to_string(),
                 })
@@ -1495,7 +1505,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_immediate(&register, &result.location, 16));
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse("Error"),
+                    type_: ParameterType::named("Error"),
                     location: Operand::from(register.render()),
                     text: "resultError".to_string(),
                 })
@@ -1504,12 +1514,17 @@ impl CodeBuilder<'_> {
                 type_,
                 target,
                 updates,
-            } => self.lower_with_update(&type_.name(), target, updates),
+            } => self.lower_with_update(&type_, target, updates),
             NirValue::MemberAccess { target, member } => match target.as_ref() {
                 _ if member == "result" => {
-                    if let Some(output_type) = self.static_type_name(target).and_then(|type_| {
-                        crate::types::parent_thread_output(&type_.name()).map(str::to_string)
-                    }) {
+                    if let Some(output_type) =
+                        self.static_type_name(target).and_then(|type_| match type_ {
+                            ParameterType::ThreadHandle {
+                                worker: false, out, ..
+                            } => Some((*out).clone()),
+                            _ => None,
+                        })
+                    {
                         self.emit_raw_call(
                             &runtime::symbol_for_call(
                                 runtime::RuntimeHelper::Thread,
@@ -1530,18 +1545,18 @@ impl CodeBuilder<'_> {
                     if let Some(ordinal) = self
                         .type_model
                         .enum_members
-                        .get(&(type_name.clone(), member.clone()))
+                        .get(&(ParameterType::declared(type_name), member.clone()))
                         .copied()
                     {
                         let register = self.allocate_register();
                         self.emit(abi::move_immediate(
                             &register,
-                            "EnumOrdinal",
+                            abi::IMMEDIATE_CLASS_ENUM_ORDINAL,
                             &ordinal.to_string(),
                         ));
                         return Ok(ValueResult {
                             origin: None,
-                            type_: ParameterType::parse(&type_name),
+                            type_: ParameterType::declared(type_name),
                             location: Operand::from(register.render()),
                             text: format!("{type_name}.{member}"),
                         });
@@ -1630,9 +1645,8 @@ impl CodeBuilder<'_> {
         target: &str,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
-        let success_type = builtins::call_return_type_name(target)
-            .ok_or_else(|| format!("native raw conversion '{target}' has no return type"))?
-            .to_string();
+        let success_type = builtins::call_return_type(target)
+            .ok_or_else(|| format!("native raw conversion '{target}' has no return type"))?;
         let capture = self.label("raw_conversion_done");
         let previous = self.raw_result_capture.take();
         self.raw_result_capture = Some(capture.clone());
@@ -1804,7 +1818,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::label(&capture));
         let success_type = success.type_.clone();
-        self.materialize_current_result(&success_type.name(), format!("callResult {target}"), false)
+        self.materialize_current_result(&success_type, format!("callResult {target}"), false)
     }
 
     /// Inline `TRAP` on a provably-infallible inline built-in (plan-26-A). Unlike
@@ -1828,7 +1842,7 @@ impl CodeBuilder<'_> {
             "Integer",
             RESULT_OK_TAG,
         ));
-        self.materialize_current_result(&success_type.name(), format!("callResult {target}"), false)
+        self.materialize_current_result(&success_type, format!("callResult {target}"), false)
     }
 
     /// Dispatch a provably-infallible inline built-in to its normal lowering. The
@@ -2068,9 +2082,9 @@ impl CodeBuilder<'_> {
             .or_else(|| {
                 (target == "tcp.poll").then(|| {
                     if self.net_poll_is_list_form(&helper_args) {
-                        crate::codegen::builtins::tcp::SOCKET_TYPE_ID.to_string()
+                        ParameterType::named(crate::codegen::builtins::tcp::SOCKET_TYPE_ID)
                     } else {
-                        "Boolean".to_string()
+                        ParameterType::Boolean
                     }
                 })
             })
@@ -2078,9 +2092,9 @@ impl CodeBuilder<'_> {
             .or_else(|| {
                 (target == "udp.poll").then(|| {
                     if self.net_poll_is_list_form(&helper_args) {
-                        crate::codegen::builtins::udp::SOCKET_TYPE_ID.to_string()
+                        ParameterType::named(crate::codegen::builtins::udp::SOCKET_TYPE_ID)
                     } else {
-                        "Boolean".to_string()
+                        ParameterType::Boolean
                     }
                 })
             })
@@ -2098,13 +2112,13 @@ impl CodeBuilder<'_> {
             .or_else(|| {
                 (target == "tls.poll").then(|| {
                     if self.net_poll_is_list_form(&helper_args) {
-                        crate::codegen::builtins::tls::TLS_SOCKET_TYPE_ID.to_string()
+                        ParameterType::named(crate::codegen::builtins::tls::TLS_SOCKET_TYPE_ID)
                     } else {
-                        "Boolean".to_string()
+                        ParameterType::Boolean
                     }
                 })
             })
-            .or_else(|| builtins::call_return_type_name(target).map(std::borrow::Cow::into_owned))
+            .or_else(|| builtins::call_return_type(target))
             // A runtime-call `os_alias` reached directly (the IR-level overload
             // rewrites: `audio.openOutputDevice`/`openInputDevice`/…) is not a
             // registry member, so `call_return_type_name` declines it. Resolve the
@@ -2114,13 +2128,15 @@ impl CodeBuilder<'_> {
             // broke the inline-TRAP'd device-overload opens).
             .or_else(|| {
                 crate::codegen::registry::alias_call_return_type(target)
-                    .map(std::borrow::Cow::into_owned)
+                    .map(|name| ParameterType::declared(&name))
             })
             // A migrated package's code-form/scope-drop close op (`audio.closeInput`,
             // `audio.closeOutput`, `tls.closeListener`) is an `os_alias`, not a
             // registry member, so `call_return_type_name` declines it; its return type
             // is the catalogued runtime spec's (derived by `registry::runtime_specs`).
-            .or_else(|| runtime::spec_for_call(target).map(|spec| spec.abi.returns.to_string()))
+            .or_else(|| {
+                runtime::spec_for_call(target).map(|spec| ParameterType::declared(spec.abi.returns))
+            })
             .ok_or_else(|| format!("native runtime call '{target}' has no return type"))?;
         let runtime_target = match target {
             "thread.send" => {

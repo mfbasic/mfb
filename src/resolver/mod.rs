@@ -240,9 +240,14 @@ fn call_arg_value(argument: &crate::hir::HirCallArg) -> &HirExpression {
 
 /// Whether `type_name` is a raw C ABI type (mirrors the former source checker's `is_c_abi_type`),
 /// which may appear only inside ABI slots (plan-link-update.md §5/§11).
-fn is_c_abi_type(type_name: &str) -> bool {
+fn is_c_abi_type(type_: &crate::types::ParameterType) -> bool {
+    // plan-111-B: every C ABI spelling is a nominal (none has a variant), so
+    // this is the same list asked of the interned `Symbol` the `Named` holds.
+    let crate::types::ParameterType::Named(name) = type_ else {
+        return false;
+    };
     matches!(
-        type_name,
+        name.resolve(),
         "CPtr"
             | "CString"
             | "CInt8"
@@ -258,13 +263,15 @@ fn is_c_abi_type(type_name: &str) -> bool {
     )
 }
 
-/// The bare resource type name with any `STATE T` suffix removed, mirroring
-/// `crate::codegen::resource::base_resource_name`.
-fn resource_base_type(type_name: &str) -> &str {
-    match type_name.split_once(" STATE ") {
-        Some((base, _)) => base,
-        None => type_name,
-    }
+/// The bare resource type with any `STATE T` clause removed.
+///
+/// plan-111-B deleted this module's own copy of the split — a THIRD hand-rolled
+/// `STATE` grammar, and the only one that carried no composite guard at all, so
+/// `List OF RES File STATE Cursor` would have truncated to `List OF RES File`
+/// (the bug-429 shape). `ParameterType::without_state` is the structural
+/// answer, top-level only by construction.
+fn resource_base_type(type_: &crate::types::ParameterType) -> crate::types::ParameterType {
+    type_.without_state()
 }
 
 struct Resolver<'a> {
@@ -273,7 +280,8 @@ struct Resolver<'a> {
     dependency_packages: HashMap<String, DependencyPackage>,
     top_levels: HashMap<String, Symbol>,
     functions: HashMap<String, Vec<FunctionSymbol>>,
-    types: HashSet<String>,
+    /// plan-111-B: the declared/imported TYPES this project knows.
+    types: HashSet<crate::types::ParameterType>,
     /// LINK alias namespaces: alias (e.g. `sqliteLink`) → its native functions
     /// keyed by name. Members are resolved as `alias::func` qualified names
     /// (plan-link-update.md §5b).
@@ -289,7 +297,7 @@ struct Resolver<'a> {
 
 #[derive(Clone)]
 struct LinkFnSig {
-    params: Vec<Option<String>>,
+    params: Vec<Option<crate::types::ParameterType>>,
     param_resource: Vec<bool>,
     line: usize,
 }
@@ -345,7 +353,7 @@ impl<'a> Resolver<'a> {
             functions: HashMap::new(),
             types: BUILTIN_TYPES
                 .iter()
-                .map(|name| (*name).to_string())
+                .map(|name| crate::types::ParameterType::declared(name))
                 .collect(),
             link_functions: HashMap::new(),
             active_template_params: HashSet::new(),
@@ -378,7 +386,7 @@ impl<'a> Resolver<'a> {
                                 params: function
                                     .params
                                     .iter()
-                                    .map(|param| param.type_name.clone())
+                                    .map(|param| param.type_.clone())
                                     .collect(),
                                 param_resource: function
                                     .params
@@ -414,7 +422,8 @@ impl<'a> Resolver<'a> {
                             type_decl.line,
                             type_decl.visibility,
                         ) {
-                            self.types.insert(type_decl.name.clone());
+                            self.types
+                                .insert(crate::types::ParameterType::declared(&type_decl.name));
                         }
                     }
                     // A native resource declaration introduces an opaque type at
@@ -426,7 +435,8 @@ impl<'a> Resolver<'a> {
                             resource.line,
                             resource.visibility,
                         ) {
-                            self.types.insert(resource.name.clone());
+                            self.types
+                                .insert(crate::types::ParameterType::declared(&resource.name));
                         }
                     }
                     // A re-export alias publishes a LINK function under a package
@@ -438,12 +448,7 @@ impl<'a> Resolver<'a> {
                         // the `Declared` key domain here, at that one boundary.
                         let params = self
                             .link_target_signature(&alias.target)
-                            .map(|sig| {
-                                sig.params
-                                    .iter()
-                                    .map(|param| param.as_deref().map(ParameterType::parse))
-                                    .collect()
-                            })
+                            .map(|sig| sig.params.iter().map(|param| param.clone()).collect())
                             .unwrap_or_default();
                         self.insert_alias_function(
                             file,
@@ -848,18 +853,32 @@ mod tests {
             "CPtr", "CString", "CInt8", "CInt16", "CInt32", "CInt64", "CUInt8", "CUInt16",
             "CUInt32", "CUInt64", "CFloat", "CDouble",
         ] {
-            assert!(is_c_abi_type(t), "{t} should be a C ABI type");
+            assert!(
+                is_c_abi_type(&crate::types::ParameterType::named(t)),
+                "{t} should be a C ABI type"
+            );
         }
-        assert!(!is_c_abi_type("Integer"));
-        assert!(!is_c_abi_type("CPtrX"));
-        assert!(!is_c_abi_type(""));
+        assert!(!is_c_abi_type(&crate::types::ParameterType::named(
+            "Integer"
+        )));
+        assert!(!is_c_abi_type(&crate::types::ParameterType::named("CPtrX")));
+        assert!(!is_c_abi_type(&crate::types::ParameterType::named("")));
     }
 
     #[test]
     fn resource_base_type_strips_state_suffix() {
-        assert_eq!(resource_base_type("Handle STATE Open"), "Handle");
-        assert_eq!(resource_base_type("Handle"), "Handle");
-        assert_eq!(resource_base_type(""), "");
+        assert_eq!(
+            resource_base_type(&crate::types::ParameterType::parse("Handle STATE Open")).name(),
+            "Handle"
+        );
+        assert_eq!(
+            resource_base_type(&crate::types::ParameterType::parse("Handle")).name(),
+            "Handle"
+        );
+        assert_eq!(
+            resource_base_type(&crate::types::ParameterType::parse("")).name(),
+            ""
+        );
     }
 
     #[test]
@@ -905,35 +924,37 @@ mod tests {
             files: vec![HirFile {
                 path: "lib.mfb".into(),
                 imports: Vec::new(),
-                items: vec![HirItem::Link(crate::ast::LinkBlock {
-                    library: "lib".into(),
-                    alias: "db".into(),
-                    cstructs: Vec::new(),
-                    functions: vec![crate::ast::LinkFunction {
-                        name: "open".into(),
-                        params: vec![param("path", Some("CString"))],
-                        return_type: Some("CPtr".into()),
-                        return_resource: false,
-                        return_state_type: None,
-                        symbol: "open".into(),
-                        abi: crate::ast::AbiSpec {
-                            slots: Vec::new(),
-                            return_name: "ret".into(),
-                            return_ctype: "CPtr".into(),
+                items: vec![HirItem::Link(crate::hir::elaborate_link_block(
+                    &crate::ast::LinkBlock {
+                        library: "lib".into(),
+                        alias: "db".into(),
+                        cstructs: Vec::new(),
+                        functions: vec![crate::ast::LinkFunction {
+                            name: "open".into(),
+                            params: vec![param("path", Some("CString"))],
+                            return_type: Some("CPtr".into()),
+                            return_resource: false,
+                            return_state_type: None,
+                            symbol: "open".into(),
+                            abi: crate::ast::AbiSpec {
+                                slots: Vec::new(),
+                                return_name: "ret".into(),
+                                return_ctype: "CPtr".into(),
+                                line: 3,
+                            },
+                            consts: Vec::new(),
+                            bind_in: Vec::new(),
+                            bind_state: None,
+                            buffers: Vec::new(),
+                            result_length: None,
+                            success_on: None,
+                            result: None,
+                            free: None,
                             line: 3,
-                        },
-                        consts: Vec::new(),
-                        bind_in: Vec::new(),
-                        bind_state: None,
-                        buffers: Vec::new(),
-                        result_length: None,
-                        success_on: None,
-                        result: None,
-                        free: None,
-                        line: 3,
-                    }],
-                    line: 1,
-                })],
+                        }],
+                        line: 1,
+                    },
+                ))],
                 internal: false,
             }],
         };
@@ -1065,7 +1086,9 @@ mod tests {
         ]);
         let dir = std::path::Path::new(".");
         let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &hir));
-        assert!(resolver.types.contains("Widget"));
+        assert!(resolver
+            .types
+            .contains(&crate::types::ParameterType::declared("Widget")));
         assert!(resolver.had_error, "duplicate top-level should report");
     }
 
@@ -1111,7 +1134,7 @@ mod tests {
         // A FUNC re-export alias whose name matches a prior top-level binding
         // hits the `insert_alias_function` duplicate branch. The alias also needs
         // a LINK namespace so its target resolves.
-        let link = HirItem::Link(crate::ast::LinkBlock {
+        let link = HirItem::Link(crate::hir::elaborate_link_block(&crate::ast::LinkBlock {
             library: "lib".into(),
             alias: "db".into(),
             cstructs: Vec::new(),
@@ -1139,7 +1162,7 @@ mod tests {
                 line: 2,
             }],
             line: 1,
-        });
+        }));
         let alias = HirItem::FuncAlias(crate::ast::FuncAlias {
             visibility: Visibility::Export,
             name: "dup".into(),
@@ -1155,7 +1178,7 @@ mod tests {
     #[test]
     fn alias_function_registers_when_unique() {
         // A unique alias registers as a callable carrying the target's params.
-        let link = HirItem::Link(crate::ast::LinkBlock {
+        let link = HirItem::Link(crate::hir::elaborate_link_block(&crate::ast::LinkBlock {
             library: "lib".into(),
             alias: "db".into(),
             cstructs: Vec::new(),
@@ -1183,7 +1206,7 @@ mod tests {
                 line: 2,
             }],
             line: 1,
-        });
+        }));
         let alias = HirItem::FuncAlias(crate::ast::FuncAlias {
             visibility: Visibility::Export,
             name: "closeDb".into(),

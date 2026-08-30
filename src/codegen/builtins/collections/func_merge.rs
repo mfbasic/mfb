@@ -5,9 +5,7 @@
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::{
-    collection_has_buckets, typed_list_element_type, typed_map_type_parts,
-};
+use crate::codegen::engine::types::{typed_list_element_type, typed_map_type_parts};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -31,9 +29,18 @@ pub(crate) fn merge_fast_path(
         &args[2],
         NirValue::Const { type_, value } if matches!(type_, ParameterType::Boolean) && value == "true"
     );
+    // The monomorph suffix of a `#collections_*$T` runtime target is a NAME
+    // the NIR carries; parsed once here, at the symbol boundary.
     let ok = parts.len() == 2
-        && parts[0] == "String"
-        && matches!(parts[1], "Integer" | "Float" | "Fixed" | "Money" | "String")
+        && ParameterType::declared(parts[0]) == ParameterType::String
+        && matches!(
+            ParameterType::declared(parts[1]),
+            ParameterType::Integer
+                | ParameterType::Float
+                | ParameterType::Fixed
+                | ParameterType::Money
+                | ParameterType::String
+        )
         && prefer_true;
     if ok {
         return builder.lower_collection_merge_call(args).map(Some);
@@ -58,8 +65,8 @@ impl CodeBuilder<'_> {
         extra_data_slot: usize,
     ) -> Result<usize, String> {
         let element = typed_list_element_type(map_type)
-            .map(|element| element.name().into_owned())
-            .unwrap_or_default();
+            .cloned()
+            .unwrap_or_else(|| ParameterType::named(""));
         let stride = list_entry_stride(&element);
         let layout = CollectionTypeLayout::from_type(map_type)
             .ok_or_else(|| format!("native code collection type '{map_type}' is not supported"))?;
@@ -97,7 +104,10 @@ impl CodeBuilder<'_> {
             &s12,
         ));
         self.emit_reserve_map_buckets(
-            collection_has_buckets(&map_type.name()),
+            matches!(
+                &map_type,
+                ParameterType::MapOf(..) | ParameterType::SetOf(_)
+            ),
             &s11,
             abi::return_register(),
             &s13,
@@ -166,7 +176,7 @@ impl CodeBuilder<'_> {
         let a = self.lower_value(&args[0])?;
         let map_type = a.type_.clone();
         let (key_type, value_type) = typed_map_type_parts(&map_type)
-            .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
+            .map(|(k, v)| (k.clone(), v.clone()))
             .ok_or_else(|| format!("native merge on non-map type '{map_type}'"))?;
         let a_slot = self.allocate_stack_object("merge_a", 8);
         self.emit(abi::store_u64(&a.location, abi::stack_pointer(), a_slot));
@@ -191,8 +201,8 @@ impl CodeBuilder<'_> {
         let key_slot = self.allocate_stack_object("merge_key", 8);
         let value_slot = self.allocate_stack_object("merge_val", 8);
         let element = typed_list_element_type(&map_type)
-            .map(|type_| type_.name().into_owned())
-            .unwrap_or_default();
+            .cloned()
+            .unwrap_or_else(|| ParameterType::named(""));
         let z = self.temporary_vreg();
         self.emit(abi::move_immediate(&z, "Integer", "0"));
         self.emit(abi::store_u64(&z, abi::stack_pointer(), i_slot));
@@ -262,7 +272,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(&off, abi::stack_pointer(), vlen_slot));
         // value: String -> materialize length-prefixed; fixed-width -> load 8 bytes.
-        if value_type == "String" {
+        if value_type == ParameterType::String {
             let va = self.temporary_vreg();
             let vl = self.temporary_vreg();
             self.emit(abi::load_u64(&va, abi::stack_pointer(), vaddr_slot));

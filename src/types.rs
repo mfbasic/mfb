@@ -19,7 +19,16 @@ use std::fmt;
 /// A [`crate::codegen::registry::Parameter`]'s type. An enum rather than a bare
 /// `&'static str` so future kinds (argument unions, generic placeholders) can be
 /// added without touching every parameter.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// `Hash` is derived alongside `Eq` so a type can be a map *key* — plan-111-C
+/// re-keys `TypeModel`'s nine tables (and the registry's) from a rendered
+/// `String` to the type itself, which is the whole point of the migration: two
+/// spellings of one type miss each other in a `HashMap<String, _>`, where
+/// `ParameterType` equality cannot. Every payload was already `Hash` —
+/// `Symbol` is `#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]`
+/// (`src/intern.rs:26`), and the rest are `Box`/`Vec`/`usize`/`bool` — so the
+/// derive is the entire change. `hash` agrees with `eq` by construction and
+/// `parameter_type_hash_agrees_with_eq` pins it over the round-trip corpus.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum ParameterType {
     AttributeString,
     Boolean,
@@ -53,6 +62,38 @@ pub(crate) enum ParameterType {
     /// of the raw string — a `Var` binding still drops it (bound to the unwrapped
     /// inner), and only [`Arg`](Self::Arg) echoes it verbatim.
     Res(Box<ParameterType>),
+    /// A resource carrying its own top-level ` STATE T` clause —
+    /// `File STATE Cursor`, the state-machine plane of §15 / plan-52 / plan-54.
+    ///
+    /// plan-111-A: before this variant `parse` had no arm for `STATE`, so
+    /// `File STATE Cursor` was one opaque [`Named`](Self::Named) and the clause
+    /// was readable only by re-splitting the spelling. That gap is why the split
+    /// existed **twice**, hand-rolled — `types::split_state_clause` and
+    /// `codegen::resource::split_state_clause`, byte-identical and pinned
+    /// against each other by a parity test. A second grammar edited out of
+    /// lockstep is exactly the failure plan-106-E's Correction 3 recorded (the
+    /// `split_once(" TO ")` mis-split), and `planning/Compiler Pipeline.md:25`
+    /// flagged as an architectural hazard.
+    ///
+    /// **Top-level only, and that is load-bearing.** [`parse`](Self::parse)
+    /// builds this ONLY when the text before ` STATE ` is a single bare token
+    /// (`File`, `fs.File`). A base containing a space means the clause belongs
+    /// to something *nested* — a thread plane's `RES` element
+    /// (`Thread OF … RES File STATE Cursor TO …`, plan-54) or a collection's
+    /// element (`List OF RES File STATE Cursor`) — and the enclosing `parse` arm
+    /// has already claimed it, so the clause lands on the **inner** type where
+    /// it belongs. Splitting it at the composite instead is the asymmetry
+    /// bug-429 fixed. That rule is unchanged: it is still `split_state_clause`,
+    /// which `parse` now calls instead of every consumer re-deriving it.
+    ///
+    /// Because the variant only ever appears where the clause is genuinely
+    /// top-level, [`split_state`](Self::split_state) is a plain structural match
+    /// on it — no spelling, no guard — and `ListOf(Res(Stateful { .. }))`
+    /// correctly reports *no* top-level clause of its own.
+    Stateful {
+        base: Box<ParameterType>,
+        state: Box<ParameterType>,
+    },
     /// A concrete nominal type — a record, union, or user type named by the program.
     /// Matched by name (unlike [`Var`], which is bound). A descriptor names one with a
     /// static literal (`named("CsvReader")`); a concrete nominal argument is built at
@@ -151,6 +192,54 @@ impl ParameterType {
     /// A `RES`-marked element (`RES fs.File`) wrapping `inner`.
     pub(crate) fn res(inner: ParameterType) -> Self {
         ParameterType::Res(Box::new(inner))
+    }
+    /// The type a SPELLING denotes — a declaration's own name, or a value's
+    /// recorded type where codegen still stores one as text.
+    ///
+    /// **Not [`named`](Self::named), and the difference is load-bearing.** A
+    /// declared type may shadow a built-in spelling — `TYPE Integer` is legal
+    /// and compiles — and when it does it must denote the same type an
+    /// `AS Integer` annotation denotes, because that is what the name-keyed
+    /// tables did before plan-111 keyed them by type. `named("Integer")` would
+    /// mint a distinct `Named` nominal and SPLIT a key the string world merged.
+    ///
+    /// Measured, against a pre-plan-111 binary: keying `ir::verify`'s tables
+    /// with `named` instead of this made `TYPE Integer` with a field
+    /// `a AS Integer` stop reporting `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`,
+    /// because the record's key (`Named("Integer")`) no longer equalled its
+    /// field's type (`Integer`). For every name that is not a built-in spelling
+    /// the two are identical, which is why the divergence hides so well.
+    ///
+    /// This is `parse`, and it lives here so the conversion stays inside the
+    /// grammar's own file (plan-111-A §2, boundary 1) rather than becoming a
+    /// `ParameterType::parse` call in every table's constructor.
+    pub(crate) fn declared(name: &str) -> Self {
+        ParameterType::parse(name)
+    }
+
+    /// A resource carrying its own top-level ` STATE T` clause.
+    ///
+    /// **Build a stateful type with this, never with
+    /// `named("Stream STATE PendingState")`.** An opaque nominal that merely
+    /// *spells* the clause is not a [`Stateful`](Self::Stateful), so since
+    /// plan-111-A made [`split_state`](Self::split_state) a structural match it
+    /// would report no state at all — and it compares unequal to the same
+    /// spelling arriving through [`parse`](Self::parse), which is how a source
+    /// annotation gets here. That mismatch is a real bug this constructor
+    /// exists to prevent: `http.startRead`'s descriptor returned
+    /// `named("Stream STATE PendingState")`, so
+    /// `RES s AS http::Stream STATE PendingState = http::startRead(u)` failed
+    /// with `TYPE_BINDING_MISMATCH` — the declared side had a state to strip
+    /// and the initializer side no longer did.
+    ///
+    /// `codegen::registry`'s `descriptor_named_types_are_bare_nominals` fails on
+    /// any descriptor that spells a structure it does not build, which is what
+    /// caught that one.
+    pub(crate) fn stateful(base: ParameterType, state: ParameterType) -> Self {
+        ParameterType::Stateful {
+            base: Box::new(base),
+            state: Box::new(state),
+        }
     }
     /// A user generic instantiation `name OF args[0], args[1], …`, interning the
     /// template name to a [`Symbol`].
@@ -376,6 +465,19 @@ impl ParameterType {
                     .collect(),
             );
         }
+        // A resource's own top-level ` STATE T` clause (plan-111-A). Ordered
+        // LAST, after every container arm above has claimed its own spelling —
+        // so a ` STATE ` reaching here belongs to *this* leaf phrase and not to
+        // a `List`/`Map`/`Thread` element that an arm above already re-parsed.
+        // The decision is `split_state_clause`'s and only its: the base must be
+        // a single bare token, or the clause is a nested type's and this stays
+        // one opaque `Named`, exactly as before the variant existed.
+        if let Some((base, state)) = split_state_clause(name) {
+            return ParameterType::Stateful {
+                base: Box::new(ParameterType::parse(base)),
+                state: Box::new(ParameterType::parse(state)),
+            };
+        }
         match name {
             "AttributeString" => ParameterType::AttributeString,
             "Boolean" => ParameterType::Boolean,
@@ -478,27 +580,42 @@ impl ParameterType {
                 ParameterType::user_of(name.resolve(), args)
             }
             // Every leaf — scalar, nominal, `Var`, `Unknown`, `Arg`, an
-            // argument-less user generic — becomes one opaque nominal, which is
-            // what `parse` does with the whole `"<leaf> STATE <T>"` phrase.
-            leaf => ParameterType::named(&format!("{} STATE {state_name}", leaf.name())),
+            // argument-less user generic — takes the clause the way `parse`
+            // reads the whole `"<leaf> STATE <T>"` phrase: a
+            // [`Stateful`](Self::Stateful) when the leaf's own spelling is a
+            // single token, one opaque `Named` when it is not.
+            //
+            // Routed THROUGH `parse` rather than built structurally, because
+            // that is precisely the contract this method promises and
+            // `with_state_matches_parse_of_the_concatenated_spelling` asserts
+            // over every shape. A `Var` or an `Arg` is never something `parse`
+            // produces, so a structural `Stateful { base: leaf.clone(), .. }`
+            // would hold a `Var("T")` where the concatenated spelling reads
+            // back a `Named("T")` — a divergence that did not exist while both
+            // sides collapsed into one opaque nominal. `parse` is the grammar's
+            // own recursion here (plan-111-A §2, boundary 1); the input is a
+            // name this method just rendered, never a spelling from outside.
+            leaf => ParameterType::parse(&format!("{} STATE {state_name}", leaf.name())),
         }
     }
 
     /// Split a resource type into its base and its own **top-level** ` STATE T`
     /// clause, if it carries one.
     ///
-    /// `STATE` has no variant: outside a thread plane [`parse`](Self::parse) has
-    /// no arm for it, so `File STATE Cursor` is one opaque
-    /// [`Named`](Self::Named). That makes the clause readable only off a
-    /// spelling, which is why `ir::verify` and the former source checker both ended up
-    /// re-parsing to recover it (plan-106-B §Phase 2 census, plan-106-C Phase 1).
-    /// This is the structural way back.
+    /// plan-111-A: a pure structural match. `STATE` now HAS a variant
+    /// ([`Stateful`](Self::Stateful)), and [`parse`](Self::parse) builds one
+    /// only where the clause is genuinely top-level — so the question "does
+    /// this type carry its own STATE?" is answered by which variant it is,
+    /// with no spelling and no guard. Before the variant this method rendered
+    /// `self` and re-split the text, which is how the grammar came to exist
+    /// twice (plan-106-B §Phase 2 census, plan-106-C Phase 1).
     ///
-    /// **Top-level only, and that is load-bearing.** It reproduces
-    /// `codegen::resource::{base_resource_name, state_type_name}` exactly,
-    /// including their guard: a base containing a space is a composite, so
+    /// **Top-level only, and that is load-bearing.** The rule is unchanged,
+    /// it just moved into `parse`: a base containing a space is a composite, so
     /// `List OF RES File STATE Cursor` and `Result OF Stream STATE Pending`
-    /// split to *nothing*. That no-op is what keeps both sides of a comparison
+    /// split to *nothing* — their clause sits on the inner
+    /// `Stateful`, and the outer `ListOf`/`ResultOf` falls to the `other` arm
+    /// here. That no-op is what keeps both sides of a comparison
     /// normalizing identically — peeling the element's clause on one side while
     /// the other has none to peel is exactly the asymmetry bug-429 fixed
     /// (`ir::verify::values.rs`, `check_result_value_type`). It does **not**
@@ -510,13 +627,9 @@ impl ParameterType {
     /// Guarded by `split_state_is_top_level_only` and
     /// `split_state_matches_the_name_domain_helpers`.
     pub(crate) fn split_state(&self) -> (ParameterType, Option<ParameterType>) {
-        let name = self.name();
-        match split_state_clause(&name) {
-            Some((base, state)) => (
-                ParameterType::parse(base),
-                Some(ParameterType::parse(state)),
-            ),
-            None => (self.clone(), None),
+        match self {
+            ParameterType::Stateful { base, state } => ((**base).clone(), Some((**state).clone())),
+            other => (other.clone(), None),
         }
     }
 
@@ -531,6 +644,46 @@ impl ParameterType {
     /// twin of `codegen::resource::base_resource_name`.
     pub(crate) fn without_state(&self) -> ParameterType {
         self.split_state().0
+    }
+
+    /// Whether a ` STATE T` clause appears ANYWHERE in this type's rendered
+    /// spelling — its own top-level one, or one riding a nested payload
+    /// (`MapEntry OF K TO File STATE Cursor`, a thread's resource plane, a user
+    /// generic's last argument).
+    ///
+    /// Exactly `self.name().contains(" STATE ")`, computed structurally;
+    /// `contains_state_agrees_with_the_rendered_name` pins that equality over
+    /// the round-trip corpus. [`split_state`](Self::split_state) answers a
+    /// different and narrower question — whether the clause is *this* type's own
+    /// — and a consumer that wants "is there a state anywhere in here" must ask
+    /// this one instead (plan-111-B; `ir::verify::resources`'s defaultability
+    /// rule is the caller that needs the broad form).
+    ///
+    /// The [`Named`](Self::Named) arm is not redundant. `parse` declines to
+    /// split a ` STATE ` whose base is a composite, so such a spelling survives
+    /// as one opaque nominal that still *reads* as stateful — and decoded
+    /// package IR is attacker-controlled and need not be well formed (PKG-02),
+    /// so the rule this serves must see it.
+    pub(crate) fn contains_state(&self) -> bool {
+        match self {
+            ParameterType::Stateful { .. } => true,
+            ParameterType::Named(sym) => sym.resolve().contains(" STATE "),
+            ParameterType::ListOf(inner)
+            | ParameterType::SetOf(inner)
+            | ParameterType::ResultOf(inner)
+            | ParameterType::Res(inner) => inner.contains_state(),
+            ParameterType::MapOf(key, value) | ParameterType::MapEntryOf(key, value) => {
+                key.contains_state() || value.contains_state()
+            }
+            ParameterType::UserOf(_, args) => args.iter().any(ParameterType::contains_state),
+            ParameterType::Func(params, ret, _) => {
+                params.iter().any(ParameterType::contains_state) || ret.contains_state()
+            }
+            ParameterType::ThreadHandle { msg, res, out, .. } => {
+                msg.contains_state() || res.contains_state() || out.contains_state()
+            }
+            _ => false,
+        }
     }
 
     /// Whether this type is the nominal named `name`.
@@ -565,6 +718,14 @@ impl ParameterType {
             }
             ParameterType::ResultOf(success) => Cow::Owned(format!("Result OF {}", success.name())),
             ParameterType::Res(inner) => Cow::Owned(format!("RES {}", inner.name())),
+            // Byte-identical to the spelling `parse` split, and to what
+            // `with_state` produced as one opaque `Named` before the variant
+            // existed — the `.mfp` type table, the IR encoding and every
+            // diagnostic that embeds a type name all depend on this rendering
+            // not moving (plan-111-A §Compatibility).
+            ParameterType::Stateful { base, state } => {
+                Cow::Owned(format!("{} STATE {}", base.name(), state.name()))
+            }
             ParameterType::Named(elem) => Cow::Borrowed(elem.resolve()),
             ParameterType::UserOf(name, args) => Cow::Owned(format!(
                 "{} OF {}",
@@ -676,27 +837,6 @@ pub(crate) fn is_parent_thread_type(name: &str) -> bool {
     thread_parts(name).is_some_and(|(kind, _, _)| kind == THREAD_TYPE)
 }
 
-/// The data-plane message type of a thread handle (`"Nothing"` for a resource-only
-/// thread), or `None` for a non-thread type.
-pub(crate) fn thread_message(name: &str) -> Option<&str> {
-    thread_parts(name).map(|(_, message, _)| message)
-}
-
-/// The resource type carried on the thread's resource plane
-/// (`thread::transfer`/`thread::accept`), or `None` for a data-only thread. A
-/// data-only thread is spelled `Thread OF Msg TO Out`; the resource plane is the
-/// optional `RES Res` clause: `Thread OF Msg RES Res TO Out` (or `Thread OF RES
-/// Res TO Out` when there is no data channel).
-pub(crate) fn thread_resource(name: &str) -> Option<&str> {
-    thread_parts_full(name).and_then(|(_, _, resource, _)| resource)
-}
-
-/// Output type for `thread::waitFor`, which is only valid on a parent `Thread`
-/// handle (not a `ThreadWorker`).
-pub(crate) fn parent_thread_output(name: &str) -> Option<&str> {
-    thread_parts(name).and_then(|(kind, _, output)| (kind == THREAD_TYPE).then_some(output))
-}
-
 /// A thread handle's `(kind, message, output)`, dropping the resource plane.
 pub(crate) fn thread_parts(name: &str) -> Option<(&str, &str, &str)> {
     thread_parts_full(name).map(|(kind, message, _, output)| (kind, message, output))
@@ -775,14 +915,25 @@ fn split_thread_types(rest: &str) -> Option<(&str, Option<&str>, &str)> {
 /// (`planning/Compiler Pipeline.md:25`).
 /// Split a type spelling into its base and its OWN top-level ` STATE T` clause.
 ///
-/// Byte-for-byte the rule `codegen::resource::split_state_clause` applies,
-/// re-stated here so [`ParameterType::split_state`] does not reach into `codegen`
-/// for the grammar half of its own vocabulary. The guard is the load-bearing
-/// part: a base containing a space is a composite whose ` STATE ` belongs to
-/// something *nested* (`Thread OF … RES File STATE Cursor TO …`, plan-54), not to
-/// this type. Pinned against the `codegen` original by
-/// `split_state_matches_the_name_domain_helpers`.
-fn split_state_clause(type_name: &str) -> Option<(&str, &str)> {
+/// **The compiler's one `STATE` grammar** (plan-111-A). It has exactly two
+/// callers: [`ParameterType::parse`], which turns the split into a
+/// [`Stateful`](ParameterType::Stateful) variant, and the `&str` adapters
+/// `codegen::resource::{base_resource_name, state_type_name}`, which need to
+/// return a slice *borrowed from their input* and so cannot go through the
+/// owned typed accessors until letter E retypes them. Everything else asks
+/// [`ParameterType::split_state`], which is now a structural match and touches
+/// no spelling at all.
+///
+/// It used to exist twice — here and, byte-identical, in
+/// `codegen::resource::split_state_clause` — with a parity test pinning the two
+/// copies together. That is the lockstep-edit hazard
+/// `planning/Compiler Pipeline.md:25` flagged and plan-106-E's Correction 3
+/// caught in the wild.
+///
+/// The guard is the load-bearing part: a base containing a space is a composite
+/// whose ` STATE ` belongs to something *nested*
+/// (`Thread OF … RES File STATE Cursor TO …`, plan-54), not to this type.
+pub(crate) fn split_state_clause(type_name: &str) -> Option<(&str, &str)> {
     let (base, state) = type_name.split_once(" STATE ")?;
     if base.contains(' ') {
         return None; // nested STATE inside a composite type — not this type's own.
@@ -1181,12 +1332,19 @@ mod tests {
                 ParameterType::res(ParameterType::named("fs.File")),
             )
         );
-        // The `STATE` clause stays inside the (opaque) nominal, the `RES` wraps it.
+        // The `STATE` clause stays on the ELEMENT and the `RES` wraps it — the
+        // contract this line has always asserted. plan-111-A gave that element a
+        // variant, so it is a `Stateful` rather than an opaque nominal; the
+        // clause's *position* is what matters here and it has not moved.
+        // `stateful_round_trips_byte_exact` pins the rendering, and
+        // `structural_split_state_agrees_with_the_string_grammar` pins that the
+        // container still reports no top-level clause of its own (bug-429).
         assert_eq!(
             ParameterType::parse("List OF RES File STATE Cursor"),
-            ParameterType::list_of(ParameterType::res(ParameterType::named(
-                "File STATE Cursor"
-            )))
+            ParameterType::list_of(ParameterType::res(ParameterType::Stateful {
+                base: Box::new(ParameterType::named("File")),
+                state: Box::new(ParameterType::named("Cursor")),
+            }))
         );
     }
 
@@ -1379,6 +1537,361 @@ mod tests {
             );
             assert_eq!(type_.name(), spelling);
         }
+    }
+
+    /// plan-111-A Phase 2: from letter C onward a `ParameterType` is a map
+    /// *key*, so `hash` must agree with `eq` — the `HashMap`/`HashSet`
+    /// contract. The derive gives that by construction; this pins it, and pins
+    /// that variants sharing a payload shape (`ListOf`/`SetOf`,
+    /// `MapOf`/`MapEntryOf`, `Named`/`Var`, parent/worker `ThreadHandle`) stay
+    /// *distinct* keys — a collision there would silently merge two types'
+    /// entries in exactly the tables letter C re-keys.
+    #[test]
+    fn parameter_type_hash_agrees_with_eq() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::collections::HashSet;
+        use std::hash::{Hash, Hasher};
+
+        fn digest(t: &ParameterType) -> u64 {
+            let mut h = DefaultHasher::new();
+            t.hash(&mut h);
+            h.finish()
+        }
+
+        // One spelling per parseable variant, drawn from the round-trip corpora
+        // above (`thread_handle_round_trips_byte_exact`,
+        // `map_entry_and_result_parse_into_variants_and_round_trip`,
+        // `res_collection_round_trips_byte_exact`).
+        const CORPUS: &[&str] = &[
+            "AttributeString",
+            "Boolean",
+            "Byte",
+            "Integer",
+            "Fixed",
+            "Float",
+            "Money",
+            "Nothing",
+            "String",
+            "Unknown",
+            "List OF Integer",
+            "Set OF Integer",
+            "Map OF String TO Integer",
+            "MapEntry OF String TO Integer",
+            "Result OF Integer",
+            "Result OF List OF String",
+            "RES fs.File",
+            "RES File STATE Cursor",
+            "List OF RES fs.File",
+            "List OF RES File STATE Cursor",
+            "Map OF RES fs.File TO Integer",
+            "CsvReader",
+            "Pair OF Integer, String",
+            "FUNC(Integer) AS String",
+            "ISOLATED FUNC(Integer) AS String",
+            "Thread OF Integer TO String",
+            "ThreadWorker OF Integer TO String",
+            "Thread OF Integer RES fs.File STATE Cursor TO String",
+            "List OF List OF RES fs.File",
+        ];
+
+        // 1. Equal types hash equal. Two independent parses of one spelling are
+        //    `eq`, so they must be indistinguishable as keys.
+        for spelling in CORPUS {
+            let a = ParameterType::parse(spelling);
+            let b = ParameterType::parse(spelling);
+            assert_eq!(a, b, "parse is not deterministic for `{spelling}`");
+            assert_eq!(
+                digest(&a),
+                digest(&b),
+                "hash disagrees with eq for `{spelling}`"
+            );
+        }
+
+        // 2. Distinct types are distinct keys, across every container variant.
+        let mut set: HashSet<ParameterType> = HashSet::new();
+        for spelling in CORPUS {
+            assert!(
+                set.insert(ParameterType::parse(spelling)),
+                "`{spelling}` is not a distinct key — it collided with an \
+                 earlier corpus entry"
+            );
+        }
+        assert_eq!(set.len(), CORPUS.len());
+
+        // 3. A key built independently still finds its entry — the property
+        //    every re-keyed table in letter C relies on.
+        for spelling in CORPUS {
+            assert!(
+                set.contains(&ParameterType::parse(spelling)),
+                "lookup missed for `{spelling}`"
+            );
+        }
+
+        // 4. Same payload, different variant: these must NOT be one key.
+        //    `Var`/`Arg` are never produced by `parse`, so they are built here.
+        let same_payload_distinct = [
+            ParameterType::list_of(ParameterType::Integer),
+            ParameterType::set_of(ParameterType::Integer),
+            ParameterType::result_of(ParameterType::Integer),
+            ParameterType::map_of(ParameterType::String, ParameterType::Integer),
+            ParameterType::map_entry_of(ParameterType::String, ParameterType::Integer),
+            ParameterType::named("T"),
+            ParameterType::var("T"),
+            ParameterType::Arg(0),
+            ParameterType::Arg(1),
+            ParameterType::func(vec![ParameterType::Integer], ParameterType::String),
+            ParameterType::func_isolated(vec![ParameterType::Integer], ParameterType::String),
+            ParameterType::thread_handle(
+                false,
+                ParameterType::Integer,
+                ParameterType::Nothing,
+                ParameterType::String,
+            ),
+            ParameterType::thread_handle(
+                true,
+                ParameterType::Integer,
+                ParameterType::Nothing,
+                ParameterType::String,
+            ),
+        ];
+        let mut lookalikes: HashSet<ParameterType> = HashSet::new();
+        for t in &same_payload_distinct {
+            assert!(
+                lookalikes.insert(t.clone()),
+                "`{}` collided with a same-payload lookalike",
+                t.name()
+            );
+        }
+        assert_eq!(lookalikes.len(), same_payload_distinct.len());
+    }
+
+    /// plan-111-A Phase 3: `parse` builds a [`ParameterType::Stateful`] for a
+    /// resource's OWN top-level ` STATE T`, and for nothing else. These are the
+    /// nested-plane cases the deleted `split_state_clause` copies protected with
+    /// their `base.contains(' ')` guard; the guard did not go away, it moved
+    /// into `parse`.
+    #[test]
+    fn stateful_parses_top_level_only() {
+        // The top-level case: a bare resource with its own clause.
+        assert_eq!(
+            ParameterType::parse("File STATE Cursor"),
+            ParameterType::Stateful {
+                base: Box::new(ParameterType::named("File")),
+                state: Box::new(ParameterType::named("Cursor")),
+            }
+        );
+        // A qualified base is still one token.
+        assert_eq!(
+            ParameterType::parse("fs.File STATE Cursor"),
+            ParameterType::Stateful {
+                base: Box::new(ParameterType::named("fs.File")),
+                state: Box::new(ParameterType::named("Cursor")),
+            }
+        );
+        // A composite STATE payload decomposes structurally too.
+        assert_eq!(
+            ParameterType::parse("File STATE List OF Integer"),
+            ParameterType::Stateful {
+                base: Box::new(ParameterType::named("File")),
+                state: Box::new(ParameterType::list_of(ParameterType::Integer)),
+            }
+        );
+
+        // Nested: the clause lands on the ELEMENT / the plane, never on the
+        // container. Splitting these at the composite is the truncation bug-429
+        // fixed (`ThreadWorker OF RES File STATE Cursor TO Integer` became
+        // `ThreadWorker OF RES File`).
+        let stateful_file = ParameterType::Stateful {
+            base: Box::new(ParameterType::named("File")),
+            state: Box::new(ParameterType::named("Cursor")),
+        };
+        assert_eq!(
+            ParameterType::parse("RES File STATE Cursor"),
+            ParameterType::res(stateful_file.clone())
+        );
+        assert_eq!(
+            ParameterType::parse("List OF RES File STATE Cursor"),
+            ParameterType::list_of(ParameterType::res(stateful_file.clone()))
+        );
+        assert_eq!(
+            ParameterType::parse("Set OF RES File STATE Cursor"),
+            ParameterType::set_of(ParameterType::res(stateful_file.clone()))
+        );
+        assert_eq!(
+            ParameterType::parse("Map OF String TO RES File STATE Cursor"),
+            ParameterType::map_of(
+                ParameterType::String,
+                ParameterType::res(stateful_file.clone())
+            )
+        );
+        assert_eq!(
+            ParameterType::parse("Result OF Stream STATE Pending"),
+            ParameterType::result_of(ParameterType::Stateful {
+                base: Box::new(ParameterType::named("Stream")),
+                state: Box::new(ParameterType::named("Pending")),
+            })
+        );
+        assert_eq!(
+            ParameterType::parse("Thread OF RES fs.File STATE Cursor TO Integer"),
+            ParameterType::thread_handle(
+                false,
+                ParameterType::Nothing,
+                // A thread's resource plane stores the inner type directly;
+                // `name()` re-adds the `RES ` marker when it renders the plane.
+                ParameterType::Stateful {
+                    base: Box::new(ParameterType::named("fs.File")),
+                    state: Box::new(ParameterType::named("Cursor")),
+                },
+                ParameterType::Integer,
+            )
+        );
+        // A user generic carries the clause on its LAST argument, which is where
+        // the trailing text abuts (`with_state`'s `UserOf` arm agrees).
+        assert_eq!(
+            ParameterType::parse("Pair OF Integer, String STATE Cursor"),
+            ParameterType::user_of(
+                "Pair",
+                vec![
+                    ParameterType::Integer,
+                    ParameterType::Stateful {
+                        base: Box::new(ParameterType::String),
+                        state: Box::new(ParameterType::named("Cursor")),
+                    },
+                ]
+            )
+        );
+
+        // A base that is itself a phrase is NOT this type's own clause, so the
+        // whole spelling stays one opaque nominal — byte-for-byte what the
+        // pre-variant `parse` did with it.
+        assert_eq!(
+            ParameterType::parse("A B STATE C"),
+            ParameterType::named("A B STATE C")
+        );
+        assert_eq!(ParameterType::parse("A B STATE C").split_state().1, None);
+    }
+
+    /// The structural [`ParameterType::split_state`] must answer exactly what
+    /// the string rule answered, for every shape — that equivalence is the
+    /// entire safety argument for replacing the render-and-re-split
+    /// implementation with a variant match.
+    #[test]
+    fn structural_split_state_agrees_with_the_string_grammar() {
+        for spelling in [
+            "File",
+            "Integer",
+            "File STATE Cursor",
+            "fs.File STATE Cursor",
+            "File STATE List OF Integer",
+            "RES File STATE Cursor",
+            "List OF RES File STATE Cursor",
+            "Set OF RES File STATE Cursor",
+            "Map OF String TO RES File STATE Cursor",
+            "Result OF Stream STATE Pending",
+            "Thread OF RES fs.File STATE Cursor TO Integer",
+            "ThreadWorker OF RES File STATE Cursor TO Integer",
+            "Thread OF Integer RES fs.File STATE Cursor TO String",
+            "Pair OF Integer, String STATE Cursor",
+            "A B STATE C",
+        ] {
+            let type_ = ParameterType::parse(spelling);
+            let (base, state) = type_.split_state();
+            // The string rule, applied to the same spelling.
+            let expected = split_state_clause(spelling);
+            assert_eq!(
+                state.as_ref().map(|s| s.name().into_owned()),
+                expected.map(|(_, s)| s.to_string()),
+                "STATE disagreement on `{spelling}`"
+            );
+            assert_eq!(
+                base.name(),
+                expected.map_or(spelling, |(b, _)| b),
+                "base disagreement on `{spelling}`"
+            );
+        }
+    }
+
+    /// plan-111-A Phase 3: every stateful spelling in the tree survives
+    /// `parse` → `name` byte-exact. The variant renders what the opaque `Named`
+    /// rendered, which is what keeps the `.mfp` type table, the IR encoding and
+    /// every type-naming diagnostic unchanged (plan-111-A §Compatibility).
+    #[test]
+    fn stateful_round_trips_byte_exact() {
+        for spelling in [
+            "File STATE Cursor",
+            "fs.File STATE Cursor",
+            "pkg.Name STATE S",
+            "File STATE List OF Integer",
+            "RES File STATE Cursor",
+            "List OF RES File STATE Cursor",
+            "Set OF RES File STATE Cursor",
+            "Map OF String TO RES File STATE Cursor",
+            "List OF List OF RES File STATE Cursor",
+            "Result OF Stream STATE Pending",
+            "Thread OF RES fs.File STATE Cursor TO Integer",
+            "ThreadWorker OF RES File STATE Cursor TO Integer",
+            "Thread OF Integer RES fs.File STATE Cursor TO String",
+            "Pair OF Integer, String STATE Cursor",
+            "FUNC(Integer) AS File STATE Cursor",
+            // Not a top-level clause: still one opaque nominal, and it must
+            // round-trip as one.
+            "A B STATE C",
+        ] {
+            round_trip(spelling);
+        }
+    }
+
+    /// plan-111-B: `contains_state` is defined as
+    /// `name().contains(" STATE ")` and computed structurally. Pin the equality
+    /// over every shape, including the ones where the clause is NESTED (which is
+    /// where a naive `matches!(t, Stateful { .. })` would silently disagree) and
+    /// the composite-base spelling `parse` declines to split.
+    #[test]
+    fn contains_state_agrees_with_the_rendered_name() {
+        let mut checked = 0usize;
+        for spelling in [
+            "File",
+            "Integer",
+            "Unknown",
+            "File STATE Cursor",
+            "fs.File STATE Cursor",
+            "File STATE List OF Integer",
+            "RES File STATE Cursor",
+            "List OF RES File STATE Cursor",
+            "Set OF RES File STATE Cursor",
+            "Map OF String TO RES File STATE Cursor",
+            "Map OF RES File STATE Cursor TO Integer",
+            "MapEntry OF String TO File STATE Cursor",
+            "List OF List OF RES File STATE Cursor",
+            "Result OF Stream STATE Pending",
+            "Thread OF RES fs.File STATE Cursor TO Integer",
+            "ThreadWorker OF RES File STATE Cursor TO Integer",
+            "Thread OF Integer RES fs.File STATE Cursor TO String",
+            "Pair OF Integer, String STATE Cursor",
+            "FUNC(Integer) AS File STATE Cursor",
+            "FUNC(File STATE Cursor) AS Integer",
+            // `parse` declines to split a composite base, so this stays one
+            // opaque `Named` — and must still read as stateful.
+            "A B STATE C",
+            "List OF A B STATE C",
+            // Negatives that merely look close.
+            "StateMachine",
+            "List OF StateMachine",
+            "Thread OF Integer TO String",
+        ] {
+            let type_ = ParameterType::parse(spelling);
+            assert_eq!(
+                type_.contains_state(),
+                type_.name().contains(" STATE "),
+                "contains_state disagrees with the rendered name for `{spelling}`"
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 25);
+        // Var and Arg are never produced by `parse`; neither can carry a clause.
+        assert!(!ParameterType::var("T").contains_state());
+        assert!(!ParameterType::Arg(0).contains_state());
+        assert!(!ParameterType::Unknown.contains_state());
     }
 
     #[test]

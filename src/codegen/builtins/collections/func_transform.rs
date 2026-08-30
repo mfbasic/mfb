@@ -3,7 +3,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::{callable_return_type, typed_list_element_type};
+use crate::codegen::engine::types::{typed_callable_return_type, typed_list_element_type};
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -139,9 +139,7 @@ pub(crate) fn lower_transform(
     let scratch9 = builder.temporary_vreg();
     let scratch17 = builder.temporary_vreg();
     let collection = args[0].clone();
-    let Some(element_type) =
-        typed_list_element_type(&collection.type_).map(|type_| type_.name().into_owned())
-    else {
+    let Some(element_type) = typed_list_element_type(&collection.type_).cloned() else {
         return Err(format!(
             "native collection transform does not accept {}",
             collection.type_
@@ -154,12 +152,14 @@ pub(crate) fn lower_transform(
         collection_slot,
     ));
     let action = args[1].clone();
-    let output_type = callable_return_type(&action.type_.name()).ok_or_else(|| {
-        format!(
-            "native collection transform action must be a function, got {}",
-            action.type_
-        )
-    })?;
+    let output_type = typed_callable_return_type(&action.type_)
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "native collection transform action must be a function, got {}",
+                action.type_
+            )
+        })?;
     builder.require_direct_callable("transform", &action)?;
     let action_slot = builder.allocate_stack_object("transform_action", 8);
     builder.emit(abi::store_u64(
@@ -167,7 +167,7 @@ pub(crate) fn lower_transform(
         abi::stack_pointer(),
         action_slot,
     ));
-    let output_list_type = ParameterType::list_of(ParameterType::parse(&output_type));
+    let output_list_type = ParameterType::list_of(output_type.clone());
     // Pre-size the output to the source's working set so the per-element
     // append never regrows the entry table (transform emits exactly
     // count(source) entries) — plan-25-B B2.
@@ -210,8 +210,7 @@ pub(crate) fn lower_transform(
     // A failing callback: free the partial output list (a private, uniquely-
     // owned buffer) before routing the raw error to the inline-TRAP capture
     // point (plan-26-B); non-trapped, this is the same auto-propagating return.
-    builder
-        .emit_callback_failure_exit(Some((output_slot, output_list_type.name().into_owned())))?;
+    builder.emit_callback_failure_exit(Some((output_slot, output_list_type.clone())))?;
     builder.emit(abi::label(&ok_label));
 
     let item_slot = builder.allocate_stack_object("transform_item", 8);

@@ -354,7 +354,7 @@ pub(crate) struct CodeBuilder<'a> {
     /// the lanes; the escape analysis (`promotable_vector_locals`) guarantees no
     /// use materializes, and `vector_value_as_block` is the correctness fallback if
     /// one ever does. Gated to non-address-taken, single-assignment bindings.
-    pub(crate) promoted_vector_locals: HashMap<String, (String, Vec<ValueResult>)>,
+    pub(crate) promoted_vector_locals: HashMap<String, (ParameterType, Vec<ValueResult>)>,
     /// Local names the escape analysis cleared for vector promotion (computed once
     /// per function, consulted at each `Bind`).
     pub(crate) promotable_vector_locals: HashSet<String>,
@@ -461,7 +461,7 @@ pub(crate) struct ResourceCleanup {
     /// (the only place it is known) so the drop can size the payload block it
     /// frees — a `STATE` record inlines its `String` fields, so its size is not a
     /// constant (plan-52-B Phase 2).
-    pub(crate) state_type: Option<String>,
+    pub(crate) state_type: Option<ParameterType>,
     /// Whether this resource kind actually uses the per-`File` I/O buffer words
     /// (`BUF_PTR`/`READ_PTR`) — i.e. whether it is a `File`.
     ///
@@ -485,7 +485,7 @@ pub(crate) struct ResourceUnionCleanup {
     /// The union's uniform `STATE` type, when it declared one (plan-74). Carried
     /// from the bind so the tag-dispatched drop can free the active variant
     /// record's STATE block after the close — mirrors `ResourceCleanup.state_type`.
-    pub(crate) state_type: Option<String>,
+    pub(crate) state_type: Option<ParameterType>,
 }
 
 /// A per-scope runtime owned-list (§15.6): the close obligations for resources
@@ -505,7 +505,7 @@ pub(crate) enum OwnedListDrop {
     /// union's uniform `STATE` type (when it has one) to free after the close.
     Union {
         variants: Vec<(usize, String)>,
-        state_type: Option<String>,
+        state_type: Option<ParameterType>,
     },
 }
 
@@ -528,7 +528,7 @@ pub(crate) struct OwnedListCleanup {
 #[derive(Clone)]
 pub(crate) struct OwnedValueCleanup {
     /// Static type of the bound value (drives the runtime size computation).
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
     /// Stack offset of the binding's slot (holds the block pointer).
     pub(crate) stack_offset: usize,
     /// plan-77 M6: when `Some`, this is a non-escaping closure binding rather than
@@ -536,7 +536,7 @@ pub(crate) struct OwnedValueCleanup {
     /// static types of its captures. The drop frees the object, its env block, and
     /// each freeable-flat capture (skipping by-value scalars/floats) instead of a
     /// single flat `arena_free`.
-    pub(crate) closure_captures: Option<Vec<String>>,
+    pub(crate) closure_captures: Option<Vec<ParameterType>>,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free
@@ -546,7 +546,7 @@ pub(crate) struct OwnedValueCleanup {
 /// `arena_free`.
 #[derive(Clone)]
 pub(crate) struct PendingTemp {
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
     pub(crate) slot: usize,
     pub(crate) location: Operand,
 }
@@ -578,7 +578,7 @@ pub(crate) enum ExitDestination {
 #[derive(Clone)]
 pub(crate) struct PayloadSlot {
     pub(crate) slot: usize,
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
 }
 
 #[derive(Clone)]
@@ -595,19 +595,26 @@ pub(crate) struct CollectionTypeLayout {
 
 #[derive(Clone)]
 pub(crate) struct TypeModel {
-    pub(crate) enum_members: HashMap<(String, String), usize>,
-    pub(crate) record_fields: HashMap<String, Vec<(String, ParameterType)>>,
-    pub(crate) union_names: HashSet<String>,
-    pub(crate) union_variants: HashMap<String, String>,
-    pub(crate) union_variant_unions: HashMap<String, HashSet<String>>,
-    pub(crate) union_variant_tags: HashMap<String, usize>,
-    pub(crate) union_variant_fields: HashMap<String, Vec<(String, ParameterType)>>,
+    /// plan-111-C: keyed by `(enum TYPE, member name)`. The member name is a
+    /// member, not a type, so it stays a `String`.
+    pub(crate) enum_members: HashMap<(ParameterType, String), usize>,
+    /// plan-111-C: keyed by the record TYPE. The `String` in the value is a
+    /// FIELD name.
+    pub(crate) record_fields: HashMap<ParameterType, Vec<(String, ParameterType)>>,
+    pub(crate) union_names: HashSet<ParameterType>,
+    /// A union VARIANT type -> the union type that declares it. Both halves
+    /// are types (`builder_value_semantics.rs` looks a variant up and then reads
+    /// the resulting union's tag).
+    pub(crate) union_variants: HashMap<ParameterType, ParameterType>,
+    pub(crate) union_variant_unions: HashMap<ParameterType, HashSet<ParameterType>>,
+    pub(crate) union_variant_tags: HashMap<ParameterType, usize>,
+    pub(crate) union_variant_fields: HashMap<ParameterType, Vec<(String, ParameterType)>>,
     /// Names of the module's user-declared `RESOURCE` types. Built-in resources
     /// are recognized by `builtins::is_resource_type`; a `RESOURCE Db CLOSE BY …`
     /// is not, so without this set codegen could not tell `Db` from an unknown
     /// type — and `RES x AS Db = <fallible> TRAP` failed to build for want of a
     /// default value on the error path (bug-372).
-    pub(crate) resource_names: HashSet<String>,
+    pub(crate) resource_names: HashSet<ParameterType>,
     /// User-declared resource name -> the call target of its registered
     /// `CLOSE BY` op, for scope-drop cleanup.
     ///
@@ -638,7 +645,10 @@ pub(crate) struct TypeModel {
     /// Collected here, at model construction, because this is the only layer
     /// that sees both the `RESOURCE` declarations — the module's own and every
     /// imported package's — and the code builder that needs them.
-    pub(crate) resource_closers: HashMap<String, String>,
+    /// plan-111-C: keyed by the resource TYPE. The VALUE stays a `String` — it
+    /// is a routing name resolved through `resolve_closer_symbol`, which is
+    /// where bug-374 and bug-377 live, not a type.
+    pub(crate) resource_closers: HashMap<ParameterType, String>,
 }
 
 /// plan-67-B: the single predicate gating all runtime perf-tracking injection.
@@ -726,7 +736,7 @@ pub(crate) fn lower_module_for_platform(
     for function in &module.link_functions {
         package_return_types.insert(
             format!("{}.{}", function.alias, function.name),
-            ParameterType::parse(&function.return_type),
+            function.return_type.clone(),
         );
     }
     for import in &module.imports {
@@ -738,7 +748,7 @@ pub(crate) fn lower_module_for_platform(
             .find(|function| {
                 nir::link_thunk_symbol(&function.alias, &function.name) == import.symbol
             })
-            .map(|function| ParameterType::parse(&function.return_type))
+            .map(|function| function.return_type.clone())
         {
             package_return_types
                 .entry(import.name.clone())
@@ -1188,7 +1198,7 @@ pub(crate) fn lower_module_for_platform(
                 &ProgramEntrySpec {
                     entry_symbol: MACAPP_PROGRAM_SYMBOL,
                     language_entry_symbol: &language_entry_symbol,
-                    language_entry_returns: &entry.returns.name(),
+                    language_entry_returns: &entry.returns,
                     language_entry_accepts_args: entry.accepts_args,
                     global_initializer_symbol: global_initializer_symbol.as_deref(),
                     link_init_symbol,
@@ -1226,7 +1236,7 @@ pub(crate) fn lower_module_for_platform(
                 &ProgramEntrySpec {
                     entry_symbol: "_main",
                     language_entry_symbol: &language_entry_symbol,
-                    language_entry_returns: &entry.returns.name(),
+                    language_entry_returns: &entry.returns,
                     language_entry_accepts_args: entry.accepts_args,
                     global_initializer_symbol: global_initializer_symbol.as_deref(),
                     link_init_symbol,
@@ -1314,6 +1324,10 @@ pub(crate) fn lower_module_for_platform(
         data_objects.push(string_data_object(EMPTY_STRING_SYMBOL, String::new()));
     }
     for type_ in recursive_copy_types {
+        // `recursive_transfer_types` returns rendered names (the emission ORDER
+        // is observable in the `.ncode`); parse each back once, here, for the
+        // typed emitters below.
+        let type_ = ParameterType::declared(&type_);
         let symbol = thread_copy_symbol(&type_);
         code_functions.push(lower_thread_copy_function(
             &type_,
@@ -1672,7 +1686,7 @@ pub(crate) fn lower_module_for_platform(
     let link_returns_cstring = module.link_functions.iter().any(|function| {
         let returns_c_string = matches!(&function.result, Some(crate::ir::IrLinkExpr::Var(name)) if *name == function.abi_return_name)
             && function.abi_return_ctype == "CPtr"
-            && function.return_type == "String";
+            && matches!(function.return_type, ParameterType::String);
         let struct_has_cstring_field = function.abi_slots.iter().any(|slot| {
             module
                 .link_cstructs

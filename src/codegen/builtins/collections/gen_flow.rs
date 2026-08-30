@@ -27,7 +27,7 @@ use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn emit_callback_failure_exit(
         &mut self,
-        cleanup: Option<(usize, String)>,
+        cleanup: Option<(usize, ParameterType)>,
     ) -> Result<(), String> {
         let Some(label) = self.raw_result_capture_label() else {
             self.emit(abi::return_());
@@ -48,7 +48,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64(reg, abi::stack_pointer(), *slot));
             }
             self.emit_owned_value_drop(&OwnedValueCleanup {
-                type_,
+                type_: type_.clone(),
                 stack_offset: block_slot,
                 closure_captures: None,
             })?;

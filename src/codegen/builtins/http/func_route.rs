@@ -127,7 +127,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 // element-wise, so a wrong-shaped handler (`FUNC(Integer) AS Integer`)
                 // is rejected — a `Named("FUNC(…)")` blob would match coarsely and let
                 // it through.
-                super::req("handler", "The function invoked when this route matches. The type is exact — a function of any other signature is a compile-time mismatch, not a runtime error.", &[], ParameterType::parse(super::HANDLER_TYPE)),
+                super::req("handler", "The function invoked when this route matches. The type is exact — a function of any other signature is a compile-time mismatch, not a runtime error.", &[], super::handler_type()),
             ],
             return_type: ParameterType::named(super::ROUTE_TYPE),
             errors: vec![],

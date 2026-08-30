@@ -80,7 +80,11 @@ pub fn validate_nir(module: &NirModule) -> Result<(), String> {
         let closes: Option<Vec<&'static str>> = type_
             .variants
             .iter()
-            .map(|variant| crate::codegen::builtins::resource_close_function(&variant.name))
+            .map(|variant| {
+                crate::codegen::builtins::resource_close_function(
+                    &crate::types::ParameterType::declared(&variant.name),
+                )
+            })
             .collect();
         if let Some(closes) = closes {
             for close in closes {
@@ -124,7 +128,7 @@ fn type_owns_resource(type_: &ParameterType) -> bool {
         // NB: no `Res(inner)` arm — the string form never stripped the `RES `
         // marker (`is_resource_type("RES File")` is false), so a `Res`-wrapped
         // element falls to the name check below exactly as the string walk did.
-        other => crate::codegen::builtins::is_resource_type(&other.name()),
+        other => crate::codegen::builtins::is_resource_type(&other),
     }
 }
 
@@ -152,11 +156,12 @@ fn validate_resource_rules(module: &NirModule) -> Result<(), String> {
                 let mut has_resource = false;
                 let mut has_data = false;
                 for variant in &type_.variants {
-                    let is_resource = crate::codegen::builtins::is_resource_type(&variant.name)
-                        || variant
-                            .fields
-                            .iter()
-                            .any(|field| type_owns_resource(&field.type_));
+                    let is_resource = crate::codegen::builtins::is_resource_type(
+                        &crate::types::ParameterType::declared(&variant.name),
+                    ) || variant
+                        .fields
+                        .iter()
+                        .any(|field| type_owns_resource(&field.type_));
                     if is_resource {
                         has_resource = true;
                     } else {

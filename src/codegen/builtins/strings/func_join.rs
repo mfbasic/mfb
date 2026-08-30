@@ -97,11 +97,7 @@ pub(crate) fn lower(
     let scratch14 = builder.temporary_vreg();
     let scratch15 = builder.temporary_vreg();
     let parts = parts.clone();
-    if typed_list_element_type(&parts.type_)
-        .map(|type_| type_.name().into_owned())
-        .as_deref()
-        != Some("String")
-    {
+    if typed_list_element_type(&parts.type_).cloned() != Some(ParameterType::String) {
         return Err(format!(
             "strings.join parts must be List OF String, got {}",
             parts.type_
@@ -226,7 +222,7 @@ pub(crate) fn lower(
     let out_ptr = &out_ptr_v;
     builder.emit(abi::load_u64(out_ptr, abi::stack_pointer(), result_slot));
     builder.emit(abi::add_immediate(&scratch13, out_ptr, 8));
-    builder.emit_collection_data_pointer_for(&scratch14, &scratch16, "String");
+    builder.emit_collection_data_pointer_for(&scratch14, &scratch16, &ParameterType::String);
     builder.emit(abi::add_immediate(
         &scratch15,
         &scratch16,

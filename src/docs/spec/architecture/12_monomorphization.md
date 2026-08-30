@@ -60,8 +60,11 @@ Imported-overload resolution recovers base names by **splitting on `$`** — it
 groups a package's exported `Func`/`Sub` symbols by the substring before the
 first `$`. [[src/monomorph/helpers.rs:collect_imported_overloads]]
 
-The grammar of the type-token strings that `sanitize_type_name` flattens (and
-that `unify_type` parses) is canonical in `./mfb spec architecture type-name-encoding`.
+`sanitize_type_name` flattens a RENDERED type into a symbol-safe token; the
+grammar it renders from is canonical in
+`./mfb spec architecture type-name-encoding`. `unify_type` does not parse — it
+matches `ParameterType` variants (plan-111), so a new type shape reaches it as a
+new variant rather than a new prefix test.
 
 ## Template instantiation
 

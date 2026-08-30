@@ -43,7 +43,7 @@ impl CodeBuilder<'_> {
         if CollectionTypeLayout::from_type(&list_type).is_none() {
             return Ok(None);
         }
-        let result = self.lower_list_slice_range(args, &element_type.name())?;
+        let result = self.lower_list_slice_range(args, element_type)?;
         Ok(Some(result))
     }
 
@@ -55,14 +55,12 @@ impl CodeBuilder<'_> {
     pub(crate) fn lower_list_slice_range(
         &mut self,
         args: &[NirValue],
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
-        let layout = CollectionTypeLayout::from_type(&ParameterType::list_of(
-            ParameterType::parse(&element_type),
-        ))
-        .ok_or_else(|| {
-            format!("native code collection type 'List OF {element_type}' is not supported")
-        })?;
+        let layout = CollectionTypeLayout::from_type(&ParameterType::list_of(element_type.clone()))
+            .ok_or_else(|| {
+                format!("native code collection type 'List OF {element_type}' is not supported")
+            })?;
         let s8 = self.temporary_vreg();
         let s9 = self.temporary_vreg();
         let s10 = self.temporary_vreg();
@@ -309,7 +307,7 @@ impl CodeBuilder<'_> {
             abi::mfb_return(1),
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit_collection_data_pointer_for(&s20, &s8, element_type);
+        self.emit_collection_data_pointer_for(&s20, &s8, &element_type);
         self.emit(abi::multiply_registers(&s21, &s9, &s14));
         self.emit(abi::add_registers(&s21, &s17, &s21));
         self.emit(abi::move_immediate(&s11, "Integer", "0"));
@@ -409,7 +407,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::list_of(ParameterType::parse(&element_type)),
+            type_: ParameterType::list_of(element_type.clone()),
             location: Operand::from(result.render()),
             text: format!("slice(List OF {element_type})"),
         })
@@ -613,7 +611,7 @@ impl CodeBuilder<'_> {
             abi::mfb_return(1),
             COLLECTION_HEADER_SIZE,
         )); // dst entryPtr
-        self.emit_collection_data_pointer_for(&s20, &s8, "String"); // src data base
+        self.emit_collection_data_pointer_for(&s20, &s8, &ParameterType::String); // src data base
         self.emit(abi::multiply_registers(&s21, &s9, &s14));
         self.emit(abi::add_registers(&s21, &s17, &s21)); // dst data base = dstEntry + count*ENTRY
         self.emit(abi::move_immediate(&s11, "Integer", "0")); // running dst data offset

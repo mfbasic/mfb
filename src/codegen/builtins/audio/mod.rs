@@ -474,6 +474,15 @@ pub(crate) fn register(r: &mut Registry) {
 mod tests {
     use crate::codegen::registry::{self, registry};
 
+    /// plan-111-F: `rewrite_target` selects on TYPES, so the test's spellings
+    /// are parsed at this one helper rather than threaded onward as names.
+    fn types(items: &[&str]) -> Vec<crate::types::ParameterType> {
+        items
+            .iter()
+            .map(|s| crate::types::ParameterType::declared(s))
+            .collect()
+    }
+
     fn strings(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
     }
@@ -581,7 +590,7 @@ mod tests {
         assert_eq!(registry().arity("audio.poll"), Some((1, 2)));
         // Native members carry no rewrite target (they lower through Body::abi_function).
         assert_eq!(
-            registry::rewrite_target("audio.read", &strings(&["audio.AudioInput", "Integer"])),
+            registry::rewrite_target("audio.read", &types(&["audio.AudioInput", "Integer"])),
             None
         );
     }
@@ -589,17 +598,17 @@ mod tests {
     #[test]
     fn source_members_rewrite_to_their_companion_bodies() {
         assert_eq!(
-            registry::rewrite_target("audio.render", &strings(&["AudioNote"])),
+            registry::rewrite_target("audio.render", &types(&["AudioNote"])),
             Some("__audio_render")
         );
         assert_eq!(
-            registry::rewrite_target("audio.play", &strings(&["audio.AudioOutput", "String"])),
+            registry::rewrite_target("audio.play", &types(&["audio.AudioOutput", "String"])),
             Some("__audio_play")
         );
         assert_eq!(
             registry::rewrite_target(
                 "audio.play",
-                &strings(&["audio.AudioOutput", "List OF String"])
+                &types(&["audio.AudioOutput", "List OF String"])
             ),
             Some("__audio_playTracks")
         );
@@ -608,11 +617,15 @@ mod tests {
     #[test]
     fn close_ops_are_the_per_direction_bodies() {
         assert_eq!(
-            crate::codegen::builtins::resource_close_function(super::AUDIO_INPUT_TYPE_ID),
+            crate::codegen::builtins::resource_close_function(&crate::types::ParameterType::named(
+                super::AUDIO_INPUT_TYPE_ID
+            )),
             Some(super::CLOSE_INPUT)
         );
         assert_eq!(
-            crate::codegen::builtins::resource_close_function(super::AUDIO_OUTPUT_TYPE_ID),
+            crate::codegen::builtins::resource_close_function(&crate::types::ParameterType::named(
+                super::AUDIO_OUTPUT_TYPE_ID
+            )),
             Some(super::CLOSE_OUTPUT)
         );
     }

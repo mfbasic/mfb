@@ -45,7 +45,7 @@ impl CodeBuilder<'_> {
             .cloned()
             .ok_or_else(|| format!("native flatten does not accept {outer_type}"))?;
         let elem = typed_list_element_type(&inner_type)
-            .map(|element| element.name().into_owned())
+            .cloned()
             .ok_or_else(|| format!("native flatten inner type {inner_type} is not a list"))?;
         let source_slot = self.allocate_stack_object("flatten_source", 8);
         self.emit(abi::store_u64(
@@ -87,9 +87,9 @@ impl CodeBuilder<'_> {
         let ob = self.temporary_vreg();
         let db = self.temporary_vreg();
         self.emit(abi::load_u64(&ob, abi::stack_pointer(), source_slot));
-        self.emit_element_value_offset(&voff, &vlen, &ob, &r0, &sc1, &sc2, &inner_type.name());
+        self.emit_element_value_offset(&voff, &vlen, &ob, &r0, &sc1, &sc2, &inner_type);
         self.emit(abi::load_u64(&ob, abi::stack_pointer(), source_slot));
-        self.emit_collection_data_pointer_for(&db, &ob, &inner_type.name());
+        self.emit_collection_data_pointer_for(&db, &ob, &inner_type);
         self.emit(abi::add_registers(&db, &db, &voff));
         self.emit(abi::store_u64(&db, abi::stack_pointer(), inner_slot));
         // result = bulk-append(result, inner) — concatenates the inner's elements.

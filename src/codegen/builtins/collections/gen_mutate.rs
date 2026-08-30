@@ -45,9 +45,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
         let list = args[0].clone();
-        let Some(element_type) =
-            typed_list_element_type(&list.type_).map(|type_| type_.name().into_owned())
-        else {
+        let Some(element_type) = typed_list_element_type(&list.type_).cloned() else {
             return Err(format!(
                 "native collection {op} does not accept {}",
                 list.type_
@@ -99,7 +97,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn collection_argument_as_list_slot(
         &mut self,
         list_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
         item: ValueResult,
     ) -> Result<(usize, bool), String> {
         if &item.type_ == list_type {
@@ -107,7 +105,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::store_u64(&item.location, abi::stack_pointer(), slot));
             return Ok((slot, false));
         }
-        if item.type_.name() != element_type {
+        if item.type_ != *element_type {
             return Err(format!(
                 "native collection list item must be {}, got {}",
                 element_type, item.type_
@@ -125,7 +123,7 @@ impl CodeBuilder<'_> {
                 key: None,
                 value: PayloadSlot {
                     slot: item_slot,
-                    type_: element_type.to_string(),
+                    type_: element_type.clone(),
                 },
             }],
             "singleton list",
@@ -163,7 +161,7 @@ impl CodeBuilder<'_> {
         // an entry array or the free (which uses the kind-2 size) releases less
         // than was taken and leaks on every call (plan-57-D).
         let reserved_stride = typed_list_element_type(output_type)
-            .map(|element| element.name().into_owned())
+            .cloned()
             .map(|element| list_entry_stride(&element))
             .unwrap_or(COLLECTION_ENTRY_SIZE);
         let layout = CollectionTypeLayout::from_type(output_type).ok_or_else(|| {
@@ -377,10 +375,10 @@ impl CodeBuilder<'_> {
 
         // --- Data region: A verbatim at base, B verbatim at align(dataLen_A). ---
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
-        self.emit_collection_data_pointer_for(&scratch17, &nb, ""); // x17 = dst data base (stable)
+        self.emit_collection_data_pointer_for(&scratch17, &nb, &ParameterType::named("")); // x17 = dst data base (stable)
         self.emit(abi::move_register(&scratch23, &scratch17)); // moving copy dst
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), left_slot));
-        self.emit_collection_data_pointer_for(&scratch20, &scratch8, ""); // A data base
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, &ParameterType::named("")); // A data base
         self.emit(abi::load_u64(
             &scratch14,
             &scratch8,
@@ -402,7 +400,7 @@ impl CodeBuilder<'_> {
         self.emit_align_offset_register(&scratch13, map_max_align, &scratch22); // alignedA
         self.emit(abi::add_registers(&scratch23, &scratch17, &scratch13)); // B dest = base + alignedA
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), right_slot));
-        self.emit_collection_data_pointer_for(&scratch20, &scratch9, ""); // B data base
+        self.emit_collection_data_pointer_for(&scratch20, &scratch9, &ParameterType::named("")); // B data base
         self.emit(abi::load_u64(
             &scratch15,
             &scratch9,
@@ -549,7 +547,7 @@ impl CodeBuilder<'_> {
         map_slot: usize,
         key_slot: usize,
         map_type: &ParameterType,
-        key_type: &str,
+        key_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         let scratch20 = self.temporary_vreg();
         let scratch21 = self.temporary_vreg();
@@ -618,7 +616,14 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit_collection_payload_matches_value_branch(
-            key_type, "", &scratch8, &scratch13, &scratch16, &scratch9, &scan_next, &scan_keep,
+            key_type,
+            &ParameterType::named(""),
+            &scratch8,
+            &scratch13,
+            &scratch16,
+            &scratch9,
+            &scan_next,
+            &scan_keep,
         )?;
         self.emit(abi::label(&scan_keep));
         self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
@@ -711,7 +716,7 @@ impl CodeBuilder<'_> {
             COLLECTION_HEADER_SIZE,
         ));
         self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE));
-        self.emit_collection_data_pointer_for(&scratch20, &scratch8, "");
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, &ParameterType::named(""));
         self.emit(abi::load_u64(&scratch14, &nb, COLLECTION_OFFSET_COUNT));
         self.emit(abi::move_immediate(
             &scratch16,
@@ -734,7 +739,14 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit_collection_payload_matches_value_branch(
-            key_type, "", &scratch8, &scratch14, &scratch15, &scratch9, &copy_next, &copy_keep,
+            key_type,
+            &ParameterType::named(""),
+            &scratch8,
+            &scratch14,
+            &scratch15,
+            &scratch9,
+            &copy_next,
+            &copy_keep,
         )?;
         self.emit(abi::label(&copy_keep));
         self.emit_copy_one_map_entry(

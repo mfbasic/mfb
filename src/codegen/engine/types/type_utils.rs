@@ -60,9 +60,7 @@ pub(crate) fn static_nir_value_type(
                 }
                 _ => None,
             }
-            .or_else(|| {
-                builtins::call_return_type_name(target).map(|type_| ParameterType::parse(&type_))
-            })
+            .or_else(|| builtins::call_return_type(target))
         }
         NirValue::ResultIsOk { .. } => Some(ParameterType::Boolean),
         NirValue::ResultValue { value } => match static_nir_value_type(value, locals, fields)? {
@@ -121,7 +119,7 @@ pub(crate) fn collection_type_code(type_: &ParameterType) -> Option<usize> {
         ParameterType::ListOf(_) => Some(COLLECTION_TYPE_LIST),
         ParameterType::MapOf(_, _) => Some(COLLECTION_TYPE_MAP),
         // `Scalar` is a nominal, not a variant.
-        ParameterType::Named(name) if name.resolve() == "Scalar" => Some(COLLECTION_TYPE_SCALAR),
+        type_ if type_.is_named("Scalar") => Some(COLLECTION_TYPE_SCALAR),
         _ => Some(COLLECTION_TYPE_OBJECT),
     }
 }
@@ -264,15 +262,19 @@ pub(crate) fn static_primitive_text_with_constants(
     constants: &HashMap<String, NirValue>,
 ) -> Option<String> {
     match value {
-        NirValue::Const { type_, value } => match type_.name().as_ref() {
+        NirValue::Const { type_, value } => match type_ {
             // A Float/Fixed constant folds to the runtime formatter's
             // default-precision rendering (2 places), so the same value prints
             // identically whether or not the argument was foldable (bug-358).
             // Scientific notation goes through the same conversions, so `2.5e2`
             // still reads the same as the plain literal (plan-28-B).
-            "Float" | "Fixed" => numeric::default_to_string_text(&type_.name(), value),
-            "Integer" | "Byte" | "String" => Some(value.clone()),
-            "Boolean" => match value.as_str() {
+            ParameterType::Float | ParameterType::Fixed => {
+                numeric::default_to_string_text(type_, value)
+            }
+            ParameterType::Integer | ParameterType::Byte | ParameterType::String => {
+                Some(value.clone())
+            }
+            ParameterType::Boolean => match value.as_str() {
                 "true" => Some("TRUE".to_string()),
                 "false" => Some("FALSE".to_string()),
                 _ => None,
@@ -301,40 +303,9 @@ pub(crate) fn join_texts(values: &[ValueResult]) -> String {
         .join(", ")
 }
 
-/// Whether a type SPELLING denotes a collection.
-///
-/// plan-106-E: the shape question goes to the canonical grammar, not a local
-/// prefix cascade — the same move plan-105-B made in the resolver. This and the
-/// four predicates below are codegen's NAME-domain boundary: the block-layout
-/// and symbol tables are keyed by name, so these consumers hold a spelling and
-/// legitimately need it classified. What is gone is a second grammar.
-pub(crate) fn is_collection_type(type_: &str) -> bool {
-    typed_is_collection_type(&ParameterType::parse(type_))
-}
-
-/// Whether a type SPELLING denotes a `Result OF T`.
-///
-/// The same NAME-domain boundary as [`is_collection_type`]: codegen's block and
-/// payload emitters hold a spelling, and the shape question goes to the canonical
-/// grammar rather than a `starts_with("Result OF ")` repeated at each site.
-pub(crate) fn is_result_type(type_: &str) -> bool {
-    matches!(ParameterType::parse(type_), ParameterType::ResultOf(_))
-}
-
-/// The payload type NAME of a `Result OF T`.
-pub(crate) fn result_payload_type(type_: &str) -> Option<String> {
-    match ParameterType::parse(type_) {
-        ParameterType::ResultOf(payload) => Some(payload.name().into_owned()),
-        _ => None,
-    }
-}
-
 /// Whether a type SPELLING denotes a PARENT-side thread handle.
-pub(crate) fn is_parent_thread_type(type_: &str) -> bool {
-    matches!(
-        ParameterType::parse(type_),
-        ParameterType::ThreadHandle { worker: false, .. }
-    )
+pub(crate) fn is_parent_thread_type(type_: &ParameterType) -> bool {
+    matches!(type_, ParameterType::ThreadHandle { worker: false, .. })
 }
 
 // --- Typed structural twins (plan-104-C) -----------------------------------
@@ -413,70 +384,14 @@ pub(crate) fn typed_map_entry_type_parts(
 /// sizing / copy / free / reserve site consults instead of an inline
 /// `kind == MAP` test, so a Set is never sized one way and freed another
 /// (plan-63-B §3).
-pub(crate) fn collection_has_buckets(type_: &str) -> bool {
-    matches!(
-        ParameterType::parse(type_),
-        ParameterType::MapOf(_, _) | ParameterType::SetOf(_)
-    )
-}
-
-/// The element type NAME of a `List OF T`.
-///
-/// A `List OF RES File` element stores and is read as the bare resource pointer
-/// (`File`); the `RES` ownership-axis marker is not part of the value (§15.6),
-/// which is what [`typed_list_element_type`] peels.
-pub(crate) fn list_element_type(type_: &str) -> Option<String> {
-    typed_list_element_type(&ParameterType::parse(type_)).map(|element| element.name().into_owned())
-}
-
-pub(crate) fn map_type_parts(type_: &str) -> Option<(String, String)> {
-    typed_map_type_parts(&ParameterType::parse(type_))
-        .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
-}
-
-/// True when `type_` is a first-class function value type — a `FUNC(...) AS T`
-/// or `ISOLATED FUNC(...) AS T`. A function value is a single 8-byte pointer to
-/// an arena-lifetime closure object (`{code, env}`); it has **reference**
-/// semantics, so it is stored, copied, and read as a bare pointer word with no
-/// deep copy and no per-value free (bug-73). This mirrors the front-end
-/// `is_function_type` in `target/shared/validate.rs`.
-pub(crate) fn is_function_type(type_: &str) -> bool {
-    matches!(ParameterType::parse(type_), ParameterType::Func(_, _, _))
-}
-
-/// Byte index of the top-level `") AS "` that separates a function type's
-/// parameter list from its return type — the `)` that closes the outermost
-/// `FUNC(`, not one nested inside a higher-order parameter or return type. A
-/// naive `split_once`/`rsplit_once(") AS ")` mis-parses e.g.
-/// `FUNC(FUNC() AS Integer) AS String` (bug-175 F). `depth` is the paren nesting
-/// already opened before `s` begins — 0 for a full `FUNC(...) AS T`, 1 when the
-/// leading `FUNC(` has already been stripped.
-fn top_level_return_arrow(s: &str, mut depth: i32) -> Option<usize> {
-    let bytes = s.as_bytes();
-    for i in 0..bytes.len() {
-        match bytes[i] {
-            b'(' => depth += 1,
-            b')' => {
-                depth -= 1;
-                if depth == 0 && s[i..].starts_with(") AS ") {
-                    return Some(i);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
+pub(crate) fn collection_has_buckets(type_: &ParameterType) -> bool {
+    matches!(type_, ParameterType::MapOf(_, _) | ParameterType::SetOf(_))
 }
 
 /// Split a function type's parameter list on the top-level `", "` separators
 /// only, so a higher-order parameter type carrying its own `", "` (e.g.
 /// `FUNC(Integer, String) AS Bool`) is kept intact (bug-175 F). Byte-identical to
 /// `split(", ")` for parameter lists with no nested parens.
-
-pub(crate) fn callable_return_type(type_: &str) -> Option<String> {
-    let idx = top_level_return_arrow(type_, 0)?;
-    Some(type_[idx + ") AS ".len()..].to_string())
-}
 
 /// The promoted result type of a binary numeric operation, defaulting a
 /// non-numeric pairing to `Integer` — codegen's total flavour of the ONE
@@ -515,10 +430,10 @@ pub(crate) fn error_type() -> ParameterType {
     ParameterType::named("Error")
 }
 
-pub(crate) fn native_immediate_value(type_: &str, value: &str) -> Result<String, String> {
+pub(crate) fn native_immediate_value(type_: &ParameterType, value: &str) -> Result<String, String> {
     match type_ {
-        "Nothing" => Ok("0".to_string()),
-        "Float" => Ok(value
+        ParameterType::Nothing => Ok("0".to_string()),
+        ParameterType::Float => Ok(value
             .parse::<f64>()
             .map_err(|_| format!("invalid Float constant `{value}`"))?
             .to_bits()
@@ -528,11 +443,11 @@ pub(crate) fn native_immediate_value(type_: &str, value: &str) -> Result<String,
         // so a negative raw must not be printed with a `-`. For every non-negative
         // raw this is identical to the signed decimal; it only matters for the
         // minimum `Fixed` (raw == i64::MIN), which bug-07's fold produces directly.
-        "Fixed" => Ok((numeric::fixed_raw_from_decimal(value)? as u64).to_string()),
+        ParameterType::Fixed => Ok((numeric::fixed_raw_from_decimal(value)? as u64).to_string()),
         // Money materializes its base-10 scaled raw i64 as a u64 bit pattern, the
         // same negative-safe treatment as Fixed (the min Money raw is i64::MIN,
         // which the plan-29-B fold produces directly). (plan-29-C §4.2)
-        "Money" => Ok((numeric::money_raw_from_decimal(value)? as u64).to_string()),
+        ParameterType::Money => Ok((numeric::money_raw_from_decimal(value)? as u64).to_string()),
         // bug-286: a *negative* `Integer` const needs the same u64 bit-pattern
         // treatment as `Fixed`/`Money`, because the immediate encoders on both
         // backends parse `u64` and reject a leading `-`. Before bug-286's fold
@@ -542,7 +457,7 @@ pub(crate) fn native_immediate_value(type_: &str, value: &str) -> Result<String,
         // i64 so a future fold cannot reintroduce the same encoder failure.
         // A value that does not parse as i64 is passed through untouched, which
         // keeps every existing const byte-identical.
-        "Integer" => Ok(match value.parse::<i64>() {
+        ParameterType::Integer => Ok(match value.parse::<i64>() {
             Ok(number) if number < 0 => (number as u64).to_string(),
             _ => value.to_string(),
         }),

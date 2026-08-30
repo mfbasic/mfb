@@ -28,9 +28,7 @@ impl CodeBuilder<'_> {
         if self.borrow_get_result() {
             return Ok(result);
         }
-        if self.is_freeable_flat_value(&result.type_.name())
-            && result.type_ != ParameterType::String
-        {
+        if self.is_freeable_flat_value(&result.type_) && result.type_ != ParameterType::String {
             let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {
                 origin: None,

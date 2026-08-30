@@ -149,7 +149,7 @@ impl TypeEnv {
                     if owners.contains_key(name) {
                         if let Some(IrValue::Local(source)) = value {
                             if locals.get(source).is_some_and(|t| {
-                                self.close_op_for(&resource_base_type(t).name()).is_some()
+                                self.close_op_for(&resource_base_type(t)).is_some()
                             }) {
                                 moved.insert(source.clone());
                             }
@@ -197,7 +197,7 @@ impl TypeEnv {
                         | Some(IrValue::CallResult { args, type_, .. }) = value
                         {
                             let returned = resource_base_type(type_);
-                            if self.close_op_for(&returned.name()).is_some() {
+                            if self.close_op_for(&returned).is_some() {
                                 for arg in args {
                                     if let IrValue::Local(source) = arg {
                                         if locals
@@ -307,11 +307,15 @@ impl TypeEnv {
     /// Whether a resource type may cross a thread boundary: the project's own
     /// `RESOURCE … THREAD_SENDABLE` opt-in or an imported package's
     /// `RESOURCE_TABLE` bit (`resource_sendable`), else the built-in registry.
-    fn is_resource_sendable(&self, base: &str) -> bool {
+    fn is_resource_sendable(&self, base: &ParameterType) -> bool {
         self.resource_sendable
             .get(base)
             .copied()
-            .unwrap_or_else(|| crate::codegen::resource::is_builtin_sendable_resource_type(base))
+            .unwrap_or_else(|| {
+                // plan-111-B: the registry half still speaks names (its `&str`
+                // signature dies in letter E), so the type renders only there.
+                crate::codegen::resource::is_builtin_sendable_resource_type(&base)
+            })
     }
 
     /// Whether a value of `type_` copies freely (the former source checker's
@@ -320,7 +324,11 @@ impl TypeEnv {
     /// elements; a thread handle and a resource never; a record by every field,
     /// a union by every variant (a resource variant is not copyable, bug-231);
     /// enums and names the tables do not know yes.
-    pub(super) fn is_copyable(&self, type_: &ParameterType, seen: &mut HashSet<String>) -> bool {
+    pub(super) fn is_copyable(
+        &self,
+        type_: &ParameterType,
+        seen: &mut HashSet<ParameterType>,
+    ) -> bool {
         match type_ {
             ParameterType::Boolean
             | ParameterType::Byte
@@ -341,32 +349,39 @@ impl TypeEnv {
             ParameterType::ResultOf(success) => self.is_copyable(success, seen),
             ParameterType::ThreadHandle { .. } => false,
             other => {
-                let name = other.name();
-                let name = name.as_ref();
-                if matches!(name, "AttributedString" | "Error" | "ErrorLoc" | "Scalar") {
+                if other.is_named("AttributedString")
+                    || other.is_named("Error")
+                    || other.is_named("ErrorLoc")
+                    || other.is_named("Scalar")
+                {
                     return true;
                 }
-                if self.close_op_for(name).is_some() {
+                if self.close_op_for(other).is_some() {
                     return false;
                 }
-                if !seen.insert(name.to_string()) {
+                if !seen.insert(other.clone()) {
                     return true;
                 }
-                let result = match self.unions.get(name) {
+                let result = match self.unions.get(other) {
                     Some(union) => union.variant_order.iter().all(|variant| {
-                        self.close_op_for(variant).is_none()
-                            && self.record_fields_copyable(variant, seen)
+                        let variant = ParameterType::declared(variant);
+                        self.close_op_for(&variant).is_none()
+                            && self.record_fields_copyable(&variant, seen)
                     }),
-                    None => self.record_fields_copyable(name, seen),
+                    None => self.record_fields_copyable(other, seen),
                 };
-                seen.remove(name);
+                seen.remove(other);
                 result
             }
         }
     }
 
-    fn record_fields_copyable(&self, name: &str, seen: &mut HashSet<String>) -> bool {
-        self.record_field_lists.get(name).is_none_or(|fields| {
+    fn record_fields_copyable(
+        &self,
+        type_: &ParameterType,
+        seen: &mut HashSet<ParameterType>,
+    ) -> bool {
+        self.record_field_lists.get(type_).is_none_or(|fields| {
             fields
                 .iter()
                 .all(|(_, field_type)| self.is_copyable(field_type, seen))
@@ -379,14 +394,13 @@ impl TypeEnv {
         match type_ {
             ParameterType::Res(inner) => self.is_resource_type(inner),
             other => {
-                let name = other.name();
-                self.close_op_for(&name).is_some()
-                    || self.unions.get(name.as_ref()).is_some_and(|union| {
+                self.close_op_for(other).is_some()
+                    || self.unions.get(other).is_some_and(|union| {
                         !union.variant_order.is_empty()
-                            && union
-                                .variant_order
-                                .iter()
-                                .all(|variant| self.close_op_for(variant).is_some())
+                            && union.variant_order.iter().all(|variant| {
+                                self.close_op_for(&ParameterType::declared(variant))
+                                    .is_some()
+                            })
                     })
             }
         }
@@ -402,7 +416,7 @@ impl TypeEnv {
     pub(super) fn is_thread_sendable(
         &self,
         type_: &ParameterType,
-        seen: &mut HashSet<String>,
+        seen: &mut HashSet<ParameterType>,
     ) -> bool {
         match type_ {
             ParameterType::Boolean
@@ -425,28 +439,31 @@ impl TypeEnv {
             ParameterType::Res(_) => false,
             ParameterType::Func(..) | ParameterType::ThreadHandle { .. } => false,
             other => {
-                let name = other.name();
-                let name = name.as_ref();
                 // The built-in nominals are plain values.
-                if matches!(name, "AttributedString" | "Error" | "ErrorLoc" | "Scalar") {
+                if other.is_named("AttributedString")
+                    || other.is_named("Error")
+                    || other.is_named("ErrorLoc")
+                    || other.is_named("Scalar")
+                {
                     return true;
                 }
-                if self.close_op_for(name).is_some() {
-                    return self.is_resource_sendable(name);
+                if self.close_op_for(other).is_some() {
+                    return self.is_resource_sendable(other);
                 }
-                if !seen.insert(name.to_string()) {
+                if !seen.insert(other.clone()) {
                     return true;
                 }
-                let result = match self.unions.get(name) {
+                let result = match self.unions.get(other) {
                     Some(union) => union.variant_order.iter().all(|variant| {
-                        if self.close_op_for(variant).is_some() {
-                            return self.is_resource_sendable(variant);
+                        let variant = ParameterType::declared(variant);
+                        if self.close_op_for(&variant).is_some() {
+                            return self.is_resource_sendable(&variant);
                         }
-                        self.record_fields_sendable(variant, seen)
+                        self.record_fields_sendable(&variant, seen)
                     }),
-                    None => self.record_fields_sendable(name, seen),
+                    None => self.record_fields_sendable(other, seen),
                 };
-                seen.remove(name);
+                seen.remove(other);
                 result
             }
         }
@@ -454,8 +471,12 @@ impl TypeEnv {
 
     /// Every field of record `name` is sendable; a name that is not a record
     /// (an enum, or a type the tables do not know) is vacuously sendable.
-    fn record_fields_sendable(&self, name: &str, seen: &mut HashSet<String>) -> bool {
-        self.record_field_lists.get(name).is_none_or(|fields| {
+    fn record_fields_sendable(
+        &self,
+        type_: &ParameterType,
+        seen: &mut HashSet<ParameterType>,
+    ) -> bool {
+        self.record_field_lists.get(type_).is_none_or(|fields| {
             fields
                 .iter()
                 .all(|(_, field_type)| self.is_thread_sendable(field_type, seen))
@@ -724,9 +745,13 @@ impl TypeEnv {
     /// resource's nominal spelling (`parse` has no `STATE` arm), so there is no
     /// variant to match. The remaining tests are name lookups into the declaration
     /// tables.
-    pub(super) fn is_defaultable(&self, type_: &ParameterType, seen: &mut HashSet<String>) -> bool {
+    pub(super) fn is_defaultable(
+        &self,
+        type_: &ParameterType,
+        seen: &mut HashSet<ParameterType>,
+    ) -> bool {
         let type_name = type_.name();
-        if is_comparable_defaultable_primitive(&type_name) {
+        if is_comparable_defaultable_primitive(type_) {
             return true;
         }
         // `AttributedString` (plan-89-A) is defaultable (its default is empty
@@ -755,20 +780,26 @@ impl TypeEnv {
             type_,
             ParameterType::Func(_, _, _) | ParameterType::ResultOf(_) | ParameterType::Res(_)
         ) || is_thread_type(type_)
-            || type_name.contains(" STATE ")
+            // plan-111-B: `type_name.contains(" STATE ")` — the BROAD question
+            // (a clause anywhere in the spelling, not just this type's own), so
+            // `split_state` would be wrong here. `contains_state` is that same
+            // question computed structurally, pinned equal to the rendered form
+            // by `contains_state_agrees_with_the_rendered_name`. It keeps the
+            // opaque-nominal case a crafted `.mfp` can produce (PKG-02).
+            || type_.contains_state()
         {
             return false;
         }
-        if self.close_op_for(&type_name).is_some()
-            || self.unions.contains_key(type_name.as_ref())
-            || self.enums.contains_key(type_name.as_ref())
+        if self.close_op_for(type_).is_some()
+            || self.unions.contains_key(type_)
+            || self.enums.contains_key(type_)
         {
             return false;
         }
-        if !seen.insert(type_name.clone().into_owned()) {
+        if !seen.insert(type_.clone()) {
             return false;
         }
-        let result = match self.record_field_lists.get(type_name.as_ref()) {
+        let result = match self.record_field_lists.get(type_) {
             Some(fields) => fields.iter().all(|(_, ft)| self.is_defaultable(ft, seen)),
             // On the SOURCE path a name this table has never heard of is an
             // IMPORTED type, not an undefaultable one, and the difference is not
@@ -792,7 +823,7 @@ impl TypeEnv {
             // no the former source checker behind it.
             None => self.imported_types_unknown,
         };
-        seen.remove(type_name.as_ref());
+        seen.remove(type_);
         result
     }
 
@@ -870,7 +901,7 @@ impl TypeEnv {
         let Some(ty) = self.infer_type(value, locals) else {
             return false;
         };
-        let ty = resource_base_type(&ty).to_string();
+        let ty = resource_base_type(&ty);
         let all = if let Some(variants) = self.union_variants(&ty) {
             variants
         } else if let Some(members) = self.enums.get(&ty) {
@@ -904,7 +935,7 @@ impl TypeEnv {
         let is_res_marked = matches!(element, ParameterType::Res(_));
         let inner = strip_res(element);
         let inner_name = inner.name();
-        let is_resource = self.is_resource_or_resource_union(&inner_name);
+        let is_resource = self.is_resource_or_resource_union(inner);
         if is_resource && !is_res_marked {
             self.emit(
                 "TYPE_RESOURCE_REQUIRES_RES",
@@ -912,7 +943,7 @@ impl TypeEnv {
                     "Collection {role} type `{inner_name}` is a resource; mark it `RES` (e.g. `List OF RES File`), not a bare resource type."
                 ),
             );
-        } else if is_res_marked && !is_resource && self.provably_data_type(&inner_name) {
+        } else if is_res_marked && !is_resource && self.provably_data_type(inner) {
             self.emit(
                 "TYPE_RES_REQUIRES_RESOURCE",
                 format!(

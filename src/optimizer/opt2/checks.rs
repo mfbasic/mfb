@@ -370,7 +370,8 @@ fn dead_edge_raises(
     let mut saw_index_code = false;
     for instruction in &instructions[dead.start..end] {
         if instruction.op == CodeOp::MovImm
-            && instruction.get("type").as_deref() == Some("Integer")
+            && instruction.get("type").as_deref()
+                == Some(crate::target::shared::abi::IMMEDIATE_CLASS_INTEGER)
             && index_code.is_some()
             && instruction.get("value").as_deref() == index_code
         {

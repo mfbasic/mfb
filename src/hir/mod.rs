@@ -67,8 +67,8 @@ impl HirFile {
 
 /// A top-level item — the elaborated mirror of [`crate::ast::Item`].
 ///
-/// The native-binding and documentation/testing variants carry no source-language
-/// type strings needing a [`ParameterType`], so they reuse the AST struct directly.
+/// The documentation/testing variants carry no source-language type strings
+/// needing a [`ParameterType`], so they reuse the AST struct directly.
 #[derive(Clone, Debug)]
 pub(crate) enum HirItem {
     Binding(HirTopLevelBinding),
@@ -76,9 +76,89 @@ pub(crate) enum HirItem {
     Type(HirTypeDecl),
     Resource(crate::ast::ResourceDecl),
     FuncAlias(crate::ast::FuncAlias),
-    Link(crate::ast::LinkBlock),
+    Link(HirLinkBlock),
     Doc(crate::ast::DocBlock),
     Testing(crate::ast::TestingBlock),
+}
+
+/// A `LINK` block, elaborated: every MFBASIC type spelling it declares has
+/// become a [`ParameterType`].
+///
+/// plan-111-B: this variant used to carry the raw `crate::ast::LinkBlock` — the
+/// one item kind HIR did not elaborate — so `resolver`, `ir::lower`,
+/// `ir::verify::link` and `ir::shape` each read its spellings and re-derived
+/// structure from them, one of them with a third private copy of the `STATE`
+/// grammar. `ir::lower`'s own comment named the gap: "elaborating `LinkBlock`
+/// properly is recorded as a task in plan-106-E". This is that task. The
+/// AST→type boundary now sits here, where every other item's already is.
+///
+/// Everything a `LINK` declaration says that is NOT an MFBASIC type — the
+/// native symbol, the ABI slot map, `CONST` pins, `BIND`/`BUFFER`/`SUCCESS_ON`/
+/// `RETURN`/`FREE` clauses — stays as its AST node, because none of it is
+/// type-domain and re-mirroring it would buy nothing.
+#[derive(Clone, Debug)]
+pub(crate) struct HirLinkBlock {
+    /// The native library name, e.g. `"sqlite3"`.
+    pub(crate) library: String,
+    /// The local binding name for the block's functions, e.g. `sqliteLink`.
+    pub(crate) alias: String,
+    pub(crate) functions: Vec<HirLinkFunction>,
+    /// `CSTRUCT <CName> AS <MfbType>` C-layout declarations (plan-50-B).
+    pub(crate) cstructs: Vec<HirCStructDecl>,
+    pub(crate) line: usize,
+}
+
+/// A native function declaration inside a [`HirLinkBlock`].
+#[derive(Clone, Debug)]
+pub(crate) struct HirLinkFunction {
+    pub(crate) name: String,
+    pub(crate) params: Vec<HirLinkParam>,
+    /// The declared return type; `None` when the declaration omitted one.
+    pub(crate) return_type: Option<ParameterType>,
+    /// Whether the return type was declared with `RES` (produces a resource).
+    pub(crate) return_resource: bool,
+    /// The `STATE T` clause on a `RES` return, if any (plan-53-A).
+    pub(crate) return_state_type: Option<ParameterType>,
+    /// The native C symbol, e.g. `"sqlite3_open"`.
+    pub(crate) symbol: String,
+    pub(crate) abi: crate::ast::AbiSpec,
+    pub(crate) consts: Vec<crate::ast::ConstPin>,
+    pub(crate) bind_in: Vec<crate::ast::BindIn>,
+    pub(crate) bind_state: Option<crate::ast::BindState>,
+    pub(crate) buffers: Vec<crate::ast::BufferSpec>,
+    pub(crate) result_length: Option<crate::ast::Expression>,
+    pub(crate) success_on: Option<crate::ast::Expression>,
+    pub(crate) result: Option<crate::ast::Expression>,
+    pub(crate) free: Option<crate::ast::FreeSpec>,
+    pub(crate) line: usize,
+}
+
+/// One parameter of a [`HirLinkFunction`].
+#[derive(Clone, Debug)]
+pub(crate) struct HirLinkParam {
+    pub(crate) name: String,
+    /// The declared type; `None` when the declaration omitted one.
+    pub(crate) type_: Option<ParameterType>,
+    /// Whether this parameter was declared with `RES` (a resource pointer).
+    pub(crate) resource: bool,
+    /// The `STATE T` type attached to a `RES` parameter, if any.
+    pub(crate) state_type: Option<ParameterType>,
+    pub(crate) default: Option<crate::ast::Expression>,
+    pub(crate) line: usize,
+}
+
+/// A `CSTRUCT <CName> AS <MfbType>` declaration, with its MFBASIC record type
+/// elaborated. The C-side field list is untouched: a `ctype` is a C ABI slot
+/// spelling, not an MFBASIC type.
+#[derive(Clone, Debug)]
+pub(crate) struct HirCStructDecl {
+    /// The C-side name, e.g. `SfFormatInfo`. Local to the owning LINK alias.
+    pub(crate) name: String,
+    /// The MFBASIC record type this struct maps to, e.g. `AudioFormat`.
+    pub(crate) maps_to: ParameterType,
+    /// Fields in **C declaration order** — the order drives the offsets.
+    pub(crate) fields: Vec<crate::ast::CStructField>,
+    pub(crate) line: usize,
 }
 
 /// A top-level binding — the elaborated mirror of [`crate::ast::TopLevelBinding`].
@@ -109,11 +189,25 @@ pub(crate) struct HirTypeDecl {
     pub(crate) name: String,
     pub(crate) template_params: Vec<String>,
     pub(crate) fields: Vec<HirTypeField>,
-    pub(crate) includes: Vec<String>,
-    /// Union variants carry only a name, so the AST node is reused verbatim.
-    pub(crate) variants: Vec<crate::ast::UnionVariant>,
+    /// `INCLUDES`d type names, elaborated. plan-111-B: the AST spells these as
+    /// bare or `pkg.`-qualified identifiers, but `resolver::resolve_type` treats
+    /// a scalar name (`Integer`) differently from a nominal one, so which of the
+    /// two an include is has to be decided by the grammar — here, at the AST
+    /// boundary, rather than by a `parse` in the resolver.
+    pub(crate) includes: Vec<ParameterType>,
+    /// Union variants carry only a name; elaborated for the same reason as
+    /// [`includes`](Self::includes).
+    pub(crate) variants: Vec<HirUnionVariant>,
     /// Enum members carry only a name, so the AST node is reused verbatim.
     pub(crate) members: Vec<crate::ast::EnumMember>,
+    pub(crate) line: usize,
+}
+
+/// One `UNION` variant — the elaborated mirror of
+/// [`crate::ast::UnionVariant`].
+#[derive(Clone, Debug)]
+pub(crate) struct HirUnionVariant {
+    pub(crate) type_: ParameterType,
     pub(crate) line: usize,
 }
 
@@ -432,9 +526,72 @@ fn elaborate_item(item: &crate::ast::Item) -> HirItem {
         crate::ast::Item::Type(decl) => HirItem::Type(elaborate_type_decl(decl)),
         crate::ast::Item::Resource(decl) => HirItem::Resource(decl.clone()),
         crate::ast::Item::FuncAlias(alias) => HirItem::FuncAlias(alias.clone()),
-        crate::ast::Item::Link(block) => HirItem::Link(block.clone()),
+        crate::ast::Item::Link(block) => HirItem::Link(elaborate_link_block(block)),
         crate::ast::Item::Doc(block) => HirItem::Doc(block.clone()),
         crate::ast::Item::Testing(block) => HirItem::Testing(block.clone()),
+    }
+}
+
+/// Elaborate a `LINK` block: parse every MFBASIC type spelling it declares.
+///
+/// plan-111-B. A `LINK` declaration is never generic — it is a native ABI
+/// signature, not a source-language template — so no type variables are in
+/// scope and every spelling parses to a concrete type.
+pub(crate) fn elaborate_link_block(block: &crate::ast::LinkBlock) -> HirLinkBlock {
+    HirLinkBlock {
+        library: block.library.clone(),
+        alias: block.alias.clone(),
+        functions: block
+            .functions
+            .iter()
+            .map(elaborate_link_function)
+            .collect(),
+        cstructs: block
+            .cstructs
+            .iter()
+            .map(|c| HirCStructDecl {
+                name: c.name.clone(),
+                maps_to: ParameterType::parse(&c.maps_to),
+                fields: c.fields.clone(),
+                line: c.line,
+            })
+            .collect(),
+        line: block.line,
+    }
+}
+
+fn elaborate_link_function(function: &crate::ast::LinkFunction) -> HirLinkFunction {
+    HirLinkFunction {
+        name: function.name.clone(),
+        params: function
+            .params
+            .iter()
+            .map(|p| HirLinkParam {
+                name: p.name.clone(),
+                type_: p.type_name.as_deref().map(ParameterType::parse),
+                resource: p.resource,
+                state_type: p.state_type.as_deref().map(ParameterType::parse),
+                default: p.default.clone(),
+                line: p.line,
+            })
+            .collect(),
+        return_type: function.return_type.as_deref().map(ParameterType::parse),
+        return_resource: function.return_resource,
+        return_state_type: function
+            .return_state_type
+            .as_deref()
+            .map(ParameterType::parse),
+        symbol: function.symbol.clone(),
+        abi: function.abi.clone(),
+        consts: function.consts.clone(),
+        bind_in: function.bind_in.clone(),
+        bind_state: function.bind_state.clone(),
+        buffers: function.buffers.clone(),
+        result_length: function.result_length.clone(),
+        success_on: function.success_on.clone(),
+        result: function.result.clone(),
+        free: function.free.clone(),
+        line: function.line,
     }
 }
 
@@ -469,8 +626,19 @@ fn elaborate_type_decl(decl: &crate::ast::TypeDecl) -> HirTypeDecl {
             .iter()
             .map(|field| elaborate_type_field(field, type_params))
             .collect(),
-        includes: decl.includes.clone(),
-        variants: decl.variants.clone(),
+        includes: decl
+            .includes
+            .iter()
+            .map(|i| ParameterType::parse(i))
+            .collect(),
+        variants: decl
+            .variants
+            .iter()
+            .map(|variant| HirUnionVariant {
+                type_: ParameterType::parse(&variant.name),
+                line: variant.line,
+            })
+            .collect(),
         members: decl.members.clone(),
         line: decl.line,
     }

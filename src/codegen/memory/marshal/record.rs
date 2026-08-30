@@ -27,6 +27,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 
 /// Four caller-reserved 8-byte frame slots the marshaller uses as scratch:
 /// the running block size, the allocated-block pointer, the data-region cursor,
@@ -54,7 +55,7 @@ pub(crate) struct RecordBuildScratch {
 pub(crate) fn emit_build_inlined_record(
     symbol: &str,
     tag: &str,
-    record_type: &str,
+    record_type: &ParameterType,
     type_model: &TypeModel,
     field_slots: &[usize],
     scratch: &RecordBuildScratch,
@@ -83,13 +84,13 @@ pub(crate) fn emit_build_inlined_record(
         abi::store_u64("%v9", abi::stack_pointer(), scratch.size),
     ]);
     for (index, (_, field_type)) in fields.iter().enumerate() {
-        if !record_field_is_inlined(type_model, record_type, &field_type.name()) {
+        if !record_field_is_inlined(type_model, record_type, field_type) {
             continue;
         }
         emit_align_slot(scratch.size, instructions);
         emit_inlined_block_size(
             type_model,
-            &field_type.name(),
+            field_type,
             field_slots[index],
             scratch.block_size,
             record_type,
@@ -121,7 +122,7 @@ pub(crate) fn emit_build_inlined_record(
         abi::store_u64("%v9", abi::stack_pointer(), scratch.cursor),
     ]);
     for (index, (_, field_type)) in fields.iter().enumerate() {
-        if record_field_is_inlined(type_model, record_type, &field_type.name()) {
+        if record_field_is_inlined(type_model, record_type, field_type) {
             emit_align_slot(scratch.cursor, instructions);
             // Slot stores the block-relative offset of the inlined sub-block.
             instructions.extend([
@@ -131,7 +132,7 @@ pub(crate) fn emit_build_inlined_record(
             ]);
             emit_inlined_block_size(
                 type_model,
-                &field_type.name(),
+                field_type,
                 field_slots[index],
                 scratch.block_size,
                 record_type,
@@ -197,13 +198,13 @@ fn emit_align_slot(slot: usize, instructions: &mut Vec<CodeInstruction>) {
 /// the enclosing record for that diagnostic. Uses `%v9`..`%v11`.
 fn emit_inlined_block_size(
     type_model: &TypeModel,
-    field_type: &str,
+    field_type: &ParameterType,
     ptr_slot: usize,
     out_slot: usize,
-    record_type: &str,
+    record_type: &ParameterType,
     instructions: &mut Vec<CodeInstruction>,
 ) -> Result<(), String> {
-    if field_type == "String" {
+    if *field_type == ParameterType::String {
         // byteLength(+0) + 8 (length word) + 1 (trailing NUL).
         instructions.extend([
             abi::load_u64("%v9", abi::stack_pointer(), ptr_slot),
@@ -212,13 +213,13 @@ fn emit_inlined_block_size(
             abi::store_u64("%v10", abi::stack_pointer(), out_slot),
         ]);
         Ok(())
-    } else if is_collection_type(field_type) {
+    } else if typed_is_collection_type(field_type) {
         instructions.push(abi::load_u64("%v9", abi::stack_pointer(), ptr_slot));
         emit_collection_flat_size(field_type, "%v9", "%v10", "%v11", instructions);
         instructions.push(abi::store_u64("%v10", abi::stack_pointer(), out_slot));
         Ok(())
     } else if union_is_data(type_model, field_type)
-        || crate::codegen::engine::types::is_result_type(field_type)
+        || matches!(field_type, ParameterType::ResultOf(_))
     {
         // A data union and a flat `Result` are self-describing: `size` word @+8.
         instructions.extend([
@@ -246,13 +247,15 @@ fn emit_inlined_block_size(
 /// corrupts the arena (bug-02). Mirrors the collection arm of
 /// `CodeBuilder::emit_flat_block_size`.
 fn emit_collection_flat_size(
-    collection_type: &str,
+    collection_type: &ParameterType,
     ptr_reg: &str,
     out_reg: &str,
     scratch_reg: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
-    let element = list_element_type(collection_type).unwrap_or_default();
+    let element = typed_list_element_type(collection_type)
+        .cloned()
+        .unwrap_or_else(|| ParameterType::named(""));
     let stride = list_entry_stride(&element);
     instructions.extend([
         abi::load_u64(out_reg, ptr_reg, COLLECTION_OFFSET_CAPACITY),
@@ -262,7 +265,7 @@ fn emit_collection_flat_size(
         abi::load_u64(scratch_reg, ptr_reg, COLLECTION_OFFSET_DATA_CAPACITY),
         abi::add_registers(out_reg, out_reg, scratch_reg),
     ]);
-    if collection_has_buckets(collection_type) {
+    if collection_has_buckets(&collection_type) {
         instructions.extend([
             abi::load_u64(scratch_reg, ptr_reg, COLLECTION_OFFSET_CAPACITY),
             abi::shift_left_immediate(scratch_reg, scratch_reg, 4),

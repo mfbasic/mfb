@@ -466,11 +466,26 @@ fn abi_serializer_serializes_composite_types() {
     // and thread types so serialize_type walks each arm.
     let mut strings = StringPool::new();
     let mut types = TypeTable::new();
-    types.type_id(&mut strings, "List OF Integer");
-    types.type_id(&mut strings, "Map OF String TO Integer");
-    types.type_id(&mut strings, "Result OF Integer");
-    let func = types.type_id(&mut strings, "FUNC(Integer) AS Boolean");
-    let list = types.type_id(&mut strings, "List OF Integer");
+    types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("List OF Integer"),
+    );
+    types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("Map OF String TO Integer"),
+    );
+    types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("Result OF Integer"),
+    );
+    let func = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("FUNC(Integer) AS Boolean"),
+    );
+    let list = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("List OF Integer"),
+    );
     let constants = ConstPool::new();
     // A primitive serializes to a self-describing block.
     let hash_prim = type_sig_hash(
@@ -513,9 +528,12 @@ fn abi_serializer_hashes_state_composites_structurally() {
         let mut types = TypeTable::new();
         // An unrelated type interned first shifts every later table id.
         if let Some(lead) = lead {
-            types.type_id(&mut strings, lead);
+            types.type_id(&mut strings, &crate::types::ParameterType::declared(lead));
         }
-        let id = types.type_id(&mut strings, &format!("fs.File STATE {state}"));
+        let id = types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared(&format!("fs.File STATE {state}")),
+        );
         let constants = ConstPool::new();
         type_sig_hash(
             id,
@@ -567,7 +585,10 @@ fn abi_serializer_rejects_deep_acyclic_type_chain() {
     let mut strings = StringPool::new();
     let mut types = TypeTable::new();
     let deep_name = format!("{}Integer", "List OF ".repeat(MAX_TYPE_GRAPH_DEPTH + 5));
-    let head = types.type_id(&mut strings, &deep_name);
+    let head = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared(&deep_name),
+    );
     let constants = ConstPool::new();
     let err = type_sig_hash(
         head,

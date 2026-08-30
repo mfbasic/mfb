@@ -17,7 +17,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_build_result_inline(
         &mut self,
         tag_slot: usize,
-        payload_type: &str,
+        payload_type: &ParameterType,
         payload_slot: usize,
     ) -> Result<VirtualRegister, String> {
         let is_block = self.result_payload_is_block(payload_type);
@@ -86,7 +86,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn materialize_current_result(
         &mut self,
-        success_type: &str,
+        success_type: &ParameterType,
         text: String,
         // When true (an inline-trapped `thread::waitFor`), the error's message and
         // origin live in the worker arena and arrive in x2/x3; they are deep-copied
@@ -94,6 +94,10 @@ impl CodeBuilder<'_> {
         // expression and its `ErrorLoc` is built from the current source location.
         worker_error_source: bool,
     ) -> Result<ValueResult, String> {
+        // The single parse this function already performed for its result
+        // type, hoisted so the block-free above shares it (plan-111-D). Letter F
+        // types `success_type` itself and deletes it.
+        let success = success_type.clone();
         let tag_slot = self.allocate_stack_object("raw_result_tag", 8);
         let value_slot = self.allocate_stack_object("raw_result_value", 8);
         let message_slot = self.allocate_stack_object("raw_result_message", 8);
@@ -148,7 +152,7 @@ impl CodeBuilder<'_> {
         // intermediate block (`copy_value_to_current_arena` returns a register),
         // so there is nothing to free.
         if self.result_payload_is_block(success_type) {
-            self.emit_free_flat_block_from_slot(success_type, payload_slot)?;
+            self.emit_free_flat_block_from_slot(&success, payload_slot)?;
         }
         self.emit(abi::branch(&have_payload_label));
 
@@ -168,7 +172,8 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 payload_slot,
             ));
-            let bare = self.emit_build_result_inline(tag_slot, "Integer", payload_slot)?;
+            let bare =
+                self.emit_build_result_inline(tag_slot, &ParameterType::Integer, payload_slot)?;
             self.emit(abi::store_u64(&bare, abi::stack_pointer(), result_slot));
         } else {
             self.emit_materialize_error_payload(
@@ -188,7 +193,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::result_of(ParameterType::parse(success_type)),
+            type_: ParameterType::result_of(success),
             location: Operand::from(register.render()),
             text,
         })
@@ -242,7 +247,8 @@ impl CodeBuilder<'_> {
         let err_tag = self.temporary_vreg();
         self.emit(abi::move_immediate(&err_tag, "Integer", RESULT_ERR_TAG));
         self.emit(abi::store_u64(&err_tag, abi::stack_pointer(), tag_slot));
-        let adopt_result = self.emit_build_result_inline(tag_slot, "Error", payload_slot)?;
+        let adopt_result =
+            self.emit_build_result_inline(tag_slot, &ParameterType::named("Error"), payload_slot)?;
         self.emit(abi::store_u64(
             &adopt_result,
             abi::stack_pointer(),
@@ -261,7 +267,8 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 message_slot,
             ));
-            let copied_message = self.copy_value_to_current_arena("String", scratch9.clone())?;
+            let copied_message =
+                self.copy_value_to_current_arena(&ParameterType::String, scratch9.clone())?;
             self.emit(abi::store_u64(
                 &copied_message,
                 abi::stack_pointer(),
@@ -276,7 +283,8 @@ impl CodeBuilder<'_> {
             ));
             self.emit(abi::compare_immediate(scratch9.clone(), "0"));
             self.emit(abi::branch_eq(&own));
-            let copied_source = self.copy_value_to_current_arena("ErrorLoc", scratch9.clone())?;
+            let copied_source = self
+                .copy_value_to_current_arena(&ParameterType::named("ErrorLoc"), scratch9.clone())?;
             self.emit(abi::store_u64(
                 &copied_source,
                 abi::stack_pointer(),
@@ -302,7 +310,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             payload_slot,
         ));
-        let err_result = self.emit_build_result_inline(tag_slot, "Error", payload_slot)?;
+        let err_result =
+            self.emit_build_result_inline(tag_slot, &ParameterType::named("Error"), payload_slot)?;
         self.emit(abi::store_u64(
             &err_result,
             abi::stack_pointer(),
@@ -314,7 +323,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn copy_value_to_current_arena(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         source: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
         // A recursive value (e.g. `dom::Node`, whose `ElementNode.children` is
@@ -335,7 +344,7 @@ impl CodeBuilder<'_> {
     /// `source` in the first argument register and returning the copied pointer.
     fn emit_thread_copy_call(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         source: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
         let symbol = thread_copy_symbol(type_);
@@ -350,11 +359,21 @@ impl CodeBuilder<'_> {
     /// and as the body of each per-type copy function for a recursive one.
     pub(crate) fn emit_thread_copy_real(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         source: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
         match type_ {
-            "Nothing" | "Boolean" | "Byte" | "Integer" | "Float" | "Fixed" | "Money" | "Scalar" => {
+            __t if matches!(
+                __t,
+                ParameterType::Nothing
+                    | ParameterType::Boolean
+                    | ParameterType::Byte
+                    | ParameterType::Integer
+                    | ParameterType::Float
+                    | ParameterType::Fixed
+                    | ParameterType::Money
+            ) || __t.is_named("Scalar") =>
+            {
                 let result = self.allocate_register();
                 self.emit(abi::move_register(&result, source));
                 Ok(result)
@@ -364,17 +383,15 @@ impl CodeBuilder<'_> {
             // copy (`arena_alloc` + `memcpy`) is a sound deep copy (plan-02 §4.1,
             // Phase 6). Only types that still embed pointers fall through to the
             // per-type glue below.
-            other if self.type_is_flat(other) => {
-                self.copy_flat_block(&ParameterType::parse(other), source)
-            }
+            other if self.type_is_flat(other) => self.copy_flat_block(&other.clone(), source),
             // The only non-flat values left are resources and the collections /
             // unions that embed them (the single remaining pointer, plan-02 §9).
             // Their transfer copy is still a `memcpy` that moves the resource
             // handle verbatim, plus the per-payload no-op kept for symmetry.
-            other if is_collection_type(other) => {
+            other if typed_is_collection_type(other) => {
                 self.copy_collection_to_current_arena(other, source)
             }
-            other if crate::codegen::builtins::is_thread_sendable_resource_type(other) => {
+            other if crate::codegen::builtins::is_thread_sendable_resource_type(&other) => {
                 self.copy_resource_to_current_arena(other, source)
             }
             // A non-sendable resource (audio streams, TLS sockets/listeners) is a
@@ -386,7 +403,7 @@ impl CodeBuilder<'_> {
             // assume the fixed `File` layout, which audio's larger `AudioHandle`
             // does not share). The source temporary is consumed, so the handle is
             // owned and closed exactly once.
-            other if crate::codegen::builtins::is_resource_type(other) => {
+            other if crate::codegen::builtins::is_resource_type(&other) => {
                 let result = self.allocate_register();
                 self.emit(abi::move_register(&result, source));
                 Ok(result)
@@ -400,7 +417,7 @@ impl CodeBuilder<'_> {
                 if self
                     .type_model
                     .union_names
-                    .contains(crate::codegen::resource::base_resource_name(other)) =>
+                    .contains(&ParameterType::declared(&other.without_state().name())) =>
             {
                 self.copy_union_to_current_arena(other, source)
             }
@@ -422,7 +439,7 @@ impl CodeBuilder<'_> {
     /// nothing aliases the source arena. Twin of `copy_union_to_current_arena`.
     fn copy_record_to_current_arena(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         source: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
         let source_slot = self.allocate_stack_object("thread_copy_record_source", 8);
@@ -488,7 +505,7 @@ impl CodeBuilder<'_> {
     /// copy severs that lifetime. The source keeps its own STATE, freed normally.
     fn copy_resource_to_current_arena(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         source: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
         let source_slot = self.allocate_stack_object("thread_copy_resource_source", 8);
@@ -534,12 +551,11 @@ impl CodeBuilder<'_> {
             FILE_OFFSET_CLOSED,
         ));
         // STATE @24 (plan-54 §5, relocated by plan-80).
-        match crate::codegen::resource::state_type_name(type_) {
+        match type_.state() {
             // Stateful: deep-copy the STATE record into the current (receiver)
             // arena so the moved handle owns an independent payload — never an
             // alias into the sender's arena (bug-257).
             Some(state_type) => {
-                let state_type = state_type.to_string();
                 let have_state = self.label("thread_copy_resource_have_state");
                 let state_done = self.label("thread_copy_resource_state_done");
                 self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
@@ -706,28 +722,32 @@ impl CodeBuilder<'_> {
     /// along with the block copy; only still-pointer composites (`Union`/`List`/
     /// `Map`/`Result`/`Error`, a not-yet-flat nested record) and the built-in
     /// pointer-`String` records' `String` fields need the fix.
-    fn record_field_is_pointer_in(&self, record_type: &str, field_type: &str) -> bool {
+    fn record_field_is_pointer_in(
+        &self,
+        record_type: &ParameterType,
+        field_type: &ParameterType,
+    ) -> bool {
         if self.record_field_is_inlined(record_type, field_type) {
             return false;
         }
-        field_type == "String" || self.record_field_is_pointer(field_type)
+        *field_type == ParameterType::String || self.record_field_is_pointer(field_type)
     }
 
-    fn record_needs_pointer_field_fix(&self, record_type: &str) -> bool {
+    fn record_needs_pointer_field_fix(&self, record_type: &ParameterType) -> bool {
         self.type_model
             .record_fields
             .get(record_type)
             .map(|fields| {
                 fields
                     .iter()
-                    .any(|(_, ft)| self.record_field_is_pointer_in(record_type, &ft.name()))
+                    .any(|(_, ft)| self.record_field_is_pointer_in(record_type, &ft))
             })
             .unwrap_or(false)
     }
 
     fn copy_union_to_current_arena(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         source: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
         let source_slot = self.allocate_stack_object("thread_copy_union_source", 8);
@@ -793,16 +813,16 @@ impl CodeBuilder<'_> {
     /// would alias rather than deep-copy, so the per-payload transfer fix is
     /// still required. A collection whose key/value payloads are all inline
     /// (scalars, `String`) is already flat and copies generically.
-    fn collection_needs_transfer_fix(&self, type_: &str) -> Result<bool, String> {
-        let (key_type, value_type) = if let Some(value_type) = list_element_type(type_) {
+    fn collection_needs_transfer_fix(&self, type_: &ParameterType) -> Result<bool, String> {
+        let (key_type, value_type) = if let Some(value_type) = typed_list_element_type(type_) {
             (None, value_type)
         } else {
-            let (key, value) = map_type_parts(type_).ok_or_else(|| {
+            let (key, value) = typed_map_type_parts(type_).ok_or_else(|| {
                 format!("native thread transfer collection type '{type_}' does not resolve")
             })?;
             (Some(key), value)
         };
-        if let Some(key_type) = key_type.as_deref() {
+        if let Some(key_type) = key_type.as_ref() {
             if self.collection_payload_needs_transfer_fix(key_type) {
                 return Ok(true);
             }
@@ -812,7 +832,7 @@ impl CodeBuilder<'_> {
 
     fn copy_collection_to_current_arena(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         source: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
         let source = source.into();
@@ -820,7 +840,7 @@ impl CodeBuilder<'_> {
         // copy it with the generic flat copy (plan-02 §4.1, Phase 1). Only
         // collections embedding pointer payloads keep the per-payload fix below.
         if !self.collection_needs_transfer_fix(type_)? {
-            return self.copy_flat_block(&ParameterType::parse(type_), source);
+            return self.copy_flat_block(&type_.clone(), source);
         }
         let source_slot = self.allocate_stack_object("thread_copy_collection_source", 8);
         let size_slot = self.allocate_stack_object("thread_copy_collection_size", 8);
@@ -884,19 +904,19 @@ impl CodeBuilder<'_> {
 
     fn fix_collection_transfer_payloads(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         source_slot: usize,
         result_slot: usize,
     ) -> Result<(), String> {
-        let (key_type, value_type) = if let Some(value_type) = list_element_type(type_) {
+        let (key_type, value_type) = if let Some(value_type) = typed_list_element_type(type_) {
             (None, value_type)
         } else {
-            let (key, value) = map_type_parts(type_).ok_or_else(|| {
+            let (key, value) = typed_map_type_parts(type_).ok_or_else(|| {
                 format!("native thread transfer collection type '{type_}' does not resolve")
             })?;
             (Some(key), value)
         };
-        if let Some(key_type) = key_type.as_deref() {
+        if let Some(key_type) = key_type.as_ref() {
             if self.collection_payload_needs_transfer_fix(key_type) {
                 self.fix_collection_transfer_payload(source_slot, result_slot, key_type, true)?;
             }
@@ -907,16 +927,16 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    fn collection_payload_needs_transfer_fix(&self, type_: &str) -> bool {
+    fn collection_payload_needs_transfer_fix(&self, type_: &ParameterType) -> bool {
         if self.type_model.record_fields.contains_key(type_) {
             // A record payload was byte-copied whole (inlined fields came along);
             // it only needs the per-payload fix if it still has pointer fields to
             // deep-copy (plan-02 §4.2).
             return self.record_needs_pointer_field_fix(type_);
         }
-        if is_collection_type(type_)
+        if typed_is_collection_type(type_)
             || self.type_model.union_names.contains(type_)
-            || crate::codegen::engine::types::is_result_type(type_)
+            || matches!(type_, ParameterType::ResultOf(_))
         {
             // A flat nested collection / data union / `Result` was inlined and
             // copied whole; only a non-flat one (an embedded pointer/resource
@@ -931,7 +951,7 @@ impl CodeBuilder<'_> {
         &mut self,
         source_slot: usize,
         result_slot: usize,
-        payload_type: &str,
+        payload_type: &ParameterType,
         key_payload: bool,
     ) -> Result<(), String> {
         let index_slot = self.allocate_stack_object("thread_copy_collection_index", 8);
@@ -1021,7 +1041,7 @@ impl CodeBuilder<'_> {
         // the entry-free stride for a map, and maps keep their entries forever.
         // A fixed-width LIST never reaches this path at all
         // (`collection_needs_transfer_fix` is false for pointer-free payloads).
-        self.emit_collection_data_pointer_for(&scratch10, &scratch9, "");
+        self.emit_collection_data_pointer_for(&scratch10, &scratch9, &ParameterType::named(""));
         self.emit(abi::load_u64(
             &scratch11,
             abi::stack_pointer(),
@@ -1035,7 +1055,7 @@ impl CodeBuilder<'_> {
             source_payload_slot,
         ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), result_slot));
-        self.emit_collection_data_pointer_for(&scratch10, &scratch9, "");
+        self.emit_collection_data_pointer_for(&scratch10, &scratch9, &ParameterType::named(""));
         self.emit(abi::load_u64(
             &scratch11,
             abi::stack_pointer(),
@@ -1049,9 +1069,9 @@ impl CodeBuilder<'_> {
             dest_payload_slot,
         ));
 
-        if is_collection_type(payload_type)
-            || crate::codegen::engine::types::is_result_type(payload_type)
-            || payload_type == "Error"
+        if typed_is_collection_type(payload_type)
+            || matches!(payload_type, ParameterType::ResultOf(_))
+            || *payload_type == ParameterType::named("Error")
         {
             self.emit(abi::load_u64(
                 &scratch9,
@@ -1115,7 +1135,7 @@ impl CodeBuilder<'_> {
 
     fn copy_record_fields_into_existing(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         source: impl Into<Operand>,
         destination: impl Into<Operand>,
     ) -> Result<(), String> {
@@ -1143,12 +1163,12 @@ impl CodeBuilder<'_> {
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if !self.record_field_is_pointer_in(type_, &field_type.name()) {
+            if !self.record_field_is_pointer_in(type_, &field_type) {
                 continue;
             }
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
             self.emit(abi::load_u64(&scratch10, &scratch9, index * 8));
-            let copied = self.copy_value_to_current_arena(&field_type.name(), &scratch10)?;
+            let copied = self.copy_value_to_current_arena(field_type, &scratch10)?;
             // Stash before reloading the destination pointer: `copied` may be x9.
             self.emit(abi::store_u64(&copied, abi::stack_pointer(), copied_slot));
             self.emit(abi::load_u64(
@@ -1164,18 +1184,18 @@ impl CodeBuilder<'_> {
 
     fn copy_union_fields_into_existing(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         source: impl Into<Operand>,
         destination: impl Into<Operand>,
     ) -> Result<(), String> {
         // A transferred stateful union is spelled `Stream STATE Cursor`; the union
         // set and variant map key on the bare name (plan-75 gap 3). Its `STATE T`
         // clause names the uniform STATE record every resource variant carries.
-        let union_base = crate::codegen::resource::base_resource_name(type_);
-        let union_state = crate::codegen::resource::state_type_name(type_);
+        let union_base = type_.without_state();
+        let union_state = type_.state();
         let mut variants = self
             .type_model
-            .variants_for_union(union_base)
+            .variants_for_union(&union_base)
             .map(|variant| {
                 let tag = self
                     .type_model
@@ -1246,11 +1266,11 @@ impl CodeBuilder<'_> {
                     destination_slot,
                 ));
                 self.emit(abi::add_immediate(&scratch10, &scratch10, 16));
-                self.copy_record_fields_into_existing(variant, &scratch9, &scratch10)?;
+                self.copy_record_fields_into_existing(&variant, &scratch9, &scratch10)?;
                 self.emit(abi::branch(&done_label));
                 continue;
             }
-            if crate::codegen::builtins::is_resource_type(variant) {
+            if crate::codegen::builtins::is_resource_type(&variant) {
                 // Resource union `{tag@0, ptr@8}`: the whole-union memcpy copied the
                 // variant record pointer at +8 verbatim, so it still aliases the
                 // sender's arena (a bug-257-class UAF — true for a *stateless*
@@ -1258,8 +1278,11 @@ impl CodeBuilder<'_> {
                 // (with its uniform STATE payload, if any) into the current arena and
                 // repoint the copy's +8. `copy_resource_to_current_arena` sizes the
                 // record, deep-copies its STATE, and flags the source `moved|closed`.
-                let variant_type = match union_state {
-                    Some(state) => format!("{variant} STATE {state}"),
+                // plan-111-C attached the STATE clause structurally but rendered
+                // for a consumer that still took a spelling; plan-111-E retyped
+                // that consumer, so the render is gone too.
+                let variant_type = match &union_state {
+                    Some(state) => variant.with_state(state),
                     None => variant.clone(),
                 };
                 self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
@@ -1288,7 +1311,7 @@ impl CodeBuilder<'_> {
             for (index, (_, field_type)) in fields.iter().enumerate() {
                 self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
                 self.emit(abi::load_u64(&scratch10, &scratch9, 8 * (index + 1)));
-                let copied = self.copy_value_to_current_arena(&field_type.name(), &scratch10)?;
+                let copied = self.copy_value_to_current_arena(field_type, &scratch10)?;
                 // Stash before reloading the destination pointer: `copied` may be x9.
                 self.emit(abi::store_u64(
                     &copied,

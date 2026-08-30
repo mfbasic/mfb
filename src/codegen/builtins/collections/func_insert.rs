@@ -124,9 +124,7 @@ pub(crate) fn lower_insert(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let list = args[0].clone();
-    let Some(element_type) =
-        typed_list_element_type(&list.type_).map(|type_| type_.name().into_owned())
-    else {
+    let Some(element_type) = typed_list_element_type(&list.type_).cloned() else {
         return Err(format!(
             "native collection insert does not accept {}",
             list.type_

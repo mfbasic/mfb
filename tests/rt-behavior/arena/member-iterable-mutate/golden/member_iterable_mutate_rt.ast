@@ -1,0 +1,115 @@
+{
+  "project": "member_iterable_mutate_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 15 },
+    { "module": "collections", "line": 16 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Bag",
+      "line": 18,
+      "fields": [
+      { "visibility": null, "name": "items", "type": "List OF Integer", "line": 19 },
+      { "visibility": null, "name": "seen", "type": "List OF Integer", "line": 20 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "copyItems",
+      "line": 26,
+      "params": [
+      { "name": "bag", "type": "Bag", "default": null, "line": 26 }
+      ],
+      "returnType": "Bag",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": "Bag", "value": { "kind": "identifier", "value": "bag" }, "line": 27 },
+      {
+        "kind": "forEach",
+        "name": "n",
+        "iterable": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bag" }, "member": "items" },
+        "line": 28,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "with", "target": { "kind": "identifier", "value": "out" }, "updates": [{ "field": "seen", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "out" }, "member": "seen" }, { "kind": "identifier", "value": "n" }] } }] }, "line": 29 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "out" }, "line": 31 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "sumNested",
+      "line": 36,
+      "params": [
+      { "name": "bags", "type": "List OF Bag", "default": null, "line": 36 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 37 },
+      {
+        "kind": "forEach",
+        "name": "b",
+        "iterable": { "kind": "identifier", "value": "bags" },
+        "line": 38,
+        "body": [
+        {
+          "kind": "forEach",
+          "name": "n",
+          "iterable": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "items" },
+          "line": 39,
+          "body": [
+          { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "n" } }, "line": 40 }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "total" }, "line": 43 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 46,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "start", "type": "Bag", "value": { "kind": "constructor", "type": "Bag", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "5" }] }, { "kind": "list", "values": [] }] }, "line": 47 },
+      { "kind": "binding", "mutable": false, "name": "done", "type": "Bag", "value": { "kind": "call", "callee": "copyItems", "arguments": [{ "kind": "identifier", "value": "start" }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "done" }, "member": "seen" }] }] }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "done" }, "member": "seen" }, { "kind": "number", "value": "0" }] }] }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "done" }, "member": "seen" }, { "kind": "number", "value": "4" }] }] }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "start" }, "member": "seen" }] }] }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "done" }, "member": "items" }] }] }] }, "line": 55 },
+      { "kind": "binding", "mutable": false, "name": "bags", "type": "List OF Bag", "value": { "kind": "list", "values": [{ "kind": "constructor", "type": "Bag", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, { "kind": "list", "values": [] }] }, { "kind": "constructor", "type": "Bag", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "3" }] }, { "kind": "list", "values": [] }] }, { "kind": "constructor", "type": "Bag", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "6" }] }, { "kind": "list", "values": [] }] }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "sumNested", "arguments": [{ "kind": "identifier", "value": "bags" }] }] }] }, "line": 59 },
+      { "kind": "binding", "mutable": false, "name": "acc", "type": "Bag", "value": { "kind": "constructor", "type": "Bag", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "7" }, { "kind": "number", "value": "8" }, { "kind": "number", "value": "9" }] }, { "kind": "list", "values": [] }] }, "line": 63 },
+      { "kind": "binding", "mutable": true, "name": "tail", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 64 },
+      {
+        "kind": "forEach",
+        "name": "n",
+        "iterable": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "acc" }, "member": "items" },
+        "line": 65,
+        "body": [
+        { "kind": "assignment", "name": "tail", "value": { "kind": "identifier", "value": "n" }, "line": 66 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "tail" }] }] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "acc" }, "member": "items" }, { "kind": "number", "value": "0" }] }] }] }, "line": 69 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 71 }
+      ]
+    }
+    ]
+  }
+  ]
+}

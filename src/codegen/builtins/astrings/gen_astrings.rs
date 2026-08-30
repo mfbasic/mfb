@@ -61,11 +61,13 @@ impl CodeBuilder<'_> {
             spans_slot,
         ));
 
-        let register =
-            self.emit_build_inlined_record("AttributedString", &[text_slot, spans_slot])?;
+        let register = self.emit_build_inlined_record(
+            &ParameterType::named("AttributedString"),
+            &[text_slot, spans_slot],
+        )?;
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse("AttributedString"),
+            type_: ParameterType::named("AttributedString"),
             location: Operand::from(register.render()),
             text: format!("astrings::fromString({})", text.text),
         })
@@ -102,10 +104,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&record, abi::stack_pointer(), record_slot));
         let record_op = Operand::from(record.render());
         let spans_alias = self.emit_attributed_string_field_ptr(&record_op, 1)?;
-        let copied = self.copy_value_to_current_arena("List OF AttrSpan", &spans_alias)?;
+        let copied = self.copy_value_to_current_arena(
+            &ParameterType::list_of(ParameterType::named("AttrSpan")),
+            &spans_alias,
+        )?;
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse("List OF AttrSpan"),
+            type_: ParameterType::ListOf(Box::new(ParameterType::named("AttrSpan"))),
             location: Operand::from(copied.render()),
             text: format!("astrings::readSpans({})", value.text),
         })
@@ -195,11 +200,13 @@ impl CodeBuilder<'_> {
             spans_slot,
         ));
 
-        let register =
-            self.emit_build_inlined_record("AttributedString", &[text_slot, spans_slot])?;
+        let register = self.emit_build_inlined_record(
+            &ParameterType::named("AttributedString"),
+            &[text_slot, spans_slot],
+        )?;
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse("AttributedString"),
+            type_: ParameterType::named("AttributedString"),
             location: Operand::from(register.render()),
             text: format!("astrings::writeSpans({}, {})", value.text, spans.text),
         })

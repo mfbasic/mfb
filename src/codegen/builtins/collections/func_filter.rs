@@ -3,7 +3,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::{callable_return_type, typed_list_element_type};
+use crate::codegen::engine::types::{typed_callable_return_type, typed_list_element_type};
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -127,9 +127,7 @@ pub(crate) fn lower_filter(
     let scratch9 = builder.temporary_vreg();
     let scratch17 = builder.temporary_vreg();
     let collection = args[0].clone();
-    let Some(element_type) =
-        typed_list_element_type(&collection.type_).map(|type_| type_.name().into_owned())
-    else {
+    let Some(element_type) = typed_list_element_type(&collection.type_).cloned() else {
         return Err(format!(
             "native collection filter does not accept {}",
             collection.type_
@@ -142,13 +140,15 @@ pub(crate) fn lower_filter(
         collection_slot,
     ));
     let action = args[1].clone();
-    let output_type = callable_return_type(&action.type_.name()).ok_or_else(|| {
-        format!(
-            "native collection filter predicate must be a function, got {}",
-            action.type_
-        )
-    })?;
-    if output_type != "Boolean" {
+    let output_type = typed_callable_return_type(&action.type_)
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "native collection filter predicate must be a function, got {}",
+                action.type_
+            )
+        })?;
+    if output_type != ParameterType::Boolean {
         return Err(format!(
             "native collection filter predicate must return Boolean, got {output_type}"
         ));
@@ -202,8 +202,7 @@ pub(crate) fn lower_filter(
     builder.emit(abi::branch_eq(&ok_label));
     // A failing predicate: free the partial output list before routing the raw
     // error to the inline-TRAP capture point (plan-26-B).
-    builder
-        .emit_callback_failure_exit(Some((output_slot, collection.type_.name().into_owned())))?;
+    builder.emit_callback_failure_exit(Some((output_slot, collection.type_.clone())))?;
     builder.emit(abi::label(&ok_label));
     builder.emit(abi::compare_immediate(RESULT_VALUE_REGISTER, "0"));
     builder.emit(abi::branch_ne(&keep_label));

@@ -37,11 +37,11 @@ pub(super) fn resolve_resource_close_name(
 ) -> Result<Option<String>, String> {
     match close_function_id {
         BUILTIN_FS_CLOSE_FUNCTION_ID => Ok(builtins::resource_close_function(
-            crate::codegen::builtins::fs::FILE_TYPE_ID,
+            &crate::types::ParameterType::named(crate::codegen::builtins::fs::FILE_TYPE_ID),
         )
         .map(str::to_string)),
         BUILTIN_STREAM_CLOSE_FUNCTION_ID => Ok(builtins::resource_close_function(
-            crate::codegen::builtins::tcp::SOCKET_TYPE_ID,
+            &crate::types::ParameterType::named(crate::codegen::builtins::tcp::SOCKET_TYPE_ID),
         )
         .map(str::to_string)),
         id => match package.project.functions.get(id as usize) {
@@ -79,12 +79,18 @@ pub(super) fn package_exports(
                         Ok::<BinaryReprExportParam, String>(BinaryReprExportParam {
                             name: string_at(&package.project.strings.values, param.name)?
                                 .to_string(),
-                            type_: type_name(&type_names, param.type_id)?.to_string(),
+                            type_: crate::types::ParameterType::parse(type_name(
+                                &type_names,
+                                param.type_id,
+                            )?),
                             has_default: param.flags & 1 != 0,
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?,
-                return_type: type_name(&type_names, function.return_type)?.to_string(),
+                return_type: crate::types::ParameterType::parse(type_name(
+                    &type_names,
+                    function.return_type,
+                )?),
             };
             Ok(built)
         })
