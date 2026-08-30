@@ -505,36 +505,41 @@ impl NativePlanPlatform for Platform {
             ],
             // plan-110-B: `tcp` is the same Winsock2 surface under a new package
             // name, so it takes the identical import set.
-            call if call.starts_with("net.") || call.starts_with("tcp.") => vec![
-                import("WSAStartup", WS2_32, required_by),
-                import("WSACleanup", WS2_32, required_by),
-                import("socket", WS2_32, required_by),
-                import("connect", WS2_32, required_by),
-                import("bind", WS2_32, required_by),
-                import("listen", WS2_32, required_by),
-                import("accept", WS2_32, required_by),
-                import("recv", WS2_32, required_by),
-                import("send", WS2_32, required_by),
-                import("recvfrom", WS2_32, required_by),
-                import("sendto", WS2_32, required_by),
-                import("closesocket", WS2_32, required_by),
-                import("WSAPoll", WS2_32, required_by),
-                import("getaddrinfo", WS2_32, required_by),
-                import("freeaddrinfo", WS2_32, required_by),
-                import("setsockopt", WS2_32, required_by),
-                import("getsockopt", WS2_32, required_by),
-                import("getsockname", WS2_32, required_by),
-                import("getpeername", WS2_32, required_by),
-                import("inet_ntop", WS2_32, required_by),
-                import("ioctlsocket", WS2_32, required_by),
-                import("GetLastError", KERNEL32, required_by),
-                // A socket resource shares the File-record scope-drop and stream
-                // read/write glue: close is CloseHandle, and net.read/net.write reuse
-                // ReadFile/WriteFile — all valid on a SOCKET handle on Windows.
-                import("CloseHandle", KERNEL32, required_by),
-                import("ReadFile", KERNEL32, required_by),
-                import("WriteFile", KERNEL32, required_by),
-            ],
+            call if call.starts_with("net.")
+                || call.starts_with("tcp.")
+                || call.starts_with("udp.") =>
+            {
+                vec![
+                    import("WSAStartup", WS2_32, required_by),
+                    import("WSACleanup", WS2_32, required_by),
+                    import("socket", WS2_32, required_by),
+                    import("connect", WS2_32, required_by),
+                    import("bind", WS2_32, required_by),
+                    import("listen", WS2_32, required_by),
+                    import("accept", WS2_32, required_by),
+                    import("recv", WS2_32, required_by),
+                    import("send", WS2_32, required_by),
+                    import("recvfrom", WS2_32, required_by),
+                    import("sendto", WS2_32, required_by),
+                    import("closesocket", WS2_32, required_by),
+                    import("WSAPoll", WS2_32, required_by),
+                    import("getaddrinfo", WS2_32, required_by),
+                    import("freeaddrinfo", WS2_32, required_by),
+                    import("setsockopt", WS2_32, required_by),
+                    import("getsockopt", WS2_32, required_by),
+                    import("getsockname", WS2_32, required_by),
+                    import("getpeername", WS2_32, required_by),
+                    import("inet_ntop", WS2_32, required_by),
+                    import("ioctlsocket", WS2_32, required_by),
+                    import("GetLastError", KERNEL32, required_by),
+                    // A socket resource shares the File-record scope-drop and stream
+                    // read/write glue: close is CloseHandle, and net.read/net.write reuse
+                    // ReadFile/WriteFile — all valid on a SOCKET handle on Windows.
+                    import("CloseHandle", KERNEL32, required_by),
+                    import("ReadFile", KERNEL32, required_by),
+                    import("WriteFile", KERNEL32, required_by),
+                ]
+            }
             // crypto:: NIST-EC over CNG/BCrypt (plan-47-J). randomBytes already
             // rides BCryptGenRandom in the entry floor; the EC ops pull the key/
             // hash/sign surface. Any crypto.* EC call declares the whole set; the

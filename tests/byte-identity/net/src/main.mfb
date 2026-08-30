@@ -42,18 +42,8 @@ FUNC main() AS Integer
   RES peerT AS net::Socket = net::accept(lst, 1000)
   io::print(toString(net::poll(peerT)))
 
-  ' UDP socket: bind, address, send/receive byte + text forms, timeouts.
-  RES udp AS net::UdpSocket = net::bindUdp("0.0.0.0", 0)
-  LET udpAddr = net::localAddress(udp)
-  io::print(udpAddr.host)
-  net::sendTo(udp, udpAddr, got)
-  net::sendTextTo(udp, udpAddr, "ping")
-  LET dg = net::receiveFrom(udp, 128)
-  io::print(toString(len(dg.bytes)))
-  LET dgt = net::receiveTextFrom(udp, 128)
-  io::print(dgt.value)
-  net::setReadTimeout(udp, 1000)
-  net::setWriteTimeout(udp, 1000)
+  ' UDP moved to the `udp` package (plan-110-C); its coverage lives in
+  ' tests/byte-identity/udp.
 
   ' lookup (host, port) overload.
   FOR EACH addr2 IN net::lookup("example.com", 80)
@@ -86,11 +76,10 @@ FUNC main() AS Integer
   LET decoded = net::percentDecode("a%20b")
   io::print(decoded)
 
-  ' close: exercise the net::Socket, net::Listener, and net::UdpSocket overloads; the
-  ' remaining handles release by lexical drop at end of scope.
+  ' close: exercise the net::Socket and net::Listener overloads; the remaining
+  ' handles release by lexical drop at end of scope.
   net::close(sockT)
   net::close(lstB)
-  net::close(udp)
 
   RETURN 0
 END FUNC

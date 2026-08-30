@@ -265,6 +265,8 @@ mod tests {
             RuntimeHelper::Term,
             RuntimeHelper::Thread,
             RuntimeHelper::Tls,
+            // plan-110-C: `udp` is likewise its own family, for the same reason.
+            RuntimeHelper::Udp,
         ] {
             assert!(
                 families.contains(&helper),
@@ -272,6 +274,6 @@ mod tests {
                 helper.name()
             );
         }
-        assert_eq!(families.len(), 14, "unexpected extra catalogued family");
+        assert_eq!(families.len(), 15, "unexpected extra catalogued family");
     }
 }

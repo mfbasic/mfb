@@ -103,10 +103,6 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("Socket or Listener or UdpSocket"),
         internal_only: false,
-        implementations: vec![
-            overload(super::socket()),
-            overload(super::listener()),
-            overload(super::udp()),
-        ],
+        implementations: vec![overload(super::socket()), overload(super::listener())],
     });
 }

@@ -30,6 +30,7 @@ pub(crate) mod term;
 pub(crate) mod testing;
 pub(crate) mod thread;
 pub(crate) mod tls;
+pub(crate) mod udp;
 pub(crate) mod vector;
 
 // ---------------------------------------------------------------------------
@@ -82,6 +83,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
             | "term"
             | "thread"
             | "tls"
+            | "udp"
             | "vector"
     )
 }
@@ -473,7 +475,8 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
 /// package needs a row here.
 const ARGUMENT_CHECKED_PACKAGES: &[&str] = &[
     "encoding", "astrings", "crypto", "strings", "math", "bits", "fs", "os", "net", "tcp", "tls",
-    "audio", "process", "io", "json", "csv", "regex", "datetime", "money", "app", "http", "vector",
+    "audio", "process", "io", "json", "csv", "regex", "datetime", "money", "app", "http", "udp",
+    "vector",
 ];
 
 /// Whether a builtin call (canonical `package.member` name) is checked by the

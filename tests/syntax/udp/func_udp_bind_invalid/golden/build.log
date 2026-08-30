@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/syntax/udp/func_udp_bind_invalid
+   3 | 
+   4 | FUNC main AS Integer
+   5 |   RES missing = udp::bind()
+     | ^
+tests/syntax/udp/func_udp_bind_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `udp.bind` has 0 argument(s), expected 2.
+   3 | 
+   4 | FUNC main AS Integer
+   5 |   RES missing = udp::bind()
+     | ^
+tests/syntax/udp/func_udp_bind_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   4 | FUNC main AS Integer
+   5 |   RES missing = udp::bind()
+   6 |   RES wrongType = udp::bind(1, 2)
+     | ^
+tests/syntax/udp/func_udp_bind_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `udp.bind` has argument type(s) (Integer, Integer), expected String, Integer.
+   4 | FUNC main AS Integer
+   5 |   RES missing = udp::bind()
+   6 |   RES wrongType = udp::bind(1, 2)
+     | ^
+tests/syntax/udp/func_udp_bind_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+   5 |   RES missing = udp::bind()
+   6 |   RES wrongType = udp::bind(1, 2)
+   7 |   RES tooMany = udp::bind("127.0.0.1", 0, 1)
+     | ^
+tests/syntax/udp/func_udp_bind_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `udp.bind` has 3 argument(s), expected 2.
+   5 |   RES missing = udp::bind()
+   6 |   RES wrongType = udp::bind(1, 2)
+   7 |   RES tooMany = udp::bind("127.0.0.1", 0, 1)
+     | ^
+tests/syntax/udp/func_udp_bind_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]

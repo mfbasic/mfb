@@ -67,19 +67,15 @@ pub(crate) fn opt(name: &'static str, desc: &'static str, ty: ParameterType) -> 
     }
 }
 
-/// The qualified socket / listener / UDP resource types as `ParameterType`s.
+/// The qualified socket / listener resource types as `ParameterType`s.
 pub(crate) fn socket() -> ParameterType {
     ParameterType::named(SOCKET_TYPE_ID)
 }
 pub(crate) fn listener() -> ParameterType {
     ParameterType::named(LISTENER_TYPE_ID)
 }
-pub(crate) fn udp() -> ParameterType {
-    ParameterType::named(UDP_SOCKET_TYPE_ID)
-}
 
 mod func_accept;
-mod func_bind_udp;
 mod func_close;
 mod func_connect_tcp;
 mod func_listen_tcp;
@@ -91,11 +87,7 @@ mod func_ping;
 mod func_poll;
 mod func_read;
 mod func_read_text;
-mod func_receive_from;
-mod func_receive_text_from;
 mod func_remote_address;
-mod func_send_text_to;
-mod func_send_to;
 mod func_set_read_timeout;
 mod func_set_write_timeout;
 mod func_to_url;
@@ -122,10 +114,7 @@ pub(crate) mod gen_shared;
 /// id). Used for registry-internal lookups and by the code layer.
 pub(crate) const SOCKET_TYPE: &str = "Socket";
 pub(crate) const LISTENER_TYPE: &str = "Listener";
-pub(crate) const UDP_SOCKET_TYPE: &str = "UdpSocket";
 pub(crate) const ADDRESS_TYPE: &str = "Address";
-pub(crate) const DATAGRAM_TYPE: &str = "Datagram";
-pub(crate) const DATAGRAM_TEXT_TYPE: &str = "DatagramText";
 /// The `PingStatus` enum and `PingResult` record `net::ping` reports through
 /// (plan-110-A). `PingStatus`'s variant ORDER is its wire contract: a variant's
 /// ordinal is its declaration index, and `gen_ping` emits those ordinals directly.
@@ -140,7 +129,6 @@ pub(crate) const URL_TYPE: &str = "Url";
 /// parameter, and return of a net resource carries; the `ResourceRegistry` key.
 pub(crate) const SOCKET_TYPE_ID: &str = "net.Socket";
 pub(crate) const LISTENER_TYPE_ID: &str = "net.Listener";
-pub(crate) const UDP_SOCKET_TYPE_ID: &str = "net.UdpSocket";
 
 /// The internal source-companion (`package.mfb`) render target for the
 /// `toString(net::Url)` override — routed here by [`RegistryPackage::add_override`].
@@ -253,40 +241,6 @@ pub(crate) fn register(r: &mut Registry) {
             },
         ],
     });
-    pkg.add_record(RegistryRecord {
-        name: DATAGRAM_TYPE,
-        export: true,
-        description: "",
-        props: vec![
-            RecordProp {
-                name: "from",
-                ty: ParameterType::named(ADDRESS_TYPE),
-                description: "The datagram's source address.",
-            },
-            RecordProp {
-                name: "bytes",
-                ty: ParameterType::list_of(ParameterType::Byte),
-                description: "The datagram payload bytes.",
-            },
-        ],
-    });
-    pkg.add_record(RegistryRecord {
-        name: DATAGRAM_TEXT_TYPE,
-        export: true,
-        description: "",
-        props: vec![
-            RecordProp {
-                name: "from",
-                ty: ParameterType::named(ADDRESS_TYPE),
-                description: "The datagram's source address.",
-            },
-            RecordProp {
-                name: "value",
-                ty: ParameterType::String,
-                description: "The datagram payload as UTF-8 text.",
-            },
-        ],
-    });
 
     // `net::ping`'s two value types (plan-110-A). The enum's variant ORDER is the
     // contract, not just documentation: a variant's ordinal is its declaration
@@ -377,15 +331,6 @@ pub(crate) fn register(r: &mut Registry) {
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });
-    pkg.add_resource(RegistryResource {
-        name: UDP_SOCKET_TYPE,
-        export: true,
-        description: "A bound UDP datagram socket from `net::bindUdp`.",
-        close_function: "net.close",
-        sendable: true,
-        close_may_fail: true,
-        kind: crate::codegen::resource::ResourceKind::Builtin,
-    });
 
     // `toString(net::Url)` renders a `Url` back to an absolute href — the registry
     // home of the hand row in `builtins::general_override_target`.
@@ -425,11 +370,6 @@ pub(crate) fn register(r: &mut Registry) {
     func_remote_address::register(&mut pkg);
     func_set_read_timeout::register(&mut pkg);
     func_set_write_timeout::register(&mut pkg);
-    func_bind_udp::register(&mut pkg);
-    func_receive_from::register(&mut pkg);
-    func_receive_text_from::register(&mut pkg);
-    func_send_to::register(&mut pkg);
-    func_send_text_to::register(&mut pkg);
     func_to_url::register(&mut pkg);
     func_percent_decode::register(&mut pkg);
     func_parse_query::register(&mut pkg);

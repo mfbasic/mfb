@@ -1,0 +1,56 @@
+' Byte-identity coverage for the `tcp` package (plan-110-B): every member and
+' every overload, so a codegen change to the stream backend flips a .ncodesum on
+' all five targets instead of going unnoticed.
+'
+' Compile-only by design, like the other byte-identity fixtures: it opens sockets
+' that do not exist in a test run, so there is no .run golden and the harness
+' never executes it.
+
+IMPORT collections
+IMPORT net
+IMPORT tcp
+IMPORT io
+
+FUNC main AS Integer
+  ' connect: all four overload shapes. The two Address forms lower through the
+  ' `tcp.connectAddr` code form, the others through `tcp.connect`.
+  RES sock AS tcp::Socket = tcp::connect("example.com", 80)
+  RES sockT AS tcp::Socket = tcp::connect("example.com", 80, 1000)
+  LET locAddr = tcp::localAddress(sock)
+  io::print(locAddr.host)
+  RES sockA AS tcp::Socket = tcp::connect(locAddr)
+  RES sockAT AS tcp::Socket = tcp::connect(locAddr, 1000)
+
+  ' read (bytes only) and both write overloads: List OF Byte through `tcp.write`,
+  ' String through the `tcp.writeText` code form.
+  LET got = tcp::read(sock, 64)
+  tcp::write(sock, got)
+  tcp::write(sock, "hello")
+  io::print(toString(len(got)))
+
+  ' Scalar poll (both arities) and the endpoint queries.
+  io::print(toString(tcp::poll(sock)))
+  io::print(toString(tcp::poll(sock, 100)))
+  io::print(tcp::remoteAddress(sock).host)
+  tcp::setReadTimeout(sock, 1000)
+  tcp::setWriteTimeout(sock, 1000)
+
+  ' listen (both arities), accept (both arities), and listener localAddress.
+  RES lst AS tcp::Listener = tcp::listen("0.0.0.0", 8080)
+  RES lstB AS tcp::Listener = tcp::listen("0.0.0.0", 8080, 16)
+  io::print(tcp::localAddress(lst).host)
+  RES peer AS tcp::Socket = tcp::accept(lst)
+  RES peerT AS tcp::Socket = tcp::accept(lst, 1000)
+  io::print(toString(tcp::poll(peerT)))
+
+  ' List poll -- the `tcp.pollList` code form, returning a borrowed member.
+  LET pool AS List OF RES tcp::Socket = [peer, peerT]
+  RES ready AS tcp::Socket = tcp::poll(pool, 100)
+  io::print(toString(len(tcp::read(ready, 8))))
+
+  ' close: both the Socket and Listener overloads; the rest drop lexically.
+  tcp::close(sockT)
+  tcp::close(lstB)
+
+  RETURN 0
+END FUNC

@@ -6013,7 +6013,10 @@ fn rejects_net_bad_args() {
         "run",
         "Nothing",
         vec![],
-        vec![eval_call("net.bindUdp", vec![int_const("1")])],
+        // plan-110-C moved the datagram surface to `udp`, so `net.bindUdp` no
+        // longer exists; `net.lookup` is the equivalent one-required-argument net
+        // member, and one Integer where a String belongs is the same mistake.
+        vec![eval_call("net.lookup", vec![int_const("1")])],
     );
     let got = rules(&project(vec![f], vec![]));
     assert!(got.iter().any(|r| r.starts_with("TYPE_CALL")), "{got:?}");

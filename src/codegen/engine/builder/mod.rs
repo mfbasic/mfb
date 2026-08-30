@@ -1538,6 +1538,9 @@ pub(crate) fn lower_module_for_platform(
         ("_mfb_rt_tcp_tcp_connect", "_mfb_rt_tcp_tcp_connectAddr"),
         ("_mfb_rt_tcp_tcp_poll", "_mfb_rt_tcp_tcp_pollList"),
         ("_mfb_rt_tcp_tcp_write", "_mfb_rt_tcp_tcp_writeText"),
+        // plan-110-C: udp's two, on the same rule.
+        ("_mfb_rt_udp_udp_poll", "_mfb_rt_udp_udp_pollList"),
+        ("_mfb_rt_udp_udp_send", "_mfb_rt_udp_udp_sendText"),
     ] {
         if runtime_symbols.iter().any(|symbol| symbol == base)
             && !runtime_symbols.iter().any(|symbol| symbol == synthesized)

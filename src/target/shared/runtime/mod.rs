@@ -26,6 +26,7 @@ pub enum RuntimeHelper {
     Term,
     Thread,
     Tls,
+    Udp,
 }
 
 impl RuntimeHelper {
@@ -47,6 +48,7 @@ impl RuntimeHelper {
             RuntimeHelper::Term => "term",
             RuntimeHelper::Thread => "thread",
             RuntimeHelper::Tls => "tls",
+            RuntimeHelper::Udp => "udp",
         }
     }
 
@@ -65,6 +67,7 @@ impl RuntimeHelper {
             "math" => RuntimeHelper::Math,
             "net" => RuntimeHelper::Net,
             "tcp" => RuntimeHelper::Tcp,
+            "udp" => RuntimeHelper::Udp,
             "os" => RuntimeHelper::Os,
             "process" => RuntimeHelper::Process,
             "perf" => RuntimeHelper::Perf,

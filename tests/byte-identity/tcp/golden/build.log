@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/byte-identity/tcp
+Wrote AST to tests/byte-identity/tcp/tcp_codegen_cover_rt.ast
+Wrote IR to tests/byte-identity/tcp/tcp_codegen_cover_rt.ir
+[exit 0]

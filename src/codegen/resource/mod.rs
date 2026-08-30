@@ -164,7 +164,11 @@ mod tests {
             "fs.File",
             "net.Socket",
             "net.Listener",
-            "net.UdpSocket",
+            // plan-110-B/C: the transport handles moved out of `net`.
+            // `net.UdpSocket` is gone entirely — `udp.Socket` replaces it.
+            "tcp.Socket",
+            "tcp.Listener",
+            "udp.Socket",
             "audio.AudioInput",
             "audio.AudioOutput",
             "tls.TlsSocket",

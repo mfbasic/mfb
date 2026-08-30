@@ -370,6 +370,17 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "tcp.remoteAddress",
             "tcp.setReadTimeout",
             "tcp.setWriteTimeout",
+            // plan-110-C: same error set as the `net` datagram members it replaces.
+            "udp.bind",
+            "udp.send",
+            "udp.sendText",
+            "udp.receive",
+            "udp.poll",
+            "udp.pollList",
+            "udp.close",
+            "udp.localAddress",
+            "udp.setReadTimeout",
+            "udp.setWriteTimeout",
         ],
     ) {
         for value in [

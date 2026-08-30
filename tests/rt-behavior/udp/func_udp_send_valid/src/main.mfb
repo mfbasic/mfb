@@ -1,0 +1,33 @@
+IMPORT collections
+IMPORT encoding
+IMPORT net
+IMPORT udp
+IMPORT io
+
+' Migrated from net::sendTo by plan-110-C, and folded together with the old
+' func_net_sendTextTo_valid: sending text is now a second overload of `send`
+' rather than a separate member, so both payload shapes are asserted here.
+FUNC main AS Integer
+  RES server = udp::bind("127.0.0.1", 0)
+  udp::setReadTimeout(server, 2000)
+  LET bound = udp::localAddress(server)
+  RES client = udp::bind("127.0.0.1", 0)
+  LET dest = collections::get(net::lookup("127.0.0.1", bound.port), 0)
+
+  ' Byte payload.
+  LET payload AS List OF Byte = [65, 66, 67]
+  udp::send(client, dest, payload)
+  LET dg = udp::receive(server, 16)
+  io::print(toString(len(dg.bytes)))
+  io::print(toString(collections::get(dg.bytes, 0)))
+  io::print(toString(collections::get(dg.bytes, 2)))
+  io::print(dg.from.host)
+
+  ' String payload -- the overload the old sendTextTo fixture covered.
+  udp::send(client, dest, "hi")
+  io::print(encoding::utf8Decode(udp::receive(server, 16).bytes))
+
+  udp::close(server)
+  udp::close(client)
+  RETURN 0
+END FUNC

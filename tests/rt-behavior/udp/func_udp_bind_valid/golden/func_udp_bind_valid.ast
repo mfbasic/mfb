@@ -1,0 +1,36 @@
+{
+  "project": "func_udp_bind_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "net", "line": 1 },
+    { "module": "udp", "line": 2 },
+    { "module": "io", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sock", "type": null, "value": { "kind": "call", "callee": "udp.bind", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "addr", "type": null, "value": { "kind": "call", "callee": "udp.localAddress", "arguments": [{ "kind": "identifier", "value": "sock" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "addr" }, "member": "host" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "port>0=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "addr" }, "member": "port" }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.setReadTimeout", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "number", "value": "1000" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.setWriteTimeout", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "number", "value": "1000" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.close", "arguments": [{ "kind": "identifier", "value": "sock" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "closed" }] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
+      ]
+    }
+    ]
+  }
+  ]
+}

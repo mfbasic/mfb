@@ -519,7 +519,7 @@ impl LinuxPlan<'_> {
             // libc symbols and the same errno accessor.
             call if matches!(
                 crate::codegen::registry::registry().owning_package(call),
-                Some("net") | Some("tcp")
+                Some("net") | Some("tcp") | Some("udp")
             ) =>
             {
                 // bug-300 E10: where `emit_write` is a raw syscall the net write

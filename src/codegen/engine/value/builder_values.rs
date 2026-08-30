@@ -2049,6 +2049,12 @@ impl CodeBuilder<'_> {
                 type_: ParameterType::Integer,
                 value: "128".to_string(),
             });
+        } else if target == "udp.poll" && helper_args.len() == 1 {
+            // plan-110-C: an omitted readiness timeout blocks, as everywhere else.
+            helper_args.push(NirValue::Const {
+                type_: ParameterType::Integer,
+                value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
+            });
         } else if matches!(target, "tcp.poll" | "tcp.accept") && helper_args.len() == 1 {
             // An omitted readiness/accept timeout blocks, exactly as the `net`
             // originals do.
@@ -2066,6 +2072,16 @@ impl CodeBuilder<'_> {
                 (target == "tcp.poll").then(|| {
                     if self.net_poll_is_list_form(&helper_args) {
                         crate::codegen::builtins::tcp::SOCKET_TYPE.to_string()
+                    } else {
+                        "Boolean".to_string()
+                    }
+                })
+            })
+            // plan-110-C: `udp.poll` is return-type-overloaded the same way.
+            .or_else(|| {
+                (target == "udp.poll").then(|| {
+                    if self.net_poll_is_list_form(&helper_args) {
+                        crate::codegen::builtins::udp::SOCKET_TYPE.to_string()
                     } else {
                         "Boolean".to_string()
                     }
@@ -2226,6 +2242,26 @@ impl CodeBuilder<'_> {
                     "tcp.writeText"
                 } else {
                     "tcp.write"
+                }
+            }
+            // plan-110-C: udp's two code forms. `send`'s payload is argument 2
+            // (socket, address, payload), not argument 1 as in `tcp::write`.
+            "udp.poll" => {
+                if self.net_poll_is_list_form(args) {
+                    "udp.pollList"
+                } else {
+                    "udp.poll"
+                }
+            }
+            "udp.send" => {
+                if args
+                    .get(2)
+                    .and_then(|arg| self.static_type_name(arg))
+                    .is_some_and(|type_| matches!(type_, ParameterType::String))
+                {
+                    "udp.sendText"
+                } else {
+                    "udp.send"
                 }
             }
             // plan-76-A: the readiness-multiplex overload `poll(List OF RES Socket)`

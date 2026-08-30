@@ -96,6 +96,15 @@ pub(crate) fn net_libc_symbols(call: &str) -> &'static [&'static str] {
         "tcp.localAddress" => &["getsockname", "inet_ntop"],
         "tcp.remoteAddress" => &["getpeername", "inet_ntop"],
         "tcp.setReadTimeout" | "tcp.setWriteTimeout" => &["setsockopt"],
+        // plan-110-C: `udp` shares net's datagram emitters, so it needs the same
+        // libc symbols as the `net` members it replaces.
+        "udp.bind" => &["getaddrinfo", "freeaddrinfo", "socket", "bind", "close"],
+        "udp.send" | "udp.sendText" => &["getaddrinfo", "freeaddrinfo", "sendto"],
+        "udp.receive" => &["recvfrom", "inet_ntop"],
+        "udp.poll" | "udp.pollList" => &["poll"],
+        "udp.close" => &["close"],
+        "udp.localAddress" => &["getsockname", "inet_ntop"],
+        "udp.setReadTimeout" | "udp.setWriteTimeout" => &["setsockopt"],
         // plan-110-A. The receive call is deliberately absent: macOS uses `recvfrom`
         // and Linux `recvmsg` (only Linux can reach the reply TTL, and only through a
         // control message), so each backend appends its own via

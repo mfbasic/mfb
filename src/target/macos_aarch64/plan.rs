@@ -726,7 +726,7 @@ impl plan::NativePlanPlatform for Platform {
             // libSystem symbols and the same errno accessor.
             call if matches!(
                 crate::codegen::registry::registry().owning_package(call),
-                Some("net") | Some("tcp")
+                Some("net") | Some("tcp") | Some("udp")
             ) =>
             {
                 let mut imports = plan::net_libc_symbols(call)

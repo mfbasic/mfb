@@ -1,5 +1,5 @@
 //! `net::close` — descriptor entry (native OS-seam). Spans the resource union
-//! (`Socket` / `Listener` / `UdpSocket`) as three overloads, all returning
+//! (`Socket` / `Listener`) as two overloads, all returning
 //! `Nothing` and all lowering to `net.close` (the datetime/tls idiom, no custom
 //! resolver). `close` consumes the handle it is given (see
 //! the former source checker's `builtins::net_consumes_argument`). Docs in
@@ -30,16 +30,16 @@ const INTRO: &str = r#"Close a network resource and release its OS handle."#;
 
 const DESC: &str = r#"`net::close` releases the operating-system socket behind a network resource and
 marks the handle closed, so any later `net::` call that takes the same value
-raises an error rather than touching a stale descriptor. It spans all three
-`net` handle types: a connected TCP `Socket`, a TCP `Listener`, and a bound UDP
-`UdpSocket`.
+raises an error rather than touching a stale descriptor. It spans both `net`
+handle types: a connected TCP `Socket` and a TCP `Listener`. Datagram sockets
+moved to `udp` in plan-110-C and close with `udp::close`.
 
 `net::close` is the only `net` call that **consumes** its handle. Every other
 function borrows the resource and leaves it open; `close` moves the value into
 the call, after which it cannot be referenced again.
 
-Closing a `Socket` or `UdpSocket` tears down the connection or binding, so a peer
-reading from a closed connection observes the end of the stream. Closing a
+Closing a `Socket` tears down the connection, so a peer reading from it observes
+the end of the stream. Closing a
 `Listener` stops it from accepting new connections but does not affect sockets
 already returned by `net::accept`; each of those is an independent resource with
 its own lifetime.
@@ -80,18 +80,6 @@ FUNC main AS Integer
 END FUNC
 ```
 
-Close both UDP sockets explicitly at the end of an exchange:
-
-```
-IMPORT net
-
-FUNC main AS Integer
-  RES server = net::bindUdp("127.0.0.1", 0)
-  RES client = net::bindUdp("127.0.0.1", 0)
-  net::close(server)
-  net::close(client)
-  RETURN 0
-END FUNC
 ```"#;
 
 /// `abi_function` body for `net::close` — calls the shared `lower_net_*_helper`
@@ -121,12 +109,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: Some("Socket or Listener or UdpSocket"),
+        expected_arguments: Some("Socket or Listener"),
         internal_only: false,
-        implementations: vec![
-            overload(super::socket()),
-            overload(super::listener()),
-            overload(super::udp()),
-        ],
+        implementations: vec![overload(super::socket()), overload(super::listener())],
     });
 }

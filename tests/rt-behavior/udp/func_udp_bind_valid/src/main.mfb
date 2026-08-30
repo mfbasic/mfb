@@ -1,0 +1,17 @@
+IMPORT net
+IMPORT udp
+IMPORT io
+
+' Migrated from net::bindUdp by plan-110-C.
+FUNC main AS Integer
+  RES sock = udp::bind("127.0.0.1", 0)
+  LET addr = udp::localAddress(sock)
+  io::print(addr.host)
+  ' Binding port 0 must yield a real assigned port, not 0.
+  io::print("port>0=" & toString(addr.port > 0))
+  udp::setReadTimeout(sock, 1000)
+  udp::setWriteTimeout(sock, 1000)
+  udp::close(sock)
+  io::print("closed")
+  RETURN 0
+END FUNC
