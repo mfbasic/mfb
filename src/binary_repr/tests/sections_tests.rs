@@ -556,7 +556,7 @@ fn abi_index_encode_decode_round_trips() {
 fn type_id_falls_back_for_malformed_composites() {
     let mut strings = StringPool::new();
     let mut types = TypeTable::new();
-    let mut id_of = |types: &mut TypeTable, strings: &mut StringPool, spelling: &str| {
+    let id_of = |types: &mut TypeTable, strings: &mut StringPool, spelling: &str| {
         types.type_id(strings, &crate::types::ParameterType::declared(spelling))
     };
     // No " AS " terminator: the Thread/ThreadWorker parser rejects the name, so
@@ -598,7 +598,7 @@ fn type_id_falls_back_for_malformed_composites() {
 fn wire_type_ids_are_unchanged_by_the_typed_encoder() {
     let mut strings = StringPool::new();
     let mut types = TypeTable::new();
-    let mut id_of = |types: &mut TypeTable, strings: &mut StringPool, spelling: &str| {
+    let id_of = |types: &mut TypeTable, strings: &mut StringPool, spelling: &str| {
         types.type_id(strings, &crate::types::ParameterType::declared(spelling))
     };
 

@@ -758,10 +758,6 @@ pub(crate) fn register(r: &mut Registry) {
 mod tests {
     use super::*;
 
-    fn strings(items: &[&str]) -> Vec<String> {
-        items.iter().map(|s| s.to_string()).collect()
-    }
-
     /// plan-111-C: `resolve_return_type` takes and returns types now.
     fn types(items: &[&str]) -> Vec<ParameterType> {
         items.iter().map(|s| ParameterType::parse(s)).collect()

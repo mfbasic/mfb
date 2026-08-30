@@ -71,7 +71,7 @@ negotiate. Letters B–G point here.
 |---|---|---|
 | plan-106 complete | `ls planning/completed/plan-106-*` → 5 letters + 2 baselines | MET (re-verified 2026-08-29: 5 letters + 2 baselines) |
 | plan-107 complete | `ls src/syntaxcheck` → no such directory; `rg -c RELOCATED_TO_IR_VERIFY src/` → 0 | MET (re-verified 2026-08-29: no such directory, 0 hits) |
-| Tree compiles clean at HEAD | `cargo check --all-targets` | MET (re-verified 2026-08-29 in worktree P-111, 35s, no warnings) |
+| Tree compiles clean at HEAD | `cargo check --all-targets` | MET (re-verified 2026-08-30 on merged `main`, 0 warnings — but see Correction A9: it had REGRESSED to 3, all plan-111 leftovers, fixed before this row was re-signed) |
 
 Everything below is written against the world where these hold.
 
@@ -888,3 +888,25 @@ sites, all 185 `&str` type parameters, all 186 spelling match arms, all 73
 spelling compares, `TypeModel`'s seven `String`-keyed maps, and the registry's
 duplicated string API. This letter only makes them removable and makes their
 removal countable.
+
+**12 — the "compiles clean, no warnings" Prerequisites row had REGRESSED, and
+the regression was plan-111's own.** Re-running the row's command on merged
+`main` after letter G — the plan's own instruction that the Command column is the
+truth and the Status column is a snapshot — reported **3 warnings**, not 0. All
+three were this plan's leftovers, and all three were invisible to every gate that
+ran during it, because `cargo test` compiles the same targets but does not fail
+on a warning and `cargo build --release` does not build test targets at all:
+
+* `src/codegen/builtins/general/mod.rs` — `fn strings(items: &[&str]) -> Vec<String>`,
+  the test helper that built the `Vec<String>` argument lists letter C's
+  conversion deleted. Fittingly, a dead `&str`-type-spelling helper is exactly
+  what this plan exists to remove; deleted.
+* `src/binary_repr/tests/sections_tests.rs:559,601` — two `let mut id_of = |…|`
+  closures that stopped needing `mut` when letter G retyped `TypeTable::type_id`
+  to take a `&ParameterType`.
+
+Both touched modules re-run green (16 and 25 tests). The durable lesson is about
+the GATE, not the warnings: **`cargo check --all-targets` is the only command in
+this plan's toolbox that sees test-target warnings**, and it was run once at
+kickoff and never again. Re-run a Prerequisites row at the END as well as the
+start — a plan can break its own entry condition.
