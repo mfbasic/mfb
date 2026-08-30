@@ -999,29 +999,29 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
         let result = self.allocate_register();
         let scratch = self.temporary_vreg();
-        match value.type_.name().as_ref() {
+        match &value.type_ {
             // Exact: `value * 100000`, overflow-checked for Integer (a Byte is
             // always in range: 255 * 100000 fits i64).
-            "Integer" => {
+            ParameterType::Integer => {
                 let scale = self.allocate_register();
                 self.emit(abi::move_immediate(&scale, "Integer", "100000"));
                 self.emit_checked_integer_multiply(&result, &source, &scale)?;
             }
-            "Byte" => {
+            ParameterType::Byte => {
                 let scale = self.allocate_register();
                 self.emit(abi::move_immediate(&scale, "Integer", "100000"));
                 self.emit(abi::multiply_registers(&result, &source, &scale));
             }
             // `fixed_raw * 100000 / 2^32` is exactly `emit_fixed_multiply(fixed_raw,
             // 100000)`; its overflow check traps a Fixed too large for Money.
-            "Fixed" => {
+            ParameterType::Fixed => {
                 let scale = self.allocate_register();
                 self.emit(abi::move_immediate(&scale, "Integer", "100000"));
                 self.emit_fixed_multiply(&result, &source, &scale)?;
             }
             // Inexact: finiteness → ErrInvalidFormat, `value * 100000.0` rounded
             // under the mode, range → ErrOverflow.
-            "Float" => {
+            ParameterType::Float => {
                 let fval = self.allocate_fp_register();
                 self.emit(abi::float_move_d_from_x(&fval, &source));
                 self.emit_float_finite_or_invalid(&fval)?;
@@ -1036,7 +1036,7 @@ impl CodeBuilder<'_> {
             // f64 path overflowed the valid max and misrounded large ties. The
             // rare scientific-notation form (`e`/`E`) falls back to the f64 parse,
             // which is approximate anyway.
-            "String" => {
+            ParameterType::String => {
                 let invalid = self.label("to_money_invalid");
                 let overflow = self.label("to_money_overflow");
                 let scientific = self.label("to_money_scientific");
@@ -1164,9 +1164,11 @@ impl CodeBuilder<'_> {
         let true_label = self.label(name);
         let done_label = self.label(&format!("{name}_done"));
 
-        match value.type_.name().as_ref() {
-            "Integer" | "Fixed" => self.emit(abi::compare_immediate(&value.location, "0")),
-            "Float" => {
+        match &value.type_ {
+            ParameterType::Integer | ParameterType::Fixed => {
+                self.emit(abi::compare_immediate(&value.location, "0"))
+            }
+            ParameterType::Float => {
                 self.emit(abi::float_move_d_from_x(
                     abi::FP_SCRATCH[0],
                     &value.location,
