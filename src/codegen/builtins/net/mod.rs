@@ -32,7 +32,7 @@
 
 use crate::codegen::registry::{
     Body, DefaultValue, EnumVariant, Parameter, RecordProp, Registry, RegistryEnum,
-    RegistryOverride, RegistryPackage, RegistryRecord, RegistryResource,
+    RegistryOverride, RegistryPackage, RegistryRecord,
 };
 use crate::types::ParameterType;
 
@@ -68,31 +68,11 @@ pub(crate) fn opt(name: &'static str, desc: &'static str, ty: ParameterType) -> 
 }
 
 /// The qualified socket / listener resource types as `ParameterType`s.
-pub(crate) fn socket() -> ParameterType {
-    ParameterType::named(SOCKET_TYPE_ID)
-}
-pub(crate) fn listener() -> ParameterType {
-    ParameterType::named(LISTENER_TYPE_ID)
-}
-
-mod func_accept;
-mod func_close;
-mod func_connect_tcp;
-mod func_listen_tcp;
-mod func_local_address;
 mod func_lookup;
 mod func_parse_query;
 mod func_percent_decode;
 mod func_ping;
-mod func_poll;
-mod func_read;
-mod func_read_text;
-mod func_remote_address;
-mod func_set_read_timeout;
-mod func_set_write_timeout;
 mod func_to_url;
-mod func_write;
-mod func_write_text;
 
 mod helper_authority_end;
 mod helper_decode_query_component;
@@ -112,8 +92,6 @@ pub(crate) mod gen_shared;
 /// The bare resource/record type names — the identity *within* the `net` package
 /// (the `RegistryResource`/`RegistryRecord` name, the `type` half of a qualified
 /// id). Used for registry-internal lookups and by the code layer.
-pub(crate) const SOCKET_TYPE: &str = "Socket";
-pub(crate) const LISTENER_TYPE: &str = "Listener";
 pub(crate) const ADDRESS_TYPE: &str = "Address";
 /// The `PingStatus` enum and `PingResult` record `net::ping` reports through
 /// (plan-110-A). `PingStatus`'s variant ORDER is its wire contract: a variant's
@@ -127,8 +105,6 @@ pub(crate) const URL_TYPE: &str = "Url";
 /// The package-qualified type identities (`net.Socket`, `net.Listener`,
 /// `net.UdpSocket`) — plan-97 / bug-441. The string every `RES` binding,
 /// parameter, and return of a net resource carries; the `ResourceRegistry` key.
-pub(crate) const SOCKET_TYPE_ID: &str = "net.Socket";
-pub(crate) const LISTENER_TYPE_ID: &str = "net.Listener";
 
 /// The internal source-companion (`package.mfb`) render target for the
 /// `toString(net::Url)` override — routed here by [`RegistryPackage::add_override`].
@@ -309,29 +285,10 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
-    // The three opaque socket handles. All share the public `net.close` close op;
-    // a `Listener` accepts on its owning thread and is not thread-sendable.
-    pkg.add_resource(RegistryResource {
-        name: SOCKET_TYPE,
-        export: true,
-        description: "A connected TCP stream from `net::connectTcp` or `net::accept`, \
-                      closed automatically when it leaves scope.",
-        close_function: "net.close",
-        sendable: true,
-        close_may_fail: true,
-        kind: crate::codegen::resource::ResourceKind::Builtin,
-    });
-    pkg.add_resource(RegistryResource {
-        name: LISTENER_TYPE,
-        export: true,
-        description: "A bound TCP server endpoint from `net::listenTcp`; \
-                      `net::accept` draws connections from it.",
-        close_function: "net.close",
-        sendable: false,
-        close_may_fail: true,
-        kind: crate::codegen::resource::ResourceKind::Builtin,
-    });
-
+    // plan-110-E: net has NO resources any more. Its stream handles (`Socket`,
+    // `Listener`) moved to `tcp`, and `UdpSocket` moved to `udp` in plan-110-C.
+    // What is left -- resolution and URLs -- is all values, so nothing net
+    // returns needs a close op or a lexical drop.
     // `toString(net::Url)` renders a `Url` back to an absolute href — the registry
     // home of the hand row in `builtins::general_override_target`.
     pkg.add_override(RegistryOverride {
@@ -357,19 +314,6 @@ pub(crate) fn register(r: &mut Registry) {
 
     func_lookup::register(&mut pkg);
     func_ping::register(&mut pkg);
-    func_connect_tcp::register(&mut pkg);
-    func_listen_tcp::register(&mut pkg);
-    func_accept::register(&mut pkg);
-    func_poll::register(&mut pkg);
-    func_read::register(&mut pkg);
-    func_read_text::register(&mut pkg);
-    func_write::register(&mut pkg);
-    func_write_text::register(&mut pkg);
-    func_close::register(&mut pkg);
-    func_local_address::register(&mut pkg);
-    func_remote_address::register(&mut pkg);
-    func_set_read_timeout::register(&mut pkg);
-    func_set_write_timeout::register(&mut pkg);
     func_to_url::register(&mut pkg);
     func_percent_decode::register(&mut pkg);
     func_parse_query::register(&mut pkg);

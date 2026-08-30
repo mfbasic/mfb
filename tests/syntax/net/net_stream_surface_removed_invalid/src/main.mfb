@@ -1,0 +1,39 @@
+' plan-110-E Phase 3: net's TRANSPORT surface is gone. `net` keeps resolution
+' (lookup, ping) and URLs (toUrl, percentDecode, parseQuery, toString(Url)); the
+' stream moved to `tcp`, the datagram to `udp` in plan-110-C.
+'
+' Every line below must be rejected. This is the fixture that proves the removal
+' actually happened rather than the members merely being undocumented -- a
+' surface that still resolves is a surface that still exists.
+IMPORT net
+IMPORT io
+
+FUNC main AS Integer
+  ' The two stream resource TYPES.
+  RES a AS net::Socket = net::connectTcp("127.0.0.1", 9)
+  RES b AS net::Listener = net::listenTcp("127.0.0.1", 0)
+
+  ' The thirteen stream MEMBERS.
+  RES c = net::connectTcp("127.0.0.1", 9)
+  RES d = net::listenTcp("127.0.0.1", 0)
+  RES e = net::accept(d)
+  LET f = net::poll(c)
+  LET g = net::read(c, 16)
+  LET h = net::readText(c, 16)
+  net::write(c, [toByte(1)])
+  net::writeText(c, "x")
+  net::close(c)
+  LET i = net::localAddress(c)
+  LET j = net::remoteAddress(c)
+  net::setReadTimeout(c, 100)
+  net::setWriteTimeout(c, 100)
+
+  ' The datagram surface plan-110-C removed, pinned here too so one fixture
+  ' covers the whole transport removal.
+  RES k = net::bindUdp("127.0.0.1", 0)
+  LET l = net::receiveFrom(k, 16)
+  LET m = net::receiveTextFrom(k, 16)
+
+  io::print("unreachable")
+  RETURN 0
+END FUNC

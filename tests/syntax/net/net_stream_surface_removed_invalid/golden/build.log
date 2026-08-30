@@ -1,0 +1,122 @@
+$ mfb build -ast -ir tests/syntax/net/net_stream_surface_removed_invalid
+  11 | FUNC main AS Integer
+  12 |   ' The two stream resource TYPES.
+  13 |   RES a AS net::Socket = net::connectTcp("127.0.0.1", 9)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:13 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.Socket`.
+  11 | FUNC main AS Integer
+  12 |   ' The two stream resource TYPES.
+  13 |   RES a AS net::Socket = net::connectTcp("127.0.0.1", 9)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:13 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.connectTcp`.
+  12 |   ' The two stream resource TYPES.
+  13 |   RES a AS net::Socket = net::connectTcp("127.0.0.1", 9)
+  14 |   RES b AS net::Listener = net::listenTcp("127.0.0.1", 0)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:14 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.Listener`.
+  12 |   ' The two stream resource TYPES.
+  13 |   RES a AS net::Socket = net::connectTcp("127.0.0.1", 9)
+  14 |   RES b AS net::Listener = net::listenTcp("127.0.0.1", 0)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:14 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.listenTcp`.
+  15 | 
+  16 |   ' The thirteen stream MEMBERS.
+  17 |   RES c = net::connectTcp("127.0.0.1", 9)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:17 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.connectTcp`.
+  16 |   ' The thirteen stream MEMBERS.
+  17 |   RES c = net::connectTcp("127.0.0.1", 9)
+  18 |   RES d = net::listenTcp("127.0.0.1", 0)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:18 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.listenTcp`.
+  17 |   RES c = net::connectTcp("127.0.0.1", 9)
+  18 |   RES d = net::listenTcp("127.0.0.1", 0)
+  19 |   RES e = net::accept(d)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:19 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.accept`.
+  18 |   RES d = net::listenTcp("127.0.0.1", 0)
+  19 |   RES e = net::accept(d)
+  20 |   LET f = net::poll(c)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:20 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.poll`.
+  19 |   RES e = net::accept(d)
+  20 |   LET f = net::poll(c)
+  21 |   LET g = net::read(c, 16)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:21 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.read`.
+  20 |   LET f = net::poll(c)
+  21 |   LET g = net::read(c, 16)
+  22 |   LET h = net::readText(c, 16)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:22 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.readText`.
+  21 |   LET g = net::read(c, 16)
+  22 |   LET h = net::readText(c, 16)
+  23 |   net::write(c, [toByte(1)])
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:23 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.write`.
+  22 |   LET h = net::readText(c, 16)
+  23 |   net::write(c, [toByte(1)])
+  24 |   net::writeText(c, "x")
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:24 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.writeText`.
+  23 |   net::write(c, [toByte(1)])
+  24 |   net::writeText(c, "x")
+  25 |   net::close(c)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:25 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.close`.
+  24 |   net::writeText(c, "x")
+  25 |   net::close(c)
+  26 |   LET i = net::localAddress(c)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:26 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.localAddress`.
+  25 |   net::close(c)
+  26 |   LET i = net::localAddress(c)
+  27 |   LET j = net::remoteAddress(c)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:27 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.remoteAddress`.
+  26 |   LET i = net::localAddress(c)
+  27 |   LET j = net::remoteAddress(c)
+  28 |   net::setReadTimeout(c, 100)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:28 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.setReadTimeout`.
+  27 |   LET j = net::remoteAddress(c)
+  28 |   net::setReadTimeout(c, 100)
+  29 |   net::setWriteTimeout(c, 100)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:29 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.setWriteTimeout`.
+  31 |   ' The datagram surface plan-110-C removed, pinned here too so one fixture
+  32 |   ' covers the whole transport removal.
+  33 |   RES k = net::bindUdp("127.0.0.1", 0)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:33 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.bindUdp`.
+  32 |   ' covers the whole transport removal.
+  33 |   RES k = net::bindUdp("127.0.0.1", 0)
+  34 |   LET l = net::receiveFrom(k, 16)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:34 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.receiveFrom`.
+  33 |   RES k = net::bindUdp("127.0.0.1", 0)
+  34 |   LET l = net::receiveFrom(k, 16)
+  35 |   LET m = net::receiveTextFrom(k, 16)
+     | ^
+tests/syntax/net/net_stream_surface_removed_invalid/src/main.mfb:35 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `net` does not export `net.receiveTextFrom`.
+[exit 1]

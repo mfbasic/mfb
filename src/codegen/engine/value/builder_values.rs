@@ -2125,18 +2125,6 @@ impl CodeBuilder<'_> {
                     }
                 })
             })
-            // plan-76-A: `net.poll` is return-type-overloaded (scalar `Socket →
-            // Boolean` vs list `List OF RES Socket → Socket`), so the fixed
-            // `call_return_type_name` yields `None`; select by argument shape here.
-            .or_else(|| {
-                (target == "net.poll").then(|| {
-                    if self.net_poll_is_list_form(&helper_args) {
-                        crate::codegen::builtins::net::SOCKET_TYPE_ID.to_string()
-                    } else {
-                        "Boolean".to_string()
-                    }
-                })
-            })
             // plan-76-C: `tls.poll` is likewise return-type-overloaded — the list
             // form yields a borrowed `tls::Socket`, the scalar a `Boolean`.
             //

@@ -158,7 +158,7 @@ Commit: 9b62dcf23, and the fixture move below
 
 ### Phase 3 — Remove legacy surface
 
-- [ ] Remove net Socket/Listener/~~UdpSocket/Datagram/DatagramText~~ records/resources, transport
+- [x] Remove net Socket/Listener/~~UdpSocket/Datagram/DatagramText~~ records/resources, transport
       descriptors, compatibility shims, aliases, cleanup/type recognition, and now-dead code.
       **The datagram half is already done** — `UdpSocket`, `Datagram`, `DatagramText`, `bindUdp`,
       `sendTo`, `sendTextTo`, `receiveFrom`, `receiveTextFrom` and the `UdpSocket` overloads were
@@ -173,9 +173,20 @@ Commit: 9b62dcf23, and the fixture move below
       descriptors are deleted, split them so each package owns its own, leaving `net` only the
       resolver/address/URL emitters `lookup` and `ping` still need. Doing it here rather than in
       B/C means editing those ~2,700 lines once instead of twice.
-- [ ] Remove `TlsSocket`/`TlsListener`, readText/writeText, and old aliases after confirming zero
+- [x] Remove `TlsSocket`/`TlsListener`, readText/writeText, and old aliases after confirming zero
       live consumers; keep only the exact requested package surfaces.
-- [ ] Add negative syntax tests proving legacy calls/types are no longer exported.
+      Done by plan-110-D: `TlsSocket`/`TlsListener` became `tls::Socket`/`tls::Listener`,
+      `tls::readText` and `tls::writeText` were removed (write took a String overload), and
+      3016059f5 swept the residue — the dead `text` parameter through all three read emitters, the
+      `tls.readText` data object and validate-utf8 trigger, and the package prose still promising
+      "paired byte/text forms". `net::readText`/`writeText` go with net's stream surface above.
+      Verified: `mfb man net` lists exactly 5 members, `mfb man tls` lists no `wrap`.
+- [x] Add negative syntax tests proving legacy calls/types are no longer exported.
+      `tests/syntax/net/net_stream_surface_removed_invalid` pins all 15 removed stream names plus
+      the two resource types, and the three datagram members plan-110-C removed, so one fixture
+      covers the whole transport removal: 20 diagnostics, every one
+      "Built-in package `net` does not export ...". A surface that still resolves is a surface that
+      still exists, and this is what proves it does not.
 
 Acceptance: `mfb man net --all`, `tcp --all`, `udp --all`, and `tls --all` enumerate exactly the
 requested public members/types (plus the established `toString(net::Url)` general override), and

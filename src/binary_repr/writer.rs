@@ -209,10 +209,14 @@ pub(super) fn lower_project_with_external_functions(
         if used.contains("fs.File") {
             resources.add_standard_file(&mut types, &mut strings);
         }
-        if used.contains("net.Socket") {
+        // plan-110-E: the stream handles live in `tcp` now. Before this the
+        // branches still named `net.Socket`/`net.Listener`, types that no longer
+        // exist -- so a package exporting a stream resource silently got NO
+        // resource-table entry.
+        if used.contains("tcp.Socket") {
             resources.add_standard_socket(&mut types, &mut strings);
         }
-        if used.contains("net.Listener") {
+        if used.contains("tcp.Listener") {
             resources.add_standard_listener(&mut types, &mut strings);
         }
     }

@@ -33,8 +33,6 @@ const BUILTIN_TYPES: &[&str] = &[
     crate::codegen::builtins::fs::FILE_TYPE_ID,
     crate::codegen::builtins::term::TERM_COLOR_TYPE,
     crate::codegen::builtins::term::TERM_SIZE_TYPE,
-    crate::codegen::builtins::net::SOCKET_TYPE_ID,
-    crate::codegen::builtins::net::LISTENER_TYPE_ID,
     crate::codegen::builtins::net::ADDRESS_TYPE,
     // plan-110-B/C: the transport types moved out of `net`. `DatagramText` is gone
     // entirely — a datagram's encoding is not something the network reports.
