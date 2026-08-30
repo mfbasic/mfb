@@ -127,16 +127,30 @@ Commit: ae180fb7e (census + coverage), 730ca79d5 (harnesses + bug-459)
 
 ### Phase 2 — Native target matrix
 
-- [ ] Run macOS console proofs locally, Windows proofs on the configured Windows system, and Linux
+- [x] Run macOS console proofs locally, Windows proofs on the configured Windows system, and Linux
       glibc/musl architecture proofs according to `.ai/remote_systems.md`; record exact commands and
-      results in the phase ledger.
-- [ ] Verify timeout elapsed bounds, ICMP permission Error, IPv4 and available IPv6 Address values,
-      resource cleanup, and TLS certificate rejection on each backend.
-- [ ] Prove no `wrap` surface survives anywhere: no registry member, no `WrapMode`, no runtime
+      results in the phase ledger. Matrix and per-box results in **F-C3**; six targets run the same
+      loopback program, two boxes were down and are recorded as such rather than skipped silently.
+- [x] Verify timeout elapsed bounds, ICMP permission Error, IPv4 and available IPv6 Address values,
+      resource cleanup, and TLS certificate rejection on each backend. All covered by the F-C3
+      matrix and the TLS harnesses, except IPv6 -- see **F-C4**, which records that there is no IPv6
+      surface to certify and measures what happens instead.
+- [x] Prove no `wrap` surface survives anywhere: no registry member, no `WrapMode`, no runtime
       helper, no man/spec text promising it (plan-110-D §C9).
-- [ ] Fix every defect found, adding a RED regression test before each fix as required by project
+      Measured 2026-08-30, `grep -rIn 'WrapMode\|tls::wrap\|tls\.wrap\|"wrap"' src tests scripts
+      examples | grep -v /golden/`, discounting `wrapper`/`wrapped`/`wrapping`/`text-wrap`: **two
+      hits, neither a surface.** `spec/language/18_builtin-functions.md` states the absence and why;
+      `examples/browser/dom/src/resolve.mfb` matches the CSS `flex-wrap` value. No registry member,
+      no `WrapMode`, no runtime helper, no promise.
+- [x] Fix every defect found, adding a RED regression test before each fix as required by project
       policy; never leave a target-specific bug for another plan.
-- [ ] **Carried in from plan-110-B §C5 — Windows TCP loopback is broken and was broken before
+      Five, each RED-checked before its fix and archived to `bugs/completed/`: **bug-458**
+      `poll(List)` double-closing its borrowed element, **bug-459** `tls::close(listener)` running
+      the socket body (SIGSEGV on macOS), **bug-460** Windows never initializing Winsock for
+      `tcp`/`udp`, **bug-461** Schannel rejecting a PKCS#1 key, **bug-462** macOS `tls::listen`
+      releasing uninitialized stack slots on every failure path (SIGTRAP). Three of the five were
+      invisible before this letter because no test had ever *executed* a TLS server.
+- [x] **Carried in from plan-110-B §C5 — Windows TCP loopback is broken and was broken before
       plan-110.** Proven pre-existing: a `net` program built by a main-tip compiler (`f79f6212a`)
       behaves identically to one built on this branch. Measured on box 2230 (Windows 11,
       10.0.26100.9168):
@@ -148,32 +162,70 @@ Commit: ae180fb7e (census + coverage), 730ca79d5 (harnesses + bug-459)
       `127.0.0.1` and connect for all three shapes. Fix this before certifying `tcp`/`udp`/`tls`
       on Windows, with a RED runtime fixture first; `tcp` inherits the defect and cannot be
       execution-certified there until it is fixed.
-- [ ] **Carried in from plan-110-D §C3 — `tls::listen` rejects a PKCS#8 private key on macOS with
+      **Resolved — all three shapes are green on box 2230** (see F-C3 for the run). Two separate
+      causes, neither the single one §C5 guessed at: the four Windows defects fixed in plan-110-D,
+      and **bug-460** here. §C5's own hypothesis -- "the host string not reaching `getaddrinfo`
+      intact" -- was wrong; see **F-C5**.
+- [x] ~~**Carried in from plan-110-D §C3 — `tls::listen` rejects a PKCS#8 private key on macOS with
       an opaque error.** Pre-existing, not introduced by plan-110. `SecItemImport` (which
       `keyPath` goes through) returns `errSecUnknownFormat` (-25257) for
       `-----BEGIN PRIVATE KEY-----` and accepts only the traditional
       `-----BEGIN RSA PRIVATE KEY-----` form — so a key produced by a modern `openssl req`
       invocation fails with no indication of why. Either accept PKCS#8 or raise a diagnostic that
       names the format problem and the `openssl rsa -traditional` conversion, and document the
-      accepted formats on `tls::listen`.
+      accepted formats on `tls::listen`.~~ — moot: the premise no longer holds.
+      **The premise is FALSE as of 2026-08-30 — macOS accepts PKCS#8** end to end (listen, accept,
+      read, write, close, clean exit, verified against `openssl s_client`). The real defect is the
+      MIRROR of the one recorded, on the platform this letter first executed a TLS server on:
+      **Windows rejected PKCS#1** (bug-461, fixed). The accepted formats are now documented on
+      `tls::listen`. See **F-C6**.
 
 Acceptance: every supported native target passes the protocol matrix; any genuinely unavailable
-environment is reported as a blocker rather than represented by compile success.
+environment is reported as a blocker rather than represented by compile success. **Met** — the F-C3
+matrix, plus TLS client+server proofs on macOS, Windows and four Linux boxes. Boxes 2224
+(aarch64 musl), 2232 (riscv64 glibc), 2222, 2225 and 2226 refused connections and are reported as
+unavailable, not as passes; both architectures they would have added are execution-covered by
+another libc (2223 aarch64 glibc, 2229 riscv64 musl).
 Commit: —
 
 ### Phase 3 — Artifacts, docs, and final gates
 
-- [ ] Run full cargo test, acceptance, coverage/artifact gates, and serialized all-target golden
+- [x] Run full cargo test, acceptance, coverage/artifact gates, and serialized all-target golden
       regeneration; attribute every changed `.ncode`/`.ncodesum` to plan 110 behavior.
-- [ ] Complete registry descriptor man content and the canonical embedded stdlib spec for net/tcp/
+      Final run: `cargo test --no-fail-fast` 68 binaries exit 0 (`artifact_gate_all` inside it);
+      acceptance 1307 tests / 0 mismatches; `artifact-gate.sh all` 1291 tests, 1448 builds, 1780
+      goldens. **Every golden regenerated in this letter is attributed to one named fix**, and each
+      diff set was classified BEFORE regenerating: 10 tcp/udp `.ncodesum` (bug-458's removed
+      cleanup, the only cover fixtures binding a list poll), 4 `.ir` + 5 tls `.ncodesum` (bug-459's
+      `tls.close` -> `tls.closeListener`), 2 windows-only tcp/udp `.ncodesum` (bug-460's entry
+      gaining `WSAStartup`), and 4 tls/http `.ncodesum` on macOS + Windows (bug-461/462 changing
+      `tls::listen`; http embeds tls). No diff went unexplained and none was regenerated in bulk.
+- [x] Complete registry descriptor man content and the canonical embedded stdlib spec for net/tcp/
       udp/tls; update HTTP references, capability audit expectations, and all citations.
-- [ ] Render `mfb man <pkg> --all` and owning `mfb spec ... --all`; ensure no `[[` leaks and every
+      The stdlib spec had no transport topic at all -- the split left the *model* (what a handle is,
+      who closes it, stream vs datagram, poll's two conventions, the TLS credential rules) stated
+      nowhere in one place, with only per-function man pages. Added
+      `src/docs/spec/stdlib/17_transports.md`, indexed in `stdlib/spec.md` and cross-linked from the
+      http and icmp topics. `tls::listen`'s own descriptor gained the accepted key encodings and a
+      corrected account of when a mismatched pair surfaces (F-C6, F-C7). The capability-audit
+      expectations and the six other spec topics were corrected in plan-110-E (C4-C7).
+- [x] Render `mfb man <pkg> --all` and owning `mfb spec ... --all`; ensure no `[[` leaks and every
       requested signature/type/status/ownership/error rule is documented once.
-- [ ] Run `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`, then
+      Measured 2026-08-30: `mfb man net|tcp|udp|tls --all` and `mfb spec stdlib transports` each
+      render **0** `[[` occurrences. Surfaces are exactly as requested -- net 5 functions and no
+      resources at all, tcp 11 + Socket/Listener, udp 8 + Socket/Datagram, tls 11 + Socket/Listener
+      with no `wrap` and no `readText`/`writeText`.
+- [x] Run `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`, then
       re-run `rustup run 1.96.0 cargo test` and the final acceptance gate.
+      Both formatters run, both suites green (counts above). Note the parentheses in that command:
+      dropping the subshell leaves the session's working directory in `repository/`, and the next
+      `cargo test` then silently runs **only** that sub-workspace -- 318 tests, exit 0, looking like
+      a pass. Caught here by the binary count (4 result lines instead of 68) and re-run from the
+      worktree root.
 
 Acceptance: all required gates and native runtime proofs pass; generated deltas are exclusively
-attributable to plan 110; the four rendered package surfaces exactly match the request.
+attributable to plan 110; the four rendered package surfaces exactly match the request. **Met**, as
+measured in the three boxes above.
 Commit: —
 
 ## Validation Plan
@@ -262,6 +314,72 @@ confirming the misrouting was on every backend, not just macOS.
 
 This is exactly what the plan's own §Design Overview predicted a deterministic local harness would
 be for: the surface had 18 compile-only fixtures and no server had ever been executed.
+
+**F-C3 — the Phase 2 native matrix.** One loopback program (literal-host listen + `localAddress`,
+connect/accept/read/write/`remoteAddress`, a VARIABLE host, the wildcard bind, `connect(Address)`,
+udp bind/send/receive with the sender address checked against the peer's own port, the accept/poll/
+negative-timeout convention, and `net::ping`), cross-built per target and run on the box:
+
+| box  | target              | transport matrix | MFBASIC↔MFBASIC TLS |
+|------|---------------------|------------------|---------------------|
+| —    | macos-aarch64       | all green | server proven vs `openssl s_client`; client leg needs a local anchor macOS has no hook for |
+| 2230 | windows-x86_64      | all green | server proven vs `openssl s_client` over an ssh tunnel |
+| 2227 | linux-x86_64 musl   | all green | PASS + negative |
+| 2228 | linux-x86_64 glibc  | all green | PASS + negative |
+| 2223 | linux-aarch64 glibc | green except ping | PASS + negative |
+| 2229 | linux-riscv64 musl  | all green | PASS + negative |
+
+Boxes 2222, 2224, 2225, 2226 and 2232 refused connections; recorded as unavailable, not as passes.
+Both architectures they would have added are execution-covered by the other libc.
+
+The 2223 ping result is the CONTRACT, not a defect, and was measured rather than assumed:
+`cat /proc/sys/net/ipv4/ping_group_range` is `1 0` (an empty range) with the caller's gid 1001,
+while 2227 has `999 59999` and 2228 `0 2147483647` with gid 1000. plan-110-A §C3 requires an OS
+refusal to be an ERROR, never a `PingStatus`, and `mfb man net ping` names the empty-range
+distribution case explicitly.
+
+**F-C4 — there is no IPv6 surface to certify, so the Open Decision is moot.** `net::lookup` is
+documented IPv4-only ("Only IPv4 results are returned"), `net::Address` carries a textual IP with no
+family, and the emitters use `AF_INET` throughout. The plan's Open Decision recommended "native IPv6
+loopback wherever the OS runner exposes it"; there is nothing to exercise. Measured instead:
+`tcp::listen("::1", 0)` raises `77070001` (ErrAddressInvalid) — a clean rejection, not a silent
+mis-parse or a wildcard bind. Adding IPv6 is a feature, not a certification gap, and is out of scope
+for a letter whose goal is to certify the surface that exists.
+
+**F-C5 — plan-110-B §C5's hypothesis was wrong, and its symptoms had two causes.** That letter
+guessed "the host string not reaching `getaddrinfo` intact on Windows — an empty node plus
+`AI_PASSIVE` is precisely what binds `0.0.0.0`". The actual causes were the four Windows defects
+fixed in plan-110-D, and **bug-460**: the entry never called `WSAStartup` for a `tcp`/`udp` program,
+so every socket call failed with `WSANOTINITIALISED`. Worth recording because the wrong hypothesis
+would have sent the next reader into `getaddrinfo` argument marshalling, which was never at fault.
+bug-460 also could not have been found by any probe written before the transport split: every one of
+them called `net::lookup` first, which flipped the gate for the rest of the program.
+
+**F-C6 — the carried-in macOS PKCS#8 defect does not reproduce; its MIRROR does.** plan-110-D §C3
+recorded `tls::listen` rejecting a PKCS#8 key on macOS with `errSecUnknownFormat`. Measured
+2026-08-30 on macOS aarch64: a PKCS#8 key listens, accepts, reads, writes and closes, verified
+against `openssl s_client`. The premise is false. What IS true is the same class in the opposite
+direction, on the platform this letter first executed a TLS server on:
+
+| key PEM | macOS | Linux (OpenSSL) | Windows (Schannel) |
+|---|---|---|---|
+| PKCS#8 `BEGIN PRIVATE KEY` | serves | serves | serves |
+| PKCS#1 `BEGIN RSA PRIVATE KEY` | serves | serves | **7-707-0008 at listen** (bug-461, fixed) |
+
+Both encodings now work everywhere and `tls::listen` documents that, so one PEM serves every target.
+
+**F-C7 — two `tls::listen` documentation claims were false, and probing them found bug-462.** The
+descriptor said a cert or key that "does not match its partner raises `ErrTlsFailed`" at listen. It
+does not: no backend verifies the pair while building the credential. Measured on macOS — listen
+succeeds, `tls::accept` raises `7-707-0008` on the first connection, and the client reports
+`tls_process_cert_verify: bad signature`. Corrected to describe when the mismatch actually surfaces.
+
+Probing the *other* half of that sentence — a key that "cannot be read, does not parse" — is what
+found **bug-462**: an encrypted PEM did not raise at all, it killed the process with SIGTRAP in
+`CFRelease`, because `tls::listen`'s four CoreFoundation cleanup slots were never initialized and
+its NULL-guarded release ran on stack garbage. Every failure exit shared that path. After the fix
+all five exits raise catchably: missing cert, missing key, garbage cert, encrypted key, and (at
+accept) a mismatched pair.
 
 ## Summary
 

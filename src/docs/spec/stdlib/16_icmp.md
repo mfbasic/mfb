@@ -5,8 +5,9 @@ outcomes are statuses rather than errors, and why the same program can succeed o
 one machine and fail outright on another. The per-function signature and parameter
 reference is `./mfb man net ping`; this topic specifies the behavior behind it.
 
-`net` also owns the URL model (`./mfb spec stdlib url`) and the socket/DNS surface
-(`./mfb man net`); ping shares only the `Address` record with them.
+`net` also owns the URL model (`./mfb spec stdlib url`) and name resolution
+(`./mfb man net`); the transports moved to `tcp`/`udp`/`tls`
+(`./mfb spec stdlib transports`). Ping shares only the `Address` record with them.
 
 ## Status or error
 

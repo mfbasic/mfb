@@ -360,6 +360,7 @@ are always server-supplied on emit; a handler-set `Content-Length` is ignored.
 
 * ./mfb man http — the per-function API reference
 * ./mfb spec stdlib url — the `net::Url` model that drives target/host/scheme
+* ./mfb spec stdlib transports — the `tcp`/`tls` model this client and server run on
 * ./mfb spec architecture frontend — how this source package is injected
 * ./mfb spec unicode strings-model — byte vs grapheme length (Content-Length)
 * ./mfb spec memory arenas — where copyable `Response` values live

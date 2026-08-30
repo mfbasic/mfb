@@ -120,21 +120,39 @@ impl CodegenPlatform for TlsReadTestPlatform {
     _platform_imports: &HashMap<String, String>,
     _instructions: &mut Vec<CodeInstruction>,
     _relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_open_file") }
+) -> Result<(), String> {
+        // Same minimal stand-in as `emit_external_call`: `tls::listen` reads the
+        // cert and key PEMs through these, and the tests below inspect its frame
+        // setup, not the file calls themselves.
+        _instructions.push(crate::target::shared::abi::branch_link("_emit_open_file"));
+        Ok(())
+    }
     fn emit_read_file(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
     _instructions: &mut Vec<CodeInstruction>,
     _relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_read_file") }
+) -> Result<(), String> {
+        // Same minimal stand-in as `emit_external_call`: `tls::listen` reads the
+        // cert and key PEMs through these, and the tests below inspect its frame
+        // setup, not the file calls themselves.
+        _instructions.push(crate::target::shared::abi::branch_link("_emit_read_file"));
+        Ok(())
+    }
     fn emit_close_file(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
     _instructions: &mut Vec<CodeInstruction>,
     _relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_close_file") }
+) -> Result<(), String> {
+        // Same minimal stand-in as `emit_external_call`: `tls::listen` reads the
+        // cert and key PEMs through these, and the tests below inspect its frame
+        // setup, not the file calls themselves.
+        _instructions.push(crate::target::shared::abi::branch_link("_emit_close_file"));
+        Ok(())
+    }
     fn emit_sync_file(
     &self,
     _from: &str,
@@ -148,7 +166,10 @@ impl CodegenPlatform for TlsReadTestPlatform {
     _platform_imports: &HashMap<String, String>,
     _instructions: &mut Vec<CodeInstruction>,
     _relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_seek_file") }
+) -> Result<(), String> {
+        _instructions.push(crate::target::shared::abi::branch_link("_emit_seek_file"));
+        Ok(())
+    }
     fn emit_rename_path(
     &self,
     _from: &str,
@@ -626,4 +647,54 @@ fn close_listener_releases_queue_and_sem() {
         rel.iter().any(|r| r.to.contains("dispatch_release")),
         "closeListener must resolve dispatch_release for the queue and ctx semaphore"
     );
+}
+
+// bug-462: `tls::listen`'s CoreFoundation cleanup slots were never initialized.
+//
+// The `cert_fail` exit best-effort-releases CERTREF/KEYREF/ITEMS/DATA, each
+// NULL-guarded, and its comment asserted that an exit taken before a slot was
+// filled would find it "still NULL -- a no-op". Nothing established that: the
+// prologue stored only the four arguments, so the four cleanup slots held
+// whatever the caller had left on the stack. Any failure BEFORE both refs were
+// set -- an unreadable cert, a malformed PEM, an encrypted key, a mismatched
+// pair -- therefore `CFRelease`d stack garbage.
+//
+// Measured on macOS aarch64 before the fix: `tls::listen` with a
+// passphrase-protected key died with `EXC_BREAKPOINT` in
+// `CF_IS_OBJC <- CFRelease`, exit 133, instead of raising a catchable
+// `ErrTlsFailed`. That is a server's misconfiguration path, so it is the one an
+// operator is most likely to take.
+#[test]
+fn listen_zeroes_its_cleanup_slots_before_any_failure_exit() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let (ins, _rel, _slots) = lower_tls_listen_macos("t_listen", &imports, &TlsReadTestPlatform)
+        .expect("lower macos tls::listen");
+
+    // The frame offsets the cert_fail exit releases (server.rs DATA/ITEMS/
+    // CERTREF/KEYREF). Hardcoded on purpose: this test exists to notice if a slot
+    // is added to that release list without being zeroed here.
+    const CLEANUP_SLOTS: [&str; 4] = ["168", "176", "184", "192"];
+
+    // Everything up to the first branch that can reach `cert_fail`.
+    let first_fail = ins
+        .iter()
+        .position(|i| {
+            i.get("target").as_deref() == Some("t_listen_cert_fail")
+                || i.get("target").as_deref() == Some("t_listen_read_fail_fd")
+        })
+        .expect("listen must have a failure branch");
+
+    for slot in CLEANUP_SLOTS {
+        let zeroed = ins[..first_fail].iter().any(|i| {
+            i.get("offset").as_deref() == Some(slot)
+                && i.get("src").as_deref() == Some(abi::ZERO)
+                && i.get("base").as_deref() == Some(abi::stack_pointer())
+        });
+        assert!(
+            zeroed,
+            "bug-462: cleanup slot +{slot} must be zeroed before any exit that \
+             CFReleases it, or the exit releases stack garbage"
+        );
+    }
 }

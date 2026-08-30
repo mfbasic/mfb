@@ -280,6 +280,12 @@ pub(crate) fn lower_tls_listen(
     const HFILE: usize = 160;
     const DERBUF: usize = 168;
     const DERLEN: usize = 176;
+    // bug-461: the RSAPrivateKey DER the PKCS_RSA_PRIVATE_KEY decode reads. Both
+    // key encodings stage it here so they join at one call: for PKCS#8 it is the
+    // PrivateKey OCTET STRING inside the decoded CRYPT_PRIVATE_KEY_INFO, for
+    // PKCS#1 it is the file's own DER.
+    const KEYPTR: usize = 184;
+    const KEYLEN: usize = 192;
     const FRAME_SIZE: usize = 0x100;
 
     let addr_off = platform.addrinfo_addr_offset();
@@ -290,6 +296,8 @@ pub(crate) fn lower_tls_listen(
     let op_fail = format!("{symbol}_op_fail");
     let tls_fail_fd = format!("{symbol}_tls_fail_fd");
     let alloc_fail = format!("{symbol}_alloc_fail");
+    let key_pkcs1 = format!("{symbol}_key_pkcs1");
+    let key_decoded = format!("{symbol}_key_decoded");
     let done = format!("{symbol}_done");
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
@@ -418,14 +426,24 @@ pub(crate) fn lower_tls_listen(
         abi::store_u64(abi::return_register(), &v10, stl::CERTPTR),
     ]);
 
-    // key: PEM file -> DER (PKCS#8), then legacy-CAPI import into an ephemeral
+    // key: PEM file -> DER, then legacy-CAPI import into an ephemeral
     // provider. A software-KSP CNG ephemeral key is not reachable by Schannel's
     // credential path (both CNG association forms yield SEC_E_NO_CREDENTIALS); the
     // classic CryptImportKey-into-VERIFYCONTEXT + CERT_KEY_CONTEXT recipe is.
     emit_read_file(symbol, "key", KEY, WIDE, HFILE, PEMBUF, PEMLEN, WORK, &tls_fail_fd, &tls_fail_fd, imports, platform, &mut ins, &mut rel, &mut vregs)?;
     emit_pem_to_der(symbol, PEMBUF, PEMLEN, DERBUF, DERLEN, WORK, &tls_fail_fd, &tls_fail_fd, imports, platform, &mut ins, &mut rel, &mut vregs)?;
-    // CryptDecodeObjectEx(X509|PKCS7, PKCS_PRIVATE_KEY_INFO=44, pkcs8Der, cb,
+    // CryptDecodeObjectEx(X509|PKCS7, PKCS_PRIVATE_KEY_INFO=44, der, cb,
     //   CRYPT_DECODE_ALLOC_FLAG, NULL, &WORK.PKINFO, &WORK.CBPK) — unwrap PKCS#8.
+    //
+    // bug-461: this is a TRY, not a requirement. A PKCS#8 key
+    // (`-----BEGIN PRIVATE KEY-----`) decodes and its inner RSAPrivateKey is the
+    // OCTET STRING at PrivateKey; a traditional PKCS#1 key
+    // (`-----BEGIN RSA PRIVATE KEY-----`, what `openssl rsa -traditional` writes)
+    // does not decode as PrivateKeyInfo at all, and its DER already IS the
+    // RSAPrivateKey. Failing the call on a FALSE here rejected every PKCS#1 key
+    // with `7-707-0008`, a message that names neither the key nor its encoding --
+    // and made Windows the one backend with no PEM that also works on macOS and
+    // OpenSSL, both of which take either form.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", X509_PKCS7_ENCODING),
         abi::move_immediate(abi::c_arg(1), "Integer", "44"), // PKCS_PRIVATE_KEY_INFO
@@ -440,17 +458,34 @@ pub(crate) fn lower_tls_listen(
     win_call(symbol, "CryptDecodeObjectEx", 8, false, imports, platform, &mut ins, &mut rel)?;
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_eq(&tls_fail_fd), // BOOL FALSE
-    ]);
-    // CryptDecodeObjectEx(X509|PKCS7, PKCS_RSA_PRIVATE_KEY=43, pkInfo->PrivateKey
-    //   {cbData@32, pbData@40}, CRYPT_DECODE_ALLOC_FLAG, NULL, &WORK.KBLOB, &WORK.CBKB).
-    ins.extend([
+        abi::branch_eq(&key_pkcs1), // BOOL FALSE -> not PKCS#8; treat as PKCS#1
+        // PKCS#8: the RSAPrivateKey is `pkInfo->PrivateKey` {cbData@32, pbData@40}.
         abi::load_u64(&v10, abi::stack_pointer(), WORK),
         abi::load_u64(&v11, &v10, stl::PKINFO), // CRYPT_PRIVATE_KEY_INFO*
+        abi::load_u64(&v18, &v11, 40),
+        abi::store_u64(&v18, abi::stack_pointer(), KEYPTR),
+        abi::load_u32(&v18, &v11, 32),
+        abi::store_u64(&v18, abi::stack_pointer(), KEYLEN),
+        abi::branch(&key_decoded),
+        // PKCS#1: the file's own DER already is the RSAPrivateKey. WORK.PKINFO
+        // stays NULL, which nothing later reads -- the RSA decode below takes its
+        // source from the staged slots, not from PKINFO.
+        abi::label(&key_pkcs1),
+        abi::load_u64(&v18, abi::stack_pointer(), DERBUF),
+        abi::store_u64(&v18, abi::stack_pointer(), KEYPTR),
+        abi::load_u64(&v18, abi::stack_pointer(), DERLEN),
+        abi::store_u64(&v18, abi::stack_pointer(), KEYLEN),
+        abi::label(&key_decoded),
+    ]);
+    // CryptDecodeObjectEx(X509|PKCS7, PKCS_RSA_PRIVATE_KEY=43, <staged RSA DER>,
+    //   CRYPT_DECODE_ALLOC_FLAG, NULL, &WORK.KBLOB, &WORK.CBKB). A genuinely
+    //   malformed key fails HERE, on either path.
+    ins.extend([
+        abi::load_u64(&v10, abi::stack_pointer(), WORK),
         abi::move_immediate(abi::return_register(), "Integer", X509_PKCS7_ENCODING),
         abi::move_immediate(abi::c_arg(1), "Integer", "43"), // PKCS_RSA_PRIVATE_KEY
-        abi::load_u64(abi::c_arg(2), &v11, 40),            // PrivateKey.pbData
-        abi::load_u32(abi::c_arg(3), &v11, 32),            // PrivateKey.cbData
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), KEYPTR),
+        abi::load_u64(abi::c_arg(3), abi::stack_pointer(), KEYLEN),
         abi::move_immediate(abi::c_arg(4), "Integer", "32768"),
         abi::move_immediate(abi::c_arg(5), "Integer", "0"),
         abi::add_immediate(abi::c_arg(6), &v10, stl::KBLOB),

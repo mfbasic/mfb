@@ -56,6 +56,10 @@ built-in injection chain.
 - `icmp` — the `net::ping` model: which outcomes are `PingStatus` values and which
   are errors, what each field of `PingResult` means, the argument ranges, the
   Linux permission model, and the three per-platform ICMP backends.
+- `transports` — the `tcp`/`udp`/`tls` model: the shared `net::Address` endpoint,
+  handle ownership and the consuming `close`, stream reads versus preserved
+  datagram boundaries, `poll`'s readiness-query and producing-call overloads, and
+  the TLS handshake/credential rules.
 
 ## See Also
 

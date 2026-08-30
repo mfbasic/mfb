@@ -461,6 +461,17 @@ pub(crate) fn lower_tls_listen_macos(
         abi::store_u64(abi::c_arg(2), abi::stack_pointer(), CERT),
         abi::store_u64(abi::c_arg(3), abi::stack_pointer(), KEY),
     ]);
+    // bug-462: NULL the four CoreFoundation cleanup slots before anything can
+    // branch to `cert_fail`. That exit best-effort-releases each of them, guarded
+    // on non-NULL -- a guard that only means anything once they hold NULL rather
+    // than whatever the caller left on the stack. Every failure BEFORE both refs
+    // are set (an unreadable cert, a malformed PEM, an encrypted key, a mismatched
+    // pair) went through it, so a misconfigured server did not raise
+    // `ErrTlsFailed`: it `CFRelease`d stack garbage and trapped in `CF_IS_OBJC`.
+    ins.extend(
+        [DATA, ITEMS, CERTREF, KEYREF]
+            .map(|slot| abi::store_u64(abi::ZERO, abi::stack_pointer(), slot)),
+    );
     // Read the PEM pair into arena buffers before touching any framework.
     emit_read_whole_file(
         &mut EmitCtx {
