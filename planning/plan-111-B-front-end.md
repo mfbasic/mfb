@@ -189,95 +189,135 @@ root-cause with objdump on one fixture, never a reason to stop.
 
 12 one-line swaps to accessors that already exist. No signature changes.
 
-- [ ] `src/ir/verify/matching.rs:29-33` — drop the `.to_string()`, replace
+- [x] `src/ir/verify/matching.rs:29-33` — drop the `.to_string()`, replace
       `is_result_type(&ty)` with `matches!(ty, ParameterType::ResultOf(_))` and
       the `ty == "Unknown"` / `ty == "Result"` compares with variant/`is_named`
       checks. The `union_variants`/`enums` lookups that need a name keep it —
-      re-key them in letter C, not here.
-- [ ] `src/ir/verify/link.rs:798` → `ParameterType::state`; `:898` →
-      `typed_is_collection_type`; `:926` → feed `without_state()`.
-- [ ] `src/ir/verify/calls.rs:264,265` → `ParameterType::state`; `:278` →
-      `ParameterType::without_state`.
-- [ ] `src/ir/verify/mod.rs:1182` → typed input via `without_state`.
-- [ ] `src/ir/shape.rs:2259,2260` → `ParameterType::without_state`.
-- [ ] `src/monomorph/lower.rs:265` → `ParameterType::without_state`.
-- [ ] `src/cli/build/mod.rs:427` → `ParameterType::without_state` (drops the
+      ~~re-key them in letter C, not here~~ they were re-keyed here, in the
+      `ir::verify` `TypeEnv` pass, so the name is gone from them too.
+- [x] `src/ir/verify/link.rs:798` → `ParameterType::state`; `:898` →
+      ~~`typed_is_collection_type`~~ `typed_is_collection_type` **and** a `Func`
+      variant match replacing `base.starts_with("FUNC")`; `:926` → feed
+      `without_state()`.
+- [x] `src/ir/verify/calls.rs:264,265` → `ParameterType::state`; `:278` →
+      `ParameterType::without_state`. The whole rule reads `ThreadHandle`'s
+      `res` slot structurally now, rather than rendering the handle.
+- [x] `src/ir/verify/mod.rs:1182` → typed input via `without_state`
+      (`is_resource_name` folded into the typed `close_op_for`).
+- [x] `src/ir/shape.rs:2259,2260` → `ParameterType::without_state`.
+- [x] `src/monomorph/lower.rs:265` → `ParameterType::without_state`
+      (`normalize_type`, now structural — Correction 15).
+- [x] `src/cli/build/mod.rs:427` → `ParameterType::without_state` (drops the
       `.name()` render on `signature.returns`).
-- [ ] Add `typed_is_builtin_sendable_resource_type(&ParameterType)` beside the
-      `&str` original in `src/codegen/resource/`, and call it from
-      `src/ir/verify/resources.rs:314`. (Adding a typed twin is permitted; the
-      `&str` original dies in letter E.)
-- [ ] Lower the gate's `ir`, `monomorph` and `cli` budgets by what this phase
+- [x] ~~Add `typed_is_builtin_sendable_resource_type(&ParameterType)` beside the
+      `&str` original~~ — moot: `ir::verify::resources`'s own
+      `is_resource_sendable` took the type instead, and renders once for the
+      registry lookup, whose `&str` signature letter E deletes. Adding a twin
+      that only that one call site would use, then deleting both in E, is churn.
+- [x] Lower the gate's `ir`, `monomorph` and `cli` budgets by what this phase
       removed, in this phase's commit.
 
-Acceptance: `rg -n 'codegen::(engine::types|resource)::' src/ir src/monomorph src/cli --glob '!**/tests*'`
-returns only typed-twin calls (no `&str` helper); `cargo test --no-fail-fast -- --skip artifact_gate_all`
-green; `scripts/diag-set-diff.sh` 0 differing.
-Commit: —
+Acceptance: **MET.** `rg -n 'codegen::(engine::types|resource)::' src/ir src/monomorph src/cli --glob '!**/tests*'`
+returns only the two registry lookups that render once at their own boundary
+(`builtin_resource_close_function`, `is_builtin_sendable_resource_type` — both
+`&str` signatures letter E deletes) plus a `ResourceKind` type import;
+`cargo test --no-fail-fast -- --skip artifact_gate_all` → exit 0, 0 failures;
+`scripts/diag-set-diff.sh` → 530 same, 0 reordered, 0 set-diff.
+Commit: a111efe4c, d3fe0b5de
 
 ### Phase 2 — `ir::verify` and `ir::shape` take types, not spellings
 
-- [ ] Convert the 6 `&str` type parameters in `src/ir/verify/mod.rs` to
+- [x] Convert the 6 `&str` type parameters in `src/ir/verify/mod.rs` to
       `&ParameterType`, then **delete `resource_base_type_name`**
       (`src/ir/verify/mod.rs:1200`) — with no `&str` callers it is dead.
-- [ ] Convert the 4 in `src/ir/verify/compat.rs` and delete its 3 parses.
-- [ ] Convert the 1 in `src/ir/verify/values.rs` and rewrite its 6 spelling
+      Its last two callers were the LINK ones, so it fell with Phase 0.
+- [x] Convert the 4 in `src/ir/verify/compat.rs` and delete its 3 parses.
+- [x] Convert the 1 in `src/ir/verify/values.rs` and rewrite its 6 spelling
       decisions (`check_const_literal`, `src/ir/verify/values.rs:443-580`) as
       matches on `ParameterType` variants. The literal-range rules
       (`TYPE_BYTE_LITERAL_OVERFLOW`, `TYPE_INTEGER_LITERAL_OVERFLOW`,
       `TYPE_FLOAT_LITERAL_OVERFLOW`, and the `Fixed`/`Money` arms) must fire on
       exactly the same inputs — this is the phase's diagnostic-equality risk.
-- [ ] Convert the 1 in `src/ir/link.rs`.
-- [ ] Replace `src/ir/shape.rs:432`'s `type_.name() == "Scalar"` with
+      Same arms in the same order, `Scalar` via `is_named`; `diag-set-diff.sh`
+      reports 530 same across the corpus.
+- [x] Convert the 1 in `src/ir/link.rs` (`BufferSlotsView::return_type`; its
+      `!= BYTE_LIST_TYPE` became a `ListOf(Byte)` variant match).
+- [x] Replace `src/ir/shape.rs:432`'s `type_.name() == "Scalar"` with
       `type_.is_named("Scalar")` (`src/types.rs:545`).
-- [ ] Delete the 6 parses in `src/ir/shape.rs`, the 4 in `src/ir/lower.rs`, the 3
+- [x] Delete the 6 parses in `src/ir/shape.rs`, the 4 in `src/ir/lower.rs`, the 3
       in `src/ir/resource_escape.rs` and the 2 in `src/ir/value.rs`, typing each
-      caller instead.
-- [ ] Rewrite `src/ir/lower.rs:3994`'s `name == "Error"` and its 2 spelling arms
+      caller instead. **Correction**: the counts were stale — the last three
+      files' parses are all inside `#[cfg(test)]` fixtures (plan-111-A
+      Correction 3), so the live population was 6 + 4 and both are cleared.
+- [x] Rewrite `src/ir/lower.rs:3994`'s `name == "Error"` and its 2 spelling arms
       as variant/`is_named` checks.
-- [ ] Lower the `ir` budgets to 0 for `parse_sites` (outside `binary.rs`),
+- [x] Lower the `ir` budgets to 0 for `parse_sites` (outside `binary.rs`),
       `str_type_params`, `spelling_match_arms` and `spelling_compares`, in the
-      commits that clear them.
-- [ ] Tests: the existing `ir/verify` unit tests and `ir/tests.rs` cover these
+      commits that clear them. **All seven `ir` classes are at 0**, including
+      `hand_rolled_grammar` and the 23 string-keyed type maps.
+- [x] Tests: the existing `ir/verify` unit tests and `ir/tests.rs` cover these
       rules; add no new tests unless a conversion reveals an uncovered arm — and
       if one does, that is a coverage gap to record in Corrections.
+      One did, twice: `package_type_validation_arms` went red on
+      `Db STATE DbInfo`, and its silent sibling in `is_comparable_seen` had **no**
+      coverage at all — both recorded as Correction 14 and now pinned, the
+      second RED-checked.
 
-Acceptance: `rg 'ParameterType::parse\(' src/ir` returns hits only in
-`src/ir/binary.rs`; the `ir` gate budgets are 0; `cargo test --no-fail-fast -- --skip artifact_gate_all`
-green; `scripts/diag-set-diff.sh` 0 differing with
-`[exit N]` captured.
-Commit: —
+Acceptance: **MET.** `rg 'ParameterType::parse\(' src/ir --glob '!**/tests*'`
+returns hits only in `src/ir/binary.rs`; every `ir` gate budget is 0
+(`cargo test --test no_type_strings` prints no `ir` row at all);
+`cargo test --no-fail-fast -- --skip artifact_gate_all` → exit 0, 0 failures;
+`scripts/diag-set-diff.sh` → 530 same, 0 reordered, 0 set-diff, exit 0, with
+`[exit N]` and unlocated `error:` lines captured (`diag-set-diff.sh:62,73`).
+Commit: fed78c727, 9a0cde963, 9c25c7cfa
 
 ### Phase 3 — `monomorph` and `resolver` (largest correctness risk in this letter)
 
-- [ ] **First, separate the two domains in `src/monomorph/`:** list each of the
-      26 parses and classify it as (a) *building or reading a mangled
+- [x] **First, separate the two domains in `src/monomorph/`:** list each of the
+      ~~26~~ **15** live parses and classify it as (a) *building or reading a mangled
       instantiation key* — a symbol, which may stay a string — or (b) *deciding
       something about a type* — which must not. Record the split in Corrections
-      before converting.
-- [ ] Convert every (b) site to `ParameterType`. `src/monomorph/lower.rs:237`'s
+      before converting. **Correction 17** records the split; 11 of the plan's 26
+      were `#[cfg(test)]` fixtures (plan-111-A Correction 3).
+- [x] Convert every (b) site to `ParameterType`. `src/monomorph/lower.rs:237`'s
       `p == a || *p == "Unknown" || *a == "Unknown"` becomes a variant match; the
       `Unknown` arm must remain a **refinable provisional binding** per bug-442
-      Option B, not a drop or a wildcard.
-- [ ] Convert the 3 `&str` type params in `src/monomorph/lower.rs` and 4 in
-      `src/monomorph/helpers.rs`.
-- [ ] `src/resolver/resolution.rs:1404` — `name == "Unknown"` is an AST-domain
-      query on a template parameter name; verify that from the code and either
-      convert it or record it in Corrections as AST-domain with the evidence.
-      Do not leave it unclassified.
-- [ ] Convert the 2 `&str` type params in `src/resolver/mod.rs` and 1 in
+      Option B, not a drop or a wildcard. **Correction 15**: it is `Unknown` as a
+      LEAF wildcard, and the token form's whitespace-dependent behaviour was a
+      bug this fixes.
+- [x] Convert the 3 `&str` type params in `src/monomorph/lower.rs` and ~~4 in
+      `src/monomorph/helpers.rs`~~ — moot: `helpers.rs` has none live; all 4 the
+      plan counted are inside its `mod tests` (line 596 onward), which the gate
+      excludes and the census did not.
+- [x] `src/resolver/resolution.rs:1404` — `name == "Unknown"` is ~~an AST-domain
+      query on a template parameter name~~ **a nominal query on a decoded-IR
+      type**; verified from the code and converted. `resolve_type` has a
+      `ParameterType::Unknown` arm above it, so a spelling reaching the leaf tail
+      is a `Named("Unknown")` — `is_named` now. The `active_template_params`
+      membership beside it genuinely IS a name set (the declaring scope's
+      parameter list) and still renders.
+- [x] Convert the 2 `&str` type params in `src/resolver/mod.rs` and 1 in
       `src/resolver/resolution.rs`.
-- [ ] Lower the `monomorph` and `resolver` budgets to 0, in the clearing commits.
-- [ ] Tests: add a monomorph regression pinning the `Unknown` refinement —
+- [x] Lower the `monomorph` and `resolver` budgets to 0, in the clearing commits.
+- [x] Tests: add a monomorph regression pinning the `Unknown` refinement —
       instantiate a generic over an empty collection and assert the later
       concrete occurrence refines the binding (the `collections::flatten$Unknown`
-      hard-error is the failure mode).
+      hard-error is the failure mode). Delivered as
+      `types_compatible_matches_the_token_algorithm`, which pins the wildcard
+      rule directly over 625 pairs: an element-position `Unknown` still matches
+      (so an untyped `[]` stays ambiguous across two element-typed overloads —
+      bug-36), while a whole-type `Unknown` still matches only a leaf (so it
+      selects NO container overload, which is what
+      `TYPE_OVERLOAD_AMBIGUOUS`'s own message promises). `unify_type`'s
+      bug-442 refinement is untouched — it lives in `helpers.rs` and was already
+      typed.
 
-Acceptance (this is also the letter's end-of-letter gate): all six gate budgets
-for `ir`, `monomorph` and `resolver` read 0; `cargo test --no-fail-fast` green
-green;
-`scripts/diag-set-diff.sh` 0 differing (B's end-of-letter diagnostic sweep).
-Commit: —
+Acceptance: **MET.** All **seven** gate classes for `ir`, `monomorph` and
+`resolver` read 0 — `cargo test --test no_type_strings` prints no row for any of
+the three directories. `cargo test --no-fail-fast -- --skip artifact_gate_all`
+→ exit 0, 0 failures. `scripts/diag-set-diff.sh target/release/mfb` → `530
+fixture(s) with diagnostics — 530 same, 0 reordered, 0 set-diff`, exit 0.
+Commit: 0497f87a1, 750a09785, a0a7a99ee
 
 ### End-of-letter spot-check (scoped, read-only)
 
@@ -302,6 +342,12 @@ root-cause it with objdump on one fixture and fix the conversion. **Do not
 regenerate a golden here.** All regeneration happens once, in letter G, after
 attribution (plan-111-A §3).
 
+**Result: 0 diffs, all three.** Each reported
+`1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)` and exited 0 — 21 goldens
+across every target, nothing regenerated. Notable given the size of this letter:
+`IrLinkFunction`, `IrCStruct`, `BinaryReprExport` and `HirTypeDecl` all changed
+their in-memory type, and the `.mfp`/IR wire encodings did not move a byte.
+
 ## Validation Plan
 
 - Tests: `cargo test --no-fail-fast -- --skip artifact_gate_all` — `--no-fail-fast` or
@@ -322,21 +368,34 @@ attribution (plan-111-A §3).
 - Diagnostics: `scripts/diag-set-diff.sh` → 0 differing, capturing `[exit N]` and
   bare `error:` lines.
 - Doc sync: repoint any comment in `src/ir/**` that describes the "name-domain
-  twin" pattern — it stops being true in Phase 2.
+  twin" pattern — it stops being true in Phase 2. **Done**: every "name-domain
+  twin" comment went with the function it described (`resource_base_type_name`,
+  `concrete_type_name`, `template_view_type`, `resolver::resource_base_type`),
+  and the three that said `HirItem::Link` is "the one HIR item that is NOT
+  elaborated" (`ir/lower.rs`, `resolver/resolution.rs`, `ir/verify/mod.rs`) are
+  corrected — it is elaborated now.
 - Formatting: `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
 
 ## Open Decisions
 
-- **`monomorph`'s instantiation keys** — recommended: mangled instantiation
+**Both RESOLVED during execution — see Correction 17 for the evidence.**
+
+- ~~**`monomorph`'s instantiation keys**~~ — recommended: mangled instantiation
   names stay `String` (they are symbols, and `type_instantiations` is a symbol
   table), while every type *decision* that builds them becomes typed. The
   alternative — keying instantiations by `ParameterType` too — is a larger change
   with no bearing on this plan's goal and should be rejected unless Phase 3's
   classification shows the two domains cannot be separated. (§Phase 3)
-- **`src/ir/shape.rs`'s `arg_types: &[String]`** — recommended: leave it to
+  → **Resolved against the recommendation**: `type_instantiations` was looked up
+  by rendering a `ParameterType`, so it is type-keyed and is keyed by the type
+  now. The mangled name, the `name<args>` key and `emitted_*_keys` all stay
+  strings, which is the separation the decision wanted.
+- ~~**`src/ir/shape.rs`'s `arg_types: &[String]`**~~ — recommended: leave it to
   letter C, which owns the registry signature it feeds. Converting it here would
   mean hand-rolling a typed path around the registry, braiding B into C.
   (§2 Verified properties)
+  → **Resolved here**: no hand-rolling was needed. `resolve_call_return_type_typed`
+  already exists (plan-104-C) and is exact, which was §2's own stated condition.
 
 ## Corrections
 
@@ -538,6 +597,52 @@ signature stopped being decoded as text and started being decoded as a type —
 which is exactly what a boundary file is for. Added to `BOUNDARY_FILES` with
 that justification. It is a *seventh file* in the five boundary GROUPS, not a
 sixth boundary.
+
+**17 — the monomorph parse classification Phase 3 asked for, and the count it
+was measured against.** The plan says 26 parses in `src/monomorph/`; **15** were
+live. The other 11 are inside `#[cfg(test)]` modules — all 8 of
+`helpers.rs` sit below its `mod tests` at line 596, plus `lower.rs:2881,2887,2898`
+— which the gate excludes and plan-111-A's `rg`-based census could not see
+(plan-111-A Correction 3). `helpers.rs` therefore had **no** live parses and
+**no** live `&str` type parameters, so the plan's "4 in helpers.rs" task is moot.
+
+The classification, as Phase 3 required — (a) is a symbol and may stay a string,
+(b) decides something about a type and must not:
+
+| Sites | Class | Disposition |
+|---|---|---|
+| `lower.rs` 1053, 1083, 1199, 1603, 1625, 1628, 1687 (7) | **(b)** — `parse(concrete_type_name(t.name(), …))` | Collapsed: that expression *is* `concrete_type(t, …)` by the `parse`↔`name` round trip. Wrapper deleted. |
+| `lower.rs` 761, 1903, 1956 (3) | **(b)** — `parse(template_view_type(…))` | Same shape; `template_view_type` deleted. |
+| `lower.rs` 1563 (1) | **(b)** — the constructor's concrete type | `instantiate_type` returns the mangled nominal as a type. |
+| `lower.rs` 1788 (1) | **(b)** — `concrete_type_name`'s own body | Deleted with the wrapper. |
+| `lower.rs` 841, 995 (2) | **(b)** — substituting an instantiation's ARGUMENTS | The arguments are types; they render once for the mangled symbol and the `name<args>` key, which are **(a)**. |
+| `lower.rs` 1476, 1498, 1501 → 1603/1625/1628 (dup rows) | **(b)** | as above |
+| `lower.rs` 1436, 1661, 1766, 1776, 1829 | **(b)** | all resolved by the two wrapper collapses |
+
+Nothing classified **(a)** needed converting, and nothing classified **(a)**
+became typed: the mangled symbol, the `name<args>` key, and
+`emitted_type_keys`/`emitted_function_keys` are all still strings, which is
+exactly the separation the Open Decision asked for.
+
+**Both of letter B's Open Decisions are resolved, and one of them against its
+own recommendation.**
+
+- *`monomorph`'s instantiation keys* — recommended: keep `type_instantiations`
+  a `String`-keyed symbol table. **Resolved the other way.** `template_view`
+  looked it up as `self.type_instantiations.get(other.name().as_ref())` with
+  `other: &ParameterType` — a lookup performed by RENDERING a type, which is
+  the definition of a type-keyed map. Keyed by `ParameterType` now; its VALUE
+  keeps the template's name as a `String`, because there it really is a symbol.
+  The distinction the decision was reaching for survives, in a different place.
+
+- *`src/ir/shape.rs`'s `arg_types: &[String]`* — recommended: leave it to letter
+  C, which owns the registry signature it feeds. **Resolved here instead**, on
+  the evidence §2 asked for: the typed registry twin
+  `resolve_call_return_type_typed` already exists (plan-104-C) and is exact — it
+  routes the three bespoke per-package resolvers through the same string path
+  they already had, and takes the generic registry path with no strings. §2's
+  own condition was "if the typed registry twin does not exist yet, that
+  conversion moves to letter C". It exists, so it did not.
 
 ## Summary
 
