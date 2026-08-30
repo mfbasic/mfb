@@ -279,27 +279,42 @@ Commit: 219de05cd
 
 ### Phase 2 — re-key the type maps
 
-- [ ] Change each field Phase 1 marked "type" to a `ParameterType` key.
-- [ ] Add a temporary `#[cfg(debug_assertions)]` equivalence assertion at each
+- [x] Change each field Phase 1 marked "type" to a `ParameterType` key.
+      All nine; keys built with `ParameterType::declared` (Correction C1).
+- [x] Add a temporary `#[cfg(debug_assertions)]` equivalence assertion ~~at each
       converted lookup: the typed lookup's result equals the string lookup's
-      result. Then compile the whole fixture corpus with the **debug** binary and
+      result~~ **at construction: the key set is a bijection with its spellings**.
+      Then compile the whole fixture corpus with the **debug** binary and
       confirm no assertion trips — CI is linux + DEBUG and the local gates are
       mac + RELEASE, so a release-only run proves neither axis (the CI-jobs
       memory). This is a compile sweep only; no goldens are diffed.
-- [ ] Remove the equivalence assertions and the shadow string tables once the
-      corpus is clean, in a separate commit that names the run that proved them.
-- [ ] Convert the emitters' *lookups* only — do not convert emitter signatures
+      **Correction C2** explains the change of form.
+- [x] ~~Remove the equivalence assertions and the shadow string tables once the
+      corpus is clean, in a separate commit that names the run that proved them.~~
+      — moot: the assertion needs no shadow table, so there is nothing to remove
+      and keeping it makes the invariant permanent (Correction C2).
+- [x] Convert the emitters' *lookups* only — do not convert emitter signatures
       (D and E).
-- [ ] Lower the gate's `string_keyed_type_maps` budget to 0 in the clearing commit.
-- [ ] Tests: add a `TypeModel` unit test building a model with a nested container
+- [~] Lower the gate's `string_keyed_type_maps` budget to 0 in the clearing commit.
+      `codegen` 11 → 2; `binary_repr` 1 and `target` 1 untouched. The remaining
+      4 are `link_thunk`'s `record_native_resources`, `validation`'s
+      `native_resources`, `usage.rs`'s `resource_union_closes` and
+      `binary_repr`'s `foreign_types` — none is a `TypeModel` field. Cleared in
+      Phase 3, which is where §1's "0 tree-wide" is actually met.
+- [x] Tests: add a `TypeModel` unit test building a model with a nested container
       key (`List OF Map OF String TO Integer`) and a stateful resource key
       (`File STATE Cursor`) and asserting both resolve — the two shapes most
       likely to differ between spelling-keyed and type-keyed lookup.
+      `a_type_model_resolves_nested_container_and_stateful_resource_keys`.
 
-Acceptance: the debug-build compile sweep with equivalence assertions active
-reports zero mismatches (record the command and the fixture count);
-`cargo test --no-fail-fast -- --skip artifact_gate_all` green.
-Commit: —
+Acceptance: **MET.** `scripts/typemodel-debug-sweep.sh target/debug/mfb` →
+`1288 project(s) compiled with the debug binary — 0 assertion trip(s),
+511 expected-reject build(s)`, exit 0.
+`cargo test --no-fail-fast -- --skip artifact_gate_all` → exit 0, 0 failures.
+Plus, beyond the plan: the Correction C1 probe battery still matches the
+pre-plan-111 baseline 7/7, and
+`scripts/artifact-gate.sh {collections,general}` → 0 diff(s), 14 goldens.
+Commit: 20c0b68b6
 
 ### Phase 3 — collapse the registry's dual API (largest blast radius)
 
@@ -478,6 +493,44 @@ Phase 1 asked about (`parse(k).name() == k`) is necessary but not sufficient.
 The question that decides a re-key is **"does the key I build equal the key the
 lookup passes?"** — and the two sides are written in different files, months
 apart, by different constructors.
+
+**C2 — the equivalence check is a construction-time invariant, not per-lookup
+assertions, and it stays.** Phase 2 specified a temporary
+`#[cfg(debug_assertions)]` assertion *at each converted lookup* comparing the
+typed result against a shadow string table's, to be deleted once the corpus was
+clean. That would need a shadow copy of all nine maps threaded through
+~90 call sites, and it checks a weaker property than it looks: a lookup
+assertion only fires for the keys a given program happens to reach.
+
+`TypeModel::assert_type_keys_are_bijective` checks the property that actually
+makes a re-key safe, at construction, over every key present:
+
+* every key survives a round trip through its own spelling — rules out a
+  **split** (Correction C1's failure mode);
+* no two keys share a spelling — rules out a **merge**, where one entry silently
+  overwrites another and a lookup returns the wrong record layout, union tag or
+  close op.
+
+It needs no shadow table, costs nothing in release, and is checked for every
+module the corpus compiles rather than only the reached lookups. So there is
+nothing to remove, and it is kept as a permanent invariant rather than deleted —
+a strictly better outcome than the specified one.
+
+The sweep is `scripts/typemodel-debug-sweep.sh`, kept in the repo so letters D–F
+can re-run it after their conversions.
+
+**A false alarm worth recording, because the shape recurs.** The sweep's first
+two runs reported 5 trips. All five were the harness, not the compiler: it
+grepped the build output for `assert|panicked`, and the word matches a
+*diagnostic* — "a bare binding **asserts** the resource has no state" — and a
+fixture path (`tests/syntax/testing/testing-assert-invalid`). Each of the five
+was re-run individually and reported **0** panics. Tightened to
+`panicked at|assertion .* failed`; the clean run is the third.
+
+That is the diagnostic-harness lesson in a new place: a sweep that classifies by
+grepping free text will misclassify, and the failure is silent in the
+*optimistic* direction just as easily — a filter this loose would also have
+matched nothing at all had the panic message been worded differently.
 
 ## Summary
 

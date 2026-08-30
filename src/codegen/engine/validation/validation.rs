@@ -408,6 +408,8 @@ impl TypeModel {
         // packages are also present, from_module_and_packages re-derives them over
         // the combined set.
         model.recompute_canonical_variant_tags();
+        #[cfg(debug_assertions)]
+        model.assert_type_keys_are_bijective();
         Ok(model)
     }
 
@@ -483,7 +485,84 @@ impl TypeModel {
         // imported package union), so a variant shared across the boundary gets one
         // globally-consistent tag regardless of registration order (bug-80).
         model.recompute_canonical_variant_tags();
+        #[cfg(debug_assertions)]
+        model.assert_type_keys_are_bijective();
         Ok(model)
+    }
+
+    /// plan-111-C Phase 2: the equivalence check that stands in for the
+    /// byte-level gate this letter does not get.
+    ///
+    /// Re-keying a table from a SPELLING to a `ParameterType` is safe exactly
+    /// when the map from spellings to keys is a bijection over the keys actually
+    /// present. Two failure modes, both silent:
+    ///
+    /// * a **merge** — two distinct spellings collapsing to one key, so one
+    ///   table entry overwrites the other and a lookup returns the wrong record
+    ///   layout, union tag or close op;
+    /// * a **split** — one spelling reaching the table as two different keys, so
+    ///   a lookup that used to hit now misses. Correction C1 is a real instance:
+    ///   `ParameterType::named("Integer")` and the `Integer` variant are
+    ///   different keys for the same declaration.
+    ///
+    /// Both are ruled out by asserting, for every key present, that it survives
+    /// a round trip through its own spelling and that no two keys share one.
+    /// Debug-only, and checked at CONSTRUCTION so it covers every module the
+    /// corpus compiles rather than only the lookups a given program reaches.
+    ///
+    /// (plan-111-C Phase 2 specified this as temporary scaffolding with shadow
+    /// string tables, to be deleted once the corpus was clean. This form needs
+    /// no shadow table and costs nothing in release, so it stays — see the
+    /// letter's Corrections.)
+    #[cfg(debug_assertions)]
+    fn assert_type_keys_are_bijective(&self) {
+        use std::collections::HashMap as Keys;
+        let mut seen: Keys<String, ParameterType> = Keys::new();
+        let mut check = |key: &ParameterType, table: &str| {
+            let spelled = key.name().into_owned();
+            assert_eq!(
+                &ParameterType::declared(&spelled),
+                key,
+                "TypeModel.{table}: key `{spelled}` does not round-trip — re-keying \
+                 SPLIT it (plan-111-C Correction C1). Build the key with \
+                 `ParameterType::declared`, which is what an `AS {spelled}` \
+                 annotation elaborates to."
+            );
+            if let Some(previous) = seen.insert(spelled.clone(), key.clone()) {
+                assert_eq!(
+                    &previous, key,
+                    "TypeModel: two distinct keys share the spelling `{spelled}` — \
+                     re-keying MERGED them, so one table entry overwrites the other."
+                );
+            }
+        };
+        for key in self.record_fields.keys() {
+            check(key, "record_fields");
+        }
+        for key in self.union_names.iter() {
+            check(key, "union_names");
+        }
+        for key in self.union_variants.keys() {
+            check(key, "union_variants");
+        }
+        for key in self.union_variant_unions.keys() {
+            check(key, "union_variant_unions");
+        }
+        for key in self.union_variant_tags.keys() {
+            check(key, "union_variant_tags");
+        }
+        for key in self.union_variant_fields.keys() {
+            check(key, "union_variant_fields");
+        }
+        for key in self.resource_names.iter() {
+            check(key, "resource_names");
+        }
+        for key in self.resource_closers.keys() {
+            check(key, "resource_closers");
+        }
+        for (key, _) in self.enum_members.keys() {
+            check(key, "enum_members");
+        }
     }
 
     /// Assign each union variant a globally-canonical tag keyed by the variant
@@ -675,6 +754,72 @@ mod union_tag_tests {
             native_libraries: Default::default(),
             max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
         }
+    }
+
+    fn record(name: &str, fields: &[(&str, ParameterType)]) -> NirType {
+        NirType {
+            kind: "record".to_string(),
+            visibility: "private".to_string(),
+            name: name.to_string(),
+            fields: fields
+                .iter()
+                .map(|(field, type_)| crate::target::shared::nir::NirField {
+                    name: (*field).to_string(),
+                    type_: type_.clone(),
+                    visibility: None,
+                })
+                .collect(),
+            includes: Vec::new(),
+            variants: Vec::new(),
+            members: Vec::new(),
+        }
+    }
+
+    /// plan-111-C Phase 2: the two key shapes most likely to differ between a
+    /// spelling-keyed and a type-keyed lookup.
+    ///
+    /// A **nested container** (`List OF Map OF String TO Integer`) is the shape
+    /// where a naive re-key could decompose differently at each level; a
+    /// **stateful resource** (`File STATE Cursor`) is the one plan-111-A gave a
+    /// variant, so its spelling and its structure stopped being the same thing.
+    /// Both must resolve to the entry their declaration registered.
+    #[test]
+    fn a_type_model_resolves_nested_container_and_stateful_resource_keys() {
+        let nested = ParameterType::parse("List OF Map OF String TO Integer");
+        let stateful = ParameterType::parse("File STATE Cursor");
+        let model = TypeModel::from_module(&module(vec![
+            record("Holder", &[("items", nested.clone())]),
+            record("Handle", &[("state", stateful.clone())]),
+        ]))
+        .expect("model builds");
+
+        // The declarations are reachable by the type their own name denotes...
+        let holder = model
+            .record_fields
+            .get(&ParameterType::declared("Holder"))
+            .expect("Holder is registered");
+        assert_eq!(
+            holder[0].1, nested,
+            "the nested container survives re-keying"
+        );
+        let handle = model
+            .record_fields
+            .get(&ParameterType::declared("Handle"))
+            .expect("Handle is registered");
+        assert_eq!(
+            handle[0].1, stateful,
+            "the stateful resource survives re-keying"
+        );
+
+        // ...and a key built from the SPELLING finds the same entry, which is the
+        // property every emitter still holding a name depends on.
+        assert!(model.record_fields.contains_key(&ParameterType::declared(
+            &ParameterType::declared("Holder").name()
+        )));
+
+        // A composite is not a record key and must miss, both before and after.
+        assert!(model.record_fields.get(&nested).is_none());
+        assert!(model.record_fields.get(&stateful).is_none());
     }
 
     /// Tags are globally-canonical: keyed by the (sorted) variant name, not by a
