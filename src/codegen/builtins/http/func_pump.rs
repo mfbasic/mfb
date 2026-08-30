@@ -48,7 +48,7 @@ SUB __http_pump(RES s AS Stream STATE PendingState)
   END IF
   MUT r AS __http_PumpRead = __http_PumpRead[[], FALSE, 0]
   MATCH s
-    CASE net::Socket(p)
+    CASE tcp::Socket(p)
       r = __http_readNet(p, 65536)
     CASE tls::Socket(t)
       r = __http_readTls(t, 65536)

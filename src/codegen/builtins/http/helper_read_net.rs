@@ -12,11 +12,11 @@ r#"' Read up to `n` bytes from a plaintext Socket (the caller has confirmed
 ' readiness, so this returns promptly). A 0-byte read or `ErrConnectionClosed`
 ' marks the stream closed; any other transport failure is captured in `err`. The
 ' read + TRAP is at top level here, NEVER inside a MATCH CASE (Correction D3).
-FUNC __http_readNet(RES p AS net::Socket, n AS Integer) AS __http_PumpRead
+FUNC __http_readNet(RES p AS tcp::Socket, n AS Integer) AS __http_PumpRead
   MUT chunk AS List OF Byte = []
   MUT closed AS Boolean = FALSE
   MUT err AS Integer = 0
-  chunk = net::read(p, n) TRAP(e)
+  chunk = tcp::read(p, n) TRAP(e)
     IF e.code = errorCode::ErrConnectionClosed THEN
       closed = TRUE
       RECOVER []

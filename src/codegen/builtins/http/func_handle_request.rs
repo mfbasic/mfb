@@ -1,5 +1,5 @@
 //! `http::handleRequest` — descriptor entry (source-backed). Overloaded by listener
-//! type: a `net::Listener` rewrites to `__http_handleRequest`, a `tls::Listener`
+//! type: a `tcp::Listener` rewrites to `__http_handleRequest`, a `tls::Listener`
 //! to `__http_handleRequestSSL` — two `Implementation`s the generic overload
 //! resolution selects by the first argument's type (the datetime/net idiom, no
 //! custom resolver).
@@ -17,12 +17,12 @@ single inbound connection from `listener`, reads one HTTP/1.1 request, matches i
 against `routes`, invokes the matched handler, writes the resulting
 `http::Response`, and closes the accepted socket. It is meant to be driven from a
 user-owned `DO`/`LOOP`. The listener itself is **borrowed** — it stays open across
-calls and is closed only by its own lexical drop (or `net::close` / `tls::close`).
+calls and is closed only by its own lexical drop (or `tcp::close` / `tls::close`).
 The accepted socket is owned by the call and closed by lexical drop on return.
 
 The server is single-threaded and blocking: the accept call blocks until a client
 arrives, and one request is served at a time in the caller's loop. No timeout is
-passed to the underlying `net::accept` / `tls::accept`, so the wait is unbounded.
+passed to the underlying `tcp::accept` / `tls::accept`, so the wait is unbounded.
 
 **Reading.** Bytes are read in 64 KiB chunks and appended to a raw byte buffer
 until the frame is complete — the header terminator `\r\n\r\n` has been seen and
@@ -69,7 +69,7 @@ const EX: &str = r#"A plaintext accept loop with one route:
 
 ```
 IMPORT http
-IMPORT net
+IMPORT tcp
 IMPORT collections
 
 FUNC home(req AS http::Request) AS http::Response
@@ -79,7 +79,7 @@ END FUNC
 SUB main()
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/", home))
-  RES s AS net::Listener = http::server(8080)
+  RES s AS tcp::Listener = http::server(8080)
   DO
     http::handleRequest(s, routes)
   LOOP UNTIL FALSE
@@ -112,14 +112,14 @@ const BODY: &str =
 r#"' Plaintext accept -> parse -> dispatch -> respond -> close (one connection).
 ' Only a pointer to the listener is passed (it stays open for the next call); the accepted socket
 ' is owned and closed by lexical drop at return.
-SUB __http_handleRequest(RES listener AS net::Listener, routes AS List OF Route)
-  RES sock AS net::Socket = net::accept(listener)
+SUB __http_handleRequest(RES listener AS tcp::Listener, routes AS List OF Route)
+  RES sock AS tcp::Socket = tcp::accept(listener)
   MUT raw AS List OF Byte = []
   MUT reading AS Boolean = TRUE
   MUT oversize AS Boolean = FALSE
   WHILE reading = TRUE
     MUT chunk AS List OF Byte = []
-    chunk = net::read(sock, 65536) TRAP(e)
+    chunk = tcp::read(sock, 65536) TRAP(e)
       RECOVER []
     END TRAP
     IF len(chunk) = 0 THEN
@@ -141,11 +141,11 @@ SUB __http_handleRequest(RES listener AS net::Listener, routes AS List OF Route)
   IF oversize = FALSE THEN
     resp = __http_buildResponse(raw, routes)
   END IF
-  net::writeText(sock, __http_serializeHead(resp)) TRAP(e)
+  tcp::write(sock, __http_serializeHead(resp)) TRAP(e)
     EXIT SUB
   END TRAP
   IF len(resp.body) > 0 THEN
-    net::write(sock, resp.body) TRAP(e)
+    tcp::write(sock, resp.body) TRAP(e)
       EXIT SUB
     END TRAP
   END IF

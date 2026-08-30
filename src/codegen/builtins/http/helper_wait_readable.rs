@@ -12,14 +12,14 @@ r#"' Internal: BLOCK until the active transport is readable, bounded by the read
 ' deadline. The only blocking wait in the async core (`pump` stays non-blocking),
 ' so the blocking `read`/`write` wrappers reuse the drive loop cooperatively. The
 ' timed poll preserves the pre-plan-76-D read deadline (bug-268 / OS-11): the old
-' blocking path set `net::setReadTimeout`, so a black-holed peer failed cleanly
+' blocking path set `tcp::setReadTimeout`, so a black-holed peer failed cleanly
 ' with `ErrTimeout` instead of wedging the thread. A timeout marks the stream's
 ' STATE `err`, which `done` treats as terminal and `finish` reports.
 SUB __http_waitReadable(RES s AS Stream STATE PendingState)
   MUT rdy AS Boolean = FALSE
   MATCH s
-    CASE net::Socket(p)
-      rdy = net::poll(p, __HTTP_READ_TIMEOUT_MS)
+    CASE tcp::Socket(p)
+      rdy = tcp::poll(p, __HTTP_READ_TIMEOUT_MS)
     CASE tls::Socket(t)
       rdy = tls::poll(t, __HTTP_READ_TIMEOUT_MS)
   END MATCH

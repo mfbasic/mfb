@@ -65,7 +65,7 @@ const EX: &str = r#"A catch-all static route — the `*` capture supplies the re
 
 ```
 IMPORT http
-IMPORT net
+IMPORT tcp
 IMPORT collections
 
 FUNC serveStatic(req AS http::Request) AS http::Response
@@ -75,7 +75,7 @@ END FUNC
 SUB main()
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/static/*", serveStatic))
-  RES s AS net::Listener = http::server(8080)
+  RES s AS tcp::Listener = http::server(8080)
   DO
     http::handleRequest(s, routes)
   LOOP UNTIL FALSE

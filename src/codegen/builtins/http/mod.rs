@@ -11,7 +11,7 @@
 //! The value types (`Response`, `Request`, `RequestPart`, `Route`, the non-blocking
 //! `Stream` union + its `PendingState`) are registry-modeled (`add_record`/
 //! `add_union`, DOC round-tripped via `description`). `handleRequest` is overloaded
-//! by listener type (`net::Listener` vs `tls::Listener`); that is two
+//! by listener type (`tcp::Listener` vs `tls::Listener`); that is two
 //! `Implementation`s, each rewriting to its own transport body, selected by the
 //! generic overload resolution (the datetime/net idiom, no custom resolver).
 
@@ -163,7 +163,11 @@ pub(crate) fn register(r: &mut Registry) {
     // The companion source drives the wire protocol over `net`/`tls`, parses with
     // `strings`/`collections`, serves files with `fs`, and raises `errorCode` errors.
     pkg.add_imports(vec![
+        // plan-110-E: `net` stays for the URL/query surface (`net::Url`,
+        // `net::toUrl`, `net::percentDecode`, `net::parseQuery`), which did not
+        // move; the transport moved to `tcp`.
         "net",
+        "tcp",
         "tls",
         "fs",
         "strings",
@@ -382,7 +386,7 @@ pub(crate) fn register(r: &mut Registry) {
     // plan-76-D: the non-blocking client's transport. `Stream` is a RESOURCE union
     // over the two transports; plan-97/bug-441 made built-in resources
     // package-qualified end to end, so the variants carry their qualified
-    // identities (`net::Socket`, `tls::Socket`) and the close-wiring keys on
+    // identities (`tcp::Socket`, `tls::Socket`) and the close-wiring keys on
     // that same identity. It carries a `PendingState` (union STATE). A program
     // drives an exchange without blocking its thread:
     //   RES s AS http::Stream STATE PendingState = http::startRead(url, {}, "GET")
@@ -395,7 +399,7 @@ pub(crate) fn register(r: &mut Registry) {
         export: true,
         variants: vec![
             UnionVariant {
-                name: "net::Socket",
+                name: "tcp::Socket",
                 description: "A plain-TCP exchange's transport.",
             },
             UnionVariant {

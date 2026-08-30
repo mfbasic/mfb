@@ -21,16 +21,16 @@ FUNC __http_startExchange(url AS net::Url, body AS String, hasBody AS Boolean, h
     MATCH s
       CASE tls::Socket(t)
         tls::write(t, request)
-      CASE net::Socket(p)
-        net::writeText(p, request)
+      CASE tcp::Socket(p)
+        tcp::write(p, request)
     END MATCH
     s.state.sentAll = TRUE
     RETURN s
   END IF
-  RES s AS Stream STATE PendingState = net::connectTcp(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS)
+  RES s AS Stream STATE PendingState = tcp::connect(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS)
   MATCH s
-    CASE net::Socket(p)
-      net::writeText(p, request)
+    CASE tcp::Socket(p)
+      tcp::write(p, request)
     CASE tls::Socket(t)
       tls::write(t, request)
   END MATCH

@@ -98,14 +98,28 @@ the correct API.
       `func_ready.rs`, `mod.rs`, `func_handle_request.rs`, `helper_wait_readable.rs`,
       `func_server.rs`, `helper_start_exchange.rs`, `func_pump.rs`. That list is Phase 1's
       work-list and the acceptance grep's target.
-- [ ] Migrate `src/codegen/builtins/http/` Stream variants, server return types, helpers, docs, and
+- [x] Migrate `src/codegen/builtins/http/` Stream variants, server return types, helpers, docs, and
       imports to tcp/tls while leaving net Url/query calls intact.
-- [ ] Update HTTP runtime/syntax tests to prove plaintext and TLS client/server/async workflows,
+      11 files, 40 references. The `Stream` union's variants are now `tcp::Socket | tls::Socket`;
+      `http::server` returns a `tcp::Listener`; every helper calls `tcp::` for transport.
+      `net` is retained in `add_imports` and in the examples that use it, because the URL/query
+      surface (`net::Url`, `net::toUrl`, `net::percentDecode`, `net::parseQuery`) did not move.
+      `net::writeText` folded into `tcp::write`'s String overload. Three doc examples gained
+      `IMPORT tcp`, since an example naming `tcp::Listener` without it would not compile for a
+      reader who copied it.
+- [~] Update HTTP runtime/syntax tests to prove plaintext and TLS client/server/async workflows,
       including buffered TLS readiness and connect/read timeout behavior.
+      Proven live on all three platforms with a probe covering the blocking client over plaintext
+      AND TLS, the async `Stream` drive loop (`startRead`/`ready`/`pump`/`done`/`finish`), and the
+      server bind — `plain status=200 / tls status=200 / async status=200 / bound=TRUE`, identical
+      on macOS aarch64, Alpine x86_64 musl (2227) and Windows 11 (2230). Remaining: land that probe
+      as a committed fixture, and the existing http fixtures' golden refresh.
 
 Acceptance: HTTP acceptance and standalone runtime tests pass using only tcp/tls transport symbols;
 `rg -n 'net::(Socket|Listener|connectTcp|listenTcp|accept|read|write|poll|close)' src/codegen/builtins/http`
-returns no matches.
+returns no matches. **The grep half is MET** — measured 2026-08-30, 0 matches for the full
+15-symbol stream surface (not just the 9 the criterion names), anchored so `net::read` does not
+mask `net::readText`. The test half lands with the fixture in the next commit.
 Commit: —
 
 ### Phase 2 — Remaining first-party consumers
