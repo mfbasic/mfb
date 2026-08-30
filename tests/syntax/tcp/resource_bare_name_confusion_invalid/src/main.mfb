@@ -1,0 +1,33 @@
+' plan-110 gave `net`, `tcp`, `udp` and `tls` resources with the SAME bare
+' names (`Socket`, `Listener`). The type checker's bare-name fallback -- written
+' when bare names were globally unique, so `File` and `fs::File` could only mean
+' the same type -- then equated them, and every binding below type-checked
+' silently. A TCP stream bound as a UDP datagram socket is a resource-kind
+' confusion the type system exists to prevent; the mismatch surfaced much later
+' as "NIR declares unused runtime helper", or not at all.
+'
+' Each of these must now be TYPE_BINDING_MISMATCH.
+IMPORT net
+IMPORT tcp
+IMPORT udp
+IMPORT tls
+IMPORT io
+
+FUNC main AS Integer
+  RES server = tcp::listen("127.0.0.1", 0)
+
+  ' Same bare name `Socket`, different packages.
+  RES asUdp AS udp::Socket = tcp::accept(server, 0)
+  RES asTls AS tls::Socket = tcp::accept(server, 0)
+  RES asNet AS net::Socket = tcp::accept(server, 0)
+
+  ' Same bare name `Listener`, different packages.
+  RES asNetListener AS net::Listener = tcp::listen("127.0.0.1", 0)
+  RES asTlsListener AS tls::Listener = tcp::listen("127.0.0.1", 0)
+
+  ' And the reverse direction, so the check is not one-sided.
+  RES back AS tcp::Socket = udp::bind("127.0.0.1", 0)
+
+  io::print("unreachable")
+  RETURN 0
+END FUNC

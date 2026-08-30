@@ -1,0 +1,48 @@
+' plan-110-E: http drives its transport through `tcp`, not `net`.
+'
+' The three things the migration could plausibly have broken, each proven by a
+' distinct path rather than by compilation:
+'   1. the blocking client over BOTH transports -- the plaintext path is now
+'      tcp::connect/write/read/close, the TLS path is unchanged, and http picks
+'      between them by URL scheme;
+'   2. the async `Stream` resource union, whose variants became
+'      `tcp::Socket | tls::Socket`. A union CASE dispatching on the wrong
+'      variant identity would fail here and nowhere else, and both variants are
+'      now spelled `Socket`, distinguished only by package;
+'   3. `http::server`, which returns a `tcp::Listener` DIRECTLY (http adds no
+'      wrapper resource), so the handle has to be usable by tcp's own members.
+'
+' Live network, like the other http and tls rt fixtures. Output is reduced to
+' stable values so the golden does not depend on the remote body.
+IMPORT http
+IMPORT net
+IMPORT tcp
+IMPORT io
+
+FUNC main AS Integer
+  LET plain AS http::Response = http::read(net::toUrl("http://example.com/"))
+  io::print("plain status=" & toString(plain.status))
+  LET secure AS http::Response = http::read(net::toUrl("https://example.com/"))
+  io::print("tls status=" & toString(secure.status))
+
+  RES s AS http::Stream STATE http::PendingState = http::startRead(net::toUrl("http://example.com/"))
+  MUT spins AS Integer = 0
+  WHILE http::done(s) = FALSE
+    IF http::ready(s) THEN
+      http::pump(s)
+    END IF
+    spins = spins + 1
+    IF spins > 100000 THEN
+      io::print("spun out")
+      RETURN 1
+    END IF
+  END WHILE
+  LET async AS http::Response = http::finish(s)
+  io::print("async status=" & toString(async.status))
+
+  ' The listener is a plain tcp::Listener: tcp's own members accept it.
+  RES server AS tcp::Listener = http::server(0, "127.0.0.1")
+  LET bound AS net::Address = tcp::localAddress(server)
+  io::print("bound=" & toString(bound.port > 0))
+  RETURN 0
+END FUNC

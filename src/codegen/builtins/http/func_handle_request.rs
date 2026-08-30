@@ -221,7 +221,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: Some("Listener or tls::Listener, List OF Route"),
+        expected_arguments: Some("tcp::Listener or tls::Listener, List OF Route"),
         internal_only: false,
         implementations: vec![
             overload(

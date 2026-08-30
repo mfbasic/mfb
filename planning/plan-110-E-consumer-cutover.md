@@ -107,20 +107,23 @@ the correct API.
       `net::writeText` folded into `tcp::write`'s String overload. Three doc examples gained
       `IMPORT tcp`, since an example naming `tcp::Listener` without it would not compile for a
       reader who copied it.
-- [~] Update HTTP runtime/syntax tests to prove plaintext and TLS client/server/async workflows,
+- [x] Update HTTP runtime/syntax tests to prove plaintext and TLS client/server/async workflows,
       including buffered TLS readiness and connect/read timeout behavior.
-      Proven live on all three platforms with a probe covering the blocking client over plaintext
-      AND TLS, the async `Stream` drive loop (`startRead`/`ready`/`pump`/`done`/`finish`), and the
-      server bind — `plain status=200 / tls status=200 / async status=200 / bound=TRUE`, identical
-      on macOS aarch64, Alpine x86_64 musl (2227) and Windows 11 (2230). Remaining: land that probe
-      as a committed fixture, and the existing http fixtures' golden refresh.
+      `tests/rt-behavior/http/http-tcp-transport-rt` covers the blocking client over plaintext AND
+      TLS, the async `Stream` drive loop (`startRead`/`ready`/`pump`/`done`/`finish`) and the server
+      bind — `plain status=200 / tls status=200 / async status=200 / bound=TRUE`, identical on
+      macOS aarch64, Alpine x86_64 musl (2227) and Windows 11 (2230). `http_server_loopback` and
+      the `byte-identity/http` corpus migrated with it. Buffered TLS readiness is already pinned by
+      `tls-poll-rt`/`tls-poll-list-rt`, and the connect/read timeout convention by
+      `tls-read-timeout-rt` and `tls-timeout-convention-rt` (plan-110-D).
 
 Acceptance: HTTP acceptance and standalone runtime tests pass using only tcp/tls transport symbols;
 `rg -n 'net::(Socket|Listener|connectTcp|listenTcp|accept|read|write|poll|close)' src/codegen/builtins/http`
-returns no matches. **The grep half is MET** — measured 2026-08-30, 0 matches for the full
-15-symbol stream surface (not just the 9 the criterion names), anchored so `net::read` does not
-mask `net::readText`. The test half lands with the fixture in the next commit.
-Commit: —
+returns no matches. **MET** — measured 2026-08-30: 0 matches for the full 15-symbol stream surface
+(not just the 9 the criterion names), anchored so `net::read` does not mask `net::readText`.
+Gates: acceptance 1298 tests / 0 mismatches; `artifact-gate.sh all` 1283 tests, 1440 builds,
+1772 goldens, 0 diffs; `cargo test --bin mfb` 3392 passed.
+Commit: 5629fc9bb, and the type-confusion fix below
 
 ### Phase 2 — Remaining first-party consumers
 

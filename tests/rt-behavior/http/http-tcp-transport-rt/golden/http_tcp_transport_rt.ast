@@ -1,0 +1,70 @@
+{
+  "project": "http_tcp_transport_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "http", "line": 17 },
+    { "module": "net", "line": 18 },
+    { "module": "tcp", "line": 19 },
+    { "module": "io", "line": 20 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 22,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "plain", "type": "Response", "value": { "kind": "call", "callee": "http.read", "arguments": [{ "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "string", "value": "http://example.com/" }] }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "plain status=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "plain" }, "member": "status" }] } }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "secure", "type": "Response", "value": { "kind": "call", "callee": "http.read", "arguments": [{ "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "string", "value": "https://example.com/" }] }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tls status=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "secure" }, "member": "status" }] } }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "PendingState", "name": "s", "type": "Stream", "value": { "kind": "call", "callee": "http.startRead", "arguments": [{ "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "string", "value": "http://example.com/" }] }] }, "line": 28 },
+      { "kind": "binding", "mutable": true, "name": "spins", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 29 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "http.done", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "boolean", "value": false } },
+        "line": 30,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "call", "callee": "http.ready", "arguments": [{ "kind": "identifier", "value": "s" }] },
+          "line": 31,
+          "then": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "http.pump", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 32 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "spins", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "spins" }, "right": { "kind": "number", "value": "1" } }, "line": 34 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "spins" }, "right": { "kind": "number", "value": "100000" } },
+          "line": 35,
+          "then": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "spun out" }] }, "line": 36 },
+          { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 37 }
+          ],
+          "else": [
+          ]
+        }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "async", "type": "Response", "value": { "kind": "call", "callee": "http.finish", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "async status=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "async" }, "member": "status" }] } }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": "tcp.Listener", "value": { "kind": "call", "callee": "http.server", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "string", "value": "127.0.0.1" }] }, "line": 44 },
+      { "kind": "binding", "mutable": false, "name": "bound", "type": "Address", "value": { "kind": "call", "callee": "tcp.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bound=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 46 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 47 }
+      ]
+    }
+    ]
+  }
+  ]
+}

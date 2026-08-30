@@ -1,8 +1,12 @@
 {
   "format": "mfb-ir",
   "version": 1,
-  "project": "func_thread_start_self_http_fanout",
-  "entry": null,
+  "project": "http_tcp_transport_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
   "bindings": [
   { "name": "#HTTP_MAX_RESPONSE", "line": 98, "visibility": "public", "mutable": false, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "67108864" } },
   { "name": "#HTTP_CONNECT_TIMEOUT_MS", "line": 105, "visibility": "public", "mutable": false, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "30000" } },
@@ -169,33 +173,56 @@
   ],
   "functions": [
   {
-    "name": "fetchStatus",
-    "line": 11,
-    "visibility": "export",
-    "kind": "func",
-    "params": [
-    { "name": "w", "line": 11, "type": "ThreadWorker OF Nothing TO Integer", "default": null },
-    { "name": "url", "line": 11, "type": "String", "default": null }
-    ],
-    "returns": "Integer",
-    "body": [
-    { "op": "bind", "line": 12, "mutable": false, "name": "r", "type": "Response", "value": { "kind": "call", "type": "Response", "target": "#http_read", "args": [{ "kind": "call", "type": "Url", "target": "#net_toUrl", "args": [{ "kind": "local", "name": "url" }] }, { "kind": "map", "type": "Map OF String TO String", "entries": [] }, { "kind": "const", "type": "String", "value": "GET" }] } },
-    { "op": "return", "line": 13, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "r" }, "member": "status" } }
-    ]
-  },
-  {
-    "name": "fanout",
-    "line": 16,
-    "visibility": "export",
+    "name": "main",
+    "line": 22,
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 17, "mutable": false, "name": "a", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "fetchStatus", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "http://a.example/" }] } },
-    { "op": "bind", "line": 18, "mutable": false, "name": "b", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "fetchStatus", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "http://b.example/" }] } },
-    { "op": "bind", "line": 19, "mutable": false, "name": "c", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "fetchStatus", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "http://c.example/" }] } },
-    { "op": "return", "line": 20, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "a" }] }, "right": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "b" }] } }, "right": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "c" }] } } }
+    { "op": "bind", "line": 23, "mutable": false, "name": "plain", "type": "Response", "value": { "kind": "call", "type": "Response", "target": "#http_read", "args": [{ "kind": "call", "type": "Url", "target": "#net_toUrl", "args": [{ "kind": "const", "type": "String", "value": "http://example.com/" }] }, { "kind": "map", "type": "Map OF String TO String", "entries": [] }, { "kind": "const", "type": "String", "value": "GET" }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "plain status=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "plain" }, "member": "status" }] } }] } },
+    { "op": "bind", "line": 25, "mutable": false, "name": "secure", "type": "Response", "value": { "kind": "call", "type": "Response", "target": "#http_read", "args": [{ "kind": "call", "type": "Url", "target": "#net_toUrl", "args": [{ "kind": "const", "type": "String", "value": "https://example.com/" }] }, { "kind": "map", "type": "Map OF String TO String", "entries": [] }, { "kind": "const", "type": "String", "value": "GET" }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "tls status=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "secure" }, "member": "status" }] } }] } },
+    { "op": "bind", "line": 28, "mutable": false, "name": "s", "type": "Stream STATE PendingState", "value": { "kind": "call", "type": "Stream STATE PendingState", "target": "#http_startRead", "args": [{ "kind": "call", "type": "Url", "target": "#net_toUrl", "args": [{ "kind": "const", "type": "String", "value": "http://example.com/" }] }, { "kind": "map", "type": "Map OF String TO String", "entries": [] }, { "kind": "const", "type": "String", "value": "GET" }] } },
+    { "op": "bind", "line": 29, "mutable": true, "name": "spins", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 30,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Boolean", "target": "#http_done", "args": [{ "kind": "local", "name": "s" }] }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
+      "body": [
+      {
+        "op": "if",
+        "line": 31,
+        "condition": { "kind": "call", "type": "Boolean", "target": "#http_ready", "args": [{ "kind": "local", "name": "s" }] },
+        "then": [
+        { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "#http_pump", "args": [{ "kind": "local", "name": "s" }] } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 34, "name": "spins", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "spins" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      {
+        "op": "if",
+        "line": 35,
+        "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "spins" }, "right": { "kind": "const", "type": "Integer", "value": "100000" } },
+        "then": [
+        { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "spun out" }] } },
+        { "op": "return", "line": 37, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+        ],
+        "else": [
+        ]
+      }
+      ]
+    },
+    { "op": "bind", "line": 40, "mutable": false, "name": "async", "type": "Response", "value": { "kind": "call", "type": "Response", "target": "#http_finish", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "async status=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "async" }, "member": "status" }] } }] } },
+    { "op": "bind", "line": 44, "mutable": false, "name": "server", "type": "tcp.Listener", "value": { "kind": "call", "type": "tcp.Listener", "target": "#http_server", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "128" }] } },
+    { "op": "bind", "line": 45, "mutable": false, "name": "bound", "type": "Address", "value": { "kind": "call", "type": "Address", "target": "tcp.localAddress", "args": [{ "kind": "local", "name": "server" }] } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "bound=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "bound" }, "member": "port" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] } }] } },
+    { "op": "return", "line": 47, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {

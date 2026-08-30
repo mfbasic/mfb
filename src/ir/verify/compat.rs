@@ -545,7 +545,27 @@ impl TypeEnv {
             .rsplit('.')
             .next()
             .unwrap_or(actual_name.as_ref());
-        if expected_bare == actual_bare {
+        // ...except between two DIFFERENT BUILT-IN RESOURCE types. This fallback
+        // was written when bare names were globally unique, so `File` and
+        // `fs.File` could only ever mean the same type; plan-110 broke that
+        // premise by giving `net`, `tcp`, `udp` and `tls` resources with
+        // identical bare names (`Socket`, `Listener`). Without the guard
+        // `RES s AS udp::Socket = tcp::accept(...)` type-checked -- a TCP stream
+        // bound as a datagram socket, silently, surfacing much later as a
+        // confusing "NIR declares unused runtime helper" or not at all.
+        //
+        // Restricted to built-in resources on purpose. A blanket
+        // "two qualified names differ" rule is WRONG: a user package imported
+        // under an alias yields `comparable.Box` for a type whose defining
+        // package spells it `package_comparable_types.Box`, and those are the
+        // same type (`syntax/packages/package-comparable-import-invalid` caught
+        // exactly that). Built-in resources have no alias path -- they are
+        // package-qualified end to end since plan-97/bug-441 -- so for them a
+        // differing qualifier really does mean a differing type.
+        let distinct_builtin_resources = expected_name != actual_name
+            && crate::codegen::resource::is_builtin_resource_type(&expected_name)
+            && crate::codegen::resource::is_builtin_resource_type(&actual_name);
+        if expected_bare == actual_bare && !distinct_builtin_resources {
             return true;
         }
         // A union accepts any of its variants. A variant may be spelled qualified
