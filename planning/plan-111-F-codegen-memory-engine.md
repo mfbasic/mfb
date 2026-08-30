@@ -252,7 +252,7 @@ Type these first; every later phase calls them.
 Acceptance: **MET.** All four files read 0 on every class this letter converts;
 the stateful-resource routing is proven RED-then-GREEN;
 `cargo test --no-fail-fast -- --skip artifact_gate_all` → exit 0, 0 failures.
-Commit: —
+Commit: 119b8b099
 
 ### Phase 2 — value semantics and the value builder (39 sites)
 
@@ -293,7 +293,7 @@ Commit: —
 
 Acceptance: **MET.** The three files read 0 on every class;
 `cargo test --no-fail-fast -- --skip artifact_gate_all` → exit 0, 0 failures.
-Commit: —
+Commit: 119b8b099
 
 ### Phase 3 — arena, marshal, cleanup and function lowering (36 sites)
 
@@ -328,7 +328,7 @@ Highest blast radius in this letter.
 Acceptance: **MET.** The ten files read 0 on every class; the one new
 behavioural claim carries a recorded RED-check (Phase 1);
 `cargo test --no-fail-fast -- --skip artifact_gate_all` → exit 0, 0 failures.
-Commit: —
+Commit: 119b8b099
 
 ### Phase 4 — the builtin-package modules (61 sites, 17 files)
 
@@ -369,7 +369,7 @@ right instrument (Corrections A3/C3), so the check is `census_by_file`:
 `src/codegen/` reads **0 on six of the seven classes**, with 4 `str_type_params`
 remaining, each individually justified and enumerated in Correction F2. The
 letter's end gate passes.
-Commit: —
+Commit: 119b8b099
 
 ### End-of-letter spot-check (scoped, read-only)
 
@@ -394,6 +394,20 @@ running it now instead of discovering it in G behind six letters of churn —
 root-cause it with objdump on one fixture and fix the conversion. **Do not
 regenerate a golden here.** All regeneration happens once, in letter G, after
 attribution (plan-111-A §3).
+
+**Result: 0 diffs on all four, MET.**
+
+```
+artifact-gate [fs]:      1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+artifact-gate [io]:      1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+artifact-gate [crypto]:  1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+artifact-gate [general]: 1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+```
+
+28 goldens across every target, byte-identical. `fs` and `crypto` are the
+resource/cleanup paths this letter's `without_state()` conversions run through,
+so a STATE-stripping regression would land there — which is also the failure
+Phase 1's RED check reproduced deliberately.
 
 ## Validation Plan
 
