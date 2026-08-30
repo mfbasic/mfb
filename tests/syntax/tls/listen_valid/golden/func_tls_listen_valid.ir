@@ -41,8 +41,8 @@
     { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "serveOnce", "args": [{ "kind": "local", "name": "s1" }] }] }] } },
     { "op": "bind", "line": 21, "mutable": false, "name": "timed", "type": "tls.Socket", "value": { "kind": "call", "type": "tls.Socket", "target": "tls.accept", "args": [{ "kind": "local", "name": "s2" }, { "kind": "const", "type": "Integer", "value": "5000" }] } },
     { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "timed" }] } },
-    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "s1" }] } },
-    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "s2" }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "tls.closeListener", "args": [{ "kind": "local", "name": "s1" }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "tls.closeListener", "args": [{ "kind": "local", "name": "s2" }] } },
     { "op": "return", "line": 25, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },

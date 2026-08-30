@@ -96,13 +96,33 @@ the prediction before regeneration.
       pre-plan figure was 74), 25 byte-identity `.ncodesum` goldens, and all 40 declared overloads
       exercised by at least one fixture source. Valid/invalid symmetry was NOT holding -- `udp` had
       3 invalid fixtures for 8 members and `net::toUrl` had none -- so six new fixtures close it.
-- [ ] Add/finish reusable local peer scripts for TCP blackhole, UDP echo, TLS CA/client/server,
+- [x] Add/finish reusable local peer scripts for TCP blackhole, UDP echo, TLS CA/client/server,
       and ICMP permission denial; no mocks or public-network dependency for required proof.
-- [ ] Prove the harness itself fails when one expected response/status/certificate is deliberately
+      TCP blackhole already existed (`scripts/check-tcp-connect-timeout.sh` +
+      `net_blackhole_server.py`, retargeted to `tcp::connect` by plan-110-B). Three added:
+      `scripts/check-udp-echo.sh` + `net_udp_echo_server.py` (a POSIX-sockets echo peer, so a round
+      trip has to be right on the WIRE, not merely self-consistent -- payload, `Datagram.from`
+      being the peer's own port, datagram boundaries, zero-length);
+      `scripts/gen-test-tls-identity.sh` + `check-tls-loopback.sh` (a throwaway CA and a
+      `SAN IP:127.0.0.1` leaf; an MFBASIC TLS server dialled by `openssl s_client`, plus the
+      negative where an unrelated CA must be rejected); and `scripts/check-icmp-permission.sh`
+      (`unshare -Urn` on Linux, `sandbox-exec` on macOS, to manufacture the ICMP denial the
+      contract says must RAISE rather than return a `PingStatus`). Every one is loopback-only.
+- [x] Prove the harness itself fails when one expected response/status/certificate is deliberately
       wrong, then restore it.
+      `scripts/check-net-harness-selftest.sh` runs all four twice -- as shipped (must PASS) and
+      against an injected wrong expectation (must FAIL, *and for the injected reason*, not by
+      crashing on the edit). The sabotaged copy is written to `scripts/.selftest-<name>` and removed
+      on every exit path including SIGINT, because each harness resolves its peer scripts relative
+      to its own location and a copy elsewhere silently fails for the wrong reason. It also asserts
+      the injection changed something: a `sed` that matched nothing would otherwise "prove"
+      detection it never exercised. Measured: 8/8 verdicts correct.
 
 Acceptance: one documented command per protocol yields stable observable results and detects an
-injected wrong result.
+injected wrong result. **Met**, measured 2026-08-30 on macOS aarch64:
+`scripts/check-tcp-connect-timeout.sh`, `check-udp-echo.sh`, `check-tls-loopback.sh` and
+`check-icmp-permission.sh` each PASS, and `check-net-harness-selftest.sh` reports
+"every networking harness passes as shipped and fails on an injected wrong result".
 Commit: —
 
 ### Phase 2 — Native target matrix
@@ -217,6 +237,31 @@ Two facts had to be corrected while writing them, both measured rather than assu
   tried to `TRAP` a call on a closed socket; it does not build (`TYPE_USE_AFTER_MOVE`), because
   `close` consumes its argument. The case moved to the invalid fixture, which is the stronger
   statement.
+
+**F-C2 — the TLS harness crashed on its first run: bug-459.** An explicit `tls::close(listener)`
+segfaults on macOS. `nw_connection_cancel` is called on the `nw_listener`, whose dispatch-queue slot
+is not a connection's, and `dispatch_async` faults on a null queue
+(`KERN_INVALID_ADDRESS at 0x54`). The `Listener` overload's rewrite onto the internal
+`tls.closeListener` body selected on the BARE type name while a built-in resource has been
+package-qualified end to end since bug-441, so the filter matched nothing and the SOCKET body ran.
+Scope drop was unaffected (the resource descriptor names `tls.closeListener` directly), which is why
+only an explicit close crashed and why no fixture noticed.
+
+Dated precisely, not guessed: the `.ir` golden of `tests/syntax/tls/close_valid` carried
+`tls.closeListener` at `b61003c20^` and four plain `tls.close` at `b61003c20` — bug-441 itself,
+which re-baselined the golden with the loss already in it. A byte-identity golden recorded the
+regression rather than catching it, because nothing asserted what the target should BE.
+
+Present on `main` too; plan-110-D renamed the constant but did not introduce the mismatch. Fixed by
+comparing `TLS_LISTENER_TYPE_ID`; RED-checked first
+(`ir::tests::lower_coverage_tests::explicit_tls_listener_close_rewrites_to_the_listener_body` failed
+before, passes after), with a mirror test pinning that `tcp::Listener` — which shares the bare name
+— does not reach tls's body. Nine goldens regenerated, every diff line a `tls.close` →
+`tls.closeListener` on a listener argument: 4 `.ir` and the 5 per-target tls `.ncodesum`, the latter
+confirming the misrouting was on every backend, not just macOS.
+
+This is exactly what the plan's own §Design Overview predicted a deterministic local harness would
+be for: the surface had 18 compile-only fixtures and no server had ever been executed.
 
 ## Summary
 

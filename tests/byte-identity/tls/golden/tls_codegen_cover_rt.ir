@@ -44,8 +44,8 @@
     { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "tls.write", "args": [{ "kind": "local", "name": "client2" }, { "kind": "const", "type": "String", "value": "hi" }] } },
     { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "client" }] } },
     { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "client2" }] } },
-    { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "server" }] } },
-    { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "server2" }] } },
+    { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "tls.closeListener", "args": [{ "kind": "local", "name": "server" }] } },
+    { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "tls.closeListener", "args": [{ "kind": "local", "name": "server2" }] } },
     { "op": "return", "line": 49, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },

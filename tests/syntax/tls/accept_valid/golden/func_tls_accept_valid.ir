@@ -26,7 +26,7 @@
     { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "tls.write", "args": [{ "kind": "local", "name": "timed" }, { "kind": "const", "type": "String", "value": "two\n" }] } },
     { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "timed" }] } },
     { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "blocking" }] } },
-    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "server" }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "tls.closeListener", "args": [{ "kind": "local", "name": "server" }] } },
     { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
     { "op": "return", "line": 17, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
