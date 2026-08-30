@@ -570,6 +570,11 @@ impl TypeEnv {
                     self.check_match_patterns(value, cases, locals);
                     self.current_line.set(line);
                     for case in cases {
+                        // A pattern value's own diagnostics (an enum advisory on
+                        // `CASE Hash.SHA1`, plan-109-A) report at the case arm's
+                        // line, as the source checker did; the arm's body ops
+                        // carry their own lines below.
+                        self.current_line.set(case.loc.line);
                         match &case.pattern {
                             super::super::IrMatchPattern::Else => {}
                             // bug-297: the scrutinee is capture-checked above, but
@@ -589,6 +594,7 @@ impl TypeEnv {
                                 }
                             }
                         }
+                        self.current_line.set(line);
                         let mut case_locals = locals.clone();
                         let mut case_muts = muts.clone();
                         if let Some(guard) = &case.guard {

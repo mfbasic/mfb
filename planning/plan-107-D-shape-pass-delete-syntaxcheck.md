@@ -476,6 +476,16 @@ Commit: —
   Unknown (`builtins::table_checked_call`); corpus 529 same / 0 set-diff on
   the merged tree (`ir::shape::tests::matched_table_builtin_call_with_an_
   unknown_argument_is_typed`).
+- **C-case-line (2026-08-29, finish).** With the enum advisory in verify, the
+  `MATCH`-literal occurrence (`CASE Hash.SHA1`) reported at the `MATCH`
+  statement's line: verify's Match arm checked pattern values under the op's
+  line. The arm now sets the case arm's own `loc` around the pattern walk
+  (`check_match_patterns` already did for its rules), so the advisory reports
+  at the CASE line as the checker did (`crypto-sha1-advisory-valid` SAME
+  again). The other acceptance mismatch was a pure stream reorder of the
+  same records (`hash-removed-spellings-invalid`: the checker warned during
+  inference, before the call's mismatch; verify's stream follows shape's) —
+  golden regenerated, movecheck MOVE-ONLY.
 - **C-harness-test-verb (2026-08-29, Phase 1).** `scripts/diag-set-diff.sh`
   re-ran `.testrun` goldens as `mfb test -q …`, but `mfb test` has no `-q`
   (usage error, exit 2) — the harness reported `testing-assert-invalid` as a
