@@ -1,3 +1,5 @@
+use crate::types::ParameterType;
+
 /// Whether `ctype` is a C ABI type the marshaling backend implements for an
 /// `ABI (...)` slot or the ABI return (plan-50-A).
 ///
@@ -83,7 +85,7 @@ pub(crate) struct IrCStruct {
     /// The C-side name, e.g. `SfFormatInfo`. Never escapes the LINK block.
     pub(crate) name: String,
     /// The MFBASIC record type this maps to, e.g. `AudioFormat`.
-    pub(crate) maps_to: String,
+    pub(crate) maps_to: ParameterType,
     /// Fields in C declaration order — the order drives the offsets.
     pub(crate) fields: Vec<IrCStructField>,
 }
@@ -405,16 +407,22 @@ pub(crate) struct IrLinkFunction {
     /// The native C symbol, e.g. `sqlite3_open`.
     pub(crate) symbol: String,
     /// Wrapper parameters in declared order: `(name, mfb_type)`.
-    pub(crate) params: Vec<(String, String)>,
+    ///
+    /// plan-111-B: typed. The `.mfp`/IR **wire** encoding is unchanged — it
+    /// still carries the spelling, which `src/ir/binary.rs` (boundary #2)
+    /// renders on encode and parses on decode. Only the in-memory shape moved,
+    /// so `ir::verify::link` and `ir::lower` stop re-deriving structure from a
+    /// string they were handed.
+    pub(crate) params: Vec<(String, ParameterType)>,
     /// The wrapper return type (`Db`, `Integer`, `String`, `Boolean`, `Nothing`).
-    pub(crate) return_type: String,
+    pub(crate) return_type: ParameterType,
     /// Whether the return was declared `RES` (a produced resource handle).
     pub(crate) return_resource: bool,
     /// The `STATE T` on a `RES` return (plan-53-A): this native func produces a
     /// resource RECORD carrying a `T` payload, not a bare scalar handle. Drives
     /// the producing thunk's 80-byte record allocation and STATE init. `None` for
     /// a bare native resource (which stays a scalar handle).
-    pub(crate) return_state_type: Option<String>,
+    pub(crate) return_state_type: Option<ParameterType>,
     /// ABI slots in native C argument order.
     pub(crate) abi_slots: Vec<IrAbiSlot>,
     /// The native return-slot name (`return` ⇒ the C return is the wrapper result;

@@ -312,7 +312,7 @@ pub(crate) fn emit_link_support(
     let record_native_resources: HashSet<String> = link_functions
         .iter()
         .filter(|f| f.return_resource)
-        .map(|f| crate::codegen::resource::base_resource_name(&f.return_type).to_string())
+        .map(|f| f.return_type.without_state().name().into_owned())
         .collect();
 
     // plan-59-B: the guard's two error strings, emitted HERE rather than relying
@@ -328,7 +328,7 @@ pub(crate) fn emit_link_support(
     // a thunk that can emit the guard also carries the strings it names.
     if link_functions.iter().any(|f| {
         f.params.iter().any(|(_, type_)| {
-            record_native_resources.contains(crate::codegen::resource::base_resource_name(type_))
+            record_native_resources.contains(type_.without_state().name().as_ref())
         })
     }) {
         for (_, message, symbol) in ["ErrResourceClosed", "ErrResourceMoved"].map(|name| {
@@ -693,7 +693,7 @@ fn lower_link_thunk(
     let needs_encoding = struct_has_cstring_field
         || (returns_value
             && function.abi_return_ctype == "CPtr"
-            && function.return_type == "String");
+            && matches!(function.return_type, crate::types::ParameterType::String));
     // `needs_float` gates the `d0`-stash below (a `double` ABI *return* arrives
     // in `d0`, not `x0`), so it must stay narrow to the direct-return case.
     let needs_float = returns_value && function.abi_return_ctype == "CDouble";
@@ -782,7 +782,7 @@ fn lower_link_thunk(
     // emission covers every `RES`-taking LINK function.
     let mut resource_guard_params: Vec<usize> = Vec::new();
     for (pidx, (_, type_)) in function.params.iter().enumerate() {
-        if record_native_resources.contains(crate::codegen::resource::base_resource_name(type_)) {
+        if record_native_resources.contains(type_.without_state().name().as_ref()) {
             resource_guard_params.push(pidx);
         }
     }
@@ -1099,8 +1099,7 @@ fn lower_link_thunk(
                 ]);
             } else if slot.ctype == "CPtr"
                 && function.params.get(pidx).is_some_and(|(_, t)| {
-                    record_native_resources
-                        .contains(crate::codegen::resource::base_resource_name(t))
+                    record_native_resources.contains(t.without_state().name().as_ref())
                 })
             {
                 // plan-59-A: a param whose resource TYPE is a native resource is a
@@ -1746,7 +1745,7 @@ fn lower_link_thunk(
             .map(|(idx, (name, type_))| {
                 Ok(CodeParam {
                     name: name.clone(),
-                    type_: type_.clone(),
+                    type_: type_.name().into_owned(),
                     // The wrapper's incoming MFB argument register, as a role
                     // token — the thunk body saves from the same bank
                     // (plan-34-D; ≤8 params, enforced by `argument_register`).
@@ -1754,7 +1753,7 @@ fn lower_link_thunk(
                 })
             })
             .collect::<Result<Vec<_>, String>>()?,
-        returns: function.return_type.clone(),
+        returns: function.return_type.name().into_owned(),
         frame: frame_obj,
         stack_slots,
         instructions,
@@ -1785,7 +1784,7 @@ fn emit_return_passthrough(
     let cret_off = m.cret_off;
     let status_off = m.status_off;
     match function.abi_return_ctype.as_str() {
-        "CPtr" if function.return_type == "String" => {
+        "CPtr" if matches!(function.return_type, crate::types::ParameterType::String) => {
             emit_copy_cstring_to_string(
                 symbol,
                 cret_off,
@@ -2364,12 +2363,14 @@ fn marshal_struct_out(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    let record = record_fields.get(&decl.maps_to).ok_or_else(|| {
-        format!(
-            "LINK function '{}.{}' returns CSTRUCT '{}', whose record '{}' has no field layout",
-            function.alias, function.name, decl.name, decl.maps_to
-        )
-    })?;
+    let record = record_fields
+        .get(decl.maps_to.name().as_ref())
+        .ok_or_else(|| {
+            format!(
+                "LINK function '{}.{}' returns CSTRUCT '{}', whose record '{}' has no field layout",
+                function.alias, function.name, decl.name, decl.maps_to
+            )
+        })?;
 
     // A record slot is one word at `8*i`, but a `String` field's word is
     // NOT a pointer — it is the offset, relative to the record's own block, of an
@@ -2652,7 +2653,7 @@ mod tests {
         let cstruct = IrCStruct {
             alias: "lib".to_string(),
             name: "Pair".to_string(),
-            maps_to: "PairRec".to_string(),
+            maps_to: crate::types::ParameterType::parse("PairRec"),
             fields: vec![
                 IrCStructField {
                     name: "n".to_string(),
@@ -2678,7 +2679,7 @@ mod tests {
             library: "demo".to_string(),
             symbol: "demo_make_pair".to_string(),
             params: vec![],
-            return_type: "PairRec".to_string(),
+            return_type: crate::types::ParameterType::parse("PairRec"),
             return_resource: false,
             return_state_type: None,
             abi_slots: vec![IrAbiSlot {
@@ -2723,7 +2724,7 @@ mod tests {
             library: "demo".to_string(),
             symbol: "demo_read_double".to_string(),
             params: vec![],
-            return_type: "Float".to_string(),
+            return_type: crate::types::ParameterType::parse("Float"),
             return_resource: false,
             return_state_type: None,
             abi_slots: vec![IrAbiSlot {
@@ -2818,9 +2819,9 @@ mod tests {
             symbol: "demo_seven".to_string(),
             // Each ABI slot is sourced from a wrapper parameter of the same name.
             params: (0..count)
-                .map(|i| (format!("a{i}"), "Integer".to_string()))
+                .map(|i| (format!("a{i}"), crate::types::ParameterType::Integer))
                 .collect(),
-            return_type: "Integer".to_string(),
+            return_type: crate::types::ParameterType::parse("Integer"),
             return_resource: false,
             return_state_type: None,
             abi_slots: (0..count)
@@ -2939,7 +2940,11 @@ mod tests {
                 params: vec![],
                 // A `CPtr` return with an `Integer` wrapper takes the raw path; the
                 // `String` copy-out path is covered by the sqlite3 runtime tests.
-                return_type: if returns_value { "Integer" } else { "Nothing" }.to_string(),
+                return_type: if returns_value {
+                    crate::types::ParameterType::parse("Integer")
+                } else {
+                    crate::types::ParameterType::parse("Nothing")
+                },
                 return_resource: false,
                 return_state_type: None,
                 abi_slots: vec![],
@@ -2979,7 +2984,7 @@ mod tests {
                 library: "demo".to_string(),
                 symbol: "demo_f".to_string(),
                 params: vec![],
-                return_type: "Nothing".to_string(),
+                return_type: crate::types::ParameterType::parse("Nothing"),
                 return_resource: false,
                 return_state_type: None,
                 abi_slots: vec![IrAbiSlot {
@@ -3024,8 +3029,11 @@ mod tests {
                 name: format!("out_{ctype}"),
                 library: "demo".to_string(),
                 symbol: "demo_f".to_string(),
-                params: vec![("n".to_string(), "Integer".to_string())],
-                return_type: crate::ir::BYTE_LIST_TYPE.to_string(),
+                params: vec![(
+                    "n".to_string(),
+                    crate::types::ParameterType::parse("Integer"),
+                )],
+                return_type: crate::types::ParameterType::parse(crate::ir::BYTE_LIST_TYPE),
                 return_resource: false,
                 return_state_type: None,
                 abi_slots: vec![IrAbiSlot {
@@ -3116,8 +3124,11 @@ mod tests {
             name: "answer".to_string(),
             library: "demo".to_string(),
             symbol: "demo_answer".to_string(),
-            params: vec![("n".to_string(), "Integer".to_string())],
-            return_type: "Integer".to_string(),
+            params: vec![(
+                "n".to_string(),
+                crate::types::ParameterType::parse("Integer"),
+            )],
+            return_type: crate::types::ParameterType::parse("Integer"),
             return_resource: false,
             return_state_type: None,
             abi_slots: vec![IrAbiSlot {
@@ -3183,7 +3194,7 @@ mod tests {
             library: "demo".to_string(),
             symbol: "demo_answer".to_string(),
             params: vec![],
-            return_type: "Integer".to_string(),
+            return_type: crate::types::ParameterType::parse("Integer"),
             return_resource: false,
             return_state_type: None,
             abi_slots: vec![],

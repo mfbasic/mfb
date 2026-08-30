@@ -322,8 +322,11 @@ fn link_function() -> IrLinkFunction {
         name: "open".to_string(),
         library: "sqlite3".to_string(),
         symbol: "sqlite3_open".to_string(),
-        params: vec![("path".to_string(), "String".to_string())],
-        return_type: "Db".to_string(),
+        params: vec![(
+            "path".to_string(),
+            crate::types::ParameterType::parse("String"),
+        )],
+        return_type: crate::types::ParameterType::parse("Db"),
         return_resource: true,
         return_state_type: None,
         abi_slots: vec![
@@ -516,7 +519,7 @@ pub(crate) fn variant_corpus() -> IrProject {
         link_cstructs: vec![crate::ir::IrCStruct {
             alias: "sqliteLink".to_string(),
             name: "SfFormatInfo".to_string(),
-            maps_to: "AudioFormat".to_string(),
+            maps_to: crate::types::ParameterType::parse("AudioFormat"),
             fields: vec![
                 crate::ir::IrCStructField {
                     name: "format".to_string(),
@@ -573,7 +576,7 @@ fn binary_round_trip_over_full_surface() {
     // payload all survive the round trip.
     assert_eq!(decoded.link_cstructs.len(), 1);
     assert_eq!(decoded.link_cstructs[0].name, "SfFormatInfo");
-    assert_eq!(decoded.link_cstructs[0].maps_to, "AudioFormat");
+    assert_eq!(decoded.link_cstructs[0].maps_to.name(), "AudioFormat");
     assert_eq!(decoded.link_cstructs[0].fields.len(), 3);
     assert_eq!(decoded.link_cstructs[0].fields[1].ctype, "CString");
     assert_eq!(
@@ -1874,8 +1877,11 @@ fn rejects_a_crafted_unknown_slot_ctype() {
 fn rejects_crafted_malformed_buffers_after_decode() {
     let base = || {
         let mut lf = link_function();
-        lf.params = vec![("n".to_string(), "Integer".to_string())];
-        lf.return_type = crate::ir::BYTE_LIST_TYPE.to_string();
+        lf.params = vec![(
+            "n".to_string(),
+            crate::types::ParameterType::parse("Integer"),
+        )];
+        lf.return_type = crate::types::ParameterType::parse(crate::ir::BYTE_LIST_TYPE);
         lf.return_resource = false;
         lf.abi_slots = vec![
             IrAbiSlot {
@@ -1938,7 +1944,7 @@ fn rejects_crafted_malformed_buffers_after_decode() {
     let mut lf = base();
     lf.abi_slots[0].ctype = "CInt64".to_string();
     lf.buffers.clear();
-    lf.return_type = "Integer".to_string();
+    lf.return_type = crate::types::ParameterType::parse("Integer");
     assert!(judge(lf).unwrap_err().contains("NATIVE_BUFFER_INVALID"));
 
     // A returned CBuffer with no LENGTH.

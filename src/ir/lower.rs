@@ -1916,7 +1916,7 @@ fn function_returns(hir: &HirProject) -> HashMap<String, ParameterType> {
                 }
                 HirItem::Link(link) => {
                     for native in &link.functions {
-                        let return_type = native_type(native.return_type.as_deref());
+                        let return_type = native_type(native.return_type.as_ref());
                         // Carry a stateful native producer's STATE, so a wrapper
                         // that calls `snd::rawOpen(p)` sees `SoundFile STATE
                         // FileInfo` and can RETURN it as its own stateful return
@@ -1924,9 +1924,7 @@ fn function_returns(hir: &HirProject) -> HashMap<String, ParameterType> {
                         // `SoundFile` and the wrapper's RETURN mismatches.
                         let return_type = match (native.return_resource, &native.return_state_type)
                         {
-                            (true, Some(state)) => {
-                                return_type.with_state(&ParameterType::parse(state))
-                            }
+                            (true, Some(state)) => return_type.with_state(state),
                             _ => return_type,
                         };
                         native_returns
@@ -1983,18 +1981,13 @@ fn function_types(hir: &HirProject) -> HashMap<String, ParameterType> {
                     let params = native
                         .params
                         .iter()
-                        .map(|param| {
-                            param
-                                .type_name
-                                .as_deref()
-                                .map_or(ParameterType::Unknown, ParameterType::parse)
-                        })
+                        .map(|param| param.type_.clone().unwrap_or(ParameterType::Unknown))
                         .collect::<Vec<_>>();
-                    let returns = native_type(native.return_type.as_deref());
+                    let returns = native_type(native.return_type.as_ref());
                     // Stateful native producer: carry its STATE in the callable
                     // type too (plan-53-A/B), matching `native_returns` above.
                     let returns = match (native.return_resource, &native.return_state_type) {
-                        (true, Some(state)) => returns.with_state(&ParameterType::parse(state)),
+                        (true, Some(state)) => returns.with_state(state),
                         _ => returns,
                     };
                     // A LINK native is never `ISOLATED`, matching the un-prefixed
@@ -2048,13 +2041,13 @@ fn declared_binding_types(hir: &HirProject) -> HashMap<String, ParameterType> {
 /// The declared type of a LINK native's return slot, defaulting an absent
 /// annotation to `Nothing` exactly as the string form did.
 ///
-/// `HirItem::Link` is the one HIR item that is NOT elaborated — it carries the
-/// raw [`crate::ast::LinkBlock`], whose `return_type`/`type_name` are still
-/// source strings (`src/hir/mod.rs:435`). So this call site IS that item kind's
-/// AST→typed boundary and the canonical parser belongs here; elaborating
-/// `LinkBlock` properly is recorded as a task in plan-106-E.
-fn native_type(declared: Option<&str>) -> ParameterType {
-    declared.map_or(ParameterType::Nothing, ParameterType::parse)
+/// plan-111-B did the elaboration plan-106-E recorded as a task:
+/// [`HirItem::Link`](crate::hir::HirItem::Link) now carries a
+/// [`HirLinkBlock`](crate::hir::HirLinkBlock) whose types are already
+/// `ParameterType`, so this is a defaulting helper rather than an AST→typed
+/// boundary and nothing here parses.
+fn native_type(declared: Option<&ParameterType>) -> ParameterType {
+    declared.cloned().unwrap_or(ParameterType::Nothing)
 }
 
 fn infer_binding_types(hir: &HirProject, context: &mut LowerContext<'_>) {

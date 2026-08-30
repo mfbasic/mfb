@@ -750,7 +750,7 @@ impl TypeEnv {
         seen: &mut HashSet<ParameterType>,
     ) -> bool {
         let type_name = type_.name();
-        if is_comparable_defaultable_primitive(&type_name) {
+        if is_comparable_defaultable_primitive(type_) {
             return true;
         }
         // `AttributedString` (plan-89-A) is defaultable (its default is empty

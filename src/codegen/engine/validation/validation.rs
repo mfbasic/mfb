@@ -306,9 +306,7 @@ impl TypeModel {
         // derived from there as well as from the `"resource"` kind above.
         for function in &module.link_functions {
             if function.return_resource {
-                resource_names.insert(
-                    crate::codegen::resource::base_resource_name(&function.return_type).to_string(),
-                );
+                resource_names.insert(function.return_type.without_state().name().into_owned());
             }
         }
         // `Error` and `ErrorLoc` are read-only compiler/runtime records laid out

@@ -726,7 +726,7 @@ pub(crate) fn lower_module_for_platform(
     for function in &module.link_functions {
         package_return_types.insert(
             format!("{}.{}", function.alias, function.name),
-            ParameterType::parse(&function.return_type),
+            function.return_type.clone(),
         );
     }
     for import in &module.imports {
@@ -738,7 +738,7 @@ pub(crate) fn lower_module_for_platform(
             .find(|function| {
                 nir::link_thunk_symbol(&function.alias, &function.name) == import.symbol
             })
-            .map(|function| ParameterType::parse(&function.return_type))
+            .map(|function| function.return_type.clone())
         {
             package_return_types
                 .entry(import.name.clone())
@@ -1638,7 +1638,7 @@ pub(crate) fn lower_module_for_platform(
     let link_returns_cstring = module.link_functions.iter().any(|function| {
         let returns_c_string = matches!(&function.result, Some(crate::ir::IrLinkExpr::Var(name)) if *name == function.abi_return_name)
             && function.abi_return_ctype == "CPtr"
-            && function.return_type == "String";
+            && matches!(function.return_type, ParameterType::String);
         let struct_has_cstring_field = function.abi_slots.iter().any(|slot| {
             module
                 .link_cstructs

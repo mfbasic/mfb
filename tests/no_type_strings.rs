@@ -607,18 +607,18 @@ fn string_keyed_type_maps(rel: &str, src: &str) -> Vec<Hit> {
 /// ceiling of 0, so a new violation in a clean directory fails immediately.
 const BUDGETS: &[(&str, &str, usize)] = &[
     // --- 1. `ParameterType::parse` below a boundary — 125. Letters B, D, E, F.
-    ("parse_sites", "codegen", 96),
-    ("parse_sites", "ir", 10),
+    ("parse_sites", "codegen", 94),
+    ("parse_sites", "ir", 7),
     ("parse_sites", "monomorph", 15),
     ("parse_sites", "resolver", 1),
     // --- 2. a type taken as `&str` — 173. Letters B, D, E, F, G.
     ("str_type_params", "binary_repr", 4),
     ("str_type_params", "codegen", 141),
     ("str_type_params", "hir", 1),
-    ("str_type_params", "ir", 4),
+    ("str_type_params", "ir", 2),
     ("str_type_params", "monomorph", 3),
     ("str_type_params", "numeric", 1),
-    ("str_type_params", "resolver", 3),
+    ("str_type_params", "resolver", 1),
     ("str_type_params", "target", 4),
     ("str_type_params", "types", 2),
     // --- 3. a `match` arm on a spelling — 186. Letters B, D, E, F, G.
@@ -628,8 +628,8 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     ("spelling_match_arms", "monomorph", 1),
     ("spelling_match_arms", "types", 9),
     // --- 4. `==` / `!=` against a spelling — 73. Letters B, D, E, F, G.
-    ("spelling_compares", "codegen", 60),
-    ("spelling_compares", "ir", 4),
+    ("spelling_compares", "codegen", 57),
+    ("spelling_compares", "ir", 3),
     ("spelling_compares", "monomorph", 2),
     ("spelling_compares", "resolver", 1),
     ("spelling_compares", "target", 2),
@@ -642,7 +642,6 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     //     one file that owns the grammar, and letter G retires it with the rest.
     ("hand_rolled_grammar", "binary_repr", 3),
     ("hand_rolled_grammar", "codegen", 7),
-    ("hand_rolled_grammar", "resolver", 1),
     ("hand_rolled_grammar", "types", 25),
     // --- 6. a spelling built with `format!` — 12. Letters E, F, G.
     ("format_type_construction", "binary_repr", 5),

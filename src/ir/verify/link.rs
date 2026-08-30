@@ -136,24 +136,26 @@ impl TypeEnv {
         for function in project.link_functions.iter().filter(|f| f.alias == alias) {
             let spans = self.function_spans(function);
             for (index, (pname, ptype)) in function.params.iter().enumerate() {
-                if names.contains(&ptype.as_str()) {
+                if names.contains(&ptype.name().as_ref()) {
                     self.locate(&spans.file, spans.params.get(index).copied().unwrap_or(0));
                     self.emit(
                         "NATIVE_CSTRUCT_ESCAPE",
                         format!(
-                            "Native function `{}` parameter `{pname}` uses CSTRUCT `{ptype}`; name its mapped record type instead — a CSTRUCT is nameable only in an ABI slot or SIZEOF.",
-                            function.name
+                            "Native function `{}` parameter `{pname}` uses CSTRUCT `{}`; name its mapped record type instead — a CSTRUCT is nameable only in an ABI slot or SIZEOF.",
+                            function.name,
+                            ptype.name()
                         ),
                     );
                 }
             }
-            if names.contains(&function.return_type.as_str()) {
+            if names.contains(&function.return_type.name().as_ref()) {
                 self.locate(&spans.file, spans.line);
                 self.emit(
                     "NATIVE_CSTRUCT_ESCAPE",
                     format!(
                         "Native function `{}` returns CSTRUCT `{}`; name its mapped record type instead — a CSTRUCT is nameable only in an ABI slot or SIZEOF.",
-                        function.name, function.return_type
+                        function.name,
+                        function.return_type.name()
                     ),
                 );
             }
@@ -178,9 +180,15 @@ impl TypeEnv {
         // reject-list for what must never leak into an MFB signature — and on the
         // package (`.mfp`) path a crafted `return_type: "CVoid"` SHOULD be rejected.
         // So they are kept separate on purpose; do not "unify" by dropping `CVoid`.
-        fn is_c_abi_type(t: &str) -> bool {
+        fn is_c_abi_type(t: &ParameterType) -> bool {
+            // plan-111-B: every C ABI spelling is a nominal (none has a
+            // variant), so this is the same reject-list asked of the interned
+            // `Symbol` the `Named` already holds.
+            let ParameterType::Named(name) = t else {
+                return false;
+            };
             matches!(
-                t,
+                name.resolve(),
                 "CPtr"
                     | "CString"
                     | "CInt8"
@@ -213,8 +221,9 @@ impl TypeEnv {
                 self.emit(
                     "NATIVE_CPTR_ESCAPE",
                     format!(
-                        "Native function `{}` parameter `{pname}` uses C ABI type `{ptype}`; raw C types may appear only in ABI slots.",
-                        function.name
+                        "Native function `{}` parameter `{pname}` uses C ABI type `{}`; raw C types may appear only in ABI slots.",
+                        function.name,
+                        ptype.name()
                     ),
                 );
             }
@@ -225,7 +234,8 @@ impl TypeEnv {
                 "NATIVE_CPTR_ESCAPE",
                 format!(
                     "Native function `{}` returns C ABI type `{}`; raw C types may appear only in ABI slots.",
-                    function.name, function.return_type
+                    function.name,
+                    function.return_type.name()
                 ),
             );
         }
@@ -352,7 +362,10 @@ impl TypeEnv {
         // plan-50-H: the result is whatever `RETURN <expr>` names. A producer
         // (`AS RES X`) and any non-Nothing wrapper must surface exactly one
         // result; a `Nothing` wrapper surfaces none.
-        let wants_result = function.return_resource || function.return_type != "Nothing";
+        // plan-111-B: `!= "Nothing"` on the rendered name is the `Nothing`
+        // variant question.
+        let wants_result =
+            function.return_resource || !matches!(function.return_type, ParameterType::Nothing);
         if wants_result && function.result.is_none() {
             self.locate(file, spans.line);
             self.emit(
@@ -551,18 +564,17 @@ impl TypeEnv {
                 continue;
             };
             // The record it maps to must exist and be a record.
-            let Some(rec) = project
-                .types
-                .iter()
-                .find(|t| t.name == decl.maps_to && (t.kind == "type" || t.kind == "record"))
-            else {
+            let Some(rec) = project.types.iter().find(|t| {
+                decl.maps_to.is_named(&t.name) && (t.kind == "type" || t.kind == "record")
+            }) else {
                 let decl_spans = self.cstruct_spans(decl);
                 self.locate(&decl_spans.file, decl_spans.line);
                 self.emit(
                     "NATIVE_STRUCT_FIELD_MISMATCH",
                     format!(
                         "CSTRUCT `{}` maps to `{}`, which is not a record type.",
-                        decl.name, decl.maps_to
+                        decl.name,
+                        decl.maps_to.name()
                     ),
                 );
                 continue;
@@ -577,11 +589,13 @@ impl TypeEnv {
                 .iter()
                 .map(|f| (f.name.clone(), f.type_.name().into_owned()))
                 .collect();
+            // `maps_to` is diagnostic TEXT in the view, so it renders here.
+            let maps_to = decl.maps_to.name();
             let view = crate::ir::StructSlotView {
                 cfields: &cfields,
                 record: &record,
                 cstruct_name: &decl.name,
-                maps_to: &decl.maps_to,
+                maps_to: &maps_to,
             };
             self.locate(file, slot_line(index));
             for fault in crate::ir::check_struct_slot(&view) {
@@ -743,7 +757,7 @@ impl TypeEnv {
                 .collect(),
             const_slots: function.consts.iter().map(|(s, _)| s.as_str()).collect(),
             param_names: function.params.iter().map(|(n, _)| n.as_str()).collect(),
-            return_type: &function.return_type,
+            return_type: &function.return_type.name(),
             abi_return_name: &function.abi_return_name,
             abi_return_ctype: &function.abi_return_ctype,
             result_slot: match &function.result {
@@ -771,34 +785,42 @@ impl TypeEnv {
     /// over all link functions and reject a second, different S, at the
     /// disagreeing declaration.
     fn check_link_state_agreement(&self, project: &IrProject) {
-        let mut resource_state: HashMap<String, String> = HashMap::new();
-        let mut check = |base: &str, state: &str, env: &Self| {
+        // plan-111-B: keyed by the resource TYPE, and the state is a type too.
+        // Both used to be spellings, which is why the parameter side had to
+        // re-split `ptype` through `codegen::resource::state_type_name` and the
+        // return side through `resource_base_type_name` — the last two callers
+        // of that name-domain twin, now deleted.
+        let mut resource_state: HashMap<ParameterType, ParameterType> = HashMap::new();
+        let mut check = |base: &ParameterType, state: &ParameterType, env: &Self| {
             match resource_state.get(base) {
-            Some(existing) if existing != state => env.emit(
-                "TYPE_STATE_MISMATCH",
-                format!(
-                    "native resource `{base}` is declared with STATE `{existing}` and also STATE `{state}`; a resource's STATE type is fixed and every native declaration of it must agree."
-                ),
-            ),
-            Some(_) => {}
-            None => {
-                resource_state.insert(base.to_string(), state.to_string());
+                Some(existing) if existing != state => {
+                    let (base, existing, state) = (base.name(), existing.name(), state.name());
+                    env.emit(
+                        "TYPE_STATE_MISMATCH",
+                        format!(
+                            "native resource `{base}` is declared with STATE `{existing}` and also STATE `{state}`; a resource's STATE type is fixed and every native declaration of it must agree."
+                        ),
+                    )
+                }
+                Some(_) => {}
+                None => {
+                    resource_state.insert(base.clone(), state.clone());
+                }
             }
-        }
         };
         for function in &project.link_functions {
             let spans = self.function_spans(function);
             self.locate(&spans.file, spans.line);
             if function.return_resource {
                 if let Some(state) = &function.return_state_type {
-                    check(&resource_base_type_name(&function.return_type), state, self);
+                    check(&resource_base_type(&function.return_type), state, self);
                 }
             }
             for (index, (_, ptype)) in function.params.iter().enumerate() {
-                if let Some(state) = crate::codegen::resource::state_type_name(ptype) {
+                if let Some(state) = ptype.state() {
                     self.current_line
                         .set(spans.params.get(index).copied().unwrap_or(0));
-                    check(&resource_base_type_name(ptype), state, self);
+                    check(&resource_base_type(ptype), &state, self);
                 }
             }
         }

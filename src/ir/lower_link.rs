@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::ParameterType;
 
 /// Collect `CSTRUCT` C-layout declarations from every `LINK` block (plan-50-B).
 ///
@@ -141,26 +142,25 @@ pub(super) fn link_functions(hir: &crate::hir::HirProject) -> Vec<IrLinkFunction
                             .params
                             .iter()
                             .map(|param| {
-                                let type_ = param
-                                    .type_name
-                                    .clone()
-                                    .unwrap_or_else(|| "Unknown".to_string());
+                                let type_ = param.type_.clone().unwrap_or(ParameterType::Unknown);
                                 // plan-53-A: carry a `RES p AS R STATE S` param's
                                 // STATE inline (`R STATE S`), so the close thunk can
                                 // detect a stateful native resource param and load
                                 // the handle from FD@0 of its record instead of
                                 // passing the record pointer to the native symbol.
+                                //
+                                // plan-111-B: `with_state` builds the same shape
+                                // structurally, where this `format!`ed the two
+                                // spellings together and left the result to be
+                                // re-split downstream.
                                 let type_ = match (param.resource, &param.state_type) {
-                                    (true, Some(state)) => format!("{type_} STATE {state}"),
+                                    (true, Some(state)) => type_.with_state(state),
                                     _ => type_,
                                 };
                                 (param.name.clone(), type_)
                             })
                             .collect(),
-                        return_type: native
-                            .return_type
-                            .clone()
-                            .unwrap_or_else(|| "Nothing".to_string()),
+                        return_type: native.return_type.clone().unwrap_or(ParameterType::Nothing),
                         return_resource: native.return_resource,
                         return_state_type: native.return_state_type.clone(),
                         abi_slots: native
@@ -265,7 +265,7 @@ pub(super) fn link_aliases(hir: &crate::hir::HirProject) -> Vec<(String, String)
 /// the unvalidated slot ctype (plan-50-A) and the nameless link-expr `Var`
 /// (plan-50-I). The former source checker rejects an unfoldable pin, so by lowering the form
 /// is already known-good.
-fn eval_link_const_opt(expr: &Expression, cstructs: &[crate::ast::CStructDecl]) -> Option<i64> {
+fn eval_link_const_opt(expr: &Expression, cstructs: &[crate::hir::HirCStructDecl]) -> Option<i64> {
     match expr {
         Expression::Number(text) => Some(link_const_bits(text)),
         Expression::Boolean(value) => Some(i64::from(*value)),
@@ -303,7 +303,7 @@ fn eval_link_const_opt(expr: &Expression, cstructs: &[crate::ast::CStructDecl]) 
 /// never reached. It runs *after* lowering in this pipeline, which is why this
 /// must return something rather than assert — the diagnostic still wins, but
 /// lowering sees the bad pin first.
-fn eval_link_const(expr: &Expression, cstructs: &[crate::ast::CStructDecl]) -> i64 {
+fn eval_link_const(expr: &Expression, cstructs: &[crate::hir::HirCStructDecl]) -> i64 {
     eval_link_const_opt(expr, cstructs).unwrap_or(0)
 }
 
@@ -333,7 +333,7 @@ fn link_const_bits(text: &str) -> i64 {
 /// folded to 0, which is the `eval_link_const` mistake.
 fn lower_bind_in_field(
     field: &crate::ast::BindInField,
-    params: &[Param],
+    params: &[crate::hir::HirLinkParam],
 ) -> crate::ir::IrBindInField {
     let (param, literal) = match &field.value {
         Expression::Identifier(name) if params.iter().any(|p| p.name == *name) => {

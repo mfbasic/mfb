@@ -372,6 +372,66 @@ in the constant's doc comment so they are not "fixed" later: `ir::verify`'s and
 `function_lowering.rs`'s `union_extract_reads` — every one keyed by a
 **binding** or **local** name, which is legitimately a string.
 
+**13 — a prerequisite no letter covered: `HirItem::Link` was never
+elaborated. Landed here as a new phase (Phase 0).** Letter B's §1 requires no
+parse in `src/ir` outside `binary.rs`, no `&str` type parameter in `ir` /
+`resolver`, and no spelling decision in either. Three of its own listed tasks
+could not be done without this:
+
+- `verify/mod.rs`'s `resource_base_type_name` (its last `parse`) exists purely
+  for `verify/link.rs:794,801`, which hold LINK spellings.
+- `ir/link.rs:521`'s `return_type: &str` is `IrLinkFunction`'s wire field.
+- `verify/link.rs:355`'s `function.return_type != "Nothing"`.
+
+All three bottom out in the same fact, which the code stated in three places:
+`HirItem::Link` carried the raw `crate::ast::LinkBlock`, the one item kind HIR
+does not elaborate. `src/ir/lower.rs:2051` said so outright — *"this call site
+IS that item kind's AST→typed boundary … elaborating `LinkBlock` properly is
+recorded as a task in plan-106-E"* — and `resolver/resolution.rs` and
+`verify/mod.rs` each carried the same admission. The task was recorded and never
+scheduled, so no letter owned it.
+
+Per the skill's "a prerequisite exists that no letter covers → land it", it is
+done here:
+
+- `hir::HirLinkBlock` / `HirLinkFunction` / `HirLinkParam` / `HirCStructDecl`
+  carry `ParameterType`, built by `hir::elaborate_link_block` — in
+  `src/hir/mod.rs`, boundary #3, where every other item's AST→type conversion
+  already is. Non-type content (the native symbol, ABI slots, `CONST` pins,
+  `BIND`/`BUFFER`/`SUCCESS_ON`/`RETURN`/`FREE` clauses) stays as its AST node,
+  because none of it is type-domain.
+- `IrLinkFunction`'s `params` / `return_type` / `return_state_type` and
+  `IrCStruct`'s `maps_to` are typed. **The wire format is unchanged**:
+  `src/ir/binary.rs` (boundary #2) renders on encode and parses on decode, so
+  `.mfp` bytes are byte-identical. Only the in-memory shape moved.
+
+What that removed, beyond the three tasks above:
+
+- `resolver`'s `resource_base_type` — a **THIRD** hand-rolled copy of the
+  `STATE` grammar, and the only one carrying no composite guard at all, so
+  `List OF RES File STATE Cursor` would have truncated to `List OF RES File`
+  (the bug-429 shape). It is now `ParameterType::without_state`.
+  `hand_rolled_grammar/resolver` → **0**.
+- `resolver::is_c_abi_type` and `verify::link`'s private twin: both matched a
+  reject-list against a rendered name; both ask the interned `Symbol` now. The
+  two lists stay deliberately separate (`verify`'s includes `CVoid`), as their
+  comments require.
+- `resolver::resolve_type_by_name`'s LINK callers, and with them 2 of the
+  resolver's 3 `&str` type parameters.
+
+**It also cleared codegen sites letter B does not own**, because the consumers
+stopped being handed a spelling: `parse_sites/codegen` 96 → 94
+(`builder/mod.rs` parsed `function.return_type` twice) and
+`spelling_compares/codegen` 60 → 57 (`== "String"` on a LINK return, ×3). Those
+are letters D–F's rows and they simply arrive smaller.
+
+Scope note against letter B's "do not touch `src/codegen`": that non-goal is
+about not converting codegen's `&str` helper *signatures* into D/E's work early.
+No codegen signature changed here. The edits in `link_thunk.rs`,
+`validation.rs`, `builder/mod.rs` and `nir/json.rs` are consumers rendering with
+`.name()` at their own use site so the tree compiles — plus the two parses and
+three compares that deleted themselves.
+
 ## Summary
 
 Risk is concentrated in two places: `ir/verify/values.rs`'s literal-range arms

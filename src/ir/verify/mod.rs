@@ -95,8 +95,16 @@ const PRIMITIVE_TYPES: &[&str] = &[
 /// (bug-342 A9). It is the `PRIMITIVE_TYPES` base plus two deltas: `Error`/
 /// `ErrorLoc` (errors compare and default as ordinary values) and `Unknown`
 /// (treated permissively — an unresolved type is not rejected here).
-fn is_comparable_defaultable_primitive(type_: &str) -> bool {
-    PRIMITIVE_TYPES.contains(&type_) || matches!(type_, "Error" | "ErrorLoc" | "Unknown")
+fn is_comparable_defaultable_primitive(type_: &ParameterType) -> bool {
+    // plan-111-B: `PRIMITIVE_TYPES` is a `&'static str` name table (letter G
+    // retires it), so membership still renders; the three deltas are nominal
+    // questions. `Unknown` keeps both forms — the variant, and a decoded-IR
+    // `Named("Unknown")` — which is what the name compare accepted.
+    PRIMITIVE_TYPES.contains(&type_.name().as_ref())
+        || matches!(type_, ParameterType::Unknown)
+        || type_.is_named("Unknown")
+        || type_.is_named("Error")
+        || type_.is_named("ErrorLoc")
 }
 
 /// Collect every semantic-verification diagnostic for a merged `IrProject`, in
@@ -1203,18 +1211,6 @@ fn resource_base_type(type_: &ParameterType) -> ParameterType {
     // It keeps the same top-level guard, which leaves a `STATE` nested inside a
     // thread plane intact (plan-54).
     strip_res(type_).without_state()
-}
-
-/// The name-domain twin of [`resource_base_type`], for the callers that hold a
-/// type SPELLING rather than a type: the `LINK` block's raw AST strings (an
-/// un-elaborated `crate::ast::LinkBlock` — see `src/hir/mod.rs:435`).
-fn resource_base_type_name(type_: &str) -> String {
-    // plan-106-E: routed through [`resource_base_type`] so the `RES` peel and the
-    // top-level `STATE` guard are stated once, structurally, instead of a local
-    // `strip_prefix` beside them.
-    resource_base_type(&ParameterType::parse(type_))
-        .name()
-        .into_owned()
 }
 
 /// Whether a type is a thread handle — structurally, **or** by a spelling that

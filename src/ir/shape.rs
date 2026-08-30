@@ -961,7 +961,7 @@ impl<'a> Walker<'a> {
     ///   ctype and the deallocator's parameter/return ctypes are gone. (The
     ///   `AS RES` producer form and the empty-symbol form are verify's — both
     ///   end the checker's FREE check, so neither doubles with this one.)
-    fn walk_link(&mut self, link: &crate::ast::LinkBlock) {
+    fn walk_link(&mut self, link: &crate::hir::HirLinkBlock) {
         let cstructs: Vec<&str> = link.cstructs.iter().map(|c| c.name.as_str()).collect();
         for function in &link.functions {
             for pin in &function.consts {

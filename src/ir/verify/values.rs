@@ -1016,7 +1016,7 @@ impl TypeEnv {
         seen: &mut HashSet<ParameterType>,
     ) -> bool {
         let name = type_.name();
-        if is_comparable_defaultable_primitive(&name) {
+        if is_comparable_defaultable_primitive(type_) {
             return true;
         }
         if matches!(

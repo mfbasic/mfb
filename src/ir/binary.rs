@@ -304,7 +304,7 @@ fn encode_project(out: &mut Vec<u8>, project: &IrProject) {
         put_vec(out, &project.link_cstructs, |o, c| {
             put_str(o, &c.alias);
             put_str(o, &c.name);
-            put_str(o, &c.maps_to);
+            put_str(o, &c.maps_to.name());
             put_vec(o, &c.fields, |o, f| {
                 put_str(o, &f.name);
                 put_str(o, &f.ctype);
@@ -334,7 +334,10 @@ fn encode_link_state_trailer(out: &mut Vec<u8>, functions: &[IrLinkFunction]) {
     put_vec(out, &stateful, |o, f| {
         put_str(o, &f.alias);
         put_str(o, &f.name);
-        put_opt_str(o, &f.return_state_type);
+        put_opt_str(
+            o,
+            &f.return_state_type.as_ref().map(|t| t.name().into_owned()),
+        );
         put_opt_str(o, &f.bind_state);
     });
 }
@@ -357,7 +360,7 @@ fn decode_link_state_trailer(
             .iter_mut()
             .find(|f| f.alias == alias && f.name == name)
         {
-            f.return_state_type = return_state_type;
+            f.return_state_type = return_state_type.as_deref().map(ParameterType::parse);
             f.bind_state = bind_state;
         }
     }
@@ -369,11 +372,14 @@ fn encode_link_function(out: &mut Vec<u8>, f: &IrLinkFunction) {
     put_str(out, &f.name);
     put_str(out, &f.library);
     put_str(out, &f.symbol);
+    // plan-111-B: the LINK types are `ParameterType` in memory now; the wire
+    // still carries the spelling, so they render here and parse on decode.
+    // Boundary #2 (plan-111-A §2 "The five boundaries").
     put_vec(out, &f.params, |o, (name, type_)| {
         put_str(o, name);
-        put_str(o, type_);
+        put_str(o, &type_.name());
     });
-    put_str(out, &f.return_type);
+    put_str(out, &f.return_type.name());
     put_bool(out, f.return_resource);
     // return_state_type / bind_state ride the optional trailer, not this record —
     // see encode_link_state_trailer.
@@ -595,7 +601,7 @@ fn decode_cstructs(r: &mut IrReader) -> Result<Vec<crate::ir::IrCStruct>, String
     for _ in 0..count {
         let alias = r.string()?;
         let name = r.string()?;
-        let maps_to = r.string()?;
+        let maps_to = ParameterType::parse(&r.string()?);
         let field_count = r.count()?;
         if field_count > MAX_CSTRUCT_FIELDS {
             return Err(format!(
@@ -625,8 +631,8 @@ fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
         name: r.string()?,
         library: r.string()?,
         symbol: r.string()?,
-        params: decode_vec(r, |r| Ok((r.string()?, r.string()?)))?,
-        return_type: r.string()?,
+        params: decode_vec(r, |r| Ok((r.string()?, ParameterType::parse(&r.string()?))))?,
+        return_type: ParameterType::parse(&r.string()?),
         return_resource: r.bool()?,
         // return_state_type / bind_state are patched from the optional trailer
         // after the whole project decodes (decode_link_state_trailer).
