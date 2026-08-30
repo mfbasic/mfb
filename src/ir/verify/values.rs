@@ -76,7 +76,7 @@ impl TypeEnv {
                 for arg in args {
                     self.check_value_depth(arg, locals, depth + 1);
                 }
-                self.check_constructor(&type_.name(), args, locals);
+                self.check_constructor(type_, args, locals);
             }
             IrValue::UnionWrap {
                 union_type,
@@ -84,7 +84,7 @@ impl TypeEnv {
                 value,
             } => {
                 self.check_value_depth(value, locals, depth + 1);
-                self.check_union_wrap(&union_type.name(), &member_type.name(), value, locals);
+                self.check_union_wrap(union_type, member_type, value, locals);
             }
             IrValue::Closure { captures, .. } => {
                 for capture in captures {
@@ -94,7 +94,7 @@ impl TypeEnv {
             }
             IrValue::UnionExtract { type_, value } => {
                 self.check_value_depth(value, locals, depth + 1);
-                self.check_union_extract(&type_.name(), value, locals);
+                self.check_union_extract(type_, value, locals);
             }
             IrValue::ResultValue { type_, value } => {
                 self.check_value_depth(value, locals, depth + 1);
@@ -441,8 +441,13 @@ impl TypeEnv {
 
     /// The positive/overflow direction of the literal-range check.
     pub(super) fn check_const_literal(&self, type_: &ParameterType, value: &str) {
-        match type_.name().as_ref() {
-            "Byte" if !value.contains('.') => {
+        // plan-111-B: matched on the RENDERED name until now. The arms are the
+        // same, in the same order, and `Scalar` is still a nominal (it has no
+        // variant) — asked through `ParameterType::is_named`, which compares the
+        // interned `Symbol`. A guard that fails falls to `_ => {}` exactly as it
+        // did when the scrutinee was a string, because no two arms share a name.
+        match type_ {
+            ParameterType::Byte if !value.contains('.') => {
                 if value.parse::<u16>().map_or(true, |n| n > u8::MAX as u16) {
                     self.emit(
                         "TYPE_BYTE_LITERAL_OVERFLOW",
@@ -450,7 +455,7 @@ impl TypeEnv {
                     );
                 }
             }
-            "Integer" if !value.contains('.') => {
+            ParameterType::Integer if !value.contains('.') => {
                 if value.parse::<i64>().is_err() {
                     self.emit(
                         "TYPE_INTEGER_LITERAL_OVERFLOW",
@@ -458,7 +463,7 @@ impl TypeEnv {
                     );
                 }
             }
-            "Float" => {
+            ParameterType::Float => {
                 if let Ok(f) = value.parse::<f64>() {
                     if !f.is_finite() {
                         self.emit(
@@ -468,7 +473,7 @@ impl TypeEnv {
                     }
                 }
             }
-            "Fixed" => {
+            ParameterType::Fixed => {
                 if let Ok(f) = value.parse::<f64>() {
                     if f >= 2147483648.0 {
                         self.emit(
@@ -483,7 +488,7 @@ impl TypeEnv {
             // range-checked at lex time; a hand-crafted `.mfp` can carry an
             // arbitrary decimal here, so the verifier is the sole rejecter on the
             // package-decode path (bug-265 / PKG-08).
-            "Scalar" if !value.contains('.') => {
+            _ if type_.is_named("Scalar") && !value.contains('.') => {
                 let invalid = match value.parse::<u64>() {
                     Ok(cp) => cp > 0x10_FFFF || (0xD800..=0xDFFF).contains(&cp),
                     Err(_) => true,
@@ -499,7 +504,7 @@ impl TypeEnv {
             }
             // Money is exact base-10: range and excess-precision are decided by the
             // exact converter, not an `f64` bound (plan-29-A §4.4, plan-29-B).
-            "Money" => match crate::numeric::money_conversion_from_decimal(value) {
+            ParameterType::Money => match crate::numeric::money_conversion_from_decimal(value) {
                 Ok(converted) if converted.lost_precision => self.emit(
                     "TYPE_MONEY_LITERAL_PRECISION",
                     format!(
@@ -518,14 +523,15 @@ impl TypeEnv {
 
     /// The underflow direction of the literal-range check for a `-<literal>`.
     pub(super) fn check_negated_const_literal(&self, type_: &ParameterType, value: &str) {
-        match type_.name().as_ref() {
-            "Byte" if !value.contains('.') && value != "0" => {
+        // plan-111-B: same conversion as `check_const_literal`, same arm order.
+        match type_ {
+            ParameterType::Byte if !value.contains('.') && value != "0" => {
                 self.emit(
                     "TYPE_BYTE_LITERAL_UNDERFLOW",
                     format!("Integer literal `-{value}` is outside the Byte range 0..255."),
                 );
             }
-            "Integer" if !value.contains('.') => {
+            ParameterType::Integer if !value.contains('.') => {
                 if format!("-{value}").parse::<i64>().is_err() {
                     self.emit(
                         "TYPE_INTEGER_LITERAL_OVERFLOW",
@@ -535,7 +541,7 @@ impl TypeEnv {
             }
             // A negative codepoint is never a Unicode scalar value (only `-0`
             // would coincide with 0); reject the negated form outright.
-            "Scalar" if !value.contains('.') && value != "0" => {
+            _ if type_.is_named("Scalar") && !value.contains('.') && value != "0" => {
                 self.emit(
                     "TYPE_SCALAR_LITERAL_INVALID",
                     format!(
@@ -543,7 +549,7 @@ impl TypeEnv {
                     ),
                 );
             }
-            "Fixed" => {
+            ParameterType::Fixed => {
                 if let Ok(f) = value.parse::<f64>() {
                     if -f < -2147483648.0 {
                         self.emit(
@@ -556,7 +562,7 @@ impl TypeEnv {
             // The most-negative Money (`-92233720368547.75808`) has no
             // positive-magnitude literal, so the negated path checks the exact
             // converter on the signed text (plan-29-B §4.2).
-            "Money" => match crate::numeric::money_conversion_from_decimal(&format!("-{value}")) {
+            ParameterType::Money => match crate::numeric::money_conversion_from_decimal(&format!("-{value}")) {
                 Ok(converted) if converted.lost_precision => self.emit(
                     "TYPE_MONEY_LITERAL_PRECISION",
                     format!(
@@ -569,7 +575,7 @@ impl TypeEnv {
                     format!("Numeric literal `-{value}` is outside the Money range."),
                 ),
             },
-            "Float" => {
+            ParameterType::Float => {
                 if let Ok(f) = value.parse::<f64>() {
                     if !(-f).is_finite() {
                         self.emit(

@@ -41,7 +41,7 @@ See plan-111-A §Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-111-A complete | `cargo test --test no_type_strings` passes; `rg -c 'Stateful' src/types.rs` → >0 | NOT MET until A lands |
+| plan-111-A complete | `cargo test --test no_type_strings` passes; `rg -c 'Stateful' src/types.rs` → >0 | MET (2026-08-29): gate `4 passed; 0 failed`; `rg -c Stateful src/types.rs` → 22. A's three phases landed as ea2863d6b, 0d034a522, 5dfd69f80. |
 
 ## 1. Goal
 
@@ -340,7 +340,37 @@ attribution (plan-111-A §3).
 
 ## Corrections
 
-<Filled in DURING execution.>
+**12 — the ratchet's `string_keyed_type_maps` population was under-counted by
+15; corrected here, once, by a systematic census.** plan-111-A's curated
+`TYPE_KEYED_TABLES` was assembled by grepping identifiers containing `type`,
+which is why `TypeModel`'s fields had to be added by hand (none of
+`record_fields` / `union_names` / `enum_members` contains `type`). The same
+blind spot hid others.
+
+Re-censused properly: every `HashMap<String, _>` / `HashSet<String>`
+declaration in `src/` extracted with its doc comment, then classified by
+whether the **key** is a type name. `ir::verify`'s `TypeEnv` alone holds
+**nine** such tables — `records`, `unions`, `resource_closers`,
+`resource_sendable`, `field_types`, `record_field_lists`, `enums`,
+`type_decl_info`, `private_fields` — where three were listed. Three more were
+missing elsewhere: `codegen/link/thunk/link_thunk.rs`'s
+`record_native_resources`, `codegen/engine/validation/validation.rs`'s
+`native_resources`, and `target/shared/runtime/usage.rs`'s
+`resource_union_closes` (the first `target` row).
+
+Budgets raised to the true population — `ir` 8 → 17, `codegen` 9 → 11, new
+`target` 1 — for a corrected total of **36**, not 24. Raising is what the gate
+permits and what honesty requires; the end state is unchanged, since every row
+still reaches 0 by letter G. **Letter C's `TypeModel` population is unaffected
+(still 9); letter F inherits the two extra codegen rows and letter G the
+`target` one.**
+
+Each new entry was read before listing. Deliberately still excluded, and named
+in the constant's doc comment so they are not "fixed" later: `ir::verify`'s and
+`monomorph`'s `globals`, codegen's and NIR's `resource_owners` /
+`owner_collections`, `ir/shape.rs`'s `state_dropped`, and
+`function_lowering.rs`'s `union_extract_reads` — every one keyed by a
+**binding** or **local** name, which is legitimately a string.
 
 ## Summary
 

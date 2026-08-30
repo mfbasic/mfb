@@ -21,15 +21,28 @@ impl TypeEnv {
         let Some(ty) = self.infer_type(value, locals) else {
             return;
         };
-        let ty = resource_base_type(&ty).to_string();
+        let base = resource_base_type(&ty);
         // A Result scrutinee's CASE Ok/Error arms are rejected by
         // TYPE_RESULT_NOT_MATCHABLE; suppress the secondary exhaustiveness
         // cascade like the former source checker does. Unknown types are skipped as always.
-        if ty.is_empty()
-            || ty == "Unknown"
-            || ty == "Result"
-            || crate::codegen::engine::types::is_result_type(&ty)
+        //
+        // plan-111-B: these four were decided on the RENDERED name — the last of
+        // them by handing that name to `codegen::engine::types::is_result_type`,
+        // which parsed it straight back. `is_result_type(&t.name())` is
+        // `matches!(t, ResultOf(_))` by the `parse`↔`name` round trip, so the
+        // whole guard is a variant question. `Unknown` keeps both spellings it
+        // could arrive as: the variant, and a decoded-IR `Named("Unknown")`,
+        // which is what the string compare accepted.
+        if matches!(base, ParameterType::Unknown | ParameterType::ResultOf(_))
+            || base.is_named("Unknown")
+            || base.is_named("Result")
         {
+            return;
+        }
+        // Still a NAME below here: `union_variants` / `enums` / `unions` are
+        // `String`-keyed symbol tables. plan-111-C re-keys them.
+        let ty = base.name().into_owned();
+        if ty.is_empty() {
             return;
         }
         // The complete member/variant set, and whether it is a union (for the

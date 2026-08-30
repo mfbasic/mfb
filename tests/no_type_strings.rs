@@ -292,7 +292,17 @@ const CONSTRUCTED_PREFIXES: &[&str] = &[
 /// `ir/lower.rs`'s `binding_types` (keyed by variable name),
 /// `monomorph`'s and `codegen`'s `function_types` / `package_return_types`
 /// (function name), `ir/resource_escape.rs`'s `decl_type` (declaration name),
-/// and `data_objects.rs`'s local `types` (parameter name).
+/// `data_objects.rs`'s local `types` (parameter name), `ir::verify`'s and
+/// `monomorph`'s `globals` (binding name), `ir/shape.rs`'s `state_dropped`
+/// (local name), codegen's and NIR's `resource_owners` / `owner_collections`
+/// (binding name), and `function_lowering.rs`'s `union_extract_reads` (local
+/// name).
+///
+/// The list was widened once, in plan-111-B, after a systematic census: every
+/// `HashMap<String, _>` / `HashSet<String>` declaration in `src/` was extracted
+/// with its doc comment and classified by whether the KEY is a type name. The
+/// first pass had been assembled by grepping identifiers containing `type`,
+/// which missed nine `ir::verify` tables and three elsewhere.
 const TYPE_KEYED_TABLES: &[(&str, &str)] = &[
     // `TypeModel` — codegen's whole picture of the module's declared types,
     // keyed by rendered name. plan-111-C re-keys these.
@@ -305,13 +315,35 @@ const TYPE_KEYED_TABLES: &[(&str, &str)] = &[
     ("src/codegen/engine/builder/mod.rs", "union_variant_fields"),
     ("src/codegen/engine/builder/mod.rs", "resource_names"),
     ("src/codegen/engine/builder/mod.rs", "resource_closers"),
+    // Two more codegen tables outside `TypeModel`, both keyed by a resource
+    // TYPE name (plan-111-B Correction 12).
+    (
+        "src/codegen/link/thunk/link_thunk.rs",
+        "record_native_resources",
+    ),
+    (
+        "src/codegen/engine/validation/validation.rs",
+        "native_resources",
+    ),
+    // A resource UNION type -> its variants' close helpers.
+    (
+        "src/target/shared/runtime/usage.rs",
+        "resource_union_closes",
+    ),
     // The IR shape checker's type registry.
     ("src/ir/shape.rs", "resource_types"),
     ("src/ir/shape.rs", "types"),
-    // The IR verifier's field/decl tables.
+    // `ir::verify`'s `TypeEnv` — nine tables, every one keyed by a type name.
+    // `globals` is deliberately absent: it is keyed by a BINDING name.
+    ("src/ir/verify/mod.rs", "records"),
+    ("src/ir/verify/mod.rs", "unions"),
     ("src/ir/verify/mod.rs", "resource_closers"),
+    ("src/ir/verify/mod.rs", "resource_sendable"),
     ("src/ir/verify/mod.rs", "field_types"),
+    ("src/ir/verify/mod.rs", "record_field_lists"),
+    ("src/ir/verify/mod.rs", "enums"),
     ("src/ir/verify/mod.rs", "type_decl_info"),
+    ("src/ir/verify/mod.rs", "private_fields"),
     // Monomorphization's template and instantiation tables.
     ("src/monomorph/mod.rs", "type_templates"),
     ("src/monomorph/mod.rs", "concrete_types"),
@@ -576,14 +608,14 @@ fn string_keyed_type_maps(rel: &str, src: &str) -> Vec<Hit> {
 const BUDGETS: &[(&str, &str, usize)] = &[
     // --- 1. `ParameterType::parse` below a boundary — 125. Letters B, D, E, F.
     ("parse_sites", "codegen", 96),
-    ("parse_sites", "ir", 13),
+    ("parse_sites", "ir", 10),
     ("parse_sites", "monomorph", 15),
     ("parse_sites", "resolver", 1),
     // --- 2. a type taken as `&str` — 173. Letters B, D, E, F, G.
     ("str_type_params", "binary_repr", 4),
     ("str_type_params", "codegen", 141),
     ("str_type_params", "hir", 1),
-    ("str_type_params", "ir", 13),
+    ("str_type_params", "ir", 9),
     ("str_type_params", "monomorph", 3),
     ("str_type_params", "numeric", 1),
     ("str_type_params", "resolver", 3),
@@ -592,12 +624,12 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // --- 3. a `match` arm on a spelling — 186. Letters B, D, E, F, G.
     ("spelling_match_arms", "binary_repr", 19),
     ("spelling_match_arms", "codegen", 147),
-    ("spelling_match_arms", "ir", 10),
+    ("spelling_match_arms", "ir", 4),
     ("spelling_match_arms", "monomorph", 1),
     ("spelling_match_arms", "types", 9),
     // --- 4. `==` / `!=` against a spelling — 73. Letters B, D, E, F, G.
     ("spelling_compares", "codegen", 60),
-    ("spelling_compares", "ir", 6),
+    ("spelling_compares", "ir", 4),
     ("spelling_compares", "monomorph", 2),
     ("spelling_compares", "resolver", 1),
     ("spelling_compares", "target", 2),
@@ -616,10 +648,11 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // --- 7. a type-keyed map keyed by `String` — 24. Letter C (codegen's
     //     `TypeModel`), then B (ir/monomorph/resolver) and G (binary_repr).
     ("string_keyed_type_maps", "binary_repr", 1),
-    ("string_keyed_type_maps", "codegen", 9),
-    ("string_keyed_type_maps", "ir", 8),
+    ("string_keyed_type_maps", "codegen", 11),
+    ("string_keyed_type_maps", "ir", 17),
     ("string_keyed_type_maps", "monomorph", 5),
     ("string_keyed_type_maps", "resolver", 1),
+    ("string_keyed_type_maps", "target", 1),
 ];
 
 /// First path component under `src/`, or the stem of a file directly in `src/`.

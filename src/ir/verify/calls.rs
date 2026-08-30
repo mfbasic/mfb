@@ -254,29 +254,49 @@ impl TypeEnv {
         ) else {
             return;
         };
-        // The thread plane's resource and its `STATE` clause both ride inside the
-        // handle's rendered spelling, so these read off the names.
-        let handle_name = handle_type.name();
-        let resource_name = resource_type.name();
-        let Some(plane_resource) = crate::types::thread_resource(&handle_name) else {
+        // plan-111-B: the plane and its `STATE` clause are both structure —
+        // `ThreadHandle`'s `res` slot and that type's own `Stateful` — so this
+        // reads them off the variants instead of rendering the handle and
+        // re-splitting the spelling through `codegen::resource`. An absent
+        // resource plane is `Nothing` (which `name()` elides), exactly the
+        // `None` the old `thread_resource(&handle_name)` returned; a handle that
+        // is not a `ThreadHandle` at all (a truncated spelling out of decoded
+        // IR) returns early, as it did when `thread_parts_full` found no ` TO `.
+        let ParameterType::ThreadHandle {
+            res: plane_resource,
+            ..
+        } = &handle_type
+        else {
             return;
         };
-        let plane_state = crate::codegen::resource::state_type_name(plane_resource);
-        let resource_state = crate::codegen::resource::state_type_name(&resource_name);
+        if matches!(**plane_resource, ParameterType::Nothing) {
+            return;
+        }
+        let plane_state = plane_resource.state();
+        let resource_state = resource_type.state();
         if plane_state == resource_state {
             return; // both bare, or the same state — the agreeing case.
         }
-        let detail = match (plane_state, resource_state) {
-            (Some(plane), Some(actual)) => format!(
-                "carries STATE `{actual}` but the thread plane declares `STATE {plane}`; a transfer moves the resource to a thread that re-types it, so both must name the same state"
-            ),
-            (Some(plane), None) => format!(
-                "carries no STATE but the thread plane declares `STATE {plane}`; the accepting thread would read an unattached state"
-            ),
-            (None, Some(actual)) => format!(
-                "carries STATE `{actual}` but the thread plane is bare; a bare plane asserts the resource has no state — declare the plane `RES {} STATE {actual}`",
-                crate::codegen::resource::base_resource_name(plane_resource)
-            ),
+        let detail = match (&plane_state, &resource_state) {
+            (Some(plane), Some(actual)) => {
+                let (plane, actual) = (plane.name(), actual.name());
+                format!(
+                    "carries STATE `{actual}` but the thread plane declares `STATE {plane}`; a transfer moves the resource to a thread that re-types it, so both must name the same state"
+                )
+            }
+            (Some(plane), None) => {
+                let plane = plane.name();
+                format!(
+                    "carries no STATE but the thread plane declares `STATE {plane}`; the accepting thread would read an unattached state"
+                )
+            }
+            (None, Some(actual)) => {
+                let actual = actual.name();
+                format!(
+                    "carries STATE `{actual}` but the thread plane is bare; a bare plane asserts the resource has no state — declare the plane `RES {} STATE {actual}`",
+                    plane_resource.without_state().name()
+                )
+            }
             // Equal (both None) is handled above; unreachable.
             (None, None) => return,
         };

@@ -549,7 +549,7 @@ Acceptance: **MET.**
   section and unlocated `error: RULE:` lines (`scripts/diag-set-diff.sh:62,73`),
   so a build that started failing would be a SETDIFF rather than a silent
   "same" — the failure mode a 518-same reading once hid.
-Commit: 8ac1f2d3e
+Commit: 5dfd69f80
 
 ### End-of-letter spot-check (scoped, read-only)
 
