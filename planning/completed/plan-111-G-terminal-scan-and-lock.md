@@ -410,12 +410,23 @@ Commit: `dac8935d9`
 
       Deleting an item does not delete its doc comment. After a deletion pass,
       grep the file for a `///` block followed by a blank line.
-- [ ] Move `planning/plan-111-A` … `planning/plan-111-G` to
-      `planning/completed/`, with the baseline artifacts.
-- [ ] Delete the `../mfb-pre111` attribution worktree (`--force` if needed).
+- [x] Move `planning/plan-111-A` … `planning/plan-111-G` to
+      `planning/completed/`, with the baseline artifacts. plan-111 produced no
+      standalone baseline file (letter A's census is inline), so the archived
+      companion is `plan-111-verification.txt` — every Phase 4 command with its
+      output, in the shape plan-107 used.
+- [x] ~~Delete the `../mfb-pre111` attribution worktree (`--force` if needed).~~
+      — moot: no worktree was created. The attribution binary was a `git archive`
+      extract at `/tmp/base111` (see the Phase 4 plan repair), which lives in
+      `/tmp` and is outside the repository entirely — nothing to remove from the
+      tree, and `git worktree list` shows only `P-111`.
 
-Acceptance: the seven letters are in `planning/completed/`; no `src/` comment
-claims a permitted type-string re-parse; `cargo test --no-fail-fast` green — **with no `--skip`**, since Phase 4 has run.
+Acceptance: **MET.** The seven letters and `plan-111-verification.txt` are in
+`planning/completed/`. The `name-domain`/`re-parse` sweep found 29 hits, of which
+27 are accurate (deliberate history, or a live and correct statement) and 2 were
+rot introduced by this plan — both fixed, both recorded above. `cargo test
+--no-fail-fast` with **no `--skip`**: **4056 passed, 0 failed** across 67 test
+binaries, `artifact_gate_all` included and green.
 Commit: —
 
 ## The terminal census
