@@ -173,16 +173,17 @@ resolution.
 deliberately.** Per plan-111-A §3 the full `artifact-gate.sh all` runs only in
 letter G, but this letter touches symbol-adjacent tables, and uniform label
 renumbering is invisible to `test-accept` — only `.ncodesum` sees it (the
-abi-function-migration memory). With the golden sweep deferred, **no** byte-level
-check runs in this letter at all, so a drift introduced here would not surface
-until G.
+abi-function-migration memory). With the full golden sweep deferred to G, this
+letter's only byte-level check is the scoped spot-check below — four builtins,
+multi-target, which does see `.ncodesum` for the shapes it covers, but not the
+whole corpus.
 
 The compensation is Phase 2's equivalence assertions: rather than detecting a
 changed lookup downstream in the emitted bytes, this letter proves *at the lookup
 itself*, over the whole corpus, that the typed table answers identically to the
 string one. That is a strictly stronger check than byte-identity for this
 specific risk, and it is why the letter is safe without the cross-target sweep.
-If G does surface a diff, C's tables are the first place to look.
+If the spot-check or G surfaces a diff, C's tables are the first place to look.
 
 ## Phases
 
@@ -281,6 +282,30 @@ Acceptance: the `format!` needle class reads 0 for `codegen`;
 `cargo test --no-fail-fast -- --skip artifact_gate_all` green.
 Commit: —
 
+### End-of-letter spot-check (scoped, read-only)
+
+Before closing this letter, run the scoped artifact gate on the builtins it
+touched — **`collections`, `math`, `strings`, `general`** (`TypeModel` re-keying and the registry API collapse touch every builtin's resolution):
+
+```
+scripts/artifact-gate.sh target/release/mfb collections
+scripts/artifact-gate.sh target/release/mfb math
+scripts/artifact-gate.sh target/release/mfb strings
+scripts/artifact-gate.sh target/release/mfb general
+```
+
+Measured cost: ~31s per builtin (one builtin = 1 test, 6 builds, 7 goldens).
+This is **read-only diffing**: it regenerates nothing and updates no golden. It
+is multi-target — per-target goldens (`*.linux-aarch64.ncode` and friends) are
+discovered by filename and rebuilt with `-target`, so cross-arch drift is caught
+on a macOS host, which no other per-letter check can see.
+
+Expect **0 diffs**. A diff here is this letter's, which is the entire point of
+running it now instead of discovering it in G behind six letters of churn —
+root-cause it with objdump on one fixture and fix the conversion. **Do not
+regenerate a golden here.** All regeneration happens once, in letter G, after
+attribution (plan-111-A §3).
+
 ## Validation Plan
 
 - Tests: `cargo test --no-fail-fast -- --skip artifact_gate_all`.
@@ -298,9 +323,9 @@ Commit: —
   letter — the acceptance corpus and its goldens are swept once, at the end
   (plan-111-A §3). The per-phase `rt_*` runtime tests are this letter's
   behavioral signal.
-- Artifact gate / goldens: **not run in this letter** (plan-111-A §3).
-  `artifact-gate.sh all`, `tests/golden.rs` and `test-accept.sh` all run once,
-  in letter G, where any diff is attributed before any golden is regenerated.
+- Artifact gate: **scoped spot-check only** — the builtins above, ~31s each,
+  read-only. The full `artifact-gate.sh all`, `tests/golden.rs`,
+  `test-accept.sh` and every golden regeneration run once, in letter G.
 - Diagnostics: **not run in this letter** — this letter touches codegen, which
   emits no source diagnostics (plan-111-A §3). G re-checks it.
 - Doc sync: `.ai/resources-packages.md` (registry query surface),

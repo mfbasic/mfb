@@ -239,6 +239,29 @@ Acceptance: all 25 files in §2 read 0 on all six needle classes; the letter's e
 gate below passes.
 Commit: —
 
+### End-of-letter spot-check (scoped, read-only)
+
+Before closing this letter, run the scoped artifact gate on the builtins it
+touched — **`collections`, `json`, `csv`** (collections and layout; `json`/`csv` are the heaviest nested-container consumers):
+
+```
+scripts/artifact-gate.sh target/release/mfb collections
+scripts/artifact-gate.sh target/release/mfb json
+scripts/artifact-gate.sh target/release/mfb csv
+```
+
+Measured cost: ~31s per builtin (one builtin = 1 test, 6 builds, 7 goldens).
+This is **read-only diffing**: it regenerates nothing and updates no golden. It
+is multi-target — per-target goldens (`*.linux-aarch64.ncode` and friends) are
+discovered by filename and rebuilt with `-target`, so cross-arch drift is caught
+on a macOS host, which no other per-letter check can see.
+
+Expect **0 diffs**. A diff here is this letter's, which is the entire point of
+running it now instead of discovering it in G behind six letters of churn —
+root-cause it with objdump on one fixture and fix the conversion. **Do not
+regenerate a golden here.** All regeneration happens once, in letter G, after
+attribution (plan-111-A §3).
+
 ## Validation Plan
 
 - Tests: `cargo test --no-fail-fast -- --skip artifact_gate_all` — the `--skip` keeps the full
@@ -253,9 +276,9 @@ Commit: —
   (plan-111-A §3). The per-phase `rt_*` runtime tests are this letter's
   behavioral signal.
 
-- Artifact gate / goldens: **not run in this letter** (plan-111-A §3).
-  `artifact-gate.sh all`, `tests/golden.rs` and `test-accept.sh` all run once,
-  in letter G, where any diff is attributed before any golden is regenerated.
+- Artifact gate: **scoped spot-check only** — the builtins above, ~31s each,
+  read-only. The full `artifact-gate.sh all`, `tests/golden.rs`,
+  `test-accept.sh` and every golden regeneration run once, in letter G.
 - Diagnostics: **not run in this letter** — this letter touches codegen, which
   emits no source diagnostics (plan-111-A §3). G re-checks it.
 - Doc sync: `.ai/collections.md` if any documented signature changes.

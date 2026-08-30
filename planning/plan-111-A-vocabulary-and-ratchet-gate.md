@@ -269,12 +269,28 @@ So the gate is tiered:
   test — which is where a wrong conversion shows up as a wrong **value**, the
   failure mode that actually matters during the conversion letters.
 
-- **Per letter A and B only** — `scripts/diag-set-diff.sh`. These are the only
-  two letters that can move a source diagnostic; C–F touch codegen, which emits
-  none. Running it on the codegen letters would cost a corpus sweep to prove
-  something that cannot change.
+- **Per letter** — a **scoped, read-only** artifact gate on the 3–4
+  `tests/byte-identity/` builtins that letter touched:
 
-- **Once, in letter G** — the entire byte-identity and acceptance surface:
+  ```
+  scripts/artifact-gate.sh target/release/mfb <builtin>
+  ```
+
+  Measured: ~31s per builtin (1 test, 6 builds, 7 goldens). It regenerates
+  nothing. It is multi-target — per-target goldens are discovered by filename and
+  rebuilt with `-target`, so cross-arch drift is caught on a macOS host. Each
+  letter names its builtins in its own §End-of-letter spot-check.
+
+  This exists to bound localization. Without it a drift landing in letter B is
+  first seen in G, six letters and ~458 converted sites later, and bisecting it
+  means repeated full `all` runs — the expensive thing this policy avoids. ~15
+  minutes total across the plan buys "the diff is in this letter."
+
+- **Per letter A and B only, additionally** — `scripts/diag-set-diff.sh`. These
+  are the only two letters that can move a source diagnostic; C–F touch codegen,
+  which emits none.
+
+- **Once, in letter G** — the full sweep and the only regeneration:
   `scripts/artifact-gate.sh all` (equivalently, `cargo test --test golden`
   unskipped), `scripts/test-accept.sh` and `MFB_OPT=3 scripts/test-accept.sh`,
   and `scripts/diag-set-diff.sh`. Goldens are regenerated **once**, there, after
@@ -459,6 +475,29 @@ stateful spelling; `cargo test --no-fail-fast -- --skip artifact_gate_all` green
 `scripts/diag-set-diff.sh` 0 differing with exit code and unlocated `error:`
 lines captured (A is one of the two letters that runs it — §3).
 Commit: —
+
+### End-of-letter spot-check (scoped, read-only)
+
+Before closing this letter, run the scoped artifact gate on the builtins it
+touched — **`collections`, `strings`, `math`** (the `STATE` variant touches resource-typed spellings; these three cover the widest type-shape surface):
+
+```
+scripts/artifact-gate.sh target/release/mfb collections
+scripts/artifact-gate.sh target/release/mfb strings
+scripts/artifact-gate.sh target/release/mfb math
+```
+
+Measured cost: ~31s per builtin (one builtin = 1 test, 6 builds, 7 goldens).
+This is **read-only diffing**: it regenerates nothing and updates no golden. It
+is multi-target — per-target goldens (`*.linux-aarch64.ncode` and friends) are
+discovered by filename and rebuilt with `-target`, so cross-arch drift is caught
+on a macOS host, which no other per-letter check can see.
+
+Expect **0 diffs**. A diff here is this letter's, which is the entire point of
+running it now instead of discovering it in G behind six letters of churn —
+root-cause it with objdump on one fixture and fix the conversion. **Do not
+regenerate a golden here.** All regeneration happens once, in letter G, after
+attribution (plan-111-A §3).
 
 ## Validation Plan
 
