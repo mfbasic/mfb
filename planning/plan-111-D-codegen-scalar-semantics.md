@@ -208,7 +208,7 @@ spot would have shipped the blind spot into all three.
 Acceptance: **MET.** `cargo test --test no_type_strings` → 4 passed, budgets
 tight both ways. The census total moved 525 → 584: **59 sites that were live the
 whole time and invisible to three letters of gating.**
-Commit: —
+Commit: c52478579
 
 ### Phase 1 — arithmetic and money (51 sites, no `&str` params)
 
@@ -252,29 +252,78 @@ Acceptance: **MET.** The four files read 0 on all seven needle classes (absent
 from `census_by_file` entirely). `cargo test --no-fail-fast -- --skip
 artifact_gate_all` → exit 0, 0 failures, 67 result lines, every `rt_*` included.
 Scoped acceptance green.
-Commit: —
+Commit: 167e6b11c
 
 ### Phase 2 — conversion, numeric operators, string representation (60 sites)
 
 The highest-value files in this letter, and the one real correctness risk.
 
-- [ ] `engine/convert/builder_conversions.rs` — convert 22 arms and delete 3
+- [x] `engine/convert/builder_conversions.rs` — convert 22 arms and delete 3
       parses. Convert **one arm per commit or in small named groups**; a 22-arm
       rewrite in one commit cannot be reviewed against the conversion matrix.
-- [ ] `engine/operators/builder_numeric.rs` — convert ~~19~~ **20** arms, 2
+      Done as three named-group commits, each listing its matrix rows:
+      **2a** `toInt` + `toScalar`, **2b** `toFloat` + `toFixed`,
+      **2c** `toMoney` + the sign predicates. The three
+      `parse("Scalar")` result types become `named("Scalar")` (a bare nominal —
+      `ir/verify/values.rs` asks `is_named("Scalar")` — and no lookup key is
+      built from it, so Correction C1's `declared` rule does not apply).
+      Two near-duplicate arm pairs were deliberately NOT merged, per §Non-goals:
+      `toMoney` Integer-vs-Byte (only Integer is overflow-checked) and the two
+      Money rows of `toFloat`/`toFixed` (different helpers, different range
+      check).
+- [x] `engine/operators/builder_numeric.rs` — convert ~~19~~ **20** arms, 2
       compares, delete 2 parses (Correction D1: +1 tuple arm). Where an arm re-derives numeric promotion, call
       `src/numeric.rs`'s typed algebra instead of reimplementing it — but only
       where it is already equivalent; a behavior change here is out of scope and
-      belongs in Corrections.
-- [ ] `string/repr/builder_strings.rs` — convert 11 arms and 1 `&str` param.
-- [ ] Lower the gate budgets for these three files to 0.
-- [ ] Tests: add an rt-behavior fixture for any conversion pair in the matrix
+      belongs in Corrections. **Both parses were a render/reparse round trip**:
+      `promoted_binary_type(..).name().into_owned()` at the top and
+      `ParameterType::parse(&result_type)` at the bottom, with a string match
+      between them. `promoted_binary_type` has returned a `ParameterType` since
+      plan-106-E, so both are simply deleted. The one arm that re-derives
+      promotion is **not** equivalent to the algebra — see **Correction D3**;
+      per this task's own condition it is reported, not changed.
+- [x] `string/repr/builder_strings.rs` — convert 11 arms and 1 `&str` param.
+      The parameter (`lower_list_replace`'s `element_type`) came from
+      `typed_list_element_type(&value.type_).map(|t| t.name().into_owned())` and
+      was then compared by spelling three times — so typing it **removed four
+      renders and added one**, at the boundary with `builder_collection_layout`'s
+      still-untyped `list_entry_stride` / `kind2_payload_size` /
+      `inline_collection_payload_size`. Those three are letter E's (with
+      `list_entry_stride`'s ~80 call sites); the single remaining render is
+      annotated in place and E deletes it. The `toString` matrix also converts
+      two arms the gate never counted — `"List OF Byte"` →
+      `ListOf(element) if **element == Byte`, and `"AttributedString"` →
+      `is_named(..)` — because neither spelling is in `SPELLINGS_MATCH`.
+- [x] Lower the gate budgets for these three files to 0. `codegen`:
+      `spelling_match_arms` 121 → 68, `parse_sites` 90 → 85,
+      `spelling_compares` 60 → 58, `str_type_params` 166 → 165.
+- [x] Tests: add an rt-behavior fixture for any conversion pair in the matrix
       that the existing corpus does not exercise — determine which by reading the
       matrix against the fixture list, not by assuming coverage.
+      **Done by enumeration; the answer is that none is missing**, so no fixture
+      was added. All 30 pairs are exercised in `tests/acceptance/src/`:
 
-Acceptance: the three files read 0 on all six needle classes; every `rt_*`
-numeric/conversion/string test green under `cargo test --no-fail-fast`.
-Commit: —
+      | Conversion | Source types converted | Where exercised |
+      |---|---|---|
+      | `toInt` | Fixed, Float, Money, String | `primitives.mfb` "from text, base 10", "from text with an explicit radix", "from Byte, Float, Fixed, Money, Scalar" |
+      | `toScalar` | Byte, Integer, String | `primitives.mfb` "from a code point, a one-scalar String, and a Byte" |
+      | `toFloat` | Integer, Fixed, Money, String | `primitives.mfb` "from text, Integer, Fixed, Money" |
+      | `toFixed` | Integer, Float, Money, String | `primitives.mfb` "from text, Integer, Float, Money" |
+      | `toMoney` | Integer, Byte, Fixed, Float, String | `primitives.mfb` "from Integer, Float, Fixed, Byte, exact text" |
+      | `toString` | String, Boolean, Byte, Scalar, Integer, Fixed, Float, Money | `primitives.mfb` "renders each primitive" + "Float/Fixed/Money default to 2 places" |
+      | `toString` | **List OF Byte** | `general.mfb:189` "byte list decodes to text" |
+      | `toString` | **AttributedString** | `astrings.mfb:141` `toString(astrings::fromString("hello"))` |
+
+      The last two rows are the ones an assumption would have missed: they are
+      the two `toString` arms the gate never counted (neither spelling is a
+      `SPELLINGS_MATCH` needle), and neither is in the `primitives.mfb` group
+      where the other eight live.
+
+Acceptance: **MET.** All three files read 0 on all seven needle classes (absent
+from `census_by_file`). `cargo test --no-fail-fast -- --skip artifact_gate_all`
+→ exit 0, 0 failures. Scoped acceptance green (the corpus that actually
+exercises the matrix — see Correction D2).
+Commit: 9a2b8bec5, 2506bfad1, 5d8e8a1f8, 9bf446af3
 
 ### Phase 3 — SIMD, error emission, entry and thunk (28 sites, host-invisible risk)
 
@@ -461,6 +510,29 @@ cover it" — **check that the fixtures exist before believing the sentence.**
 Coverage was confirmed by enumerating the fixture rather than assuming it: all
 22 `math::` members appear, across scalar, int-array, fixed-array and
 float-array cases.
+
+**D3 — one arm re-derives numeric promotion, and it is right to.** Phase 2 says
+to call `src/numeric.rs`'s typed algebra wherever an emitter reimplements
+promotion, *"but only where it is already equivalent."* The numeric comparison
+dispatcher (`builder_numeric.rs`, the `promoted` binding) does reimplement it,
+and it is **not** equivalent:
+
+| Pairing | `numeric::typed_binary_result_type("+", …)` | the comparison dispatcher |
+|---|---|---|
+| `Float` vs `Fixed` | **`Fixed`** (`:448` tests Fixed *before* Float) | **`Float`** (tests Float first) |
+| `Money` vs `Float` | `typed_money_result_type("+", true, false)` → `None` → `unwrap_or(Integer)` | **`Float`** |
+
+Both divergences are correct, and for the same reason: comparison needs a common
+**representation** to feed one compare instruction, not an arithmetic **result
+type**. `Fixed = Float` widens both sides to f64 and compares there; adding them
+produces a `Fixed`. Routing the comparison through the algebra would silently
+change which compare instruction a `Fixed = Float` emits — a wrong answer, not a
+wrong type name.
+
+So it is left exactly as it was, converted from `String` to `ParameterType`
+without touching the rule. Recorded here because "an emitter re-derives
+promotion" reads like a defect and is not one — the next reader should not
+"fix" it either.
 
 The honest summary of this correction: the plan's stated goal is "delete every
 type string after the AST", and for three letters the gate certifying that goal

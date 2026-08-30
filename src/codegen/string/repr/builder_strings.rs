@@ -29,9 +29,7 @@ impl CodeBuilder<'_> {
         let scratch25 = self.temporary_vreg();
         let scratch26 = self.temporary_vreg();
         let value = self.lower_value(&args[0])?;
-        if let Some(element_type) =
-            typed_list_element_type(&value.type_).map(|type_| type_.name().into_owned())
-        {
+        if let Some(element_type) = typed_list_element_type(&value.type_) {
             let value_slot = self.allocate_stack_object("replace_list_value", 8);
             self.emit(abi::store_u64(
                 &value.location,
@@ -39,7 +37,7 @@ impl CodeBuilder<'_> {
                 value_slot,
             ));
             let old = self.lower_value(&args[1])?;
-            if old.type_.name() != element_type.as_str() {
+            if old.type_ != *element_type {
                 return Err(format!(
                     "native list replace old must be {}, got {}",
                     element_type, old.type_
@@ -52,7 +50,7 @@ impl CodeBuilder<'_> {
                 old_slot,
             ));
             let new = self.lower_value(&args[2])?;
-            if new.type_.name() != element_type.as_str() {
+            if new.type_ != *element_type {
                 return Err(format!(
                     "native list replace new must be {}, got {}",
                     element_type, new.type_
@@ -325,12 +323,18 @@ impl CodeBuilder<'_> {
         old_slot: usize,
         new_slot: usize,
         list_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
+        // The three collection-layout helpers below still take a spelling; they
+        // live in `builder_collection_layout.rs`, which letter E owns together
+        // with `list_entry_stride`'s ~80 call sites. Rendering ONCE here, at the
+        // boundary with them, is strictly better than the four renders this
+        // function's caller used to do — and letter E deletes it.
+        let element_name = element_type.name();
         // Entry stride for this element type: zero builds the result entry-free
         // and makes every cursor below stride the data region (plan-57-D).
-        let rep_stride = list_entry_stride(element_type);
-        let rep_payload = kind2_payload_size(element_type);
+        let rep_stride = list_entry_stride(&element_name);
+        let rep_payload = kind2_payload_size(&element_name);
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
         let scratch8 = self.temporary_vreg();
@@ -412,8 +416,8 @@ impl CodeBuilder<'_> {
             ));
         }
         self.emit_collection_payload_matches_value_branch(
-            element_type,
-            element_type,
+            &element_name,
+            &element_name,
             &scratch8,
             &scratch17,
             &scratch20,
@@ -582,7 +586,7 @@ impl CodeBuilder<'_> {
             abi::mfb_return(1),
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, &element_name);
         self.emit(abi::move_immediate(
             &scratch14,
             "Integer",
@@ -651,8 +655,8 @@ impl CodeBuilder<'_> {
             ));
         }
         self.emit_collection_payload_matches_value_branch(
-            element_type,
-            element_type,
+            &element_name,
+            &element_name,
             &scratch8,
             &scratch22,
             &scratch23,
@@ -676,15 +680,15 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::add_registers(&scratch25, &scratch21, &scratch13));
         match element_type {
-            "Boolean" | "Byte" => {
+            ParameterType::Boolean | ParameterType::Byte => {
                 self.emit(abi::load_u64(&scratch24, abi::stack_pointer(), new_slot));
                 self.emit(abi::store_u8(&scratch24, &scratch25, 0));
             }
-            "Integer" | "Float" | "Fixed" => {
+            ParameterType::Integer | ParameterType::Float | ParameterType::Fixed => {
                 self.emit(abi::load_u64(&scratch24, abi::stack_pointer(), new_slot));
                 self.emit(abi::store_u64(&scratch24, &scratch25, 0));
             }
-            "String" => {
+            ParameterType::String => {
                 self.emit(abi::load_u64(&scratch24, abi::stack_pointer(), new_slot));
                 self.emit(abi::add_immediate(&scratch24, &scratch24, 8));
                 self.emit_block_copy_advance(
@@ -695,7 +699,10 @@ impl CodeBuilder<'_> {
                     "replace_list_copy_new_string",
                 );
             }
-            other if self.inline_collection_payload_size(other).is_some() => {
+            other if self
+                .inline_collection_payload_size(&other.name())
+                .is_some() =>
+            {
                 self.emit(abi::load_u64(&scratch24, abi::stack_pointer(), new_slot));
                 self.emit_block_copy_advance(
                     &scratch25,
@@ -818,19 +825,27 @@ impl CodeBuilder<'_> {
             value_slot,
         ));
 
-        match value.type_.name().as_ref() {
-            "String" => Ok(ValueResult {
+        // Every arm is mutually exclusive (a variant, or a specific nominal, or
+        // exactly `List OF Byte`), so the reordering the variant patterns impose
+        // is not observable — `Scalar` and `AttributedString` are `Named`, which
+        // no scalar variant can also match.
+        match &value.type_ {
+            ParameterType::String => Ok(ValueResult {
                 origin: None,
                 type_: ParameterType::String,
                 location: Operand::from(value_register.render()),
                 text: format!("toString({})", value.text),
             }),
-            "Boolean" => self.lower_boolean_to_string(&value_register),
-            "Byte" => self.emit_integer_to_string_value(&value_register, false),
-            "Scalar" => self.emit_scalar_to_string_value(&value_register),
-            "Integer" => self.emit_integer_to_string_value(&value_register, true),
-            "List OF Byte" => self.emit_byte_list_to_string_value(&value_register),
-            "Fixed" => {
+            ParameterType::Boolean => self.lower_boolean_to_string(&value_register),
+            ParameterType::Byte => self.emit_integer_to_string_value(&value_register, false),
+            type_ if type_.is_named("Scalar") => {
+                self.emit_scalar_to_string_value(&value_register)
+            }
+            ParameterType::Integer => self.emit_integer_to_string_value(&value_register, true),
+            ParameterType::ListOf(element) if **element == ParameterType::Byte => {
+                self.emit_byte_list_to_string_value(&value_register)
+            }
+            ParameterType::Fixed => {
                 let precision = self.allocate_register();
                 self.emit(abi::load_u64(
                     &precision,
@@ -839,7 +854,7 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit_fixed_to_string_value(&value_register, &precision)
             }
-            "Float" => {
+            ParameterType::Float => {
                 let precision = self.allocate_register();
                 self.emit(abi::load_u64(
                     &precision,
@@ -848,7 +863,7 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit_float_to_string_value(&value_register, &precision)
             }
-            "Money" => {
+            ParameterType::Money => {
                 let precision = self.allocate_register();
                 self.emit(abi::load_u64(
                     &precision,
@@ -857,7 +872,7 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit_money_to_string_value(&value_register, &precision)
             }
-            "AttributedString" => {
+            type_ if type_.is_named("AttributedString") => {
                 // The visible text is the inlined `text` String field (index 0):
                 // its record slot holds a block-relative offset, so the String
                 // block is `value_register + offset` (plan-02 §4.2). `toString`

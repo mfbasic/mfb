@@ -724,17 +724,17 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     //     0 in letter C and its row is gone.
     // --- 7. a type-keyed map keyed by `String`. Reached 0 tree-wide in letter C;
     //     the class has no row at all, which is the shape every class ends in.
-    ("parse_sites", "codegen", 90),
+    ("parse_sites", "codegen", 85),
     ("str_type_params", "binary_repr", 5),
-    ("str_type_params", "codegen", 166),
+    ("str_type_params", "codegen", 165),
     ("str_type_params", "hir", 1),
     ("str_type_params", "numeric", 1),
     ("str_type_params", "target", 4),
     ("str_type_params", "types", 2),
     ("spelling_match_arms", "binary_repr", 19),
-    ("spelling_match_arms", "codegen", 121),
+    ("spelling_match_arms", "codegen", 68),
     ("spelling_match_arms", "types", 9),
-    ("spelling_compares", "codegen", 60),
+    ("spelling_compares", "codegen", 58),
     ("spelling_compares", "optimizer", 3),
     ("spelling_compares", "target", 2),
     ("spelling_compares", "types", 2),
