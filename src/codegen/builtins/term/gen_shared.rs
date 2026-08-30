@@ -92,11 +92,17 @@ pub(crate) fn lower_term_helper(
             // `ErrWrongMode` before touching the (absent) grid. No-op when the program
             // cannot leave `Console` (`presentation_mode_offset` is `None`), so a program
             // that never uses `app::` is unchanged.
+            //
+            // plan-98-A Phase 2 relaxed the *console-read `io::*`* gate to "any mode with
+            // a window", but `term::` deliberately keeps `ModeRequirement::Console`: it
+            // needs the transcript view's character grid, which `Canvas` does not have —
+            // a canvas surface is pixels, not cells. So `term::` traps in `Canvas` too.
             prepend_wrong_mode_gate(
                 &mut instructions,
                 &mut relocations,
                 symbol,
                 presentation_mode_offset,
+                ModeRequirement::Console,
             );
             // Reserve exactly the sp-relative scratch the platform body actually
             // addresses. This used to hard-code 0 on the belief that "the app

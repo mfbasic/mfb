@@ -444,7 +444,7 @@ Acceptance: a headless app program sets and reads back `Mode.Canvas`. Run only
 `cargo test --bin mfb codegen::builtins::app` and the new app-mode integration test.
 → MET: `cargo test --bin mfb codegen::builtins::app` = 6 passed (incl. the new
 order test); `cargo test --test cli_app_canvas_mode` = 4 passed.
-Commit: —
+Commit: 12a706ea6
 
 ### Phase 2 — Mode gate: `term::` traps in `Canvas`, `io::` reads allowed in `Canvas`
 
@@ -453,31 +453,75 @@ allowed in `Canvas`** (input from the window), a change from the current "reads 
 outside `Console`" gate — so the read gate becomes "trap only in `None`". `io::` outputs
 still degrade to stdout/stderr.
 
-- [ ] Read `src/codegen/app/hook/app.rs:33:prepend_wrong_mode_gate`: it raises
+- [x] Read `src/codegen/app/hook/app.rs:33:prepend_wrong_mode_gate`: it raises
       `ErrWrongMode` for any non-`Console` slot value. For `term::` (applied at
       `src/codegen/builtins/term/gen_shared.rs:95`) this is already correct for
-      `Canvas` (value `2`) with no change.
-- [ ] For the console-read gate (`src/codegen/engine/builder/mod.rs:1988`, predicate
+      `Canvas` (value `2`) with no change. CONFIRMED — `term::` now passes
+      `ModeRequirement::Console` explicitly, which emits the same `cmp 0 / b.eq`
+      predicate it had before.
+- [x] For the console-read gate (`src/codegen/engine/builder/mod.rs:1988`, predicate
       `matches!(spec.call, "io.input" | "io.readLine" | "io.readChar")`), change the
       comparison from "trap unless `Console` (`== 0`)" to "trap only in `None`
       (`== 1`)" so `Console` **and** `Canvas` both permit reads. This is a change to
       `prepend_wrong_mode_gate`'s emitted comparison, so it needs a mode parameter (or
       a second entry point) — `term::` must keep the "`Console` only" form. Keep it a
       no-op when `presentation_mode_offset` is `None`.
-- [ ] `io.readByte` is **not** in the gate predicate and needs no change here (see
-      §2's correction); it is covered by Phase 4's window wiring only.
-- [ ] Confirm `io::print`/`io::write` (and error variants) still **degrade to stdout/stderr**
-      in `Canvas`.
-- [ ] Tests: `term::sync` in `Mode.Canvas` traps `ErrWrongMode`; `io::print` in `Mode.Canvas`
+      → Done as a `ModeRequirement` parameter (`Console` | `WindowedMode`) rather than
+      a second entry point, so the two predicates cannot drift apart. `WindowedMode`
+      emits `cmp 1 / b.ne`; the `presentation_mode_offset == None` early return is
+      unchanged and is now asserted for **both** requirements.
+      Deliberate shape: "not `None`" is one compare, not `Console`-or-`Canvas`; a
+      future windowed mode inherits the input source rather than falling off the end
+      of a two-arm test and trapping where a window exists.
+- [x] `io.readByte` is **not** in the gate predicate and needs no change here (see
+      §2's correction); it is covered by Phase 4's window wiring only. CONFIRMED
+      unchanged — the predicate still lists exactly three calls.
+- [x] Confirm `io::print`/`io::write` (and error variants) still **degrade to stdout/stderr**
+      in `Canvas`. Proven at runtime by
+      `macos_io_writes_degrade_to_stdout_in_canvas`, which asserts the exact bytes
+      `"CANVAS_LINE\nCANVAS_NONL"` on the headless bundle's stdout.
+- [x] Tests: `term::sync` in `Mode.Canvas` traps `ErrWrongMode`; `io::print` in `Mode.Canvas`
       reaches stdout; a blocking `io::readLine` in `Mode.Canvas` does **not** trap (fed by
       the test harness / window-input stub — full window-key wiring is Phase 4); the same
       read in `Mode.None` still traps; a `Console`-mode read is unchanged.
+      → 4 new headless runtime cases in `tests/cli_app_canvas_mode.rs`
+      (`macos_term_traps_wrong_mode_in_canvas` — uses `term::moveTo`, which the
+      existing Case 3c also uses, rather than `term::sync`;
+      `macos_io_reads_are_permitted_in_canvas_and_still_trap_in_none`;
+      `macos_console_reads_are_unchanged_by_the_relaxation`;
+      `macos_io_writes_degrade_to_stdout_in_canvas`), plus 3 new unit tests in
+      `src/codegen/app/hook/app.rs` asserting the *emitted predicate* (immediate +
+      branch condition) per requirement and that the two differ.
+- [x] **RED-check** (added task — a relaxation test that passes both before and after
+      proves nothing): reverted the builder call site to
+      `ModeRequirement::Console`, rebuilt release, and re-ran
+      `macos_io_reads_are_permitted_in_canvas_and_still_trap_in_none` → **FAILED with
+      exit 50** ("wrongly trapped in Canvas"). Restored; green again.
+- [x] Doc sync for this phase's behavior change (moved up from the Validation Plan so
+      it lands with the code): the `Mode-gated I/O` section of
+      `src/docs/spec/app/05_presentation-mode.md` is now a per-mode × per-call-family
+      matrix with the reasoning for each family's requirement; the `Mode` enum section
+      lists `Canvas` and states the append-not-reorder rule; the `ErrWrongMode` row in
+      `src/docs/spec/diagnostics/02_error-codes.md` and the matching `errorCode`
+      registry descriptor prose (`src/codegen/builtins/errorcode/mod.rs:118`) both
+      split the `term::` and `io::`-read requirements. Verified by rendering:
+      `mfb man app`, `mfb man app types`, `mfb spec app presentation-mode`.
 
 Acceptance: in canvas mode `term::` raises trappable `ErrWrongMode`, `io::` outputs reach
 stdout/stderr, and the console `io::` reads are permitted (do not trap); `None` still
 traps them — all proven by the tests above. Run only the `src/codegen/app/hook/app.rs`
-unit tests, the term wrong-mode gate test (`b2485eb45` added one — find it with
-`rg -rn "wrong_mode" tests/`), and the new cases.
+unit tests, the term wrong-mode gate test, and the new cases.
+→ MET. `cargo test --bin mfb codegen::app::hook::app` = 6 passed;
+`cargo test --test cli_app_canvas_mode` = 8 passed;
+`cargo test -p mfb --bins citations_resolve` = 1 passed (the new
+`[[…/hook/app.rs:ModeRequirement]]` citation resolves).
+**Correction to this line:** the plan pointed at "the term wrong-mode gate test
+(`b2485eb45` added one — find it with `rg -rn "wrong_mode" tests/`)". Two defects —
+`-r` is ripgrep's replace flag again, and with the corrected `rg -ln "wrong_mode" tests/`
+there is **no such test under `tests/`**. The term wrong-mode gate's only behavioral
+coverage is `scripts/test-macapp.sh` Case 3c, which is not in `cargo test`. That gap
+is why `macos_term_traps_wrong_mode_in_canvas` asserts the `Console` half too: it is
+now the first in-suite coverage of the `term::` gate.
 Commit: —
 
 ### Phase 3 — Per-platform reconcile `Canvas` arm: build/teardown an empty surface (largest blast radius last)
@@ -681,6 +725,29 @@ while leaving its design intact. Applied:
     the appended discriminant round-trips by construction. Proven at runtime, not
     inferred: `tests/cli_app_canvas_mode.rs` runs a headless bundle doing
     `Canvas → None → Canvas` and asserting `Canvas ≠ Console ≠ None`.
+
+11. **The plan's named "term wrong-mode gate test" does not exist.** Phase 2's
+    acceptance line said to run "the term wrong-mode gate test (`b2485eb45` added one
+    — find it with `rg -rn "wrong_mode" tests/`)". Corrected:
+    `rg -ln "wrong_mode|WrongMode" tests/` returns **nothing**. The `term::` gate's
+    only behavioral coverage is `scripts/test-macapp.sh` Case 3c, a shell harness that
+    is not part of `cargo test`. Rather than leave the gate uncovered while relaxing
+    the code it shares, `macos_term_traps_wrong_mode_in_canvas` asserts **both** halves
+    (`Canvas` traps, `Console` does not), so it is also the first in-`cargo test`
+    coverage of the `term::` gate.
+
+12. **The `io::`-read relaxation was RED-checked, not assumed.** A test that passes
+    both with and without the change would have made Phase 2 look done while shipping
+    nothing. Reverting the builder call site to `ModeRequirement::Console` and
+    re-running made `macos_io_reads_are_permitted_in_canvas_and_still_trap_in_none`
+    fail with exit 50 — the program's own "wrongly trapped in Canvas" code — which is
+    the proof that the relaxation is what the test observes.
+
+13. **Phase 2's doc sync was pulled forward from the Validation Plan.** The spec's
+    `Mode-gated I/O` section asserted "`term::*` and the console-reading side of `io::`
+    require the `Console` surface", which this phase makes false for the `io::` half.
+    Leaving that correction to a later step would have left the spec actively wrong in
+    every intermediate commit, so it lands with the code that changes the behavior.
 
 <Further corrections filled in during execution.>
 

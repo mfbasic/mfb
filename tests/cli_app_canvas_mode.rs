@@ -85,11 +85,37 @@ fn canvas_mode_compiles_for_the_host_app_target() {
 
 #[cfg(target_os = "macos")]
 fn run_headless(exe: &Path) -> i32 {
-    let output = Command::new(exe)
+    run_headless_with_stdin(exe, "").0
+}
+
+/// Run a bundle headlessly with `stdin` fed from a string; returns
+/// `(exit code, stdout)`. Headless leaves fd 0 as real stdin and routes the `io::`
+/// sink to fd 1 (no transcript view is attached), so both halves of the mode
+/// contract — reads reaching the input path, writes degrading to stdout — are
+/// observable here.
+#[cfg(target_os = "macos")]
+fn run_headless_with_stdin(exe: &Path, stdin: &str) -> (i32, String) {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut child = Command::new(exe)
         .env("MFB_MACAPP_HEADLESS", "1")
-        .output()
-        .expect("run headless app bundle");
-    output.status.code().unwrap_or(-1)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn headless app bundle");
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(stdin.as_bytes())
+        .expect("feed stdin");
+    let output = child.wait_with_output().expect("wait for headless bundle");
+    (
+        output.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+    )
 }
 
 /// The runtime proof: the worker stores `2` into the presentation slot and reads
@@ -100,7 +126,11 @@ fn macos_canvas_mode_round_trips_through_the_presentation_slot() {
     let (project, ok, log) = build_app("app_canvas_rt", CANVAS_ROUNDTRIP_SOURCE, &[]);
     assert!(ok, "a Mode.Canvas app build should succeed:\n{log}");
     let exe = project.join("build/app_canvas_rt.app/Contents/MacOS/app_canvas_rt");
-    assert!(exe.is_file(), "expected app executable at {}", exe.display());
+    assert!(
+        exe.is_file(),
+        "expected app executable at {}",
+        exe.display()
+    );
     assert_eq!(
         run_headless(&exe),
         0,
@@ -117,7 +147,11 @@ fn macos_canvas_is_distinct_from_console_and_none() {
     let (project, ok, log) = build_app("app_canvas_distinct", CANVAS_DISTINCT_SOURCE, &[]);
     assert!(ok, "a Mode.Canvas app build should succeed:\n{log}");
     let exe = project.join("build/app_canvas_distinct.app/Contents/MacOS/app_canvas_distinct");
-    assert!(exe.is_file(), "expected app executable at {}", exe.display());
+    assert!(
+        exe.is_file(),
+        "expected app executable at {}",
+        exe.display()
+    );
     assert_eq!(
         run_headless(&exe),
         0,
@@ -139,6 +173,153 @@ fn linux_app_target_accepts_canvas_mode() {
     assert!(
         ok,
         "a Mode.Canvas app build for linux-aarch64 should succeed:\n{log}"
+    );
+    let _ = fs::remove_dir_all(&project);
+}
+
+// ---------------------------------------------------------------------------
+// plan-98-A Phase 2 — the mode gate in `Canvas`.
+//
+// `term::` needs the transcript view's character grid, which a canvas surface
+// (pixels, not cells) does not have, so it keeps the `Console`-only requirement
+// and traps in `Canvas`. The console-read `io::` helpers need only an input
+// source, and the canvas window has one, so their gate is relaxed to "trap only
+// in `None`". `io::` writes were never gated and still are not.
+// ---------------------------------------------------------------------------
+
+/// `term::moveTo` must still trap `ErrWrongMode` in `Canvas` — the relaxation is
+/// for `io::` reads only. Also checks `Console` still does *not* trap, so a gate
+/// accidentally relaxed for `term::` too would fail here rather than pass silently.
+#[cfg(target_os = "macos")]
+const TERM_TRAPS_IN_CANVAS_SOURCE: &str = "IMPORT app\n\
+     IMPORT term\n\
+     IMPORT errorCode\n\
+     FUNC main AS Integer\n\
+    \x20 app::setMode(Mode.Canvas)\n\
+    \x20 term::moveTo(1, 1) TRAP(err)\n\
+    \x20   IF err.code <> errorCode::ErrWrongMode THEN\n\
+    \x20     RETURN 60\n\
+    \x20   END IF\n\
+    \x20   app::setMode(Mode.Console)\n\
+    \x20   term::moveTo(1, 1) TRAP(err2)\n\
+    \x20     RETURN 61\n\
+    \x20   END TRAP\n\
+    \x20   RETURN 0\n\
+    \x20 END TRAP\n\
+    \x20 RETURN 50\n\
+     END FUNC\n";
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_term_traps_wrong_mode_in_canvas() {
+    let (project, ok, log) = build_app("app_canvas_term", TERM_TRAPS_IN_CANVAS_SOURCE, &[]);
+    assert!(ok, "build should succeed:\n{log}");
+    let exe = project.join("build/app_canvas_term.app/Contents/MacOS/app_canvas_term");
+    let (code, _) = run_headless_with_stdin(&exe, "");
+    assert_eq!(
+        code, 0,
+        "term:: must raise ErrWrongMode in Canvas (50 = did not trap, 60 = wrong \
+         code, 61 = Console wrongly trapped)"
+    );
+    let _ = fs::remove_dir_all(&project);
+}
+
+/// The Phase 2 relaxation itself: `io::readLine` must **not** trap in `Canvas`
+/// (`Canvas` has a window, so it has an input source), but must still trap in
+/// `None` (no window, nowhere for input to come from). Both halves in one program
+/// so a gate stuck at either extreme fails: always-trap fails the first half,
+/// never-trap fails the second.
+#[cfg(target_os = "macos")]
+const IO_READ_GATE_SOURCE: &str = "IMPORT app\n\
+     IMPORT io\n\
+     IMPORT errorCode\n\
+     FUNC main AS Integer\n\
+    \x20 app::setMode(Mode.Canvas)\n\
+    \x20 LET line AS String = io::readLine() TRAP(err)\n\
+    \x20   IF err.code = errorCode::ErrWrongMode THEN\n\
+    \x20     RETURN 50\n\
+    \x20   END IF\n\
+    \x20   RETURN 51\n\
+    \x20 END TRAP\n\
+    \x20 IF line <> \"canvas-input\" THEN\n\
+    \x20   RETURN 52\n\
+    \x20 END IF\n\
+    \x20 app::setMode(Mode.None)\n\
+    \x20 LET second AS String = io::readLine() TRAP(err2)\n\
+    \x20   IF err2.code = errorCode::ErrWrongMode THEN\n\
+    \x20     RETURN 0\n\
+    \x20   END IF\n\
+    \x20   RETURN 60\n\
+    \x20 END TRAP\n\
+    \x20 RETURN 61\n\
+     END FUNC\n";
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_io_reads_are_permitted_in_canvas_and_still_trap_in_none() {
+    let (project, ok, log) = build_app("app_canvas_read", IO_READ_GATE_SOURCE, &[]);
+    assert!(ok, "build should succeed:\n{log}");
+    let exe = project.join("build/app_canvas_read.app/Contents/MacOS/app_canvas_read");
+    let (code, _) = run_headless_with_stdin(&exe, "canvas-input\nsecond-line\n");
+    assert_eq!(
+        code, 0,
+        "io::readLine must read in Canvas (50 = wrongly trapped there) and still \
+         trap in None (61 = wrongly permitted there)"
+    );
+    let _ = fs::remove_dir_all(&project);
+}
+
+/// `Console` reads are unchanged by the relaxation — the gate's fall-through case
+/// still fires for mode 0.
+#[cfg(target_os = "macos")]
+const IO_READ_CONSOLE_SOURCE: &str = "IMPORT app\n\
+     IMPORT io\n\
+     FUNC main AS Integer\n\
+    \x20 app::setMode(Mode.Console)\n\
+    \x20 LET line AS String = io::readLine() TRAP(err)\n\
+    \x20   RETURN 50\n\
+    \x20 END TRAP\n\
+    \x20 IF line <> \"console-input\" THEN\n\
+    \x20   RETURN 51\n\
+    \x20 END IF\n\
+    \x20 RETURN 0\n\
+     END FUNC\n";
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_console_reads_are_unchanged_by_the_relaxation() {
+    let (project, ok, log) = build_app("app_canvas_console_read", IO_READ_CONSOLE_SOURCE, &[]);
+    assert!(ok, "build should succeed:\n{log}");
+    let exe =
+        project.join("build/app_canvas_console_read.app/Contents/MacOS/app_canvas_console_read");
+    let (code, _) = run_headless_with_stdin(&exe, "console-input\n");
+    assert_eq!(code, 0, "a Console-mode io::readLine must still succeed");
+    let _ = fs::remove_dir_all(&project);
+}
+
+/// `io::` writes are never gated: they degrade to the fd sink in every mode,
+/// `Canvas` included.
+#[cfg(target_os = "macos")]
+const IO_WRITE_IN_CANVAS_SOURCE: &str = "IMPORT app\n\
+     IMPORT io\n\
+     FUNC main AS Integer\n\
+    \x20 app::setMode(Mode.Canvas)\n\
+    \x20 io::print(\"CANVAS_LINE\")\n\
+    \x20 io::write(\"CANVAS_NONL\")\n\
+    \x20 RETURN 0\n\
+     END FUNC\n";
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_io_writes_degrade_to_stdout_in_canvas() {
+    let (project, ok, log) = build_app("app_canvas_write", IO_WRITE_IN_CANVAS_SOURCE, &[]);
+    assert!(ok, "build should succeed:\n{log}");
+    let exe = project.join("build/app_canvas_write.app/Contents/MacOS/app_canvas_write");
+    let (code, stdout) = run_headless_with_stdin(&exe, "");
+    assert_eq!(code, 0, "io:: writes must not trap in Canvas");
+    assert_eq!(
+        stdout, "CANVAS_LINE\nCANVAS_NONL",
+        "io::print/io::write must degrade to stdout in Canvas"
     );
     let _ = fs::remove_dir_all(&project);
 }
