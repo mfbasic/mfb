@@ -246,9 +246,39 @@ This is a larger change than "add four members" and it is the honest scope of Ph
 way around it. Recorded here before implementation so the decision is visible and so the next
 session does not rediscover the constraint by writing the Network.framework variants first.
 
-**Status: not yet implemented.** Phase 2's rename and the `write`/`readText` merge are landed
-(commit 26e5d057c) and green; the endpoint/timeout members and the macOS backend unification are
-the remaining Phase 2 work, and `wrap` itself is Phase 3.
+**The unification is now proven viable, not merely argued.** The open question was the *server*
+side: Secure Transport server mode needs a `SecIdentityRef`, which normally comes from the
+keychain. The shipped macOS backend already solves that keychain-free (`SecItemImport` →
+`SecIdentityCreate`, `gen_macos/server.rs`), but it feeds Network.framework's
+`sec_identity_create`, so it was unproven against Secure Transport. Measured with
+`scripts/tls-wrap-adoption-probe-macos-server.c`:
+
+```
+client: connected fd=4
+server: accepted fd=5 (a socket the SERVER already owns)
+server: SecIdentityCreate -> OK (keychain-free)
+server: SSLSetCertificate -> 0
+server: SSLHandshake -> 0 (OK)
+client: SSLHandshake -> 0 (OK)
+server: read "PING!" over TLS
+client: read "PONG!" over TLS
+```
+
+So all four corners hold on macOS over caller-owned sockets: client connect (§C1), server accept,
+keychain-free identity, and bidirectional application data. Unification is an engineering job, not
+a research risk.
+
+**One user-facing gotcha the probe surfaced:** `SecItemImport` rejects a PKCS#8 private key
+(`-----BEGIN PRIVATE KEY-----`) with `errSecUnknownFormat` (-25257) and wants the traditional RSA
+form (`-----BEGIN RSA PRIVATE KEY-----`). This is **pre-existing**, not introduced here — the
+shipped `tls::listen` imports `keyPath` through the same call — so a macOS user handing it a
+modern `openssl req` key gets an opaque failure today. Worth a `tls::listen` doc note and a
+clearer diagnostic; carried to plan-110-F Phase 2's defect list.
+
+**Status: partially implemented.** Phase 2's rename and the `write`/`readText` merge are landed
+(commit 26e5d057c) and green. Remaining in this letter: the macOS backend unification, the four
+endpoint/timeout members on top of it, the `connect(Address, …)` overload, and all of Phase 3
+(`wrap` itself, including the new consuming-argument ownership seam).
 
 ## Summary
 

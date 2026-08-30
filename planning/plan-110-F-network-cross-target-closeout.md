@@ -88,6 +88,14 @@ Commit: —
       `127.0.0.1` and connect for all three shapes. Fix this before certifying `tcp`/`udp`/`tls`
       on Windows, with a RED runtime fixture first; `tcp` inherits the defect and cannot be
       execution-certified there until it is fixed.
+- [ ] **Carried in from plan-110-D §C3 — `tls::listen` rejects a PKCS#8 private key on macOS with
+      an opaque error.** Pre-existing, not introduced by plan-110. `SecItemImport` (which
+      `keyPath` goes through) returns `errSecUnknownFormat` (-25257) for
+      `-----BEGIN PRIVATE KEY-----` and accepts only the traditional
+      `-----BEGIN RSA PRIVATE KEY-----` form — so a key produced by a modern `openssl req`
+      invocation fails with no indication of why. Either accept PKCS#8 or raise a diagnostic that
+      names the format problem and the `openssl rsa -traditional` conversion, and document the
+      accepted formats on `tls::listen`.
 
 Acceptance: every supported native target passes the protocol matrix; any genuinely unavailable
 environment is reported as a blocker rather than represented by compile success.
