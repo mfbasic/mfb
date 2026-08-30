@@ -530,16 +530,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
 /// path below: a member with a concrete positional signature renders one, and the
 /// non-signature shapes (variadic `"1 to 5 Integer"`, zero-arg `"()"`, the
 /// optional-tail brackets, `utf8Decode`'s `"or"`-union) decline via the guard.
-pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
-    Some(
-        argument_types_typed(callee)?
-            .into_iter()
-            .map(|type_| type_.name().into_owned())
-            .collect(),
-    )
-}
-
-/// The typed twin of [`argument_types`] (plan-106-A). Same dispatch and the same
+/// The typed form (plan-106-A). Same dispatch and the same
 /// `None`s; the registry half clones already-typed descriptor params, and the
 /// `general` half classifies its *descriptor text* through the canonical grammar
 /// — `general::expected_arguments` is a hand-authored signature string, so this

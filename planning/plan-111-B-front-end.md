@@ -453,6 +453,41 @@ No codegen signature changed here. The edits in `link_thunk.rs`,
 `.name()` at their own use site so the tree compiles — plus the two parses and
 three compares that deleted themselves.
 
+**14 — a bug the re-key introduced and a test caught, plus a sibling it did
+not.** Re-keying `ir::shape`'s `types` / `resource_types` by `ParameterType`
+turned `is_resource_type` from a `&str` split into a structural
+`without_state()`. Two of that checker's walkers route "every other spelling"
+through `other => f(&ParameterType::named(&other.name()))` — a deliberate
+re-wrap into one opaque nominal, reproducing the former source checker's
+nominal arm. That re-wrap is invisible while `STATE` has no variant, and fatal
+once it does: **a `Stateful` is flattened into a `Named` before the peel, and
+`without_state` cannot peel a re-wrapped spelling.**
+
+`validate_package_type` failed loudly — `ir::shape::tests::package_type_validation_arms`
+went red with `Db STATE DbInfo`, an imported package's stateful resource
+reported as an unknown type.
+
+`is_comparable_seen` has the identical shape and **nothing caught it**: a
+`Db STATE DbInfo` fell past the resource check into the unknown-type tail,
+which is permissive, so a stateful resource would have been reported
+**comparable** — the `=` that `TYPE_REQUIRES_COMPARABLE` exists to reject, on a
+value codegen cannot compare.
+
+Both fixed by peeling before the re-wrap: a `Stateful { .. } if is_resource_type(..)`
+arm ahead of `other` in each. A stateful type whose base is *not* a resource
+still falls through to the re-wrap, so it stays an unknown type to the package
+validator and permissively comparable — exactly what its opaque nominal did.
+
+The test now pins both directions, and the comparability half was
+**RED-checked**: removing just that arm fails with
+"`Db STATE DbInfo` is a resource and must not be comparable".
+
+The general lesson, which letters C–F will meet again: `other => f(&named(&other.name()))`
+is a **structure-destroying** idiom. Anywhere a lookup is converted from a
+spelling split to a structural accessor, every such re-wrap upstream of it has
+to be checked — the compiler cannot see it, and a permissive tail turns it into
+a silently wrong answer rather than a crash.
+
 ## Summary
 
 Risk is concentrated in two places: `ir/verify/values.rs`'s literal-range arms

@@ -124,14 +124,15 @@ struct Walker<'a> {
     /// (`LINK`) resources and the imported packages' `RESOURCE_TABLE` rows —
     /// the checker's resource registry knew (a resource is never
     /// `=`-comparable).
-    resource_types: HashSet<String>,
+    resource_types: HashSet<ParameterType>,
     /// How many inline-TRAP handlers enclose the current statement:
     /// `treeify_handler` drops every statement after a terminator inside a
     /// handler, so no exit's unreachable tail survives lowering there.
     handler_depth: usize,
     /// Every declared and imported type, for the compatibility rule's union
-    /// and same-declaration questions.
-    types: HashMap<String, TypeShape>,
+    /// and same-declaration questions. plan-111-B: keyed BY THE TYPE — a
+    /// declared type is a nominal, so a key is `ParameterType::named(<name>)`.
+    types: HashMap<ParameterType, TypeShape>,
     /// Project-relative path of the file being walked, for diagnostic paths.
     file: String,
     /// Source line of the statement (or declaration) being walked, for the
@@ -289,17 +290,23 @@ fn expr_is_byte_literal(expression: &HirExpression) -> bool {
 /// or `Byte` resolves against whichever the overload expects.
 fn resolve_table_call_with_byte_literals(
     callee: &str,
-    arg_types: &[String],
+    arg_types: &[ParameterType],
     arguments: &[&HirExpression],
-) -> Option<String> {
-    if let Some(return_type) = builtins::resolve_call_return_type(callee, arg_types, true) {
+) -> Option<ParameterType> {
+    // plan-111-B: typed throughout. `resolve_call_return_type_typed` (plan-104-C)
+    // is the exact twin — it routes the three bespoke per-package resolvers
+    // through the same string path they already had, and takes the generic
+    // registry path with no strings at all. That the twin exists is what let
+    // this conversion happen here rather than moving to letter C, which
+    // plan-111-B §2 left open pending exactly that check.
+    if let Some(return_type) = builtins::resolve_call_return_type_typed(callee, arg_types, true) {
         return Some(return_type);
     }
     let eligible: Vec<usize> = arg_types
         .iter()
         .enumerate()
-        .filter(|(index, type_name)| {
-            type_name.as_str() == "Integer"
+        .filter(|(index, type_)| {
+            matches!(type_, ParameterType::Integer)
                 && arguments
                     .get(*index)
                     .is_some_and(|argument| expr_is_byte_literal(argument))
@@ -310,13 +317,13 @@ fn resolve_table_call_with_byte_literals(
         return None;
     }
     for mask in 1u32..(1u32 << eligible.len()) {
-        let mut trial: Vec<String> = arg_types.to_vec();
+        let mut trial: Vec<ParameterType> = arg_types.to_vec();
         for (bit, &index) in eligible.iter().enumerate() {
             if mask & (1 << bit) != 0 {
-                trial[index] = "Byte".to_string();
+                trial[index] = ParameterType::Byte;
             }
         }
-        if let Some(return_type) = builtins::resolve_call_return_type(callee, &trial, true) {
+        if let Some(return_type) = builtins::resolve_call_return_type_typed(callee, &trial, true) {
             return Some(return_type);
         }
     }
@@ -429,7 +436,7 @@ fn is_printable(type_: &ParameterType) -> bool {
         | ParameterType::String
         | ParameterType::Byte
         | ParameterType::Unknown => true,
-        ParameterType::Named(_) => type_.name() == "Scalar",
+        ParameterType::Named(_) => type_.is_named("Scalar"),
         ParameterType::ListOf(inner) => matches!(**inner, ParameterType::Byte),
         _ => false,
     }
@@ -454,10 +461,15 @@ impl<'a> Walker<'a> {
         imported_signatures: &'a HashMap<String, ExternalSignature>,
         imported_resource_types: &[String],
     ) -> Self {
-        let resource_types: HashSet<String> = super::lower_link::native_resources(hir)
+        // plan-111-B: a resource type is a nominal, so the set holds types.
+        let resource_types: HashSet<ParameterType> = super::lower_link::native_resources(hir)
             .iter()
-            .map(|resource| resource.name.clone())
-            .chain(imported_resource_types.iter().cloned())
+            .map(|resource| ParameterType::named(&resource.name))
+            .chain(
+                imported_resource_types
+                    .iter()
+                    .map(|name| ParameterType::named(name)),
+            )
             .collect();
         // Declared unions with their own variants and INCLUDES, for the
         // transitive expansion below (a `UNION B INCLUDES A` matches A's
@@ -508,7 +520,7 @@ impl<'a> Walker<'a> {
                         Vec::new()
                     };
                     types.insert(
-                        type_decl.name.clone(),
+                        ParameterType::named(&type_decl.name),
                         TypeShape {
                             id,
                             variants,
@@ -549,7 +561,7 @@ impl<'a> Walker<'a> {
                 Vec::new()
             };
             types.insert(
-                imported.name.clone(),
+                ParameterType::named(&imported.name),
                 TypeShape {
                     id,
                     variants,
@@ -829,10 +841,10 @@ impl<'a> Walker<'a> {
                 ) {
                     return;
                 }
-                if self.is_resource_type(&name) || !seen.insert(name.clone()) {
+                if self.is_resource_type(type_) || !seen.insert(name.clone()) {
                     return;
                 }
-                let Some(shape) = self.types.get(&name) else {
+                let Some(shape) = self.types.get(type_) else {
                     self.emit(
                         "PACKAGE_INVALID",
                         format!(
@@ -855,6 +867,17 @@ impl<'a> Walker<'a> {
                 }
                 seen.remove(&name);
             }
+            // A stateful resource, as an imported signature spells it
+            // (`Db STATE DbInfo`). plan-111-B: this arm is new because the
+            // clause is now STRUCTURE. Before it, the type reached the `other`
+            // arm below, was re-wrapped as one opaque `Named`, and the old
+            // `is_resource_type(&str)` split the base back out of that
+            // spelling — accepting the whole thing without walking the STATE
+            // payload. `without_state` cannot peel a re-wrapped nominal, so the
+            // peel has to happen before the re-wrap. Same outcome, same
+            // non-recursion; a stateful type whose base is NOT a resource still
+            // falls through and is reported by its full spelling.
+            ParameterType::Stateful { .. } if self.is_resource_type(type_) => {}
             ParameterType::Boolean
             | ParameterType::Byte
             | ParameterType::Fixed
@@ -1147,13 +1170,16 @@ impl<'a> Walker<'a> {
             return false;
         };
         if let Some((type_name, _)) = first.split_once("::") {
-            return self.types.get(type_name).is_some_and(|info| {
-                !info.members.is_empty()
-                    && info
-                        .members
-                        .iter()
-                        .all(|member| covered.contains(&format!("{type_name}::{member}")))
-            });
+            return self
+                .types
+                .get(&ParameterType::named(type_name))
+                .is_some_and(|info| {
+                    !info.members.is_empty()
+                        && info
+                            .members
+                            .iter()
+                            .all(|member| covered.contains(&format!("{type_name}::{member}")))
+                });
         }
         self.types.values().any(|info| {
             info.is_union
@@ -1977,22 +2003,24 @@ impl<'a> Walker<'a> {
                 );
                 return;
             }
-            let param_types: Vec<String> = if third_is_attributed {
+            // plan-111-B: `argument_types` is literally
+            // `argument_types_typed(..).map(name())`, so the typed twin is exact
+            // and the per-argument parse below disappears.
+            let param_types: Vec<ParameterType> = if third_is_attributed {
                 vec![
-                    "Integer".to_string(),
-                    "Integer".to_string(),
-                    "AttributedString".to_string(),
+                    ParameterType::Integer,
+                    ParameterType::Integer,
+                    ParameterType::named("AttributedString"),
                 ]
             } else {
-                builtins::argument_types(canonical).unwrap_or_default()
+                builtins::argument_types_typed(canonical).unwrap_or_default()
             };
             let mismatched = param_types
                 .iter()
                 .zip(arg_types.iter())
                 .zip(normalized.iter())
-                .any(|((expected_name, actual), argument)| {
-                    let expected = ParameterType::parse(expected_name);
-                    !self.expression_compatible(&expected, actual, argument)
+                .any(|((expected, actual), argument)| {
+                    !self.expression_compatible(expected, actual, argument)
                 });
             if mismatched {
                 let expected = builtins::expected_arguments(canonical)
@@ -2019,7 +2047,7 @@ impl<'a> Walker<'a> {
         if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
             return;
         }
-        if resolve_table_call_with_byte_literals(canonical, &names, normalized).is_none() {
+        if resolve_table_call_with_byte_literals(canonical, &arg_types, normalized).is_none() {
             let detail = mismatch(&names, expected_overloads());
             self.emit_call_typed_unknown(detail, line);
         }
@@ -2219,17 +2247,20 @@ impl<'a> Walker<'a> {
             | ParameterType::Res(_)
             | ParameterType::ThreadHandle { .. } => false,
             ParameterType::Named(_) => {
-                let name = type_.name().into_owned();
-                match name.as_str() {
-                    "Error" | "ErrorLoc" | "Scalar" => return true,
-                    // Wraps a list overlay (like `List`), plan-89-A.
-                    "AttributedString" => return false,
-                    _ => {}
+                // plan-111-B: four nominals, four interned-`Symbol` compares.
+                if type_.is_named("Error") || type_.is_named("ErrorLoc") || type_.is_named("Scalar")
+                {
+                    return true;
                 }
-                if self.is_resource_type(&name) || !seen.insert(name.clone()) {
+                // Wraps a list overlay (like `List`), plan-89-A.
+                if type_.is_named("AttributedString") {
                     return false;
                 }
-                let Some(shape) = self.types.get(&name) else {
+                let name = type_.name().into_owned();
+                if self.is_resource_type(type_) || !seen.insert(name.clone()) {
+                    return false;
+                }
+                let Some(shape) = self.types.get(type_) else {
                     return true;
                 };
                 let result = if shape.is_enum {
@@ -2245,6 +2276,15 @@ impl<'a> Walker<'a> {
                 seen.remove(&name);
                 result
             }
+            // A stateful resource is a resource, so it is not comparable —
+            // plan-111-B: the same trap as `validate_package_type`'s `Stateful`
+            // arm. The `other` arm below re-wraps into one opaque nominal, and
+            // the structural `without_state` cannot peel a re-wrapped spelling,
+            // so a `Db STATE DbInfo` would have fallen through to the
+            // unknown-type tail and been called COMPARABLE. Peel before the
+            // re-wrap. A stateful type whose base is not a resource still falls
+            // through, exactly as its opaque nominal did.
+            ParameterType::Stateful { .. } if self.is_resource_type(type_) => false,
             // The checker routed every other spelling through its nominal arm.
             other => self.is_comparable_seen(&ParameterType::named(&other.name()), seen),
         }
@@ -2255,13 +2295,19 @@ impl<'a> Walker<'a> {
     /// spelled `binding.Type` in source; its table row carries the bare name).
     /// A stateful resource carries its ` STATE T` clause inside the spelling
     /// (`SoundFile STATE SoundInfo`); recognition keys on the base name.
-    fn is_resource_type(&self, name: &str) -> bool {
-        let base = crate::codegen::resource::base_resource_name(name);
-        crate::codegen::resource::builtin_resource_close_function(base).is_some()
-            || self.resource_types.contains(base)
-            || base
+    fn is_resource_type(&self, type_: &ParameterType) -> bool {
+        // plan-111-B: the STATE peel is structural (`without_state`); the
+        // builtin close table is registry surface that still speaks names, so
+        // the base renders for that one lookup and for the bare-name fallback
+        // (an imported resource is spelled `binding.Type` in source while its
+        // table row carries the bare name).
+        let base = type_.without_state();
+        let base_name = base.name();
+        crate::codegen::resource::builtin_resource_close_function(&base_name).is_some()
+            || self.resource_types.contains(&base)
+            || base_name
                 .rsplit_once('.')
-                .is_some_and(|(_, bare)| self.resource_types.contains(bare))
+                .is_some_and(|(_, bare)| self.resource_types.contains(&ParameterType::named(bare)))
     }
 
     /// Type compatibility as the source checker judged it (the former source checker's `compatible`):
@@ -2331,8 +2377,8 @@ impl<'a> Walker<'a> {
                 let actual_bare = actual_name.rsplit('.').next().unwrap_or(&actual_name);
                 let expected_info = self
                     .types
-                    .get(expected_name.as_ref())
-                    .or_else(|| self.types.get(expected_bare));
+                    .get(&expected)
+                    .or_else(|| self.types.get(&ParameterType::named(expected_bare)));
                 // A union accepts any of its variant values; a variant may be
                 // spelled qualified (`fs.File`) or bare.
                 if expected_info.is_some_and(|info| {
@@ -2350,8 +2396,8 @@ impl<'a> Walker<'a> {
                 // built-in nominal such as `net.Url`).
                 let actual_info = self
                     .types
-                    .get(actual_name.as_ref())
-                    .or_else(|| self.types.get(actual_bare));
+                    .get(&actual)
+                    .or_else(|| self.types.get(&ParameterType::named(actual_bare)));
                 match (expected_info, actual_info) {
                     (Some(expected_info), Some(actual_info)) => expected_info.id == actual_info.id,
                     _ => true,
@@ -2958,7 +3004,7 @@ impl<'a> Walker<'a> {
             return false;
         }
         self.types
-            .get(type_.name().as_ref())
+            .get(type_)
             .is_some_and(|info| info.is_record && self.type_visible(info))
     }
 
@@ -2988,7 +3034,7 @@ impl<'a> Walker<'a> {
             return false;
         }
         self.types
-            .get(name.as_ref())
+            .get(&target_type)
             .is_some_and(|info| info.is_record)
     }
 
@@ -3019,7 +3065,7 @@ impl<'a> Walker<'a> {
         };
         let union = matched_type.without_state();
         self.types
-            .get(union.name().as_ref())
+            .get(&union)
             .is_some_and(|info| info.is_union && info.variants.iter().any(|v| *v == variant))
     }
 
@@ -3774,6 +3820,14 @@ mod tests {
                 accepted.name()
             );
         }
+        // plan-111-B: a stateful resource must be recognized as a RESOURCE both
+        // when validating an imported signature and when asking comparability.
+        // Both paths route "every other spelling" through a re-wrap into one
+        // opaque nominal, and the structural `without_state` cannot peel a
+        // re-wrapped spelling — so both need the clause peeled BEFORE the
+        // re-wrap. Without that, `Db STATE DbInfo` reads as an unknown type
+        // here and as a COMPARABLE one below.
+        //
         // An imported package's stateful resource (`Db STATE DbInfo`, as a
         // signature spells it) is a resource, not an unknown type — the
         // libsnd / native-resource-state fixtures build clean.
@@ -3790,7 +3844,19 @@ mod tests {
                 validate(&mut walker, &ParameterType::parse(spelled)).is_empty(),
                 "{spelled}"
             );
+            // ...and a resource is never comparable, stateful or not.
+            assert!(
+                !walker.is_comparable(&ParameterType::parse(spelled)),
+                "`{spelled}` is a resource and must not be comparable"
+            );
         }
+        // A stateful type whose base is NOT a resource keeps the opaque-nominal
+        // behaviour: unknown to the package validator, permissively comparable.
+        assert!(
+            !validate(&mut walker, &ParameterType::parse("Nope STATE S")).is_empty(),
+            "a non-resource stateful type is still an unknown type"
+        );
+        assert!(walker.is_comparable(&ParameterType::parse("Nope STATE S")));
         // A union whose variant record carries an unknown field type reports it.
         assert_eq!(
             validate(
