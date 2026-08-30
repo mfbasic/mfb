@@ -22,7 +22,7 @@ Unlike a plain stream read that signals end of stream with a zero-length result,
 `read` raises an error when the peer has closed the connection: there is no
 empty-list sentinel. To consume a whole response, call `read` in a loop,
 appending each result, and stop when an `ErrConnectionClosed` error is raised.
-Use `tls::readText` when the peer sends UTF-8 text and a `String` is more
+Use `tls::read` when the peer sends UTF-8 text and a `String` is more
 convenient than raw bytes."#;
 const EX: &str = r#"Read up to 4096 bytes from a connected TLS socket:
 
@@ -31,7 +31,7 @@ IMPORT tls
 
 SUB main()
   RES conn = tls::connect("example.com", 443)
-  tls::writeText(conn, "GET / HTTP/1.0\r\n\r\n")
+  tls::write(conn, "GET / HTTP/1.0\r\n\r\n")
   LET chunk = tls::read(conn, 4096)
   ' conn is closed by lexical drop when this scope ends
 END SUB

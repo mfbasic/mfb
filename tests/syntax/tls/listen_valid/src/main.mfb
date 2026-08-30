@@ -1,3 +1,4 @@
+IMPORT encoding
 IMPORT tls
 IMPORT io
 
@@ -5,10 +6,10 @@ IMPORT io
 ' Both listen overloads (4-arg default backlog, 5-arg explicit backlog) and
 ' both accept overloads (blocking, timed) are exercised. The listener is
 ' passed to accept as a pointer and closed once at the end (never consumed by accept).
-FUNC serveOnce(RES listener AS tls::TlsListener) AS Integer
+FUNC serveOnce(RES listener AS tls::Listener) AS Integer
   RES client = tls::accept(listener)
-  tls::writeText(client, "hello\n")
-  LET reply = tls::readText(client, 64)
+  tls::write(client, "hello\n")
+  LET reply = encoding::utf8Decode(tls::read(client, 64))
   tls::close(client)
   RETURN len(reply)
 END FUNC

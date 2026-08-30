@@ -10,7 +10,7 @@ const DESC: &str = r#"`accept` takes the next inbound TCP connection on a `TlsLi
 **server side** of the TLS handshake using the listener's loaded certificate and
 key, and returns a connected `TlsSocket`. The returned socket is
 indistinguishable from a client `TlsSocket`: read and write it with `tls::read`,
-`tls::readText`, `tls::write`, and `tls::writeText`, and close it with
+`tls::read`, `tls::write`, and `tls::write`, and close it with
 `tls::close` or by lexical drop.
 
 The `listener` is **borrowed**, not consumed: it stays open for the next
@@ -35,6 +35,7 @@ client certificate (no mutual TLS)."#;
 const EX: &str = r#"Serve connections in a loop, one request/response each:
 
 ```
+IMPORT encoding
 IMPORT tls
 IMPORT io
 
@@ -42,8 +43,8 @@ SUB main()
   RES server = tls::listen("", 8443, "cert.pem", "key.pem")
   WHILE TRUE
     RES client = tls::accept(server)
-    LET request = tls::readText(client, 4096)
-    tls::writeText(client, "HTTP/1.0 200 OK\r\n\r\nhi")
+    LET request = encoding::utf8Decode(tls::read(client, 4096))
+    tls::write(client, "HTTP/1.0 200 OK\r\n\r\nhi")
     tls::close(client)
   END WHILE
 END SUB

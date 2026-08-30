@@ -89,9 +89,9 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
     // Build the byte list via append so CAPACITY > COUNT (the bug condition).
     let source = format!(
         "IMPORT tls\nIMPORT collections\n\n\
-         FUNC serveOnce(RES listener AS tls::TlsListener) AS Integer\n\
+         FUNC serveOnce(RES listener AS tls::Listener) AS Integer\n\
         \x20 RES client = tls::accept(listener)\n\
-        \x20 LET greeting = tls::readText(client, 16)\n\
+        \x20 LET greeting = encoding::utf8Decode(tls::read(client, 16))\n\
         \x20 MUT payload AS List OF Byte = [65]\n\
         \x20 payload = collections::append(payload, toByte(66))\n\
         \x20 payload = collections::append(payload, toByte(67))\n\

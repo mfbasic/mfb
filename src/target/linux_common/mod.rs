@@ -203,7 +203,6 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "tls.listen",
     "tls.accept",
     "tls.read",
-    "tls.readText",
     "tls.write",
     "tls.writeText",
     "tls.poll",

@@ -2677,7 +2677,7 @@ END FUNC
     fn tls_connect_pads_optional_arguments() {
         let src = "IMPORT tls\n\
              FUNC run() AS Integer\n\
-               RES s AS tls::TlsSocket = tls::connect(\"host\", 443)\n\
+               RES s AS tls::Socket = tls::connect(\"host\", 443)\n\
                tls::close(s)\n\
                RETURN 0\n\
              END FUNC\n\
@@ -2699,7 +2699,7 @@ END FUNC
         // internal close helper (the tls.close listener branch).
         let src = "IMPORT tls\n\
              FUNC run() AS Integer\n\
-               RES l AS tls::TlsListener = tls::listen(\"0.0.0.0\", 8080, \"cert\", \"key\")\n\
+               RES l AS tls::Listener = tls::listen(\"0.0.0.0\", 8080, \"cert\", \"key\")\n\
                tls::close(l)\n\
                RETURN 0\n\
              END FUNC\n\

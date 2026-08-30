@@ -1834,7 +1834,7 @@ fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool)
         return true;
     }
     // A container CONCRETE against a RESOURCE leaf pattern matches only when their spelled
-    // names are equal. A genuine resource nominal (`Named("tls.TlsSocket")`) is NOT a
+    // names are equal. A genuine resource nominal (`Named("tls.Socket")`) is NOT a
     // container spelling, so it is correctly rejected against a `List OF RES TlsSocket`
     // concrete — which lets a same-arity resource-nominal-vs-list overload pair
     // (`tls::poll`: scalar `TlsSocket → Boolean` vs `List OF RES TlsSocket → TlsSocket`)

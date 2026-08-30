@@ -44,12 +44,13 @@ when the handle must be torn down earlier than that."#;
 const EX: &str = r#"Close a TLS connection explicitly once the exchange is complete:
 
 ```
+IMPORT encoding
 IMPORT tls
 
 SUB main()
   RES conn = tls::connect("example.com", 443)
-  tls::writeText(conn, "GET / HTTP/1.0\r\n\r\n")
-  LET response = tls::readText(conn, 4096)
+  tls::write(conn, "GET / HTTP/1.0\r\n\r\n")
+  LET response = encoding::utf8Decode(tls::read(conn, 4096))
   tls::close(conn)
 END SUB
 ```"#;

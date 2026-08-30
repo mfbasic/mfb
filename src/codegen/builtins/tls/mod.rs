@@ -38,23 +38,29 @@ mod func_connect;
 mod func_listen;
 mod func_poll;
 mod func_read;
-mod func_read_text;
 mod func_write;
-mod func_write_text;
 
-/// The `TlsSocket` resource handle's bare type name — its identity *within* the
-/// `tls` package (the `RegistryResource` name, the `type` half of the qualified
-/// id). Used only for registry-internal lookups (`resolve_type`/close-op).
-pub(crate) const TLS_SOCKET_TYPE: &str = "TlsSocket";
-/// The `TlsListener` resource handle's bare type name.
-pub(crate) const TLS_LISTENER_TYPE: &str = "TlsListener";
+/// The TLS socket handle's bare type name — its identity *within* the `tls`
+/// package (the `RegistryResource` name, the `type` half of the qualified id).
+/// Used only for registry-internal lookups (`resolve_type`/close-op).
+///
+/// plan-110-D renamed these from `TlsSocket`/`TlsListener`: the package name
+/// already says TLS, exactly as `tcp::Socket` and `udp::Socket` do. The bare name
+/// now collides with tcp's and udp's, which is harmless — a resource has no
+/// injectable source declaration, so it never enters the shared top-level
+/// namespace the way a record does (that is what forced plan-110-C's `Datagram`
+/// removal). The QUALIFIED ids below stay distinct, and those are what every
+/// binding, parameter and close-op dispatch actually carries.
+pub(crate) const TLS_SOCKET_TYPE: &str = "Socket";
+/// The TLS listener handle's bare type name.
+pub(crate) const TLS_LISTENER_TYPE: &str = "Listener";
 
-/// The `TlsSocket` resource's **package-qualified type identity** (`tls.TlsSocket`)
-/// — plan-97 / bug-441. The string every `RES` binding, parameter, and return of a
-/// tls socket carries; the `ResourceRegistry` key and what close-op dispatch sees.
-pub(crate) const TLS_SOCKET_TYPE_ID: &str = "tls.TlsSocket";
-/// The `TlsListener` resource's package-qualified type identity (`tls.TlsListener`).
-pub(crate) const TLS_LISTENER_TYPE_ID: &str = "tls.TlsListener";
+/// The TLS socket's **package-qualified type identity** (`tls.Socket`) — plan-97 /
+/// bug-441. The string every `RES` binding, parameter, and return of a tls socket
+/// carries; the `ResourceRegistry` key and what close-op dispatch sees.
+pub(crate) const TLS_SOCKET_TYPE_ID: &str = "tls.Socket";
+/// The TLS listener's package-qualified type identity (`tls.Listener`).
+pub(crate) const TLS_LISTENER_TYPE_ID: &str = "tls.Listener";
 
 /// Internal listener-shaped close body. `tls::close` stays the single user-facing
 /// name over both handle types; IR lowering routes a `TlsListener` operand here
@@ -77,8 +83,9 @@ handshake, and verifies the peer's certificate before returning a connected
 socket. `tls::listen` binds a local port and loads a server certificate and key,
 and `tls::accept` accepts one inbound connection and completes the server-side
 handshake, returning a socket that is byte-for-byte interchangeable with a client
-socket. `tls::read` and `tls::readText` receive decrypted data; `tls::write` and
-`tls::writeText` send data; and `tls::close` tears down a socket or a listener.
+socket. `tls::read` receives decrypted data as bytes; `tls::write` sends data,
+accepting either bytes or a `String`; and `tls::close` tears down a socket or a
+listener.
 For plain unencrypted TCP and UDP, use `net`.
 
 
@@ -157,9 +164,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_listen::register(&mut pkg);
     func_accept::register(&mut pkg);
     func_read::register(&mut pkg);
-    func_read_text::register(&mut pkg);
     func_write::register(&mut pkg);
-    func_write_text::register(&mut pkg);
     func_poll::register(&mut pkg);
     func_close::register(&mut pkg);
 

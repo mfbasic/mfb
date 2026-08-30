@@ -171,8 +171,8 @@ mod tests {
             "udp.Socket",
             "audio.AudioInput",
             "audio.AudioOutput",
-            "tls.TlsSocket",
-            "tls.TlsListener",
+            "tls.Socket",
+            "tls.Listener",
             "process.Process",
         ] {
             assert!(

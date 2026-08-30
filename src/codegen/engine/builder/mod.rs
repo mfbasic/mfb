@@ -1541,6 +1541,8 @@ pub(crate) fn lower_module_for_platform(
         // plan-110-C: udp's two, on the same rule.
         ("_mfb_rt_udp_udp_poll", "_mfb_rt_udp_udp_pollList"),
         ("_mfb_rt_udp_udp_send", "_mfb_rt_udp_udp_sendText"),
+        // plan-110-D: tls's write split, on the same rule.
+        ("_mfb_rt_tls_tls_write", "_mfb_rt_tls_tls_writeText"),
     ] {
         if runtime_symbols.iter().any(|symbol| symbol == base)
             && !runtime_symbols.iter().any(|symbol| symbol == synthesized)

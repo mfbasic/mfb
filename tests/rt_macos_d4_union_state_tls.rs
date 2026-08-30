@@ -14,7 +14,7 @@
 //! (`state.sentAll`, `state.raw` appends), then reads the peer greeting and
 //! writes the accumulated STATE bytes back — all via the MATCH-extracted
 //! `TlsSocket` variant. If the STATE write still clobbered the macOS dispatch
-//! queue (the pre-plan-80 bug), that `tls::readText`/`tls::write` would crash or
+//! queue (the pre-plan-80 bug), that `tls::read`/`tls::write` would crash or
 //! stall; instead the peer receives the exact bytes and the union drops cleanly
 //! (union cleanup closes the TlsSocket variant + frees the STATE block).
 //!
@@ -105,9 +105,9 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
          END TYPE\n\n\
          UNION Stream\n\
         \x20 net::Socket\n\
-        \x20 tls::TlsSocket\n\
+        \x20 tls::Socket\n\
          END UNION\n\n\
-         FUNC serveOnce(RES listener AS tls::TlsListener) AS Integer\n\
+         FUNC serveOnce(RES listener AS tls::Listener) AS Integer\n\
         \x20 RES client AS Stream STATE PendingState = tls::accept(listener)\n\
         \x20 client.state.sentAll = TRUE\n\
         \x20 client.state.raw = collections::append(client.state.raw, toByte(65))\n\
@@ -116,7 +116,7 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
         \x20 client.state.raw = collections::append(client.state.raw, toByte(68))\n\
         \x20 client.state.raw = collections::append(client.state.raw, toByte(69))\n\
         \x20 MATCH client\n\
-        \x20   CASE tls::TlsSocket(t)\n\
+        \x20   CASE tls::Socket(t)\n\
         \x20     tls::write(t, client.state.raw)\n\
         \x20   CASE net::Socket(p)\n\
         \x20     net::write(p, client.state.raw)\n\

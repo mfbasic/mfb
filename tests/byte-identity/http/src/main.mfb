@@ -66,12 +66,12 @@ FUNC main() AS Integer
   io::print(toString(net::localAddress(lst2).port))
   io::print(toString(net::localAddress(lst3).port))
 
-  ' --- serverSSL: 3 overloads (returns tls::TlsListener) -------------------
-  RES tl1 AS tls::TlsListener = http::serverSSL(8443, "cert.pem", "key.pem")
-  RES tl2 AS tls::TlsListener = http::serverSSL(8444, "cert.pem", "key.pem", "0.0.0.0")
-  RES tl3 AS tls::TlsListener = http::serverSSL(8445, "cert.pem", "key.pem", "0.0.0.0", 16)
+  ' --- serverSSL: 3 overloads (returns tls::Listener) -------------------
+  RES tl1 AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem")
+  RES tl2 AS tls::Listener = http::serverSSL(8444, "cert.pem", "key.pem", "0.0.0.0")
+  RES tl3 AS tls::Listener = http::serverSSL(8445, "cert.pem", "key.pem", "0.0.0.0", 16)
 
-  ' --- handleRequest: both overloads (net::Listener + tls::TlsListener) -----
+  ' --- handleRequest: both overloads (net::Listener + tls::Listener) -----
   http::handleRequest(lst1, routes)
   http::handleRequest(tl1, routes)
 

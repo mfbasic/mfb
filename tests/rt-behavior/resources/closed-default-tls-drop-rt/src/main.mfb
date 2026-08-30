@@ -1,7 +1,7 @@
 IMPORT tls
 IMPORT io
 
-' plan-38 F7 regression: a closed-default `tls::TlsSocket` must be safe to drop on
+' plan-38 F7 regression: a closed-default `tls::Socket` must be safe to drop on
 ' macOS. The macOS Network.framework TLS backend used to place its `closed` flag
 ' at byte offset 0 while offset 8 held the nw_connection pointer. The
 ' backend-independent closed-default sets offset 8, so on macOS a closed/defaulted
@@ -16,7 +16,7 @@ IMPORT io
 ' RETURN, scope-drop closes the closed-default TLS record — before the fix this
 ' SIGSEGV'd on macOS.
 FUNC connectRefused AS Integer
-  RES sock AS tls::TlsSocket = tls::connect("127.0.0.1", 1, 500, "") TRAP(e)
+  RES sock AS tls::Socket = tls::connect("127.0.0.1", 1, 500, "") TRAP(e)
     RETURN e.code
   END TRAP
   RETURN 0

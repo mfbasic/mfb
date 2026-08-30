@@ -223,7 +223,6 @@ const RUNTIME_CALLS: &[&str] = &[
     // TLS client + server over Schannel (plan-47-J).
     "tls.connect",
     "tls.read",
-    "tls.readText",
     "tls.write",
     "tls.writeText",
     "tls.poll",

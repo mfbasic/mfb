@@ -1,8 +1,15 @@
+' plan-110-D removed `tls::readText` and `tls::writeText`: `read` is bytes-only
+' (decode with `encoding::utf8Decode` once a whole message is assembled) and
+' `write` takes a `String` as a second overload. This fixture pins that both
+' spellings are genuinely gone rather than quietly aliased.
+'
+' Unknown members are reported by the resolver BEFORE type checking runs, so the
+' arity and argument-type cases for the surviving `read`/`write` cannot share this
+' file — they live in `writeText_invalid`.
 IMPORT tls
 
 FUNC main AS Integer
-  LET missing = tls::readText()
-  LET wrongType = tls::readText(1, 2)
-  LET tooMany = tls::readText(1, 2, 3)
+  LET goneReadText = tls::readText(1, 2)
+  tls::writeText(1, "x")
   RETURN 0
 END FUNC

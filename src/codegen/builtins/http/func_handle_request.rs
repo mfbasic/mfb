@@ -1,5 +1,5 @@
 //! `http::handleRequest` — descriptor entry (source-backed). Overloaded by listener
-//! type: a `net::Listener` rewrites to `__http_handleRequest`, a `tls::TlsListener`
+//! type: a `net::Listener` rewrites to `__http_handleRequest`, a `tls::Listener`
 //! to `__http_handleRequestSSL` — two `Implementation`s the generic overload
 //! resolution selects by the first argument's type (the datetime/net idiom, no
 //! custom resolver).
@@ -100,7 +100,7 @@ END FUNC
 SUB secureMain()
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/user/:id", showUser))
-  RES s AS tls::TlsListener = http::serverSSL(8443, "cert.pem", "key.pem")
+  RES s AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem")
   DO
     http::handleRequest(s, routes)
   LOOP UNTIL FALSE
@@ -155,8 +155,8 @@ END SUB"#;
 const BODY_SSL: &str =
 r#"' TLS counterpart: identical core, `tls::` transport (server-side handshake in
 ' tls::accept). The two bodies cannot share one socket variable (§F.5.6).
-SUB __http_handleRequestSSL(RES listener AS tls::TlsListener, routes AS List OF Route)
-  RES sock AS tls::TlsSocket = tls::accept(listener)
+SUB __http_handleRequestSSL(RES listener AS tls::Listener, routes AS List OF Route)
+  RES sock AS tls::Socket = tls::accept(listener)
   MUT raw AS List OF Byte = []
   MUT reading AS Boolean = TRUE
   MUT oversize AS Boolean = FALSE
@@ -184,7 +184,7 @@ SUB __http_handleRequestSSL(RES listener AS tls::TlsListener, routes AS List OF 
   IF oversize = FALSE THEN
     resp = __http_buildResponse(raw, routes)
   END IF
-  tls::writeText(sock, __http_serializeHead(resp)) TRAP(e)
+  tls::write(sock, __http_serializeHead(resp)) TRAP(e)
     EXIT SUB
   END TRAP
   IF len(resp.body) > 0 THEN
@@ -221,7 +221,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: Some("Listener or TlsListener, List OF Route"),
+        expected_arguments: Some("Listener or tls::Listener, List OF Route"),
         internal_only: false,
         implementations: vec![
             overload(

@@ -91,7 +91,7 @@ with the fd printed before adoption and the same fd carrying the traffic after (
 mechanism (Secure Transport's `kSSLServerSide`, OpenSSL's `SSL_accept`, Schannel's
 `AcceptSecurityContext`) and is exercised end to end by Phase 3's loopback STARTTLS tests rather
 than by this spike.
-Commit: 6f6e2c17d
+Commit: 2247bf10f
 
 ### Phase 2 — Resource rename and existing operations
 

@@ -37,7 +37,7 @@ FUNC __http_ready(RES s AS Stream STATE PendingState) AS Boolean
   MATCH s
     CASE net::Socket(p)
       RETURN net::poll(p, 0)
-    CASE tls::TlsSocket(t)
+    CASE tls::Socket(t)
       RETURN tls::poll(t, 0)
   END MATCH
   RETURN FALSE

@@ -174,7 +174,7 @@ Both branches connect and write identically aside from the native calls:
 
 - TCP: `net::connectTcp(host, port, 30_000)`, then `net::writeText`.
 - TLS: `tls::connect(host, port, 30_000, host)` — 30 s connect deadline, SNI
-  server-name = host — then `tls::writeText`.
+  server-name = host — then `tls::write`.
 
 The transport is carried as a `Stream` resource union over `net::Socket` /
 `net::TlsSocket`; the reader `MATCH`es the active variant and reads 64 KiB at a

@@ -883,8 +883,8 @@ fn resource_producer(callee: &str) -> Option<(&'static str, &'static str)> {
         // handles never appeared in the Resources section or the
         // close-may-fail findings.
         "net.bindUdp" => Some(("UdpSocket", "net.close")),
-        "tls.connect" | "tls.accept" => Some(("TlsSocket", "tls.close")),
-        "tls.listen" | "http.serverSSL" => Some(("TlsListener", "tls.close")),
+        "tls.connect" | "tls.accept" => Some(("Socket", "tls.close")),
+        "tls.listen" | "http.serverSSL" => Some(("Listener", "tls.close")),
         // bug-278: three more producers that were never added, so their handles
         // got no Resources row and no AUDIT-RESOURCE-CLOSE-MAY-FAIL finding.
         // `fs.openWithin` returns a `File` (added by bug-259); `http.server`

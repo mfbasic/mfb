@@ -1,4 +1,4 @@
-// Regression guard for bug-414 item (2): the Schannel `tls::read`/`tls::readText`
+// Regression guard for bug-414 item (2): the Schannel `tls::read`/`tls::read`
 // entry must reject `maxBytes <= 0` with `ErrInvalidArgument`, matching the
 // OpenSSL backend (`openssl.rs`, which branches to an `_invalid` exit emitting
 // `ERR_INVALID_ARGUMENT`). Before the fix the Schannel read had no such guard:

@@ -2264,6 +2264,20 @@ impl CodeBuilder<'_> {
                     "udp.send"
                 }
             }
+            // plan-110-D: `tls::writeText` became a String overload of `tls::write`,
+            // so the byte-vs-text lowering is selected here by the payload's type
+            // rather than by the member name — the same move `tcp::write` made.
+            "tls.write" => {
+                if args
+                    .get(1)
+                    .and_then(|arg| self.static_type_name(arg))
+                    .is_some_and(|type_| matches!(type_, ParameterType::String))
+                {
+                    "tls.writeText"
+                } else {
+                    "tls.write"
+                }
+            }
             // plan-76-A: the readiness-multiplex overload `poll(List OF RES Socket)`
             // lowers through a distinct helper (`net.pollList`) that builds a
             // `pollfd[n]` over the list's fds and returns the first ready element's

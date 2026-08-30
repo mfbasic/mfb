@@ -17,7 +17,7 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Test whether a TLS socket has application data ready to read, or wait for the first ready socket among many."#;
 const DESC: &str = r#"`tls::poll` reports whether a connected `TlsSocket` is readable — that is, whether
-a following `tls::read` or `tls::readText` can proceed without blocking. It returns
+a following `tls::read` or `tls::read` can proceed without blocking. It returns
 `TRUE` when application bytes are available (or the connection has reached a
 terminal readable state — peer close or error — where a read returns promptly), and
 `FALSE` when nothing became readable before the deadline. The socket is borrowed and
@@ -48,14 +48,15 @@ const EX: &str = r#"Check whether encrypted data is waiting without blocking (pa
 check — omitting the timeout would instead block until the socket is readable):
 
 ```
+IMPORT encoding
 IMPORT tls
 IMPORT io
 
 FUNC main AS Integer
   RES sock = tls::connect("example.com", 443)
-  tls::writeText(sock, "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
+  tls::write(sock, "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
   IF tls::poll(sock, 0) THEN
-    io::print(tls::readText(sock, 4096))
+    io::print(encoding::utf8Decode(tls::read(sock, 4096)))
   END IF
   tls::close(sock)
   RETURN 0
@@ -66,6 +67,7 @@ Wait for the first ready socket among several (the readiness multiplex). The
 returned socket is borrowed — the list still owns and closes both:
 
 ```
+IMPORT encoding
 IMPORT tls
 IMPORT io
 IMPORT collections
@@ -76,9 +78,9 @@ FUNC main AS Integer
   MUT socks AS List OF RES tls::TlsSocket = []
   socks = collections::append(socks, a)
   socks = collections::append(socks, b)
-  tls::writeText(b, "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
+  tls::write(b, "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
   RES ready AS tls::TlsSocket = tls::poll(socks)
-  io::print(tls::readText(ready, 64))
+  io::print(encoding::utf8Decode(tls::read(ready, 64)))
   RETURN 0
 END FUNC
 ```"#;
@@ -155,7 +157,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                         // The element is the bare resource id: `ParameterType::parse`
                         // strips the `RES ` ownership marker off a list element, so the
                         // concrete `List OF RES tls.TlsSocket` argument unifies as
-                        // `ListOf(Named("tls.TlsSocket"))`. (The `RES` requirement itself
+                        // `ListOf(Named("tls.Socket"))`. (The `RES` requirement itself
                         // is enforced separately by the resource/type checker.)
                         ty: ParameterType::ListOf(Box::new(ParameterType::named(
                             super::TLS_SOCKET_TYPE_ID,

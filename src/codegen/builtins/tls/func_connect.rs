@@ -46,12 +46,13 @@ required symbol is missing — `connect` raises `ErrTlsFailed`."#;
 const EX: &str = r#"Connect to an HTTPS server and validate its certificate:
 
 ```
+IMPORT encoding
 IMPORT tls
 
 SUB main()
   RES conn = tls::connect("example.com", 443)
-  tls::writeText(conn, "GET / HTTP/1.0\r\n\r\n")
-  LET response = tls::readText(conn, 4096)
+  tls::write(conn, "GET / HTTP/1.0\r\n\r\n")
+  LET response = encoding::utf8Decode(tls::read(conn, 4096))
   ' conn is closed by lexical drop when this scope ends
 END SUB
 ```
@@ -59,6 +60,7 @@ END SUB
 Connect to a literal IP but validate against a named certificate via SNI:
 
 ```
+IMPORT encoding
 IMPORT tls
 
 SUB main()

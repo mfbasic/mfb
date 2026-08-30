@@ -1,8 +1,22 @@
+' Arity and argument-type coverage for the merged `tls::read`/`tls::write`
+' (plan-110-D folded `writeText` into a String overload and dropped `readText`).
+' `write` accepts a socket plus EITHER a List OF Byte or a String and nothing
+' else, so an Integer payload matches neither overload; `read` is bytes-only and
+' takes exactly a socket and a count.
+'
+' The removed `readText`/`writeText` spellings are pinned in `readText_invalid`:
+' unknown members are reported before type checking, so they cannot share a file
+' with these.
 IMPORT tls
 
 FUNC main AS Integer
-  LET missing = tls::writeText()
-  LET wrongType = tls::writeText(1, 2)
-  LET tooMany = tls::writeText(1, "x", 3)
+  LET writeMissing = tls::write()
+  LET writeWrongType = tls::write(1, 2)
+  LET writeTooMany = tls::write(1, "x", 3)
+
+  LET readMissing = tls::read()
+  LET readWrongType = tls::read(1, 2)
+  LET readTooMany = tls::read(1, 2, 3)
+
   RETURN 0
 END FUNC

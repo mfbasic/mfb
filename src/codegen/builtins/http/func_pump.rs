@@ -50,7 +50,7 @@ SUB __http_pump(RES s AS Stream STATE PendingState)
   MATCH s
     CASE net::Socket(p)
       r = __http_readNet(p, 65536)
-    CASE tls::TlsSocket(t)
+    CASE tls::Socket(t)
       r = __http_readTls(t, 65536)
   END MATCH
   IF r.closed THEN

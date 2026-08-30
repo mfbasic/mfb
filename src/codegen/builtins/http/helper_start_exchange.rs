@@ -19,8 +19,8 @@ FUNC __http_startExchange(url AS net::Url, body AS String, hasBody AS Boolean, h
   IF url.scheme = "https" THEN
     RES s AS Stream STATE PendingState = tls::connect(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS, url.host)
     MATCH s
-      CASE tls::TlsSocket(t)
-        tls::writeText(t, request)
+      CASE tls::Socket(t)
+        tls::write(t, request)
       CASE net::Socket(p)
         net::writeText(p, request)
     END MATCH
@@ -31,8 +31,8 @@ FUNC __http_startExchange(url AS net::Url, body AS String, hasBody AS Boolean, h
   MATCH s
     CASE net::Socket(p)
       net::writeText(p, request)
-    CASE tls::TlsSocket(t)
-      tls::writeText(t, request)
+    CASE tls::Socket(t)
+      tls::write(t, request)
   END MATCH
   s.state.sentAll = TRUE
   RETURN s

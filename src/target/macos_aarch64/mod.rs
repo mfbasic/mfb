@@ -200,7 +200,6 @@ impl NativeBackend for Backend {
                 "tls.listen",
                 "tls.accept",
                 "tls.read",
-                "tls.readText",
                 "tls.write",
                 "tls.writeText",
                 "tls.poll",

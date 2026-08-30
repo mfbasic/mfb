@@ -4,12 +4,12 @@ IMPORT collections
 
 FUNC main AS Integer
   ' Resource element without RES — rejected at the declaration (§15.6).
-  MUT bare AS List OF tls::TlsSocket = []
-  RES pickBare AS tls::TlsSocket = tls::poll(bare)
-  ' Neither tls::TlsSocket nor List OF RES tls::TlsSocket.
+  MUT bare AS List OF tls::Socket = []
+  RES pickBare AS tls::Socket = tls::poll(bare)
+  ' Neither tls::Socket nor List OF RES tls::Socket.
   LET pickStr = tls::poll("nope")
   ' Wrong timeout type on the list overload.
-  MUT socks AS List OF RES tls::TlsSocket = []
-  RES pickBad AS tls::TlsSocket = tls::poll(socks, "later")
+  MUT socks AS List OF RES tls::Socket = []
+  RES pickBad AS tls::Socket = tls::poll(socks, "later")
   RETURN 0
 END FUNC

@@ -37,7 +37,7 @@ per call, parses the request, matches its path against an ordered
 `List OF http::Route`, invokes the matched handler, writes the response, and
 closes the connection. The server is single-threaded and blocking: one request is
 served at a time, in the caller's loop. For HTTPS use `http::serverSSL`, which
-returns a `tls::TlsListener` that `handleRequest` also accepts."#;
+returns a `tls::Listener` that `handleRequest` also accepts."#;
 
 const EX: &str = r#"A minimal server on port 8080:
 

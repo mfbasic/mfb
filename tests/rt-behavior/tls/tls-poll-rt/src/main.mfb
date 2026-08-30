@@ -5,11 +5,12 @@
 ' host executes it (macOS locally; openssl on Linux; schannel on Windows).
 IMPORT io
 IMPORT strings
+IMPORT encoding
 IMPORT tls
 IMPORT errorCode
 
 ' poll(conn, -1) is a genuine negative timeout → ErrInvalidArgument.
-FUNC pollNeg(RES conn AS tls::TlsSocket) AS Boolean
+FUNC pollNeg(RES conn AS tls::Socket) AS Boolean
   LET r AS Boolean = tls::poll(conn, -1)
   RETURN FALSE
   TRAP(e)
@@ -23,12 +24,12 @@ FUNC fetch AS Boolean
   RES conn = tls::connect("8.8.8.8", 443, 30000, "dns.google")
   LET crlfBytes AS List OF Byte = [toByte(13), toByte(10)]
   LET crlf AS String = toString(crlfBytes)
-  tls::writeText(conn, "GET / HTTP/1.1" & crlf & "Host: dns.google" & crlf & "Connection: close" & crlf & crlf)
+  tls::write(conn, "GET / HTTP/1.1" & crlf & "Host: dns.google" & crlf & "Connection: close" & crlf & crlf)
   MUT raw AS String = ""
   MUT eof AS Boolean = FALSE
   WHILE eof = FALSE
     IF tls::poll(conn) THEN
-      LET chunk AS String = tls::readText(conn, 4096) TRAP(e)
+      LET chunk AS String = encoding::utf8Decode(tls::read(conn, 4096)) TRAP(e)
         eof = TRUE
         RECOVER ""
       END TRAP
@@ -49,10 +50,10 @@ FUNC main AS Integer
   io::print("negInvalid=" & toString(pollNeg(conn)))
   LET crlfBytes AS List OF Byte = [toByte(13), toByte(10)]
   LET crlf AS String = toString(crlfBytes)
-  tls::writeText(conn, "HEAD / HTTP/1.0" & crlf & "Host: dns.google" & crlf & crlf)
+  tls::write(conn, "HEAD / HTTP/1.0" & crlf & "Host: dns.google" & crlf & crlf)
   ' Omitted timeout blocks until the reply is readable.
   io::print("ready=" & toString(tls::poll(conn)))
-  LET reply AS String = tls::readText(conn, 4096)
+  LET reply AS String = encoding::utf8Decode(tls::read(conn, 4096))
   io::print("httpResponse=" & toString(strings::startsWith(reply, "HTTP/")))
   tls::close(conn)
   ' Poll-gated read loop across a few connections: no leak / no data loss.

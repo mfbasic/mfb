@@ -1,5 +1,6 @@
 IMPORT io
 IMPORT strings
+IMPORT encoding
 IMPORT tls
 
 ' Live-network TLS proof: connect to a stable Google IP. 8.8.8.8 is Google
@@ -13,8 +14,8 @@ FUNC main AS Integer
   io::print("connected=TRUE")
   LET crlfBytes AS List OF Byte = [toByte(13), toByte(10)]
   LET crlf AS String = toString(crlfBytes)
-  tls::writeText(conn, "HEAD / HTTP/1.0" & crlf & "Host: dns.google" & crlf & crlf)
-  LET reply AS String = tls::readText(conn, 4096)
+  tls::write(conn, "HEAD / HTTP/1.0" & crlf & "Host: dns.google" & crlf & crlf)
+  LET reply AS String = encoding::utf8Decode(tls::read(conn, 4096))
   io::print("httpResponse=" & toString(strings::startsWith(reply, "HTTP/")))
   tls::close(conn)
   io::print("closed=TRUE")

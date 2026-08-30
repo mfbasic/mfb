@@ -1,4 +1,4 @@
-// Regression guard for bug-52: on macOS, `tls::readText`'s encoding-error
+// Regression guard for bug-52: on macOS, `tls::read`'s encoding-error
 // exit must release the mapped `dispatch_data` (MAPPED) and the retained nw
 // content object (CTX_CONTENT) before failing, exactly as the success exit
 // does. Before the fix that exit jumped straight to `emit_fail`, so every

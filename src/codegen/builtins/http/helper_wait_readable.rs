@@ -20,7 +20,7 @@ SUB __http_waitReadable(RES s AS Stream STATE PendingState)
   MATCH s
     CASE net::Socket(p)
       rdy = net::poll(p, __HTTP_READ_TIMEOUT_MS)
-    CASE tls::TlsSocket(t)
+    CASE tls::Socket(t)
       rdy = tls::poll(t, __HTTP_READ_TIMEOUT_MS)
   END MATCH
   IF rdy = FALSE THEN
