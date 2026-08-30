@@ -161,7 +161,11 @@ registry member, no `WrapMode` enum, no runtime helper, no documentation promisi
 program cannot compile against a member that only works on two of five targets. The consuming-
 argument ownership seam plan-110-A §C4 identified as missing stays missing; nothing in the language
 needs it now.
-Commit: —
+
+**VERIFIED** 2026-08-30: `grep -rn "WrapMode|\"wrap\"|tls\.wrap|tls::wrap|_mfb_rt_tls_tls_wrap" src/ tests/`
+returns exactly one hit — the sentence in `18_builtin-functions.md` explaining the absence.
+`mfb man tls` lists no `wrap`, and `mfb man tls wrap` answers "unknown tls function `wrap`".
+Commit: 11e11138f (the cut itself; plan-110-F's wrap references corrected in the same commit)
 
 ## Validation Plan
 
@@ -172,11 +176,19 @@ stdlib/error specs. Run both required rustfmt commands.
 
 ## Open Decisions
 
-- Mode-option validity — recommend strict validation: Client rejects cert/key; Server requires
+Both were about `wrap`'s contract and are **closed as moot** by §C9 — the member does not exist, so
+neither has anything to decide. Kept rather than deleted: if `wrap` is ever revisited (the trigger
+would be Apple declaring `nw_connection_create_with_connected_socket` in a public header), these are
+the two questions that were still open.
+
+- ~~Mode-option validity — recommend strict validation: Client rejects cert/key; Server requires
   cert+key and rejects serverName. Define caPath separately for client trust and optional server
-  client-auth before coding.
-- Wrap timeout — the requested signature has none; recommend honoring the tcp socket's configured
-  read/write timeouts during handshake rather than inventing an unbounded hidden wait.
+  client-auth before coding.~~ — moot: no `WrapMode`, no mode options.
+- ~~Wrap timeout — the requested signature has none; recommend honoring the tcp socket's configured
+  read/write timeouts during handshake rather than inventing an unbounded hidden wait.~~ — moot: no
+  `wrap`. The recommendation was nonetheless implemented in spirit for the members that DO exist:
+  `tls::setReadTimeout`/`setWriteTimeout` are per-socket policy honoured by every subsequent
+  read/write, rather than per-call arguments (§C10).
 
 ## Corrections
 
