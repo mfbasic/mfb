@@ -480,7 +480,9 @@ struct RecordInfo {
 }
 
 struct UnionInfo {
-    variants: HashSet<String>,
+    /// plan-111-B: the variant TYPES. Membership here is a type question — the
+    /// same one `codegen`'s `union_names` set answers.
+    variants: HashSet<ParameterType>,
     /// The direct variants in declaration order, for diagnostics that list
     /// missing members in source order (exhaustiveness).
     variant_order: Vec<String>,
@@ -693,7 +695,11 @@ impl TypeEnv {
                     unions.insert(
                         ParameterType::named(&ty.name),
                         UnionInfo {
-                            variants: ty.variants.iter().map(|v| v.name.clone()).collect(),
+                            variants: ty
+                                .variants
+                                .iter()
+                                .map(|v| ParameterType::named(&v.name))
+                                .collect(),
                             variant_order: ty.variants.iter().map(|v| v.name.clone()).collect(),
                             includes: ty.includes.clone(),
                         },
@@ -941,7 +947,7 @@ impl TypeEnv {
             return false;
         };
         for variant in &info.variants {
-            out.insert(variant.clone());
+            out.insert(variant.name().into_owned());
         }
         for include in &info.includes {
             if !self.collect_union_variants(&ParameterType::named(include), out, seen) {

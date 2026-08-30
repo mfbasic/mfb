@@ -133,7 +133,7 @@ impl TypeEnv {
                     self.expanded_union_variant_names(&ParameterType::named(include), visiting),
                 );
             }
-            names.extend(info.variants.iter().cloned());
+            names.extend(info.variants.iter().map(|v| v.name().into_owned()));
         }
         visiting.remove(union_type);
         names

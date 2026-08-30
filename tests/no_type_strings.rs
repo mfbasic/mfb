@@ -330,6 +330,13 @@ const CONSTRUCTED_PREFIXES: &[&str] = &[
 /// `function_lowering.rs`'s `union_extract_reads`, and `data_objects.rs`'s
 /// local `types`. Keyed by a **function or symbol name**: `function_types`,
 /// `package_return_types`, `imported_overloads`, `concrete_symbol_keys`.
+/// **Synthetic instantiation keys**: `monomorph`'s `emitted_type_keys` and
+/// `emitted_function_keys` hold `"Pair<Integer,String>"` — a `name<args>` key
+/// minted to be unambiguous where the mangled symbol is lossy (bug-226 /
+/// bug-400). That is not a spelling in the type grammar (which would be
+/// `Pair OF Integer, String`), so it is a key, not a type. Listed here because
+/// the identifier reads as if it were type-keyed and an earlier census pass
+/// classified it that way.
 /// **Declaration indexes** — name → the AST/HIR node that declared it, built
 /// beside a `funcs` index of the identical shape, so the key is an identifier
 /// and the value is a declaration rather than type information:
@@ -390,7 +397,6 @@ const TYPE_KEYED_TABLES: &[(&str, &str)] = &[
     ("src/monomorph/mod.rs", "type_templates"),
     ("src/monomorph/mod.rs", "concrete_types"),
     ("src/monomorph/mod.rs", "type_instantiations"),
-    ("src/monomorph/mod.rs", "emitted_type_keys"),
     ("src/monomorph/mod.rs", "record_fields"),
     // The resolver's set of declared type names.
     ("src/resolver/mod.rs", "types"),
@@ -650,7 +656,6 @@ fn string_keyed_type_maps(rel: &str, src: &str) -> Vec<Hit> {
 const BUDGETS: &[(&str, &str, usize)] = &[
     // --- 1. `ParameterType::parse` below a boundary — 125. Letters B, D, E, F.
     ("parse_sites", "codegen", 94),
-    ("parse_sites", "monomorph", 1),
     // --- 2. a type taken as `&str` — 173. Letters B, D, E, F, G.
     ("str_type_params", "binary_repr", 4),
     ("str_type_params", "codegen", 141),
@@ -683,9 +688,6 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     //     `TypeModel`), then B (ir/monomorph/resolver) and G (binary_repr).
     ("string_keyed_type_maps", "binary_repr", 1),
     ("string_keyed_type_maps", "codegen", 11),
-    ("string_keyed_type_maps", "ir", 1),
-    ("string_keyed_type_maps", "monomorph", 3),
-    ("string_keyed_type_maps", "resolver", 1),
     ("string_keyed_type_maps", "target", 1),
 ];
 

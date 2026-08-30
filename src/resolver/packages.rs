@@ -106,9 +106,11 @@ impl Resolver<'_> {
         // resolve in a type position today (`db.DbInfo` is a parse error, since
         // dot is field access); `resolver::packages::tests` pins that.
         for export in exports {
-            self.types.insert(export.name);
+            self.types
+                .insert(crate::types::ParameterType::named(&export.name));
             for variant in export.variants {
-                self.types.insert(variant.name);
+                self.types
+                    .insert(crate::types::ParameterType::named(&variant.name));
             }
         }
     }

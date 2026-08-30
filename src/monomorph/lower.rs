@@ -39,10 +39,12 @@ impl<'a> Monomorphizer<'a> {
                 match item {
                     HirItem::Binding(_) => {}
                     HirItem::Type(type_decl) if !type_decl.template_params.is_empty() => {
-                        type_templates.insert(type_decl.name.clone(), type_decl.clone());
+                        type_templates
+                            .insert(ParameterType::named(&type_decl.name), type_decl.clone());
                     }
                     HirItem::Type(type_decl) => {
-                        concrete_types.insert(type_decl.name.clone(), type_decl.clone());
+                        concrete_types
+                            .insert(ParameterType::named(&type_decl.name), type_decl.clone());
                     }
                     HirItem::Function(function) if !function.template_params.is_empty() => {
                         function_files.insert(function.name.clone(), file.path.clone());
@@ -396,7 +398,8 @@ impl<'a> Monomorphizer<'a> {
         let types = self.concrete_types.values().cloned().collect::<Vec<_>>();
         for type_decl in types {
             let lowered = self.lower_type(type_decl, &HashMap::new(), None);
-            self.concrete_types.insert(lowered.name.clone(), lowered);
+            self.concrete_types
+                .insert(ParameterType::named(&lowered.name), lowered);
         }
 
         let functions = self
@@ -426,7 +429,10 @@ impl<'a> Monomorphizer<'a> {
                             items.push(HirItem::Binding(self.lower_binding(binding.clone())));
                         }
                         HirItem::Type(type_decl) if type_decl.template_params.is_empty() => {
-                            if let Some(concrete) = self.concrete_types.get(&type_decl.name) {
+                            if let Some(concrete) = self
+                                .concrete_types
+                                .get(&ParameterType::named(&type_decl.name))
+                            {
                                 emitted_types.insert(concrete.name.clone());
                                 items.push(HirItem::Type(concrete.clone()));
                             }
@@ -775,17 +781,19 @@ impl<'a> Monomorphizer<'a> {
             }
         }
 
+        // plan-111-B: the bound arguments stay TYPES. They render once below,
+        // for the mangled symbol and the `name<args>` key — both symbols, which
+        // is a sanctioned string sink — instead of being re-parsed to substitute
+        // them back in.
         let args = match template
             .template_params
             .iter()
             .map(|param| {
-                // The mangled symbol is a string, so render the bound `ParameterType`
-                // at this deliberate string boundary.
                 substitutions
                     .get(&crate::intern::Symbol::intern(param))
-                    .map(|type_| type_.name().into_owned())
+                    .cloned()
             })
-            .collect::<Option<Vec<_>>>()
+            .collect::<Option<Vec<ParameterType>>>()
         {
             Some(args) => args,
             None => {
@@ -821,8 +829,9 @@ impl<'a> Monomorphizer<'a> {
         // to one shared, possibly-wrong symbol (bug-226). The `name<args>` key IS
         // unambiguous, so disambiguate the symbol whenever a different key already
         // claimed it. Existing single-instantiation symbols are unchanged.
-        let key = format!("{name}<{}>", args.join(","));
-        let concrete_name = self.unique_concrete_symbol(mangle_name(name, &args), &key);
+        let arg_names: Vec<String> = args.iter().map(|a| a.name().into_owned()).collect();
+        let key = format!("{name}<{}>", arg_names.join(","));
+        let concrete_name = self.unique_concrete_symbol(mangle_name(name, &arg_names), &key);
         if self.emitted_function_keys.insert(key) {
             if !self.charge_instantiation(&display, line) {
                 return None;
@@ -838,10 +847,7 @@ impl<'a> Monomorphizer<'a> {
             self.template_instantiation_depth += 1;
             let mut full_substitutions = HashMap::new();
             for (param, arg) in template.template_params.iter().zip(args.iter()) {
-                full_substitutions.insert(
-                    crate::intern::Symbol::intern(param),
-                    crate::types::ParameterType::parse(arg),
-                );
+                full_substitutions.insert(crate::intern::Symbol::intern(param), arg.clone());
             }
             let lowered =
                 self.lower_function(template, &full_substitutions, Some(concrete_name.clone()));
@@ -985,7 +991,11 @@ impl<'a> Monomorphizer<'a> {
         if !self.emitted_type_keys.insert(key) {
             return concrete;
         }
-        let Some(template) = self.type_templates.get(name).cloned() else {
+        let Some(template) = self
+            .type_templates
+            .get(&ParameterType::named(name))
+            .cloned()
+        else {
             return concrete;
         };
         if !self.charge_instantiation(name, 1) {
@@ -1004,7 +1014,7 @@ impl<'a> Monomorphizer<'a> {
         }
         let lowered = self.lower_type(template, &substitutions, Some(concrete_name.clone()));
         self.template_instantiation_depth -= 1;
-        self.concrete_types.insert(concrete_name.clone(), lowered);
+        self.concrete_types.insert(concrete.clone(), lowered);
         concrete
     }
 
@@ -1522,8 +1532,9 @@ impl<'a> Monomorphizer<'a> {
                         )
                     })
                     .collect::<Vec<_>>();
-                if concrete_type.is_none() && self.type_templates.contains_key(&type_name) {
-                    let Some(template) = self.type_templates.get(&type_name).cloned() else {
+                let template_key = ParameterType::named(&type_name);
+                if concrete_type.is_none() && self.type_templates.contains_key(&template_key) {
+                    let Some(template) = self.type_templates.get(&template_key).cloned() else {
                         unreachable!();
                     };
                     let mut inferred = HashMap::new();
@@ -1929,11 +1940,11 @@ impl<'a> Monomorphizer<'a> {
             context.function_returns.insert(name.clone(), returns);
             context.function_types.insert(name.clone(), signature);
         }
-        for (name, type_decl) in &self.concrete_types {
+        for (type_, type_decl) in &self.concrete_types {
             if matches!(type_decl.kind, TypeDeclKind::Type) {
                 context
                     .record_fields
-                    .insert(ParameterType::named(name), type_decl.fields.clone());
+                    .insert(type_.clone(), type_decl.fields.clone());
             }
         }
         // Top-level `LET`/`MUT` bindings with an explicit `AS` type, so a call or
@@ -2386,11 +2397,11 @@ END SUB
         // ...and its own concrete type declaration (no overwrite).
         let type_a = mono
             .concrete_types
-            .get(&name_a)
+            .get(&ParameterType::named(&name_a))
             .expect("first concrete Box survives");
         let type_b = mono
             .concrete_types
-            .get(&name_b)
+            .get(&ParameterType::named(&name_b))
             .expect("second concrete Box survives");
         assert_eq!(
             type_a.fields[0].type_.name().as_ref(),

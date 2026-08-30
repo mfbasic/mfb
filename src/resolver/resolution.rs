@@ -1183,7 +1183,7 @@ impl Resolver<'_> {
             }
             HirExpression::MemberAccess { target, .. } => {
                 if let HirExpression::Identifier(name) = target.as_ref() {
-                    if self.types.contains(name) {
+                    if self.types.contains(&ParameterType::named(name)) {
                         return;
                     }
                 }
@@ -1343,7 +1343,9 @@ impl Resolver<'_> {
             // names the whole spelling.
             ParameterType::UserOf(head, args) => {
                 let head = head.resolve();
-                if self.types.contains(head) || self.active_template_params.contains(head) {
+                if self.types.contains(&ParameterType::named(head))
+                    || self.active_template_params.contains(head)
+                {
                     for arg in args {
                         self.resolve_type(file, arg, line, imports);
                     }
@@ -1406,7 +1408,7 @@ impl Resolver<'_> {
         }
         if name.contains('.') {
             self.resolve_package_qualified_name(file, name, line, imports);
-        } else if !self.types.contains(name) {
+        } else if !self.types.contains(&ParameterType::named(name)) {
             self.report_unknown_type(file, name, line);
         }
     }

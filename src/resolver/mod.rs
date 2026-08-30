@@ -279,7 +279,8 @@ struct Resolver<'a> {
     dependency_packages: HashMap<String, DependencyPackage>,
     top_levels: HashMap<String, Symbol>,
     functions: HashMap<String, Vec<FunctionSymbol>>,
-    types: HashSet<String>,
+    /// plan-111-B: the declared/imported TYPES this project knows.
+    types: HashSet<crate::types::ParameterType>,
     /// LINK alias namespaces: alias (e.g. `sqliteLink`) → its native functions
     /// keyed by name. Members are resolved as `alias::func` qualified names
     /// (plan-link-update.md §5b).
@@ -351,7 +352,7 @@ impl<'a> Resolver<'a> {
             functions: HashMap::new(),
             types: BUILTIN_TYPES
                 .iter()
-                .map(|name| (*name).to_string())
+                .map(|name| crate::types::ParameterType::named(name))
                 .collect(),
             link_functions: HashMap::new(),
             active_template_params: HashSet::new(),
@@ -420,7 +421,8 @@ impl<'a> Resolver<'a> {
                             type_decl.line,
                             type_decl.visibility,
                         ) {
-                            self.types.insert(type_decl.name.clone());
+                            self.types
+                                .insert(crate::types::ParameterType::named(&type_decl.name));
                         }
                     }
                     // A native resource declaration introduces an opaque type at
@@ -432,7 +434,8 @@ impl<'a> Resolver<'a> {
                             resource.line,
                             resource.visibility,
                         ) {
-                            self.types.insert(resource.name.clone());
+                            self.types
+                                .insert(crate::types::ParameterType::named(&resource.name));
                         }
                     }
                     // A re-export alias publishes a LINK function under a package
@@ -1082,7 +1085,9 @@ mod tests {
         ]);
         let dir = std::path::Path::new(".");
         let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &hir));
-        assert!(resolver.types.contains("Widget"));
+        assert!(resolver
+            .types
+            .contains(&crate::types::ParameterType::named("Widget")));
         assert!(resolver.had_error, "duplicate top-level should report");
     }
 

@@ -30,9 +30,12 @@ pub fn monomorphize_project(project_dir: &Path, hir: &HirProject) -> Result<HirP
 struct Monomorphizer<'a> {
     project_dir: &'a Path,
     source: &'a HirProject,
-    type_templates: HashMap<String, HirTypeDecl>,
+    /// plan-111-B: keyed by the template TYPE (a nominal).
+    type_templates: HashMap<crate::types::ParameterType, HirTypeDecl>,
     function_templates: HashMap<String, HirFunction>,
-    concrete_types: HashMap<String, HirTypeDecl>,
+    /// plan-111-B: keyed by the concrete TYPE — for an instantiation, the
+    /// mangled nominal `instantiate_type` hands back.
+    concrete_types: HashMap<crate::types::ParameterType, HirTypeDecl>,
     concrete_functions: HashMap<String, HirFunction>,
     function_overloads: HashMap<String, Vec<HirFunction>>,
     overload_names: HashMap<String, String>,

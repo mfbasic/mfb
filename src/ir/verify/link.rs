@@ -931,11 +931,10 @@ impl TypeEnv {
             || matches!(base, ParameterType::Func(..))
             || (self.records.contains_key(base) && self.close_op_for(base).is_none())
             || self.enums.contains_key(base)
-            || self.unions.get(base).is_some_and(|u| {
-                u.variants
-                    .iter()
-                    .all(|v| self.close_op_for(&ParameterType::named(v)).is_none())
-            })
+            || self
+                .unions
+                .get(base)
+                .is_some_and(|u| u.variants.iter().all(|v| self.close_op_for(v).is_none()))
     }
 
     /// Whether `base` is a resource type or a resource union (a union any of
@@ -944,11 +943,9 @@ impl TypeEnv {
         if self.close_op_for(base).is_some() {
             return true;
         }
-        self.unions.get(base).is_some_and(|u| {
-            u.variants
-                .iter()
-                .any(|v| self.close_op_for(&ParameterType::named(v)).is_some())
-        })
+        self.unions
+            .get(base)
+            .is_some_and(|u| u.variants.iter().any(|v| self.close_op_for(v).is_some()))
     }
 
     /// The registered close op for a resource type: user-declared native
