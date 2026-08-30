@@ -538,11 +538,12 @@ Commit: —
   `src/codegen/builtins/app/mod.rs`, and the `ErrWrongMode` row in
   `src/docs/spec/diagnostics/02_error-codes.md:139` (it names the three gated `io::`
   calls and the `Console` requirement). Per `.ai/specifications.md`, keep the spec
-  current with the compiler change. `mfb man` content lives in the registry descriptors
-  and Rust doc comments (templates: `.ai/man_template.md`,
-  `.ai/man_package_template.md`, `.ai/man_type_template.md`) — there is no
-  `src/docs/man/**` page to hand-edit. (AGENTS.md points at `.ai/man-content.md` for
-  this; that file is not in the tree — use the three templates above.)
+  current with the compiler change. Per AGENTS.md, built-in man content is **rendered
+  from the registry descriptors** — there is no Markdown page to hand-edit and no
+  template to follow. For `app` that means the `MODULE_DESC` and the `Mode` variant
+  `description`s in `src/codegen/builtins/app/mod.rs`; verify with `mfb man app` and
+  `mfb man app setMode`. (The `.ai/man*_template.md` files are the retired
+  `src/docs/man/**` workflow — do not use them.)
 - Acceptance: the per-phase targeted tests above — **no full-suite run and no
   byte-identity check in this letter** (invariant 8); `rustup run 1.96.0 cargo fmt --all
   && (cd repository && rustup run 1.96.0 cargo fmt)` at session end.

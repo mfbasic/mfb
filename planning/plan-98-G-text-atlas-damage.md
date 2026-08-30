@@ -216,8 +216,10 @@ Commit: —
 - Doc sync: `src/docs/spec/app/` canvas text section (stb scope + limits, `TextMetrics`, the
   shaper-swap note); man content for `canvas::measureText`, `canvas::loadFont`,
   `canvas::destroyFont` — authored as registry descriptors + Rust doc comments per
-  the `.ai/man_template.md` / `.ai/man_type_template.md` templates, **not** as
-  `src/docs/man/**` pages (that workflow is retired);
+  `RegistryFunction` `intro`/`desc`/`example` + `Parameter.desc` on the new members in
+  `src/codegen/builtins/canvas/`, and the `TextMetrics` `RegistryRecord.description` —
+  **not** as `src/docs/man/**` pages and **not** from the retired `.ai/man*_template.md`
+  files. Verify by rendering `mfb man canvas measureText` and `mfb man canvas types`;
   a note recording the resolved dependency policy.
 - Acceptance: Phases 1–3 run targeted tests only; **Phase 4 is the plan's single full
   `cargo test --no-fail-fast` + `test-accept.sh` run** (A's invariant 8). Text + damage
