@@ -298,11 +298,35 @@ const CONSTRUCTED_PREFIXES: &[&str] = &[
 /// (binding name), and `function_lowering.rs`'s `union_extract_reads` (local
 /// name).
 ///
-/// The list was widened once, in plan-111-B, after a systematic census: every
-/// `HashMap<String, _>` / `HashSet<String>` declaration in `src/` was extracted
-/// with its doc comment and classified by whether the KEY is a type name. The
-/// first pass had been assembled by grepping identifiers containing `type`,
-/// which missed nine `ir::verify` tables and three elsewhere.
+/// **How this list was built, and how to extend it.** Two earlier attempts
+/// under-reported, so the third was exhaustive and is recorded here so a fourth
+/// is not needed. Every `HashMap`/`BTreeMap`/`HashSet`/`BTreeSet` declaration
+/// in `src/` whose key is `String`, `&str` or `(String, String)` was extracted
+/// with its doc comment — 251 of them — and each was classified by one
+/// question: **is the KEY a type name?** 58 were candidates (identifier or doc
+/// mentioning type/record/union/enum/resource/variant/nominal); each was read.
+///
+/// The two failed attempts are worth knowing about. The first grepped
+/// identifiers containing `type`, which cannot see `record_fields`,
+/// `union_names` or `enum_members` — most of `TypeModel`. The second fixed that
+/// but used `\b`-delimited words, which do not match inside snake_case, and was
+/// then run over the wrong subset of directories.
+///
+/// Three kinds of lookalike are deliberately EXCLUDED, so they are not "fixed"
+/// later. Keyed by a **binding or local name**: `ir/lower.rs`'s
+/// `binding_types` / `mutable_locals`, `ir::verify`'s and `monomorph`'s
+/// `globals`, `ir/resource_escape.rs`'s `decl_type`, `ir/shape.rs`'s
+/// `state_dropped`, codegen's and NIR's `resource_owners` /
+/// `owner_collections` / `promoted_vector_locals`,
+/// `function_lowering.rs`'s `union_extract_reads`, and `data_objects.rs`'s
+/// local `types`. Keyed by a **function or symbol name**: `function_types`,
+/// `package_return_types`, `imported_overloads`, `concrete_symbol_keys`.
+/// **Declaration indexes** — name → the AST/HIR node that declared it, built
+/// beside a `funcs` index of the identical shape, so the key is an identifier
+/// and the value is a declaration rather than type information:
+/// `ir/docs.rs`'s and `resolver/resolution.rs`'s `types` / `resources`,
+/// `src/doc/`'s `type_meta` / `resource_meta`, `ir/shape.rs`'s `union_decls`,
+/// and `ir/binary.rs`'s `seen_types` (a duplicate-NAME detector on the wire).
 const TYPE_KEYED_TABLES: &[(&str, &str)] = &[
     // `TypeModel` — codegen's whole picture of the module's declared types,
     // keyed by rendered name. plan-111-C re-keys these.
@@ -333,6 +357,12 @@ const TYPE_KEYED_TABLES: &[(&str, &str)] = &[
     // The IR shape checker's type registry.
     ("src/ir/shape.rs", "resource_types"),
     ("src/ir/shape.rs", "types"),
+    // `ir::lower`'s `TypeIndex` — the lowering-side twin of `TypeModel`.
+    ("src/ir/lower.rs", "records"),
+    ("src/ir/lower.rs", "enums"),
+    ("src/ir/lower.rs", "variants"),
+    ("src/ir/lower.rs", "variant_unions"),
+    ("src/ir/lower.rs", "variant_fields"),
     // `ir::verify`'s `TypeEnv` — nine tables, every one keyed by a type name.
     // `globals` is deliberately absent: it is keyed by a BINDING name.
     ("src/ir/verify/mod.rs", "records"),
@@ -344,6 +374,9 @@ const TYPE_KEYED_TABLES: &[(&str, &str)] = &[
     ("src/ir/verify/mod.rs", "enums"),
     ("src/ir/verify/mod.rs", "type_decl_info"),
     ("src/ir/verify/mod.rs", "private_fields"),
+    // A union's variant SET — a membership test over type names, the same
+    // operation (and the same shape) as codegen's `union_names`.
+    ("src/ir/verify/mod.rs", "variants"),
     // Monomorphization's template and instantiation tables.
     ("src/monomorph/mod.rs", "type_templates"),
     ("src/monomorph/mod.rs", "concrete_types"),
@@ -651,7 +684,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     //     `TypeModel`), then B (ir/monomorph/resolver) and G (binary_repr).
     ("string_keyed_type_maps", "binary_repr", 1),
     ("string_keyed_type_maps", "codegen", 11),
-    ("string_keyed_type_maps", "ir", 3),
+    ("string_keyed_type_maps", "ir", 9),
     ("string_keyed_type_maps", "monomorph", 5),
     ("string_keyed_type_maps", "resolver", 1),
     ("string_keyed_type_maps", "target", 1),

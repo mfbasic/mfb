@@ -347,30 +347,51 @@ which is why `TypeModel`'s fields had to be added by hand (none of
 `record_fields` / `union_names` / `enum_members` contains `type`). The same
 blind spot hid others.
 
-Re-censused properly: every `HashMap<String, _>` / `HashSet<String>`
-declaration in `src/` extracted with its doc comment, then classified by
-whether the **key** is a type name. `ir::verify`'s `TypeEnv` alone holds
-**nine** such tables — `records`, `unions`, `resource_closers`,
+**It took three attempts to census this correctly, and the two failures are
+worth recording.** The first (plan-111-A) grepped identifiers containing
+`type`, which cannot see `record_fields`, `union_names` or `enum_members` —
+most of `TypeModel`, which is why those had to be added by hand. The second
+fixed the identifier filter but used `\b`-delimited word matching, which does
+not match inside snake_case, and was then run over the wrong subset of
+directories, so `src/ir` was never re-scanned with the fix.
+
+The third was exhaustive and is what the list now rests on: every
+`HashMap`/`BTreeMap`/`HashSet`/`BTreeSet` declaration in `src/` whose key is
+`String`, `&str` or `(String, String)` — **251** of them — extracted with its
+doc comment, of which **58** were candidates (identifier or doc mentioning
+type/record/union/enum/resource/variant/nominal). Every one of the 58 was read
+and classified by a single question: is the KEY a type name?
+
+Found and added: `ir::verify`'s `TypeEnv` holds **nine** such tables where
+three were listed (`records`, `unions`, `resource_closers`,
 `resource_sendable`, `field_types`, `record_field_lists`, `enums`,
-`type_decl_info`, `private_fields` — where three were listed. Three more were
-missing elsewhere: `codegen/link/thunk/link_thunk.rs`'s
-`record_native_resources`, `codegen/engine/validation/validation.rs`'s
-`native_resources`, and `target/shared/runtime/usage.rs`'s
+`type_decl_info`, `private_fields`), plus its `UnionInfo::variants` membership
+set; `ir::lower`'s `TypeIndex` holds **five** — the lowering-side twin of
+`TypeModel` — that no pass had seen; and three elsewhere:
+`link_thunk.rs`'s `record_native_resources`,
+`validation.rs`'s `native_resources`, and `usage.rs`'s
 `resource_union_closes` (the first `target` row).
 
-Budgets raised to the true population — `ir` 8 → 17, `codegen` 9 → 11, new
-`target` 1 — for a corrected total of **36**, not 24. Raising is what the gate
-permits and what honesty requires; the end state is unchanged, since every row
-still reaches 0 by letter G. **Letter C's `TypeModel` population is unaffected
-(still 9); letter F inherits the two extra codegen rows and letter G the
-`target` one.**
+Budgets raised to the truth — `ir` 8 → 23 before this letter's conversions,
+`codegen` 9 → 11, new `target` 1 — a corrected total of **42**, not 24. Raising
+is what the gate permits and what honesty requires; the end state is unchanged,
+since every row still reaches 0 by letter G. **Letter C's `TypeModel`
+population is unaffected (still 9); letter F inherits the two extra codegen
+rows and letter G the `target` one.**
 
-Each new entry was read before listing. Deliberately still excluded, and named
-in the constant's doc comment so they are not "fixed" later: `ir::verify`'s and
-`monomorph`'s `globals`, codegen's and NIR's `resource_owners` /
-`owner_collections`, `ir/shape.rs`'s `state_dropped`, and
-`function_lowering.rs`'s `union_extract_reads` — every one keyed by a
-**binding** or **local** name, which is legitimately a string.
+Three kinds of lookalike are deliberately excluded, each named in the
+constant's doc comment so a later reader does not "fix" them. Keyed by a
+**binding or local name**: `binding_types`, `mutable_locals`, `globals`,
+`decl_type`, `state_dropped`, `resource_owners`, `owner_collections`,
+`promoted_vector_locals`, `union_extract_reads`, `data_objects.rs`'s local
+`types`. Keyed by a **function or symbol name**: `function_types`,
+`package_return_types`, `imported_overloads`, `concrete_symbol_keys`.
+**Declaration indexes** — name → the AST/HIR node that declared it, built
+beside a `funcs` index of identical shape, so the key is an identifier and the
+value is a declaration rather than type information: `ir/docs.rs`'s and
+`resolver/resolution.rs`'s `types`/`resources`, `src/doc/`'s
+`type_meta`/`resource_meta`, `ir/shape.rs`'s `union_decls`, and
+`ir/binary.rs`'s `seen_types` (a duplicate-NAME detector on the wire).
 
 **13 — a prerequisite no letter covered: `HirItem::Link` was never
 elaborated. Landed here as a new phase (Phase 0).** Letter B's §1 requires no
