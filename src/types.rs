@@ -193,7 +193,8 @@ impl ParameterType {
     pub(crate) fn res(inner: ParameterType) -> Self {
         ParameterType::Res(Box::new(inner))
     }
-    /// The type a DECLARATION of this name denotes.
+    /// The type a SPELLING denotes — a declaration's own name, or a value's
+    /// recorded type where codegen still stores one as text.
     ///
     /// **Not [`named`](Self::named), and the difference is load-bearing.** A
     /// declared type may shadow a built-in spelling — `TYPE Integer` is legal

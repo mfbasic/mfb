@@ -1328,13 +1328,9 @@ impl CodeBuilder<'_> {
         let first_list_element = slots
             .first()
             .filter(|slot| slot.key.is_none())
-            .map(|slot| slot.value.type_.as_str());
-        // `refined_list_literal_type` compares the DECLARED element spelling with
-        // the first element's to widen `List OF Unknown` — a name-domain
-        // refinement, so it renders in and the refined spelling parses back out.
-        let declared_name = type_.name();
-        let refined_type = refined_list_literal_type(&declared_name, first_list_element)
-            .map(|refined| ParameterType::parse(&refined));
+            .map(|slot| ParameterType::declared(&slot.value.type_));
+        let first_list_element = first_list_element.as_ref();
+        let refined_type = refined_list_literal_type(type_, first_list_element);
         let type_ = refined_type.as_ref().unwrap_or(type_);
         let layout = CollectionTypeLayout::from_type(type_)
             .ok_or_else(|| format!("native code collection type '{type_}' is not supported"))?;
@@ -2472,10 +2468,21 @@ pub(crate) fn byte_list_entry_stride() -> usize {
 ///
 /// Only list literals with at least one element can be refined; an empty `[]` has
 /// nothing to learn from, and a map keeps its entries regardless.
-fn refined_list_literal_type(declared: &str, first_element_type: Option<&str>) -> Option<String> {
+fn refined_list_literal_type(
+    declared: &ParameterType,
+    first_element_type: Option<&ParameterType>,
+) -> Option<ParameterType> {
+    // plan-111-C Phase 4 (plan-106-E Correction 4's site): built structurally.
+    // This was `format!("List OF {element}")` over two rendered spellings — the
+    // last production type construction outside `ParameterType::name` and the
+    // wire codec — and the caller then parsed the result straight back.
     let element = first_element_type?;
-    match list_element_type(declared).as_deref() {
-        Some("Unknown") => Some(format!("List OF {element}")),
+    match declared {
+        ParameterType::ListOf(declared_element)
+            if matches!(**declared_element, ParameterType::Unknown) =>
+        {
+            Some(ParameterType::list_of(element.clone()))
+        }
         _ => None,
     }
 }
@@ -2924,8 +2931,13 @@ mod kind2_layout_tests {
     fn alloc_size_matches_free_size() {
         for &(element, width) in FIXED_WIDTH {
             for declared in [format!("List OF {element}"), "List OF Unknown".to_string()] {
-                let laid_out =
-                    refined_list_literal_type(&declared, Some(element)).unwrap_or(declared.clone());
+                let declared_type = ParameterType::declared(&declared);
+                let laid_out = refined_list_literal_type(
+                    &declared_type,
+                    Some(&ParameterType::declared(element)),
+                )
+                .map(|t| t.name().into_owned())
+                .unwrap_or_else(|| declared.clone());
                 for count in [0usize, 1, 2, 7, 1000] {
                     // Allocation: stride from the element's own type.
                     let allocated =
@@ -2956,23 +2968,21 @@ mod kind2_layout_tests {
     /// or a map has nothing to refine from.
     #[test]
     fn literal_type_refinement_is_narrow() {
+        let refine = |declared: &str, element: Option<&str>| {
+            refined_list_literal_type(
+                &ParameterType::declared(declared),
+                element.map(ParameterType::declared).as_ref(),
+            )
+            .map(|t| t.name().into_owned())
+        };
         assert_eq!(
-            refined_list_literal_type("List OF Unknown", Some("Byte")).as_deref(),
+            refine("List OF Unknown", Some("Byte")).as_deref(),
             Some("List OF Byte")
         );
-        assert_eq!(refined_list_literal_type("List OF Unknown", None), None);
-        assert_eq!(
-            refined_list_literal_type("List OF Byte", Some("Byte")),
-            None
-        );
-        assert_eq!(
-            refined_list_literal_type("List OF String", Some("String")),
-            None
-        );
-        assert_eq!(
-            refined_list_literal_type("Map OF Integer TO Integer", Some("Integer")),
-            None
-        );
+        assert_eq!(refine("List OF Unknown", None), None);
+        assert_eq!(refine("List OF Byte", Some("Byte")), None);
+        assert_eq!(refine("List OF String", Some("String")), None);
+        assert_eq!(refine("Map OF Integer TO Integer", Some("Integer")), None);
     }
 
     /// A nested list keeps its lookup table: `List OF List OF Integer` is a list
