@@ -194,9 +194,7 @@ impl CodeBuilder<'_> {
         ));
         let left_text = left.text.clone();
         let right_text = right.text.clone();
-        let result_type = promoted_binary_type(op, &left.type_, &right.type_)
-            .name()
-            .into_owned();
+        let result_type = promoted_binary_type(op, &left.type_, &right.type_);
         self.reset_temporary_registers();
         let left_register = self.allocate_register();
         let right_register = self.allocate_register();
@@ -235,18 +233,18 @@ impl CodeBuilder<'_> {
         // `Integer op Float` case (a float left operand takes the fast path
         // above); the integer/fixed cases always land in `register`.
         let mut result_location = register.render();
-        match result_type.as_str() {
-            "Byte" | "Integer" => {
+        match &result_type {
+            ParameterType::Byte | ParameterType::Integer => {
                 self.emit_integer_binary_checked(
                     op,
                     &left,
                     &right,
                     &register,
-                    result_type == "Byte",
+                    result_type == ParameterType::Byte,
                     elide_overflow,
                 )?;
             }
-            "Fixed" => {
+            ParameterType::Fixed => {
                 if left.type_ == ParameterType::Fixed && right.type_ == ParameterType::Fixed {
                     self.emit_fixed_binary(op, &left, &right, &register)?;
                 } else {
@@ -290,7 +288,7 @@ impl CodeBuilder<'_> {
                     self.emit_fixed_binary(op, &left, &right, &register)?;
                 }
             }
-            "Float" => {
+            ParameterType::Float => {
                 // A Money operand with a Float result is the `M / M` ratio or a
                 // `Money DIV …` — routed through the Money dispatcher, which
                 // produces the f64 result (plan-29-E §4.3/§4.5).
@@ -302,7 +300,7 @@ impl CodeBuilder<'_> {
             }
             // A Money result (`M ± M`, `M * k`, `M / k`, `M MOD M`) is settled by
             // the Money dispatcher (plan-29-C/E/F).
-            "Money" => {
+            ParameterType::Money => {
                 result_location = self.emit_money_binary(op, &left, &right, &register)?;
             }
             other => {
@@ -313,7 +311,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&result_type),
+            type_: result_type.clone(),
             location: Operand::from(result_location),
             text: format!("({} {op} {})", left.text, right.text),
         })
@@ -334,9 +332,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let left_text = left.text.clone();
         let right = self.lower_value(right)?;
-        let result_type = promoted_binary_type(op, &left.type_, &right.type_)
-            .name()
-            .into_owned();
+        let result_type = promoted_binary_type(op, &left.type_, &right.type_);
         let right_text = right.text.clone();
         // `dst` is used only by the GP-result operators (`MOD`/`^`); the pure-FP
         // operators ignore it and return their FP register.
@@ -344,7 +340,7 @@ impl CodeBuilder<'_> {
         let location = self.emit_float_binary(op, &left, &right, &dst)?;
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&result_type),
+            type_: result_type.clone(),
             location: Operand::from(location),
             text: format!(
                 "({op_left} {op} {op_right})",
@@ -360,8 +356,8 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let register = self.allocate_register();
         let mut location = register.clone();
-        match operand.type_.name().as_ref() {
-            "Byte" => {
+        match &operand.type_ {
+            ParameterType::Byte => {
                 let ok = self.label("byte_unary_ok");
                 self.emit(abi::compare_immediate(&operand.location, "0"));
                 self.emit(abi::branch_eq(&ok));
@@ -369,13 +365,13 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&ok));
                 self.emit(abi::move_register(&register, &operand.location));
             }
-            "Integer" => {
+            ParameterType::Integer => {
                 self.emit_min_i64_negation_check(&operand.location, "integer_unary")?;
                 let zero = self.allocate_register();
                 self.emit(abi::move_immediate(&zero, "Integer", "0"));
                 self.emit(abi::subtract_registers(&register, &zero, &operand.location));
             }
-            "Fixed" => {
+            ParameterType::Fixed => {
                 self.emit_min_i64_negation_check(&operand.location, "fixed_unary")?;
                 let zero = self.allocate_register();
                 self.emit(abi::move_immediate(&zero, "Integer", "0"));
@@ -384,13 +380,13 @@ impl CodeBuilder<'_> {
             // Money is a signed i64 raw, so negate is the Integer path with the
             // same INT64_MIN check (raw `-9223372036854775808` = the min Money,
             // `-92233720368547.75808`, cannot be negated) (plan-29-C §4.3).
-            "Money" => {
+            ParameterType::Money => {
                 self.emit_min_i64_negation_check(&operand.location, "money_unary")?;
                 let zero = self.allocate_register();
                 self.emit(abi::move_immediate(&zero, "Integer", "0"));
                 self.emit(abi::subtract_registers(&register, &zero, &operand.location));
             }
-            "Float" => {
+            ParameterType::Float => {
                 // Negation just flips the sign bit, so a finite operand stays
                 // finite — and every live MFBASIC Float is finite (inf/NaN are
                 // always errors, never values). No overflow/NaN check is needed.
@@ -675,25 +671,23 @@ impl CodeBuilder<'_> {
 
         let promoted = if left.type_ == ParameterType::Float || right.type_ == ParameterType::Float
         {
-            "Float".to_string()
+            ParameterType::Float
         } else if left.type_ == ParameterType::Fixed || right.type_ == ParameterType::Fixed {
-            "Fixed".to_string()
+            ParameterType::Fixed
         } else {
             promoted_binary_type("+", &left.type_, &right.type_)
-                .name()
-                .into_owned()
         };
         let result = self.allocate_register();
         let true_label = self.label("cmp_true");
         let done_label = self.label("cmp_done");
 
-        match promoted.as_str() {
+        match &promoted {
             // Money compares as a signed i64 raw (same scale ⇒ raw order = value
             // order); no promotion, no float path (plan-29-C §4.3).
-            "Byte" | "Integer" | "Money" => {
+            ParameterType::Byte | ParameterType::Integer | ParameterType::Money => {
                 self.emit(abi::compare_registers(&left.location, &right.location));
             }
-            "Fixed" => {
+            ParameterType::Fixed => {
                 let left_fixed = self.allocate_register();
                 let right_fixed = self.allocate_register();
                 let left_fixed_slot = self.allocate_stack_object("cmp_left_fixed", 8);
@@ -711,7 +705,7 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::compare_registers(&left_fixed, &right_fixed));
             }
-            "Float" => {
+            ParameterType::Float => {
                 self.load_numeric_as_double(abi::FP_SCRATCH[0], &left)?;
                 self.load_numeric_as_double(abi::FP_SCRATCH[1], &right)?;
                 self.emit(abi::float_compare_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[1]));
@@ -729,7 +723,7 @@ impl CodeBuilder<'_> {
         // (EQ/NE) and `>`/`>=` (GT/GE) already fall to the correct side; only `<`
         // and `<=` need the FP conditions `MI`/`LS` rather than the signed
         // `LT`/`LE`, which would wrongly take an unordered NaN as the true side.
-        let is_float = promoted == "Float";
+        let is_float = promoted == ParameterType::Float;
         match op {
             "=" => self.emit(abi::branch_eq(&true_label)),
             "<>" => self.emit(abi::branch_ne(&true_label)),
@@ -1627,16 +1621,18 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let dst = dst.into();
         let fixed_scratch = self.temporary_vreg();
-        match value.type_.name().as_ref() {
+        match &value.type_ {
             // A `d`-native float is already in an FP register: move it `d`-to-`d`
             // (no GPR round-trip). A GP-native float carries its bits in `value
             // .location` and is moved across the `fmov d, x` boundary.
-            "Float" if Self::float_is_dnative(value) => {
+            ParameterType::Float if Self::float_is_dnative(value) => {
                 self.emit(abi::float_move_d_from_d(dst, &value.location))
             }
-            "Float" => self.emit(abi::float_move_d_from_x(dst, &value.location)),
-            "Byte" | "Integer" => self.emit(abi::signed_convert_to_float_d(dst, &value.location)),
-            "Fixed" => {
+            ParameterType::Float => self.emit(abi::float_move_d_from_x(dst, &value.location)),
+            ParameterType::Byte | ParameterType::Integer => {
+                self.emit(abi::signed_convert_to_float_d(dst, &value.location))
+            }
+            ParameterType::Fixed => {
                 self.emit(abi::signed_convert_to_float_d(dst.clone(), &value.location));
                 self.emit_f64_const(abi::FP_SCRATCH[7], &fixed_scratch, 4_294_967_296.0);
                 self.emit(abi::float_divide_d(dst.clone(), dst, abi::FP_SCRATCH[7]));
@@ -1644,7 +1640,7 @@ impl CodeBuilder<'_> {
             // Money's f64 value is its raw scaled i64 divided by the base-10 scale
             // (the SCALE cancels in `M / M`; used by the ratio, DIV, and
             // `toFloat(Money)` paths) (plan-29-E §4.3).
-            "Money" => {
+            ParameterType::Money => {
                 self.emit(abi::signed_convert_to_float_d(dst.clone(), &value.location));
                 self.emit_f64_const(abi::FP_SCRATCH[7], &fixed_scratch, 100_000.0);
                 self.emit(abi::float_divide_d(dst.clone(), dst, abi::FP_SCRATCH[7]));
@@ -1664,10 +1660,12 @@ impl CodeBuilder<'_> {
         value: &ValueResult,
     ) -> Result<(), String> {
         let dst = dst.into();
-        match value.type_.name().as_ref() {
-            "Fixed" => self.emit(abi::move_register(dst, &value.location)),
-            "Byte" | "Integer" => self.emit_integer_to_fixed_value(&value.location, dst)?,
-            "Float" => {
+        match &value.type_ {
+            ParameterType::Fixed => self.emit(abi::move_register(dst, &value.location)),
+            ParameterType::Byte | ParameterType::Integer => {
+                self.emit_integer_to_fixed_value(&value.location, dst)?
+            }
+            ParameterType::Float => {
                 // The Float→Fixed conversion reads the f64 bit pattern, so a
                 // `d`-native float is materialized into a GPR first (plan-01).
                 let bits = self.float_value_as_gpr(value)?;
