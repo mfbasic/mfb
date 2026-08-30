@@ -161,7 +161,7 @@ and the `Address` form. `func_net_ping_invalid`'s golden pins the diagnostics: a
 "expected 1 to 4" and a wrong argument type names both overloads. Range violations are runtime
 (the values are not constant-folded), and `func_net_ping_range_invalid` proves all seven raise
 while every boundary value is accepted.
-Commit: 46e3b7203
+Commit: 631ed5f1e
 
 ### Phase 3 — Native ICMP execution
 
@@ -194,7 +194,7 @@ three measurements zeroed. Denied permission: Error, not a status. Unrelated rep
 construction — the receive loop re-polls against the deadline rather than accepting the first
 packet, which is what makes the call correct on macOS, where **every** ICMP socket receives
 **every** reply on the host (§C1).
-Commit: 46e3b7203
+Commit: 631ed5f1e
 
 ## Validation Plan
 
