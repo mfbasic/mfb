@@ -207,6 +207,25 @@ Rules enforced by the implementation:
 The resulting IR entry records the entry name, return type, and whether the
 program accepts command-line arguments.
 
+## Where a type stops being a string
+
+The parser stores a type annotation as a flat spelling ([architecture
+type-name-encoding](./mfb spec architecture type-name-encoding)). `hir::elaborate`
+is where that spelling is parsed **once**, into a `ParameterType`; from there
+forward — resolver, monomorphization, the shape pass, IR lowering, the IR
+semantic verifier, the `TypeModel` builder and every code emitter — the compiler
+carries the variant tree and matches on it. No stage after the AST re-derives
+structure by stripping `"List OF "` or splitting on `" TO "`.
+
+This is a checked property, not a convention: `tests/no_type_strings.rs` scans
+the tree for eight needle classes (a `ParameterType::parse` call, a type-as-`&str`
+parameter, a `match` arm or `==` against a type spelling, a hand-rolled grammar
+op, a `format!`-built spelling, a `String`-keyed type map, a second grammar) and
+fails if one appears outside the closed boundary list. The boundaries are the
+parser itself, the AST→HIR seam, the `.mfp` type codec, the IR binary codec and
+the package manifest — every one a place that genuinely converts between the two
+worlds. [[src/hir/build.rs]] [[tests/no_type_strings.rs]]
+
 ## Semantic Checking (two passes, one source of truth)
 
 Semantic validation is **split by where the rule can be seen**. The

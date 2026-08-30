@@ -155,10 +155,12 @@ string halves (`resolve_call`, `call_return_type`, `argument_types`,
   `resolve_call("audio.poll", &s(&[..]), true) == Some("Boolean".to_string())`.
   Do NOT call it from production — a new production caller is the thing the
   ratchet gate (`tests/no_type_strings.rs`) exists to catch.
-- **`builtins::call_return_type_name` renders on the way out.** It is a NAME
-  oracle over the typed registry, kept for codegen callers that still take a
-  `&str`. Prefer `builtins::call_return_type` (typed) in anything new; the
-  render is a plan-111 D–F leftover, not a design.
+- **`builtins::call_return_type_name` renders on the way out, and that is
+  correct.** After plan-111-G its only production callers are the two in
+  `binary_repr/writer.rs` — the `.mfp` ENCODER, where the spelling *is* the wire
+  format. It is not a leftover to convert. Anything on the compiler side asks
+  `builtins::call_return_type` (typed); a new caller of the name form outside a
+  boundary file is what the gate is there to reject.
 - **Strict vs lenient matching is asymmetric on purpose.** A **resource**
   parameter demands exact base-resource identity, so a resource UNION does not
   satisfy a concrete resource close-op parameter (`fs::close(<union>)` stays

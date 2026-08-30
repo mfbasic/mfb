@@ -26,9 +26,35 @@ Adding a variant means wiring, in lockstep: `parse` arm, `name()` arm, `with_var
 
 **Measured (plan-111-A Phase 3, adding `Stateful`): the tree has 81 `match`es on a `ParameterType` with a top-level `_` arm, and adding a variant compiles CLEAN — zero exhaustiveness errors.** So the compiler tells you nothing; the audit is yours. What makes it tractable is asking the right question: a new variant only changes behavior where the value **used to take a different arm**. `File STATE Cursor` reached all 81 as `Named(...)`, so only the sites with their own `Named(..)` arm can move — **7 of 81**. (Script: walk each `match` block by brace depth, keep the ones whose top-level arm *patterns* name `ParameterType::`, then split on whether any pattern names the variant the value used to be.) Do not forget the non-`match` forms — `if let`, `matches!`, `while let` — which a `match`-block scan misses entirely; there were 5, found with `rg 'if let (Some\()?(ParameterType|Self)::Named|matches!\([^,]*, *(ParameterType|Self)::Named'`.
 
-## `tests/no_type_strings.rs` is a ratcheted budget, not a boolean (plan-111)
+**That census still missed the two sites that actually broke (plan-111-G6).**
+Both were `Named(_)` guards meaning "is this a nominal?", and both silently
+changed answer when `File STATE Cursor` stopped being a `Named`:
 
-It scans `src/` (minus `src/ast`, `src/lexer.rs`, `src/docs` — the string domain) for seven ways a type SPELLING reaches a decision: `ParameterType::parse` outside the five boundary files, a type-named `&str` parameter, a `match` arm or `==` on a spelling, a hand-rolled grammar op, a `format!`-built spelling, and a `String`-keyed type map. Each `(class, directory)` has a hardcoded ceiling.
+* `let ParameterType::Named(_) = matched_type else { return false };` — a
+  **`let`-else**, which is neither a `match` block nor any of the three
+  non-`match` forms the `rg` above looks for. Add `let ... else` to the sweep.
+  This one stopped `ir::shape` binding `CASE Variant(v)` over a stateful union,
+  so `v.state` typed `Unknown` and the error surfaced two layers away as
+  `toString(Unknown)`.
+* A sibling defect that no variant sweep can find: a conversion that changes a
+  table **KEY** from the full type to `resource_base_type(...)`. `File STATE
+  Cursor` is absent from the record table (so the access stayed unchecked); the
+  bare `File` base is present, because a resource declares inline fields — so
+  `.state` was rejected on every stateful resource. Retyping a lookup, always
+  ask what the OLD key was, not what the new one reads more nicely as.
+
+Neither failed to compile and neither reddened a unit test. The signal was one
+acceptance fixture that stopped building, found only by the full cross-target
+gate. **Budget an `artifact-gate all` run for any variant addition.**
+
+## `tests/no_type_strings.rs` is a hard floor with two named remainders (plan-111)
+
+It scans `src/` (minus `src/ast`, `src/lexer.rs`, `src/docs` — the string domain) for **eight** ways a type SPELLING reaches a decision: `ParameterType::parse` outside the boundary files, `ParameterType::declared` (class 1b — where a declared NAME crosses into the type domain), a type-named `&str` parameter, a `match` arm or `==` on a spelling, a hand-rolled grammar op, a `format!`-built spelling, and a `String`-keyed type map.
+
+Since plan-111-G it is a **floor, not a ratchet**: six of the eight classes are 0 tree-wide, and `BUDGETS` is down to two classes whose remainder is enumerated site-by-site in the table's own comment. Two exemptions carry the rest, each pinned by its own test:
+
+- `is_grammar_file` — `src/types.rs` DEFINES `parse`/`name`, so it is totally exempt. Exactly one file (`the_grammar_file_is_exactly_one`).
+- `is_boundary_file` — the six boundaries (in five groups: the parser, the AST→HIR seam, the `.mfp` codec both directions, the IR binary codec, the manifest) are exempt from the four NAME-HANDLING classes and from **none** of the three DECISION classes. A boundary may parse a spelling and may render one; it may not decide anything by comparing one. The exact membership is asserted (`boundary_list_is_closed`), so a seventh entry is a deliberate edit, not a quiet one.
 
 Two things to know before you touch it:
 

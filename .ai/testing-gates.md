@@ -44,9 +44,11 @@ grep -c '^failures:' /tmp/run.log     # must be 0
 
 `--skip artifact_gate_all` matters too: `tests/golden.rs` holds exactly one test and it shells out to `scripts/artifact-gate.sh all`, so a plain `cargo test` **is** the full cross-target sweep.
 
-## The plan-111 no-type-strings ratchet (`tests/no_type_strings.rs`)
+## The plan-111 no-type-strings floor (`tests/no_type_strings.rs`)
 
-A budgeted whole-tree scan, not a boolean — see `.ai/codegen-invariants.md` for the seven classes and the two traps (the table is tight in both directions, so clearing sites without lowering the row is a red test; and it must not use `architecture_guards.rs`'s `code_above_tests`, which truncates a file at its first `#[cfg(test)]`).
+A whole-tree scan over eight needle classes — see `.ai/codegen-invariants.md` for the classes, the two exemptions and the two traps (the budget table is tight in both directions, so clearing sites without lowering the row is a red test; and it must not use `architecture_guards.rs`'s `code_above_tests`, which truncates a file at its first `#[cfg(test)]`).
+
+Since plan-111-G it is a **floor**: six of the eight classes read 0 tree-wide, and `BUDGETS` has two rows left, each with its remainder enumerated in the table's comment. Three of its seven assertions exist to stop the gate rotting rather than to count anything — `the_grammar_file_is_exactly_one`, `boundary_list_is_closed`, and `immediate_operand_class_vocabulary_is_closed`. That last one is worth knowing about: `move_immediate`'s `"type"` attribute LOOKS like a type and is not (it is the immediate encoder's width class), and the test both pins the token list and requires a **computed** class to come from `abi::immediate_class`. It reads literal arguments, so before plan-111-G three emitters passing `&type_.name()` were invisible to it and the committed goldens carried `"type": "Money"` and `"type": "Nothing"` outside the "closed" list. A scan test that only sees literals is not a closure proof — close the computed path too.
 
 ## Linker-stage changes are invisible to the artifact-gate
 

@@ -297,24 +297,19 @@ pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
 /// This is the single arg-typed return-type oracle shared by monomorph lowering
 /// and `ir::verify` (which reconciles a decoded package's attacker-controlled
 /// `Call` annotation against it — bug-162).
-/// The argument-validated return type of a builtin call, resolved through the
-/// descriptor registry (plan-72-BB). The module owning `callee` resolves it via
-/// its `BuiltinResolver` (every computed-return / argument-union package overrides
-/// `resolve_return_type`) or, for a fully data-only package, via
-/// `DefaultResolver::resolve_call`'s exact per-position match. The registry
-/// guarantees each qualified name is owned by exactly one module
-/// (`duplicate_function_name` is `None`), so this is order-independent — replacing
-/// the hand-ordered per-package `resolve_call` chain it grew from.
-
-/// Typed twin of [`resolve_call_return_type`] (plan-104-C): the entry codegen
-/// uses so no type is rendered only to be re-parsed at the registry boundary.
-/// The generic registry path goes through
-/// [`crate::codegen::registry::resolve_call_typed`] with **no strings**. The
-/// three bespoke per-package resolvers (`general`, `vector`, `strings` — each a
-/// computed-return special case the generic matcher cannot express) still speak
-/// strings, so that pocket renders `name()` in and parses the result out —
-/// a deliberate boundary recorded in plan-104-C, retired if those resolvers
-/// ever retype.
+///
+/// The module owning `callee` resolves it via its own co-located resolver, or,
+/// for a fully data-only package, via the registry's exact per-position match.
+/// The registry guarantees each qualified name is owned by exactly one module
+/// (`duplicate_function_name` is `None`), so this is order-independent —
+/// replacing the hand-ordered per-package `resolve_call` chain it grew from.
+///
+/// plan-111-G: this doc used to open "Typed twin of `resolve_call_return_type`
+/// (plan-104-C)" and describe a render-in/parse-out pocket at the three bespoke
+/// resolvers. Both are gone — letter C retyped `general`/`vector`/`strings` and
+/// deleted the string twin, so this is no longer a twin of anything and there is
+/// no pocket. The old text survived as an ORPHANED doc block after its item was
+/// deleted, silently concatenated onto its neighbour's docs.
 pub(crate) fn resolve_call_return_type_typed(
     callee: &str,
     arg_types: &[crate::types::ParameterType],
@@ -357,10 +352,16 @@ pub(crate) fn resolve_call_return_type_typed(
     None
 }
 
-/// The static (argument-independent) nominal return type of a builtin call —
-/// plan-72-BB: the owning module's `DefaultResolver::return_type_name` (a
-/// `Custom`-return call has no static nominal and yields `None`; the arg-validated
-/// return lives in [`resolve_call_return_type`]). The lowered-only internal names
+/// The static (argument-independent) nominal return type of a builtin call, as a
+/// rendered SPELLING — plan-72-BB: the owning module's static return (a
+/// `Custom`-return call has no static nominal and yields `None`; the
+/// arg-validated return lives in [`resolve_call_return_type_typed`]).
+///
+/// plan-111-G: its only production callers are in `binary_repr/writer.rs`, the
+/// `.mfp` ENCODER, which needs the spelling because that is what the wire stores.
+/// The render is therefore the point here, not a leftover — everything on the
+/// compiler side asks [`call_return_type`], the typed twin below. The
+/// lowered-only internal names
 /// (`audio` device opens / timed I/O, `tls.closeListener`) are not descriptor
 /// functions, so IR lowering's queries for their rewritten targets fall back to
 /// those two packages' explicit internal-name maps.

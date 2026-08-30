@@ -31,7 +31,7 @@ tooling in the `tooling` package. See the links below.
 
 * ./mfb spec architecture — how the compiler processes this language
 * ./mfb spec architecture type-inference — inference, coercion, and the assignability lattice
-* ./mfb spec architecture type-name-encoding — the canonical flat type-string grammar
+* ./mfb spec architecture type-name-encoding — the canonical type spelling: the AST's form, and the rendering every wire seam stores
 * ./mfb spec architecture escape-analysis — the resource-float decision procedure behind §15
 * ./mfb spec tooling auditability — surfacing the language's implicit fallible control flow
 * ./mfb spec memory — the runtime memory model for language values

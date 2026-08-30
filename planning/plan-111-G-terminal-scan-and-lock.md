@@ -376,21 +376,40 @@ is the pre-plan-111 1288 plus exactly the two fixtures this plan added;
 an identical mismatch set from the pre-plan-111 binary; `diag-set-diff.sh` **530
 same, 0 set-diff**. Every diff the sweep produced is classified in Corrections
 (G6 — the only one, and a build failure rather than a byte drift).
-Commit: —
+Commit: `dac8935d9`
 
 ### Phase 5 — docs and archive
 
-- [ ] Update `src/docs/spec/architecture/21_type-name-encoding.md` — the type
+- [x] Update `src/docs/spec/architecture/21_type-name-encoding.md` — the type
       spelling is now a *rendering and wire format*, not an internal
       representation.
-- [ ] Update `src/docs/spec/architecture/02_frontend.md`, `04_ir.md`,
+- [x] Update `src/docs/spec/architecture/02_frontend.md`, `04_ir.md`,
       `13_native-ir.md` for the typed pipeline end state.
-- [ ] Update `.ai/codegen-invariants.md`, `.ai/collections.md`,
+- [x] Update `.ai/codegen-invariants.md`, `.ai/collections.md`,
       `.ai/resources-packages.md`, `.ai/testing-gates.md`: the one-type-grammar
       rule is now enforced by `tests/no_type_strings.rs`, and the five boundaries
       are named there.
-- [ ] Remove any stale comment in `src/` describing a "name-domain twin" or a
+- [x] Remove any stale comment in `src/` describing a "name-domain twin" or a
       permitted re-parse; grep for `name-domain` and `re-parse`.
+
+      29 hits; most are deliberate history ("this no longer re-parses…") or an
+      accurate live statement (`ir::verify::compat`'s tail genuinely stays in the
+      name domain for bare-vs-qualified nominal equality; `numeric`'s adapters
+      are `cfg(test)` and say so). **Two were rot, both caused by this plan:**
+
+      * `codegen::builtins::mod.rs` — deleting `resolve_call_return_type` in
+        letter C left its doc block ORPHANED, silently concatenated onto the
+        preceding item's docs, while the surviving `_typed` function still opened
+        "Typed twin of `resolve_call_return_type`" and described a
+        render-in/parse-out pocket that letter C removed. Rewritten.
+      * `call_return_type_name`'s doc (and `.ai/resources-packages.md`) called its
+        render "a plan-111 D–F leftover, not a design". Its only production
+        callers are the two in `binary_repr/writer.rs` — the `.mfp` **encoder**,
+        where the spelling IS the wire format. The render is the point there.
+        Both corrected.
+
+      Deleting an item does not delete its doc comment. After a deletion pass,
+      grep the file for a `///` block followed by a blank line.
 - [ ] Move `planning/plan-111-A` … `planning/plan-111-G` to
       `planning/completed/`, with the baseline artifacts.
 - [ ] Delete the `../mfb-pre111` attribution worktree (`--force` if needed).

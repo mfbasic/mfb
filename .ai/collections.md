@@ -88,10 +88,18 @@ changes for collection-layout work:
   silent behavior change, not a refactor. `union_is_data` and
   `inline_collection_payload_size` in `builder_collection_layout.rs` are the
   collection-side sites.
-- **The STATE suffix is still stripped before a union lookup.** A transferred
-  stateful union arrives as `Stream STATE Cursor` and the union set is keyed on
-  the bare `Stream` (plan-75 gap 3). `base_resource_name` first, then
-  `declared`.
+- **The STATE clause is still peeled before a union lookup.** A transferred
+  stateful union arrives as `Stateful { base: Stream, state: Cursor }` and the
+  union set is keyed on the bare `Stream` (plan-75 gap 3): `without_state()`
+  first, then look up.
+
+  **But peel for the RIGHT table, and only that one.** Peeling before a *record*
+  lookup is a rule change, not a tidy-up, and plan-111-G6 shipped it as a bug:
+  `File STATE Cursor` is absent from the record table, so the member access was
+  left unchecked; the bare `File` base IS present — a resource declares inline
+  fields — so `.state` got rejected on every stateful resource. When a
+  conversion changes a lookup KEY, ask what the OLD key resolved to, not which
+  key reads more nicely.
 - **Do not re-wrap a type through its own name to "normalize" it.** An
   `other => named(&other.name())` catch-all in a structural match flattens
   `Stateful { base, state }` back into an opaque nominal and destroys the

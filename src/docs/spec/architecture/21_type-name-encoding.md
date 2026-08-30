@@ -1,13 +1,23 @@
 # Type-Name Encoding
 
-Every type in MFBASIC is carried between compiler stages as a single **flat
-string** — never a structured AST node. The parser builds this string when it
-reads a type annotation; the resolver, monomorphizer, source checker,
-and the IR — including the IR semantic verifier — all
-**re-derive structure by prefix-stripping and separator-splitting** the same
-string. This document is the canonical contract for that encoding. A mismatch in
-spacing, keyword casing, or separator width silently breaks every consumer, so
-the grammar below is exact down to single spaces.
+A type name is a **flat string in the AST, and a rendering everywhere after
+it.** The parser builds the string when it reads a type annotation, and
+`hir::elaborate` turns it into a `ParameterType` once. From there to the
+emitted byte the compiler carries the variant tree: the resolver, monomorphizer,
+`ir::shape`, `ir::verify`, the `TypeModel` builder and codegen all **match
+variants**, and none of them re-derives structure by prefix-stripping (plan-111,
+enforced by `tests/no_type_strings.rs`).
+
+The string still matters, because it is what the wire formats store and what
+diagnostics print. This document is the canonical contract for that encoding,
+and the round trip `parse(name).name() == name` is what makes rendering
+lossless. A mismatch in spacing, keyword casing, or separator width breaks every
+*decoder*, so the grammar below is exact down to single spaces.
+
+Where the two worlds meet is a short, closed list — the parser, the `.mfp` type
+codec, the IR binary codec, the package manifest, and the AST→HIR seam. Those
+are the "boundary files" the gate names, and they are the only places allowed to
+call `ParameterType::parse` or build a spelling by hand.
 
 The source-level type system these strings denote is [language types](./mfb spec
 language types); the stage that parses them while specializing generics is
@@ -145,12 +155,13 @@ stays on the *element*: `List OF RES fs::File STATE Cursor` is
 `ParameterType::split_state` is therefore a plain match on that variant.
 [[src/types.rs:split_state]]
 
-Consumers recover the underlying resource by first `strip_prefix("RES ")` and
-then splitting the ` STATE T` suffix with `base_resource_name` / `state_type_name`
-(composite-safe: they leave a ` STATE ` nested inside an enclosing `List`/`Map`/
-`Thread` intact). Those two are `&str` adapters over the single grammar
-`types::split_state_clause`, which is also what `parse` calls — the rule exists
-once. Element insertion (`append`/`insert`/`set`) compares the
+Consumers recover the underlying resource **structurally**: `strip_res` peels
+the `Res` wrapper and `ParameterType::without_state` / `state` peel the clause,
+both plain matches on the variant. The old `&str` adapters over the same grammar
+(`base_resource_name` / `state_type_name`) are down to `base_resource_name`'s
+last few callers and a `cfg(test)` parity partner; they were composite-safe by
+construction because they shared `types::split_state_clause` with `parse`, and
+the variant form inherits that property from the parse itself. Element insertion (`append`/`insert`/`set`) compares the
 element and the item by their bare resource type, so an item passed with or
 without its STATE clause both resolve; that comparison is now the registry
 matcher's `resource_base_eq`, which every builtin overload goes through.
@@ -204,13 +215,15 @@ The resolver no longer applies this precedence itself — it receives the decode
 The template machinery itself is [language templates](./mfb spec language
 templates).
 
-## Round-trip: rebuild by prefix-stripping
+## Round-trip: render out, parse back
 
 The encoding's defining property is that `ParameterType::parse(name).name()`
 returns `name` byte-for-byte, for every spelling this document describes. That
 round trip is load-bearing at the wire seams — the `.mfp` type section, the IR
 binary, and the manifest all store the *rendered* spelling and read it back —
-and it is asserted directly. [[src/types.rs:parse]] [[src/types.rs:name]]
+and it is asserted directly. It is also the reason plan-111 could retype the
+whole pipeline without touching a single golden: rendering is lossless, so the
+bytes a stage emits do not depend on whether it held a string or a variant tree. [[src/types.rs:parse]] [[src/types.rs:name]]
 
 Map/MapEntry bodies are split with `split_top_level_to` (a `" TO "`
 `split_once`) and function/template argument lists with `split_top_level_commas`
@@ -228,6 +241,16 @@ quieter: every consumer has a `_` arm, so an **unwired** variant is silently
 mis-handled rather than failing to compile. Adding a variant means auditing the
 matches that need it — the resolver, `ir::shape`, `ir::verify`, monomorph's
 `unify`/`normalize`, and the `TypeModel` builder — not just `types.rs`.
+
+`Stateful` is the worked example, and it cost a real bug. Before plan-111 a
+stateful resource was one opaque `Named("Stream STATE Cursor")` whose spelling
+`split_state` string-split on demand; afterwards it is a variant. Two guards
+elsewhere asked `matches!(t, Named(_))` meaning "is this a nominal?", and both
+silently changed answer — `ir::shape::checker_binds_pattern` stopped binding
+`CASE Variant(v)` over a stateful union, and `ir::verify`'s member check started
+rejecting `.state` on every stateful resource. Neither failed to compile; the
+signal was one acceptance fixture that no longer built. **Audit every
+`Named(_)` when the new variant is one a `Named` used to stand in for.**
 
 ## See Also
 
