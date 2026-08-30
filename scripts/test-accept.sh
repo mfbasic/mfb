@@ -38,6 +38,27 @@ for pid in $(pgrep -f 'test-accept\.sh'); do
   cpgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
   [ -z "$cpgid" ] && continue
   [ "$cpgid" = "$mypgid" ] && continue
+  # bug-455: a candidate only counts if it is EXECUTING the script, not merely
+  # mentioning it. Another session's wrapper shell
+  # (`zsh -c "... scripts/test-accept.sh ..."`) carries the path inside its `-c`
+  # string and matches `pgrep -f` while holding no lock at all -- observed
+  # blocking a run whose rival was still in its `cargo build` stage, and causing
+  # mutual-wait deadlocks between sessions politely queueing on each other's
+  # text. A real invocation has the script as argv[0] (`./scripts/test-accept.sh`) or
+  # argv[1] (`bash scripts/test-accept.sh`); a wrapper has `-c` there instead.
+  cargs=$(ps -o args= -p "$pid" 2>/dev/null)
+  ca0=${cargs%% *}
+  carest=${cargs#* }
+  ca1=${carest%% *}
+  case "$ca0" in
+    */test-accept.sh|test-accept.sh) ;;
+    *)
+      case "$ca1" in
+        */test-accept.sh|test-accept.sh) ;;
+        *) continue ;;
+      esac
+      ;;
+  esac
   other=$pid
   break
 done

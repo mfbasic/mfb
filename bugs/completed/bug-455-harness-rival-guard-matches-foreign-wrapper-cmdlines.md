@@ -1,12 +1,31 @@
 # bug-455: artifact-gate/test-accept rival detection phantom-matches other sessions' shell-wrapper command lines (pgrep -f on argument text)
 
-Last updated: 2026-08-25
+Last updated: 2026-08-30
 Effort: small (<1h)
 Severity: LOW
 Class: Footgun (harness coordination; no miscompile)
 
-Status: Open
-Regression Test: — (Phase 1 adds a scripted repro: a sleeping `bash -c 'true # scripts/artifact-gate.sh'` decoy must NOT trip the guard)
+Status: FIXED 2026-08-30
+Regression Test: `scripts/test-accept-selftest.sh` check 5 — six argv shapes, three
+that must be treated as rivals and three that must not (a `-c` wrapper mentioning
+the harness, one mentioning it after other text, and `test-accept-selftest.sh`
+itself).
+
+## Fix
+
+Both guards (`scripts/test-accept.sh`, `scripts/artifact-gate.sh`) now require the
+candidate to be *executing* the script, not merely mentioning it: the script path
+must be argv[0] (`./scripts/test-accept.sh`) or argv[1]
+(`bash scripts/test-accept.sh`). A wrapper has `-c` in argv[1], so it no longer
+counts. The PGID exclusion (own children) is unchanged and still runs first.
+
+Found blocking real work, not by inspection: a peer session's
+`zsh -c "... && scripts/test-accept.sh ..."` wrapper — still in its `cargo test`
+stage, holding no lock — refused this session's golden sync with "Another
+test-accept (pid 9892) is running." Verified both directions on the live
+processes before the scripted check was added: the decoy classified as "skipped
+(mentions only)" while a genuine `bash scripts/test-accept.sh` run classified as
+"RIVAL (argv1)".
 
 The concurrency guards in `scripts/artifact-gate.sh` (and the same pattern in
 `scripts/test-accept.sh`) detect a rival run with `pgrep -f '<script>\.sh'`,

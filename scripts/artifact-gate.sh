@@ -73,6 +73,27 @@ for pid in $(pgrep -f 'artifact-gate\.sh'); do
   cpgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
   [ -z "$cpgid" ] && continue
   [ "$cpgid" = "$mypgid" ] && continue
+  # bug-455: a candidate only counts if it is EXECUTING the script, not merely
+  # mentioning it. Another session's wrapper shell
+  # (`zsh -c "... scripts/artifact-gate.sh ..."`) carries the path inside its `-c`
+  # string and matches `pgrep -f` while holding no lock at all -- observed
+  # blocking a run whose rival was still in its `cargo build` stage, and causing
+  # mutual-wait deadlocks between sessions politely queueing on each other's
+  # text. A real invocation has the script as argv[0] (`./scripts/artifact-gate.sh`) or
+  # argv[1] (`bash scripts/artifact-gate.sh`); a wrapper has `-c` there instead.
+  cargs=$(ps -o args= -p "$pid" 2>/dev/null)
+  ca0=${cargs%% *}
+  carest=${cargs#* }
+  ca1=${carest%% *}
+  case "$ca0" in
+    */artifact-gate.sh|artifact-gate.sh) ;;
+    *)
+      case "$ca1" in
+        */artifact-gate.sh|artifact-gate.sh) ;;
+        *) continue ;;
+      esac
+      ;;
+  esac
   other=$pid
   break
 done

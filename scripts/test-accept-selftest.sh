@@ -76,6 +76,45 @@ out=$( { sleep 60 | MFB_ACCEPT_RUN_TIMEOUT=5 run_with_watchdog \
   /bin/sh -c 'cat; echo reached-eof'; } 2>&1 )
 check "stdin is /dev/null under a live pipe" "reached-eof" "$out"
 
+# 5. bug-455: the rival guard must match only a process actually EXECUTING the
+#    harness, never one whose command line merely mentions it. Another session's
+#    wrapper shell (`zsh -c "... scripts/test-accept.sh ..."`) matches
+#    `pgrep -f` while holding no lock -- observed blocking a run whose "rival"
+#    was still in its `cargo build` stage, and deadlocking two sessions politely
+#    queueing on each other's text.
+#
+#    The guard decides from the candidate's argv: a real invocation has the
+#    script as argv[0] (`./scripts/test-accept.sh`) or argv[1]
+#    (`bash scripts/test-accept.sh`), a wrapper has `-c` there. That decision is
+#    exercised here over argv strings, so the check needs no live processes and
+#    cannot itself race.
+classify_argv() {                      # $1 = a full command line
+  cargs=$1
+  ca0=${cargs%% *}
+  carest=${cargs#* }
+  ca1=${carest%% *}
+  case "$ca0" in
+    */test-accept.sh|test-accept.sh) echo rival; return ;;
+  esac
+  case "$ca1" in
+    */test-accept.sh|test-accept.sh) echo rival; return ;;
+  esac
+  echo skipped
+}
+
+check "wrapper mentioning the harness in a -c string is not a rival" "skipped" \
+  "$(classify_argv "/bin/zsh -c eval scripts/test-accept.sh target/release/mfb /tmp/x")"
+check "wrapper mentioning it after other text is not a rival" "skipped" \
+  "$(classify_argv "/bin/bash -c cargo test && scripts/test-accept.sh a b")"
+check "direct invocation is a rival" "rival" \
+  "$(classify_argv "scripts/test-accept.sh target/release/mfb /tmp/out")"
+check "absolute direct invocation is a rival" "rival" \
+  "$(classify_argv "/repo/scripts/test-accept.sh target/release/mfb /tmp/out")"
+check "shell-prefixed invocation is a rival" "rival" \
+  "$(classify_argv "bash scripts/test-accept.sh target/release/mfb /tmp/out")"
+check "the lighter selftest harness is not a rival" "skipped" \
+  "$(classify_argv "bash scripts/test-accept-selftest.sh")"
+
 echo
 if [ "$failures" -eq 0 ]; then
   echo "test-accept selftest: all checks passed"
