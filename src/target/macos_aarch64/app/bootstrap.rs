@@ -3,6 +3,78 @@
 
 use super::*;
 
+/// Wire the window input pipe: `pipe(fds)`; `dup2(fds[0], 0)` so the console read
+/// helpers consume window input; stash `fds[1]` (the write end) on `NSApp` under
+/// [`PIPE_ASSOC_KEY`] for the `keyDown:` handlers.
+///
+/// Extracted in plan-98-A Phase 4 so the **windowless (`None`-default) startup path
+/// runs it too**. Before that it lived only in the `Console`-default arm, so a
+/// program that references `app::setMode` — which every canvas program does, since
+/// that is exactly what makes its static default `None` — had no pipe at all:
+/// `PIPE_ASSOC_KEY` was nil, and a `keyDown:` handler writing to it would have
+/// written to fd 0 (nil reads as 0), i.e. back into stdin.
+///
+/// It must run at **startup**, not lazily on entering canvas mode: `dup2`ing onto
+/// fd 0 after the worker has already blocked in `read(0, …)` leaves that read
+/// waiting on the old file description forever. Doing it before the worker spawns
+/// gives the `None`-default program the same timing the `Console`-default one
+/// already had.
+///
+/// Both call sites are inside the non-headless branch. Headless deliberately leaves
+/// fd 0 as the real stdin — that is how the headless tests feed input.
+///
+/// `label` is the local label for the "pipe wired" join point; the two call sites
+/// need distinct names because they land in one function.
+fn emit_input_pipe_wiring(asm: &mut Asm, label: &str) {
+    asm.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        OFF_PIPE,
+    ));
+    asm.call_external("_pipe", LIB_SYSTEM);
+    // Make the pipe write end (fds[1]) non-blocking so the keyDown: commit
+    // write() returns -1/EAGAIN instead of blocking the UI thread forever when
+    // the worker stops draining stdin and the 64 KiB pipe fills (bug-114). The
+    // third `fcntl` argument is variadic, so on Apple AArch64 it is passed on
+    // the stack (mirrors emit_variadic_external_call).
+    asm.push(abi::load_u32(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        OFF_PIPE + 4,
+    )); // fds[1] (write)
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "4")); // F_SETFL
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "4")); // O_NONBLOCK (0x0004 on Darwin)
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64(abi::c_arg(2), abi::stack_pointer(), 0));
+    asm.call_external("_fcntl", LIB_SYSTEM);
+    asm.push(abi::add_stack(16));
+    asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), OFF_PIPE)); // fds[0] (read)
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0")); // newfd: stdin
+    asm.call_external("_dup2", LIB_SYSTEM);
+    // fd 0 now names the read end, so the original fds[0] is a redundant
+    // duplicate that would otherwise stay open for the process lifetime
+    // (bug-241). Two cases must NOT close it: a failed dup2 (fds[0] is then the
+    // only read end), and fds[0] already being fd 0 (only reachable if stdin was
+    // closed before `pipe`, which makes dup2 a no-op — closing would leave the
+    // program with no stdin at all).
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_lt(label));
+    asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), OFF_PIPE)); // fds[0] (read)
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(label));
+    asm.call_external("_close", LIB_SYSTEM);
+    asm.push(abi::label(label));
+    asm.push(abi::load_u32(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        OFF_PIPE + 4,
+    )); // fds[1] (write)
+    asm.push(abi::move_register(abi::c_arg(0), REG_APP));
+    asm.local_address("x1", PIPE_ASSOC_KEY);
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
+    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+}
+
 pub(super) fn emit_main_bootstrap(initial_mode: PresentationMode) -> CodeFunction {
     let mut asm = Asm::new(MAIN_SYMBOL);
     asm.push(abi::label("entry"));
@@ -376,56 +448,7 @@ pub(super) fn emit_main_bootstrap(initial_mode: PresentationMode) -> CodeFunctio
         asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "1")); // OBJC_ASSOCIATION_RETAIN_NONATOMIC
         asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
 
-        // Wire the input pipe: pipe(fds); dup2(fds[0], 0) so the console read helpers
-        // consume window input; stash fds[1] (write end) on NSApp for the keyDown:
-        // handler.
-        asm.push(abi::add_immediate(
-            abi::c_arg(0),
-            abi::stack_pointer(),
-            OFF_PIPE,
-        ));
-        asm.call_external("_pipe", LIB_SYSTEM);
-        // Make the pipe write end (fds[1]) non-blocking so the keyDown: commit
-        // write() returns -1/EAGAIN instead of blocking the UI thread forever when
-        // the worker stops draining stdin and the 64 KiB pipe fills (bug-114). The
-        // third `fcntl` argument is variadic, so on Apple AArch64 it is passed on
-        // the stack (mirrors emit_variadic_external_call).
-        asm.push(abi::load_u32(
-            abi::c_arg(0),
-            abi::stack_pointer(),
-            OFF_PIPE + 4,
-        )); // fds[1] (write)
-        asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "4")); // F_SETFL
-        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "4")); // O_NONBLOCK (0x0004 on Darwin)
-        asm.push(abi::subtract_stack(16));
-        asm.push(abi::store_u64(abi::c_arg(2), abi::stack_pointer(), 0));
-        asm.call_external("_fcntl", LIB_SYSTEM);
-        asm.push(abi::add_stack(16));
-        asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), OFF_PIPE)); // fds[0] (read)
-        asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0")); // newfd: stdin
-        asm.call_external("_dup2", LIB_SYSTEM);
-        // fd 0 now names the read end, so the original fds[0] is a redundant
-        // duplicate that would otherwise stay open for the process lifetime
-        // (bug-241). Two cases must NOT close it: a failed dup2 (fds[0] is then the
-        // only read end), and fds[0] already being fd 0 (only reachable if stdin was
-        // closed before `pipe`, which makes dup2 a no-op — closing would leave the
-        // program with no stdin at all).
-        asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
-        asm.push(abi::branch_lt("input_pipe_wired"));
-        asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), OFF_PIPE)); // fds[0] (read)
-        asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
-        asm.push(abi::branch_eq("input_pipe_wired"));
-        asm.call_external("_close", LIB_SYSTEM);
-        asm.push(abi::label("input_pipe_wired"));
-        asm.push(abi::load_u32(
-            abi::c_arg(2),
-            abi::stack_pointer(),
-            OFF_PIPE + 4,
-        )); // fds[1] (write)
-        asm.push(abi::move_register(abi::c_arg(0), REG_APP));
-        asm.local_address("x1", PIPE_ASSOC_KEY);
-        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
-        asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+        emit_input_pipe_wiring(&mut asm, "input_pipe_wired");
 
         // Application menu with the standard Quit item (Cmd-Q -> [NSApp terminate:]):
         //   mainMenu -> appMenuItem -> appMenu -> "Quit" item.
@@ -536,6 +559,12 @@ pub(super) fn emit_main_bootstrap(initial_mode: PresentationMode) -> CodeFunctio
         asm.push(abi::move_register(REG_HEADLESS, abi::c_arg(0)));
         asm.push(abi::compare_immediate(REG_HEADLESS, "0"));
         asm.push(abi::branch_ne("after_show"));
+        // plan-98-A Phase 4: wire the window input pipe here too. A `None`-default
+        // program is exactly a program that references `app::setMode`, so it is the
+        // only kind that can ever reach `Console` or `Canvas` through the reconcile
+        // — and in both of those the window is the input source. Without this the
+        // reconcile-built surface had no pipe to deliver keys into.
+        emit_input_pipe_wiring(&mut asm, "input_pipe_wired_none");
         // A None-default program references setMode, so it reconciles: install
         // `mfbReconcile:` (its IMP is emitted for this program).
         emit_gui_delegate(&mut asm, true);
@@ -916,8 +945,36 @@ pub(super) fn emit_reconcile_canvas_helper() -> CodeFunction {
     asm.push(abi::compare_immediate(abi::LOCAL[2], "0"));
     asm.push(abi::branch_ne(&have_view));
 
-    // view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 900, 640)]
+    // plan-98-A Phase 4: synthesize `MFBCanvasView : NSView`, overriding exactly the
+    // two methods that make window keys reach the `io::` input path —
+    // `acceptsFirstResponder` (a plain NSView returns NO, so it would never be made
+    // first responder) and `keyDown:` (writes the key's UTF-8 to the window input
+    // pipe). Same two overrides `TermView` adds, same pipe.
+    //
+    // cls = objc_allocateClassPair(NSView, "MFBCanvasView", 0)
     asm.external_data(abi::LOCAL[2], CLASS_NS_VIEW, LIB_APPKIT);
+    asm.local_address("x1", STR_CANVASVIEW_CLASS.0);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.call_external("_objc_allocateClassPair", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // new class
+                                                                // class_addMethod(cls, @selector(acceptsFirstResponder), imp, "c@:")
+    asm.load_selector(SEL_ACCEPTS_FIRST_RESPONDER.0);
+    asm.local_address("x2", CANVAS_ACCEPTS_FR_SYMBOL);
+    asm.local_address("x3", STR_IS_FLIPPED_TYPES.0); // "c@:"
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(keyDown:), imp, "v@:@")
+    asm.load_selector(SEL_KEY_DOWN.0);
+    asm.local_address("x2", CANVAS_KEY_DOWN_SYMBOL);
+    asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // objc_registerClassPair(cls)
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.call_external("_objc_registerClassPair", LIB_OBJC);
+
+    // view = [[MFBCanvasView alloc] initWithFrame:NSMakeRect(0, 0, 900, 640)]
     asm.load_selector(SEL_ALLOC.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
@@ -957,6 +1014,15 @@ pub(super) fn emit_reconcile_canvas_helper() -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    // plan-98-A Phase 4: [window makeFirstResponder:view]. `acceptsFirstResponder`
+    // only makes the view *eligible*; without this the transcript view (or nothing)
+    // keeps focus and `keyDown:` is never delivered to the canvas. Re-sent on every
+    // canvas entry, not just at build, because leaving canvas mode moves focus with
+    // the content view.
+    asm.load_selector(SEL_MAKE_FIRST_RESPONDER.0);
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
 
     // Clear ASSOC_KEY: io writes degrade to the fd sink in canvas mode.
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
@@ -973,6 +1039,166 @@ pub(super) fn emit_reconcile_canvas_helper() -> CodeFunction {
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
     reconcile_code_function(RECONCILE_CANVAS_SYMBOL, asm)
+}
+
+/// plan-98-A Phase 4: IMP for `MFBCanvasView acceptsFirstResponder` (returns YES).
+/// A plain `NSView` returns NO, so without this override the canvas view can never
+/// become the window's first responder and `keyDown:` is never delivered — the
+/// window would swallow every keystroke and `io::readByte` in canvas mode would
+/// block forever.
+pub(super) fn emit_canvas_accepts_first_responder() -> CodeFunction {
+    let mut asm = Asm::new(CANVAS_ACCEPTS_FR_SYMBOL);
+    asm.push(abi::label("entry"));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "1")); // YES
+    asm.push(abi::return_());
+    CodeFunction {
+        name: "macapp.canvas.acceptsFirstResponder".to_string(),
+        symbol: CANVAS_ACCEPTS_FR_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Boolean".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// plan-98-A Phase 4: IMP for `MFBCanvasView keyDown:`
+/// (`void keyDown:(id self /*x0*/, SEL _cmd, NSEvent *event /*x2*/)`).
+///
+/// Writes the key's UTF-8 bytes straight to the window input pipe — the very fd the
+/// worker's `io::readByte`/`readChar`/`readLine` drain as fd 0 — with **no echo and
+/// no line buffering**. That is the whole difference from the transcript and
+/// `TermView` handlers: those echo into a text surface and buffer a line so
+/// Backspace can erase it, and a canvas has no text surface to echo into. A canvas
+/// program draws its own UI, so raw delivery is the contract (the same one the
+/// TermView handler already uses in `term::`'s raw read mode).
+///
+/// Return is translated from CR to LF. `[event characters]` reports Return as
+/// `\r`, but `io::readLine` terminates on `\n`, so delivering the raw byte would
+/// make `readLine` in canvas mode hang on a line the user had already ended.
+/// `readByte` sees the same `\n`, which is what a console pipe delivers too.
+///
+/// Runs on the main thread (AppKit event dispatch). The pipe's write end is
+/// `O_NONBLOCK` (bug-114), so a full pipe drops this key rather than deadlocking the
+/// UI thread against a worker that is not reading.
+pub(super) fn emit_canvas_key_down_helper() -> CodeFunction {
+    let mut asm = Asm::new(CANVAS_KEY_DOWN_SYMBOL);
+    // Frame: lr@0, x19(app)@8, x20(chars/cstr)@16, x21(event)@24, x22(write fd)@32,
+    // x23(char code)@40, newline byte@48.
+    let frame = 64;
+    const NEWLINE_SLOT: usize = 48;
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    for (reg, off) in [
+        (abi::LOCAL[0], 8),
+        (abi::LOCAL[1], 16),
+        (abi::LOCAL[2], 24),
+        (abi::LOCAL[3], 32),
+        (abi::LOCAL[4], 40),
+    ] {
+        asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(2))); // event
+
+    // chars = [event characters]; a modifier-only key press reports length 0.
+    asm.load_selector(SEL_CHARACTERS.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // chars
+    asm.load_selector(SEL_LENGTH.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq("ckd_done"));
+
+    // c = [chars characterAtIndex:0] — only to detect Return.
+    asm.load_selector(SEL_CHAR_AT_INDEX.0);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // char code
+
+    // wfd = objc_getAssociatedObject(NSApp, PIPE_ASSOC_KEY) — the window input
+    // pipe's write end, stashed by the bootstrap.
+    asm.external_data(abi::LOCAL[0], CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // app
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.local_address("x1", PIPE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[3], abi::c_arg(0))); // write fd
+
+    // Return (CR = 13) -> deliver a single LF instead of the raw CR.
+    asm.push(abi::compare_immediate(abi::LOCAL[4], "13"));
+    asm.push(abi::branch_ne("ckd_raw"));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "10")); // '\n'
+    asm.push(abi::store_u8(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        NEWLINE_SLOT,
+    ));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
+    asm.push(abi::add_immediate(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        NEWLINE_SLOT,
+    ));
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
+    asm.call_external("_write", LIB_SYSTEM);
+    asm.push(abi::branch("ckd_done"));
+
+    // Everything else: the key's own UTF-8 bytes, verbatim.
+    asm.push(abi::label("ckd_raw"));
+    asm.load_selector(SEL_UTF8_STRING.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // UTF-8 bytes
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_strlen", LIB_SYSTEM);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq("ckd_done"));
+    asm.push(abi::move_register(abi::c_arg(2), abi::c_arg(0))); // length
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3])); // fd
+    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[1])); // bytes
+    asm.call_external("_write", LIB_SYSTEM);
+
+    asm.push(abi::label("ckd_done"));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in [
+        (abi::LOCAL[0], 8),
+        (abi::LOCAL[1], 16),
+        (abi::LOCAL[2], 24),
+        (abi::LOCAL[3], 32),
+        (abi::LOCAL[4], 40),
+    ] {
+        asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    CodeFunction {
+        name: "macapp.canvas.keyDown".to_string(),
+        symbol: CANVAS_KEY_DOWN_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
 }
 
 /// plan-98-A Phase 3 (main thread): tear the canvas surface down on the way *out*

@@ -276,14 +276,19 @@ tiered `src/codegen`", 2026-08-17, deleted `src/target/shared/code/`):
   (`src/docs/spec/app/05_presentation-mode.md:86-93`, "universal I/O degrades,
   specialized I/O hard-fails"). This sub-plan **relaxes the read gate** so `Canvas` (not
   just `Console`) permits reads.
-- **Window key events already feed the `io::` read path in app mode** (so Phase 4 is a
-  reuse, not new machinery): the read helpers `io::readChar`/`readByte`/`readLine`/`input`
-  read fd 0 and are **not** rewritten in app mode, while the window delivers keystrokes
-  into that path — Linux `_mfb_gtkapp_key_pressed` (main thread) feeds
-  `readChar`/`readByte` (`src/docs/spec/app/02_linux-runtime.md`,
-  `src/docs/spec/app/03_console-io.md`; the term keyboard-input work,
-  plan-69-term-keyboard-input). Canvas reuses this: its window's key handler feeds the same
-  path the term view does.
+- **Window key events already feed the `io::` read path in app mode** — **only for a
+  `Console`-*default* program.** The read helpers
+  `io::readChar`/`readByte`/`readLine`/`input` read fd 0 and are not rewritten in app
+  mode, and the window delivers keystrokes into that path (Linux
+  `_mfb_gtkapp_key_pressed`; `src/docs/spec/app/02_linux-runtime.md`,
+  `03_console-io.md`; plan-69-term-keyboard-input). **CORRECTED during Phase 4
+  (Correction 18):** the pipe wiring and the key handler both lived *inside* the
+  `Console`-default startup arm, so a `None`-default program — which is every program
+  referencing `app::setMode`, hence every canvas program — had **no input pipe and no
+  key handler at all**. Phase 4 is therefore partly new machinery, not a pure reuse:
+  it extracts the pipe wiring so the windowless arm runs it too, attaches the key
+  controller to the GTK reconcile-built window, and gives the macOS canvas view its
+  own `keyDown:` (a plain `NSView` cannot even become first responder).
 - **Package registration seams (for the `canvas::` shell, used from B on):** every
   builtin package now registers itself on the clean-room registry —
   `src/codegen/registry/mod.rs:1550-1576` (28 `crate::codegen::builtins::<pkg>::register(&mut r)`
@@ -529,7 +534,7 @@ there is **no such test under `tests/`**. The term wrong-mode gate's only behavi
 coverage is `scripts/test-macapp.sh` Case 3c, which is not in `cargo test`. That gap
 is why `macos_term_traps_wrong_mode_in_canvas` asserts the `Console` half too: it is
 now the first in-suite coverage of the `term::` gate.
-Commit: —
+Commit: 0fea79253
 
 ### Phase 3 — Per-platform reconcile `Canvas` arm: build/teardown an empty surface (largest blast radius last)
 
@@ -627,7 +632,7 @@ the GUI Case 3e run, the second by the per-platform publish/clear inspection tes
 cli_macos_app_io_input_imports` = 16 passed;
 `MFB_MACAPP_GUI=1 bash scripts/test-macapp.sh ./target/release/mfb` = all 16 ok.
 Cross-builds green for `linux-aarch64`, `linux-x86_64`, `windows-x86_64`.
-Commit: —
+Commit: 539be0b98
 
 ### Phase 4 — Window key events → `io::` input path (canvas keyboard input)
 
@@ -636,18 +641,67 @@ Deliver the canvas window's key events into the worker's `io::` input source, so
 Mirrors term keyboard input (plan-69-term-keyboard-input); reuse its
 input-queue/marshaling machinery.
 
-- [ ] macOS: the layer-backed `NSView`'s `keyDown:` marshals bytes into the same input
+- [x] macOS: the layer-backed `NSView`'s `keyDown:` marshals bytes into the same input
       channel the worker's `io::` reads drain (reuse the term keyboard-input path).
-- [ ] Linux: GTK key-event controller on the canvas window feeds the input pipe the worker
+      → The canvas surface became a synthesized `MFBCanvasView : NSView`, because a
+      plain `NSView` returns NO from `acceptsFirstResponder` and therefore never
+      receives `keyDown:` at all. Two overrides, the same two `TermView` adds:
+      `emit_canvas_accepts_first_responder` and `emit_canvas_key_down_helper`, the
+      latter writing straight to `PIPE_ASSOC_KEY` — the same window input pipe.
+      Plus `[window makeFirstResponder:view]` on **every** canvas entry (eligibility
+      is not focus, and leaving canvas mode moves focus with the content view).
+      Raw delivery: no echo, no line buffer, because a canvas has no text surface to
+      echo into — the same shape `TermView` uses in `term::`'s raw read mode.
+- [x] Linux: GTK key-event controller on the canvas window feeds the input pipe the worker
       reads.
-- [ ] Windows: `WM_CHAR`/`WM_KEYDOWN` in the wndproc feeds the worker's input channel.
-- [ ] Tests: a headless test injects key events and asserts `io::readByte` in `Mode.Canvas`
+      → The controller is attached to the **window**, not a child widget, which is
+      what makes canvas mode inherit input for free: `gtk_window_set_child` swapping
+      the transcript for the canvas area cannot disturb it. But the *reconcile-built*
+      window had no controller at all (only the `Console`-default startup path
+      attached one), so it is now attached in `RECONCILE_BUILD_SYMBOL`, along with
+      the `close-request` handler it was equally missing.
+- [x] Windows: `WM_CHAR`/`WM_KEYDOWN` in the wndproc feeds the worker's input channel.
+      → A `WM_CHAR` arm in the wndproc, gated on `CANVAS_HWND_SYM` being non-zero so
+      it is inert in `Console`/`None`. Needed because canvas mode hides the
+      transcript EDIT, so focus falls to the top-level window and its subclass
+      (`editproc`, which normally feeds the pipe) never sees the key. Same byte
+      contract as `editproc`, including CR→LF.
+- [x] **Added task — the input pipe did not exist for a canvas program at all.**
+      Found while wiring the above; see Correction 18. Every canvas program is
+      `None`-default (that is what referencing `app::setMode` makes it), and on both
+      macOS and GTK the input pipe was wired **only in the `Console`-default startup
+      arm**. So `PIPE_ASSOC_KEY` / `ST_PIPE_WRITE_FD` were null and a `keyDown:`
+      handler would have written to fd 0 — back into stdin. Extracted the wiring into
+      `emit_input_pipe_wiring` on both platforms and called it from the windowless
+      arm too, at **startup**: `dup2`ing onto fd 0 after the worker has already
+      blocked in `read(0, …)` leaves that read waiting on the old file description
+      forever.
+- [x] Tests: a headless test injects key events and asserts `io::readByte` in `Mode.Canvas`
       returns them in order; EOF/close behaves like console input.
+      → Split across two harnesses, because they are not both headless-testable
+      (Correction 15): `macos_canvas_readbyte_returns_bytes_in_order_then_eof` covers
+      the **read contract** headless (bytes in order, reporting the first mismatch by
+      position so a reorder fails differently from a wrong value, then `ErrEndOfFile`);
+      `scripts/test-macapp.sh` **Case 6b** covers the **window wiring** with real
+      System Events keystrokes into a real canvas window. Plus 9 new
+      codegen-inspection tests (macOS 5, GTK 2, Windows 1, plus the updated HWND
+      count) pinning the class synthesis, the first-responder send, the pipe write,
+      the CR→LF translation, the controller on the reconcile-built window, and the
+      `None`-default pipe on both platforms.
 
 Acceptance: with the canvas window focused, `io::readByte`/`readChar`/`readLine` return the
-window's keystrokes on all three platforms (injected-key headless test green); no busy-spin
-while waiting. Run only the new injected-key tests plus the existing app-mode `io::` input
-tests (`tests/cli_macos_app_io_input_imports.rs` and its linux/windows peers).
+window's keystrokes on all three platforms; no busy-spin while waiting. Run only the new
+injected-key tests plus the existing app-mode `io::` input tests
+(`tests/cli_macos_app_io_input_imports.rs` and its linux peers).
+→ MET on macOS by execution: Case 6b writes `got:CanvasKeys` from keys typed into a
+canvas window. GTK and Windows are proven structurally (the host cannot execute a
+Linux GTK or PE binary — the same limit the rest of those backends' coverage has).
+No busy-spin by construction: the worker blocks in `read(2)` on the pipe, and the
+UI-thread writers are non-blocking (`O_NONBLOCK` / `WriteFile` on a pipe).
+`cargo test --bin mfb target::` = 162 passed;
+`cargo test --test cli_app_canvas_mode --test cli_linux_app_mode --test
+cli_macos_app_io_input_imports` = 17 passed;
+`MFB_MACAPP_GUI=1 bash scripts/test-macapp.sh ./target/release/mfb` = all 17 ok.
 Commit: —
 
 ## Validation Plan
@@ -868,6 +922,47 @@ while leaving its design intact. Applied:
     such a helper). A test asserts `gtk_application_window_new` appears **zero** times
     in the idle helper, so a future inline rebuild fails rather than silently
     diverging.
+
+18. **"Phase 4 is a reuse, not new machinery" was half right — and the half it got
+    wrong was a latent bug that predates plan-98.** §2 claimed "window key events
+    already feed the `io::` read path in app mode". True for a `Console`-**default**
+    program. False for a `None`-default one — which is every program that references
+    `app::setMode`, i.e. every canvas program and every existing `Mode.None` program
+    that later switches to `Console`. Three separate gaps, all fixed in this phase:
+    - **No input pipe.** `pipe`/`dup2`/`fcntl` + the write-end stash lived *inside*
+      the `initial_mode == Console` arm of `emit_main_bootstrap`
+      (`macos_aarch64/app/bootstrap.rs`) and of `emit_activate_handler`
+      (`linux_gtk/bootstrap.rs`). A `None`-default program had none, so
+      `PIPE_ASSOC_KEY` / `ST_PIPE_WRITE_FD` were null and any key handler writing to
+      them would have written to **fd 0** (a null handle reads as 0), i.e. straight
+      back into stdin. Extracted to `emit_input_pipe_wiring` on both platforms and
+      called from the windowless arm too.
+    - **No key handler on the reconcile-built window.** macOS's
+      `RECONCILE_BUILD_SYMBOL` builds a plain `NSTextView` with no `keyDown:`
+      override; GTK's window build (now `RECONCILE_BUILD_SYMBOL`) attached no
+      `GtkEventControllerKey`. So even `setMode(Console)` produced a window that
+      could not be typed into. GTK's is fixed here (the controller and the
+      `close-request` handler are now in the shared build). macOS's `Console` case
+      keeps its plain `NSTextView` — canvas mode gets its own `MFBCanvasView`, so no
+      canvas path depends on it, and re-pointing the reconcile's transcript at an
+      `MFBTextView` is a `term::`-side change with its own blast radius.
+    - **Timing.** The pipe must be wired at **startup**, before the worker spawns —
+      not lazily on first entering canvas mode. `dup2`ing onto fd 0 while the worker
+      is already blocked in `read(0, …)` leaves that read waiting on the *old* file
+      description forever, so a lazy wiring would deadlock exactly the program that
+      needed it.
+
+    Verified by execution, not inference: `scripts/test-macapp.sh` Case 6b types
+    `CanvasKeys` + Return into a real canvas window via System Events and reads
+    `got:CanvasKeys` back out of a file the program wrote.
+
+19. **Return needed CR→LF translation in the canvas handler.**
+    `[event characters]` reports Return as CR (13), but `io::readLine` terminates on
+    LF (10). Delivering the raw byte makes `readLine` in canvas mode hang on a line
+    the user has already ended — a *hang*, not wrong text, so it would not have shown
+    up as a bad value anywhere. `editproc` on Windows already did this translation for
+    the transcript; the macOS canvas `keyDown:` and the Windows canvas `WM_CHAR` arm
+    now both do too, and a test pins each.
 
 <Further corrections filled in during execution.>
 

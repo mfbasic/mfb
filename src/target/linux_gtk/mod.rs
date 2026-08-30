@@ -1396,4 +1396,66 @@ mod canvas_reconcile_tests {
             );
         }
     }
+
+    // --- plan-98-A Phase 4: canvas keyboard input ---
+
+    /// The key controller goes on the **window**, not on any child widget. That
+    /// placement is what makes canvas mode inherit keyboard input for free —
+    /// `gtk_window_set_child` swapping the transcript for the canvas area does not
+    /// disturb a controller attached to the window itself. The reconcile-built
+    /// window had none at all before this phase, so a `None`-default program's
+    /// `io::` reads found nothing to read even after switching to `Console`.
+    #[test]
+    fn the_reconcile_built_window_gets_the_key_controller() {
+        let build = bootstrap::emit_reconcile_build_helper().expect("reconcile build");
+        assert_eq!(
+            externals(&build, "gtk_event_controller_key_new"),
+            1,
+            "the reconcile-built window must get a key controller"
+        );
+        // The two callback addresses are taken with `local_address`, an adrp/add
+        // page pair = 2 relocations each; the external calls above are 1 each.
+        assert_eq!(
+            externals(&build, KEY_PRESSED_SYMBOL),
+            2,
+            "the controller must be connected to the shared key handler"
+        );
+        assert_eq!(
+            externals(&build, "gtk_widget_add_controller"),
+            1,
+            "the controller must be attached to the window"
+        );
+        assert_eq!(
+            externals(&build, WINDOW_CLOSED_SYMBOL),
+            2,
+            "closing a reconcile-built window must end the program, as closing a \
+             startup-built one does"
+        );
+    }
+
+    /// The window input pipe must be wired for a `None`-default program too. A
+    /// `None` default means the program references `app::setMode`, so it is the only
+    /// kind that can ever reach `Console` or `Canvas` — and in both the window is
+    /// the input source. It must happen at startup, before the worker spawns:
+    /// `dup2`ing onto fd 0 after the worker has blocked in `read(0, …)` leaves that
+    /// read waiting on the old file description forever.
+    #[test]
+    fn the_input_pipe_is_wired_for_a_none_default_program() {
+        let none = bootstrap::emit_activate_handler(PresentationMode::None).expect("activate");
+        assert_eq!(
+            externals(&none, "pipe"),
+            1,
+            "a None-default activate must wire the window input pipe"
+        );
+        assert_eq!(
+            externals(&none, "dup2"),
+            1,
+            "the pipe read end must become fd 0 before the worker spawns"
+        );
+        // The Console-default path keeps exactly one — the extraction must not have
+        // duplicated it into the branch it came from.
+        let console =
+            bootstrap::emit_activate_handler(PresentationMode::Console).expect("activate");
+        assert_eq!(externals(&console, "pipe"), 1);
+    }
 }

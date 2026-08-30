@@ -118,6 +118,53 @@ pub(super) fn emit_main_bootstrap() -> Result<CodeFunction, String> {
 /// window (transcript + input field), wire input/close signals, present it, create
 /// the window-input pipe (dup'd onto fd 0 for the reused console readers), and
 /// spawn the language worker thread.
+/// Wire the window input pipe: `pipe(fds@sp+16)`; the read end is `dup2`'d onto fd 0
+/// so the reused console readers consume committed input, and the write end is
+/// stashed in `ST_PIPE_WRITE_FD` for the key handler (plan-05 §6.6).
+///
+/// Extracted in plan-98-A Phase 4 so the **windowless (`None`-default) startup path
+/// runs it too** — see the call site there for why it must happen at startup rather
+/// than lazily on the first `setMode`.
+///
+/// Both call sites use the same stack slots (`sp+16` read, `sp+20` write), which the
+/// activate handler's frame reserves.
+fn emit_input_pipe_wiring(asm: &mut Asm) {
+    asm.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 16));
+    asm.call_external("pipe");
+    asm.push(abi::load_u32(abi::SCRATCH[2], abi::stack_pointer(), 20)); // write fd
+    asm.store_state("x11", ST_PIPE_WRITE_FD);
+
+    // Make the pipe write end non-blocking (bug-114): if the worker stops
+    // draining stdin the 64 KiB pipe fills, and a blocking write() in the key
+    // handler would hang the GTK main thread forever. fcntl(write, F_SETFL,
+    // O_NONBLOCK); on Linux/AArch64 the variadic third arg is passed in x2.
+    asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), 20)); // write fd
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "4")); // F_SETFL
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "2048")); // O_NONBLOCK (0o4000)
+    asm.call_external("fcntl");
+
+    // dup2(read, 0): fd 0 becomes a copy of the pipe read end. The read fd stays
+    // on the stack (sp+16) rather than in a register — a caller-saved register
+    // would not survive the `bl dup2` (Native Codegen Register Lifetimes).
+    asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), 16)); // read fd
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
+    asm.call_external("dup2");
+
+    // close(read): fd 0 now holds the read end, so the original read descriptor
+    // is redundant. pipe(2) never returns fd 0 here (fds 0/1/2 are already open
+    // at process start), so `read` is a distinct descriptor from the fd-0 copy;
+    // closing it leaves exactly ONE read end, so closing the write end signals
+    // stdin EOF/hangup to the console readers (bug-59). Reload the read fd from
+    // the stack — `bl dup2` clobbered the caller-saved registers.
+    asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), 16)); // read fd
+    asm.call_external("close");
+
+    // Record the surviving read end (fd 0) in the runtime state. Use x10 for the
+    // value because store_state materializes the state base into x9.
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    asm.store_state("x10", ST_PIPE_READ_FD);
+}
+
 pub(super) fn emit_activate_handler(
     initial_mode: PresentationMode,
 ) -> Result<CodeFunction, String> {
@@ -245,44 +292,7 @@ pub(super) fn emit_activate_handler(
         asm.load_state(abi::c_arg(0), ST_WINDOW);
         asm.call_external("gtk_window_present");
 
-        // pipe(fds@sp+16); read end -> fd 0 so the reused console readers consume
-        // committed input; the write end is stashed in the runtime state (plan-05
-        // §6.6). The key handler writes committed input to the write end; the read
-        // end is collapsed onto fd 0 below.
-        asm.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 16));
-        asm.call_external("pipe");
-        asm.push(abi::load_u32(abi::SCRATCH[2], abi::stack_pointer(), 20)); // write fd
-        asm.store_state("x11", ST_PIPE_WRITE_FD);
-
-        // Make the pipe write end non-blocking (bug-114): if the worker stops
-        // draining stdin the 64 KiB pipe fills, and a blocking write() in the key
-        // handler would hang the GTK main thread forever. fcntl(write, F_SETFL,
-        // O_NONBLOCK); on Linux/AArch64 the variadic third arg is passed in x2.
-        asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), 20)); // write fd
-        asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "4")); // F_SETFL
-        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "2048")); // O_NONBLOCK (0o4000)
-        asm.call_external("fcntl");
-
-        // dup2(read, 0): fd 0 becomes a copy of the pipe read end. The read fd stays
-        // on the stack (sp+16) rather than in a register — a caller-saved register
-        // would not survive the `bl dup2` (Native Codegen Register Lifetimes).
-        asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), 16)); // read fd
-        asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
-        asm.call_external("dup2");
-
-        // close(read): fd 0 now holds the read end, so the original read descriptor
-        // is redundant. pipe(2) never returns fd 0 here (fds 0/1/2 are already open
-        // at process start), so `read` is a distinct descriptor from the fd-0 copy;
-        // closing it leaves exactly ONE read end, so closing the write end signals
-        // stdin EOF/hangup to the console readers (bug-59). Reload the read fd from
-        // the stack — `bl dup2` clobbered the caller-saved registers.
-        asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), 16)); // read fd
-        asm.call_external("close");
-
-        // Record the surviving read end (fd 0) in the runtime state. Use x10 for the
-        // value because store_state materializes the state base into x9.
-        asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
-        asm.store_state("x10", ST_PIPE_READ_FD);
+        emit_input_pipe_wiring(&mut asm);
     } else {
         // plan-62-D: `None`-default — no window. Hold the application so it stays
         // alive with zero windows; the worker (spawned below) runs the program, and
@@ -292,6 +302,14 @@ pub(super) fn emit_activate_handler(
         // Record that a hold is active so the reconcile balances it (Open Decision 1).
         asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "1"));
         asm.store_state("x10", ST_HELD);
+        // plan-98-A Phase 4: wire the input pipe here too. A `None`-default program
+        // is exactly one that references `app::setMode`, so it is the only kind that
+        // can reach `Console` or `Canvas` through the reconcile — and in both the
+        // window is the input source. Without this the reconcile-built surface had
+        // no pipe to deliver keys into. It must happen at startup, before the worker
+        // spawns: `dup2`ing onto fd 0 after the worker has blocked in `read(0, …)`
+        // leaves that read waiting on the old file description forever.
+        emit_input_pipe_wiring(&mut asm);
     }
 
     // pthread_create(&thread@sp+8, NULL, _mfb_gtkapp_worker, NULL); detach.
@@ -350,7 +368,7 @@ pub(crate) fn emit_reconcile_seam(
 /// swapping it out for the canvas area and back.
 pub(super) fn emit_reconcile_build_helper() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(RECONCILE_BUILD_SYMBOL);
-    let frame = 16;
+    let frame = 16; // lr@0, x19 (the key controller, across g_signal_connect_data)@8
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(
@@ -358,6 +376,7 @@ pub(super) fn emit_reconcile_build_helper() -> Result<CodeFunction, String> {
         abi::stack_pointer(),
         0,
     ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
     // window = gtk_application_window_new(app); title; default size.
     asm.load_state(abi::c_arg(0), ST_APPLICATION);
     asm.call_external("gtk_application_window_new");
@@ -392,6 +411,39 @@ pub(super) fn emit_reconcile_build_helper() -> Result<CodeFunction, String> {
     asm.load_state(abi::c_arg(0), ST_WINDOW);
     asm.load_state(abi::c_arg(1), ST_SCROLLED);
     asm.call_external("gtk_window_set_child");
+
+    // plan-98-A Phase 4: the terminal-style key controller, on the WINDOW rather
+    // than any child widget — the same placement the `Console`-default startup path
+    // uses, and the reason canvas mode inherits keyboard input for free: swapping
+    // the window's child does not disturb a controller attached to the window.
+    // Without this the reconcile-built window had no key handler at all, so a
+    // `None`-default program's `io::` reads found nothing to read even after
+    // switching to `Console`.
+    asm.call_external("gtk_event_controller_key_new");
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_return(0))); // controller
+    asm.local_address(abi::c_arg(1), STR_KEY_PRESSED.0);
+    asm.local_address(abi::c_arg(2), KEY_PRESSED_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("g_signal_connect_data");
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[0]));
+    asm.call_external("gtk_widget_add_controller"); // takes ownership
+
+    // close-request: closing a reconcile-built window must end the program exactly
+    // as closing a startup-built one does, rather than leaving a held-alive app with
+    // no window.
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.local_address(abi::c_arg(1), STR_CLOSE_REQUEST.0);
+    asm.local_address(abi::c_arg(2), WINDOW_CLOSED_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
+    asm.call_external("g_signal_connect_data");
+
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());

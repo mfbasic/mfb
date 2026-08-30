@@ -323,3 +323,68 @@ fn macos_io_writes_degrade_to_stdout_in_canvas() {
     );
     let _ = fs::remove_dir_all(&project);
 }
+
+// ---------------------------------------------------------------------------
+// plan-98-A Phase 4 — canvas input.
+//
+// Two halves, and they need different harnesses:
+//
+//  - The READ CONTRACT (bytes arrive in order, EOF ends the stream) is testable
+//    headless, because headless leaves fd 0 as the real stdin. That is what the
+//    case below does.
+//  - The WINDOW WIRING (the canvas view actually becomes first responder and its
+//    keyDown: reaches the pipe) is not: headless installs no delegate, so the
+//    reconcile never runs and no canvas view is ever built. That half is
+//    `scripts/test-macapp.sh` Case 6b, which injects real keystrokes into a real
+//    window via System Events.
+// ---------------------------------------------------------------------------
+
+/// Reads four bytes in `Mode.Canvas` and reports the first mismatch by position, so
+/// a reordering fails differently from a wrong value. Then asserts the fifth read
+/// hits EOF, which the runtime reports as `ErrEndOfFile` exactly as it does for a
+/// console program whose stdin closed.
+#[cfg(target_os = "macos")]
+const CANVAS_READ_ORDER_SOURCE: &str = "IMPORT app\n\
+     IMPORT io\n\
+     IMPORT errorCode\n\
+     FUNC main AS Integer\n\
+    \x20 app::setMode(Mode.Canvas)\n\
+    \x20 LET a AS Byte = io::readByte()\n\
+    \x20 IF a <> 65 THEN\n\
+    \x20   RETURN 10\n\
+    \x20 END IF\n\
+    \x20 LET b AS Byte = io::readByte()\n\
+    \x20 IF b <> 66 THEN\n\
+    \x20   RETURN 11\n\
+    \x20 END IF\n\
+    \x20 LET c AS Byte = io::readByte()\n\
+    \x20 IF c <> 67 THEN\n\
+    \x20   RETURN 12\n\
+    \x20 END IF\n\
+    \x20 LET d AS Byte = io::readByte()\n\
+    \x20 IF d <> 10 THEN\n\
+    \x20   RETURN 13\n\
+    \x20 END IF\n\
+    \x20 LET e AS Byte = io::readByte() TRAP(err)\n\
+    \x20   IF err.code = errorCode::ErrEndOfFile THEN\n\
+    \x20     RETURN 0\n\
+    \x20   END IF\n\
+    \x20   RETURN 20\n\
+    \x20 END TRAP\n\
+    \x20 RETURN 21\n\
+     END FUNC\n";
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_canvas_readbyte_returns_bytes_in_order_then_eof() {
+    let (project, ok, log) = build_app("app_canvas_bytes", CANVAS_READ_ORDER_SOURCE, &[]);
+    assert!(ok, "build should succeed:\n{log}");
+    let exe = project.join("build/app_canvas_bytes.app/Contents/MacOS/app_canvas_bytes");
+    let (code, _) = run_headless_with_stdin(&exe, "ABC\n");
+    assert_eq!(
+        code, 0,
+        "io::readByte in Canvas must return A, B, C, LF in order (10-13 = wrong \
+         byte at that position) and then EOF (21 = no EOF, 20 = wrong error)"
+    );
+    let _ = fs::remove_dir_all(&project);
+}

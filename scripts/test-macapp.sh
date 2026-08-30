@@ -611,6 +611,54 @@ else
   fi
 fi
 
+# Case 6b (plan-98-A Phase 4, GUI): the same keystroke round-trip, but in
+# Mode.Canvas. The canvas surface is a synthesized MFBCanvasView whose keyDown:
+# writes straight to the window input pipe — no echo, no line buffering, since a
+# canvas has no text surface to echo into. Two things this proves that Case 6
+# cannot: that the canvas view is made first responder at all (a plain NSView
+# returns NO from acceptsFirstResponder and would receive nothing), and that a
+# None-default program gets an input pipe (before Phase 4 the pipe was wired only
+# in the Console-default startup arm, so PIPE_ASSOC_KEY was nil here).
+#
+# Return arrives as CR from [event characters] but io::readLine terminates on LF,
+# so a missing CR->LF translation shows up as a hang, not as wrong text.
+proj="$work/canvaskeys"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "canvaskeys", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<MFB
+IMPORT app
+IMPORT io
+IMPORT fs
+SUB main()
+  app::setMode(Mode.Canvas)
+  LET name AS String = io::readLine()
+  fs::writeText("$proj/got.txt", "got:" & name)
+END SUB
+MFB
+if ! gui_enabled; then
+  echo "skip: Mode.Canvas keystroke GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app canvaskeys"
+else
+  rm -f "$proj/got.txt"
+  open "$(bundle "$proj" canvaskeys)"
+  sleep 2
+  osascript -e 'tell application "System Events" to keystroke "CanvasKeys"' >/dev/null 2>&1
+  osascript -e 'tell application "System Events" to key code 36' >/dev/null 2>&1
+  sleep 1
+  pkill -KILL canvaskeys >/dev/null 2>&1
+  got=$(cat "$proj/got.txt" 2>/dev/null || true)
+  if [ "$got" = "got:CanvasKeys" ]; then
+    pass "canvas-window keypresses delivered to io::readLine"
+  else
+    echo "skip: window keystroke injection unavailable (need Accessibility); got '$got'"
+  fi
+fi
+
 # Case 7: app-mode io::is*Terminal -> TRUE (plan §5.4). The window is the
 # interactive console, so all three return TRUE even headless.
 proj="$work/isterm"

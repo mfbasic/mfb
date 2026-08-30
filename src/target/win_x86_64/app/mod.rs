@@ -940,9 +940,73 @@ fn emit_wndproc() -> CodeFunction {
     ins.push(abi::return_());
     ins.push(abi::label("wnd_check_destroy"));
     ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_DESTROY));
-    ins.push(abi::branch_ne("wnd_check_reconcile"));
+    ins.push(abi::branch_ne("wnd_check_char"));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     call_external(from, "PostQuitMessage", USER32, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+
+    // ---- plan-98-A Phase 4: WM_CHAR while a canvas surface is presented ----
+    //
+    // In `Console` the transcript EDIT has focus and its subclass (`editproc`) feeds
+    // the input pipe. Canvas mode hides that EDIT, so focus falls to the top-level
+    // window and its WM_CHAR arrives here instead — without this arm a canvas
+    // program's `io::readByte` would block forever on a pipe nobody writes to.
+    //
+    // Gated on `CANVAS_HWND_SYM` being non-zero rather than on the message alone, so
+    // in `Console`/`None` this is inert and the message chains to DefWindowProcW
+    // exactly as before.
+    //
+    // Same byte contract as `editproc`: Enter (`\r`) is translated to `\n` so
+    // `io::readLine` terminates the line, everything else is the low byte verbatim.
+    // No echo — a canvas has no text surface to echo into, and the program draws its
+    // own UI.
+    //
+    // The byte and the WriteFile `written` out-param borrow the `HDC` and `PS`
+    // frame slots: WM_PAINT and WM_CHAR are different messages, so one invocation
+    // never uses both, and reusing them keeps the frame size (and its `≡ 8 mod 16`
+    // property) unchanged.
+    ins.push(abi::label("wnd_check_char"));
+    ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_CHAR));
+    ins.push(abi::branch_ne("wnd_check_reconcile"));
+    load_addr(abi::mfb_arg(0), CANVAS_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_eq("wnd_default")); // not in canvas mode → unchanged
+    ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), H2)); // wParam
+    ins.push(abi::compare_immediate(abi::mfb_arg(2), VK_RETURN));
+    ins.push(abi::branch_ne("wnd_char_not_cr"));
+    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "10")); // '\n'
+    ins.push(abi::branch("wnd_char_store"));
+    ins.push(abi::label("wnd_char_not_cr"));
+    ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "255"));
+    ins.push(abi::and_registers(
+        abi::mfb_arg(0),
+        abi::mfb_arg(2),
+        abi::mfb_arg(3),
+    )); // low byte
+    ins.push(abi::label("wnd_char_store"));
+    ins.push(abi::store_u8(abi::mfb_arg(0), abi::stack_pointer(), HDC)); // byte scratch
+    load_addr(abi::mfb_arg(0), STDIN_WRITE_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_eq("wnd_default")); // pipe never wired (headless)
+                                             // WriteFile(hWrite, &byte, 1, &written, NULL)
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20)); // 5th arg NULL
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), PS)); // written
+    ins.push(abi::add_immediate(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        HDC,
+    ));
+    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "1"));
+    ins.push(abi::add_immediate(
+        abi::mfb_arg(3),
+        abi::stack_pointer(),
+        PS,
+    ));
+    call_external(from, "WriteFile", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
@@ -3655,15 +3719,42 @@ mod canvas_reconcile_tests {
 
     /// The canvas arm publishes the HWND (Windows' native surface handle) and both
     /// non-canvas arms clear it, so "retrievable in canvas mode, released after
-    /// exit" is a real invariant rather than a stale last-value.
+    /// exit" is a real invariant rather than a stale last-value. The Phase 4 WM_CHAR
+    /// arm reads it a fourth time, as its "am I in canvas mode?" gate.
     #[test]
     fn canvas_hwnd_is_published_by_one_arm_and_cleared_by_the_others() {
         let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
         assert_eq!(
             externals(&wndproc, CANVAS_HWND_SYM),
-            6,
-            "3 address loads (Canvas publishes, Console and None clear), each an \
-             adrp/add pair = 2 relocations"
+            8,
+            "4 address loads — Canvas publishes, Console and None clear, WM_CHAR \
+             gates on it — each an adrp/add pair = 2 relocations"
+        );
+    }
+
+    /// plan-98-A Phase 4: canvas keyboard input. `Console` mode's keys reach the
+    /// pipe through the transcript EDIT's subclass, but canvas mode hides that EDIT,
+    /// so focus falls to the top-level window and its WM_CHAR must feed the pipe
+    /// here instead — otherwise `io::readByte` in canvas mode blocks forever.
+    #[test]
+    fn wndproc_feeds_the_input_pipe_on_wm_char_in_canvas_mode() {
+        let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
+        let immediates = compare_immediates(&wndproc);
+        assert!(
+            immediates.iter().any(|value| value == WM_CHAR),
+            "the wndproc must handle WM_CHAR; got {immediates:?}"
+        );
+        assert!(
+            externals(&wndproc, STDIN_WRITE_SYM) >= 2,
+            "the WM_CHAR arm must read the input pipe's write handle"
+        );
+        assert!(
+            externals(&wndproc, "WriteFile") >= 1,
+            "the WM_CHAR arm must write the typed byte to the pipe"
+        );
+        assert!(
+            immediates.iter().any(|value| value == VK_RETURN),
+            "Enter must be translated to '\\n' or io::readLine never terminates"
         );
     }
 

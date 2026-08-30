@@ -387,6 +387,19 @@ const CANVAS_VIEW_ASSOC_KEY: &str = "_mfb_macapp_canvas_view_key";
 const SEL_SET_WANTS_LAYER: (&str, &str) = ("_mfb_macapp_sel_setWantsLayer", "setWantsLayer:");
 /// `layer` — reads the backing layer back, proving `setWantsLayer:` took effect.
 const SEL_LAYER: (&str, &str) = ("_mfb_macapp_sel_layer", "layer");
+// plan-98-A Phase 4: canvas keyboard input. The canvas surface is a synthesized
+// `MFBCanvasView : NSView` rather than a bare `NSView`, purely so it can override
+// `keyDown:` and `acceptsFirstResponder` — the same two overrides `TermView` adds
+// for `term::` input, and reaching the same window input pipe.
+/// Runtime class name of the synthesized canvas view.
+const STR_CANVASVIEW_CLASS: (&str, &str) = ("_mfb_macapp_str_canvasviewClass", "MFBCanvasView");
+/// IMP for `MFBCanvasView acceptsFirstResponder` (returns YES) — without it the
+/// view can never become first responder and `keyDown:` is never called.
+const CANVAS_ACCEPTS_FR_SYMBOL: &str = "_mfb_macapp_canvas_acceptsFR";
+/// IMP for `MFBCanvasView keyDown:` — writes the key's UTF-8 straight to the window
+/// input pipe, with no echo and no line buffering. Canvas mode has no text surface
+/// to echo into (a canvas draws its own UI), so raw delivery is the whole contract.
+const CANVAS_KEY_DOWN_SYMBOL: &str = "_mfb_macapp_canvas_keyDown";
 /// `NSForegroundColorAttributeName` — attributed-string key for the glyph colour.
 const NS_FOREGROUND_COLOR_ATTRIBUTE_NAME: &str = "_NSForegroundColorAttributeName";
 /// IMP for the TermView `mfbWriteString:` main-thread write entry point.
@@ -735,6 +748,10 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         // canvas mode?" test — the mode is a runtime value, so there is no static
         // answer to that question.
         functions.push(emit_reconcile_canvas_helper());
+        // plan-98-A Phase 4: the canvas view's two method IMPs. Referenced by
+        // `class_addMethod` inside the canvas builder, so they are emitted with it.
+        functions.push(emit_canvas_accepts_first_responder());
+        functions.push(emit_canvas_key_down_helper());
         functions.push(emit_reconcile_helper());
     }
     Ok(functions)
@@ -966,6 +983,8 @@ pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
         // plan-98-A Phase 3: the `Canvas` arm's layer-backing sends.
         SEL_SET_WANTS_LAYER,
         SEL_LAYER,
+        // plan-98-A Phase 4: the synthesized canvas view's class name.
+        STR_CANVASVIEW_CLASS,
     ]
     .iter()
     .map(|(symbol, text)| CodeDataObject {
@@ -1113,6 +1132,14 @@ mod canvas_reconcile_tests {
             .count()
     }
 
+    /// Calls to an imported libSystem/ObjC function, counted by its relocations.
+    fn calls_external(func: &CodeFunction, name: &str) -> usize {
+        func.relocations
+            .iter()
+            .filter(|r| r.to.as_str() == name && r.kind == RelocIntent::Call)
+            .count()
+    }
+
     /// The compare immediates the reconcile dispatch tests, in emitted order.
     fn compare_immediates(func: &CodeFunction) -> Vec<String> {
         func.instructions
@@ -1232,11 +1259,164 @@ mod canvas_reconcile_tests {
     #[test]
     fn canvas_selectors_and_key_are_emitted() {
         let objects = app_mode_reconcile_data_objects();
-        for symbol in [SEL_SET_WANTS_LAYER.0, SEL_LAYER.0, CANVAS_VIEW_ASSOC_KEY] {
+        for symbol in [
+            SEL_SET_WANTS_LAYER.0,
+            SEL_LAYER.0,
+            CANVAS_VIEW_ASSOC_KEY,
+            STR_CANVASVIEW_CLASS.0,
+        ] {
             assert!(
                 objects.iter().any(|d| d.symbol.as_str() == symbol),
                 "{symbol} must be emitted as a data object"
             );
         }
+    }
+
+    // --- plan-98-A Phase 4: canvas keyboard input ---
+
+    /// The canvas surface is a synthesized `MFBCanvasView : NSView`, not a bare
+    /// `NSView`, for exactly one reason: a plain `NSView` returns NO from
+    /// `acceptsFirstResponder` and never receives `keyDown:`, so window keys would
+    /// go nowhere and `io::readByte` in canvas mode would block forever. Both
+    /// overrides must be installed, and the class registered.
+    #[test]
+    fn canvas_view_overrides_the_two_methods_that_deliver_keys() {
+        let func = emit_reconcile_canvas_helper();
+        assert_eq!(
+            calls_external(&func, "_objc_allocateClassPair"),
+            1,
+            "the canvas view must be a synthesized subclass, not a bare NSView"
+        );
+        assert_eq!(
+            calls_external(&func, "_class_addMethod"),
+            2,
+            "exactly acceptsFirstResponder + keyDown: are overridden"
+        );
+        assert_eq!(
+            calls_external(&func, "_objc_registerClassPair"),
+            1,
+            "an unregistered class pair cannot be instantiated"
+        );
+        for imp in [CANVAS_ACCEPTS_FR_SYMBOL, CANVAS_KEY_DOWN_SYMBOL] {
+            assert!(
+                func.relocations.iter().any(|r| r.to.as_str() == imp),
+                "{imp} must be installed as a method IMP"
+            );
+        }
+    }
+
+    /// `acceptsFirstResponder` only makes the view *eligible*. Without an explicit
+    /// `makeFirstResponder:` the transcript view (or nothing) keeps focus and
+    /// `keyDown:` is never delivered. It must be re-sent on every canvas entry, not
+    /// just at build, because leaving canvas mode moves focus with the content view
+    /// — so the send sits after the have-view join, outside the build-once branch.
+    #[test]
+    fn canvas_entry_makes_the_view_first_responder() {
+        let func = emit_reconcile_canvas_helper();
+        assert_eq!(
+            selector_send_count(&func.relocations, SEL_MAKE_FIRST_RESPONDER.0),
+            1,
+            "the canvas view must be made first responder or it receives no keys"
+        );
+    }
+
+    /// The canvas `keyDown:` writes to the same window input pipe the transcript and
+    /// TermView handlers use — that is what makes `io::readByte`/`readLine` in canvas
+    /// mode read the window's keys rather than a second, parallel channel.
+    #[test]
+    fn canvas_key_down_writes_to_the_window_input_pipe() {
+        let func = emit_canvas_key_down_helper();
+        assert!(
+            func.relocations
+                .iter()
+                .any(|r| r.to.as_str() == PIPE_ASSOC_KEY),
+            "the canvas keyDown: must read the window input pipe's write end"
+        );
+        assert_eq!(
+            calls_external(&func, "_write"),
+            2,
+            "one write for the CR->LF newline, one for the raw UTF-8 bytes"
+        );
+    }
+
+    /// `[event characters]` reports Return as CR, but `io::readLine` terminates on
+    /// LF. Without the translation a canvas program's `readLine` would hang on a
+    /// line the user had already ended — the same reason `editproc` does it on
+    /// Windows and the transcript handler does it here.
+    #[test]
+    fn canvas_key_down_translates_return_to_newline() {
+        let func = emit_canvas_key_down_helper();
+        let immediates: Vec<String> = func
+            .instructions
+            .iter()
+            .filter(|i| i.op == crate::arch::ops::CodeOp::CmpImm)
+            .filter_map(|i| {
+                i.fields
+                    .iter()
+                    .find(|(name, _)| *name == "rhs")
+                    .map(|(_, value)| value.to_string())
+            })
+            .collect();
+        assert!(
+            immediates.iter().any(|value| value == "13"),
+            "the handler must test for CR (13); got {immediates:?}"
+        );
+        assert!(
+            func.instructions.iter().any(|i| {
+                i.op == crate::arch::ops::CodeOp::MovImm
+                    && i.fields
+                        .iter()
+                        .any(|(name, value)| *name == "value" && value.to_string() == "10")
+            }),
+            "the handler must materialize LF (10) as the delivered byte"
+        );
+    }
+
+    /// The two IMPs must be emitted for any program that can reconcile, or the
+    /// `class_addMethod` relocations above dangle at link time.
+    #[test]
+    fn canvas_key_imps_are_emitted_with_the_reconcile_helpers() {
+        let spec = AppEntrySpec {
+            language_entry_accepts_args: false,
+            uses_term: false,
+            initial_mode: PresentationMode::None,
+        };
+        let symbols: Vec<String> = emit_app_program_entry(&spec)
+            .expect("app entry")
+            .into_iter()
+            .map(|f| f.symbol)
+            .collect();
+        for imp in [CANVAS_ACCEPTS_FR_SYMBOL, CANVAS_KEY_DOWN_SYMBOL] {
+            assert!(
+                symbols.iter().any(|s| s == imp),
+                "{imp} must be emitted; got {symbols:?}"
+            );
+        }
+    }
+
+    /// plan-98-A Phase 4: the window input pipe must be wired for a `None`-default
+    /// program too. A `None` default means the program references `app::setMode`, so
+    /// it is the only kind that can ever reach `Console` or `Canvas` — and in both
+    /// the window is the input source. Wiring it only in the `Console`-default arm
+    /// left `PIPE_ASSOC_KEY` nil, so a `keyDown:` handler would have written to fd 0
+    /// (nil reads as 0), i.e. back into stdin.
+    #[test]
+    fn the_input_pipe_is_wired_for_a_none_default_program() {
+        let none = emit_main_bootstrap(PresentationMode::None);
+        assert!(
+            none.relocations
+                .iter()
+                .any(|r| r.to.as_str() == PIPE_ASSOC_KEY),
+            "a None-default bootstrap must wire the window input pipe"
+        );
+        assert_eq!(
+            calls_external(&none, "_pipe"),
+            1,
+            "exactly one pipe, created before the worker spawns"
+        );
+        // Console-default keeps exactly one too — the extraction must not have
+        // duplicated it into the branch it came from.
+        let console = emit_main_bootstrap(PresentationMode::Console);
+        assert_eq!(calls_external(&console, "_pipe"), 1);
     }
 }
