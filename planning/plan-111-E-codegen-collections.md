@@ -272,7 +272,7 @@ calls it. Two consequences, both recorded rather than worked around:
 Acceptance: **MET.** The conversion order is recorded above, every `&str` param
 has a visibility and a caller list, and the ` TO `-split census is recorded with
 its command and its count (0). No code changed.
-Commit: —
+Commit: 916695c58
 
 ### Phase 2 — the layout builder (55 sites, the worst file in the compiler)
 
@@ -383,7 +383,7 @@ self-contained.
 
 Acceptance: **MET.** All 25 files in §2 read 0 on all seven needle classes —
 verified by their joint absence from `census_by_file`, not by reading budgets.
-Commit: —
+Commit: ed8406ddf
 
 ### End-of-letter spot-check (scoped, read-only)
 
