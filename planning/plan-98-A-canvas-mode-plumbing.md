@@ -152,11 +152,11 @@ This is sub-plan A; it has no plan dependency. Its preconditions are environment
 
 | Must be true | Command | Status |
 |---|---|---|
-| The `Mode` enum is a registry descriptor (no `.mfb` companion) | `rg -n 'add_enum\(RegistryEnum' src/codegen/builtins/app/mod.rs` → hit | MET (2026-08-30) |
-| Reconcile hook is a platform trait method | `rg -n "fn emit_app_mode_reconcile" src/codegen/engine/types/types.rs` → hit | MET (2026-08-30) |
-| Presentation-mode slot machinery is live | `rg -n "presentation_mode_offset" src/codegen src/target` → hits | MET (2026-08-30) |
-| `app.getMode`/`app.setMode` are `Body::abi_function` members | `rg -n "Body::abi_function" src/codegen/builtins/app/` → 2 hits | MET (2026-08-30) |
-| Working tree builds | `cargo build` → pass | UNVERIFIED (run before starting) |
+| The `Mode` enum is a registry descriptor (no `.mfb` companion) | `rg -n 'add_enum\(RegistryEnum' src/codegen/builtins/app/mod.rs` → hit | MET (re-run 2026-08-30, execution: hit at mod.rs:72) |
+| Reconcile hook is a platform trait method | `rg -n "fn emit_app_mode_reconcile" src/codegen/engine/types/types.rs` → hit | MET (re-run: hit at types.rs:1157) |
+| Presentation-mode slot machinery is live | `rg -n "presentation_mode_offset" src/codegen src/target` → hits | MET (re-run: 20 hits across codegen + all 3 targets) |
+| `app.getMode`/`app.setMode` are `Body::abi_function` members | `rg -n "Body::abi_function" src/codegen/builtins/app/` → 2 hits | MET (re-run: func_get_mode.rs:87, func_set_mode.rs:111; 2 doc-comment mentions besides) |
+| Working tree builds | `cargo build` → pass | MET (re-run: `Finished `dev` profile` in 31.66s) |
 
 > Per invariant 8 there is deliberately **no** "full suite green at HEAD" row: the
 > full suite runs once at the end of the plan, not before each letter.
@@ -303,12 +303,17 @@ tiered `src/codegen`", 2026-08-17, deleted `src/target/shared/code/`):
 
 ### Measured populations
 
+> **Correction (execution, 2026-08-30): three of these four commands used `rg -rn` /
+> `rg -rln`.** `-r` is ripgrep's **replace** flag, so those commands print substituted
+> text rather than the counts claimed. Every row below is re-measured with the
+> corrected command; the reconcile-impl row's number changed as a result.
+
 | What | Count | Command |
 |---|---|---|
-| `Mode` enum variants today | 2 (Console, None) | `rg -n '"Console"\|"None"' src/codegen/builtins/app/mod.rs` |
-| Platform reconcile impls to add a `Canvas` arm to | 3 (macos, linux_common→gtk, win) | `rg -rn "emit_app_mode_reconcile\|emit_reconcile_seam" src/target` |
-| Backends advertising `app.setMode` in `runtime_calls` | 2 files (`macos_aarch64/mod.rs:37`, `linux_common/mod.rs:52`) | `rg -rln '"app.setMode"' src/target/` (2026-08-30) |
-| Sites reading the presentation slot / gating on mode | 2 gate call sites | `rg -rn "prepend_wrong_mode_gate\(" src/ \| grep -v hook/app.rs` |
+| `Mode` enum variants today | 3 (Console, None, Canvas) — was 2 before Phase 1 | `rg -n '"Console"\|"None"\|"Canvas"' src/codegen/builtins/app/mod.rs` |
+| Platform `emit_app_mode_reconcile` impls to add a `Canvas` arm to | **2, not 3** (`macos_aarch64/code.rs:249`, `linux_common/code.rs:520`; the third hit is the default trait method at `engine/types/types.rs:1157`). Windows has **no** override — see Corrections 8. | `rg -n "fn emit_app_mode_reconcile" src/` |
+| Backends advertising `app.setMode` in `runtime_calls` | 2 files (`macos_aarch64/mod.rs:37`, `linux_common/mod.rs:52`) — **Windows advertises neither `app.` call** | `rg -l '"app\.setMode"' src/target/` (re-measured 2026-08-30) |
+| Sites reading the presentation slot / gating on mode | 2 gate call sites (`term/gen_shared.rs`, `engine/builder/mod.rs`) | `rg -n "prepend_wrong_mode_gate\(" src/ \| grep -v hook/app.rs` |
 
 ### Verified properties
 
@@ -402,28 +407,43 @@ plan-98, and no phase runs `artifact-gate.sh`.
 Pure registry data; safe to land alone because no platform arm consumes `2` yet
 (reconcile default-no-ops on an unknown discriminant, leaving mode a stored word).
 
-- [ ] Add a third `EnumVariant { name: "Canvas", description: …, advisory: None }` to
+- [x] Add a third `EnumVariant { name: "Canvas", description: …, advisory: None }` to
       the `RegistryEnum` in `src/codegen/builtins/app/mod.rs:register`, after `None`
       so the discriminant is `2`. There is no `.mfb` file to edit — the registry
       renders the enum into the injected package source via `get_mfb`.
-- [ ] Update the in-file tests in `src/codegen/builtins/app/mod.rs` that assert the
+- [x] Update the in-file tests in `src/codegen/builtins/app/mod.rs` that assert the
       rendered source contains the variants, and the `MODULE_DESC` prose that today
-      says the mode "is one of `Console` … or `None`".
-- [ ] Measure and, if needed, advertise: `rg -rln '"app.setMode"' src/target/` (2 files
-      as of 2026-08-30) to confirm every `--app` backend's `runtime_calls` still covers
-      `app.setMode` — no new call name is introduced, so this should already pass;
-      record the result.
-- [ ] Confirm `lower_set_mode` stores `2` and `lower_get_mode` reads it back with no
+      says the mode "is one of `Console` … or `None`". Also updated: the module doc
+      comment ("two `Mode` enum members" → three) and the `register` doc comment
+      (discriminant list + why appending is slot-safe but reordering is not). Added
+      `mode_variant_order_pins_the_discriminants`, which asserts the variant order
+      is exactly `[Console, None, Canvas]` — the check that would catch a reorder.
+- [x] Measure and, if needed, advertise: `rg -l '"app\.setMode"' src/target/` → 2 files
+      (`src/target/linux_common/mod.rs:52`, `src/target/macos_aarch64/mod.rs:37`),
+      matching the plan's count. No new call name is introduced, so this passes
+      unchanged. **Correction: the plan's command was `rg -rln`, and `-r` is ripgrep's
+      *replace* flag** — it prints substituted text, not a file list. Corrected to
+      `rg -l` here and in Measured populations. Windows advertises neither `app.` call;
+      see Corrections 8.
+- [x] Confirm `lower_set_mode` stores `2` and `lower_get_mode` reads it back with no
       arm-specific change (`src/codegen/builtins/app/func_set_mode.rs`,
-      `func_get_mode.rs`).
-- [ ] Tests: the `src/codegen/builtins/app/mod.rs` unit tests above, plus an app-mode
+      `func_get_mode.rs`). VERIFIED by reading `lower_set_mode`: it moves `c_arg(0)`
+      into a vreg and `store_u64`s it to `ARENA_STATE_REGISTER + offset` with no
+      per-variant branch at all, so any discriminant round-trips.
+- [x] Tests: the `src/codegen/builtins/app/mod.rs` unit tests above, plus an app-mode
       integration case (alongside `tests/cli_macos_app_io_input_imports.rs` / the linux
       app-mode tests) asserting `app::setMode(Mode.Canvas)` then
       `app::getMode() = Mode.Canvas` under `MFB_MACAPP_HEADLESS=1` / GTK-headless,
       with the reconcile still default-no-op (mode stored, no surface yet).
+      → new `tests/cli_app_canvas_mode.rs`: host-target build, macOS headless
+      `Canvas → None → Canvas` round-trip, macOS `Canvas ≠ Console ≠ None`, and a
+      cross-compiled `linux-aarch64` build (build-only; the host cannot run a Linux
+      GTK aarch64 binary).
 
 Acceptance: a headless app program sets and reads back `Mode.Canvas`. Run only
 `cargo test --bin mfb codegen::builtins::app` and the new app-mode integration test.
+→ MET: `cargo test --bin mfb codegen::builtins::app` = 6 passed (incl. the new
+order test); `cargo test --test cli_app_canvas_mode` = 4 passed.
 Commit: —
 
 ### Phase 2 — Mode gate: `term::` traps in `Canvas`, `io::` reads allowed in `Canvas`
@@ -626,6 +646,41 @@ while leaving its design intact. Applied:
      conditional on `TextMetrics` staying shaper-independent.
    Several `Measured populations` rows also cited `design "X"` in the Command column —
    those are decisions, not measurements, and now say so.
+
+**2026-08-30 — during execution.**
+
+8. **Windows cannot run an `app::` program at all today, so Phase 3's Windows arm is
+   larger than "extend the mode path".** Two measurements:
+   - `rg -n "fn emit_app_mode_reconcile" src/` → **2** platform overrides
+     (`macos_aarch64/code.rs:249`, `linux_common/code.rs:520`) plus the default trait
+     method (`engine/types/types.rs:1157`). `win_x86_64` has **no** override, so its
+     reconcile is the default no-op. The Measured-populations row claiming "3 (macos,
+     linux_common→gtk, win)" is corrected to 2.
+   - `rg -n 'app\.' src/target/win_x86_64/mod.rs` → **no `app.getMode`/`app.setMode`
+     in `RUNTIME_CALLS`** (`src/target/win_x86_64/mod.rs:28`), even though
+     `supports_app_mode()` returns `true` (mod.rs:271). `validate_capabilities`
+     (`src/target/shared/validate/capabilities.rs:19`) errors with "native backend
+     does not support runtime call 'app.setMode'" for any call not in that list, so a
+     Windows `--app` program that touches `app::` is rejected before codegen.
+
+   Consequence, folded into Phase 3 rather than deferred: the Windows arm must first
+   **advertise `app.getMode`/`app.setMode`** and add a `win_x86_64`
+   `emit_app_mode_reconcile` override, then hang the `Canvas` build/teardown off it.
+   That is a prerequisite Phase 3 owns, not a new letter — it is the same task the
+   plan already listed, correctly scoped.
+
+9. **Three Measured-populations commands used `rg -rn`/`rg -rln`.** `-r` is ripgrep's
+   *replace* flag: `rg -rn "fn emit_app_mode_reconcile" src/` prints the literal
+   replacement text `n(` per match, not a numbered list, which is how the wrong
+   reconcile-impl count (3) survived authoring. All rows re-measured with `rg -n` /
+   `rg -l`; the table now carries the corrected commands.
+
+10. **`Mode.Canvas` needed no `func_set_mode`/`func_get_mode` change** (Phase 1). Read
+    `lower_set_mode`: it moves `c_arg(0)` to a vreg and `store_u64`s it to
+    `ARENA_STATE_REGISTER + presentation_mode_offset` with no per-variant branch, so
+    the appended discriminant round-trips by construction. Proven at runtime, not
+    inferred: `tests/cli_app_canvas_mode.rs` runs a headless bundle doing
+    `Canvas → None → Canvas` and asserting `Canvas ≠ Console ≠ None`.
 
 <Further corrections filled in during execution.>
 
