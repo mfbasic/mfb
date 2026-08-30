@@ -13,7 +13,7 @@ Summary:
 Permissions:
   network
     tls.connect at src/main.mfb:11
-    tls.writeText at src/main.mfb:13
+    tls.write at src/main.mfb:13
     tls.close at src/main.mfb:14
   randomness
     crypto.randomBytes at src/main.mfb:12
@@ -21,18 +21,18 @@ Permissions:
     io.print at src/main.mfb:15
 
 Resources:
-  TlsSocket s at src/main.mfb:11 (standard, close tls.close, may fail)
+  Socket s at src/main.mfb:11 (standard, close tls.close, may fail)
 
 Control flow:
   main at src/main.mfb:10 (fallible)
     fallible call tls.connect at src/main.mfb:11 -> return
     fallible call crypto.randomBytes at src/main.mfb:12 -> return
-    fallible call tls.writeText at src/main.mfb:13 -> return
+    fallible call tls.write at src/main.mfb:13 -> return
     fallible call tls.close at src/main.mfb:14 -> return
     fallible call io.print at src/main.mfb:15 -> return
 
 Findings:
-  info AUDIT-RESOURCE-CLOSE-MAY-FAIL resource `s` (TlsSocket) is closed by lexical drop; explicit `tls.close` is required to observe a close failure (src/main.mfb:11)
+  info AUDIT-RESOURCE-CLOSE-MAY-FAIL resource `s` (Socket) is closed by lexical drop; explicit `tls.close` is required to observe a close failure (src/main.mfb:11)
   info AUDIT-PERM-NETWORK project uses host capability: network
   info AUDIT-PERM-RANDOMNESS project uses host capability: randomness
   info AUDIT-PERM-TERMINAL project uses host capability: terminal
@@ -90,7 +90,7 @@ $ mfb audit --format json tests/syntax/security/bug96_audit_tls_http_crypto
           "capability": "randomness"
         },
         {
-          "callee": "tls.writeText",
+          "callee": "tls.write",
           "line": 13,
           "propagation": "return",
           "capability": "network"
@@ -114,7 +114,7 @@ $ mfb audit --format json tests/syntax/security/bug96_audit_tls_http_crypto
     {
       "function": "main",
       "name": "s",
-      "resourceType": "TlsSocket",
+      "resourceType": "Socket",
       "closeOp": "tls.close",
       "path": "src/main.mfb",
       "line": 11,
@@ -136,7 +136,7 @@ $ mfb audit --format json tests/syntax/security/bug96_audit_tls_http_crypto
     {
       "capability": "network",
       "package": "tls",
-      "function": "tls.writeText",
+      "function": "tls.write",
       "path": "src/main.mfb",
       "line": 13,
       "kind": "standard"
@@ -171,7 +171,7 @@ $ mfb audit --format json tests/syntax/security/bug96_audit_tls_http_crypto
       "code": "AUDIT-RESOURCE-CLOSE-MAY-FAIL",
       "severity": "info",
       "category": "resource",
-      "message": "resource `s` (TlsSocket) is closed by lexical drop; explicit `tls.close` is required to observe a close failure",
+      "message": "resource `s` (Socket) is closed by lexical drop; explicit `tls.close` is required to observe a close failure",
       "location": {
         "path": "src/main.mfb",
         "line": 11

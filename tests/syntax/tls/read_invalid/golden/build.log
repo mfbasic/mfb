@@ -16,7 +16,7 @@ tests/syntax/tls/read_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE
    5 |   LET wrongType = tls::read(1, 2)
      | ^
 tests/syntax/tls/read_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tls.read` has argument type(s) (Integer, Integer), expected TlsSocket, Integer.
+               Call to `tls.read` has argument type(s) (Integer, Integer), expected Socket, Integer.
    3 | FUNC main AS Integer
    4 |   LET missing = tls::read()
    5 |   LET wrongType = tls::read(1, 2)

@@ -112,7 +112,7 @@
       ]
     },
     {
-      "name": "tls.TlsSocket",
+      "name": "tls.Socket",
       "line": 94,
       "fields": [
       ]
@@ -892,7 +892,7 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "t", "line": 371, "type": "tls.TlsSocket", "default": null },
+    { "name": "t", "line": 371, "type": "tls.Socket", "default": null },
     { "name": "n", "line": 371, "type": "Integer", "default": null }
     ],
     "returns": "#http_PumpRead",
@@ -961,7 +961,7 @@
       "line": 397,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "url" }, "member": "scheme" }, "right": { "kind": "const", "type": "String", "value": "https" } },
       "then": [
-      { "op": "bind", "line": 398, "mutable": false, "name": "s", "type": "Stream STATE PendingState", "value": { "kind": "unionWrap", "union": "Stream", "member": "tls.TlsSocket", "value": { "kind": "call", "type": "tls.TlsSocket", "target": "tls.connect", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "url" }, "member": "host" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "url" }, "member": "port" }, { "kind": "global", "name": "#HTTP_CONNECT_TIMEOUT_MS" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "url" }, "member": "host" }] } } },
+      { "op": "bind", "line": 398, "mutable": false, "name": "s", "type": "Stream STATE PendingState", "value": { "kind": "unionWrap", "union": "Stream", "member": "tls.Socket", "value": { "kind": "call", "type": "tls.Socket", "target": "tls.connect", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "url" }, "member": "host" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "url" }, "member": "port" }, { "kind": "global", "name": "#HTTP_CONNECT_TIMEOUT_MS" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "url" }, "member": "host" }] } } },
       { "op": "bind", "line": 399, "mutable": false, "name": "$match8", "type": "Stream STATE PendingState", "value": { "kind": "local", "name": "s" } },
       {
         "op": "match",
@@ -970,11 +970,11 @@
         "cases": [
         {
           "line": 400,
-          "pattern": { "kind": "value", "value": { "kind": "local", "name": "tls.TlsSocket" } },
+          "pattern": { "kind": "value", "value": { "kind": "local", "name": "tls.Socket" } },
           "guard": null,
           "body": [
-          { "op": "bind", "line": 400, "mutable": false, "name": "t", "type": "tls.TlsSocket STATE PendingState", "value": { "kind": "unionExtract", "type": "tls.TlsSocket", "value": { "kind": "local", "name": "$match8" } } },
-          { "op": "eval", "line": 401, "value": { "kind": "call", "type": "Nothing", "target": "tls.writeText", "args": [{ "kind": "local", "name": "t" }, { "kind": "local", "name": "request" }] } }
+          { "op": "bind", "line": 400, "mutable": false, "name": "t", "type": "tls.Socket STATE PendingState", "value": { "kind": "unionExtract", "type": "tls.Socket", "value": { "kind": "local", "name": "$match8" } } },
+          { "op": "eval", "line": 401, "value": { "kind": "call", "type": "Nothing", "target": "tls.write", "args": [{ "kind": "local", "name": "t" }, { "kind": "local", "name": "request" }] } }
           ]
         },
         {
@@ -1012,11 +1012,11 @@
       },
       {
         "line": 412,
-        "pattern": { "kind": "value", "value": { "kind": "local", "name": "tls.TlsSocket" } },
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "tls.Socket" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 412, "mutable": false, "name": "t", "type": "tls.TlsSocket STATE PendingState", "value": { "kind": "unionExtract", "type": "tls.TlsSocket", "value": { "kind": "local", "name": "$match9" } } },
-        { "op": "eval", "line": 413, "value": { "kind": "call", "type": "Nothing", "target": "tls.writeText", "args": [{ "kind": "local", "name": "t" }, { "kind": "local", "name": "request" }] } }
+        { "op": "bind", "line": 412, "mutable": false, "name": "t", "type": "tls.Socket STATE PendingState", "value": { "kind": "unionExtract", "type": "tls.Socket", "value": { "kind": "local", "name": "$match9" } } },
+        { "op": "eval", "line": 413, "value": { "kind": "call", "type": "Nothing", "target": "tls.write", "args": [{ "kind": "local", "name": "t" }, { "kind": "local", "name": "request" }] } }
         ]
       }
       ]
@@ -1053,10 +1053,10 @@
       },
       {
         "line": 431,
-        "pattern": { "kind": "value", "value": { "kind": "local", "name": "tls.TlsSocket" } },
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "tls.Socket" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 431, "mutable": false, "name": "t", "type": "tls.TlsSocket STATE PendingState", "value": { "kind": "unionExtract", "type": "tls.TlsSocket", "value": { "kind": "local", "name": "$match10" } } },
+        { "op": "bind", "line": 431, "mutable": false, "name": "t", "type": "tls.Socket STATE PendingState", "value": { "kind": "unionExtract", "type": "tls.Socket", "value": { "kind": "local", "name": "$match10" } } },
         { "op": "assign", "line": 432, "name": "rdy", "value": { "kind": "call", "type": "Boolean", "target": "tls.poll", "args": [{ "kind": "local", "name": "t" }, { "kind": "global", "name": "#HTTP_READ_TIMEOUT_MS" }] } }
         ]
       }
@@ -3017,10 +3017,10 @@
       },
       {
         "line": 1088,
-        "pattern": { "kind": "value", "value": { "kind": "local", "name": "tls.TlsSocket" } },
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "tls.Socket" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 1088, "mutable": false, "name": "t", "type": "tls.TlsSocket STATE PendingState", "value": { "kind": "unionExtract", "type": "tls.TlsSocket", "value": { "kind": "local", "name": "$match19" } } },
+        { "op": "bind", "line": 1088, "mutable": false, "name": "t", "type": "tls.Socket STATE PendingState", "value": { "kind": "unionExtract", "type": "tls.Socket", "value": { "kind": "local", "name": "$match19" } } },
         { "op": "return", "line": 1089, "value": { "kind": "call", "type": "Boolean", "target": "tls.poll", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
         ]
       }
@@ -3067,10 +3067,10 @@
       },
       {
         "line": 1106,
-        "pattern": { "kind": "value", "value": { "kind": "local", "name": "tls.TlsSocket" } },
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "tls.Socket" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 1106, "mutable": false, "name": "t", "type": "tls.TlsSocket STATE PendingState", "value": { "kind": "unionExtract", "type": "tls.TlsSocket", "value": { "kind": "local", "name": "$match20" } } },
+        { "op": "bind", "line": 1106, "mutable": false, "name": "t", "type": "tls.Socket STATE PendingState", "value": { "kind": "unionExtract", "type": "tls.Socket", "value": { "kind": "local", "name": "$match20" } } },
         { "op": "assign", "line": 1107, "name": "r", "value": { "kind": "call", "type": "#http_PumpRead", "target": "#http_readTls", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "65536" }] } }
         ]
       }
@@ -3201,9 +3201,9 @@
     { "name": "host", "line": 1148, "type": "String", "default": null },
     { "name": "backlog", "line": 1148, "type": "Integer", "default": null }
     ],
-    "returns": "tls.TlsListener",
+    "returns": "tls.Listener",
     "body": [
-    { "op": "return", "line": 1149, "value": { "kind": "call", "type": "tls.TlsListener", "target": "tls.listen", "args": [{ "kind": "local", "name": "host" }, { "kind": "local", "name": "port" }, { "kind": "local", "name": "certPath" }, { "kind": "local", "name": "keyPath" }, { "kind": "local", "name": "backlog" }] } }
+    { "op": "return", "line": 1149, "value": { "kind": "call", "type": "tls.Listener", "target": "tls.listen", "args": [{ "kind": "local", "name": "host" }, { "kind": "local", "name": "port" }, { "kind": "local", "name": "certPath" }, { "kind": "local", "name": "keyPath" }, { "kind": "local", "name": "backlog" }] } }
     ]
   },
   {
@@ -3336,12 +3336,12 @@
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "listener", "line": 1196, "type": "tls.TlsListener", "default": null },
+    { "name": "listener", "line": 1196, "type": "tls.Listener", "default": null },
     { "name": "routes", "line": 1196, "type": "List OF Route", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 1197, "mutable": false, "name": "sock", "type": "tls.TlsSocket", "value": { "kind": "call", "type": "tls.TlsSocket", "target": "tls.accept", "args": [{ "kind": "local", "name": "listener" }, { "kind": "const", "type": "Integer", "value": "9223372036854775808" }] } },
+    { "op": "bind", "line": 1197, "mutable": false, "name": "sock", "type": "tls.Socket", "value": { "kind": "call", "type": "tls.Socket", "target": "tls.accept", "args": [{ "kind": "local", "name": "listener" }, { "kind": "const", "type": "Integer", "value": "9223372036854775808" }] } },
     { "op": "bind", "line": 1198, "mutable": true, "name": "raw", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
     { "op": "bind", "line": 1199, "mutable": true, "name": "reading", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
     { "op": "bind", "line": 1200, "mutable": true, "name": "oversize", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
@@ -3421,7 +3421,7 @@
       "else": [
       ]
     },
-    { "op": "bind", "line": 1225, "mutable": false, "name": "$trap_res27", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tls.writeText", "args": [{ "kind": "local", "name": "sock" }, { "kind": "call", "type": "String", "target": "#http_serializeHead", "args": [{ "kind": "local", "name": "resp" }] }] } },
+    { "op": "bind", "line": 1225, "mutable": false, "name": "$trap_res27", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tls.write", "args": [{ "kind": "local", "name": "sock" }, { "kind": "call", "type": "String", "target": "#http_serializeHead", "args": [{ "kind": "local", "name": "resp" }] }] } },
     {
       "op": "if",
       "line": 1225,

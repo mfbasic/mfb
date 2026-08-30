@@ -22,12 +22,12 @@
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "conn", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "443" }] }, "line": 8 },
       { "kind": "binding", "mutable": false, "name": "ready", "type": "Boolean", "value": { "kind": "call", "callee": "tls.poll", "arguments": [{ "kind": "identifier", "value": "conn" }] }, "line": 10 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ready" }] }] }, "line": 11 },
-      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES tls.TlsSocket", "value": { "kind": "list", "values": [] }, "line": 13 },
+      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES tls.Socket", "value": { "kind": "list", "values": [] }, "line": 13 },
       { "kind": "assignment", "name": "socks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "identifier", "value": "conn" }] }, "line": 14 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "first", "type": "tls.TlsSocket", "value": { "kind": "call", "callee": "tls.poll", "arguments": [{ "kind": "identifier", "value": "socks" }] }, "line": 15 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "firstT", "type": "tls.TlsSocket", "value": { "kind": "call", "callee": "tls.poll", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "number", "value": "100" }] }, "line": 16 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.writeText", "arguments": [{ "kind": "identifier", "value": "first" }, { "kind": "string", "value": "a" }] }, "line": 17 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.writeText", "arguments": [{ "kind": "identifier", "value": "firstT" }, { "kind": "string", "value": "b" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "first", "type": "tls.Socket", "value": { "kind": "call", "callee": "tls.poll", "arguments": [{ "kind": "identifier", "value": "socks" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "firstT", "type": "tls.Socket", "value": { "kind": "call", "callee": "tls.poll", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "number", "value": "100" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.write", "arguments": [{ "kind": "identifier", "value": "first" }, { "kind": "string", "value": "a" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.write", "arguments": [{ "kind": "identifier", "value": "firstT" }, { "kind": "string", "value": "b" }] }, "line": 18 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 19 }
       ]
     }

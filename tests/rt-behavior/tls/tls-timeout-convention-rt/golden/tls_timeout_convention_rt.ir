@@ -71,7 +71,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 13, "mutable": false, "name": "c", "type": "tls.TlsSocket", "value": { "kind": "call", "type": "tls.TlsSocket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "local", "name": "port" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "c", "type": "tls.Socket", "value": { "kind": "call", "type": "tls.Socket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "local", "name": "port" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "const", "type": "String", "value": "" }] } },
     { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "c" }] } },
     { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "1" } },
     {
@@ -108,7 +108,7 @@
       ]
     },
     { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "neg invalid" }] } },
-    { "op": "bind", "line": 32, "mutable": false, "name": "c", "type": "tls.TlsSocket", "value": { "kind": "call", "type": "tls.TlsSocket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "bound" }, "member": "port" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "line": 32, "mutable": false, "name": "c", "type": "tls.Socket", "value": { "kind": "call", "type": "tls.Socket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "bound" }, "member": "port" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "String", "value": "" }] } },
     { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "c" }] } },
     { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "connect0 unexpected" }] } },
     { "op": "return", "line": 35, "value": { "kind": "const", "type": "Integer", "value": "1" } },

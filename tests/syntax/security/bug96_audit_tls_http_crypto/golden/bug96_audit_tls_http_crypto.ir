@@ -118,9 +118,9 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 11, "mutable": false, "name": "s", "type": "tls.TlsSocket", "value": { "kind": "call", "type": "tls.TlsSocket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "443" }, { "kind": "const", "type": "Integer", "value": "9223372036854775808" }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "s", "type": "tls.Socket", "value": { "kind": "call", "type": "tls.Socket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "443" }, { "kind": "const", "type": "Integer", "value": "9223372036854775808" }, { "kind": "const", "type": "String", "value": "" }] } },
     { "op": "bind", "line": 12, "mutable": false, "name": "key", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "crypto.randomBytes", "args": [{ "kind": "const", "type": "Integer", "value": "32" }] } },
-    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "tls.writeText", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "String", "value": "GET / HTTP/1.0" }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "tls.write", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "String", "value": "GET / HTTP/1.0" }] } },
     { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "s" }] } },
     { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "key" }] }] }] } },
     { "op": "return", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "0" } }
