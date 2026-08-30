@@ -113,14 +113,20 @@ mutual TLS, session resumption, ALPN, or SNI-based certificate selection in this
 version.
 
 
-The read and write functions come in paired byte/text forms: the byte form
-transfers a `List OF Byte` verbatim, while the text form transfers a `String`'s
-UTF-8 bytes directly and validates received bytes as UTF-8. Each read performs
-one underlying TLS read and returns as soon as any plaintext is available, so a
-result is frequently shorter than `maxBytes` and never empty on success; end of
-stream is reported as an error rather than an empty result, so read in a loop
-until the connection is closed. Each write transmits the entire buffer, looping
-internally to resend any portion a single TLS write did not accept. TLS is
+`tls::read` returns a `List OF Byte`; `tls::write` accepts either a
+`List OF Byte` or a `String`, whose UTF-8 bytes it sends directly. The asymmetry
+is deliberate: a read stops wherever the network happened to divide the data,
+which need not be a character boundary, so decoding at that point can split a
+multi-byte character in half. Assemble the whole message first and decode it
+with `encoding::toUtf8Text`. Sending is not subject to that hazard, which is why
+`write` does take a `String`.
+
+Each read performs one underlying TLS read and returns as soon as any plaintext
+is available, so a result is frequently shorter than `maxBytes` and never empty
+on success; end of stream is reported as an error rather than an empty result,
+so read in a loop until the connection is closed. Each write transmits the
+entire buffer, looping internally to resend any portion a single TLS write did
+not accept. TLS is
 implemented on Linux by driving the system OpenSSL library (`libssl.so.3`,
 falling back to `libssl.so.1.1`) so a single binary spans OpenSSL 1.1.1 and 3.x;
 the macOS backend drives Network.framework through a synchronous bridge."#;

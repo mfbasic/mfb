@@ -48,12 +48,8 @@ pub(crate) fn lower_read(
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let (instructions, relocations, stack_size) = super::gen_shared::lower_tls_read_helper(
-        &symbol,
-        ctx.platform_imports,
-        ctx.platform,
-        false,
-    )?;
+    let (instructions, relocations, stack_size) =
+        super::gen_shared::lower_tls_read_helper(&symbol, ctx.platform_imports, ctx.platform)?;
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
     builder.stack_size = stack_size;

@@ -1691,7 +1691,6 @@ pub(crate) fn lower_module_for_platform(
                     | "_mfb_rt_fs_fs_readLine"
                     | "_mfb_rt_net_net_readText"
                     | "_mfb_rt_net_net_receiveTextFrom"
-                    | "_mfb_rt_tls_tls_readText"
                     | "_mfb_rt_process_process_receive"
                     | "_mfb_rt_process_process_receiveFrom"
             )

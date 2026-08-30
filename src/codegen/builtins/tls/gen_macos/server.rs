@@ -1493,6 +1493,13 @@ pub(crate) fn lower_tls_accept_macos(
         abi::store_u64(abi::ZERO, &v9, CTX_PEND_LEN),
         abi::store_u64(abi::ZERO, &v9, CTX_PEND_OFF),
         abi::store_u64(abi::ZERO, &v9, CTX_ARMED),
+        // plan-110-D: no read/write deadline until one is installed. The
+        // sentinel is what makes the waits below stay FOREVER on a socket
+        // whose owner never called a timeout setter.
+        abi::move_immediate(&v10, "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::store_u64(&v10, &v9, CTX_RTO),
+        abi::store_u64(&v10, &v9, CTX_WTO),
+        abi::store_u64(abi::ZERO, &v9, CTX_WARMED),
     ]);
     dlsym(
         &mut EmitCtx {

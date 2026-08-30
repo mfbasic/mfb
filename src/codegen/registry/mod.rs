@@ -2679,10 +2679,12 @@ pub(crate) fn default_argument_padding(
     let implementation = implementations
         .iter()
         .filter(|implementation| implementation.params.len() >= provided)
-        .find(|implementation| match (first_argument, implementation.params.first()) {
-            (Some(argument), Some(param)) => param.ty.name() == argument.name(),
-            _ => false,
-        })
+        .find(
+            |implementation| match (first_argument, implementation.params.first()) {
+                (Some(argument), Some(param)) => param.ty.name() == argument.name(),
+                _ => false,
+            },
+        )
         // No usable first-argument type: fall back to the historical choice, the
         // first implementation. Preferring an overload the call fills exactly
         // looks tempting but is wrong — `crypto::open`'s AEAD form has an

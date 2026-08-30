@@ -12,7 +12,6 @@ use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
-use crate::codegen::string::validate::*;
 use crate::target::shared::abi;
 pub(crate) fn lower_tls_connect_openssl(
     symbol: &str,
@@ -1986,14 +1985,13 @@ pub(crate) fn lower_tls_accept_openssl(
 }
 
 // ---------------------------------------------------------------------------
-// tls.read / tls.readText
+// tls.read (bytes only; plan-110-D removed tls.readText)
 // ---------------------------------------------------------------------------
 
 pub(crate) fn lower_tls_read_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-    text: bool,
 ) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -2010,7 +2008,6 @@ pub(crate) fn lower_tls_read_openssl(
     const N_OFFSET: usize = 32;
     const HANDLE_OFFSET: usize = 40;
     const FNPTR_OFFSET: usize = 48;
-    const STR_OFFSET: usize = 56;
 
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
@@ -2018,9 +2015,6 @@ pub(crate) fn lower_tls_read_openssl(
     let read_fail = format!("{symbol}_read_fail");
     let load_fail = format!("{symbol}_load_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
-    let encoding_error = format!("{symbol}_encoding_error");
-    let str_copy = format!("{symbol}_str_copy");
-    let str_done = format!("{symbol}_str_done");
     let entry_loop = format!("{symbol}_entry_loop");
     let entry_done = format!("{symbol}_entry_done");
     let done = format!("{symbol}_done");
@@ -2086,115 +2080,71 @@ pub(crate) fn lower_tls_read_openssl(
         abi::branch_lt(&read_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFFSET),
     ]);
-    if text {
+    instructions.extend([
+        abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
+        abi::move_immediate(&v11, "Integer", &byte_list_entry_stride().to_string()),
+        abi::multiply_registers(&v12, &v10, &v11),
+        abi::add_immediate(&v12, &v12, COLLECTION_HEADER_SIZE),
+        abi::add_registers(abi::return_register(), &v12, &v10),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    instructions.extend([
+        abi::move_immediate(&v9, "Byte", &byte_list_block_kind().to_string()),
+        abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_KIND),
+        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_NONE.to_string()),
+        abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_KEY_TYPE),
+        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_BYTE.to_string()),
+        abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_VALUE_TYPE),
+        abi::move_immediate(&v9, "Byte", "1"),
+        abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
+        abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_COUNT),
+        abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_CAPACITY),
+        abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_immediate(&v11, abi::mfb_return(1), COLLECTION_HEADER_SIZE),
+        abi::move_immediate(&v12, "Integer", &byte_list_entry_stride().to_string()),
+        abi::multiply_registers(&v13, &v10, &v12),
+        abi::add_registers(&v14, &v11, &v13),
+        abi::load_u64(&v15, abi::stack_pointer(), BUF_OFFSET),
+        abi::move_immediate(&v9, "Integer", "0"),
+        abi::label(&entry_loop),
+        abi::compare_registers(&v9, &v10),
+        abi::branch_eq(&entry_done),
+        // A packed fixed-width byte list (kind 2, plan-57-D) has NO entry
+        // array: its stride is 0 and the data region starts right after the
+        // header. Writing 40-byte entry descriptors here put an entry-flags
+        // byte (COLLECTION_ENTRY_FLAG_USED == 1) where element 0's payload
+        // belongs, so `tls::read` handed back a list whose first byte was
+        // always 1. Mirrors the guard in `gen_macos/client.rs`.
+    ]);
+    if byte_list_entry_stride() != 0 {
         instructions.extend([
-            abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
-            abi::add_immediate(abi::return_register(), &v10, 9),
-            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-        ]);
-        emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
-        instructions.extend([
-            abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
-            abi::store_u64(&v10, abi::mfb_return(1), 0),
-            abi::load_u64(&v11, abi::stack_pointer(), BUF_OFFSET),
-            abi::add_immediate(&v12, abi::mfb_return(1), 8),
-            abi::move_immediate(&v13, "Integer", "0"),
-            abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), STR_OFFSET),
-            abi::label(&str_copy),
-            abi::compare_registers(&v13, &v10),
-            abi::branch_eq(&str_done),
-            abi::load_u8(&v14, &v11, 0),
-            abi::store_u8(&v14, &v12, 0),
-            abi::add_immediate(&v11, &v11, 1),
-            abi::add_immediate(&v12, &v12, 1),
-            abi::add_immediate(&v13, &v13, 1),
-            abi::branch(&str_copy),
-            abi::label(&str_done),
-            abi::store_u8(abi::ZERO, &v12, 0),
-            abi::load_u64(&v9, abi::stack_pointer(), STR_OFFSET),
-            abi::add_immediate(abi::return_register(), &v9, 8),
-            abi::load_u64(abi::c_arg(1), &v9, 0),
-        ]);
-        emit_call_validate_utf8(symbol, &encoding_error, &mut instructions, &mut relocations);
-        instructions.extend([
-            abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STR_OFFSET),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-            abi::branch(&done),
-            abi::label(&encoding_error),
-        ]);
-        emit_fail(
-            symbol,
-            "ErrEncoding",
-            &mut instructions,
-            &mut relocations,
-            &done,
-        );
-    } else {
-        instructions.extend([
-            abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
-            abi::move_immediate(&v11, "Integer", &byte_list_entry_stride().to_string()),
-            abi::multiply_registers(&v12, &v10, &v11),
-            abi::add_immediate(&v12, &v12, COLLECTION_HEADER_SIZE),
-            abi::add_registers(abi::return_register(), &v12, &v10),
-            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-        ]);
-        emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
-        instructions.extend([
-            abi::move_immediate(&v9, "Byte", &byte_list_block_kind().to_string()),
-            abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_KIND),
-            abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_NONE.to_string()),
-            abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_KEY_TYPE),
-            abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_BYTE.to_string()),
-            abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_VALUE_TYPE),
-            abi::move_immediate(&v9, "Byte", "1"),
-            abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_FLAGS_VERSION),
-            abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
-            abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_COUNT),
-            abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_CAPACITY),
-            abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_DATA_LENGTH),
-            abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_DATA_CAPACITY),
-            abi::add_immediate(&v11, abi::mfb_return(1), COLLECTION_HEADER_SIZE),
-            abi::move_immediate(&v12, "Integer", &byte_list_entry_stride().to_string()),
-            abi::multiply_registers(&v13, &v10, &v12),
-            abi::add_registers(&v14, &v11, &v13),
-            abi::load_u64(&v15, abi::stack_pointer(), BUF_OFFSET),
-            abi::move_immediate(&v9, "Integer", "0"),
-            abi::label(&entry_loop),
-            abi::compare_registers(&v9, &v10),
-            abi::branch_eq(&entry_done),
-            // A packed fixed-width byte list (kind 2, plan-57-D) has NO entry
-            // array: its stride is 0 and the data region starts right after the
-            // header. Writing 40-byte entry descriptors here put an entry-flags
-            // byte (COLLECTION_ENTRY_FLAG_USED == 1) where element 0's payload
-            // belongs, so `tls::read` handed back a list whose first byte was
-            // always 1. Mirrors the guard in `gen_macos/client.rs`.
-        ]);
-        if byte_list_entry_stride() != 0 {
-            instructions.extend([
-                abi::move_immediate(&v12, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-                abi::store_u8(&v12, &v11, COLLECTION_ENTRY_OFFSET_FLAGS),
-                abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-                abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-                abi::store_u64(&v9, &v11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-                abi::move_immediate(&v12, "Integer", "1"),
-                abi::store_u64(&v12, &v11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-            ]);
-        }
-        // The payload copy runs for BOTH representations.
-        instructions.extend([
-            abi::add_registers(&v12, &v14, &v9),
-            abi::load_u8(&v13, &v15, 0),
-            abi::store_u8(&v13, &v12, 0),
-            abi::add_immediate(&v15, &v15, 1),
-            abi::add_immediate(&v11, &v11, byte_list_entry_stride()),
-            abi::add_immediate(&v9, &v9, 1),
-            abi::branch(&entry_loop),
-            abi::label(&entry_done),
-            abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-            abi::branch(&done),
+            abi::move_immediate(&v12, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+            abi::store_u8(&v12, &v11, COLLECTION_ENTRY_OFFSET_FLAGS),
+            abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+            abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+            abi::store_u64(&v9, &v11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+            abi::move_immediate(&v12, "Integer", "1"),
+            abi::store_u64(&v12, &v11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
         ]);
     }
+    // The payload copy runs for BOTH representations.
+    instructions.extend([
+        abi::add_registers(&v12, &v14, &v9),
+        abi::load_u8(&v13, &v15, 0),
+        abi::store_u8(&v13, &v12, 0),
+        abi::add_immediate(&v15, &v15, 1),
+        abi::add_immediate(&v11, &v11, byte_list_entry_stride()),
+        abi::add_immediate(&v9, &v9, 1),
+        abi::branch(&entry_loop),
+        abi::label(&entry_done),
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+    ]);
+
     instructions.push(abi::label(&peer_closed));
     emit_fail(
         symbol,
@@ -2977,7 +2927,7 @@ mod error_path_release_tests {
         mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
         let imports = HashMap::new();
         let (ins, _rel, _s) =
-            lower_tls_read_openssl("r", &imports, &TestPlatform, false).expect("lower read");
+            lower_tls_read_openssl("r", &imports, &TestPlatform).expect("lower read");
         let start = ins
             .iter()
             .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some("r_entry_loop"))

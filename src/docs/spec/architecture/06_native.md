@@ -109,7 +109,7 @@ All four backends declare the same set of supported native runtime calls:
   `net.writeText`, `net.sendTo`, `net.sendTextTo`, `net.receiveFrom`,
   `net.receiveTextFrom`, `net.localAddress`, `net.remoteAddress`, `net.close`,
   `net.poll`, `net.setReadTimeout`, `net.setWriteTimeout`
-- All `tls.*` calls: `tls.connect`, `tls.read`, `tls.readText`, `tls.write`,
+- All `tls.*` calls: `tls.connect`, `tls.read`, `tls.write`,
   `tls.writeText`, `tls.close`, `tls.listen`, `tls.accept`, `tls.closeListener`
 
 `math`, `strings`, and `general` operations are not listed as runtime helper

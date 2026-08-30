@@ -4,7 +4,6 @@ pub(crate) fn lower_tls_read(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-    text: bool,
 ) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -24,7 +23,6 @@ pub(crate) fn lower_tls_read(
     const OUTBUF: usize = 112;
     const NOUT: usize = 120;
     const COLL: usize = 128;
-    const STR: usize = 136;
     const RFD: usize = 144; // socket fd, for the renegotiation handshake
     const FRAME_SIZE: usize = 0x100;
 
@@ -33,7 +31,6 @@ pub(crate) fn lower_tls_read(
     let peer_closed = format!("{symbol}_peer");
     let fail = format!("{symbol}_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
-    let enc_error = format!("{symbol}_enc");
     let done = format!("{symbol}_done");
     let have = format!("{symbol}_have");
     let dloop = format!("{symbol}_dloop");
@@ -197,19 +194,9 @@ pub(crate) fn lower_tls_read(
         abi::subtract_registers(&v13, &v13, &v10),
         abi::store_u64(&v13, &v9, st::LEFT_LEN),
     ]);
-    if text {
-        emit_string_result_build(symbol, OUTBUF, NOUT, STR, &format!("{symbol}_scp"), &format!("{symbol}_scd"), &alloc_fail, &enc_error, &mut ins, &mut rel);
-        ins.extend([
-            abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STR),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-            abi::branch(&done),
-            abi::label(&enc_error),
-        ]);
-        emit_fail(symbol, "ErrEncoding", &mut ins, &mut rel, &done);
-    } else {
-        emit_build_byte_list(symbol, &format!("{symbol}_bl"), &format!("{symbol}_bld"), OUTBUF, NOUT, Some(COLL), abi::mfb_return(1), &alloc_fail, &mut ins, &mut rel);
-        ins.push(abi::branch(&done));
-    }
+    emit_build_byte_list(symbol, &format!("{symbol}_bl"), &format!("{symbol}_bld"), OUTBUF, NOUT, Some(COLL), abi::mfb_return(1), &alloc_fail, &mut ins, &mut rel);
+    ins.push(abi::branch(&done));
+
 
     // --- SEC_I_RENEGOTIATE handler: drive the buffered post-handshake data through
     // the ISC handshake loop (reusing the arena STATE scratch), then resume decrypt.

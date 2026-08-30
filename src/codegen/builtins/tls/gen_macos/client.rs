@@ -411,6 +411,13 @@ pub(crate) fn lower_tls_connect_macos(
         abi::store_u64(abi::ZERO, &v9, CTX_PEND_LEN),
         abi::store_u64(abi::ZERO, &v9, CTX_PEND_OFF),
         abi::store_u64(abi::ZERO, &v9, CTX_ARMED),
+        // plan-110-D: no read/write deadline until one is installed. The
+        // sentinel is what makes the waits below stay FOREVER on a socket
+        // whose owner never called a timeout setter.
+        abi::move_immediate(&v10, "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::store_u64(&v10, &v9, CTX_RTO),
+        abi::store_u64(&v10, &v9, CTX_WTO),
+        abi::store_u64(abi::ZERO, &v9, CTX_WARMED),
     ]);
     // ctx->signal = &dispatch_semaphore_signal
     dlsym(
@@ -739,7 +746,6 @@ pub(crate) fn lower_tls_read_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-    text: bool,
 ) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -763,15 +769,13 @@ pub(crate) fn lower_tls_read_macos(
     const STR: usize = 96;
     const BLOCK: usize = 104; // 104..144
     const PBUF: usize = 144; // plan-76-B: scratch for the drain-armed arena copy
+    const DEADLINE: usize = 152; // plan-110-D: computed dispatch_time for the read wait
 
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
     let peer_closed = format!("{symbol}_peer_closed");
     let load_fail = format!("{symbol}_load_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
-    let encoding_error = format!("{symbol}_encoding_error");
-    let str_copy = format!("{symbol}_str_copy");
-    let str_done = format!("{symbol}_str_done");
     let entry_loop = format!("{symbol}_entry_loop");
     let entry_done = format!("{symbol}_entry_done");
     let done = format!("{symbol}_done");
@@ -788,6 +792,9 @@ pub(crate) fn lower_tls_read_macos(
     let recv_path = format!("{symbol}_recv_path");
     let served_pending = format!("{symbol}_served_pending");
     let result_ready = format!("{symbol}_result_ready");
+    // plan-110-D: the read deadline installed by `tls::setReadTimeout`.
+    let read_timeout = format!("{symbol}_read_timeout");
+    let drain_wait = format!("{symbol}_drain_wait");
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
@@ -825,8 +832,16 @@ pub(crate) fn lower_tls_read_macos(
         abi::load_u64(&v10, &v9, CTX_ARMED),
         abi::compare_immediate(&v10, "0"),
         abi::branch_eq(&check_pend),
+        abi::label(&drain_wait),
     ]);
-    dlsym(
+    // plan-110-D: bounded by the socket's read deadline (CTX_RTO, unbounded
+    // sentinel until `tls::setReadTimeout` installs one — so an unconfigured
+    // socket still waits forever). On expiry the receive stays ARMED and its
+    // completion block keeps its claim on CTX_PSEM/CTX_PCONTENT, so the NEXT
+    // read consumes that same receive rather than posting a second one. That is
+    // what makes a timed-out read resumable instead of leaking an outstanding
+    // receive.
+    emit_wait_bounded(
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -835,17 +850,17 @@ pub(crate) fn lower_tls_read_macos(
             relocations: &mut rel,
         },
         HANDLE,
-        "dispatch_semaphore_wait",
+        CTX,
         FNPTR,
+        DEADLINE,
+        CTX_PSEM,
+        CTX_RTO,
+        "rd",
+        &read_timeout,
         &load_fail,
+        &mut vregs,
     )?;
     ins.extend([
-        abi::load_u64(&v9, abi::stack_pointer(), CTX),
-        abi::load_u64(abi::return_register(), &v9, CTX_PSEM),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-        abi::bitwise_not(abi::c_arg(1), abi::c_arg(1)), // DISPATCH_TIME_FOREVER
-        abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
-        abi::branch_link_register(&v9),
         abi::load_u64(&v9, abi::stack_pointer(), CTX),
         abi::store_u64(abi::ZERO, &v9, CTX_ARMED),
         abi::load_u64(&v10, &v9, CTX_PCONTENT),
@@ -952,20 +967,11 @@ pub(crate) fn lower_tls_read_macos(
         abi::branch(&build_start),
         abi::label(&recv_path),
     ]);
-    emit_fresh_sem(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut ins,
-            relocations: &mut rel,
-        },
-        HANDLE,
-        CTX,
-        FNPTR,
-        &load_fail,
-        &mut vregs,
-    )?;
+    // No `emit_fresh_sem` here any more. Read waits on CTX_PSEM now, so
+    // recycling CTX_SEM would do nothing for it — and would be actively wrong:
+    // `tls::write` may have a send outstanding against the current CTX_SEM
+    // (CTX_WARMED), and replacing it underneath that send is the exact
+    // stale-semaphore hazard the fresh-sem invariant exists to prevent.
     // ctx->retain = &dispatch_retain (used inside the receive block).
     dlsym(
         &mut EmitCtx {
@@ -994,7 +1000,15 @@ pub(crate) fn lower_tls_read_macos(
             relocations: &mut rel,
         },
         HANDLE,
-        RECV_INVOKE,
+        // plan-110-D: the fresh receive now uses the POLL block, not RECV_INVOKE.
+        // Both blocks post the same `nw_connection_receive`; the difference is
+        // where the completion lands — RECV_POLL_INVOKE stashes into
+        // CTX_PCONTENT and signals CTX_PSEM, which is the pair that survives
+        // across calls. That matters once a read can time out: the posted
+        // receive cannot be cancelled, so its completion must have somewhere to
+        // land that the NEXT read will look at. Using one outstanding-receive
+        // model for both read and poll also collapses two drains into one.
+        RECV_POLL_INVOKE,
         CTX,
         BLOCK,
         FNPTR,
@@ -1005,13 +1019,12 @@ pub(crate) fn lower_tls_read_macos(
     // (failed=4 / cancelled=5), the async receive we are about to post will have
     // its completion block dropped by Network.framework, and — since no further
     // state transition will fire the state-changed handler — nothing would ever
-    // signal the fresh semaphore, hanging the FOREVER `emit_wait` below. Route to
-    // peer-closed (EOF), matching how this path already surfaces a receive error.
-    // A transition that happens DURING the wait still fires the state handler,
-    // which signals ctx->sem, so the pre-check plus the handler close the hang on
-    // both sides of the race. CTX_STATE is reset to 0 (invalid, < 4) at ctx setup
-    // and only the state handler raises it, so a live/ready connection is never
-    // short-circuited.
+    // signal the semaphore, hanging the wait below. Route to peer-closed (EOF),
+    // matching how this path already surfaces a receive error. A transition that
+    // happens DURING the wait still fires the state handler, so the pre-check
+    // plus the handler close the hang on both sides of the race. CTX_STATE is
+    // reset to 0 (invalid, < 4) at ctx setup and only the state handler raises
+    // it, so a live/ready connection is never short-circuited.
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), CTX),
         abi::load_u32(&v10, &v9, CTX_STATE),
@@ -1039,181 +1052,85 @@ pub(crate) fn lower_tls_read_macos(
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), BLOCK),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
         abi::branch_link_register(&v9),
-    ]);
-    emit_wait(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut ins,
-            relocations: &mut rel,
-        },
-        HANDLE,
-        CTX,
-        FNPTR,
-        &load_fail,
-        &mut vregs,
-    )?;
-    // A null content is end-of-stream.
-    ins.extend([
+        // Mark it outstanding and join the single bounded drain, which owns the
+        // wait, the deadline, and the CTX_PCONTENT handling for both the
+        // just-posted receive and one a previous `tls::poll` armed.
         abi::load_u64(&v9, abi::stack_pointer(), CTX),
-        abi::load_u64(&v10, &v9, CTX_CONTENT),
-        abi::compare_immediate(&v10, "0"),
-        abi::branch_eq(&peer_closed),
+        abi::move_immediate(&v10, "Integer", "1"),
+        abi::store_u64(&v10, &v9, CTX_ARMED),
+        abi::branch(&drain_wait),
     ]);
-    // dispatch_data_create_map(content, &ptr, &size) -> mapped (contiguous)
-    dlsym(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut ins,
-            relocations: &mut rel,
-        },
-        HANDLE,
-        "dispatch_data_create_map",
-        FNPTR,
-        &load_fail,
-    )?;
-    ins.extend([
-        abi::load_u64(&v9, abi::stack_pointer(), CTX),
-        abi::load_u64(abi::return_register(), &v9, CTX_CONTENT),
-        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), MPTR),
-        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), MSIZE),
-        abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
-        abi::branch_link_register(&v9),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), MAPPED),
-        abi::load_u64(&v9, abi::stack_pointer(), MSIZE),
-        abi::store_u64(&v9, abi::stack_pointer(), N),
-    ]);
-    // plan-76-B Phase 4: both the fresh-receive path (above, MAPPED != 0) and the
-    // serve-from-CTX_PEND path (MAPPED == 0) reach the shared result build with
-    // MPTR/N set.
+    // plan-110-D: every read now reaches here from the serve-from-CTX_PEND path
+    // with MPTR/N set and MAPPED == 0. The fresh-receive path used to arrive here
+    // with a live `dispatch_data` map instead; it now arms the receive and joins
+    // the drain, which does its own mapping and releases before publishing into
+    // CTX_PEND. One shape reaches the build, so there is one release policy.
     ins.push(abi::label(&build_start));
-    if text {
+    ins.extend([
+        abi::load_u64(&v10, abi::stack_pointer(), N),
+        abi::move_immediate(&v11, "Integer", &byte_list_entry_stride().to_string()),
+        abi::multiply_registers(&v12, &v10, &v11),
+        abi::add_immediate(&v12, &v12, COLLECTION_HEADER_SIZE),
+        abi::add_registers(abi::return_register(), &v12, &v10),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
+    ins.extend([
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), STR),
+        abi::move_immediate(&v9, "Byte", &byte_list_block_kind().to_string()),
+        abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_KIND),
+        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_NONE.to_string()),
+        abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_KEY_TYPE),
+        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_BYTE.to_string()),
+        abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_VALUE_TYPE),
+        abi::move_immediate(&v9, "Byte", "1"),
+        abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::load_u64(&v10, abi::stack_pointer(), N),
+        abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_COUNT),
+        abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_CAPACITY),
+        abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_immediate(&v11, abi::mfb_return(1), COLLECTION_HEADER_SIZE),
+        abi::move_immediate(&v12, "Integer", &byte_list_entry_stride().to_string()),
+        abi::multiply_registers(&v13, &v10, &v12),
+        abi::add_registers(&v14, &v11, &v13),
+        abi::load_u64(&v15, abi::stack_pointer(), MPTR),
+        abi::move_immediate(&v9, "Integer", "0"),
+        abi::label(&entry_loop),
+        abi::compare_registers(&v9, &v10),
+        abi::branch_eq(&entry_done),
+        // kind 2 has no entry array to fill (plan-57-D). Emitting this with a
+        // zero stride would rewrite one entry over the data region `count`
+        // times and run past the block, so it is skipped outright.
+    ]);
+    if byte_list_entry_stride() != 0 {
         ins.extend([
-            abi::load_u64(&v10, abi::stack_pointer(), N),
-            abi::add_immediate(abi::return_register(), &v10, 9),
-            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-        ]);
-        emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-        ins.extend([
-            abi::load_u64(&v10, abi::stack_pointer(), N),
-            abi::store_u64(&v10, abi::mfb_return(1), 0),
-            abi::load_u64(&v11, abi::stack_pointer(), MPTR),
-            abi::add_immediate(&v12, abi::mfb_return(1), 8),
-            abi::move_immediate(&v13, "Integer", "0"),
-            abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), STR),
-            abi::label(&str_copy),
-            abi::compare_registers(&v13, &v10),
-            abi::branch_eq(&str_done),
-            abi::load_u8(&v14, &v11, 0),
-            abi::store_u8(&v14, &v12, 0),
-            abi::add_immediate(&v11, &v11, 1),
-            abi::add_immediate(&v12, &v12, 1),
-            abi::add_immediate(&v13, &v13, 1),
-            abi::branch(&str_copy),
-            abi::label(&str_done),
-            abi::store_u8(abi::ZERO, &v12, 0),
-            abi::load_u64(&v9, abi::stack_pointer(), STR),
-            abi::add_immediate(abi::return_register(), &v9, 8),
-            abi::load_u64(abi::c_arg(1), &v9, 0),
-        ]);
-        emit_call_validate_utf8(symbol, &encoding_error, &mut ins, &mut rel);
-    } else {
-        ins.extend([
-            abi::load_u64(&v10, abi::stack_pointer(), N),
-            abi::move_immediate(&v11, "Integer", &byte_list_entry_stride().to_string()),
-            abi::multiply_registers(&v12, &v10, &v11),
-            abi::add_immediate(&v12, &v12, COLLECTION_HEADER_SIZE),
-            abi::add_registers(abi::return_register(), &v12, &v10),
-            abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-        ]);
-        emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-        ins.extend([
-            abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), STR),
-            abi::move_immediate(&v9, "Byte", &byte_list_block_kind().to_string()),
-            abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_KIND),
-            abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_NONE.to_string()),
-            abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_KEY_TYPE),
-            abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_BYTE.to_string()),
-            abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_VALUE_TYPE),
-            abi::move_immediate(&v9, "Byte", "1"),
-            abi::store_u8(&v9, abi::mfb_return(1), COLLECTION_OFFSET_FLAGS_VERSION),
-            abi::load_u64(&v10, abi::stack_pointer(), N),
-            abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_COUNT),
-            abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_CAPACITY),
-            abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_DATA_LENGTH),
-            abi::store_u64(&v10, abi::mfb_return(1), COLLECTION_OFFSET_DATA_CAPACITY),
-            abi::add_immediate(&v11, abi::mfb_return(1), COLLECTION_HEADER_SIZE),
-            abi::move_immediate(&v12, "Integer", &byte_list_entry_stride().to_string()),
-            abi::multiply_registers(&v13, &v10, &v12),
-            abi::add_registers(&v14, &v11, &v13),
-            abi::load_u64(&v15, abi::stack_pointer(), MPTR),
-            abi::move_immediate(&v9, "Integer", "0"),
-            abi::label(&entry_loop),
-            abi::compare_registers(&v9, &v10),
-            abi::branch_eq(&entry_done),
-            // kind 2 has no entry array to fill (plan-57-D). Emitting this with a
-            // zero stride would rewrite one entry over the data region `count`
-            // times and run past the block, so it is skipped outright.
-        ]);
-        if byte_list_entry_stride() != 0 {
-            ins.extend([
-                abi::move_immediate(&v12, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-                abi::store_u8(&v12, &v11, COLLECTION_ENTRY_OFFSET_FLAGS),
-                abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-                abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-                abi::store_u64(&v9, &v11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-                abi::move_immediate(&v12, "Integer", "1"),
-                abi::store_u64(&v12, &v11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-            ]);
-        }
-        // The payload copy runs for BOTH representations.
-        ins.extend([
-            abi::add_registers(&v12, &v14, &v9),
-            abi::load_u8(&v13, &v15, 0),
-            abi::store_u8(&v13, &v12, 0),
-            abi::add_immediate(&v15, &v15, 1),
-            abi::add_immediate(&v11, &v11, byte_list_entry_stride()),
-            abi::add_immediate(&v9, &v9, 1),
-            abi::branch(&entry_loop),
-            abi::label(&entry_done),
+            abi::move_immediate(&v12, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+            abi::store_u8(&v12, &v11, COLLECTION_ENTRY_OFFSET_FLAGS),
+            abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+            abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+            abi::store_u64(&v9, &v11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+            abi::move_immediate(&v12, "Integer", "1"),
+            abi::store_u64(&v12, &v11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
         ]);
     }
-    // plan-76-B Phase 4: MAPPED == 0 marks the served-from-CTX_PEND path — there is
-    // no NW object to release; advance the pending cursor and free the buffer when
-    // drained. Otherwise release the mapped data + retained content (unchanged).
+    // The payload copy runs for BOTH representations.
     ins.extend([
-        abi::load_u64(&v9, abi::stack_pointer(), MAPPED),
-        abi::compare_immediate(&v9, "0"),
-        abi::branch_eq(&served_pending),
+        abi::add_registers(&v12, &v14, &v9),
+        abi::load_u8(&v13, &v15, 0),
+        abi::store_u8(&v13, &v12, 0),
+        abi::add_immediate(&v15, &v15, 1),
+        abi::add_immediate(&v11, &v11, byte_list_entry_stride()),
+        abi::add_immediate(&v9, &v9, 1),
+        abi::branch(&entry_loop),
+        abi::label(&entry_done),
     ]);
-    // Release the mapped data and the retained content, then return.
-    dlsym(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut ins,
-            relocations: &mut rel,
-        },
-        HANDLE,
-        "dispatch_release",
-        FNPTR,
-        &load_fail,
-    )?;
+
+    // Served from CTX_PEND: advance the consume cursor; free + clear the buffer
+    // when fully drained so a later poll never overwrites (and leaks) it. There
+    // is no NW object to release here — the drain already released the map and
+    // the retained content before copying into CTX_PEND.
     ins.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), MAPPED),
-        abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
-        abi::branch_link_register(&v9),
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX),
-        abi::load_u64(abi::return_register(), abi::return_register(), CTX_CONTENT),
-        abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
-        abi::branch_link_register(&v9),
-        abi::branch(&result_ready),
-        // Served from CTX_PEND: advance the consume cursor; free + clear the buffer
-        // when fully drained so a later poll never overwrites (and leaks) it.
         abi::label(&served_pending),
         abi::load_u64(&v9, abi::stack_pointer(), CTX),
         abi::load_u64(&v10, &v9, CTX_PEND_OFF),
@@ -1237,43 +1154,17 @@ pub(crate) fn lower_tls_read_macos(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
-    if text {
-        // The encoding-error exit must release the mapped data and the retained
-        // content before failing, exactly as the success path above does.
-        // Otherwise a peer that keeps sending invalid UTF-8 to a program looping
-        // on tls::readText drives an unbounded dispatch_data/content leak — a
-        // remotely-triggerable memory-exhaustion DoS (bug-52). MAPPED, CTX and
-        // CTX_CONTENT are reloaded from stack slots so no live value is held in
-        // a caller-saved register across either dispatch_release `bl`.
-        ins.push(abi::label(&encoding_error));
-        dlsym(
-            &mut EmitCtx {
-                symbol,
-                platform_imports,
-                platform,
-                instructions: &mut ins,
-                relocations: &mut rel,
-            },
-            HANDLE,
-            "dispatch_release",
-            FNPTR,
-            &load_fail,
-        )?;
-        ins.extend([
-            abi::load_u64(abi::return_register(), abi::stack_pointer(), MAPPED),
-            abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
-            abi::branch_link_register(&v9),
-            abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX),
-            abi::load_u64(abi::return_register(), abi::return_register(), CTX_CONTENT),
-            abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
-            abi::branch_link_register(&v9),
-        ]);
-        emit_fail(symbol, "ErrEncoding", &mut ins, &mut rel, &done);
-    }
+
     ins.push(abi::label(&peer_closed));
     emit_fail(symbol, "ErrConnectionClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&invalid));
     emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
+    // plan-110-D: the read deadline elapsed. CTX_ARMED is deliberately still 1
+    // and CTX_PCONTENT untouched -- the receive is still outstanding and the
+    // next read picks it up. Nothing is released here: releasing the content or
+    // clearing ARMED would strand the completion block.
+    ins.push(abi::label(&read_timeout));
+    emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     ins.push(abi::label(&load_fail));
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
@@ -1310,12 +1201,16 @@ pub(crate) fn lower_tls_write_macos(
     const DLEN: usize = 64;
     const CTXDEF: usize = 72;
     const BLOCK: usize = 80; // 80..120
+    const DEADLINE: usize = 120; // plan-110-D: computed dispatch_time for the send wait
 
     let closed = format!("{symbol}_closed");
     let write_fail = format!("{symbol}_write_fail");
     let load_fail = format!("{symbol}_load_fail");
     let empty = format!("{symbol}_empty");
     let done = format!("{symbol}_done");
+    // plan-110-D: the write deadline installed by `tls::setWriteTimeout`.
+    let write_timeout = format!("{symbol}_write_timeout");
+    let no_pending_send = format!("{symbol}_no_pending_send");
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
@@ -1365,6 +1260,43 @@ pub(crate) fn lower_tls_write_macos(
         HANDLE,
         &load_fail,
     )?;
+    // plan-110-D: a send whose deadline elapsed is still outstanding — its
+    // completion block holds the CTX_SEM that was current when it was posted, and
+    // `nw_connection_send` has no cancel. Drain it before `emit_fresh_sem`
+    // replaces that semaphore, or the completion would signal an object nothing
+    // waits on and this send would consume a stale count (the bug-52/55 hazard
+    // the fresh-sem invariant exists to prevent). Bounded by the same deadline,
+    // so a peer that never drains cannot wedge the next write either.
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), CTX),
+        abi::load_u64(&v10, &v9, CTX_WARMED),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_eq(&no_pending_send),
+    ]);
+    emit_wait_bounded(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
+        HANDLE,
+        CTX,
+        FNPTR,
+        DEADLINE,
+        CTX_SEM,
+        CTX_WTO,
+        "wrdrain",
+        &write_timeout,
+        &load_fail,
+        &mut vregs,
+    )?;
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), CTX),
+        abi::store_u64(abi::ZERO, &v9, CTX_WARMED),
+        abi::label(&no_pending_send),
+    ]);
     emit_fresh_sem(
         &mut EmitCtx {
             symbol,
@@ -1471,8 +1403,12 @@ pub(crate) fn lower_tls_write_macos(
         abi::add_immediate(abi::c_arg(4), abi::stack_pointer(), BLOCK),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
         abi::branch_link_register(&v9),
+        // Outstanding until its completion signals; see the drain above.
+        abi::load_u64(&v9, abi::stack_pointer(), CTX),
+        abi::move_immediate(&v10, "Integer", "1"),
+        abi::store_u64(&v10, &v9, CTX_WARMED),
     ]);
-    emit_wait(
+    emit_wait_bounded(
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -1483,9 +1419,18 @@ pub(crate) fn lower_tls_write_macos(
         HANDLE,
         CTX,
         FNPTR,
+        DEADLINE,
+        CTX_SEM,
+        CTX_WTO,
+        "wr",
+        &write_timeout,
         &load_fail,
         &mut vregs,
     )?;
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), CTX),
+        abi::store_u64(abi::ZERO, &v9, CTX_WARMED),
+    ]);
     // Release the content we created.
     dlsym(
         &mut EmitCtx {
@@ -1513,6 +1458,12 @@ pub(crate) fn lower_tls_write_macos(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
+    // plan-110-D: the send deadline elapsed. CTX_WARMED stays 1 and CTX_SEM is
+    // left alone — the send is still in flight and the next write drains it.
+    // The content is deliberately NOT released here: `nw_connection_send` still
+    // owns a reference until its completion runs.
+    ins.push(abi::label(&write_timeout));
+    emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     ins.push(abi::label(&write_fail));
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&load_fail));

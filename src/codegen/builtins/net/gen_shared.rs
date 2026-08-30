@@ -803,13 +803,7 @@ fn lower_net_endpoint_helper(
         // `events`, so every bounded connect failed. `revents` occupies +10..+11
         // on Windows, four bytes below `SOERR_OFFSET`, which is only written
         // AFTER this poll returns.
-        emit_pollfd_events_for(
-            platform,
-            POLLFD_OFFSET,
-            true,
-            &mut instructions,
-            &mut vregs,
-        );
+        emit_pollfd_events_for(platform, POLLFD_OFFSET, true, &mut instructions, &mut vregs);
         instructions.extend([
             abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
             abi::move_immediate(abi::c_arg(1), "Integer", "1"),

@@ -417,7 +417,6 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "tls.listen",
             "tls.accept",
             "tls.read",
-            "tls.readText",
             "tls.write",
             "tls.writeText",
             "tls.poll",

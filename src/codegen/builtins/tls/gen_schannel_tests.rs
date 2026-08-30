@@ -15,28 +15,23 @@ use std::collections::HashMap;
 /// The Schannel read helper emits an `ErrInvalidArgument` failure exit, produced
 /// only by `emit_fail(ERR_INVALID_ARGUMENT_*)` — which relocates the error
 /// message data symbol. bug-414 (2): before the fix no such exit existed.
-fn reads_reject_invalid_maxbytes(text: bool) {
+fn reads_reject_invalid_maxbytes() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
     let (_ins, rel, _slots) =
-        lower_tls_read("t_read", &imports, &TestPlatform, text).expect("lower schannel tls::read");
+        lower_tls_read("t_read", &imports, &TestPlatform).expect("lower schannel tls::read");
     let invalid_argument_symbol =
         crate::codegen::registry::runtime_error_emission("ErrInvalidArgument")
             .expect("errorCode name")
             .1;
     assert!(
         rel.iter().any(|r| r.to == invalid_argument_symbol),
-        "bug-414: schannel tls::read must reject maxBytes <= 0 with ErrInvalidArgument \
-         (text={text})"
+        "bug-414: schannel tls::read must reject maxBytes <= 0 with ErrInvalidArgument"
     );
 }
 
+// plan-110-D: one form now, `tls::read` being bytes-only.
 #[test]
-fn read_bytes_rejects_nonpositive_maxbytes() {
-    reads_reject_invalid_maxbytes(false);
-}
-
-#[test]
-fn read_text_rejects_nonpositive_maxbytes() {
-    reads_reject_invalid_maxbytes(true);
+fn read_rejects_nonpositive_maxbytes() {
+    reads_reject_invalid_maxbytes();
 }

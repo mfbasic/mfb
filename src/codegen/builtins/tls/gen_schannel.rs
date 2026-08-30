@@ -27,7 +27,6 @@ use super::gen_shared::{
     TlsBodyParts, TLS_LISTENER_OFFSET_CLOSED, TLS_OFFSET_CLOSED, TLS_OFFSET_FD, TLS_OFFSET_STATE,
     TLS_RECORD_SIZE, TLS_SCHANNEL_OFFSET_BLOCK,
 };
-use crate::codegen::builtins::net::gen_shared::emit_string_result_build;
 use crate::target::shared::abi;
 const SECUR32: &str = "secur32.dll";
 const CRYPT32: &str = "crypt32.dll";

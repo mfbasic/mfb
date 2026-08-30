@@ -495,22 +495,23 @@ pub(crate) fn lower_tls_accept_helper(
     }
 }
 
+/// `tls::read`. Bytes only — plan-110-D removed `tls::readText`, so the former
+/// `text` parameter (which decoded and validated UTF-8 in the backend) is gone
+/// with it. A caller that wants text decodes the returned list with
+/// `encoding::toUtf8Text`, which is also the only correct place to do it: a
+/// stream read stops wherever the network divided the data, which need not be a
+/// character boundary.
 pub(crate) fn lower_tls_read_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-    text: bool,
 ) -> Result<TlsBodyParts, String> {
     match platform.family() {
-        PlatformFamily::MacOS => {
-            macos::lower_tls_read_macos(symbol, platform_imports, platform, text)
-        }
+        PlatformFamily::MacOS => macos::lower_tls_read_macos(symbol, platform_imports, platform),
         PlatformFamily::Linux => {
-            openssl::lower_tls_read_openssl(symbol, platform_imports, platform, text)
+            openssl::lower_tls_read_openssl(symbol, platform_imports, platform)
         }
-        PlatformFamily::Windows => {
-            schannel::lower_tls_read(symbol, platform_imports, platform, text)
-        }
+        PlatformFamily::Windows => schannel::lower_tls_read(symbol, platform_imports, platform),
     }
 }
 

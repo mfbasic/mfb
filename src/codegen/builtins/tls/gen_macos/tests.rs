@@ -269,49 +269,79 @@ fn blr_between(ins: &[CodeInstruction], start: &str, end: &str) -> usize {
         .count()
 }
 
+// bug-52 was a leak on `tls::readText`'s encoding-error exit: it failed without
+// releasing the `dispatch_data` map and the retained nw content, so a peer that
+// kept sending invalid UTF-8 to a program looping on readText drove an unbounded
+// leak — a remotely-triggerable memory-exhaustion DoS.
+//
+// plan-110-D deleted `tls::readText`, so that exit no longer exists and the
+// original assertions have no subject. The PROPERTY it protected still matters
+// and now lives one level down: `tls::read`'s drain is the only place that maps
+// an nw content object, and it must release both the map and the content before
+// publishing the plaintext into CTX_PEND. If it did not, the same peer-driven
+// leak would be back with a different label on it.
 #[test]
-fn readtext_encoding_error_releases_mapped_and_content() {
+fn read_drain_releases_mapped_and_content_before_publishing() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
     let (ins, rel, _slots) =
-        lower_tls_read_macos("t_readtext", &imports, &TlsReadTestPlatform, true)
-            .expect("lower tls::readText");
+        lower_tls_read_macos("t_read", &imports, &TlsReadTestPlatform).expect("lower tls::read");
 
-    // The encoding-error exit performs exactly the two dispatch_release
-    // calls the success path does (MAPPED, then CTX_CONTENT) before failing.
-    let releases = blr_between(&ins, "t_readtext_encoding_error", "t_readtext_peer_closed");
+    // Exactly two indirect calls between publishing the copy and serving it:
+    // dispatch_release(MAPPED) and dispatch_release(ctx->pcontent).
+    let releases = blr_between(&ins, "t_read_drain_publish", "t_read_check_pend");
     assert_eq!(
         releases, 2,
-        "bug-52: encoding_error exit must release MAPPED and CTX_CONTENT before failing"
+        "bug-52: the drain must release the map and the retained content before \
+         publishing into CTX_PEND, or a peer can drive an unbounded leak"
     );
-
-    // The fix adds a second dlsym(dispatch_release); the whole helper now
-    // resolves that data symbol on both the success and the error path
-    // (each resolution emits a hi/lo relocation pair).
-    let release_relocs = rel
-        .iter()
-        .filter(|r| r.to.contains("dispatch_release"))
-        .count();
     assert!(
-        release_relocs >= 4,
-        "expected dispatch_release resolved on both exits, got {release_relocs}"
+        rel.iter()
+            .filter(|r| r.to.contains("dispatch_release"))
+            .count()
+            >= 2,
+        "the drain must resolve dispatch_release"
     );
 }
 
+// plan-110-D: `tls::read` is bytes-only, so no path validates UTF-8 and no
+// encoding-error exit is emitted at all. This is the successor to the old
+// `readbytes_has_no_encoding_error_exit`, which distinguished the byte form from
+// a text form that no longer exists.
 #[test]
-fn readbytes_has_no_encoding_error_exit() {
+fn read_has_no_encoding_error_exit() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (ins, _rel, _slots) =
-        lower_tls_read_macos("t_readbytes", &imports, &TlsReadTestPlatform, false)
-            .expect("lower tls::read");
-
-    // readBytes has no UTF-8 validation, so it never emits an encoding_error
-    // label — confirming the bug-52 fix is scoped to the text path only.
+    let (ins, _rel, _slots) = lower_tls_read_macos("t_readbytes", &imports, &TlsReadTestPlatform)
+        .expect("lower tls::read");
     assert!(
         !ins.iter().any(|i| i.op == CodeOp::Label
             && i.get("name").as_deref() == Some("t_readbytes_encoding_error")),
-        "tls::read (bytes) must not have an encoding_error exit"
+        "tls::read must not have an encoding_error exit"
+    );
+}
+
+// plan-110-D: a read bounded by `tls::setReadTimeout` must leave the outstanding
+// receive ARMED when its deadline elapses. `nw_connection_receive` cannot be
+// cancelled, so the completion block will still land in CTX_PCONTENT later; if
+// the timeout exit cleared CTX_ARMED, the next read would post a SECOND receive
+// and the first one's bytes would be stranded (and its content object leaked).
+#[test]
+fn read_timeout_exit_leaves_the_receive_armed() {
+    mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
+    let imports = HashMap::new();
+    let (ins, _rel, _slots) =
+        lower_tls_read_macos("t_rto", &imports, &TlsReadTestPlatform).expect("lower tls::read");
+    let win = window(&ins, "t_rto_read_timeout", "t_rto_load_fail");
+    assert!(
+        !win.iter().any(|i| {
+            i.op == CodeOp::StrU64 && i.get("offset").as_deref() == Some(&CTX_ARMED.to_string())
+        }),
+        "the read-timeout exit must not write CTX_ARMED: the receive is still outstanding"
+    );
+    assert!(
+        !win.iter().any(|i| i.op == CodeOp::BranchLinkRegister),
+        "the read-timeout exit must not release anything: nw still owns the content"
     );
 }
 
@@ -416,19 +446,20 @@ fn connect_failure_exits_release_connection_and_queue() {
 // objects over 200k reads under `leaks`). The fix releases the prior
 // semaphore first, emitting a `<sym>_sem_skip_release` guard label. These
 // tests pin that label so the release cannot silently regress.
+// plan-110-D: `tls::read` no longer recycles CTX_SEM -- it waits on CTX_PSEM,
+// created once at connection setup. Recycling CTX_SEM underneath a `tls::write`
+// that has a send outstanding is the stale-semaphore hazard the fresh-sem
+// invariant exists to prevent, so read must not do it. (`tls::write` still does,
+// and `write_releases_previous_semaphore` below pins that.)
 #[test]
-fn readtext_releases_previous_semaphore() {
+fn read_does_not_recycle_the_shared_semaphore() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (ins, rel, _s) =
-        lower_tls_read_macos("t_rt", &imports, &TlsReadTestPlatform, true).expect("lower");
+    let (ins, _rel, _s) =
+        lower_tls_read_macos("t_rd", &imports, &TlsReadTestPlatform).expect("lower");
     assert!(
-        has_label(&ins, "t_rt_sem_skip_release"),
-        "readText must release the prior semaphore before creating a fresh one"
-    );
-    assert!(
-        rel.iter().any(|r| r.to.contains("dispatch_release")),
-        "readText must resolve dispatch_release for the semaphore free"
+        !has_label(&ins, "t_rd_sem_skip_release"),
+        "tls::read must not recycle CTX_SEM: tls::write may have a send outstanding on it"
     );
 }
 
