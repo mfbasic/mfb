@@ -294,8 +294,11 @@ Commit: `f2d52f271` (control-flow group + E's seam fixup); `794eada94`
 
 Acceptance: `rg -n 'syntaxcheck\|RELOCATED_TO_IR_VERIFY' src/` → 0; corpus
 set-equal; gate byte-identical; full suite green.
-Commit: — (one commit with Phase 3's docs pass: the spec's `[[src/syntaxcheck/…]]`
-citations fail `spec_citations_resolve` the moment the module is gone)
+Commit: `119b39e75` (one commit with Phase 3's docs pass: the spec's
+`[[src/syntaxcheck/…]]` citations fail `spec_citations_resolve` the moment the
+module is gone); follow-ups from the two `main` merges: `0ed75ebab`
+(C-merge-advisory), `d88e7dbed` (C-table-call-verdict), `828c0991d`
+(citation repoint), `e09a94146` (merge), `da2f33218` (C-case-line).
 
 ### Phase 3 — docs pass + closing census
 
@@ -344,7 +347,18 @@ citations fail `spec_citations_resolve` the moment the module is gone)
 
 Acceptance: docs updated; census recorded; full suite; gate; test-accept; fmt
 both crates.
-Commit: —
+(Letter-end validations on the final tree `da2f33218`, after merging `main`
+twice — `42ab48baa` (plan-109) and `0c6a24952` (plan-99): full workspace
+`cargo test --no-fail-fast` on the detached baseline checkout — every test
+binary green, with `artifact_gate_all` rerun standalone because a peer's
+gate held the lock during the suite (`cargo test --test golden`: 1746
+goldens, 0 diffs); `artifact-gate all` in the worktree: 1272 tests, 1746
+goldens, 0 diffs; corpus `diag-set-diff.sh`: 530 same / 0 reordered / 0
+set-diff; `test-accept.sh` serial sweep: 1288 ran, 0 mismatches;
+`cargo fmt --all` at the root and `--manifest-path repository/Cargo.toml`
+both clean.)
+Commit: `119b39e75` (docs pass + census; see Phase 2's line for the merge
+follow-ups).
 
 ## Validation Plan
 
