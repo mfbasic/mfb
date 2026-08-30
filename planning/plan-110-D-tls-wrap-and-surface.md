@@ -215,6 +215,41 @@ honest shape of the problem rather than a shortcut around it.
 - **No plaintext fallback, ever.** A failed handshake raises; it never returns an unencrypted
   stream.
 
+### C3 — macOS should get ONE TLS backend, not two; Phase 2's new members force the question
+
+Phase 2 asks for `localAddress`, `remoteAddress`, `setReadTimeout` and `setWriteTimeout` on a TLS
+socket. On Linux and Windows those are trivial: the TLS record's handle slot holds an fd/SOCKET, so
+they are the same `getsockname` / `getpeername` / `setsockopt` calls `tcp` already uses.
+
+**On macOS they cannot be, as the backend stands.** The record's handle slot holds an
+`nw_connection` (`gen_macos/mod.rs:REC_CONN`), not a descriptor — Network.framework owns the socket
+and exposes no fd, which is the same fact that made `wrap` impossible there (§C1). So these four
+members would need a second, Network.framework-specific implementation
+(`nw_connection_copy_endpoint` for the addresses, and timeouts grafted onto the existing
+read-wait semaphore, which `.ai/net-tls.md` already flags as having a per-read release/leak
+hazard).
+
+That would leave macOS with **two** TLS backends after `wrap` lands — Network.framework serving
+`connect`/`listen`/`accept`, Secure Transport serving `wrap` — each with its own readiness model,
+close path, and endpoint query. Two backends for one package on one platform is a standing
+correctness liability, not just duplicated work: every future TLS change has to be made and proven
+twice, and the two disagree about what a TLS socket even *is*.
+
+The better shape, and the one this letter should take, is to move macOS `tls::connect`/`listen`/
+`accept` onto **Secure Transport over a plain socket** as well. Then macOS matches Linux and
+Windows exactly — "a connected socket plus a TLS library" — every TLS socket has an fd, all four
+new members are the same code on all three platforms, `wrap` is not a special case, and the
+Network.framework ring-buffer/semaphore machinery that exists *only* because Network.framework owns
+the transport is deleted rather than extended.
+
+This is a larger change than "add four members" and it is the honest scope of Phase 2 rather than a
+way around it. Recorded here before implementation so the decision is visible and so the next
+session does not rediscover the constraint by writing the Network.framework variants first.
+
+**Status: not yet implemented.** Phase 2's rename and the `write`/`readText` merge are landed
+(commit 26e5d057c) and green; the endpoint/timeout members and the macOS backend unification are
+the remaining Phase 2 work, and `wrap` itself is Phase 3.
+
 ## Summary
 
 The macOS adoption path and ownership transfer are the highest-risk premises in the whole feature.
