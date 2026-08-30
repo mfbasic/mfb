@@ -88,7 +88,7 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
     .expect("write project.json");
     // Build the byte list via append so CAPACITY > COUNT (the bug condition).
     let source = format!(
-        "IMPORT tls\nIMPORT collections\n\n\
+        "IMPORT collections\nIMPORT encoding\nIMPORT tls\n\n\
          FUNC serveOnce(RES listener AS tls::Listener) AS Integer\n\
         \x20 RES client = tls::accept(listener)\n\
         \x20 LET greeting = encoding::utf8Decode(tls::read(client, 16))\n\

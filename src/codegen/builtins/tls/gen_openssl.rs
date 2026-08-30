@@ -2077,10 +2077,19 @@ pub(crate) fn lower_tls_read_openssl(
         // SSL_read returns a C int; sign-extend before the signed 0/<0 tests so a
         // -1 error isn't read as a large positive byte count (bug-102).
         abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
+        // Spill `n` BEFORE the branches. Both successors need it -- the success
+        // path as the byte count, the failure path as `SSL_get_error`'s second
+        // argument -- and spilling once here means nothing downstream reads the
+        // aligned bank across an intervening external call. The `read_ok` label
+        // is emitted after the classification block below, so a linear scan from
+        // that block's `blr` would otherwise reach a `str_u64 rdi` that is only
+        // ever reached by the `b.gt` above it. The scan is what
+        // `assert_no_aligned_bank_result_reads` does (bug-452), and rather than
+        // teach it control flow the value is simply not left live in `rdi`.
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFFSET),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&peer_closed),
         abi::branch_gt(&read_ok),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFFSET),
     ]);
     // plan-110-D: distinguish the socket's read deadline from a transport or
     // protocol failure. `tls::setReadTimeout` installs SO_RCVTIMEO; when it
@@ -2116,7 +2125,6 @@ pub(crate) fn lower_tls_read_openssl(
         abi::branch_eq(&read_timeout),
         abi::branch(&read_fail),
         abi::label(&read_ok),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFFSET),
     ]);
     instructions.extend([
         abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
