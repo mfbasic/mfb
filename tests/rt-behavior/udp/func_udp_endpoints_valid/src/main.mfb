@@ -1,0 +1,56 @@
+' plan-110-F Phase 1: `udp::localAddress`, `udp::close` and the two timeout
+' setters were reached only incidentally, from fixtures written for other
+' members. This exercises each one directly, on loopback, with no peer.
+IMPORT net
+IMPORT udp
+IMPORT errorCode
+IMPORT io
+
+' A negative timeout is rejected by the timeout convention. The setters return
+' Nothing, so the rejection is caught by a function-level TRAP rather than an
+' inline one (an inline TRAP handler must RECOVER a value or diverge).
+FUNC readTimeoutRejectsNegative AS Boolean
+  RES sock = udp::bind("127.0.0.1", 0)
+  udp::setReadTimeout(sock, -1)
+  RETURN FALSE
+  TRAP(err)
+    RETURN err.code = errorCode::ErrInvalidArgument
+  END TRAP
+END FUNC
+
+FUNC writeTimeoutRejectsNegative AS Boolean
+  RES sock = udp::bind("127.0.0.1", 0)
+  udp::setWriteTimeout(sock, -1)
+  RETURN FALSE
+  TRAP(err)
+    RETURN err.code = errorCode::ErrInvalidArgument
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  ' bind(host, port) with port 0 asks the OS for an ephemeral port, and
+  ' localAddress reports what it actually got: the host as asked for, and a
+  ' non-zero port.
+  RES sock = udp::bind("127.0.0.1", 0)
+  LET bound AS net::Address = udp::localAddress(sock)
+  io::print("host=" & bound.host)
+  io::print("ephemeral=" & toString(bound.port > 0))
+
+  ' Both setters accept 0 (non-blocking) and a positive bound, and return
+  ' Nothing. A fresh socket is unbounded; the setter can only bound.
+  udp::setReadTimeout(sock, 0)
+  udp::setWriteTimeout(sock, 0)
+  udp::setReadTimeout(sock, 250)
+  udp::setWriteTimeout(sock, 250)
+  io::print("timeouts set")
+
+  io::print("readNegRejected=" & toString(readTimeoutRejectsNegative()))
+  io::print("writeNegRejected=" & toString(writeTimeoutRejectsNegative()))
+
+  ' close releases the handle early; letting the binding drop afterwards is safe.
+  ' Using `sock` after this point is a COMPILE error (`TYPE_USE_AFTER_MOVE`, not
+  ' a runtime raise), pinned in `syntax/udp/func_udp_endpoints_invalid`.
+  udp::close(sock)
+  io::print("closed")
+  RETURN 0
+END FUNC

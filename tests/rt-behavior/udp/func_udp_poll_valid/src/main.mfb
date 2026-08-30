@@ -1,0 +1,66 @@
+' plan-110-F Phase 1: `udp::poll` had no fixture of its own. Both overloads run
+' here on loopback: the scalar readiness query and the list multiplex.
+'
+' The scalar form answers a Boolean and is a READINESS QUERY under the timeout
+' convention, so an unmet deadline returns FALSE rather than raising. The list
+' form is a PRODUCING call -- it yields the first ready socket, borrowed from the
+' list -- so an unmet deadline raises `ErrTimeout` instead.
+IMPORT collections
+IMPORT encoding
+IMPORT errorCode
+IMPORT net
+IMPORT udp
+IMPORT io
+
+' poll(list, 0) with nothing ready raises ErrTimeout: a producing call has no
+' not-ready value to return.
+FUNC listPollTimesOut AS Boolean
+  RES a = udp::bind("127.0.0.1", 0)
+  RES b = udp::bind("127.0.0.1", 0)
+  MUT socks AS List OF RES udp::Socket = []
+  socks = collections::append(socks, a)
+  socks = collections::append(socks, b)
+  RES ready AS udp::Socket = udp::poll(socks, 0)
+  RETURN FALSE
+  TRAP(err)
+    RETURN err.code = errorCode::ErrTimeout
+  END TRAP
+END FUNC
+
+' poll([]) has nothing to wait on at all, which is an argument error rather than
+' a timeout.
+FUNC emptyListPollIsInvalid AS Boolean
+  MUT socks AS List OF RES udp::Socket = []
+  RES ready AS udp::Socket = udp::poll(socks)
+  RETURN FALSE
+  TRAP(err)
+    RETURN err.code = errorCode::ErrInvalidArgument
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  RES receiver = udp::bind("127.0.0.1", 0)
+  LET at AS net::Address = udp::localAddress(receiver)
+  RES sender = udp::bind("127.0.0.1", 0)
+
+  ' Nothing sent yet: the scalar readiness query returns FALSE at timeout 0
+  ' rather than raising.
+  io::print("idle=" & toString(udp::poll(receiver, 0)))
+
+  ' One datagram in flight makes it readable. The blocking form (timeout
+  ' omitted) waits for it rather than racing the send.
+  udp::send(sender, at, "ping")
+  io::print("ready=" & toString(udp::poll(receiver)))
+
+  ' ...and the list form selects that same socket out of a two-element list,
+  ' borrowed: the list stays the owner and closes it once.
+  MUT socks AS List OF RES udp::Socket = []
+  socks = collections::append(socks, receiver)
+  RES picked AS udp::Socket = udp::poll(socks)
+  LET got = udp::receive(picked, 16)
+  io::print("payload=" & encoding::utf8Decode(got.bytes))
+
+  io::print("listTimeout=" & toString(listPollTimesOut()))
+  io::print("emptyInvalid=" & toString(emptyListPollIsInvalid()))
+  RETURN 0
+END FUNC

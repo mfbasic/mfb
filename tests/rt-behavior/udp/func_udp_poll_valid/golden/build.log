@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/rt-behavior/udp/func_udp_poll_valid
+Wrote AST to tests/rt-behavior/udp/func_udp_poll_valid/func_udp_poll_valid.ast
+Wrote IR to tests/rt-behavior/udp/func_udp_poll_valid/func_udp_poll_valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/udp/func_udp_poll_valid
+Wrote executable to tests/rt-behavior/udp/func_udp_poll_valid/build/func_udp_poll_valid.out
+[exit 0]
+$ tests/rt-behavior/udp/func_udp_poll_valid/build/func_udp_poll_valid.out
+idle=FALSE
+ready=TRUE
+payload=ping
+listTimeout=TRUE
+emptyInvalid=TRUE
+[exit 0]

@@ -17,9 +17,42 @@ References: plan-110-E; `.ai/testing-gates.md`; `.ai/remote_systems.md`;
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-110-E complete | `ls planning/plan-110-E-* 2>/dev/null` returns no matches | NOT MET |
-| No legacy live API references remain | exact rg commands from plan-110-E Phase 3 | NOT MET |
-| Full local suite green | `rustup run 1.96.0 cargo test` | UNVERIFIED |
+| plan-110-E complete | `ls planning/plan-110-E-* 2>/dev/null` returns no matches | MET — measured 2026-08-30: no matches; archived at `planning/completed/plan-110-E-consumer-cutover.md` (commit e56e969ae). |
+| No legacy live API references remain | anchored per-symbol sweep, below | MET — measured 2026-08-30: **zero live references**; see the classification below. |
+| Full local suite green | `rustup run 1.96.0 cargo test` | MET — measured 2026-08-30 after merging main (plan-111 A–G): 67 test binaries, 0 failures, exit 0. |
+
+**Legacy-reference sweep, measured 2026-08-30.** Same anchored form plan-110-E's census used, over
+the 23 removed symbols:
+
+```
+for sym in Socket Listener connectTcp listenTcp accept read readText write writeText poll close \
+           localAddress remoteAddress setReadTimeout setWriteTimeout bindUdp sendTo sendTextTo \
+           receiveFrom receiveTextFrom UdpSocket Datagram DatagramText; do
+  grep -rlE "net::${sym}([^A-Za-z0-9_]|$)" src tests scripts examples | grep -v '/golden/'
+done
+```
+
+`planning/` and `bugs/` are excluded deliberately: those are the historical record of the
+migration, and rewriting them would falsify it. Of the hits that remain, **none is a live API
+reference** — every one is either a comment/doc naming the old spelling, or the negative fixture
+that exists to prove the spelling is gone:
+
+| class | count | example |
+|---|---|---|
+| the removal fixture itself | 1 file, 20 spellings | `tests/syntax/net/net_stream_surface_removed_invalid` |
+| "migrated from" provenance comments in moved fixtures | 6 | `tests/rt-behavior/udp/func_udp_send_valid` (`' Migrated from net::sendTo by plan-110-C.`) |
+| emitter/plan comments citing the behaviour they inherited | 12 | `tcp/gen_io.rs:405` (`matching net::connectTcp's bounded-wait error (bug-185)`) |
+| `scripts/` provenance | 2 | `check-tcp-connect-timeout.sh` header, `scripts/README.md` |
+
+The sweep did find **four user-facing** ones, fixed here rather than left for Phase 3 because a
+prerequisite that reads "no legacy references" must not be signed off with stale `mfb man` text:
+`tls::listen`'s description promised the endpoint "is resolved and bound exactly as `net::listenTcp`
+does" (now `tcp::listen`), and `tls::close` plus the `tls` package overview both contrasted
+themselves against `net::close` (now `tcp::close` — verified still accurate: `tcp::close` does treat
+an already-closed handle as an error, `src/codegen/builtins/tcp/func_close.rs` DESC). A fourth,
+`tcp/func_close.rs`'s internal note, named `net::close` as a fellow user of the shared emitter; it
+now names `udp::close`, verified by both routing through
+`fs::gen_handle::lower_fs_close_helper`.
 
 ## 1. Goal
 
@@ -57,8 +90,12 @@ the prediction before regeneration.
 
 ### Phase 1 — Deterministic certification harness
 
-- [ ] Recount all networking fixtures/artifacts with commands and record the post-migration matrix
+- [x] Recount all networking fixtures/artifacts with commands and record the post-migration matrix
       in Corrections; ensure every requested overload has valid and invalid coverage.
+      Matrix and commands in **F-C1**: 103 fixture directories across the five buckets (plan-110-A's
+      pre-plan figure was 74), 25 byte-identity `.ncodesum` goldens, and all 40 declared overloads
+      exercised by at least one fixture source. Valid/invalid symmetry was NOT holding -- `udp` had
+      3 invalid fixtures for 8 members and `net::toUrl` had none -- so six new fixtures close it.
 - [ ] Add/finish reusable local peer scripts for TCP blackhole, UDP echo, TLS CA/client/server,
       and ICMP permission denial; no mocks or public-network dependency for required proof.
 - [ ] Prove the harness itself fails when one expected response/status/certificate is deliberately
@@ -132,7 +169,54 @@ the phase ledger when run; claims without commands are guesses.
 
 ## Corrections
 
-To be filled during execution with the post-E census, target commands, and every corrected premise.
+**F-C1 — the post-E fixture/artifact matrix (Phase 1 box 1).** Measured 2026-08-30. A fixture is a
+directory holding a `project.json` (`find <tree>/<bucket> -name project.json | wc -l`); the
+byte-identity column counts per-target `.ncodesum` goldens (`ls tests/byte-identity/<b>/golden/*.ncodesum`).
+
+| bucket | rt-behavior | syntax | rt-error | byte-identity targets | members |
+|---|---|---|---|---|---|
+| `net` | 7 | 5 | 1 | 5 | 5 |
+| `tcp` | 22 | 17 | 1 | 5 | 11 |
+| `udp` | 6 | 6 | 0 | 5 | 8 |
+| `tls` | 5 | 18 | 0 | 5 | 11 |
+| `http` | 7 | 3 | 0 | 5 | — |
+
+plan-110-A's pre-plan count was **74 network/TLS fixture sources**; the post-migration total across
+these five buckets is **103** fixture directories. The plan was right to say the number had to be
+remeasured rather than carried forward.
+
+**Every overload is exercised.** Per-shape grep over fixture sources only
+(`grep -rlE '<pattern>' tests --include='*.mfb' | grep -v /golden/`), run for all 40 declared
+overloads across the four packages; the lowest count was 1 (`udp::poll` scalar form) and no shape
+came back 0. The full command is `/tmp/f_overload_cover.sh` in the session log; the distinguishing
+patterns are recorded per shape, e.g. `tcp::connect\("[^"]*", *[^,)]+, *[^,)]+\)` for the
+host/port/timeout form vs `tcp::connect\([a-zA-Z_][A-Za-z0-9_.]*, *[^,)]+\)` for the
+Address/timeout one.
+
+**But valid/invalid coverage was NOT symmetric, and the box required it to be.** `tcp` and `tls`
+each had a per-member `_invalid` fixture; `udp` had three (`bind`, `send`, `receive`) for eight
+members, and `net` had none for `toUrl`. Five members were reached only incidentally, from fixtures
+written for something else. Closed here, with six new fixtures:
+
+| fixture | closes |
+|---|---|
+| `syntax/udp/func_udp_poll_invalid` | both `poll` overloads; also that a `List OF RES tcp::Socket` is rejected by `udp::poll` — the bare-name confusion plan-110-E's C2 closed, now pinned from the udp side too |
+| `syntax/udp/func_udp_endpoints_invalid` | `localAddress`, `close`, both timeout setters, and `close`'s consume (`TYPE_USE_AFTER_MOVE`) |
+| `syntax/udp/func_udp_absent_members_invalid` | `remoteAddress`, `receiveText`, and net's `bindUdp`/`sendTo`/`receiveFrom` spellings |
+| `syntax/net/func_net_toUrl_invalid` | `toUrl` arity/argument type (the runtime half was already `rt-behavior/net/func_net_toUrl_invalid_runtime`) |
+| `rt-behavior/udp/func_udp_endpoints_valid` | `localAddress` on an ephemeral bind, both setters at `0`/positive/negative, `close` |
+| `rt-behavior/udp/func_udp_poll_valid` | scalar readiness (FALSE at 0, TRUE after a send), the list multiplex's borrowed return, `ErrTimeout` on an idle list, `ErrInvalidArgument` on an empty one |
+
+Two facts had to be corrected while writing them, both measured rather than assumed:
+
+* **Unknown-member and type diagnostics cannot share a fixture.** The resolver reports an unknown
+  member before type checking runs, so a single `udp::remoteAddress(1)` in the endpoints file
+  collapsed 15 diagnostics to 1. That is why `func_udp_absent_members_invalid` is separate — the
+  same split `tls`'s `readText_invalid` / `writeText_invalid` pair already documents.
+* **Use-after-close is a COMPILE error, not a runtime raise.** `func_udp_endpoints_valid` first
+  tried to `TRAP` a call on a closed socket; it does not build (`TYPE_USE_AFTER_MOVE`), because
+  `close` consumes its argument. The case moved to the invalid fixture, which is the stronger
+  statement.
 
 ## Summary
 

@@ -1,0 +1,32 @@
+$ mfb build -ast -ir tests/syntax/udp/func_udp_absent_members_invalid
+  23 | 
+  24 | FUNC main AS Integer
+  25 |   LET goneRemote = udp::remoteAddress(1)
+     | ^
+tests/syntax/udp/func_udp_absent_members_invalid/src/main.mfb:25 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `udp` does not export `udp.remoteAddress`.
+  24 | FUNC main AS Integer
+  25 |   LET goneRemote = udp::remoteAddress(1)
+  26 |   LET goneReceiveText = udp::receiveText(1, 16)
+     | ^
+tests/syntax/udp/func_udp_absent_members_invalid/src/main.mfb:26 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `udp` does not export `udp.receiveText`.
+  25 |   LET goneRemote = udp::remoteAddress(1)
+  26 |   LET goneReceiveText = udp::receiveText(1, 16)
+  27 |   RES goneBindUdp = udp::bindUdp("127.0.0.1", 0)
+     | ^
+tests/syntax/udp/func_udp_absent_members_invalid/src/main.mfb:27 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `udp` does not export `udp.bindUdp`.
+  26 |   LET goneReceiveText = udp::receiveText(1, 16)
+  27 |   RES goneBindUdp = udp::bindUdp("127.0.0.1", 0)
+  28 |   udp::sendTo(1, 2, "x")
+     | ^
+tests/syntax/udp/func_udp_absent_members_invalid/src/main.mfb:28 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `udp` does not export `udp.sendTo`.
+  27 |   RES goneBindUdp = udp::bindUdp("127.0.0.1", 0)
+  28 |   udp::sendTo(1, 2, "x")
+  29 |   LET goneReceiveFrom = udp::receiveFrom(1, 16)
+     | ^
+tests/syntax/udp/func_udp_absent_members_invalid/src/main.mfb:29 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `udp` does not export `udp.receiveFrom`.
+[exit 1]

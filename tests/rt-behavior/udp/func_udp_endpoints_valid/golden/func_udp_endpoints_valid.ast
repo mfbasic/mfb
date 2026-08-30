@@ -1,0 +1,86 @@
+{
+  "project": "func_udp_endpoints_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "net", "line": 4 },
+    { "module": "udp", "line": 5 },
+    { "module": "errorCode", "line": 6 },
+    { "module": "io", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "readTimeoutRejectsNegative",
+      "line": 12,
+      "params": [
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sock", "type": null, "value": { "kind": "call", "callee": "udp.bind", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.setReadTimeout", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "boolean", "value": false }, "line": 15 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 16,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } }, "line": 17 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "writeTimeoutRejectsNegative",
+      "line": 21,
+      "params": [
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sock", "type": null, "value": { "kind": "call", "callee": "udp.bind", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.setWriteTimeout", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 23 },
+      { "kind": "return", "value": { "kind": "boolean", "value": false }, "line": 24 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 25,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } }, "line": 26 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 30,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sock", "type": null, "value": { "kind": "call", "callee": "udp.bind", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 34 },
+      { "kind": "binding", "mutable": false, "name": "bound", "type": "Address", "value": { "kind": "call", "callee": "udp.localAddress", "arguments": [{ "kind": "identifier", "value": "sock" }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "host=" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "host" } }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ephemeral=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.setReadTimeout", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "number", "value": "0" }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.setWriteTimeout", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "number", "value": "0" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.setReadTimeout", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "number", "value": "250" }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.setWriteTimeout", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "number", "value": "250" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "timeouts set" }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "readNegRejected=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "readTimeoutRejectsNegative", "arguments": [] }] } }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "writeNegRejected=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "writeTimeoutRejectsNegative", "arguments": [] }] } }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.close", "arguments": [{ "kind": "identifier", "value": "sock" }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "closed" }] }, "line": 54 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 55 }
+      ]
+    }
+    ]
+  }
+  ]
+}

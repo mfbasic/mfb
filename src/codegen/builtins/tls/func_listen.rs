@@ -12,7 +12,7 @@ certificate that clients validate, and exchange application data. It returns a
 `Listener` resource that `tls::accept` draws connections from. It is the
 server-side counterpart to the client's `tls::connect`.
 
-The endpoint is resolved and bound exactly as `net::listenTcp` does. An empty
+The endpoint is resolved and bound exactly as `tcp::listen` does. An empty
 `host` (or `"0.0.0.0"`) binds all local interfaces; any other value binds the
 matching address. The listening socket is created with the address-reuse option
 set, so a restarted server can re-bind a recently used port. The optional

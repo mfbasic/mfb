@@ -76,7 +76,7 @@ fn overload(ty: ParameterType) -> Implementation {
 }
 
 /// `abi_function` body for `tcp::close` — the shared handle-close emitter, the
-/// same one `fs::close` and `net::close` use.
+/// same one `fs::close` and `udp::close` use.
 pub(crate) fn lower_close(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],

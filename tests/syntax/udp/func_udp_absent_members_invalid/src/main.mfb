@@ -1,0 +1,31 @@
+' The spellings `udp` deliberately does NOT carry. The `tcp` sibling of this
+' file is `tests/syntax/tcp/func_tcp_removed_members_invalid`.
+'
+' `remoteAddress`: a datagram socket has no single peer, so there is nothing for
+' it to report. Every received datagram carries its own sender in
+' `Datagram.from` instead.
+'
+' `receiveText` / `DatagramText`: `net` had a text-receive shape and plan-110-C
+' did not carry it over. A datagram is a bounded blob and the network says
+' nothing about its encoding, so decoding on receipt would either guess or raise
+' on perfectly valid binary traffic. `receive` always yields bytes and
+' `encoding::utf8Decode` does the decoding when the caller knows better.
+' Sending is not symmetric -- the sender always knows what it has -- so `send`
+' does keep a `String` overload, which `func_udp_send_valid` covers.
+'
+' `bindUdp` / `sendTo` / `receiveFrom`: net's spellings. The package name
+' already says UDP, so the members are `bind`/`send`/`receive`.
+'
+' These are unknown-MEMBER errors, which the resolver reports before type
+' checking runs; the arity and argument-type diagnostics for the members that do
+' exist live in `func_udp_endpoints_invalid` and `func_udp_poll_invalid`.
+IMPORT udp
+
+FUNC main AS Integer
+  LET goneRemote = udp::remoteAddress(1)
+  LET goneReceiveText = udp::receiveText(1, 16)
+  RES goneBindUdp = udp::bindUdp("127.0.0.1", 0)
+  udp::sendTo(1, 2, "x")
+  LET goneReceiveFrom = udp::receiveFrom(1, 16)
+  RETURN 0
+END FUNC

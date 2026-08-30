@@ -99,7 +99,7 @@ connection from `tls::accept`. `Listener` is a bound, listening server
 endpoint from `tls::listen` that owns the loaded server TLS context; `tls::accept`
 draws connections from it. Both are opaque, owned, non-copyable resource handles.
 Each is closed automatically by lexical drop when its binding leaves scope, so
-`tls::close` is needed only to release a handle earlier; unlike `net::close`,
+`tls::close` is needed only to release a handle earlier; unlike `tcp::close`,
 `tls::close` consumes the handle and treats an already-closed handle as success
 rather than an error. Neither handle type is thread-sendable, and neither can be
 stored as a collection element or carried in a record.

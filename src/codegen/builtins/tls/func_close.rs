@@ -27,7 +27,7 @@ a stale handle.
 cannot be referenced afterward. The call is idempotent with respect to a socket
 that is already closed — closing a socket whose closed flag is already set does
 nothing and returns successfully — so closing a socket and then letting it drop is
-safe. This differs from `net::close`, which treats an already-closed resource as
+safe. This differs from `tcp::close`, which treats an already-closed resource as
 an error.
 
 `close` also closes a `Listener` from `tls::listen`. The same name spans both
