@@ -1,6 +1,6 @@
 # plan-98-F: Canvas Vulkan backend (Linux + Windows)
 
-Last updated: 2026-08-15
+Last updated: 2026-08-30
 Effort: x-large (1d–3d) — split F-1 (Linux) / F-2 (Windows) if it exceeds one sitting
 Depends on: plan-98-E (Metal backend — proves the renderer-swap seam on a real GPU)
 
@@ -8,18 +8,19 @@ This sub-plan adds the **Vulkan** renderer for Linux (GTK4 native surface) and W
 (HWND), behind the same D thread/ring/retirement boundary, reusing the exact
 single-pipeline shader design proven on Metal in E. After it lands, canvas programs render
 via Vulkan on Linux and Windows, matching the C software golden within tolerance
-(invariant 5), with the software backend still the byte-exact CI oracle.
+(invariant 5), with the software backend still the exact-match CI oracle.
 
-This is design-doc **build step 6**. GPU-specifics depend on D's real vertex/fence contract
+This is **build step 6** of the A–G sequence. GPU-specifics depend on D's real vertex/fence contract
 (confirmed in E) and are marked `UNVERIFIED`/`UNMEASURED` where not yet pinnable.
 
 References:
 
-- The design summary — "Platform Surfaces" (Linux GTK4→`VK_KHR_xcb/wayland_surface`,
-  Windows HWND→`VK_KHR_win32_surface`), "Resize handshake" (`vkDeviceWaitIdle` + recreate
-  swapchain), "Shaders", the `dlopen("libvulkan.so.1")` + `vkGetInstanceProcAddr` note.
-- plan-98-A invariant 4 (Vulkan submit fence advances `lastCompletedFrame`, driving the
-  closed-flag texture free; no refcount), invariant 5 (tolerance).
+- **plan-98-A** — invariant 4 (Vulkan submit fence advances `lastCompletedFrame`,
+  driving the closed-flag texture free; no refcount), invariant 5 (tolerance),
+  invariant 8 (testing policy). plan-98-A's "Cross-cutting invariants" section is this
+  feature's top-level design; there is no separate design document.
+- **plan-98-E** — the pipeline/shader shape and renderer-swap seam this reuses on a
+  second API; **plan-98-C** — the software reference images to diff against.
 - plan-98-D resize handshake (the Vulkan swapchain-recreation path is the concrete case D
   abstracted), plan-98-E's proven shader pipeline + renderer seam.
 - `.ai/arch-abi.md` (Win64 PE/console; Windows app path is GDI today — Vulkan is new code).
@@ -30,7 +31,10 @@ References:
 |---|---|---|
 | plan-98-E complete (Metal proves the renderer seam on GPU) | `ls planning/completed/plan-98-E-*` → hit | NOT MET |
 | A retrieves the GTK native surface handle + Windows HWND | plan-98-A Phase 3 acceptance met | NOT MET |
-| Full suite green at HEAD | `cargo test` → pass | UNVERIFIED |
+| Working tree builds | `cargo build` → pass | UNVERIFIED (run before starting) |
+
+> Per A's invariant 8: no "full suite green at HEAD" row and no byte-identity
+> obligation.
 
 ## 1. Goal
 
@@ -46,16 +50,16 @@ References:
   `vkDeviceWaitIdle` + recreates the swapchain, per D's handshake. Handle out-of-date/
   suboptimal swapchain (redraw trigger 4).
 - Output matches the C software golden within tolerance on both platforms; software backend
-  stays byte-exact.
+  stays exact-match.
 
 ### Non-goals (explicit constraints)
 
 - **No shared thread/ring/retirement changes** — Vulkan drops in behind D's seam exactly as
   Metal did in E.
 - **No X11/Wayland windowing backend** — GTK4 owns the window; F only creates a Vulkan surface
-  from GTK's native handle (design "Key saving").
+  from GTK's native handle — the saving that makes this letter tractable.
 - **No text** (G).
-- **Software backend stays first-class and byte-exact.**
+- **Software backend stays first-class and exact-match.**
 
 ## 2. Current State
 
@@ -73,17 +77,22 @@ References:
 
 | What | Count | Command |
 |---|---|---|
-| Vulkan surface backends | 3 (xcb, wayland, win32) | design "Platform Surfaces" |
+| Vulkan surface backends | 3 (xcb, wayland, win32) | this plan's §1 — one per platform surface A builds |
 | Platforms | 2 (Linux, Windows) | — |
 | Shaders reused from E | same set | invariant "one pipeline" |
 | Vulkan entry points to load via `vkGetInstanceProcAddr` | UNMEASURED | enumerate in Phase 1 |
 
 ### Verified properties
 
-- **Vulkan needs no SDK** (runtime `dlopen` + `vkGetInstanceProcAddr`) — VERIFIED per the
-  design note; satisfies the no-shared-libs constraint.
-- **GTK4 hands over the native surface handle**, so no X11/Wayland windowing backend is needed —
-  VERIFIED per design; A already retrieves it. Phase 1 confirms both handle getters at runtime.
+- **Vulkan needs no SDK** (runtime `dlopen("libvulkan.so.1")` + `vkGetInstanceProcAddr`
+  rather than link-time binding) — this is the approach this plan chooses to satisfy the
+  no-shared-libs constraint. **UNVERIFIED against this repo's build**: Phase 1 must prove
+  the loader path works on both Linux targets and Windows before any pipeline code lands.
+- **GTK4 hands over the native surface handle**, so no X11/Wayland windowing backend is
+  needed. **UNVERIFIED**: plan-98-A Phase 3 is the letter that makes the handle
+  retrievable (`gdk_x11_surface_get_xid` / `gdk_wayland_surface_get_wl_surface`); if A
+  landed, this is met by A's acceptance, otherwise Phase 1 confirms both getters at
+  runtime. Do not treat it as established until one of those has run.
 - UNVERIFIED: Windows Vulkan swapchain coexisting with the GDI message loop from A — Phase task
   proves the HWND drives `VK_KHR_win32_surface` while the WNDPROC still pumps.
 
@@ -114,7 +123,7 @@ GTK4/Win32 already own windowing; F only needs a Vulkan surface from their handl
 - **Changes:** a Vulkan render path on Linux + Windows; runtime Vulkan loader; new Windows GPU
   path alongside the existing GDI app path.
 - **Unchanged:** API, scene model, thread/ring/retirement code, the shared shaders (from E), the
-  software backend and its byte-exact goldens.
+  software backend and its exact-match goldens.
 
 ## Phases
 
@@ -128,7 +137,7 @@ GTK4/Win32 already own windowing; F only needs a Vulkan surface from their handl
       tolerance-match to the C software golden headless where GTK-headless Vulkan is available.
 
 Acceptance: one quad renders via Vulkan on Linux (both session types where testable) and matches
-the software reference within tolerance; software backend still byte-exact.
+the software reference within tolerance; software backend still exact-match.
 Commit: —
 
 ### Phase 2 — Linux full scene + resize/out-of-date + texture free
@@ -158,7 +167,8 @@ Commit: —
 
 Acceptance: canvas renders via Vulkan on Windows matching the software reference within
 tolerance; resize + retirement correct; the D race matrix green on the Windows Vulkan path.
-Full `cargo test` green.
+Run only the new Vulkan tolerance-golden tests plus C's software goldens (the reference
+they are compared against).
 Commit: —
 
 ## Validation Plan
@@ -171,8 +181,9 @@ Commit: —
   resize, destroy an image, idle — visually correct, resource freed once.
 - Doc sync: `src/docs/spec/app/` canvas Vulkan backend section (loader, per-session surface,
   swapchain recreate); `.ai/arch-abi.md` note on the new Windows Vulkan path vs the GDI app path.
-- Acceptance: full `cargo test`; Vulkan tolerance goldens pass on both platforms; software
-  byte-exact goldens unchanged; non-canvas byte-identity corpus unchanged; fmt.
+- Acceptance: the per-phase targeted tests above; Vulkan tolerance goldens pass on both
+  platforms; C's software exact-match goldens still pass unchanged. **No full-suite run
+  and no codegen byte-identity check in this letter** (A's invariant 8); fmt.
 
 ## Open Decisions
 
@@ -181,16 +192,25 @@ Commit: —
 - **X11 vs Wayland at runtime** — recommended: detect the GTK backend at surface-creation time
   and pick the extension; support both, don't hardcode. (§Phase 1)
 - **Headless Vulkan in CI** — recommended: run Vulkan goldens on lanes with a GPU or software
-  rasterizer (lavapipe) available; keep the software byte-exact goldens as the always-headless gate. (§Phase 1)
+  rasterizer (lavapipe) available; keep the software exact-match goldens as the always-headless gate. (§Phase 1)
 
 ## Corrections
 
-<Filled in during execution — especially the runtime session-detection result and the Windows
-Vulkan+GDI coexistence findings.>
+**2026-08-30 — pre-execution revision (no code written yet).** See plan-98-A's
+Corrections for the full account. Applied here: A's invariant 8 (this is new work, so
+no codegen byte-identity gate and no full-suite run until the end of the plan); the
+per-phase acceptance lines now name targeted tests; and the software rasteriser's
+reference images are called **exact-match** rather than "byte-exact goldens", so this
+plan's own new oracle is not confused with the repo's `tests/byte-identity/` codegen
+drift gate. No design decision changed. This letter cited no paths that moved in the
+2026-08-16/17 restructurings, so no remap was needed.
+
+<Further corrections filled in during execution — especially the runtime
+session-detection result and the Windows Vulkan+GDI coexistence findings.>
 
 ## Summary
 
 F reuses E's proven pipeline and D's boundary to add Vulkan on Linux (from GTK's native handle,
 no windowing backend needed) and Windows (new GPU path alongside GDI). Risk is swapchain
 lifecycle and the Windows-new-code path; the gate is tolerance-match to the software oracle,
-which stays the byte-exact CI truth throughout.
+which stays the exact-match CI truth throughout.

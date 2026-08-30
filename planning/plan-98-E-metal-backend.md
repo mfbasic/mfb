@@ -1,6 +1,6 @@
 # plan-98-E: Canvas Metal backend (macOS)
 
-Last updated: 2026-08-15
+Last updated: 2026-08-30
 Effort: large (3h–1d) — re-estimate against the real scene format when D lands
 Depends on: plan-98-D (graphics thread, scene ring, deferred texture free)
 
@@ -9,18 +9,22 @@ behind the unchanged thread/ring/retirement boundary from D. After it lands, a c
 program on macOS renders via a `CAMetalLayer` on the A-built layer-backed view, using
 the single-pipeline textured-tinted-quad design, and its output matches the C software
 golden **within the tolerance comparator** from C (invariant 5 — GPU output is not
-byte-identical).
+exact-match).
 
-This is design-doc **build step 5**. Its GPU-specific details depend on the scene/vertex
+This is **build step 5** of the A–G sequence. Its GPU-specific details depend on the scene/vertex
 format and fence abstraction that D makes real; those are marked `UNVERIFIED`/`UNMEASURED`
 below and are resolved in Phase 1 once D is in hand — never guessed.
 
 References:
 
-- The design summary — "Platform Surfaces" (macOS/Metal), "Rendering Notes" (one
-  pipeline, premultiplied alpha, sRGB, SDF), "Shaders".
-- plan-98-A invariant 5 (tolerance comparator), invariant 4 (closed-flag texture free — the
-  Metal command-buffer completion advances D's `lastCompletedFrame`).
+- **plan-98-A** — invariant 5 (tolerance comparator), invariant 4 (closed-flag texture
+  free — the Metal command-buffer completion advances D's `lastCompletedFrame`),
+  invariant 8 (testing policy). plan-98-A's "Cross-cutting invariants" section is this
+  feature's top-level design; there is no separate design document.
+- **plan-98-C** — the rendering conventions Metal must match within tolerance
+  (premultiplied alpha, linear blend, sRGB encode, Y-down) and the reference images to
+  diff against; **plan-98-D** — the renderer-swap boundary, vertex format and fence
+  contract.
 - `.ai/arch-abi.md` — macOS AArch64 ABI/codegen; metal-cpp header-only integration.
 - plan-98-C rendering-conventions spec section (what E must match within tolerance).
 
@@ -31,7 +35,10 @@ References:
 | plan-98-D complete (graphics thread + ring + deferred texture free) | `ls planning/completed/plan-98-D-*` → hit | NOT MET |
 | D's frame-completion signal is renderer-swappable | plan-98-D Phase 4 acceptance met | NOT MET |
 | C's tolerance comparator exists | plan-98-C Phase 2 acceptance met | NOT MET |
-| Full suite green at HEAD | `cargo test` → pass | UNVERIFIED |
+| Working tree builds | `cargo build` → pass | UNVERIFIED (run before starting) |
+
+> Per A's invariant 8: no "full suite green at HEAD" row and no byte-identity
+> obligation.
 
 ## 1. Goal
 
@@ -42,9 +49,10 @@ References:
   the `live` scene's vertex buffer; the Metal completion handler drives D's fence-gated
   retirement (the Metal fence replaces the software completion flag).
 - Output matches the C software golden **within the tolerance comparator**; the software
-  backend remains available and byte-exact for CI (invariant 7).
+  backend remains available and exact-match for CI (invariant 7).
 - Resize uses `CAMetalLayer.drawableSize` set from the main thread, picked up on the
-  graphics thread (design "Resize handshake — macOS is simpler").
+  graphics thread — the macOS resize path is simpler than Vulkan's because there is no
+  swapchain to recreate.
 
 ### Non-goals (explicit constraints)
 
@@ -73,7 +81,7 @@ References:
 
 | What | Count | Command |
 |---|---|---|
-| Render pipelines | 1 (textured tinted quad + SDF branch) | design "one pipeline, many shapes" |
+| Render pipelines | 1 (textured tinted quad + SDF branch) | this plan's §3 — the "one pipeline, many shapes" decision, mirroring C's single software path |
 | Shaders to author | UNMEASURED (1–2) | resolve in Phase 1 — see shader Open Decision |
 | macOS-specific render entry points behind D's boundary | UNVERIFIED | read D's renderer-swap seam (Phase 1) |
 
@@ -101,7 +109,7 @@ to retrofit"), and hooking the Metal completion handler into D's frame-completio
 without changing D's ordering. Land the pipeline first (prove one tinted quad matches within tolerance), the
 completion-handler → frame-completion wiring last.
 
-**Gate:** tolerance-comparator match to the C golden (not byte-identity — invariant 5). A
+**Gate:** tolerance-comparator match to the C golden (not an exact match — invariant 5). A
 mismatch beyond tolerance is a blend/sRGB/coordinate bug to root-cause against the software
 reference, never a re-baseline of the software oracle.
 
@@ -113,7 +121,7 @@ simpler here and avoids a translation layer; Vulkan is Linux/Windows only.
 - **Changes:** a Metal render path on macOS selectable at runtime; `CAMetalLayer` attached to
   the A view; build-time shader artifacts.
 - **Unchanged:** API, scene model, thread/ring/retirement code, the software backend and its
-  byte-exact goldens.
+  exact-match goldens.
 
 ## Phases
 
@@ -127,7 +135,7 @@ simpler here and avoids a translation layer; Vulkan is Linux/Windows only.
       Metal is available; else on a window-server CI lane).
 
 Acceptance: one quad renders via Metal and matches the software reference within the C
-tolerance; the software backend still passes byte-exact.
+tolerance; the software backend still passes exact-match.
 Commit: —
 
 ### Phase 2 — Full scene render + resize via drawableSize
@@ -169,8 +177,9 @@ Commit: —
   image, and idles — visually correct, resource freed once.
 - Doc sync: `src/docs/spec/app/` canvas macOS/Metal backend section; `.ai/arch-abi.md` note on
   metal-cpp + `CAMetalLayer` attach.
-- Acceptance: full `cargo test`; Metal tolerance goldens pass; software byte-exact goldens
-  unchanged; non-canvas byte-identity corpus unchanged; fmt.
+- Acceptance: the per-phase targeted tests above; Metal tolerance goldens pass; C's
+  software exact-match goldens still pass unchanged. **No full-suite run and no codegen
+  byte-identity check in this letter** (A's invariant 8); fmt.
 
 ## Open Decisions
 
@@ -180,11 +189,20 @@ Commit: —
   about. Recommended: **hand-write** if it stays 1–2 shaders; adopt the toolchain only if the
   shader count grows. Decide in Phase 1 against the real pipeline. (§Design)
 - **Headless Metal in CI** — recommended: run Metal goldens on a window-server CI lane; keep
-  the software byte-exact goldens as the always-headless gate. (§Phase 1)
+  the software exact-match goldens as the always-headless gate. (§Phase 1)
 
 ## Corrections
 
-<Filled in during execution — especially D's real vertex/fence contract.>
+**2026-08-30 — pre-execution revision (no code written yet).** See plan-98-A's
+Corrections for the full account. Applied here: A's invariant 8 (this is new work, so
+no codegen byte-identity gate and no full-suite run until the end of the plan); the
+per-phase acceptance lines now name targeted tests; and the software rasteriser's
+reference images are called **exact-match** rather than "exact-match goldens", so this
+plan's own new oracle is not confused with the repo's `tests/byte-identity/` codegen
+drift gate. No design decision changed. This letter cited no paths that moved, so no remap was needed.
+
+<Further corrections filled in during execution — especially D's real vertex/fence
+contract.>
 
 ## Summary
 
