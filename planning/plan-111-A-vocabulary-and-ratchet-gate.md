@@ -428,20 +428,36 @@ at HEAD with the seeded budgets. Failure demonstrated by lowering
 `parse_sites / resolver: 1 > budget 0` followed by
 `src/resolver/resolution.rs:1276 — ParameterType::parse(` and the paste-ready
 live table; restoring the row returned it to green.
-Commit: 05f2ba4d8
+Commit: ea2863d6b
 
 ### Phase 2 — `ParameterType: Hash`
 
 One line; unblocks letter C. Safe to land alone.
 
-- [ ] Add `Hash` to `ParameterType`'s derive list (`src/types.rs:22`).
-- [ ] Tests: add `parameter_type_hash_agrees_with_eq` in `src/types.rs` tests —
+- [x] Add `Hash` to `ParameterType`'s derive list (`src/types.rs:22`), with a
+      doc comment naming why (letter C keys `TypeModel` by the type) and the
+      `src/intern.rs:26` evidence that every payload was already `Hash`.
+- [x] Tests: add `parameter_type_hash_agrees_with_eq` in `src/types.rs` tests —
       for the `round_trip` corpus, equal types hash equal and unequal types
       (at least across all container variants) do not collide in a `HashSet`.
+      Delivered over a 29-spelling corpus drawn from the three existing
+      round-trip corpora, in four parts: (1) two independent parses of one
+      spelling hash equal, (2) all 29 are distinct `HashSet` entries, (3) an
+      independently-built key still finds its entry — the property letter C
+      relies on, and (4) a 13-element same-payload-different-variant set
+      (`ListOf`/`SetOf`/`ResultOf`, `MapOf`/`MapEntryOf`, `Named`/`Var`,
+      `Arg(0)`/`Arg(1)`, plain/`ISOLATED` `Func`, parent/worker `ThreadHandle`)
+      stays 13 distinct keys. `Var`/`Arg` are never produced by `parse`, so
+      they are constructed directly.
 
-Acceptance: `cargo test --no-fail-fast -- --skip artifact_gate_all` green. (A derive
-cannot move codegen; if letter G later shows it did, root-cause it there.)
-Commit: —
+Acceptance: **MET.** `cargo test --no-fail-fast -- --skip artifact_gate_all` →
+`CARGO_EXIT=0`, 0 failures: 3382 passed in the `mfb` unit target and every
+integration target green (`grep -c '^failures:'` → 0). Note the exit code was
+captured directly, not through a `| tail` pipeline — in zsh a pipeline reports
+the *last* command's status, so `cargo test … | tail -40` reports `tail`'s 0
+whatever cargo did. (A derive cannot move codegen; if letter G later shows it
+did, root-cause it there.)
+Commit: 5be4b7ec5
 
 ### Phase 3 — `STATE` becomes a variant
 

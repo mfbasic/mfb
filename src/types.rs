@@ -19,7 +19,16 @@ use std::fmt;
 /// A [`crate::codegen::registry::Parameter`]'s type. An enum rather than a bare
 /// `&'static str` so future kinds (argument unions, generic placeholders) can be
 /// added without touching every parameter.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// `Hash` is derived alongside `Eq` so a type can be a map *key* — plan-111-C
+/// re-keys `TypeModel`'s nine tables (and the registry's) from a rendered
+/// `String` to the type itself, which is the whole point of the migration: two
+/// spellings of one type miss each other in a `HashMap<String, _>`, where
+/// `ParameterType` equality cannot. Every payload was already `Hash` —
+/// `Symbol` is `#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]`
+/// (`src/intern.rs:26`), and the rest are `Box`/`Vec`/`usize`/`bool` — so the
+/// derive is the entire change. `hash` agrees with `eq` by construction and
+/// `parameter_type_hash_agrees_with_eq` pins it over the round-trip corpus.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum ParameterType {
     AttributeString,
     Boolean,
@@ -1379,6 +1388,132 @@ mod tests {
             );
             assert_eq!(type_.name(), spelling);
         }
+    }
+
+    /// plan-111-A Phase 2: from letter C onward a `ParameterType` is a map
+    /// *key*, so `hash` must agree with `eq` — the `HashMap`/`HashSet`
+    /// contract. The derive gives that by construction; this pins it, and pins
+    /// that variants sharing a payload shape (`ListOf`/`SetOf`,
+    /// `MapOf`/`MapEntryOf`, `Named`/`Var`, parent/worker `ThreadHandle`) stay
+    /// *distinct* keys — a collision there would silently merge two types'
+    /// entries in exactly the tables letter C re-keys.
+    #[test]
+    fn parameter_type_hash_agrees_with_eq() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::collections::HashSet;
+        use std::hash::{Hash, Hasher};
+
+        fn digest(t: &ParameterType) -> u64 {
+            let mut h = DefaultHasher::new();
+            t.hash(&mut h);
+            h.finish()
+        }
+
+        // One spelling per parseable variant, drawn from the round-trip corpora
+        // above (`thread_handle_round_trips_byte_exact`,
+        // `map_entry_and_result_parse_into_variants_and_round_trip`,
+        // `res_collection_round_trips_byte_exact`).
+        const CORPUS: &[&str] = &[
+            "AttributeString",
+            "Boolean",
+            "Byte",
+            "Integer",
+            "Fixed",
+            "Float",
+            "Money",
+            "Nothing",
+            "String",
+            "Unknown",
+            "List OF Integer",
+            "Set OF Integer",
+            "Map OF String TO Integer",
+            "MapEntry OF String TO Integer",
+            "Result OF Integer",
+            "Result OF List OF String",
+            "RES fs.File",
+            "RES File STATE Cursor",
+            "List OF RES fs.File",
+            "List OF RES File STATE Cursor",
+            "Map OF RES fs.File TO Integer",
+            "CsvReader",
+            "Pair OF Integer, String",
+            "FUNC(Integer) AS String",
+            "ISOLATED FUNC(Integer) AS String",
+            "Thread OF Integer TO String",
+            "ThreadWorker OF Integer TO String",
+            "Thread OF Integer RES fs.File STATE Cursor TO String",
+            "List OF List OF RES fs.File",
+        ];
+
+        // 1. Equal types hash equal. Two independent parses of one spelling are
+        //    `eq`, so they must be indistinguishable as keys.
+        for spelling in CORPUS {
+            let a = ParameterType::parse(spelling);
+            let b = ParameterType::parse(spelling);
+            assert_eq!(a, b, "parse is not deterministic for `{spelling}`");
+            assert_eq!(
+                digest(&a),
+                digest(&b),
+                "hash disagrees with eq for `{spelling}`"
+            );
+        }
+
+        // 2. Distinct types are distinct keys, across every container variant.
+        let mut set: HashSet<ParameterType> = HashSet::new();
+        for spelling in CORPUS {
+            assert!(
+                set.insert(ParameterType::parse(spelling)),
+                "`{spelling}` is not a distinct key — it collided with an \
+                 earlier corpus entry"
+            );
+        }
+        assert_eq!(set.len(), CORPUS.len());
+
+        // 3. A key built independently still finds its entry — the property
+        //    every re-keyed table in letter C relies on.
+        for spelling in CORPUS {
+            assert!(
+                set.contains(&ParameterType::parse(spelling)),
+                "lookup missed for `{spelling}`"
+            );
+        }
+
+        // 4. Same payload, different variant: these must NOT be one key.
+        //    `Var`/`Arg` are never produced by `parse`, so they are built here.
+        let same_payload_distinct = [
+            ParameterType::list_of(ParameterType::Integer),
+            ParameterType::set_of(ParameterType::Integer),
+            ParameterType::result_of(ParameterType::Integer),
+            ParameterType::map_of(ParameterType::String, ParameterType::Integer),
+            ParameterType::map_entry_of(ParameterType::String, ParameterType::Integer),
+            ParameterType::named("T"),
+            ParameterType::var("T"),
+            ParameterType::Arg(0),
+            ParameterType::Arg(1),
+            ParameterType::func(vec![ParameterType::Integer], ParameterType::String),
+            ParameterType::func_isolated(vec![ParameterType::Integer], ParameterType::String),
+            ParameterType::thread_handle(
+                false,
+                ParameterType::Integer,
+                ParameterType::Nothing,
+                ParameterType::String,
+            ),
+            ParameterType::thread_handle(
+                true,
+                ParameterType::Integer,
+                ParameterType::Nothing,
+                ParameterType::String,
+            ),
+        ];
+        let mut lookalikes: HashSet<ParameterType> = HashSet::new();
+        for t in &same_payload_distinct {
+            assert!(
+                lookalikes.insert(t.clone()),
+                "`{}` collided with a same-payload lookalike",
+                t.name()
+            );
+        }
+        assert_eq!(lookalikes.len(), same_payload_distinct.len());
     }
 
     #[test]
