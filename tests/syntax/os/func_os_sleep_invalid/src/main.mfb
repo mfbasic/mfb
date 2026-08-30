@@ -1,0 +1,10 @@
+' plan-99: the arity/type negatives the old `func_thread_sleep_invalid` covered,
+' restated for the handle-free call. `os::sleep` takes exactly one `Integer`.
+IMPORT os
+
+FUNC main AS Integer
+  os::sleep()
+  os::sleep("bad")
+  os::sleep(0, 1)
+  RETURN 0
+END FUNC

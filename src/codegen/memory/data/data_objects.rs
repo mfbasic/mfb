@@ -233,6 +233,15 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     if module_uses_call(module, "os.getEnv") {
         push_string_value(&mut values, err_msg("ErrNotFound"));
     }
+    // plan-99: the worker branch of `os::sleep` returns `ErrInterrupted` on
+    // cancellation, so its body always emits that message's relocation. A program
+    // that only sleeps links no `_mfb_rt_thread_*`/`_mfb_rt_fs_*` symbol, so it does
+    // NOT get the standard error-message set for free — register the message here or
+    // the reference dangles at link time (the bug-256 class). `ErrInvalidArgument`
+    // (a negative `ms`) is in the always-emitted set above.
+    if module_uses_call(module, "os.sleep") {
+        push_string_value(&mut values, err_msg("ErrInterrupted"));
+    }
     // `os::hostName`/`userName`/`executablePath` raise ErrUnsupported when the
     // host lookup fails (no passwd entry, unreadable /proc/self/exe, …).
     if module_uses_any_call(

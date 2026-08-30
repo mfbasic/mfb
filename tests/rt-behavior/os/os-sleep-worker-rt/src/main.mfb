@@ -1,0 +1,24 @@
+' plan-99: a worker-side `os::sleep` runs to completion when no cancellation is
+' requested — the cancellation-aware branch waits on an ABSOLUTE deadline, so it is
+' a real delay and not an early return. The worker `sleepThenReturn` sleeps 200 ms
+' then returns 5; the parent's `waitFor` blocks until it finishes. Only PASS/FAIL
+' lines are printed (never the raw elapsed value) so the golden stays deterministic.
+IMPORT io
+IMPORT thread
+IMPORT datetime
+IMPORT os_sleep_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(os_sleep_workers::sleepThenReturn, "seed")
+  LET t0 AS Integer = datetime::monotonicNanos()
+  LET r AS Integer = thread::waitFor(t)
+  LET t1 AS Integer = datetime::monotonicNanos()
+  LET elapsedMs AS Integer = (t1 - t0) / 1000000
+  io::print("result " & toString(r))
+  IF elapsedMs >= 150 THEN
+    io::print("slept full")
+  ELSE
+    io::print("slept short")
+  END IF
+  RETURN 0
+END FUNC

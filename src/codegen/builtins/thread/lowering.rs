@@ -6,15 +6,14 @@
 //! the worker/parent + resource-plane split off [`AbiCtx::call`]. The body returns a
 //! `void`-location result, so the `abi_function` wrapper (`lower_abi_function_helper`)
 //! seeds the `entry` label and finalizes without adding an epilogue. The internal
-//! `emit`/`read`/`sleepWorker`/`*Resource`/`drop` runtime-call names are the members'
+//! `emit`/`read`/`*Resource`/`drop` runtime-call names are the members'
 //! `os_aliases` (see `mod.rs`), routed to the owning body by `abi_function_lower`.
 
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::registry::AbiCtx;
 use crate::codegen::runtime::thread::{
-    lower_thread_sleep_helper, lower_thread_sleep_worker_helper, lower_thread_start_helper,
-    lower_thread_stdin_subscription_helper, simple_thread_handle_helper,
+    lower_thread_start_helper, lower_thread_stdin_subscription_helper, simple_thread_handle_helper,
     thread_is_cancelled_helper, thread_queue_read_helper, thread_queue_write_helper,
     ThreadBodyParts, ThreadReadMode, ThreadSimpleOp, THREAD_OFFSET_INBOUND_QUEUE,
     THREAD_OFFSET_OUTBOUND_QUEUE, THREAD_OFFSET_RESOURCE_INBOUND_QUEUE,
@@ -174,22 +173,6 @@ pub(crate) fn lower_receive(
         ctx.platform_imports,
         ctx.platform,
     )?;
-    Ok(finish(builder, parts, ctx.call))
-}
-
-/// `thread::sleep` — parent-side plain `nanosleep` — and its worker-side
-/// cancellation-aware `thread.sleepWorker` code form, selected off `AbiCtx::call`.
-pub(crate) fn lower_sleep(
-    builder: &mut CodeBuilder,
-    _args: &[ValueResult],
-    ctx: &AbiCtx,
-) -> Result<ValueResult, String> {
-    let symbol = builder.current_symbol.clone();
-    let parts = if ctx.call == "thread.sleepWorker" {
-        lower_thread_sleep_worker_helper(&symbol, ctx.platform_imports, ctx.platform)?
-    } else {
-        lower_thread_sleep_helper(&symbol, ctx.platform_imports, ctx.platform)?
-    };
     Ok(finish(builder, parts, ctx.call))
 }
 

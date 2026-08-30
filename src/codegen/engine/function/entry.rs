@@ -1269,12 +1269,24 @@ fn emit_write_integer_to_stderr_with_labels(
         abi::store_u8(abi::SCRATCH[12], abi::SCRATCH[13], 0),
         abi::label(&write_label),
         abi::add_immediate(abi::SCRATCH[17], abi::stack_pointer(), 64),
+        // plan-99: capture the buffer cursor as the data pointer BEFORE computing
+        // the length. The length's destination and the cursor can be the SAME
+        // machine register: `string_length_register()` is MFB argument 2, which the
+        // Win64 bank realizes as `r8`, and `SCRATCH[13]` (`x23`) realizes as `r8`
+        // too (`map_scratch_register`, whose plan-47-B note predicted exactly this
+        // "low scratch overlaps the Win64 argument registers" hazard). Computing
+        // the length first overwrote the cursor, so the write was handed the digit
+        // COUNT as its buffer address: on box 2230 an uncaught runtime error printed
+        // `Error: ` with an empty code line — the message line, which uses a
+        // different staging path, was fine. Reading the cursor first makes the order
+        // safe on every ABI; the length's `dst == rhs` case is already encoded
+        // correctly (`alu3` negates and adds).
+        abi::move_register(abi::string_data_register(), abi::SCRATCH[13]),
         abi::subtract_registers(
             abi::string_length_register(),
             abi::SCRATCH[17],
             abi::SCRATCH[13],
         ),
-        abi::move_register(abi::string_data_register(), abi::SCRATCH[13]),
         abi::move_immediate(abi::return_register(), "Integer", "2"),
     ]);
     platform.emit_write(from, platform_imports, ctx.instructions, ctx.relocations)?;

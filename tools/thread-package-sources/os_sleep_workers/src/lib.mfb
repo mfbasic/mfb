@@ -1,0 +1,35 @@
+IMPORT os
+IMPORT thread
+
+' plan-99: worker-side `os::sleep`. The handle-free `os::sleep` must take its
+' cancellation-aware branch when it runs inside a worker — decided at run time from
+' the thread control block the trampoline publishes at arena+8, not from an
+' argument. These two workers pin both halves of that behavior:
+'
+'   sleepThenReturn   — a short sleep nobody cancels runs to completion and the
+'                       worker returns its sentinel normally.
+'   sleepUntilCancel  — a long sleep the parent cancels mid-flight wakes early and
+'                       raises ErrInterrupted (77050009), which propagates as the
+'                       worker's outcome. A broken (uninterruptible) worker sleep
+'                       would instead run the full 5000 ms and return 0.
+EXPORT ISOLATED FUNC sleepThenReturn(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  os::sleep(200)
+  RETURN 5
+END FUNC
+
+EXPORT ISOLATED FUNC sleepUntilCancel(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  os::sleep(5000)
+  RETURN 0
+END FUNC
+
+' A worker that blocks forever on its inbound queue: it keeps a parent `Thread`
+' handle open for the whole test without itself sleeping, so a parent-side timing
+' assertion measures only the parent's own `os::sleep`.
+EXPORT ISOLATED FUNC waitForCancelForever(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  MUT spins AS Integer = 0
+  WHILE TRUE
+    LET message AS String = thread::receive(t)
+    spins = spins + len(message)
+  END WHILE
+  RETURN spins
+END FUNC

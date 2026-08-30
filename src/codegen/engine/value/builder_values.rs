@@ -2082,25 +2082,6 @@ impl CodeBuilder<'_> {
                     "thread.read"
                 }
             }
-            // plan-91-B: the worker-side sleep is cancellation-aware (waits on the
-            // inbound not-empty condvar, wakes with ErrInterrupted on cancel), so a
-            // `thread::sleep` on a worker handle lowers to the distinct
-            // `thread.sleepWorker` helper; a parent handle keeps 91-A's plain
-            // `thread.sleep` (nanosleep).
-            "thread.sleep" => {
-                let handle = self
-                    .static_type_name(helper_args.first().ok_or_else(|| {
-                        "native runtime thread.sleep missing handle argument".to_string()
-                    })?)
-                    .ok_or_else(|| {
-                        "native runtime thread.sleep handle has unknown type".to_string()
-                    })?;
-                if crate::types::is_worker_thread_handle(&handle) {
-                    "thread.sleepWorker"
-                } else {
-                    "thread.sleep"
-                }
-            }
             // Resource plane, split by direction like the data plane above. A
             // `thread::transfer` (lowered to `transferResource`) on a worker handle
             // writes the outbound resource queue (`emitResource`); on a parent

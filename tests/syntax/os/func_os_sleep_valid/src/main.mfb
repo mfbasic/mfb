@@ -1,0 +1,17 @@
+' plan-99: `os::sleep(ms)` takes ONE argument and is spelled identically wherever it
+' runs — this fixture is the merge of the old `func_thread_sleep_valid` and
+' `func_thread_sleep_worker_valid`, which existed only because `thread::sleep` had a
+' parent and a worker overload. There is no handle to pass and no thread to start,
+' so a plain program is the whole surface.
+IMPORT os
+
+ISOLATED FUNC worker(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer
+  os::sleep(50)
+  RETURN seed
+END FUNC
+
+FUNC main AS Integer
+  os::sleep(50)
+  os::sleep(0)
+  RETURN 0
+END FUNC
