@@ -9,8 +9,11 @@
 //! (postdominators + control dependence over the allocator's CFG, the extra
 //! fact ADCE needs), and [`ssa`] (the Plan2 SSA overlay — forward dominators,
 //! phi placement, per-use value resolution, and copy-forwarding facts — that
-//! the propagation rows and precise DCE marking consume).
+//! the propagation rows and precise DCE marking consume), and [`memory`]
+//! (stack-slot value availability, the fact base the store-to-load
+//! forwarding and redundant-load rows share).
 
 pub(crate) mod mark;
+pub(crate) mod memory;
 pub(crate) mod postdom;
 pub(crate) mod ssa;

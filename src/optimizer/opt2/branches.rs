@@ -138,7 +138,9 @@ pub(crate) fn fold_branches(instructions: &mut Vec<CodeInstruction>) {
 /// Whether the conditional branch is taken after `cmp a, b`, when this pass
 /// models the condition. `b.vs`/`b.vc` (the checked-arithmetic guards) and
 /// the x86/riscv-specific branch families are deliberately unmodeled.
-fn verdict(op: CodeOp, a: u64, b: u64) -> Option<bool> {
+/// pub(super): SCCP decides edge reachability with the identical rules, so
+/// the two rows cannot disagree about what a compare proves.
+pub(super) fn verdict(op: CodeOp, a: u64, b: u64) -> Option<bool> {
     let (sa, sb) = (a as i64, b as i64);
     Some(match op {
         CodeOp::BranchEq => a == b,
@@ -158,7 +160,7 @@ fn verdict(op: CodeOp, a: u64, b: u64) -> Option<bool> {
 }
 
 /// A literal field's 64-bit pattern (the folder's spelling rules).
-fn bits(text: &str) -> Option<u64> {
+pub(super) fn bits(text: &str) -> Option<u64> {
     text.parse::<u64>()
         .ok()
         .or_else(|| text.parse::<i64>().ok().map(|signed| signed as u64))

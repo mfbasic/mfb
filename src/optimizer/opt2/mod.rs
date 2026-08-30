@@ -38,10 +38,15 @@ pub(crate) mod copyprop;
 pub(crate) mod dce;
 pub(crate) mod dse;
 pub(crate) mod gvn;
+pub(crate) mod indvars;
 pub(crate) mod lvn;
 pub(crate) mod merge;
 pub(crate) mod peephole;
 pub(crate) mod plans;
+pub(crate) mod rle;
+pub(crate) mod sccp;
+pub(crate) mod stldfwd;
+pub(crate) mod tailduped;
 pub(crate) mod threading;
 pub(crate) mod uce;
 
@@ -88,7 +93,12 @@ pub(crate) fn optimize_mir(
     // cross-block constants the block-local folder cannot see; local and
     // global value numbering (L3) rewrite recomputes into copies; copy
     // propagation (L2) bypasses register copies — the minted ones included —
-    // stranding them; branch
+    // stranding them; SCCP (L3) then re-runs the constant question
+    // optimistically with reachability, deciding branches the pessimistic
+    // pass could not; the memory rows (L3) turn reloads into register copies
+    // and induction-variable simplification (L3) merges duplicate loop
+    // counters, all feeding value numbering and copy propagation below;
+    // branch
     // folding (L2) turns known compares into unconditional flow (creating
     // statically-dead blocks); jump threading (L3) collapses jump-to-jump
     // chains; dead-store elimination (L2) strands more; DCE (L2) sweeps them
@@ -98,6 +108,13 @@ pub(crate) fn optimize_mir(
     // branch-to-next hops and orphaned labels back into straight-line blocks.
     constant_folding::fold_constants(instructions);
     constprop::eliminate(instructions, model);
+    sccp::eliminate(instructions, model);
+    // One traversal serves both memory rows (see `stldfwd::forward`).
+    stldfwd::forward(instructions, model);
+    indvars::simplify(instructions, model);
+    // Tail duplication (L3) runs before the block-local rows below: removing a
+    // merge is what lets them keep their facts through the duplicated tail.
+    tailduped::duplicate(instructions);
     lvn::eliminate(instructions, model);
     gvn::eliminate(instructions, model);
     copyprop::eliminate(instructions, model);

@@ -38,6 +38,11 @@ pub(crate) struct CodeParam {
     pub(crate) location: Operand,
 }
 
+// Clone: the tail-duplication row (`optimizer::opt2::tailduped`) copies a
+// join block's instructions into each predecessor. Every field is cheaply
+// cloneable — `op` is Copy, `source` is a static Location reference, and an
+// `Operand` clone is a small enum copy (only the `Raw` arm allocates).
+#[derive(Clone)]
 pub(crate) struct CodeInstruction {
     pub(crate) op: CodeOp,
     /// Operand fields, keyed by role name. plan-78-B flipped the value from a

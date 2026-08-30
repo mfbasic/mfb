@@ -141,6 +141,51 @@ pub(crate) fn rows() -> &'static [Row] {
             counter: &stats::LOOPS_ROTATED,
         },
         Row {
+            name: "Sparse conditional constant propagation (SCCP)",
+            level: 3,
+            stage: "MIR",
+            summary: "Propagates constants and reachability together: a branch \
+                      decided by constants makes its untaken path dead, and a \
+                      value merging only on live paths stays constant.",
+            counter: &stats::SCCP_REWRITES,
+        },
+        Row {
+            name: "Induction variable simplification",
+            level: 3,
+            stage: "MIR",
+            summary: "Merges duplicate loop counters — two variables starting \
+                      equal and stepping by the same amount in lockstep become \
+                      one.",
+            counter: &stats::INDUCTION_VARS_MERGED,
+        },
+        Row {
+            name: "Store-to-load forwarding",
+            level: 3,
+            stage: "MIR",
+            summary: "Reads a value from the register that stored it instead of \
+                      from the stack, when every path to the load leaves the \
+                      slot untouched.",
+            counter: &stats::STORES_FORWARDED,
+        },
+        Row {
+            name: "Redundant load elimination",
+            level: 3,
+            stage: "MIR",
+            summary: "Drops a reload of a stack slot an earlier load already \
+                      brought into a register, when nothing in between can have \
+                      written it.",
+            counter: &stats::REDUNDANT_LOADS_REMOVED,
+        },
+        Row {
+            name: "Tail duplication",
+            level: 3,
+            stage: "MIR",
+            summary: "Copies a small shared tail into each block that jumps to \
+                      it, so the passes that must forget their facts at a merge \
+                      see straight-line code instead.",
+            counter: &stats::TAILS_DUPLICATED,
+        },
+        Row {
             name: "Local value numbering",
             level: 3,
             stage: "MIR",

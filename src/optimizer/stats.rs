@@ -36,6 +36,22 @@ pub(super) static LOOPS_PEELED: AtomicU64 = AtomicU64::new(0);
 /// "Loop rotation" (Opt1): head-tested loops converted to the guarded
 /// bottom-tested form.
 pub(super) static LOOPS_ROTATED: AtomicU64 = AtomicU64::new(0);
+/// "Sparse conditional constant propagation (SCCP)" (Opt2): instructions
+/// rewritten to constants and branches decided by the optimistic
+/// constant+reachability fixpoint.
+pub(super) static SCCP_REWRITES: AtomicU64 = AtomicU64::new(0);
+/// "Induction variable simplification" (Opt2): uses redirected from a
+/// duplicate loop counter to its surviving twin.
+pub(super) static INDUCTION_VARS_MERGED: AtomicU64 = AtomicU64::new(0);
+/// "Store-to-load forwarding" (Opt2, L3): loads rewritten to a copy of the
+/// storing register across the CFG.
+pub(super) static STORES_FORWARDED: AtomicU64 = AtomicU64::new(0);
+/// "Redundant load elimination" (Opt2): reloads rewritten to a copy of an
+/// earlier load's register.
+pub(super) static REDUNDANT_LOADS_REMOVED: AtomicU64 = AtomicU64::new(0);
+/// "Tail duplication" (Opt2): small join tails copied into their
+/// predecessors, removing the merge for the downstream block-local rows.
+pub(super) static TAILS_DUPLICATED: AtomicU64 = AtomicU64::new(0);
 /// "Local value numbering" (Opt2): block-local recomputes rewritten to
 /// copies of the earlier result.
 pub(super) static LOCAL_VALUE_NUMBERING: AtomicU64 = AtomicU64::new(0);
@@ -103,6 +119,26 @@ pub(crate) fn count_loops_peeled(fired: u64) {
 
 pub(crate) fn count_loops_rotated(fired: u64) {
     add(&LOOPS_ROTATED, fired);
+}
+
+pub(crate) fn count_sccp_rewrites(fired: u64) {
+    add(&SCCP_REWRITES, fired);
+}
+
+pub(crate) fn count_induction_vars_merged(fired: u64) {
+    add(&INDUCTION_VARS_MERGED, fired);
+}
+
+pub(crate) fn count_stores_forwarded(fired: u64) {
+    add(&STORES_FORWARDED, fired);
+}
+
+pub(crate) fn count_redundant_loads_removed(fired: u64) {
+    add(&REDUNDANT_LOADS_REMOVED, fired);
+}
+
+pub(crate) fn count_tails_duplicated(fired: u64) {
+    add(&TAILS_DUPLICATED, fired);
 }
 
 pub(crate) fn count_local_value_numberings(fired: u64) {

@@ -178,7 +178,7 @@ pub(crate) fn mark_live(
                         queue.push(*def);
                     }
                 }
-                ValueDef::Phi(args) => values.extend(args.iter().copied()),
+                ValueDef::Phi { args, .. } => values.extend(args.iter().map(|&(_, v)| v)),
                 ValueDef::Entry => {}
             }
         }
