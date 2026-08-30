@@ -152,7 +152,7 @@ x86_64 musl on box 2227, Windows 11 on box 2230) with identical output for the f
 the endpoint queries, the read/write deadlines and the multi-read/poll-handoff probe. Gates:
 `cargo test --no-fail-fast` green; `scripts/test-accept.sh` 1297 tests, 0 mismatches;
 `scripts/artifact-gate.sh all` 1281 tests, 1438 builds, 1770 goldens, **0 diffs**.
-Commit: d2b844c95, 3016059f5, 6c402be37, 53cfe7a78, 4971c6b50, and the ncodesum regeneration below
+Commit: d2b844c95, 3016059f5, 6c402be37, 53cfe7a78, 4971c6b50, 9f7d697bd, ce9deb349, c7dba23ab
 
 ### Phase 3 — Implement wrap — CUT
 
