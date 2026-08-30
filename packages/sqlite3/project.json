@@ -7,7 +7,8 @@
   "libraries": {
     "sqlite3": [
       { "os": "macos", "type": "system", "source": "libsqlite3.dylib" },
-      { "os": "linux", "type": "system", "source": "libsqlite3.so.0" }
+      { "os": "linux", "type": "system", "source": "libsqlite3.so.0" },
+      { "os": "windows", "type": "system", "source": "winsqlite3.dll" }
     ]
   },
   "sources": [
