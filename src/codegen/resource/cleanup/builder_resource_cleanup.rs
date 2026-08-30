@@ -16,12 +16,12 @@ impl CodeBuilder<'_> {
     /// `emit_make_handle` writes offsets 0/8/16 and leaves the rest poisoned. So
     /// the words are readable-as-pointers only for a `File`, and the drop-path
     /// reclaim must ask before it frees them (plan-52-B Phase 2).
-    pub(crate) fn resource_uses_io_buffers(type_: &str) -> bool {
-        crate::codegen::resource::base_resource_name(type_) == "fs.File"
+    pub(crate) fn resource_uses_io_buffers(type_: &ParameterType) -> bool {
+        crate::codegen::resource::base_resource_name(&type_.name()) == "fs.File"
     }
 
-    pub(crate) fn resource_cleanup_symbol(&self, type_: &str) -> Option<String> {
-        let Some(close) = crate::codegen::builtins::resource_close_function(type_) else {
+    pub(crate) fn resource_cleanup_symbol(&self, type_: &ParameterType) -> Option<String> {
+        let Some(close) = crate::codegen::builtins::resource_close_function(&type_.name()) else {
             // bug-374: not one of the language's own resources, so fall back to
             // the user-declared `RESOURCE T CLOSE BY op` table. The close op is
             // an ordinary `LINK` call target, so it resolves through
@@ -32,7 +32,7 @@ impl CodeBuilder<'_> {
                 .type_model
                 .resource_closers
                 .get(&ParameterType::declared(
-                    crate::codegen::resource::base_resource_name(type_),
+                    crate::codegen::resource::base_resource_name(&type_.name()),
                 ))?;
             return crate::codegen::engine::builder::resolve_closer_symbol(
                 close,
@@ -58,32 +58,30 @@ impl CodeBuilder<'_> {
     /// (`Stream STATE PendingState`) names the same union as its bare form, so it
     /// must register the same tag-dispatched close — otherwise a stateful union
     /// binding would register no cleanup at all and leak its handle.
-    pub(crate) fn resource_union_cleanup(&self, type_: &str) -> Option<Vec<(usize, String)>> {
-        let type_ = crate::codegen::resource::base_resource_name(type_);
-        if !self
-            .type_model
-            .union_names
-            .contains(&ParameterType::declared(type_))
-        {
+    pub(crate) fn resource_union_cleanup(
+        &self,
+        type_: &ParameterType,
+    ) -> Option<Vec<(usize, String)>> {
+        // The STATE clause is stripped structurally; the union set is keyed on
+        // the bare base (plan-75 gap 3).
+        let type_ = type_.without_state();
+        if !self.type_model.union_names.contains(&type_) {
             return None;
         }
-        let variants: Vec<String> = self
+        let variants: Vec<ParameterType> = self
             .type_model
-            .variants_for_union(&ParameterType::declared(type_))
-            .map(|v| v.name().into_owned())
+            .variants_for_union(&type_)
+            .cloned()
             .collect();
         if variants.is_empty() {
             return None;
         }
         let mut out = Vec::new();
         for variant in variants {
-            if !crate::codegen::builtins::is_resource_type(&variant) {
+            if !crate::codegen::builtins::is_resource_type(&variant.name()) {
                 return None;
             }
-            let tag = *self
-                .type_model
-                .union_variant_tags
-                .get(&ParameterType::declared(&variant))?;
+            let tag = *self.type_model.union_variant_tags.get(&variant)?;
             let symbol = self.resource_cleanup_symbol(&variant)?;
             out.push((tag, symbol));
         }
@@ -95,7 +93,7 @@ impl CodeBuilder<'_> {
     /// 80-byte resource record itself — so its `STATE` payload lives in the active
     /// variant's record reached via a `+8` indirection, whereas a concrete
     /// resource value already *is* that record. The STATE suffix is stripped.
-    pub(crate) fn is_resource_union_type(&self, type_: &str) -> bool {
+    pub(crate) fn is_resource_union_type(&self, type_: &ParameterType) -> bool {
         self.resource_union_cleanup(type_).is_some()
     }
 
@@ -147,7 +145,7 @@ impl CodeBuilder<'_> {
         self.emit_union_tag_dispatch_drop(
             &union_ptr,
             &cleanup.variants,
-            cleanup.state_type.as_deref(),
+            cleanup.state_type.as_ref(),
             &done,
         )?;
         self.emit(abi::label(&done));
@@ -170,7 +168,7 @@ impl CodeBuilder<'_> {
         &mut self,
         union_ptr: &VirtualRegister,
         variants: &[(usize, String)],
-        state_type: Option<&str>,
+        state_type: Option<&ParameterType>,
         done_label: &str,
     ) -> Result<(), String> {
         let union_slot = self.allocate_stack_object("resource_union_drop_ptr", 8);
@@ -355,7 +353,7 @@ impl CodeBuilder<'_> {
         if let Some(offset) = resource_slot {
             self.emit_resource_block_reclaim(
                 offset,
-                cleanup.state_type.as_deref(),
+                cleanup.state_type.as_ref(),
                 cleanup.has_io_buffers,
             )?;
         }
@@ -387,7 +385,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_resource_block_reclaim(
         &mut self,
         resource_slot: usize,
-        state_type: Option<&str>,
+        state_type: Option<&ParameterType>,
         has_io_buffers: bool,
     ) -> Result<(), String> {
         // A moved record's blocks belong to the receiver now: `thread::transfer`
@@ -480,7 +478,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_free_resource_state_block(
         &mut self,
         resource_slot: usize,
-        state_type: &str,
+        state_type: &ParameterType,
     ) -> Result<(), String> {
         let skip = self.label("resource_state_free_skip");
         let state_slot = self.allocate_stack_object("resource_state_free_ptr", 8);
@@ -566,9 +564,12 @@ impl CodeBuilder<'_> {
     /// tag-dispatch table + uniform STATE type for a resource-union element
     /// (bug-429). Errors only if `type_` is not a collection, or its element is
     /// neither a known concrete resource nor a resource union.
-    pub(crate) fn collection_resource_drop(&self, type_: &str) -> Result<OwnedListDrop, String> {
-        let element = list_element_type(type_)
-            .or_else(|| map_type_parts(type_).map(|(_, value)| value))
+    pub(crate) fn collection_resource_drop(
+        &self,
+        type_: &ParameterType,
+    ) -> Result<OwnedListDrop, String> {
+        let element = typed_list_element_type(type_)
+            .or_else(|| typed_map_type_parts(type_).map(|(_, value)| value))
             .ok_or_else(|| format!("owned-list owner '{type_}' is not a collection"))?;
         // A resource-union element has no single close op; each floated node is
         // dropped by dispatching on its active variant's tag, exactly as a lone
@@ -578,7 +579,7 @@ impl CodeBuilder<'_> {
         if let Some(variants) = self.resource_union_cleanup(&element) {
             return Ok(OwnedListDrop::Union {
                 variants,
-                state_type: crate::codegen::resource::state_type_name(&element).map(str::to_string),
+                state_type: element.state(),
             });
         }
         let symbol = self.resource_cleanup_symbol(&element).ok_or_else(|| {

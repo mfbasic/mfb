@@ -111,9 +111,7 @@ pub(crate) fn lower_add(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let set = args[0].clone();
-    let Some(element_type) =
-        typed_set_element_type(&set.type_).map(|type_| type_.name().into_owned())
-    else {
+    let Some(element_type) = typed_set_element_type(&set.type_).cloned() else {
         return Err(format!(
             "native collection add does not accept {}",
             set.type_
@@ -128,7 +126,7 @@ pub(crate) fn lower_add(
     let item = args[1].clone();
     // Observation boundary: a `Float` element must be finite (plan-17).
     builder.observe_float_vr(&item)?;
-    if item.type_.name() != element_type.as_str() {
+    if item.type_ != element_type {
         return Err(format!(
             "native collection add element must be {element_type}, got {}",
             item.type_
@@ -154,6 +152,6 @@ pub(crate) fn lower_add(
         true_slot,
         &set.type_,
         &element_type,
-        "Boolean",
+        &ParameterType::Boolean,
     )
 }

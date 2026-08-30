@@ -4,7 +4,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::{callable_return_type, typed_list_element_type};
+use crate::codegen::engine::types::{typed_callable_return_type, typed_list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -60,7 +60,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let collection = self.lower_value(&args[0])?;
         let item_type = typed_list_element_type(&collection.type_)
-            .map(|type_| type_.name().into_owned())
+            .cloned()
             .ok_or_else(|| format!("native sortBy does not accept {}", collection.type_))?;
         // plan-86 A1: for a String item list the 8-byte merge cannot move the
         // variable-width payloads, so `gather` mode sorts an Integer index
@@ -68,7 +68,7 @@ impl CodeBuilder<'_> {
         // at the end (see the `if gather` blocks below). The dispatch gate only
         // routes String here when both args are re-eval-safe (the keys build
         // re-lowers them through `transform`).
-        let gather = item_type == "String";
+        let gather = item_type == ParameterType::String;
         let list_type = collection.type_.clone();
         let coll_slot = self.allocate_stack_object("sortby_coll", 8);
         self.emit(abi::store_u64(
@@ -77,12 +77,14 @@ impl CodeBuilder<'_> {
             coll_slot,
         ));
         let action = self.lower_value(&args[1])?;
-        let key_type = callable_return_type(&action.type_.name()).ok_or_else(|| {
-            format!(
-                "native sortBy keyFn must be a function, got {}",
-                action.type_
-            )
-        })?;
+        let key_type = typed_callable_return_type(&action.type_)
+            .cloned()
+            .ok_or_else(|| {
+                format!(
+                    "native sortBy keyFn must be a function, got {}",
+                    action.type_
+                )
+            })?;
         self.require_direct_callable("sortBy", &action)?;
         let action_slot = self.allocate_stack_object("sortby_action", 8);
         self.emit(abi::store_u64(
@@ -90,7 +92,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             action_slot,
         ));
-        let keys_type = ParameterType::list_of(ParameterType::parse(&key_type));
+        let keys_type = ParameterType::list_of(key_type.clone());
 
         // n = count(collection).
         let n_slot = self.allocate_stack_object("sortby_n", 8);
@@ -206,7 +208,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
             self.emit(abi::branch_eq(&k_ok));
             // keyFn failed: free the partial keys buffer, propagate the raw error.
-            self.emit_callback_failure_exit(Some((keys_slot, keys_type.name().into_owned())))?;
+            self.emit_callback_failure_exit(Some((keys_slot, keys_type.clone())))?;
             self.emit(abi::label(&k_ok));
             // keys[i] = RESULT_VALUE_REGISTER.
             self.emit(abi::load_u64(&addr, abi::stack_pointer(), keys_slot));
@@ -473,11 +475,25 @@ impl CodeBuilder<'_> {
             let gscr2 = self.temporary_vreg();
             let gcoll = self.temporary_vreg();
             self.emit(abi::load_u64(&gcoll, abi::stack_pointer(), coll_slot));
-            self.emit_element_value_offset(&gvoff, &gvlen, &gcoll, &gidx, &gscr1, &gscr2, "String");
-            let gitem = self.emit_load_collection_payload("String", &gcoll, &gvoff, &gvlen)?;
+            self.emit_element_value_offset(
+                &gvoff,
+                &gvlen,
+                &gcoll,
+                &gidx,
+                &gscr1,
+                &gscr2,
+                &ParameterType::String,
+            );
+            let gitem =
+                self.emit_load_collection_payload(&ParameterType::String, &gcoll, &gvoff, &gvlen)?;
             self.emit(abi::store_u64(&gitem, abi::stack_pointer(), gitem_slot));
-            self.lower_list_append_in_place(result_slot, gitem_slot, &list_type, "String")?;
-            self.free_collection_loop_item(gitem_slot, "String")?;
+            self.lower_list_append_in_place(
+                result_slot,
+                gitem_slot,
+                &list_type,
+                &ParameterType::String,
+            )?;
+            self.free_collection_loop_item(gitem_slot, &ParameterType::String)?;
             self.emit(abi::load_u64(&r0, abi::stack_pointer(), gk_slot));
             self.emit(abi::add_immediate(&r0, &r0, 1));
             self.emit(abi::store_u64(&r0, abi::stack_pointer(), gk_slot));

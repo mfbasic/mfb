@@ -89,10 +89,15 @@ impl CodeBuilder<'_> {
     /// Whether a map key type uses the FNV-1a bucket probe (plan-02 Phase 6). The
     /// probe compares key bytes, which is exactly the linear scan's comparison for
     /// these types; other key types keep the scan.
-    pub(crate) fn map_key_probe_eligible(key_type: &str) -> bool {
+    pub(crate) fn map_key_probe_eligible(key_type: &ParameterType) -> bool {
         matches!(
             key_type,
-            "String" | "Integer" | "Float" | "Fixed" | "Byte" | "Boolean"
+            ParameterType::String
+                | ParameterType::Integer
+                | ParameterType::Float
+                | ParameterType::Fixed
+                | ParameterType::Byte
+                | ParameterType::Boolean
         )
     }
 
@@ -100,15 +105,19 @@ impl CodeBuilder<'_> {
     /// for the map probe — the same bytes `emit_copy_payload_to_collection` stored
     /// for the key. `String` keys point past the length word; fixed-width keys
     /// point at their stack slot.
-    fn emit_map_query_key(&mut self, key_type: &str, key_slot: usize) -> Result<(), String> {
+    fn emit_map_query_key(
+        &mut self,
+        key_type: &ParameterType,
+        key_slot: usize,
+    ) -> Result<(), String> {
         let scratch9 = self.temporary_vreg();
         match key_type {
-            "String" => {
+            ParameterType::String => {
                 self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), key_slot));
                 self.emit(abi::load_u64(abi::c_arg(2), &scratch9, 0));
                 self.emit(abi::add_immediate(abi::c_arg(1), &scratch9, 8));
             }
-            "Boolean" | "Byte" => {
+            ParameterType::Boolean | ParameterType::Byte => {
                 self.emit(abi::add_immediate(
                     abi::c_arg(1),
                     abi::stack_pointer(),
@@ -116,7 +125,7 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
             }
-            "Integer" | "Float" | "Fixed" => {
+            ParameterType::Integer | ParameterType::Float | ParameterType::Fixed => {
                 self.emit(abi::add_immediate(
                     abi::c_arg(1),
                     abi::stack_pointer(),
@@ -149,7 +158,7 @@ impl CodeBuilder<'_> {
         &mut self,
         collection_slot: usize,
         key_slot: usize,
-        key_type: &str,
+        key_type: &ParameterType,
         not_found_label: &str,
     ) -> Result<usize, String> {
         let entry_slot = self.allocate_stack_object("map_probe_entry", 8);
@@ -345,8 +354,8 @@ impl CodeBuilder<'_> {
         collection_slot: usize,
         key_slot: usize,
         collection_type: &ParameterType,
-        key_type: &str,
-        value_type: &str,
+        key_type: &ParameterType,
+        value_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         if Self::map_key_probe_eligible(key_type) {
             let not_found = self.label("map_get_not_found");
@@ -365,12 +374,12 @@ impl CodeBuilder<'_> {
             ));
             self.emit(abi::load_u64(&entry, abi::stack_pointer(), entry_slot));
             self.emit(abi::load_u64(
-                &value_offset,
+                value_offset,
                 &entry,
                 COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
             ));
             self.emit(abi::load_u64(
-                &value_length,
+                value_length,
                 &entry,
                 COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
             ));
@@ -382,7 +391,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 origin: None,
-                type_: ParameterType::parse(&value_type),
+                type_: value_type.clone(),
                 location: Operand::from(result.render()),
                 text: format!("get({collection_type}, {key_type}) [hash]"),
             });
@@ -414,8 +423,8 @@ impl CodeBuilder<'_> {
             &count,
             &index,
             &entry,
-            &key_offset,
-            &key_length,
+            key_offset,
+            key_length,
             COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
             &loop_label,
@@ -423,23 +432,23 @@ impl CodeBuilder<'_> {
         );
         self.emit_collection_payload_match_branch(
             key_type,
-            "",
+            &ParameterType::named(""),
             &collection,
-            &key_offset,
-            &key_length,
-            &key,
+            key_offset,
+            key_length,
+            key,
             &found,
             &next,
         )?;
 
         self.emit(abi::label(&found));
         self.emit(abi::load_u64(
-            &value_offset,
+            value_offset,
             &entry,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::load_u64(
-            &value_length,
+            value_length,
             &entry,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
@@ -455,7 +464,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&value_type),
+            type_: value_type.clone(),
             location: Operand::from(result.render()),
             text: format!("get({collection_type}, {key_type})"),
         })
@@ -467,8 +476,8 @@ impl CodeBuilder<'_> {
         key_slot: usize,
         default_slot: usize,
         collection_type: &ParameterType,
-        key_type: &str,
-        value_type: &str,
+        key_type: &ParameterType,
+        value_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         if Self::map_key_probe_eligible(key_type) {
             let use_default = self.label("map_get_or_default");
@@ -487,12 +496,12 @@ impl CodeBuilder<'_> {
             ));
             self.emit(abi::load_u64(&entry, abi::stack_pointer(), entry_slot));
             self.emit(abi::load_u64(
-                &value_offset,
+                value_offset,
                 &entry,
                 COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
             ));
             self.emit(abi::load_u64(
-                &value_length,
+                value_length,
                 &entry,
                 COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
             ));
@@ -500,7 +509,7 @@ impl CodeBuilder<'_> {
                 self.emit_load_map_payload(value_type, &collection, &value_offset, &value_length)?;
             self.emit(abi::branch(&done));
             self.emit(abi::label(&use_default));
-            if value_type == "String" {
+            if *value_type == ParameterType::String {
                 // Copy the aliased default into a fresh owned string so both paths
                 // return an owned `String` (found path materializes fresh); returning
                 // the alias double-frees it and corrupts the arena. See
@@ -519,7 +528,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 origin: None,
-                type_: ParameterType::parse(&value_type),
+                type_: value_type.clone(),
                 location: Operand::from(result.render()),
                 text: format!("getOr({collection_type}, {key_type}, {value_type}) [hash]"),
             });
@@ -551,8 +560,8 @@ impl CodeBuilder<'_> {
             &count,
             &index,
             &entry,
-            &key_offset,
-            &key_length,
+            key_offset,
+            key_length,
             COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
             &loop_label,
@@ -560,23 +569,23 @@ impl CodeBuilder<'_> {
         );
         self.emit_collection_payload_match_branch(
             key_type,
-            "",
+            &ParameterType::named(""),
             &collection,
-            &key_offset,
-            &key_length,
-            &key,
+            key_offset,
+            key_length,
+            key,
             &found,
             &next,
         )?;
 
         self.emit(abi::label(&found));
         self.emit(abi::load_u64(
-            &value_offset,
+            value_offset,
             &entry,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::load_u64(
-            &value_length,
+            value_length,
             &entry,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
@@ -587,7 +596,7 @@ impl CodeBuilder<'_> {
         self.emit_entry_scan_advance(&entry, &index, &next, &loop_label);
 
         self.emit(abi::label(&use_default));
-        if value_type == "String" {
+        if *value_type == ParameterType::String {
             // Copy the aliased default into a fresh owned string so both paths
             // return an owned `String` (found path materializes fresh); returning
             // the alias double-frees it and corrupts the arena. See
@@ -607,7 +616,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&value_type),
+            type_: value_type.clone(),
             location: Operand::from(result.render()),
             text: format!("getOr({collection_type}, {key_type}, {value_type})"),
         })

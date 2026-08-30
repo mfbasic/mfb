@@ -169,9 +169,7 @@ pub(crate) fn lower_set(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let collection = args[0].clone();
-    if let Some(element_type) =
-        typed_list_element_type(&collection.type_).map(|type_| type_.name().into_owned())
-    {
+    if let Some(element_type) = typed_list_element_type(&collection.type_).cloned() {
         let list_slot = builder.allocate_stack_object("set_list", 8);
         builder.emit(abi::store_u64(
             &collection.location,
@@ -195,7 +193,7 @@ pub(crate) fn lower_set(
         // Observation boundary: a `Float` replacement element must be finite
         // (plan-17).
         builder.observe_float_vr(&item)?;
-        if item.type_.name() != element_type.as_str() {
+        if item.type_ != element_type {
             return Err(format!(
                 "native collection set list item must be {}, got {}",
                 element_type, item.type_
@@ -279,8 +277,8 @@ pub(crate) fn lower_set(
         return builder.free_intermediate_collection(removed_slot, &collection.type_, result);
     }
 
-    if let Some((key_type, value_type)) = typed_map_type_parts(&collection.type_)
-        .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
+    if let Some((key_type, value_type)) =
+        typed_map_type_parts(&collection.type_).map(|(k, v)| (k.clone(), v.clone()))
     {
         let map_slot = builder.allocate_stack_object("set_map", 8);
         builder.emit(abi::store_u64(
@@ -291,7 +289,7 @@ pub(crate) fn lower_set(
         let key = args[1].clone();
         // Observation boundary: a `Float` map key must be finite (plan-17).
         builder.observe_float_vr(&key)?;
-        if key.type_.name() != key_type.as_str() {
+        if key.type_ != key_type {
             return Err(format!(
                 "native collection set map key must be {}, got {}",
                 key_type, key.type_
@@ -307,7 +305,7 @@ pub(crate) fn lower_set(
         let value = args[2].clone();
         // Observation boundary: a `Float` map value must be finite (plan-17).
         builder.observe_float_vr(&value)?;
-        if value.type_.name() != value_type.as_str() {
+        if value.type_ != value_type {
             return Err(format!(
                 "native collection set map value must be {}, got {}",
                 value_type, value.type_

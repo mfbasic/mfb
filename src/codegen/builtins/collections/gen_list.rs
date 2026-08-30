@@ -22,7 +22,7 @@ impl CodeBuilder<'_> {
         collection_slot: usize,
         key_slot: usize,
         collection_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
         unchecked: bool,
     ) -> Result<ValueResult, String> {
         self.lower_list_get_common(
@@ -46,7 +46,7 @@ impl CodeBuilder<'_> {
         key_slot: usize,
         default_slot: Option<usize>,
         collection_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
         unchecked: bool,
     ) -> Result<ValueResult, String> {
         self.reset_temporary_registers();
@@ -82,8 +82,8 @@ impl CodeBuilder<'_> {
             self.emit(abi::branch_ge(&miss));
         }
         self.emit_element_value_offset(
-            &value_offset,
-            &value_length,
+            value_offset,
+            value_length,
             &collection,
             &index,
             &entry_offset,
@@ -93,8 +93,8 @@ impl CodeBuilder<'_> {
         let result = self.emit_load_collection_payload(
             element_type,
             &collection,
-            &value_offset,
-            &value_length,
+            value_offset,
+            value_length,
         )?;
         self.emit(abi::branch(&done));
         self.emit(abi::label(&miss));
@@ -104,7 +104,7 @@ impl CodeBuilder<'_> {
                 format!("get({collection_type}, Integer)")
             }
             Some(default_slot) => {
-                if element_type == "String" {
+                if *element_type == ParameterType::String {
                     // See `lower_map_get_or`: the found path materializes a fresh
                     // owned string, so the default must be copied too — returning
                     // the alias double-frees it and corrupts the arena.
@@ -126,7 +126,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&element_type),
+            type_: element_type.clone(),
             location: Operand::from(result.render()),
             text,
         })
@@ -138,7 +138,7 @@ impl CodeBuilder<'_> {
         key_slot: usize,
         default_slot: usize,
         collection_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         self.lower_list_get_common(
             collection_slot,

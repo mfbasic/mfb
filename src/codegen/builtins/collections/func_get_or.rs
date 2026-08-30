@@ -176,16 +176,14 @@ pub(crate) fn lower_get_or(
     let default_slot = builder.allocate_stack_object("get_or_default", 8);
     builder.store_value_at(&default, abi::stack_pointer(), default_slot);
 
-    if let Some(element_type) =
-        typed_list_element_type(&collection.type_).map(|type_| type_.name().into_owned())
-    {
+    if let Some(element_type) = typed_list_element_type(&collection.type_).cloned() {
         if key.type_ != ParameterType::Integer {
             return Err(format!(
                 "native collection getOr list index must be Integer, got {}",
                 key.type_
             ));
         }
-        if default.type_.name() != element_type.as_str() {
+        if default.type_ != element_type {
             return Err(format!(
                 "native collection getOr default must be {}, got {}",
                 element_type, default.type_
@@ -201,16 +199,16 @@ pub(crate) fn lower_get_or(
         return builder.materialize_owned_element(result);
     }
 
-    if let Some((key_type, value_type)) = typed_map_type_parts(&collection.type_)
-        .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
+    if let Some((key_type, value_type)) =
+        typed_map_type_parts(&collection.type_).map(|(k, v)| (k.clone(), v.clone()))
     {
-        if key.type_.name() != key_type.as_str() {
+        if key.type_ != key_type {
             return Err(format!(
                 "native collection getOr map key must be {}, got {}",
                 key_type, key.type_
             ));
         }
-        if default.type_.name() != value_type.as_str() {
+        if default.type_ != value_type {
             return Err(format!(
                 "native collection getOr default must be {}, got {}",
                 value_type, default.type_

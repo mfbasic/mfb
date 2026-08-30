@@ -129,9 +129,7 @@ pub(crate) fn lower_for_each(
     let scratch12 = builder.temporary_vreg();
     let scratch17 = builder.temporary_vreg();
     let collection = args[0].clone();
-    let Some(element_type) =
-        typed_list_element_type(&collection.type_).map(|type_| type_.name().into_owned())
-    else {
+    let Some(element_type) = typed_list_element_type(&collection.type_).cloned() else {
         return Err(format!(
             "native collection forEach does not accept {}",
             collection.type_

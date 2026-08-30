@@ -354,9 +354,9 @@ impl CodeBuilder<'_> {
         let count = self.allocate_register();
         self.emit(abi::load_u64(&count, abi::stack_pointer(), count_slot));
         let in_data = self.allocate_register();
-        self.emit_collection_data_pointer_for(&in_data, &in_ptr, "Float");
+        self.emit_collection_data_pointer_for(&in_data, &in_ptr, &ParameterType::Float);
         let out_data = self.allocate_register();
-        self.emit_collection_data_pointer_for(&out_data, &result_base, "Float");
+        self.emit_collection_data_pointer_for(&out_data, &result_base, &ParameterType::Float);
         let pairs = self.allocate_register();
         self.emit(abi::shift_right_immediate(&pairs, &count, 1));
 
@@ -2034,11 +2034,11 @@ impl CodeBuilder<'_> {
         let count = self.allocate_register();
         self.emit(abi::load_u64(&count, abi::stack_pointer(), count_slot));
         let left_data = self.allocate_register();
-        self.emit_collection_data_pointer_for(&left_data, &left_ptr, "Float");
+        self.emit_collection_data_pointer_for(&left_data, &left_ptr, &ParameterType::Float);
         let right_data = self.allocate_register();
-        self.emit_collection_data_pointer_for(&right_data, &right_ptr, "Float");
+        self.emit_collection_data_pointer_for(&right_data, &right_ptr, &ParameterType::Float);
         let out_data = self.allocate_register();
-        self.emit_collection_data_pointer_for(&out_data, &result_base, "Float");
+        self.emit_collection_data_pointer_for(&out_data, &result_base, &ParameterType::Float);
         let pairs = self.allocate_register();
         self.emit(abi::shift_right_immediate(&pairs, &count, 1));
         let k = &self.float_kernel_regs();

@@ -147,17 +147,48 @@ Where risk sits:
 - [ ] `src/target/shared/abi.rs:460` — convert `move_immediate`'s `type_` to
       `&ParameterType`. This has many call sites; convert the signature and let
       the compiler enumerate them.
-- [ ] **The three `optimizer` CONSUMERS of that same attribute**, added by
-      plan-111-D Correction D1: `src/optimizer/opt2/constant_folding.rs:101`,
-      `lvn.rs:143`, `gvn.rs:267` — each is
+- [ ] **Every `optimizer` CONSUMER of that same attribute**, added by
+      plan-111-D Correction D1: each is
       `instruction.get("type").as_deref() == Some("Integer")`, reading the NIR
       `mov_imm` operand-class attribute that `move_immediate` writes. They were
       invisible until D1 taught `spelling_compares` the `== Some("X")` form, and
       they are in this phase because a producer and its consumers must convert
-      together: changing `move_immediate`'s parameter without them leaves three
+      together: changing `move_immediate`'s parameter without them leaves those
       reads matching a spelling that is no longer written the same way.
       The attribute is stored in a `HashMap<String, String>` instruction
       encoding, so the conversion is at the SET/GET pair, not the map.
+
+      **RE-DERIVE THE LIST; DO NOT TRUST THIS ONE.** As of 2026-08-30 in this
+      worktree it is three files — `constant_folding.rs:101`, `lvn.rs:143`,
+      `gvn.rs:267`. A peer session (`mfb-opts`, branch `worktree-opts`, 4
+      `-O3`-gated optimizer commits pending a land onto main) reports that after
+      its landing there are **six**, the three new ones being:
+
+      | File | What it does with the attribute |
+      |---|---|
+      | `src/optimizer/opt2/checks.rs:373` | the same read on the WRITE side, materializing a refined constant |
+      | `src/optimizer/opt2/plans/bits.rs:165` | the known-bits lattice gates its `mov_imm` transfer function on it |
+      | `src/optimizer/opt2/plans/ranges.rs:446` | the integer-range lattice, likewise |
+
+      Neither `checks.rs` nor `plans/{bits,ranges}.rs` exists here yet, so this
+      is a note, not a task — but **the failure mode is silent, which is why it
+      is written down**: if G changes how the operand class is spelled and misses
+      a lattice, that lattice does not fail to compile. It goes *blind* — every
+      constant reads as unknown, the `-O2`/`-O3` rows simply stop firing, and
+      nothing in the default-level gate notices, because those rows are
+      `-O3`-gated (see the optimizer-rows-need-giant-function-stress memory: a
+      default-level sweep does not exercise them at all).
+
+      So, at the start of this phase:
+
+      ```
+      grep -rn 'Some("Integer")' src/optimizer/
+      ```
+
+      Convert every hit that comes back, and if the count is not the count this
+      phase's commit records, say so rather than assuming the extra ones are
+      out of scope. Then verify with `MFB_OPT=3` — the only level at which a
+      blinded lattice is observable.
 - [ ] Lower the `target` **and `optimizer`** gate budgets to 0.
 
 Acceptance: `src/target` **and `src/optimizer`** read 0 on all six needle

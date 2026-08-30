@@ -2710,7 +2710,7 @@ mod tests {
         let lowered = lower_link_thunk(
             &function,
             std::slice::from_ref(&cstruct),
-            &record_fields,
+            record_fields,
             TEST_THUNK_CONTEXT,
             &HashSet::new(),
             false,

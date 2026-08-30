@@ -547,7 +547,7 @@ impl CodeBuilder<'_> {
                 right_slot,
             ));
             self.emit_comparable_values_match_branch(
-                &left.type_.name(),
+                &left.type_,
                 &left_register,
                 &right_register,
                 &equal_label,

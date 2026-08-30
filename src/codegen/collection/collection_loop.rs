@@ -12,13 +12,14 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn initialize_collection_loop_slots(
         &mut self,
         collection_slot: usize,
         cursor_slot: usize,
         remaining_slot: usize,
-        element_type: &str,
+        element_type: &ParameterType,
     ) {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
@@ -58,7 +59,7 @@ impl CodeBuilder<'_> {
         &mut self,
         collection_slot: usize,
         cursor_slot: usize,
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<VirtualRegister, String> {
         let scratch8 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
@@ -127,13 +128,13 @@ impl CodeBuilder<'_> {
     pub(crate) fn free_collection_loop_item(
         &mut self,
         item_slot: usize,
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<(), String> {
-        if element_type != "String" {
+        if *element_type != ParameterType::String {
             return Ok(());
         }
         let size_slot = self.allocate_stack_object("loop_item_free_size", 8);
-        self.emit_inlined_block_size_from_ptr_slot("String", item_slot, size_slot)?;
+        self.emit_inlined_block_size_from_ptr_slot(&ParameterType::String, item_slot, size_slot)?;
         self.emit(abi::load_u64(
             abi::return_register(),
             abi::stack_pointer(),
@@ -159,7 +160,7 @@ impl CodeBuilder<'_> {
         cursor_slot: usize,
         remaining_slot: usize,
         loop_label: &str,
-        element_type: &str,
+        element_type: &ParameterType,
     ) {
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
@@ -200,7 +201,7 @@ impl CodeBuilder<'_> {
         collection_slot: usize,
         cursor_slot: usize,
         remaining_slot: usize,
-        element_type: &str,
+        element_type: &ParameterType,
     ) {
         let coll = self.temporary_vreg();
         let count = self.temporary_vreg();
@@ -238,7 +239,7 @@ impl CodeBuilder<'_> {
         cursor_slot: usize,
         remaining_slot: usize,
         loop_label: &str,
-        element_type: &str,
+        element_type: &ParameterType,
     ) {
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();

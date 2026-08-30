@@ -39,7 +39,12 @@ pub(crate) fn group_by_fast_path(
     if !ok {
         return Ok(None);
     }
-    let (kt, vt) = (parts[1].to_string(), parts[2].to_string());
+    // The `$K$V` suffixes of a `#collections_groupBy$K$V` runtime target: NAMES
+    // the NIR carries, parsed once here at the symbol boundary.
+    let (kt, vt) = (
+        ParameterType::declared(parts[1]),
+        ParameterType::declared(parts[2]),
+    );
     builder
         .lower_collection_group_by_call(args, &kt, &vt)
         .map(Some)
@@ -53,18 +58,16 @@ impl CodeBuilder<'_> {
     pub(crate) fn lower_collection_group_by_call(
         &mut self,
         args: &[NirValue],
-        key_type: &str,
-        value_type: &str,
+        key_type: &ParameterType,
+        value_type: &ParameterType,
     ) -> Result<ValueResult, String> {
-        let list_v = ParameterType::list_of(ParameterType::parse(value_type));
-        let map_type = ParameterType::map_of(ParameterType::parse(key_type), list_v.clone());
+        let list_v = ParameterType::list_of(value_type.clone());
+        let map_type = ParameterType::map_of(key_type.clone(), list_v.clone());
         let int_layout =
             CollectionTypeLayout::from_type(&ParameterType::list_of(ParameterType::Integer))
                 .ok_or_else(|| "groupBy: int layout".to_string())?;
-        let _k_layout = CollectionTypeLayout::from_type(&ParameterType::list_of(
-            ParameterType::parse(&key_type),
-        ))
-        .ok_or_else(|| "groupBy: key layout".to_string())?;
+        let _k_layout = CollectionTypeLayout::from_type(&ParameterType::list_of(key_type.clone()))
+            .ok_or_else(|| "groupBy: key layout".to_string())?;
         let v_layout = CollectionTypeLayout::from_type(&list_v)
             .ok_or_else(|| "groupBy: value layout".to_string())?;
         let ctx = self.inline_abi_ctx();
@@ -228,7 +231,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&addr, &base, &t));
         self.emit(abi::load_u64(&key, &addr, 0));
         self.emit(abi::store_u64(&key, abi::stack_pointer(), key_slot));
-        if value_type == "String" {
+        if *value_type == ParameterType::String {
             // vals[i] is a kind-0 String entry: materialize a fresh owned String
             // block (freed at el_next after it is copied into the bucket). `i` is
             // reloaded from i_slot because the fixed-width path's registers are not
@@ -241,9 +244,18 @@ impl CodeBuilder<'_> {
             let vptr = self.temporary_vreg();
             self.emit(abi::load_u64(&idx, abi::stack_pointer(), i_slot));
             self.emit(abi::load_u64(&vptr, abi::stack_pointer(), vals_slot));
-            self.emit_element_value_offset(&voff, &vlen, &vptr, &idx, &eoff, &entry, "String");
+            self.emit_element_value_offset(
+                &voff,
+                &vlen,
+                &vptr,
+                &idx,
+                &eoff,
+                &entry,
+                &ParameterType::String,
+            );
             self.emit(abi::load_u64(&vptr, abi::stack_pointer(), vals_slot));
-            let materialized = self.emit_load_collection_payload("String", &vptr, &voff, &vlen)?;
+            let materialized =
+                self.emit_load_collection_payload(&ParameterType::String, &vptr, &voff, &vlen)?;
             self.emit(abi::store_u64(
                 &materialized,
                 abi::stack_pointer(),
@@ -286,7 +298,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&addr, &base, &t));
         self.emit(abi::load_u64(&p, &addr, 0));
         self.emit(abi::store_u64(&p, abi::stack_pointer(), bucket_slot));
-        self.lower_list_append_in_place(bucket_slot, val_slot, &list_v, value_type)?;
+        self.lower_list_append_in_place(bucket_slot, val_slot, &list_v, &value_type)?;
         self.emit(abi::load_u64(&p, abi::stack_pointer(), bucket_slot));
         self.emit(abi::load_u64(&base, abi::stack_pointer(), bp_slot));
         self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
@@ -298,7 +310,7 @@ impl CodeBuilder<'_> {
         // insert: new 1-element bucket; register in arrays + hash (spill slot across alloc)
         self.emit(abi::label(&insert));
         self.emit(abi::store_u64(&slot, abi::stack_pointer(), slot_save));
-        if value_type == "String" {
+        if *value_type == ParameterType::String {
             // A String bucket is a kind-0 `List OF String`: build an empty growable
             // list and append the materialized value (String-correct byte copy),
             // instead of the fixed-width `HEADER+8` word store.
@@ -308,7 +320,7 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 bucket_slot,
             ));
-            self.lower_list_append_in_place(bucket_slot, val_slot, &list_v, value_type)?;
+            self.lower_list_append_in_place(bucket_slot, val_slot, &list_v, &value_type)?;
         } else {
             self.emit(abi::move_immediate(
                 abi::return_register(),
@@ -404,7 +416,7 @@ impl CodeBuilder<'_> {
             bucket_slot,
             &map_type,
             key_type,
-            &list_v.name(),
+            &list_v,
         )?;
         self.emit(abi::store_u64(
             &set.location,
@@ -440,10 +452,7 @@ impl CodeBuilder<'_> {
             text: String::new(),
         };
         for (s, ty) in [
-            (
-                keys_slot,
-                ParameterType::list_of(ParameterType::parse(key_type)),
-            ),
+            (keys_slot, ParameterType::list_of(key_type.clone())),
             (vals_slot, list_v.clone()),
             (hk_slot, ParameterType::list_of(ParameterType::Integer)),
             (ho_slot, ParameterType::list_of(ParameterType::Integer)),

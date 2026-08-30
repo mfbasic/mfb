@@ -1199,10 +1199,9 @@ fn read_only_record_type(type_: &ParameterType) -> bool {
     if matches!(type_, ParameterType::MapEntryOf(_, _)) {
         return true;
     }
-    let type_name = type_.name();
-    crate::codegen::builtins::term::is_read_only_record(&type_name)
-        || type_name == crate::codegen::builtins::net::ADDRESS_TYPE
-        || type_name == crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE
+    crate::codegen::builtins::term::is_read_only_record(type_)
+        || type_.is_named(crate::codegen::builtins::net::ADDRESS_TYPE)
+        || type_.is_named(crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE)
 }
 
 /// Whether `name` is a built-in resource type (has a registered close op).

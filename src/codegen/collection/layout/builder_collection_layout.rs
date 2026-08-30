@@ -7,30 +7,18 @@ use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
-    pub(crate) fn inline_collection_payload_size(&self, type_: &str) -> Option<usize> {
-        if let Some(fields) = self
-            .type_model
-            .record_fields
-            .get(&ParameterType::declared(type_))
-        {
+    pub(crate) fn inline_collection_payload_size(&self, type_: &ParameterType) -> Option<usize> {
+        if let Some(fields) = self.type_model.record_fields.get(type_) {
             return Some(8 * fields.len());
         }
-        if let Some(union_name) = self
-            .type_model
-            .union_variants
-            .get(&ParameterType::declared(type_))
-        {
-            return self.inline_collection_payload_size(&union_name.name());
+        if let Some(union_name) = self.type_model.union_variants.get(type_) {
+            return self.inline_collection_payload_size(union_name);
         }
         // A transferred stateful union arrives spelled `Stream STATE Cursor`; the
         // union set is keyed on the bare name (plan-75 gap 3). The `{tag, ptr}`
         // layout is unchanged by the STATE suffix, so size it on the base name.
-        let type_ = crate::codegen::resource::base_resource_name(type_);
-        if self
-            .type_model
-            .union_names
-            .contains(&ParameterType::declared(type_))
-        {
+        let type_ = &base_resource_type(type_);
+        if self.type_model.union_names.contains(type_) {
             // A resource variant carries no record fields (validation.rs registers
             // none for `"resource"` variants) but its payload is a single resource
             // handle stored one word after the tag. Count it as one payload word so
@@ -39,7 +27,7 @@ impl CodeBuilder<'_> {
             // read out of block on `RETURN` (bug-141).
             let max_fields = self
                 .type_model
-                .variants_for_union(&ParameterType::declared(type_))
+                .variants_for_union(type_)
                 .map(|variant| {
                     if crate::codegen::builtins::is_resource_type(&variant.name()) {
                         1
@@ -58,7 +46,7 @@ impl CodeBuilder<'_> {
         None
     }
 
-    pub(crate) fn is_pointer_collection_payload_type(&self, type_: &str) -> bool {
+    pub(crate) fn is_pointer_collection_payload_type(&self, type_: &ParameterType) -> bool {
         // A resource handle is a single 8-byte pointer to its record; a collection
         // slot stores a copy of that pointer exactly like any other pointer
         // payload (§15.6). Resource *unions* carry a tag and are not pointer
@@ -66,14 +54,11 @@ impl CodeBuilder<'_> {
         // the data region (plan-02 §4.4, Phase 5a); only a *non-flat* nested
         // collection (one that itself embeds a pointer/resource payload) stays a
         // pointer handle.
-        if is_collection_type(type_) {
+        if typed_is_collection_type(type_) {
             return !self.type_is_flat(type_);
         }
-        crate::codegen::builtins::is_resource_type(type_)
-            && !self
-                .type_model
-                .union_names
-                .contains(&ParameterType::declared(type_))
+        crate::codegen::builtins::is_resource_type(&type_.name())
+            && !self.type_model.union_names.contains(type_)
     }
 
     /// Alignment, in bytes, that a packed collection payload of `type_` requires
@@ -83,18 +68,22 @@ impl CodeBuilder<'_> {
     /// `String` bytes have no alignment requirement. `memory_layouts.md`
     /// (Scalar Storage) requires every payload to begin at an offset valid for
     /// its type, with padding bytes unobservable.
-    pub(crate) fn collection_payload_alignment(&self, type_: &str) -> usize {
+    pub(crate) fn collection_payload_alignment(&self, type_: &ParameterType) -> usize {
         match type_ {
-            "Boolean" | "Byte" | "String" => 1,
-            "Integer" | "Float" | "Fixed" | "Money" => 8,
+            ParameterType::Boolean | ParameterType::Byte | ParameterType::String => 1,
+            ParameterType::Integer
+            | ParameterType::Float
+            | ParameterType::Fixed
+            | ParameterType::Money => 8,
             // A Scalar is a 4-byte codepoint payload with alignment 4 (plan-41-C).
-            "Scalar" => 4,
+            // A bare nominal, so matched by name (see `list_element_is_fixed_width`).
+            ParameterType::Named(name) if name.resolve() == "Scalar" => 4,
             // A function value is an 8-byte code/closure pointer (bug-73).
-            other if is_function_type(other) => 8,
+            other if matches!(other, ParameterType::Func(..)) => 8,
             other if self.is_pointer_collection_payload_type(other) => 8,
             other if self.inline_collection_payload_size(other).is_some() => 8,
             // An inlined flat collection block begins with `U64` header fields.
-            other if is_collection_type(other) => 8,
+            other if typed_is_collection_type(other) => 8,
             _ => 1,
         }
     }
@@ -110,10 +99,10 @@ impl CodeBuilder<'_> {
     /// up to 8 (bug-147.4). The allocation-size pass and the writer both apply
     /// this identical rounding, and each element's absolute offset is recorded
     /// per-entry, so the reader (which loads the stored offset) stays in lockstep.
-    pub(crate) fn list_element_padding_alignment(&self, type_: &str) -> usize {
+    pub(crate) fn list_element_padding_alignment(&self, type_: &ParameterType) -> usize {
         if self.record_has_inline_data(type_)
             || self.union_is_data(type_)
-            || (is_collection_type(type_) && self.type_is_flat(type_))
+            || (typed_is_collection_type(type_) && self.type_is_flat(type_))
         {
             8
         } else {
@@ -294,7 +283,7 @@ impl CodeBuilder<'_> {
     /// records and unions as those gain an explicit size word.
     pub(crate) fn emit_flat_block_size(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         ptr_reg: impl Into<Operand>,
         out_reg: impl Into<Operand>,
         scratch: impl Into<Operand>,
@@ -303,13 +292,13 @@ impl CodeBuilder<'_> {
         let out_reg = out_reg.into();
         let scratch = scratch.into();
         match type_ {
-            "String" => {
+            ParameterType::String => {
                 // byteLength(+0) + 8 (length word) + 1 (trailing NUL).
                 self.emit(abi::load_u64(out_reg.clone(), ptr_reg, 0));
                 self.emit(abi::add_immediate(out_reg.clone(), out_reg, 9));
                 Ok(())
             }
-            other if is_collection_type(other) => {
+            other if typed_is_collection_type(other) => {
                 // header + capacity * entryStride + dataCapacity (+ a map's
                 // bucket region).
                 //
@@ -319,7 +308,9 @@ impl CodeBuilder<'_> {
                 // corrupts the free list — that is bug-02's exact failure mode,
                 // and plan-57-D names this function as the one edit whose
                 // mistake is heap corruption rather than a wrong value.
-                let element = list_element_type(other).unwrap_or_default();
+                let element = typed_list_element_type(other)
+                    .cloned()
+                    .unwrap_or_else(|| ParameterType::named(""));
                 let stride = list_entry_stride(&element);
                 self.emit(abi::load_u64(
                     out_reg.clone(),
@@ -363,7 +354,7 @@ impl CodeBuilder<'_> {
                 // A `Map` *or* a `Set` carries the bucket region (plan-63); a
                 // `List` does not. `collection_has_buckets` is the single predicate
                 // so a Set is never sized without the region it was allocated with.
-                if collection_has_buckets(other) {
+                if matches!(other, ParameterType::MapOf(..) | ParameterType::SetOf(_)) {
                     self.emit(abi::load_u64(
                         scratch.clone(),
                         ptr_reg,
@@ -401,7 +392,7 @@ impl CodeBuilder<'_> {
         // drops any spare capacity. A whole-block `memcpy` would carry the
         // headroom (and the gap between the live entries and the data region)
         // into the snapshot; the tight copy compacts both.
-        if is_collection_type(&type_.name()) {
+        if typed_is_collection_type(&type_) {
             return self.copy_collection_tight(type_, source);
         }
         let source_slot = self.allocate_stack_object("flat_copy_source", 8);
@@ -413,7 +404,7 @@ impl CodeBuilder<'_> {
         // flat type — `String`, collection, record (walk), and data union
         // (`size@8`) — so `copy_flat_block` is a sound deep copy for any
         // `type_is_flat` value (plan-02 §4.1).
-        self.emit_inlined_block_size_from_ptr_slot(&type_.name(), source_slot, size_slot)?;
+        self.emit_inlined_block_size_from_ptr_slot(type_, source_slot, size_slot)?;
         // plan-71-C Family-1a: the size is arg 0 of the arena-alloc call — emit it into
         // `%arg0`, not `return_register()` (`%ret0`). Byte-identical; clears
         // `builder_collection_layout.rs:332`.
@@ -457,8 +448,8 @@ impl CodeBuilder<'_> {
         // A kind-2 source has no entry array: the tight copy neither reserves
         // one nor copies it, and the whole block is header + data (plan-57-D).
         let element = typed_list_element_type(type_)
-            .map(|element| element.name().into_owned())
-            .unwrap_or_default();
+            .cloned()
+            .unwrap_or_else(|| ParameterType::named(""));
         let tight_stride = list_entry_stride(&element);
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
@@ -507,7 +498,7 @@ impl CodeBuilder<'_> {
         // buckets are recomputed on first probe (no stale offsets across
         // copy/transfer). `collection_has_buckets` keeps Set and Map in lockstep.
         self.emit_reserve_map_buckets(
-            collection_has_buckets(&type_.name()),
+            matches!(&type_, ParameterType::MapOf(..) | ParameterType::SetOf(_)),
             &scratch9,
             abi::return_register(),
             &scratch10,
@@ -612,14 +603,14 @@ impl CodeBuilder<'_> {
     ///     (`emit_address_from_sockaddr`, etc.).
     ///
     /// Every other record inlines its `String` fields.
-    pub(crate) fn is_pointer_string_record(&self, type_: &str) -> bool {
+    pub(crate) fn is_pointer_string_record(&self, type_: &ParameterType) -> bool {
         is_pointer_string_record(type_)
     }
 
     /// True when `field_type` occupies a record slot as a pointer to a separate
     /// allocation (nested record/union/collection/`Result`/`Error`). These stay
     /// pointers in Phase 2 (later phases inline them).
-    pub(crate) fn record_field_is_pointer(&self, field_type: &str) -> bool {
+    pub(crate) fn record_field_is_pointer(&self, field_type: &ParameterType) -> bool {
         record_field_is_pointer(&self.type_model, field_type)
     }
 
@@ -631,7 +622,7 @@ impl CodeBuilder<'_> {
     /// resource unions/handles, `Result`, `Error`/`ErrorLoc` and the other
     /// helper-built pointer-`String` records, and any recursive type (broken by
     /// the `visited` path set, so a cyclic type stays a pointer).
-    pub(crate) fn type_is_flat(&self, type_: &str) -> bool {
+    pub(crate) fn type_is_flat(&self, type_: &ParameterType) -> bool {
         type_is_flat(&self.type_model, type_)
     }
 
@@ -640,24 +631,28 @@ impl CodeBuilder<'_> {
     /// `String`, or a fully-flat composite — a nested record, a flat data union,
     /// or a flat collection (plan-02 §4.2–§4.4). Scalars stay inline in the slot;
     /// not-yet-flat composites stay pointers.
-    pub(crate) fn record_field_is_inlined(&self, record_type: &str, field_type: &str) -> bool {
+    pub(crate) fn record_field_is_inlined(
+        &self,
+        record_type: &ParameterType,
+        field_type: &ParameterType,
+    ) -> bool {
         record_field_is_inlined(&self.type_model, record_type, field_type)
     }
 
     /// True when `record_type` has at least one inlined field (so its block is
     /// variable-length and carries a trailing data region).
-    pub(crate) fn record_has_inline_data(&self, record_type: &str) -> bool {
+    pub(crate) fn record_has_inline_data(&self, record_type: &ParameterType) -> bool {
         if self.is_pointer_string_record(record_type) {
             return false;
         }
         self.type_model
             .record_fields
-            .get(&ParameterType::declared(record_type))
+            .get(record_type)
             .cloned()
             .map(|fields| {
                 fields
                     .iter()
-                    .any(|(_, ft)| self.record_field_is_inlined(record_type, &ft.name()))
+                    .any(|(_, ft)| self.record_field_is_inlined(record_type, ft))
             })
             .unwrap_or(false)
     }
@@ -668,33 +663,28 @@ impl CodeBuilder<'_> {
     /// Clobbers its temporary scratch vregs (and the recursion's scratch).
     pub(crate) fn emit_inlined_block_size_from_ptr_slot(
         &mut self,
-        field_type: &str,
+        field_type: &ParameterType,
         ptr_slot: usize,
         out_slot: usize,
     ) -> Result<(), String> {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
-        if field_type == "String" {
+        if *field_type == ParameterType::String {
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), ptr_slot));
             self.emit(abi::load_u64(&scratch9, &scratch8, 0));
             self.emit(abi::add_immediate(&scratch9, &scratch9, 9));
             self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), out_slot));
             Ok(())
-        } else if self
-            .type_model
-            .record_fields
-            .contains_key(&ParameterType::declared(field_type))
-        {
+        } else if self.type_model.record_fields.contains_key(field_type) {
             self.emit_record_block_size_to_slot(field_type, ptr_slot, out_slot)
-        } else if self.union_is_data(field_type)
-            || crate::codegen::engine::types::is_result_type(field_type)
+        } else if self.union_is_data(field_type) || matches!(field_type, ParameterType::ResultOf(_))
         {
             // A data union and a flat `Result` are self-describing: their `size`
             // word lives at +8 (plan-02 §4.3).
             self.emit_data_union_size_to_slot(ptr_slot, out_slot);
             Ok(())
-        } else if is_collection_type(field_type) {
+        } else if typed_is_collection_type(field_type) {
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), ptr_slot));
             self.emit_flat_block_size(field_type, &scratch8, &scratch9, &scratch10)?;
             self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), out_slot));
@@ -710,7 +700,7 @@ impl CodeBuilder<'_> {
     /// resource variants). Data unions use the flat `{tag, size, data}` layout
     /// (plan-02 §4.3); resource unions keep `{tag, resource-ptr}` and are never
     /// reshaped. A union is all-data or all-resource (`rules.rs:790`).
-    pub(crate) fn union_is_data(&self, type_: &str) -> bool {
+    pub(crate) fn union_is_data(&self, type_: &ParameterType) -> bool {
         union_is_data(&self.type_model, type_)
     }
 
@@ -729,7 +719,7 @@ impl CodeBuilder<'_> {
     /// register holding the union pointer.
     pub(crate) fn emit_wrap_record_in_union(
         &mut self,
-        member_type: &str,
+        member_type: &ParameterType,
         tag: usize,
         record_ptr_slot: usize,
     ) -> Result<VirtualRegister, String> {
@@ -799,7 +789,7 @@ impl CodeBuilder<'_> {
     /// static type nesting (a record cannot directly contain itself).
     pub(crate) fn emit_record_block_size_to_slot(
         &mut self,
-        record_type: &str,
+        record_type: &ParameterType,
         base_slot: usize,
         out_slot: usize,
     ) -> Result<(), String> {
@@ -808,7 +798,7 @@ impl CodeBuilder<'_> {
         let fields = self
             .type_model
             .record_fields
-            .get(&ParameterType::declared(record_type))
+            .get(record_type)
             .cloned()
             .ok_or_else(|| format!("native record type '{record_type}' does not resolve"))?;
         let fixed = 8 * fields.len();
@@ -819,7 +809,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), out_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if !self.record_field_is_inlined(record_type, &field_type.name()) {
+            if !self.record_field_is_inlined(record_type, field_type) {
                 continue;
             }
             // The field's own offset word at `8*index` is authoritative — and `0`
@@ -850,7 +840,7 @@ impl CodeBuilder<'_> {
             ));
             let inner_size_slot = self.allocate_stack_object("record_size_inner_size", 8);
             self.emit_inlined_block_size_from_ptr_slot(
-                &field_type.name(),
+                field_type,
                 inner_base_slot,
                 inner_size_slot,
             )?;
@@ -877,7 +867,7 @@ impl CodeBuilder<'_> {
     /// Returns a register holding the new record pointer. plan-02 §4.2.
     pub(crate) fn emit_build_inlined_record(
         &mut self,
-        record_type: &str,
+        record_type: &ParameterType,
         field_slots: &[usize],
     ) -> Result<VirtualRegister, String> {
         let scratch8 = self.temporary_vreg();
@@ -889,7 +879,7 @@ impl CodeBuilder<'_> {
         let fields = self
             .type_model
             .record_fields
-            .get(&ParameterType::declared(record_type))
+            .get(record_type)
             .cloned()
             .ok_or_else(|| format!("native record type '{record_type}' does not resolve"))?;
         if fields.len() != field_slots.len() {
@@ -913,13 +903,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if !self.record_field_is_inlined(record_type, &field_type.name()) {
+            if !self.record_field_is_inlined(record_type, field_type) {
                 continue;
             }
             self.emit_align_offset_slot(size_slot, 8);
             let block_size_slot = self.allocate_stack_object("record_build_block_size", 8);
             self.emit_inlined_block_size_from_ptr_slot(
-                &field_type.name(),
+                field_type,
                 field_slots[index],
                 block_size_slot,
             )?;
@@ -958,7 +948,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), cursor_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if self.record_field_is_inlined(record_type, &field_type.name()) {
+            if self.record_field_is_inlined(record_type, field_type) {
                 self.emit_align_offset_slot(cursor_slot, 8);
                 // Slot stores the block-relative offset of the inlined sub-block.
                 self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
@@ -967,7 +957,7 @@ impl CodeBuilder<'_> {
                 // Compute the sub-block's byte size from the source pointer.
                 let block_size_slot = self.allocate_stack_object("record_fill_block_size", 8);
                 self.emit_inlined_block_size_from_ptr_slot(
-                    &field_type.name(),
+                    field_type,
                     field_slots[index],
                     block_size_slot,
                 )?;
@@ -1022,8 +1012,8 @@ impl CodeBuilder<'_> {
         // its flat block at runtime, then block-copy it (plan-02 §4.2/§4.3). The
         // inlined data comes along; pointer fields keep the same shallow-share
         // semantics as the fixed path below.
-        let is_record_inline = self.record_has_inline_data(&type_.name());
-        let is_data_union = self.union_is_data(&type_.name());
+        let is_record_inline = self.record_has_inline_data(type_);
+        let is_data_union = self.union_is_data(type_);
         if is_record_inline || is_data_union {
             let source_slot = self.allocate_stack_object("inline_value_source", 8);
             let size_slot = self.allocate_stack_object("inline_value_size", 8);
@@ -1033,7 +1023,7 @@ impl CodeBuilder<'_> {
             if is_data_union {
                 self.emit_data_union_size_to_slot(source_slot, size_slot);
             } else {
-                self.emit_record_block_size_to_slot(&type_.name(), source_slot, size_slot)?;
+                self.emit_record_block_size_to_slot(type_, source_slot, size_slot)?;
             }
             // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not `return_register()`.
             self.emit(abi::load_u64(
@@ -1061,7 +1051,7 @@ impl CodeBuilder<'_> {
             return Ok(result);
         }
         let size = self
-            .inline_collection_payload_size(&type_.name())
+            .inline_collection_payload_size(type_)
             .ok_or_else(|| format!("native inline type '{type_}' has no fixed storage size"))?;
         let source_slot = self.allocate_stack_object("inline_value_source", 8);
         let result_slot = self.allocate_stack_object("inline_value_result", 8);
@@ -1142,7 +1132,7 @@ impl CodeBuilder<'_> {
                 location: Operand::from(register.render()),
                 text: format!("len({})", value.text),
             })
-        } else if is_collection_type(&value.type_.name()) {
+        } else if typed_is_collection_type(&value.type_) {
             let register = self.allocate_register();
             self.emit(abi::load_u64(
                 &register,
@@ -1191,7 +1181,7 @@ impl CodeBuilder<'_> {
                 key: None,
                 value: PayloadSlot {
                     slot,
-                    type_: value.type_.name().into_owned(),
+                    type_: value.type_.clone(),
                 },
             });
         }
@@ -1210,7 +1200,7 @@ impl CodeBuilder<'_> {
         values: &[NirValue],
     ) -> Result<ValueResult, String> {
         let element_type = crate::codegen::engine::types::typed_set_element_type(type_)
-            .map(|element| element.name().into_owned())
+            .cloned()
             .ok_or_else(|| format!("lower_set_literal: not a set type '{type_}'"))?;
         // Start from an empty set and spill its pointer to a stack slot so it can
         // be reloaded and rewritten after each (possibly reallocating) insert.
@@ -1243,7 +1233,7 @@ impl CodeBuilder<'_> {
                 true_slot,
                 type_,
                 &element_type,
-                "Boolean",
+                &ParameterType::Boolean,
             )?;
             self.emit(abi::store_u64(
                 &inserted.location,
@@ -1294,11 +1284,11 @@ impl CodeBuilder<'_> {
             slots.push(CollectionValueSlot {
                 key: Some(PayloadSlot {
                     slot: key_slot,
-                    type_: key.type_.name().into_owned(),
+                    type_: key.type_.clone(),
                 }),
                 value: PayloadSlot {
                     slot: value_slot,
-                    type_: value.type_.name().into_owned(),
+                    type_: value.type_.clone(),
                 },
             });
         }
@@ -1328,7 +1318,7 @@ impl CodeBuilder<'_> {
         let first_list_element = slots
             .first()
             .filter(|slot| slot.key.is_none())
-            .map(|slot| ParameterType::declared(&slot.value.type_));
+            .map(|slot| slot.value.type_.clone());
         let first_list_element = first_list_element.as_ref();
         let refined_type = refined_list_literal_type(type_, first_list_element);
         let type_ = refined_type.as_ref().unwrap_or(type_);
@@ -1380,7 +1370,7 @@ impl CodeBuilder<'_> {
         // `collection_has_buckets` keeps a Set's reservation in lockstep with the
         // sizing/copy/free paths (plan-63-B) — omitting it would size a Set literal
         // short and corrupt the arena on the lazy bucket build.
-        let bucket_bytes = if collection_has_buckets(&type_.name()) {
+        let bucket_bytes = if matches!(&type_, ParameterType::MapOf(..) | ParameterType::SetOf(_)) {
             count * MAP_BUCKET_SIZE * 2
         } else {
             0
@@ -1604,13 +1594,17 @@ impl CodeBuilder<'_> {
                     entry_offset + COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
                 ));
             }
+            let no_stride = ParameterType::named("");
             self.emit_copy_payload_to_collection(
                 collection_slot,
                 key_len_slot,
                 slot.key.as_ref().unwrap(),
                 data_offset_slot,
                 if slot.key.is_some() {
-                    ""
+                    // The EMPTY nominal is this tree's "no declared type" marker
+                    // (`type_utils::is_unset_type`); it was spelled `""` here.
+                    // `list_entry_stride` answers the same for both.
+                    &no_stride
                 } else {
                     &slot.value.type_
                 },
@@ -1676,13 +1670,16 @@ impl CodeBuilder<'_> {
                 entry_offset + COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
             ));
         }
+        let no_stride = ParameterType::named("");
         self.emit_copy_payload_to_collection(
             collection_slot,
             value_len_slot,
             &slot.value,
             data_offset_slot,
             if slot.key.is_some() {
-                ""
+                // See the sibling call above: the EMPTY nominal is the tree's
+                // "no declared type" marker, spelled `""` before plan-111-E.
+                &no_stride
             } else {
                 &slot.value.type_
             },
@@ -1714,22 +1711,25 @@ impl CodeBuilder<'_> {
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
         let len_slot = self.allocate_stack_object(label, 8);
-        match payload.type_.as_str() {
-            "Boolean" | "Byte" => {
+        match &payload.type_ {
+            ParameterType::Boolean | ParameterType::Byte => {
                 self.emit(abi::move_immediate(&scratch8, "Integer", "1"));
             }
-            "Scalar" => {
+            ParameterType::Named(name) if name.resolve() == "Scalar" => {
                 self.emit(abi::move_immediate(&scratch8, "Integer", "4"));
             }
-            "Integer" | "Float" | "Fixed" | "Money" => {
+            ParameterType::Integer
+            | ParameterType::Float
+            | ParameterType::Fixed
+            | ParameterType::Money => {
                 self.emit(abi::move_immediate(&scratch8, "Integer", "8"));
             }
             // A function value is a single 8-byte closure pointer, stored by
             // reference exactly like a pointer payload (bug-73).
-            other if is_function_type(other) => {
+            other if matches!(other, ParameterType::Func(..)) => {
                 self.emit(abi::move_immediate(&scratch8, "Integer", "8"));
             }
-            "String" => {
+            ParameterType::String => {
                 self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), payload.slot));
                 self.emit(abi::load_u64(&scratch8, &scratch8, 0));
             }
@@ -1748,7 +1748,7 @@ impl CodeBuilder<'_> {
                 self.emit_data_union_size_to_slot(payload.slot, len_slot);
                 return Ok(len_slot);
             }
-            other if is_collection_type(other) => {
+            other if typed_is_collection_type(other) => {
                 // A flat nested collection is inlined as its own block; size it at
                 // runtime (plan-02 §4.4).
                 self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), payload.slot));
@@ -1785,7 +1785,7 @@ impl CodeBuilder<'_> {
         len_slot: usize,
         payload: &PayloadSlot,
         data_offset_slot: usize,
-        stride_type: &str,
+        stride_type: &ParameterType,
     ) -> Result<(), String> {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
@@ -1828,8 +1828,8 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::add_registers(&scratch10, &scratch10, &scratch9));
 
-        match payload.type_.as_str() {
-            "Boolean" | "Byte" => {
+        match &payload.type_ {
+            ParameterType::Boolean | ParameterType::Byte => {
                 self.emit(abi::load_u64(
                     &scratch12,
                     abi::stack_pointer(),
@@ -1837,7 +1837,7 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::store_u8(&scratch12, &scratch10, 0));
             }
-            "Scalar" => {
+            ParameterType::Named(name) if name.resolve() == "Scalar" => {
                 self.emit(abi::load_u64(
                     &scratch12,
                     abi::stack_pointer(),
@@ -1845,7 +1845,10 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::store_u32(&scratch12, &scratch10, 0));
             }
-            "Integer" | "Float" | "Fixed" | "Money" => {
+            ParameterType::Integer
+            | ParameterType::Float
+            | ParameterType::Fixed
+            | ParameterType::Money => {
                 self.emit(abi::load_u64(
                     &scratch12,
                     abi::stack_pointer(),
@@ -1856,7 +1859,7 @@ impl CodeBuilder<'_> {
             // A function value stores its 8-byte closure pointer verbatim; the
             // closure object it points at is arena-lifetime and shared, never
             // copied on insert (reference semantics, bug-73).
-            other if is_function_type(other) => {
+            other if matches!(other, ParameterType::Func(..)) => {
                 self.emit(abi::load_u64(
                     &scratch12,
                     abi::stack_pointer(),
@@ -1864,7 +1867,7 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::store_u64(&scratch12, &scratch10, 0));
             }
-            "String" => {
+            ParameterType::String => {
                 let loop_label = self.label("collection_copy_string_loop");
                 let done_label = self.label("collection_copy_string_done");
                 self.emit(abi::load_u64(
@@ -1895,7 +1898,7 @@ impl CodeBuilder<'_> {
             }
             other
                 if self.inline_collection_payload_size(other).is_some()
-                    || is_collection_type(other) =>
+                    || typed_is_collection_type(other) =>
             {
                 // Inline record/union slot bytes, or a flat nested collection
                 // block — copy `len_slot` bytes verbatim (plan-02 §4.2–§4.4).
@@ -1984,7 +1987,7 @@ impl CodeBuilder<'_> {
         index: impl Into<Operand>,
         scratch_offset: impl Into<Operand>,
         scratch_entry: impl Into<Operand>,
-        element_type: &str,
+        element_type: &ParameterType,
     ) {
         let dst_offset = dst_offset.into();
         let dst_length = dst_length.into();
@@ -2052,7 +2055,7 @@ impl CodeBuilder<'_> {
         &mut self,
         dst: impl Into<Operand>,
         collection: impl Into<Operand>,
-        element_type: &str,
+        element_type: &ParameterType,
     ) {
         let stride = list_entry_stride(element_type);
         if stride == 0 {
@@ -2090,7 +2093,7 @@ impl CodeBuilder<'_> {
     /// call [`Self::emit_load_map_payload`].
     pub(crate) fn emit_load_collection_payload(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         collection: impl Into<Operand>,
         offset: impl Into<Operand>,
         length: impl Into<Operand>,
@@ -2105,18 +2108,24 @@ impl CodeBuilder<'_> {
     /// or value type would address it past its own entry array (plan-57-D).
     pub(crate) fn emit_load_map_payload(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         collection: impl Into<Operand>,
         offset: impl Into<Operand>,
         length: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
-        self.emit_load_payload_with_stride(type_, "", collection, offset, length)
+        self.emit_load_payload_with_stride(
+            type_,
+            &ParameterType::named(""),
+            collection,
+            offset,
+            length,
+        )
     }
 
     fn emit_load_payload_with_stride(
         &mut self,
-        type_: &str,
-        stride_type: &str,
+        type_: &ParameterType,
+        stride_type: &ParameterType,
         collection: impl Into<Operand>,
         offset: impl Into<Operand>,
         length: impl Into<Operand>,
@@ -2136,29 +2145,32 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer_for(&data, collection_input, stride_type);
         self.emit(abi::add_registers(&data, &data, offset_input));
         match type_ {
-            "Boolean" | "Byte" => {
+            ParameterType::Boolean | ParameterType::Byte => {
                 let result = self.allocate_register();
                 self.emit(abi::load_u8(&result, &data, 0));
                 Ok(result)
             }
-            "Scalar" => {
+            ParameterType::Named(name) if name.resolve() == "Scalar" => {
                 let result = self.allocate_register();
                 self.emit(abi::load_u32(&result, &data, 0));
                 Ok(result)
             }
-            "Integer" | "Float" | "Fixed" | "Money" => {
+            ParameterType::Integer
+            | ParameterType::Float
+            | ParameterType::Fixed
+            | ParameterType::Money => {
                 let result = self.allocate_register();
                 self.emit(abi::load_u64(&result, &data, 0));
                 Ok(result)
             }
             // A function value reads back its 8-byte closure pointer; the closure
             // object stays shared (reference semantics, bug-73).
-            other if is_function_type(other) => {
+            other if matches!(other, ParameterType::Func(..)) => {
                 let result = self.allocate_register();
                 self.emit(abi::load_u64(&result, &data, 0));
                 Ok(result)
             }
-            "String" => self.emit_materialize_string_from_bytes(&data, length_input),
+            ParameterType::String => self.emit_materialize_string_from_bytes(&data, length_input),
             other if self.is_pointer_collection_payload_type(other) => {
                 let result = self.allocate_register();
                 self.emit(abi::load_u64(&result, &data, 0));
@@ -2168,7 +2180,7 @@ impl CodeBuilder<'_> {
             // is read as an alias pointer to the block within the data region
             // (plan-02 §4.2–§4.4). Its own offsets are relative to that base.
             other if self.inline_collection_payload_size(other).is_some() => Ok(data),
-            other if is_collection_type(other) => Ok(data),
+            other if typed_is_collection_type(other) => Ok(data),
             other => Err(format!(
                 "native collection packed payload does not support type '{other}'"
             )),
@@ -2277,11 +2289,16 @@ impl CodeBuilder<'_> {
 /// Must agree with `CodeBuilder::collection_payload_alignment` for every arm;
 /// `fixed_width_agrees_with_payload_alignment` asserts that so the two cannot
 /// drift.
-pub(crate) fn list_element_is_fixed_width(element_type: &str) -> Option<usize> {
+pub(crate) fn list_element_is_fixed_width(element_type: &ParameterType) -> Option<usize> {
     match element_type {
-        "Boolean" | "Byte" => Some(1),
-        "Scalar" => Some(4),
-        "Integer" | "Float" | "Fixed" | "Money" => Some(8),
+        ParameterType::Boolean | ParameterType::Byte => Some(1),
+        // `Scalar` is a bare nominal, not a variant (it is a Unicode scalar
+        // value, `Named("Scalar")`), so it is matched by name rather than shape.
+        ParameterType::Named(name) if name.resolve() == "Scalar" => Some(4),
+        ParameterType::Integer
+        | ParameterType::Float
+        | ParameterType::Fixed
+        | ParameterType::Money => Some(8),
         _ => None,
     }
 }
@@ -2415,7 +2432,7 @@ pub(crate) fn push_collection_data_base_from_capacity(
 /// design around: `emit_flat_block_size` computing a size the allocator did not
 /// allocate is bug-02, and it corrupts the arena free list rather than producing
 /// a wrong value.
-pub(crate) fn list_entry_stride(element_type: &str) -> usize {
+pub(crate) fn list_entry_stride(element_type: &ParameterType) -> usize {
     if list_element_is_fixed_width(element_type).is_some() {
         0
     } else {
@@ -2424,7 +2441,7 @@ pub(crate) fn list_entry_stride(element_type: &str) -> usize {
 }
 
 /// The `kind` byte for a list of `element_type`.
-pub(crate) fn list_block_kind(element_type: &str) -> usize {
+pub(crate) fn list_block_kind(element_type: &ParameterType) -> usize {
     if list_element_is_fixed_width(element_type).is_some() {
         COLLECTION_KIND_LIST_FIXED
     } else {
@@ -2444,7 +2461,7 @@ pub(crate) fn list_block_kind(element_type: &str) -> usize {
 /// stride must ask this question, not that one. Selecting a stride from the
 /// payload type rather than the block kind was one of the two mistakes that
 /// produced plan-57-D's corruption bugs.
-pub(crate) fn kind2_payload_size(element_type: &str) -> Option<usize> {
+pub(crate) fn kind2_payload_size(element_type: &ParameterType) -> Option<usize> {
     list_element_is_fixed_width(element_type)
 }
 
@@ -2452,7 +2469,7 @@ pub(crate) fn kind2_payload_size(element_type: &str) -> Option<usize> {
 /// build or read one and know their element type statically. Zero once the
 /// entry-free representation is live (plan-57-D).
 pub(crate) fn byte_list_entry_stride() -> usize {
-    list_entry_stride("Byte")
+    list_entry_stride(&ParameterType::Byte)
 }
 
 /// The type a list literal should actually be laid out as, or `None` to keep the
@@ -2588,7 +2605,7 @@ pub(crate) fn emit_alloc_byte_list(
 /// separate corruption bugs in this sub-plan, and the next person to reach for
 /// the kind byte should be able to trust it.
 pub(crate) fn byte_list_block_kind() -> usize {
-    list_block_kind("Byte")
+    list_block_kind(&ParameterType::Byte)
 }
 
 // ---------------------------------------------------------------------------
@@ -2608,18 +2625,16 @@ pub(crate) fn byte_list_block_kind() -> usize {
 /// kept as **pointers** to separate allocations rather than inlined into the data
 /// region (spec §Record "excluded"). The socket helpers build `net::` `Address`/
 /// `Datagram`/`DatagramText` that way, and audio builds `AudioDevice`.
-pub(crate) fn is_pointer_string_record(type_: &str) -> bool {
-    matches!(
-        type_,
-        "Address" | "Datagram" | "DatagramText" | "AudioDevice"
-    )
+pub(crate) fn is_pointer_string_record(type_: &ParameterType) -> bool {
+    matches!(type_, ParameterType::Named(name)
+        if matches!(name.resolve(), "Address" | "Datagram" | "DatagramText" | "AudioDevice"))
 }
 
 /// True when `field_type` occupies a record slot as a pointer to a separate
 /// allocation (nested record/union/collection/`Result`/`Error`).
-pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &str) -> bool {
-    is_collection_type(field_type)
-        || model.record_fields.contains_key(&ParameterType::declared(field_type))
+pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &ParameterType) -> bool {
+    typed_is_collection_type(field_type)
+        || model.record_fields.contains_key(field_type)
         // A resource union is a pointer composite (its value is a pointer to a
         // `{tag, ptr}` block), never a flat block. A transferred stateful union
         // is spelled `Stream STATE Cursor`; base-strip so the STATE suffix does
@@ -2628,76 +2643,87 @@ pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &str) -> bo
         // variant record).
         || model
             .union_names
-            .contains(&ParameterType::declared(
-                crate::codegen::resource::base_resource_name(field_type),
-            ))
-        || crate::codegen::engine::types::is_result_type(field_type)
-        || field_type == "Error"
+            .contains(&base_resource_type(field_type))
+        || matches!(field_type, ParameterType::ResultOf(_))
+        || field_type.is_named("Error")
 }
 
 /// The payload value types a collection stores: the element type for a `List`,
 /// the key and value types for a `Map`.
-fn collection_payload_types(type_: &str) -> Vec<String> {
-    if let Some(element) = list_element_type(type_) {
-        vec![element]
-    } else if let Some((key, value)) = map_type_parts(type_) {
-        vec![key, value]
+fn collection_payload_types(type_: &ParameterType) -> Vec<ParameterType> {
+    if let Some(element) = typed_list_element_type(type_) {
+        vec![element.clone()]
+    } else if let Some((key, value)) = typed_map_type_parts(type_) {
+        vec![key.clone(), value.clone()]
     } else {
         Vec::new()
+    }
+}
+
+/// A resource type's base, as a type: the `STATE T` clause stripped. A
+/// transferred stateful union is spelled `Stream STATE Cursor` but the union set
+/// is keyed on the bare `Stream` (plan-75 gap 3), so every `union_names` lookup
+/// goes through this. `Stateful` is a variant since plan-111-A, so this is a
+/// match, not a suffix strip — but the composite-base spelling `parse` declines
+/// to split still arrives as one opaque `Named`, which is why the `&str` adapter
+/// remains the authority for that case.
+fn base_resource_type(type_: &ParameterType) -> ParameterType {
+    match type_ {
+        ParameterType::Stateful { base, .. } => (**base).clone(),
+        other => {
+            ParameterType::declared(&crate::codegen::resource::base_resource_name(&other.name()))
+        }
     }
 }
 
 /// True when a value of `type_` is **fully flat** — a single pointer-free block a
 /// `memcpy` deep-copies. See the `CodeBuilder::type_is_flat` doc for the full
 /// rule set; this is its implementation.
-pub(crate) fn type_is_flat(model: &TypeModel, type_: &str) -> bool {
+pub(crate) fn type_is_flat(model: &TypeModel, type_: &ParameterType) -> bool {
     let mut visited = std::collections::HashSet::new();
     type_is_flat_inner(model, type_, &mut visited)
 }
 
 fn type_is_flat_inner(
     model: &TypeModel,
-    type_: &str,
-    visited: &mut std::collections::HashSet<String>,
+    type_: &ParameterType,
+    visited: &mut std::collections::HashSet<ParameterType>,
 ) -> bool {
-    if !visited.insert(type_.to_string()) {
+    if !visited.insert(type_.clone()) {
         // Already on the current path: a type cycle. Cyclic values cannot be
         // a single finite flat block, so treat them as pointers.
         return false;
     }
-    let result = if type_ == "String" {
+    let result = if *type_ == ParameterType::String {
         true
-    } else if let Some(payload) = crate::codegen::engine::types::result_payload_type(type_) {
+    } else if let ParameterType::ResultOf(payload) = type_ {
         // A flat `Result` `{tag, size, payload}` is pointer-free when its
         // success payload is flat (the `Err` variant is the now-flat `Error`).
-        type_is_flat_inner(model, &payload, visited)
-    } else if is_collection_type(type_) {
+        type_is_flat_inner(model, payload, visited)
+    } else if typed_is_collection_type(type_) {
         // A collection is flat when every payload is flat — including a nested
         // flat collection, which is inlined in the data region (plan-02 §4.4,
         // Phase 5a). A resource or recursive payload makes it non-flat.
         collection_payload_types(type_)
             .into_iter()
             .all(|p| type_is_flat_inner(model, &p, visited))
-    } else if model
-        .record_fields
-        .contains_key(&ParameterType::declared(type_))
-    {
+    } else if model.record_fields.contains_key(type_) {
         !is_pointer_string_record(type_)
             && model
                 .record_fields
-                .get(&ParameterType::declared(type_))
+                .get(type_)
                 .cloned()
                 .unwrap_or_default()
                 .iter()
-                .all(|(_, ft)| type_is_flat_inner(model, &ft.name(), visited))
+                .all(|(_, ft)| type_is_flat_inner(model, ft, visited))
     } else if union_is_data(model, type_) {
         model
-            .variants_for_union(&ParameterType::declared(type_))
-            .map(|variant| variant.to_string())
+            .variants_for_union(type_)
+            .cloned()
             .collect::<Vec<_>>()
             .iter()
             .all(|variant| type_is_flat_inner(model, variant, visited))
-    } else if crate::codegen::builtins::is_resource_type(type_) {
+    } else if crate::codegen::builtins::is_resource_type(&type_.name()) {
         // A resource is a move-only handle to its single instance, never a
         // copyable flat block.
         false
@@ -2716,39 +2742,35 @@ fn type_is_flat_inner(
 /// not-yet-flat composites stay pointers.
 pub(crate) fn record_field_is_inlined(
     model: &TypeModel,
-    record_type: &str,
-    field_type: &str,
+    record_type: &ParameterType,
+    field_type: &ParameterType,
 ) -> bool {
     if is_pointer_string_record(record_type) {
         return false;
     }
-    if field_type == "String" {
+    if *field_type == ParameterType::String {
         return true;
     }
-    let is_composite = model
-        .record_fields
-        .contains_key(&ParameterType::declared(field_type))
-        || model
-            .union_names
-            .contains(&ParameterType::declared(field_type))
-        || is_collection_type(field_type)
-        || crate::codegen::engine::types::is_result_type(field_type);
+    let is_composite = model.record_fields.contains_key(field_type)
+        || model.union_names.contains(field_type)
+        || typed_is_collection_type(field_type)
+        || matches!(field_type, ParameterType::ResultOf(_));
     is_composite && type_is_flat(model, field_type)
 }
 
 /// True when `type_` is a **data** union (all variants are data records, no
 /// resource variants). Data unions use the flat `{tag, size, data}` layout;
 /// resource unions keep `{tag, resource-ptr}` and are never reshaped.
-pub(crate) fn union_is_data(model: &TypeModel, type_: &str) -> bool {
+pub(crate) fn union_is_data(model: &TypeModel, type_: &ParameterType) -> bool {
     // A transferred stateful union spells `Stream STATE Cursor`; the union set
     // is keyed on the bare name `Stream` (plan-75 gap 3). Strip the suffix so a
     // resource union with STATE still classifies as all-resource.
-    let type_ = crate::codegen::resource::base_resource_name(type_);
-    if !model.union_names.contains(&ParameterType::declared(type_)) {
+    let type_ = base_resource_type(type_);
+    if !model.union_names.contains(&type_) {
         return false;
     }
     let mut saw_variant = false;
-    for variant in model.variants_for_union(&ParameterType::declared(type_)) {
+    for variant in model.variants_for_union(&type_) {
         saw_variant = true;
         if crate::codegen::builtins::is_resource_type(&variant.name()) {
             return false;
@@ -2763,36 +2785,24 @@ pub(crate) fn union_is_data(model: &TypeModel, type_: &str) -> bool {
 /// have none. Used to detect recursive types for thread-transfer deep copy
 /// (bug-391): a recursive value is a pointer-linked graph that inline copy
 /// codegen cannot reproduce without unbounded compile-time recursion.
-pub(crate) fn type_components(model: &TypeModel, type_: &str) -> Vec<String> {
-    if let Some(fields) = model.record_fields.get(&ParameterType::declared(type_)) {
-        return fields
-            .iter()
-            .map(|(_, ft)| ft.name().into_owned())
-            .collect();
+pub(crate) fn type_components(model: &TypeModel, type_: &ParameterType) -> Vec<ParameterType> {
+    if let Some(fields) = model.record_fields.get(type_) {
+        return fields.iter().map(|(_, ft)| ft.clone()).collect();
     }
-    if let Some(fields) = model
-        .union_variant_fields
-        .get(&ParameterType::declared(type_))
-    {
-        return fields
-            .iter()
-            .map(|(_, ft)| ft.name().into_owned())
-            .collect();
+    if let Some(fields) = model.union_variant_fields.get(type_) {
+        return fields.iter().map(|(_, ft)| ft.clone()).collect();
     }
-    if model.union_names.contains(&ParameterType::declared(type_)) {
-        return model
-            .variants_for_union(&ParameterType::declared(type_))
-            .map(|v| v.name().into_owned())
-            .collect();
+    if model.union_names.contains(type_) {
+        return model.variants_for_union(type_).cloned().collect();
     }
-    if let Some(element) = list_element_type(type_) {
-        return vec![element];
+    if let Some(element) = typed_list_element_type(type_) {
+        return vec![element.clone()];
     }
-    if let Some((key, value)) = map_type_parts(type_) {
-        return vec![key, value];
+    if let Some((key, value)) = typed_map_type_parts(type_) {
+        return vec![key.clone(), value.clone()];
     }
-    if let Some(payload) = crate::codegen::engine::types::result_payload_type(type_) {
-        return vec![payload];
+    if let ParameterType::ResultOf(payload) = type_ {
+        return vec![(**payload).clone()];
     }
     Vec::new()
 }
@@ -2801,11 +2811,11 @@ pub(crate) fn type_components(model: &TypeModel, type_: &str) -> Vec<String> {
 /// participates in a recursive type definition (e.g. `dom::Node`, whose
 /// `ElementNode.children` is `List OF Node`). Such a value needs a per-type
 /// runtime copy function rather than inline copy codegen.
-pub(crate) fn type_participates_in_cycle(model: &TypeModel, type_: &str) -> bool {
+pub(crate) fn type_participates_in_cycle(model: &TypeModel, type_: &ParameterType) -> bool {
     let mut stack = type_components(model, type_);
-    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut visited: std::collections::HashSet<ParameterType> = std::collections::HashSet::new();
     while let Some(current) = stack.pop() {
-        if current == type_ {
+        if current == *type_ {
             return true;
         }
         if !visited.insert(current.clone()) {
@@ -2819,22 +2829,24 @@ pub(crate) fn type_participates_in_cycle(model: &TypeModel, type_: &str) -> bool
 /// Every type in the program that participates in a cycle: the set that needs a
 /// runtime thread-transfer deep-copy function emitted (bug-391).
 pub(crate) fn recursive_transfer_types(model: &TypeModel) -> std::collections::BTreeSet<String> {
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<ParameterType> = std::collections::HashSet::new();
     let mut result: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    // plan-111-C: the tables are type-keyed; this walk is a NAME set (its result
-    // feeds emitted symbol names), so the keys render here.
-    let mut stack: Vec<String> = model
+    // plan-111-E: the WALK is typed; only the RESULT renders, because it feeds
+    // emitted symbol names (`thread_copy_symbol`). The `BTreeSet<String>` return
+    // also fixes the emission order to the rendered names' order, which is
+    // observable in the `.ncode` — keep it.
+    let mut stack: Vec<ParameterType> = model
         .record_fields
         .keys()
         .chain(model.union_names.iter())
-        .map(|type_| type_.name().into_owned())
+        .cloned()
         .collect();
     while let Some(current) = stack.pop() {
         if !seen.insert(current.clone()) {
             continue;
         }
         if type_participates_in_cycle(model, &current) {
-            result.insert(current.clone());
+            result.insert(current.name().into_owned());
         }
         stack.extend(type_components(model, &current));
     }
@@ -2842,7 +2854,10 @@ pub(crate) fn recursive_transfer_types(model: &TypeModel) -> std::collections::B
 }
 
 /// The internal symbol of the per-type thread-transfer deep-copy function.
-pub(crate) fn thread_copy_symbol(type_: &str) -> String {
+pub(crate) fn thread_copy_symbol(type_: &ParameterType) -> String {
+    // An emitted symbol name, so the type renders here — the one legitimate
+    // render in this file, at the type -> symbol boundary.
+    let type_ = type_.name();
     let mut sanitized = String::new();
     for ch in type_.chars() {
         if ch.is_ascii_alphanumeric() {
@@ -2995,7 +3010,7 @@ mod kind2_layout_tests {
             COLLECTION_ENTRY_SIZE
         );
         assert_eq!(list_entry_stride("List OF Integer"), COLLECTION_ENTRY_SIZE);
-        assert_eq!(list_entry_stride("Integer"), 0);
+        assert_eq!(list_entry_stride(&ParameterType::Integer), 0);
         assert_eq!(list_block_kind("List OF Integer"), COLLECTION_KIND_LIST);
     }
 

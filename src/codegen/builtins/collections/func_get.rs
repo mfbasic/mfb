@@ -167,9 +167,7 @@ pub(crate) fn lower_get(
     // `str x` a later bitwise key compare reads (plan-01 float-dnative).
     builder.store_value_at(&key, abi::stack_pointer(), key_slot);
 
-    if let Some(element_type) =
-        typed_list_element_type(&collection.type_).map(|type_| type_.name().into_owned())
-    {
+    if let Some(element_type) = typed_list_element_type(&collection.type_).cloned() {
         if key.type_ != ParameterType::Integer {
             return Err(format!(
                 "native collection get list index must be Integer, got {}",
@@ -186,10 +184,10 @@ pub(crate) fn lower_get(
         return builder.materialize_owned_element(result);
     }
 
-    if let Some((key_type, value_type)) = typed_map_type_parts(&collection.type_)
-        .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
+    if let Some((key_type, value_type)) =
+        typed_map_type_parts(&collection.type_).map(|(k, v)| (k.clone(), v.clone()))
     {
-        if key.type_.name() != key_type.as_str() {
+        if key.type_ != key_type {
             return Err(format!(
                 "native collection get map key must be {}, got {}",
                 key_type, key.type_

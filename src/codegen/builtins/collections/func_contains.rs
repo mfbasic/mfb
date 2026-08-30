@@ -182,9 +182,7 @@ pub(crate) fn lower_contains(
     // over the element (= entry key), shared with `hasKey` (plan-63-B). Decided
     // on the *lowered* type so a nested-call first argument (`contains(union(a,
     // b), x)`, whose static type is unknown pre-lowering) still routes here.
-    if let Some(element_type) =
-        typed_set_element_type(&collection.type_).map(|type_| type_.name().into_owned())
-    {
+    if let Some(element_type) = typed_set_element_type(&collection.type_).cloned() {
         return builder.emit_key_membership(
             collection_slot,
             item_slot,
@@ -194,15 +192,13 @@ pub(crate) fn lower_contains(
         );
     }
 
-    let Some(element_type) =
-        typed_list_element_type(&collection.type_).map(|type_| type_.name().into_owned())
-    else {
+    let Some(element_type) = typed_list_element_type(&collection.type_).cloned() else {
         return Err(format!(
             "native collection contains does not accept {}",
             collection.type_
         ));
     };
-    if item.type_.name() != element_type.as_str() {
+    if item.type_ != element_type {
         return Err(format!(
             "native collection contains item must be {}, got {}",
             element_type, item.type_
@@ -230,7 +226,7 @@ pub(crate) fn lower_contains(
         collection_slot,
     ));
     builder.emit(abi::load_u64(
-        &item_register,
+        item_register,
         abi::stack_pointer(),
         item_slot,
     ));
@@ -260,18 +256,18 @@ pub(crate) fn lower_contains(
     if let Some(payload) = contains_payload {
         builder.emit(abi::move_register(&value_offset, &entry));
         builder.emit(abi::move_immediate(
-            &value_length,
+            value_length,
             "Integer",
             &payload.to_string(),
         ));
     } else {
         builder.emit(abi::load_u64(
-            &value_offset,
+            value_offset,
             &entry,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         builder.emit(abi::load_u64(
-            &value_length,
+            value_length,
             &entry,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
@@ -280,9 +276,9 @@ pub(crate) fn lower_contains(
         &element_type,
         &element_type,
         &collection_register,
-        &value_offset,
-        &value_length,
-        &item_register,
+        value_offset,
+        value_length,
+        item_register,
         &found,
         &next,
     )?;

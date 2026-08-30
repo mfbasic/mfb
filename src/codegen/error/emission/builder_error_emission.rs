@@ -225,7 +225,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
         self.emit(abi::compare_immediate(&scratch8, "0"));
         self.emit(abi::branch_eq(&src_null_size));
-        self.emit_record_block_size_to_slot("ErrorLoc", source_slot, src_block_slot)?;
+        self.emit_record_block_size_to_slot(
+            &ParameterType::named("ErrorLoc"),
+            source_slot,
+            src_block_slot,
+        )?;
         // src_off = align8(24 + msg_block)
         self.emit(abi::move_immediate(
             &scratch8,
@@ -400,7 +404,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             message_raw_slot,
         ));
-        let copied_message = self.copy_value_to_current_arena("String", &scratch9)?;
+        let copied_message = self.copy_value_to_current_arena(&ParameterType::String, &scratch9)?;
         self.emit(abi::store_u64(
             &copied_message,
             abi::stack_pointer(),
@@ -417,7 +421,8 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&own));
-        let copied_source = self.copy_value_to_current_arena("ErrorLoc", &scratch9)?;
+        let copied_source =
+            self.copy_value_to_current_arena(&ParameterType::named("ErrorLoc"), &scratch9)?;
         self.emit(abi::store_u64(
             &copied_source,
             abi::stack_pointer(),
@@ -637,9 +642,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
                 Operand::from(register.render())
             } else if !already_standalone
-                && self
-                    .inline_collection_payload_size(&value.type_.name())
-                    .is_some()
+                && self.inline_collection_payload_size(&value.type_).is_some()
             {
                 // An alias / inline-payload return is promoted to a standalone
                 // arena block. A value already deep-copied by
@@ -659,7 +662,7 @@ impl CodeBuilder<'_> {
         let message_register = self.allocate_register();
         self.emit(abi::move_immediate(&message_register, "Integer", "0"));
         self.emit(abi::store_u64(
-            &value_register,
+            value_register,
             abi::stack_pointer(),
             slots.value,
         ));
@@ -806,7 +809,7 @@ impl CodeBuilder<'_> {
         // `emit_inlined_block_size_from_ptr_slot` still takes a spelling; it is
         // the block-size helper letter F converts along with its ~12 callers in
         // the memory/cleanup cluster. One render at that boundary, deleted then.
-        self.emit_inlined_block_size_from_ptr_slot(&block_type.name(), ptr_slot, size_slot)?;
+        self.emit_inlined_block_size_from_ptr_slot(block_type, ptr_slot, size_slot)?;
         self.emit(abi::load_u64(
             abi::return_register(),
             abi::stack_pointer(),

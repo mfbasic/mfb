@@ -30,7 +30,7 @@ impl CodeBuilder<'_> {
         &mut self,
         collection_slot: usize,
         key_slot: usize,
-        key_type: &str,
+        key_type: &ParameterType,
         label_prefix: &str,
         collection_type: &ParameterType,
     ) -> Result<ValueResult, String> {
@@ -88,7 +88,14 @@ impl CodeBuilder<'_> {
             &not_found,
         );
         self.emit_collection_payload_matches_value_branch(
-            key_type, "", &scratch8, &scratch13, &scratch14, &scratch9, &found, &next,
+            key_type,
+            &ParameterType::named(""),
+            &scratch8,
+            &scratch13,
+            &scratch14,
+            &scratch9,
+            &found,
+            &next,
         )?;
         self.emit(abi::label(&found));
         self.emit(abi::move_immediate(&result, "Boolean", "true"));

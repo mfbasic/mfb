@@ -288,7 +288,7 @@ pub(crate) fn lower(
         list_ptr,
         COLLECTION_HEADER_SIZE,
     ));
-    builder.emit_collection_data_pointer_for(&scratch21, list_ptr, "String");
+    builder.emit_collection_data_pointer_for(&scratch21, list_ptr, &ParameterType::String);
     builder.emit(abi::move_immediate(&scratch22, "Integer", "0"));
     builder.emit(abi::move_immediate(&scratch23, "Integer", "0"));
     builder.emit(abi::move_immediate(&scratch24, "Integer", "0"));

@@ -95,8 +95,8 @@ pub(crate) const TERM_SIZE_TYPE: &str = "TermSize";
 /// (`TermColor`/`TermSize`): the runtime allocates them, so a program may neither
 /// construct nor WITH-update one. Consulted by `ir::verify::read_only_record_type` and
 /// the former source checker's `helpers::read_only_record_type`.
-pub(crate) fn is_read_only_record(type_name: &str) -> bool {
-    type_name == TERM_COLOR_TYPE || type_name == TERM_SIZE_TYPE
+pub(crate) fn is_read_only_record(type_name: &ParameterType) -> bool {
+    type_name.is_named(TERM_COLOR_TYPE) || type_name.is_named(TERM_SIZE_TYPE)
 }
 
 /// One-line package intro (historically empty; the man page is the doc authority).

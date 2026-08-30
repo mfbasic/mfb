@@ -137,7 +137,7 @@ pub(crate) fn lower(
         &scratch12,
         COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
     ));
-    builder.emit_collection_data_pointer_for(&scratch15, &scratch16, "String");
+    builder.emit_collection_data_pointer_for(&scratch15, &scratch16, &ParameterType::String);
     builder.emit(abi::add_registers(&scratch15, &scratch15, &scratch13));
     builder.emit(abi::store_u64(&scratch15, abi::stack_pointer(), ptr_slot));
     builder.emit(abi::store_u64(&scratch14, abi::stack_pointer(), len_slot));

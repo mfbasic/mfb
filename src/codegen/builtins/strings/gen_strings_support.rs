@@ -215,7 +215,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::add_registers(&value_data, &value_data, &delta));
         }
         self.emit_string_byte_range_equal_branch(
-            &value_data,
+            value_data,
             &part_data,
             &part_len,
             &true_label,

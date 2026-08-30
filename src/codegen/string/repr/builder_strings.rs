@@ -67,7 +67,7 @@ impl CodeBuilder<'_> {
                 old_slot,
                 new_slot,
                 &value.type_,
-                &element_type,
+                element_type,
             );
         }
         if value.type_ != ParameterType::String {
@@ -325,16 +325,10 @@ impl CodeBuilder<'_> {
         list_type: &ParameterType,
         element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
-        // The three collection-layout helpers below still take a spelling; they
-        // live in `builder_collection_layout.rs`, which letter E owns together
-        // with `list_entry_stride`'s ~80 call sites. Rendering ONCE here, at the
-        // boundary with them, is strictly better than the four renders this
-        // function's caller used to do — and letter E deletes it.
-        let element_name = element_type.name();
         // Entry stride for this element type: zero builds the result entry-free
         // and makes every cursor below stride the data region (plan-57-D).
-        let rep_stride = list_entry_stride(&element_name);
-        let rep_payload = kind2_payload_size(&element_name);
+        let rep_stride = list_entry_stride(element_type);
+        let rep_payload = kind2_payload_size(element_type);
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
         let scratch8 = self.temporary_vreg();
@@ -356,7 +350,7 @@ impl CodeBuilder<'_> {
 
         let new_payload = PayloadSlot {
             slot: new_slot,
-            type_: element_type.to_string(),
+            type_: element_type.clone(),
         };
         let new_len_slot = self.emit_payload_length_to_stack(&new_payload, "replace_new_len")?;
         let data_len_slot = self.allocate_stack_object("replace_list_data_len", 8);
@@ -416,8 +410,8 @@ impl CodeBuilder<'_> {
             ));
         }
         self.emit_collection_payload_matches_value_branch(
-            &element_name,
-            &element_name,
+            element_type,
+            element_type,
             &scratch8,
             &scratch17,
             &scratch20,
@@ -586,7 +580,7 @@ impl CodeBuilder<'_> {
             abi::mfb_return(1),
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit_collection_data_pointer_for(&scratch20, &scratch8, &element_name);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type);
         self.emit(abi::move_immediate(
             &scratch14,
             "Integer",
@@ -655,8 +649,8 @@ impl CodeBuilder<'_> {
             ));
         }
         self.emit_collection_payload_matches_value_branch(
-            &element_name,
-            &element_name,
+            element_type,
+            element_type,
             &scratch8,
             &scratch22,
             &scratch23,
@@ -699,7 +693,7 @@ impl CodeBuilder<'_> {
                     "replace_list_copy_new_string",
                 );
             }
-            other if self.inline_collection_payload_size(&other.name()).is_some() => {
+            other if self.inline_collection_payload_size(other).is_some() => {
                 self.emit(abi::load_u64(&scratch24, abi::stack_pointer(), new_slot));
                 self.emit_block_copy_advance(
                     &scratch25,
@@ -817,7 +811,7 @@ impl CodeBuilder<'_> {
         self.reset_temporary_registers();
         let value_register = self.allocate_register();
         self.emit(abi::load_u64(
-            &value_register,
+            value_register,
             abi::stack_pointer(),
             value_slot,
         ));
@@ -1106,7 +1100,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(list, abi::stack_pointer(), list_slot));
         self.emit(abi::load_u64(length, list, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(length, abi::stack_pointer(), length_slot));
-        self.emit_collection_data_pointer_for(offset, list, "Byte");
+        self.emit_collection_data_pointer_for(offset, list, &ParameterType::Byte);
         self.emit(abi::store_u64(offset, abi::stack_pointer(), data_slot));
         self.emit(abi::move_immediate(index, "Integer", "0"));
 

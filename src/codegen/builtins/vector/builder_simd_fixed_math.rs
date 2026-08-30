@@ -45,9 +45,9 @@ impl CodeBuilder<'_> {
         let count = self.allocate_register();
         self.emit(abi::load_u64(&count, abi::stack_pointer(), count_slot));
         let in_data = self.allocate_register();
-        self.emit_collection_data_pointer_for(&in_data, &in_ptr, "Fixed");
+        self.emit_collection_data_pointer_for(&in_data, &in_ptr, &ParameterType::Fixed);
         let out_data = self.allocate_register();
-        self.emit_collection_data_pointer_for(&out_data, &result_base, "Fixed");
+        self.emit_collection_data_pointer_for(&out_data, &result_base, &ParameterType::Fixed);
         let pairs = self.allocate_register();
         self.emit(abi::shift_right_immediate(&pairs, &count, 1));
 
@@ -288,10 +288,10 @@ impl CodeBuilder<'_> {
         let in_ptr = self.allocate_register();
         self.emit(abi::load_u64(&in_ptr, abi::stack_pointer(), in_slot));
         let in_data = self.allocate_register();
-        self.emit_collection_data_pointer_for(&in_data, &in_ptr, "Fixed");
+        self.emit_collection_data_pointer_for(&in_data, &in_ptr, &ParameterType::Fixed);
         self.emit(abi::store_u64(&in_data, abi::stack_pointer(), in_data_slot));
         let out_data = self.allocate_register();
-        self.emit_collection_data_pointer_for(&out_data, &result_base, "Fixed");
+        self.emit_collection_data_pointer_for(&out_data, &result_base, &ParameterType::Fixed);
         self.emit(abi::store_u64(
             &out_data,
             abi::stack_pointer(),

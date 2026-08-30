@@ -7,7 +7,11 @@ impl CodeBuilder<'_> {
     /// Allocate and register a runtime owned-list for an owner collection binding
     /// (§15.6): a head-pointer stack slot (initialized empty) plus an
     /// [`ActiveCleanup::OwnedList`] obligation drained on every exit path.
-    pub(crate) fn setup_owned_list(&mut self, name: &str, type_: &str) -> Result<(), String> {
+    pub(crate) fn setup_owned_list(
+        &mut self,
+        name: &str,
+        type_: &ParameterType,
+    ) -> Result<(), String> {
         let drop = self.collection_resource_drop(type_)?;
         let head_slot = self.allocate_stack_object(&format!("owned_list_{name}"), 8);
         let scratch9 = self.temporary_vreg();
@@ -97,7 +101,7 @@ impl CodeBuilder<'_> {
         &mut self,
         collection: &str,
         collection_slot: usize,
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<(), String> {
         let cursor_slot = self.allocate_stack_object("adopt_cursor", 8);
         let remaining_slot = self.allocate_stack_object("adopt_remaining", 8);
@@ -191,7 +195,7 @@ impl CodeBuilder<'_> {
                 self.emit_union_tag_dispatch_drop(
                     &union_ptr,
                     variants,
-                    state_type.as_deref(),
+                    state_type.as_ref(),
                     &node_done,
                 )?;
                 self.emit(abi::label(&node_done));
@@ -288,7 +292,7 @@ impl CodeBuilder<'_> {
     fn emit_closure_drop(
         &mut self,
         object_slot: usize,
-        capture_types: &[String],
+        capture_types: &[ParameterType],
     ) -> Result<(), String> {
         self.owned_value_slots.push(object_slot);
         let skip = self.label("closure_free_skip");
@@ -306,7 +310,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&env, "0"));
         self.emit(abi::branch_eq(&env_done));
         for (index, capture_type) in capture_types.iter().enumerate() {
-            if !self.is_freeable_flat_value(capture_type) {
+            if !self.is_freeable_flat_value(&capture_type) {
                 continue;
             }
             let env_reg = self.allocate_register();
@@ -319,7 +323,7 @@ impl CodeBuilder<'_> {
             let cap_slot = self.allocate_stack_object("closure_free_cap", 8);
             self.emit(abi::store_u64(&cap, abi::stack_pointer(), cap_slot));
             let size_slot = self.allocate_stack_object("closure_free_cap_size", 8);
-            self.emit_inlined_block_size_from_ptr_slot(capture_type, cap_slot, size_slot)?;
+            self.emit_inlined_block_size_from_ptr_slot(&capture_type, cap_slot, size_slot)?;
             self.emit(abi::load_u64(
                 abi::return_register(),
                 abi::stack_pointer(),

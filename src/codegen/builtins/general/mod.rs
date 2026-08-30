@@ -197,7 +197,7 @@ pub(crate) fn builtin_function_id_for_type(name: &str, function_type: &str) -> O
     }
 }
 
-pub(crate) fn filter_predicate_type(name: &str, element_type: &str) -> Option<String> {
+pub(crate) fn filter_predicate_type(name: &str, element_type: &ParameterType) -> Option<String> {
     builtin_function_id(name)?;
     let arg_types = vec![element_type.to_string()];
     let resolved = resolve_call(name, &arg_types)?;

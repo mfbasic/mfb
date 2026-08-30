@@ -89,7 +89,7 @@ impl CodeBuilder<'_> {
         target: &str,
         symbol: &str,
         args: &[NirValue],
-        result_type: &str,
+        result_type: &ParameterType,
         raw: bool,
     ) -> Result<ValueResult, String> {
         if args.len() < 2 {
@@ -162,7 +162,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), slot));
         }
         self.suppress_resource_source_flag = defer_resource_flag;
-        let copied = self.copy_value_to_current_arena(&arg_values[1].type_.name(), &scratch9)?;
+        let copied = self.copy_value_to_current_arena(&arg_values[1].type_, &scratch9)?;
         self.suppress_resource_source_flag = false;
         self.error_arena_restore_slot = None;
         self.emit(abi::store_u64(
@@ -197,12 +197,12 @@ impl CodeBuilder<'_> {
         // the pre-existing bounded leak rather than risk a wrong-size free).
         let msg_type = arg_values[1].type_.clone();
         let size_slot = self.allocate_stack_object("runtime_thread_send_copy_size", 8);
-        let size_computable = self.type_is_flat(&msg_type.name())
+        let size_computable = self.type_is_flat(&msg_type)
             && (msg_type == ParameterType::String
                 || self.type_model.record_fields.contains_key(&msg_type)
-                || self.union_is_data(&msg_type.name())
+                || self.union_is_data(&msg_type)
                 || matches!(msg_type, ParameterType::ResultOf(_))
-                || is_collection_type(&msg_type.name()));
+                || typed_is_collection_type(&msg_type));
         // bug-425: a bare thread-sendable resource (no STATE) copies to exactly one
         // RESOURCE_RECORD_SIZE block, so its size IS known. Hand it to the failed-send
         // pending-free path so a failed transfer's orphaned destination copy is
@@ -213,11 +213,7 @@ impl CodeBuilder<'_> {
         let bare_resource_reclaimable = defer_resource_flag
             && crate::codegen::resource::state_type_name(&msg_type.name()).is_none();
         if size_computable {
-            self.emit_inlined_block_size_from_ptr_slot(
-                &msg_type.name(),
-                copied_message_slot,
-                size_slot,
-            )?;
+            self.emit_inlined_block_size_from_ptr_slot(&msg_type, copied_message_slot, size_slot)?;
         } else if bare_resource_reclaimable {
             let size = self.temporary_vreg();
             self.emit(abi::move_immediate(&size, "Integer", RESOURCE_RECORD_SIZE));
@@ -294,14 +290,14 @@ impl CodeBuilder<'_> {
             self.emit_flag_resource_source_moved(source_slot);
         }
 
-        if result_type != "Nothing" {
+        if *result_type != ParameterType::Nothing {
             return Err(format!(
                 "native runtime call '{target}' expected Nothing result, got '{result_type}'"
             ));
         }
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&result_type),
+            type_: result_type.clone(),
             location: Operand::from("void"),
             text: format!("call {target}({})", join_texts(&arg_values)),
         })

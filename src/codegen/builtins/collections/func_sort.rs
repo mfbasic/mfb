@@ -109,14 +109,19 @@ impl CodeBuilder<'_> {
         let source = self.lower_value(&args[0])?;
         let list_type = source.type_.clone();
         let elem = typed_list_element_type(&list_type)
-            .map(|type_| type_.name().into_owned())
+            .cloned()
             .ok_or_else(|| format!("native sort does not accept {list_type}"))?;
         // String sorts lexicographically (byte compare + materialized gather);
         // signed-8-byte fixed-width items (Integer/Fixed/Money) sort by a direct
         // word compare + word gather. Float is excluded (NaN ordering), matching
         // `sortBy`'s key restriction.
-        let is_string = elem == "String";
-        if !is_string && !matches!(elem.as_str(), "Integer" | "Fixed" | "Money") {
+        let is_string = elem == ParameterType::String;
+        if !is_string
+            && !matches!(
+                elem,
+                ParameterType::Integer | ParameterType::Fixed | ParameterType::Money
+            )
+        {
             return Err(format!("native sort does not support item type {elem}"));
         }
         let coll_slot = self.allocate_stack_object("sort_coll", 8);
@@ -376,11 +381,25 @@ impl CodeBuilder<'_> {
             let gscr2 = self.temporary_vreg();
             let gcoll = self.temporary_vreg();
             self.emit(abi::load_u64(&gcoll, abi::stack_pointer(), coll_slot));
-            self.emit_element_value_offset(&gvoff, &gvlen, &gcoll, &gidx, &gscr1, &gscr2, "String");
-            let gitem = self.emit_load_collection_payload("String", &gcoll, &gvoff, &gvlen)?;
+            self.emit_element_value_offset(
+                &gvoff,
+                &gvlen,
+                &gcoll,
+                &gidx,
+                &gscr1,
+                &gscr2,
+                &ParameterType::String,
+            );
+            let gitem =
+                self.emit_load_collection_payload(&ParameterType::String, &gcoll, &gvoff, &gvlen)?;
             self.emit(abi::store_u64(&gitem, abi::stack_pointer(), gitem_slot));
-            self.lower_list_append_in_place(result_slot, gitem_slot, &list_type, "String")?;
-            self.free_collection_loop_item(gitem_slot, "String")?;
+            self.lower_list_append_in_place(
+                result_slot,
+                gitem_slot,
+                &list_type,
+                &ParameterType::String,
+            )?;
+            self.free_collection_loop_item(gitem_slot, &ParameterType::String)?;
             self.emit(abi::load_u64(&r0, abi::stack_pointer(), gk_slot));
             self.emit(abi::add_immediate(&r0, &r0, 1));
             self.emit(abi::store_u64(&r0, abi::stack_pointer(), gk_slot));
@@ -497,10 +516,26 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&idx_j, &sc1, 0));
         // source base + data base
         self.emit(abi::load_u64(&sb, abi::stack_pointer(), coll_slot));
-        self.emit_collection_data_pointer_for(&db, &sb, "String");
+        self.emit_collection_data_pointer_for(&db, &sb, &ParameterType::String);
         // (voffI, vlenI) and (voffJ, vlenJ)
-        self.emit_element_value_offset(&voff_i, &vlen_i, &sb, &idx_i, &sc1, &sc2, "String");
-        self.emit_element_value_offset(&voff_j, &vlen_j, &sb, &idx_j, &sc1, &sc2, "String");
+        self.emit_element_value_offset(
+            &voff_i,
+            &vlen_i,
+            &sb,
+            &idx_i,
+            &sc1,
+            &sc2,
+            &ParameterType::String,
+        );
+        self.emit_element_value_offset(
+            &voff_j,
+            &vlen_j,
+            &sb,
+            &idx_j,
+            &sc1,
+            &sc2,
+            &ParameterType::String,
+        );
         self.emit(abi::add_registers(&ptr_i, &db, &voff_i));
         self.emit(abi::add_registers(&ptr_j, &db, &voff_j));
         // minlen = min(vlenI, vlenJ)

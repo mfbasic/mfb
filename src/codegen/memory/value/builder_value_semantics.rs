@@ -19,7 +19,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_resource_record_ptr(
         &mut self,
         value_ptr: impl Into<Operand>,
-        type_: &str,
+        type_: &ParameterType,
     ) -> Result<String, String> {
         if self.is_resource_union_type(type_) {
             let record = self.allocate_register();
@@ -40,8 +40,8 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_resource_state_init(
         &mut self,
         resource_slot: usize,
-        state_type: &str,
-        resource_type: &str,
+        state_type: &ParameterType,
+        resource_type: &ParameterType,
     ) -> Result<(), String> {
         let block = self.allocate_register();
         self.emit(abi::load_u64(&block, abi::stack_pointer(), resource_slot));
@@ -114,7 +114,10 @@ impl CodeBuilder<'_> {
     /// never-observed `bind $trap_valN : T = <default>` temp the inline-`TRAP`
     /// desugar emits for a fallible call (plus `STATE` payload init and the
     /// MATCH-default paths in `builder_control`).
-    pub(crate) fn lower_default_value(&mut self, type_: &str) -> Result<ValueResult, String> {
+    pub(crate) fn lower_default_value(
+        &mut self,
+        type_: &ParameterType,
+    ) -> Result<ValueResult, String> {
         self.lower_default_value_inner(type_, &mut Vec::new())
     }
 
@@ -124,51 +127,59 @@ impl CodeBuilder<'_> {
     /// and codegen cannot recurse forever on a pathological type.
     fn lower_default_value_inner(
         &mut self,
-        type_: &str,
-        defaulting_unions: &mut Vec<String>,
+        type_: &ParameterType,
+        defaulting_unions: &mut Vec<ParameterType>,
     ) -> Result<ValueResult, String> {
         match type_ {
-            "Nothing" => {
+            ParameterType::Nothing => {
                 let register = self.allocate_register();
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse(&type_),
+                    type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: "default Nothing".to_string(),
                 })
             }
-            "Boolean" => {
+            ParameterType::Boolean => {
                 let register = self.allocate_register();
                 self.emit(abi::move_immediate(&register, "Boolean", "0"));
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse(&type_),
+                    type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: "default Boolean".to_string(),
                 })
             }
-            "Byte" | "Integer" | "Float" | "Fixed" | "Money" | "Scalar" => {
+            __t if matches!(
+                __t,
+                ParameterType::Byte
+                    | ParameterType::Integer
+                    | ParameterType::Float
+                    | ParameterType::Fixed
+                    | ParameterType::Money
+            ) || __t.is_named("Scalar") =>
+            {
                 let register = self.allocate_register();
-                self.emit(abi::move_immediate(&register, type_, "0"));
+                self.emit(abi::move_immediate(&register, &type_.name(), "0"));
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse(&type_),
+                    type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: format!("default {type_}"),
                 })
             }
-            "String" => {
+            ParameterType::String => {
                 let register = self.load_empty_string_constant()?;
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse(&type_),
+                    type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: "default String".to_string(),
                 })
             }
-            _ if is_collection_type(type_) => {
-                let result = self.lower_empty_collection(&ParameterType::parse(type_))?;
+            _ if typed_is_collection_type(type_) => {
+                let result = self.lower_empty_collection(&type_.clone())?;
                 Ok(ValueResult {
                     origin: None,
                     type_: result.type_,
@@ -214,18 +225,13 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::store_u64(&tag_register, &block, 0));
                 let record_reg = self.allocate_register();
-                self.emit(abi::load_u64(
-                    &record_reg,
-                    abi::stack_pointer(),
-                    record_slot,
-                ));
+                self.emit(abi::load_u64(record_reg, abi::stack_pointer(), record_slot));
                 self.emit(abi::store_u64(&record_reg, &block, 8));
                 // Initialize the active variant record's uniform STATE through the
                 // union value (`emit_resource_record_ptr` derefs `+8`), so a
                 // `RECOVER`ed union's `.state` never dereferences null — the same
                 // guarantee the concrete branch gives.
-                if let Some(state) = crate::codegen::resource::state_type_name(type_) {
-                    let state = state.to_string();
+                if let Some(state) = type_.state() {
                     let block_slot = self.allocate_stack_object("default_union_block", 8);
                     self.emit(abi::store_u64(&block, abi::stack_pointer(), block_slot));
                     self.emit_resource_state_init(block_slot, &state, type_)?;
@@ -233,17 +239,17 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse(&type_),
+                    type_: type_.clone(),
                     location: Operand::from(block.render()),
                     text: format!("closed union {type_}"),
                 })
             }
-            _ if crate::codegen::builtins::is_resource_type(type_)
+            _ if crate::codegen::builtins::is_resource_type(&type_.name())
                 || self
                     .type_model
                     .resource_names
                     .contains(&ParameterType::declared(
-                        crate::codegen::resource::base_resource_name(type_),
+                        crate::codegen::resource::base_resource_name(&type_.name()),
                     )) =>
             {
                 // A resource wraps an OS handle we cannot re-open, so it has no
@@ -259,8 +265,7 @@ impl CodeBuilder<'_> {
                 // `.state` would dereference null. The pointer is spilled across
                 // the state allocation, which clobbers every caller-saved
                 // register.
-                if let Some(state) = crate::codegen::resource::state_type_name(type_) {
-                    let state = state.to_string();
+                if let Some(state) = type_.state() {
                     let slot = self.allocate_stack_object("default_resource_record", 8);
                     self.emit(abi::store_u64(&record, abi::stack_pointer(), slot));
                     self.emit_resource_state_init(slot, &state, type_)?;
@@ -268,7 +273,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse(&type_),
+                    type_: type_.clone(),
                     location: Operand::from(record.render()),
                     text: format!("closed {type_}"),
                 })
@@ -294,11 +299,11 @@ impl CodeBuilder<'_> {
                 }
                 let variant = self
                     .type_model
-                    .variants_for_union(&ParameterType::declared(type_))
+                    .variants_for_union(type_)
                     .find(|variant| {
                         let mut visited = defaulting_unions.clone();
-                        visited.push(type_.to_string());
-                        self.default_record_materializable(&variant.name(), &mut visited)
+                        visited.push(type_.clone());
+                        self.default_record_materializable(&variant, &mut visited)
                     })
                     .cloned()
                     .ok_or_else(|| {
@@ -314,8 +319,8 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         format!("native code union variant '{variant}' does not resolve")
                     })?;
-                defaulting_unions.push(type_.to_string());
-                let record = self.lower_default_value_inner(&variant.name(), defaulting_unions);
+                defaulting_unions.push(type_.clone());
+                let record = self.lower_default_value_inner(&variant, defaulting_unions);
                 defaulting_unions.pop();
                 let record = record?;
                 let record_slot = self.allocate_stack_object("default_union_record", 8);
@@ -324,29 +329,23 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     record_slot,
                 ));
-                let register = self.emit_wrap_record_in_union(&variant.name(), tag, record_slot)?;
+                let register = self.emit_wrap_record_in_union(&variant, tag, record_slot)?;
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse(&type_),
+                    type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: format!("default {type_}"),
                 })
             }
             _ => {
-                let Some(fields) = self
-                    .type_model
-                    .record_fields
-                    .get(&ParameterType::declared(type_))
-                    .cloned()
-                else {
+                let Some(fields) = self.type_model.record_fields.get(type_).cloned() else {
                     return Err(format!(
                         "native code cannot materialize default value for type '{type_}'"
                     ));
                 };
                 let mut field_slots = Vec::with_capacity(fields.len());
                 for (_, field_type) in &fields {
-                    let value =
-                        self.lower_default_value_inner(&field_type.name(), defaulting_unions)?;
+                    let value = self.lower_default_value_inner(field_type, defaulting_unions)?;
                     let slot = self.allocate_stack_object("default_record_field", 8);
                     self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
                     field_slots.push(slot);
@@ -356,7 +355,7 @@ impl CodeBuilder<'_> {
                 let register = self.emit_build_inlined_record(type_, &field_slots)?;
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse(&type_),
+                    type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: format!("default {type_}"),
                 })
@@ -370,18 +369,34 @@ impl CodeBuilder<'_> {
     /// only chosen if every type its payload reaches is defaultable). `visited`
     /// carries the data unions already being defaulted on this path; a variant
     /// that loops back into one is not defaultable through it.
-    fn default_value_materializable(&self, type_: &str, visited: &mut Vec<String>) -> bool {
+    fn default_value_materializable(
+        &self,
+        type_: &ParameterType,
+        visited: &mut Vec<ParameterType>,
+    ) -> bool {
         match type_ {
-            "Nothing" | "Boolean" | "Byte" | "Integer" | "Float" | "Fixed" | "Money" | "Scalar"
-            | "String" => true,
-            _ if is_collection_type(type_) => true,
+            __t if matches!(
+                __t,
+                ParameterType::Nothing
+                    | ParameterType::Boolean
+                    | ParameterType::Byte
+                    | ParameterType::Integer
+                    | ParameterType::Float
+                    | ParameterType::Fixed
+                    | ParameterType::Money
+                    | ParameterType::String
+            ) || __t.is_named("Scalar") =>
+            {
+                true
+            }
+            _ if typed_is_collection_type(type_) => true,
             _ if self.is_resource_union_type(type_) => true,
-            _ if builtins::is_resource_type(type_)
+            _ if builtins::is_resource_type(&type_.name())
                 || self
                     .type_model
                     .resource_names
                     .contains(&ParameterType::declared(
-                        crate::codegen::resource::base_resource_name(type_),
+                        crate::codegen::resource::base_resource_name(&type_.name()),
                     )) =>
             {
                 true
@@ -390,12 +405,9 @@ impl CodeBuilder<'_> {
                 if visited.iter().any(|u| u == type_) {
                     return false;
                 }
-                visited.push(type_.to_string());
-                let variants: Vec<String> = self
-                    .type_model
-                    .variants_for_union(&ParameterType::declared(type_))
-                    .map(|v| v.name().into_owned())
-                    .collect();
+                visited.push(type_.clone());
+                let variants: Vec<ParameterType> =
+                    self.type_model.variants_for_union(type_).cloned().collect();
                 let ok = variants
                     .iter()
                     .any(|variant| self.default_record_materializable(variant, visited));
@@ -408,17 +420,17 @@ impl CodeBuilder<'_> {
 
     /// Record half of `default_value_materializable`: every field of the record
     /// (or union-variant record) must itself be defaultable.
-    fn default_record_materializable(&self, type_: &str, visited: &mut Vec<String>) -> bool {
-        let Some(fields) = self
-            .type_model
-            .record_fields
-            .get(&ParameterType::declared(type_))
-        else {
+    fn default_record_materializable(
+        &self,
+        type_: &ParameterType,
+        visited: &mut Vec<ParameterType>,
+    ) -> bool {
+        let Some(fields) = self.type_model.record_fields.get(type_) else {
             return false;
         };
         fields
             .iter()
-            .all(|(_, field_type)| self.default_value_materializable(&field_type.name(), visited))
+            .all(|(_, field_type)| self.default_value_materializable(field_type, visited))
     }
 
     pub(crate) fn lower_field_access(
@@ -436,20 +448,17 @@ impl CodeBuilder<'_> {
         // from the resource record. Because a resource value is a pointer to its
         // record, an alias and the owner address the same payload.
         if member == "state" {
-            if let Some(state_type) =
-                crate::codegen::resource::state_type_name(&target_value.type_.name())
-            {
-                let state_type = state_type.to_string();
+            if let Some(state_type) = target_value.type_.state() {
                 // A resource union value is a `{tag, record-ptr}` block; the STATE
                 // lives in the active variant's record reached via `+8` (plan-74).
                 // For a concrete resource the value already IS the record.
-                let record = self
-                    .emit_resource_record_ptr(&target_value.location, &target_value.type_.name())?;
+                let record =
+                    self.emit_resource_record_ptr(&target_value.location, &target_value.type_)?;
                 let register = self.allocate_register();
                 self.emit(abi::load_u64(&register, &record, RESOURCE_OFFSET_STATE));
                 return Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse(&state_type),
+                    type_: state_type.clone(),
                     location: Operand::from(register.render()),
                     text: "state".to_string(),
                 });
@@ -457,7 +466,7 @@ impl CodeBuilder<'_> {
         }
         let (field_index, field_type, payload_offset, inline_string) =
             if let Some((key_type, value_type)) = typed_map_entry_type_parts(&target_value.type_)
-                .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
+                .map(|(key, value)| (key.clone(), value.clone()))
             {
                 match member {
                     "key" => (0, key_type, 0, false),
@@ -480,9 +489,8 @@ impl CodeBuilder<'_> {
                         target_value.type_, member
                     ));
                 };
-                let inline_string =
-                    self.record_field_is_inlined(&target_value.type_.name(), &field_type.name());
-                (index, field_type.name().into_owned(), 0, inline_string)
+                let inline_string = self.record_field_is_inlined(&target_value.type_, field_type);
+                (index, field_type.clone(), 0, inline_string)
             } else if let Some(fields) = self
                 .type_model
                 .union_variant_fields
@@ -498,7 +506,7 @@ impl CodeBuilder<'_> {
                         target_value.type_, member
                     ));
                 };
-                (index, field_type.name().into_owned(), 8, false)
+                (index, field_type.clone(), 8, false)
             } else if self.type_model.union_names.contains(&target_value.type_) {
                 // bug-147: a field name shared by two variants must resolve to a
                 // deterministic offset. Walk the variants in the stable
@@ -514,7 +522,7 @@ impl CodeBuilder<'_> {
                             .iter()
                             .enumerate()
                             .find(|(_, (name, _))| name == member)
-                            .map(|(index, (_, field_type))| (index, field_type.name().into_owned()))
+                            .map(|(index, (_, field_type))| (index, field_type.clone()))
                     })
                 else {
                     return Err(format!(
@@ -549,7 +557,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&field_type),
+            type_: field_type.clone(),
             location: Operand::from(register.render()),
             text: format!("{}.{}", target_value.text, member),
         })
@@ -557,14 +565,14 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn lower_with_update(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         target: &NirValue,
         updates: &[NirRecordUpdate],
     ) -> Result<ValueResult, String> {
         let fields = self
             .type_model
             .record_fields
-            .get(&ParameterType::declared(type_))
+            .get(type_)
             .cloned()
             .ok_or_else(|| format!("native code WITH target '{type_}' is not a record"))?;
         let base_reg = self.temporary_vreg();
@@ -621,7 +629,7 @@ impl CodeBuilder<'_> {
             let slot = self.allocate_stack_object("with_old_field", 8);
             self.emit(abi::load_u64(base, abi::stack_pointer(), target_slot));
             self.emit(abi::load_u64(field, base, 8 * index));
-            if self.record_field_is_inlined(type_, &field_type.name()) {
+            if self.record_field_is_inlined(type_, field_type) {
                 self.emit(abi::add_registers(field, base, field));
             }
             self.emit(abi::store_u64(field, abi::stack_pointer(), slot));
@@ -630,7 +638,7 @@ impl CodeBuilder<'_> {
         let register = self.emit_build_inlined_record(type_, &field_slots)?;
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&type_),
+            type_: type_.clone(),
             location: Operand::from(register.render()),
             text: format!("with {}", target_value.text),
         })
@@ -914,12 +922,16 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn static_primitive_text(&self, value: &NirValue) -> Option<String> {
         match value {
-            NirValue::Const { type_, value } => match type_.name().as_ref() {
+            NirValue::Const { type_, value } => match type_ {
                 // Float/Fixed constants fold to the runtime formatter's
                 // default-precision rendering (2 places; bug-358, plan-28-B).
-                "Float" | "Fixed" => crate::numeric::default_to_string_text(&type_.name(), value),
-                "Integer" | "Byte" | "String" => Some(value.clone()),
-                "Boolean" => match value.as_str() {
+                ParameterType::Float | ParameterType::Fixed => {
+                    crate::numeric::default_to_string_text(&type_.name(), value)
+                }
+                ParameterType::Integer | ParameterType::Byte | ParameterType::String => {
+                    Some(value.clone())
+                }
+                ParameterType::Boolean => match value.as_str() {
                     "true" => Some("TRUE".to_string()),
                     "false" => Some("FALSE".to_string()),
                     _ => None,
@@ -1110,40 +1122,45 @@ impl CodeBuilder<'_> {
         &self,
         target: &str,
         args: &[NirValue],
-    ) -> Option<String> {
+    ) -> Option<ParameterType> {
         match target {
             // The worker entry's FIRST parameter — `thread::start`'s runtime
             // return type. plan-106-E: the isolated-FUNC spelling is a variant, so
             // the parameter is read off it instead of being re-split out of
             // `ISOLATED FUNC(` … `) AS `.
             "thread.start" => match self.static_type_name(args.first()?)? {
-                crate::types::ParameterType::Func(params, _, true) => {
-                    params.first().map(|param| param.name().into_owned())
-                }
+                ParameterType::Func(params, _, true) => params.first().cloned(),
                 _ => None,
             },
             "thread.isRunning" | "thread.poll" | "thread.isCancelled" => {
-                Some("Boolean".to_string())
+                Some(ParameterType::Boolean)
             }
             "thread.cancel"
             | "thread.send"
             | "thread.transferResource"
             | "thread.emitResource"
             | "thread.openStdIn"
-            | "thread.closeStdIn" => Some("Nothing".to_string()),
-            "thread.waitFor" => {
-                let thread_type = self.static_type_name(args.first()?)?;
-                crate::types::parent_thread_output(&thread_type.name()).map(str::to_string)
-            }
-            "thread.receive" => {
-                let thread_type = self.static_type_name(args.first()?)?;
-                crate::types::thread_message(&thread_type.name()).map(str::to_string)
-            }
+            | "thread.closeStdIn" => Some(ParameterType::Nothing),
+            // plan-111-E: the three thread planes are `ThreadHandle` fields, so
+            // each is read off the variant rather than re-split from a spelling
+            // by `parent_thread_output` / `thread_message` / `thread_resource`.
+            "thread.waitFor" => match self.static_type_name(args.first()?)? {
+                ParameterType::ThreadHandle {
+                    worker: false, out, ..
+                } => Some((*out).clone()),
+                _ => None,
+            },
+            "thread.receive" => match self.static_type_name(args.first()?)? {
+                ParameterType::ThreadHandle { msg, .. } => Some((*msg).clone()),
+                _ => None,
+            },
             // The resource plane: accept yields the thread's resource type
             // (worker reads the inbound queue, parent reads the outbound queue).
             "thread.acceptResource" | "thread.readResource" => {
-                let thread_type = self.static_type_name(args.first()?)?;
-                crate::types::thread_resource(&thread_type.name()).map(str::to_string)
+                match self.static_type_name(args.first()?)? {
+                    ParameterType::ThreadHandle { res, .. } => Some((*res).clone()),
+                    _ => None,
+                }
             }
             _ => None,
         }
@@ -1205,7 +1222,7 @@ impl CodeBuilder<'_> {
                 {
                     let not_equal = self.label("match_compare_not_equal");
                     self.emit_comparable_values_match_branch(
-                        &matched.type_.name(),
+                        &matched.type_,
                         &matched.location,
                         &pattern.location,
                         label,
@@ -1224,12 +1241,12 @@ impl CodeBuilder<'_> {
     /// True when a `Result` payload of `payload_type` is a heap block addressed by
     /// pointer (inlined whole), versus an inline scalar (stored in the 8-byte
     /// payload word). Mirrors the record/collection inline rules (plan-02 §4.3).
-    pub(crate) fn result_payload_is_block(&self, payload_type: &str) -> bool {
-        payload_type == "String"
-            || payload_type == "Error"
-            || is_collection_type(payload_type)
-            || crate::codegen::engine::types::is_result_type(payload_type)
-            || self.type_model.record_fields.contains_key(&ParameterType::declared(payload_type))
+    pub(crate) fn result_payload_is_block(&self, payload_type: &ParameterType) -> bool {
+        *payload_type == ParameterType::String
+            || *payload_type == ParameterType::named("Error")
+            || typed_is_collection_type(payload_type)
+            || matches!(payload_type, ParameterType::ResultOf(_))
+            || self.type_model.record_fields.contains_key(payload_type)
             // A **data** union is inlined whole; a **resource** union is a scalar
             // pointer to its `{tag, ptr}` block, like a concrete resource, so it
             // occupies the 8-byte payload word — not an inlinable block (plan-75

@@ -826,7 +826,7 @@ pub(crate) fn lower_function(
             };
             Ok(CodeParam {
                 name: param.name.clone(),
-                type_: param.type_.name().into_owned(),
+                type_: param.type_.clone().name().into_owned(),
                 location,
             })
         })
@@ -1415,7 +1415,7 @@ pub(crate) fn lower_abi_function_helper(
 /// compile time over the (infinite) type.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_thread_copy_function(
-    type_: &str,
+    type_: &ParameterType,
     symbol: &str,
     function_symbols: &HashMap<String, String>,
     functions: &HashMap<String, &NirFunction>,
@@ -1429,7 +1429,7 @@ pub(crate) fn lower_thread_copy_function(
 ) -> Result<CodeFunction, String> {
     let param = CodeParam {
         name: "source".to_string(),
-        type_: type_.to_string(),
+        type_: type_.clone().name().into_owned(),
         location: abi::argument_register(0)?,
     };
     let mut builder = CodeBuilder {

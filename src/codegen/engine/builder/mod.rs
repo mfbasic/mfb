@@ -461,7 +461,7 @@ pub(crate) struct ResourceCleanup {
     /// (the only place it is known) so the drop can size the payload block it
     /// frees — a `STATE` record inlines its `String` fields, so its size is not a
     /// constant (plan-52-B Phase 2).
-    pub(crate) state_type: Option<String>,
+    pub(crate) state_type: Option<ParameterType>,
     /// Whether this resource kind actually uses the per-`File` I/O buffer words
     /// (`BUF_PTR`/`READ_PTR`) — i.e. whether it is a `File`.
     ///
@@ -485,7 +485,7 @@ pub(crate) struct ResourceUnionCleanup {
     /// The union's uniform `STATE` type, when it declared one (plan-74). Carried
     /// from the bind so the tag-dispatched drop can free the active variant
     /// record's STATE block after the close — mirrors `ResourceCleanup.state_type`.
-    pub(crate) state_type: Option<String>,
+    pub(crate) state_type: Option<ParameterType>,
 }
 
 /// A per-scope runtime owned-list (§15.6): the close obligations for resources
@@ -505,7 +505,7 @@ pub(crate) enum OwnedListDrop {
     /// union's uniform `STATE` type (when it has one) to free after the close.
     Union {
         variants: Vec<(usize, String)>,
-        state_type: Option<String>,
+        state_type: Option<ParameterType>,
     },
 }
 
@@ -528,7 +528,7 @@ pub(crate) struct OwnedListCleanup {
 #[derive(Clone)]
 pub(crate) struct OwnedValueCleanup {
     /// Static type of the bound value (drives the runtime size computation).
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
     /// Stack offset of the binding's slot (holds the block pointer).
     pub(crate) stack_offset: usize,
     /// plan-77 M6: when `Some`, this is a non-escaping closure binding rather than
@@ -536,7 +536,7 @@ pub(crate) struct OwnedValueCleanup {
     /// static types of its captures. The drop frees the object, its env block, and
     /// each freeable-flat capture (skipping by-value scalars/floats) instead of a
     /// single flat `arena_free`.
-    pub(crate) closure_captures: Option<Vec<String>>,
+    pub(crate) closure_captures: Option<Vec<ParameterType>>,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free
@@ -546,7 +546,7 @@ pub(crate) struct OwnedValueCleanup {
 /// `arena_free`.
 #[derive(Clone)]
 pub(crate) struct PendingTemp {
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
     pub(crate) slot: usize,
     pub(crate) location: Operand,
 }
@@ -578,7 +578,7 @@ pub(crate) enum ExitDestination {
 #[derive(Clone)]
 pub(crate) struct PayloadSlot {
     pub(crate) slot: usize,
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
 }
 
 #[derive(Clone)]
@@ -1324,6 +1324,10 @@ pub(crate) fn lower_module_for_platform(
         data_objects.push(string_data_object(EMPTY_STRING_SYMBOL, String::new()));
     }
     for type_ in recursive_copy_types {
+        // `recursive_transfer_types` returns rendered names (the emission ORDER
+        // is observable in the `.ncode`); parse each back once, here, for the
+        // typed emitters below.
+        let type_ = ParameterType::declared(&type_);
         let symbol = thread_copy_symbol(&type_);
         code_functions.push(lower_thread_copy_function(
             &type_,

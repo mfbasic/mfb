@@ -203,7 +203,7 @@ impl CodeBuilder<'_> {
         }
         if self.value_needs_owning_copy(value) {
             let lowered = self.lower_value(value)?;
-            if self.is_freeable_flat_value(&lowered.type_.name()) {
+            if self.is_freeable_flat_value(&lowered.type_) {
                 // plan-86 K1: a pure parameter-passthrough function (`RETURN <param>`,
                 // `current_returns_param_borrow`) returns the argument pointer uncopied.
                 // The caller classifies our result as an aliasing source via the SAME
@@ -336,9 +336,7 @@ impl CodeBuilder<'_> {
             if let Some(result) = &result {
                 if result.type_ != ParameterType::Nothing {
                     let location = if !already_standalone
-                        && self
-                            .inline_collection_payload_size(&result.type_.name())
-                            .is_some()
+                        && self.inline_collection_payload_size(&result.type_).is_some()
                     {
                         Operand::from(
                             self.materialize_inline_value_in_arena(
@@ -381,9 +379,10 @@ impl CodeBuilder<'_> {
                 // the resource the caller now owns (bug-141). `resource_close_function`
                 // is `None` for a union type, so the plain-resource branch above
                 // misses it — key off the union cleanup shape instead.
-                if result.as_ref().is_some_and(|result| {
-                    self.resource_union_cleanup(&result.type_.name()).is_some()
-                }) {
+                if result
+                    .as_ref()
+                    .is_some_and(|result| self.resource_union_cleanup(&result.type_).is_some())
+                {
                     self.deactivate_resource_cleanup(name);
                 }
                 // Returning a `List OF RES File` transfers its owned-list to the

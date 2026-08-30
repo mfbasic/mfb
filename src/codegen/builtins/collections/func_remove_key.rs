@@ -119,8 +119,7 @@ pub(crate) fn lower_remove_key(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let map = args[0].clone();
-    let Some((key_type, _)) = typed_map_type_parts(&map.type_)
-        .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
+    let Some((key_type, _)) = typed_map_type_parts(&map.type_).map(|(k, v)| (k.clone(), v.clone()))
     else {
         return Err(format!(
             "native collection removeKey does not accept {}",
@@ -134,7 +133,7 @@ pub(crate) fn lower_remove_key(
         map_slot,
     ));
     let key = args[1].clone();
-    if key.type_.name() != key_type.as_str() {
+    if key.type_ != key_type {
         return Err(format!(
             "native collection removeKey key must be {}, got {}",
             key_type, key.type_

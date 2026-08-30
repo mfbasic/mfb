@@ -7,6 +7,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 /// Native fast path for `#collections_mapValues$K$V$U` with V == U and 8-byte
 /// fixed-width (rewrites value payloads in place over a tight copy). Other
 /// instantiations decline (`Ok(None)`). Free fn.
@@ -115,7 +116,7 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::load_u64(&resreg, abi::stack_pointer(), result_slot));
-        self.emit_collection_data_pointer_for(&base, &resreg, "");
+        self.emit_collection_data_pointer_for(&base, &resreg, &ParameterType::named(""));
         self.emit(abi::add_registers(&valaddr, &base, &valoff));
         self.emit(abi::load_u64(&val, &valaddr, 0));
         // f(value)
@@ -124,7 +125,7 @@ impl CodeBuilder<'_> {
         self.emit_direct_callable_branch(&act);
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok_l));
-        self.emit_callback_failure_exit(Some((result_slot, map_type.name().into_owned())))?;
+        self.emit_callback_failure_exit(Some((result_slot, map_type.clone())))?;
         self.emit(abi::label(&ok_l));
         // Recompute valAddr (the call clobbered caller-saved regs) and store f's result.
         self.emit(abi::load_u64(&r, abi::stack_pointer(), i_slot));
@@ -143,7 +144,7 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::load_u64(&resreg, abi::stack_pointer(), result_slot));
-        self.emit_collection_data_pointer_for(&base, &resreg, "");
+        self.emit_collection_data_pointer_for(&base, &resreg, &ParameterType::named(""));
         self.emit(abi::add_registers(&valaddr, &base, &valoff));
         self.emit(abi::store_u64(RESULT_VALUE_REGISTER, &valaddr, 0));
         self.emit(abi::add_immediate(&r, &r, 1));

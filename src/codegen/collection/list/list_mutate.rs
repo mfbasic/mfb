@@ -19,7 +19,7 @@ impl CodeBuilder<'_> {
         index_slot: usize,
         insert_slot: usize,
         list_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         // Zero for a kind-2 list: the sizing arithmetic below then reserves no
         // entry array, and the formulas keep their shape (plan-57-D).
@@ -197,9 +197,9 @@ impl CodeBuilder<'_> {
             let payload_text = payload.to_string();
 
             // --- Data region, in index order: A[0..i), then B, then A[i..n). ---
-            self.emit_collection_data_pointer_for(&scratch17, &nb, element_type); // dst data cursor
+            self.emit_collection_data_pointer_for(&scratch17, &nb, &element_type); // dst data cursor
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-            self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type); // A data cursor
+            self.emit_collection_data_pointer_for(&scratch20, &scratch8, &element_type); // A data cursor
             self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
             self.emit(abi::move_immediate(&scratch16, "Integer", &payload_text));
             self.emit(abi::multiply_registers(&scratch14, &scratch10, &scratch16)); // i * p
@@ -213,7 +213,7 @@ impl CodeBuilder<'_> {
                 "list_insert_ord_head",
             );
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
-            self.emit_collection_data_pointer_for(&scratch12, &scratch9, element_type); // B data base
+            self.emit_collection_data_pointer_for(&scratch12, &scratch9, &element_type); // B data base
             self.emit(abi::load_u64(
                 &scratch15,
                 &scratch9,
@@ -307,9 +307,9 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&ident_done));
         } else {
             // --- Data region: A verbatim, then B verbatim at offset dataLen_A. ---
-            self.emit_collection_data_pointer_for(&scratch17, &nb, element_type); // dst data base
+            self.emit_collection_data_pointer_for(&scratch17, &nb, &element_type); // dst data base
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-            self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type); // A data base
+            self.emit_collection_data_pointer_for(&scratch20, &scratch8, &element_type); // A data base
             self.emit(abi::load_u64(
                 &scratch14,
                 &scratch8,
@@ -323,7 +323,7 @@ impl CodeBuilder<'_> {
                 "list_insert_dataA",
             );
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
-            self.emit_collection_data_pointer_for(&scratch20, &scratch9, element_type); // B data base
+            self.emit_collection_data_pointer_for(&scratch20, &scratch9, &element_type); // B data base
             self.emit(abi::load_u64(
                 &scratch15,
                 &scratch9,
@@ -464,7 +464,7 @@ impl CodeBuilder<'_> {
         buffer_slot: usize,
         item_slot: usize,
         list_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         // Zero for a kind-2 list: the sizing arithmetic below then reserves no
         // entry array, and the formulas keep their shape (plan-57-D).
@@ -494,7 +494,7 @@ impl CodeBuilder<'_> {
         }
         let item = PayloadSlot {
             slot: item_slot,
-            type_: element_type.to_string(),
+            type_: element_type.clone(),
         };
         // bug-175 E: pad the element start offset like the literal writer. Returns
         // 1 (a no-op every align site) for fixed-size / byte-addressed payloads, so
@@ -677,9 +677,9 @@ impl CodeBuilder<'_> {
 
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
-        self.emit_collection_data_pointer_for(&scratch17, &nb, element_type);
+        self.emit_collection_data_pointer_for(&scratch17, &nb, &element_type);
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, &element_type);
         self.emit(abi::load_u64(
             &scratch14,
             &scratch8,
@@ -900,7 +900,7 @@ impl CodeBuilder<'_> {
         record_slot: usize,
         field_index: usize,
         list_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
         item_slot: usize,
     ) -> Result<(), String> {
         // Zero for a kind-2 list: no entry array; the formulas keep their shape.
@@ -925,7 +925,7 @@ impl CodeBuilder<'_> {
 
         let item = PayloadSlot {
             slot: item_slot,
-            type_: element_type.to_string(),
+            type_: element_type.clone(),
         };
         // Byte size of the new payload's data bytes.
         let need_slot = self.emit_payload_length_to_stack(&item, "inline_append_need")?;
@@ -1178,7 +1178,7 @@ impl CodeBuilder<'_> {
             field_off_slot,
         ));
         self.emit(abi::add_registers(&scratch17, &scratch17, &scratch16));
-        self.emit_collection_data_pointer_for(&scratch10, &scratch17, element_type);
+        self.emit_collection_data_pointer_for(&scratch10, &scratch17, &element_type);
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), record_slot));
         self.emit(abi::load_u64(
             &scratch16,
@@ -1186,7 +1186,7 @@ impl CodeBuilder<'_> {
             field_off_slot,
         ));
         self.emit(abi::add_registers(&scratch20, &scratch20, &scratch16));
-        self.emit_collection_data_pointer_for(&scratch11, &scratch20, element_type);
+        self.emit_collection_data_pointer_for(&scratch11, &scratch20, &element_type);
         self.emit(abi::load_u64(
             &scratch14,
             &scratch20,
@@ -1430,7 +1430,7 @@ impl CodeBuilder<'_> {
         record_slot: usize,
         field_index: usize,
         list_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
         rhs_slot: usize,
     ) -> Result<(), String> {
         let entry_stride = list_entry_stride(element_type);
@@ -1721,7 +1721,7 @@ impl CodeBuilder<'_> {
             field_off_slot,
         ));
         self.emit(abi::add_registers(&scratch17, &scratch17, &scratch16));
-        self.emit_collection_data_pointer_for(&scratch10, &scratch17, element_type);
+        self.emit_collection_data_pointer_for(&scratch10, &scratch17, &element_type);
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), record_slot));
         self.emit(abi::load_u64(
             &scratch16,
@@ -1729,7 +1729,7 @@ impl CodeBuilder<'_> {
             field_off_slot,
         ));
         self.emit(abi::add_registers(&scratch20, &scratch20, &scratch16));
-        self.emit_collection_data_pointer_for(&scratch11, &scratch20, element_type);
+        self.emit_collection_data_pointer_for(&scratch11, &scratch20, &element_type);
         self.emit(abi::load_u64(
             &scratch14,
             &scratch20,
@@ -1857,7 +1857,7 @@ impl CodeBuilder<'_> {
             subblock_slot,
         ));
         // dst.data + align(dataLength(self)) <- rhs.data (dataLength(rhs) bytes).
-        self.emit_collection_data_pointer_for(&scratch17, &scratch8, element_type);
+        self.emit_collection_data_pointer_for(&scratch17, &scratch8, &element_type);
         self.emit(abi::load_u64(
             &scratch9,
             &scratch8,
@@ -1869,7 +1869,7 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::add_registers(&scratch17, &scratch17, &scratch9));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), rhs_slot));
-        self.emit_collection_data_pointer_for(&scratch20, &scratch10, element_type);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch10, &element_type);
         self.emit(abi::load_u64(
             &scratch14,
             &scratch10,
@@ -1982,7 +1982,7 @@ impl CodeBuilder<'_> {
         buffer_slot: usize,
         rhs_slot: usize,
         list_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         // Zero for a kind-2 list: the sizing arithmetic below then reserves no
         // entry array, and the formulas keep their shape (plan-57-D).
@@ -2210,9 +2210,9 @@ impl CodeBuilder<'_> {
 
         // Copy self's data region verbatim (dataLength bytes), capacity-based base.
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
-        self.emit_collection_data_pointer_for(&scratch17, &nb, element_type);
+        self.emit_collection_data_pointer_for(&scratch17, &nb, &element_type);
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, &element_type);
         self.emit(abi::load_u64(
             &scratch14,
             &scratch8,
@@ -2287,7 +2287,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&write));
         // dst.data + dataLength(self) <- rhs.data (dataLength(rhs) bytes).
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit_collection_data_pointer_for(&scratch17, &scratch8, element_type);
+        self.emit_collection_data_pointer_for(&scratch17, &scratch8, &element_type);
         self.emit(abi::load_u64(
             &scratch9,
             &scratch8,
@@ -2302,7 +2302,7 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::add_registers(&scratch17, &scratch17, &scratch9));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), rhs_slot));
-        self.emit_collection_data_pointer_for(&scratch20, &scratch10, element_type);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch10, &element_type);
         self.emit(abi::load_u64(
             &scratch14,
             &scratch10,
@@ -2413,7 +2413,7 @@ impl CodeBuilder<'_> {
         buffer_slot: usize,
         item_slot: usize,
         list_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         // Zero for a kind-2 list: the sizing arithmetic below then reserves no
         // entry array, and the formulas keep their shape (plan-57-D).
@@ -2443,7 +2443,7 @@ impl CodeBuilder<'_> {
         }
         let item = PayloadSlot {
             slot: item_slot,
-            type_: element_type.to_string(),
+            type_: element_type.clone(),
         };
         // bug-175 E: pad the element start offset like the literal writer; 1 (a
         // no-op at every align site) for fixed-size / byte-addressed payloads keeps
@@ -2622,9 +2622,9 @@ impl CodeBuilder<'_> {
         );
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
-        self.emit_collection_data_pointer_for(&scratch17, &nb, element_type);
+        self.emit_collection_data_pointer_for(&scratch17, &nb, &element_type);
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type);
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, &element_type);
         self.emit(abi::load_u64(
             &scratch14,
             &scratch8,
@@ -2694,7 +2694,7 @@ impl CodeBuilder<'_> {
             // source and destination overlap for any count above one.
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
             self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-            self.emit_collection_data_pointer_for(&scratch17, &scratch8, element_type); // data base
+            self.emit_collection_data_pointer_for(&scratch17, &scratch8, &element_type); // data base
             self.emit(abi::move_immediate(&scratch16, "Integer", &payload_text));
             self.emit(abi::multiply_registers(&scratch11, &scratch9, &scratch16)); // n * p
             self.emit(abi::add_registers(&scratch12, &scratch17, &scratch11)); // src end
@@ -2961,7 +2961,7 @@ impl CodeBuilder<'_> {
         index_slot: usize,
         item_slot: usize,
         list_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         // Zero for a kind-2 list: the sizing arithmetic below then reserves no
         // entry array, and the formulas keep their shape (plan-57-D).
@@ -2993,7 +2993,7 @@ impl CodeBuilder<'_> {
         }
         let item = PayloadSlot {
             slot: item_slot,
-            type_: element_type.to_string(),
+            type_: element_type.clone(),
         };
         // Byte size of the replacement payload.
         let need_slot = self.emit_payload_length_to_stack(&item, "set_inplace_need")?;
@@ -3127,7 +3127,7 @@ impl CodeBuilder<'_> {
                 key: None,
                 value: PayloadSlot {
                     slot: item_slot,
-                    type_: element_type.to_string(),
+                    type_: element_type.clone(),
                 },
             }],
             "set rebuild singleton",
@@ -3196,7 +3196,7 @@ impl CodeBuilder<'_> {
         base_slot: usize,
         index_slot: usize,
         list_type: &ParameterType,
-        element_type: &str,
+        element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         // Zero for a kind-2 list: the sizing arithmetic below then reserves no
         // entry array, and the formulas keep their shape (plan-57-D).
@@ -3422,11 +3422,11 @@ impl CodeBuilder<'_> {
         }
 
         // --- Data region: two verbatim blocks around the hole. ---
-        self.emit_collection_data_pointer_for(&scratch20, &scratch8, element_type); // src data base (capacity-based)
+        self.emit_collection_data_pointer_for(&scratch20, &scratch8, &element_type); // src data base (capacity-based)
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
-        self.emit_collection_data_pointer_for(&scratch21, &nb, element_type); // dst data base (tight)
-                                                                              // Before-hole [0, holeOffset): advances scratch21 -> dst.data[holeOffset]
-                                                                              // and scratch20 -> src.data[holeOffset].
+        self.emit_collection_data_pointer_for(&scratch21, &nb, &element_type); // dst data base (tight)
+                                                                               // Before-hole [0, holeOffset): advances scratch21 -> dst.data[holeOffset]
+                                                                               // and scratch20 -> src.data[holeOffset].
         self.emit(abi::move_register(&scratch15, &scratch23)); // holeOffset (copy consumes it)
         self.emit_block_copy_advance(
             &scratch21,

@@ -5,6 +5,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 
 pub(crate) fn lower_strings_with_any(
     builder: &mut CodeBuilder,
@@ -28,11 +29,7 @@ pub(crate) fn lower_strings_with_any(
     builder.require_string("strings.withAny value", &value)?;
     let value_slot = builder.spill_to_slot("strings_with_any_value", &value.location);
     let parts = parts.clone();
-    if typed_list_element_type(&parts.type_)
-        .map(|type_| type_.name().into_owned())
-        .as_deref()
-        != Some("String")
-    {
+    if typed_list_element_type(&parts.type_).cloned() != Some(ParameterType::String) {
         return Err(format!(
             "strings.startsWithAny/endsWithAny parts must be List OF String, got {}",
             parts.type_
@@ -64,7 +61,7 @@ pub(crate) fn lower_strings_with_any(
         &scratch17,
         COLLECTION_HEADER_SIZE,
     ));
-    builder.emit_collection_data_pointer_for(&scratch21, &scratch17, "String");
+    builder.emit_collection_data_pointer_for(&scratch21, &scratch17, &ParameterType::String);
     builder.emit(abi::move_immediate(&scratch20, "Integer", "0"));
 
     builder.emit(abi::label(&outer_loop));

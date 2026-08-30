@@ -1345,12 +1345,15 @@ pub(crate) fn static_type_name_for_fold_with_types(
     }
 }
 
-pub(crate) fn builtin_function_symbol_for_type(name: &str, type_: &str) -> Option<String> {
-    crate::codegen::builtins::general::builtin_function_id_for_type(name, type_)?;
+pub(crate) fn builtin_function_symbol_for_type(
+    name: &str,
+    type_: &ParameterType,
+) -> Option<String> {
+    crate::codegen::builtins::general::builtin_function_id_for_type(name, &type_.name())?;
     Some(format!(
         "_mfb_builtin_{}_{}",
         nir::symbol_fragment(name),
-        nir::symbol_fragment(type_)
+        nir::symbol_fragment(&type_.name())
     ))
 }
 
@@ -1406,7 +1409,7 @@ fn collect_builtin_function_refs_in_ops(
     impl NirVisitor for Collector<'_> {
         fn visit_value(&mut self, value: &NirValue) {
             if let NirValue::FunctionRef { name, type_ } = value {
-                if let Some(symbol) = builtin_function_symbol_for_type(name, &type_.name()) {
+                if let Some(symbol) = builtin_function_symbol_for_type(name, &type_) {
                     let key = format!("{name}\0{type_}");
                     if self.seen.insert(key) {
                         self.refs.push((name.clone(), type_.clone(), symbol));
@@ -1425,9 +1428,9 @@ mod tests {
     use crate::target::shared::nir::{NirSourceLoc, NirValue};
     use std::collections::{HashMap, HashSet};
 
-    fn const_of(type_: &str) -> NirValue {
+    fn const_of(type_: &ParameterType) -> NirValue {
         NirValue::Const {
-            type_: ParameterType::parse(type_),
+            type_: type_.clone(),
             value: String::new(),
         }
     }

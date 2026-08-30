@@ -365,10 +365,9 @@ fn read_only_record(type_: &ParameterType) -> bool {
     if matches!(type_, ParameterType::MapEntryOf(..)) {
         return true;
     }
-    let name = type_.name();
-    crate::codegen::builtins::term::is_read_only_record(&name)
-        || name == crate::codegen::builtins::net::ADDRESS_TYPE
-        || name == crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE
+    crate::codegen::builtins::term::is_read_only_record(type_)
+        || type_.is_named(crate::codegen::builtins::net::ADDRESS_TYPE)
+        || type_.is_named(crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE)
 }
 
 /// A CONST pin expression the compiler folds to an immediate (plan-50-G): an
@@ -793,7 +792,7 @@ impl<'a> Walker<'a> {
         type_: &ParameterType,
         context: &str,
         line: usize,
-        seen: &mut HashSet<String>,
+        seen: &mut HashSet<ParameterType>,
     ) {
         match type_ {
             ParameterType::ListOf(element)
@@ -837,12 +836,11 @@ impl<'a> Walker<'a> {
                 self.validate_package_type(package_file, out, context, line, seen);
             }
             ParameterType::Named(_) => {
-                let name = type_.name().into_owned();
+                let name = type_.clone();
                 // A built-in nominal is always in scope and declares no fields.
-                if matches!(
-                    name.as_str(),
-                    "AttributedString" | "Error" | "ErrorLoc" | "Scalar"
-                ) {
+                if matches!(&name, ParameterType::Named(sym)
+                    if matches!(sym.resolve(), "AttributedString" | "Error" | "ErrorLoc" | "Scalar"))
+                {
                     return;
                 }
                 if self.is_resource_type(type_) || !seen.insert(name.clone()) {
@@ -2239,7 +2237,7 @@ impl<'a> Walker<'a> {
         self.is_comparable_seen(type_, &mut HashSet::new())
     }
 
-    fn is_comparable_seen(&self, type_: &ParameterType, seen: &mut HashSet<String>) -> bool {
+    fn is_comparable_seen(&self, type_: &ParameterType, seen: &mut HashSet<ParameterType>) -> bool {
         match type_ {
             ParameterType::Boolean
             | ParameterType::Byte
@@ -2267,7 +2265,7 @@ impl<'a> Walker<'a> {
                 if type_.is_named("AttributedString") {
                     return false;
                 }
-                let name = type_.name().into_owned();
+                let name = type_.clone();
                 if self.is_resource_type(type_) || !seen.insert(name.clone()) {
                     return false;
                 }
@@ -2913,8 +2911,7 @@ impl<'a> Walker<'a> {
                     if params.len() == 1
                         && **returns == ParameterType::Boolean
                         && crate::codegen::builtins::general::filter_predicate_type(
-                            name,
-                            &params[0].name(),
+                            name, &params[0],
                         )
                         .is_some()
                     {
