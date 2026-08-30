@@ -13,10 +13,16 @@
 //! (stack-slot value availability, the fact base the store-to-load
 //! forwarding and redundant-load rows share), and [`bits`] (the known-bits
 //! lattice behind known-bits simplification, narrowing, and extension
-//! elimination).
+//! elimination), and [`ranges`] (the integer range lattice with
+//! dominating-predicate refinement, the fact base of the check-elision
+//! cluster), and [`mirloops`] (natural loops over the flat MIR CFG — the
+//! desugared and inlined ones included, which the structured Opt1 loop facts
+//! cannot see).
 
 pub(crate) mod bits;
 pub(crate) mod mark;
 pub(crate) mod memory;
+pub(crate) mod mirloops;
 pub(crate) mod postdom;
+pub(crate) mod ranges;
 pub(crate) mod ssa;

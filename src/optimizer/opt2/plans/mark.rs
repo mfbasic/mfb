@@ -79,6 +79,37 @@ pub(crate) fn removable_op(op: CodeOp) -> bool {
     )
 }
 
+/// Whether the instruction provably writes **no condition flags on any
+/// backend** — the question a row must ask before letting one comparison's
+/// flags survive across it.
+///
+/// [`removable_op`] is emphatically *not* that predicate. It means "pure,
+/// single-`dst`, memory-free", which on AArch64 happens to imply flag-free
+/// but on x86-64 does not: the emitter encodes `and` as `0x21`, `orr` as
+/// `0x09`, and `eor`/`add`/`sub` likewise — every one of them writes EFLAGS.
+/// Even `mov dst, xzr` is encoded there as `xor dst, dst`, so a move has to
+/// be inspected rather than matched on its op alone.
+///
+/// What is left is genuinely portable: register-to-register moves of a real
+/// register, immediate materialization, memory traffic, labels, and branches
+/// (which *read* the flags and never write them).
+pub(crate) fn flag_preserving(instruction: &CodeInstruction) -> bool {
+    match instruction.op {
+        CodeOp::Mov => instruction
+            .get("src")
+            .is_some_and(|src| src != crate::target::shared::abi::ZERO),
+        CodeOp::MovImm | CodeOp::Label => true,
+        op if is_block_terminator(op) => true,
+        op => {
+            let mnemonic = op.mnemonic();
+            mnemonic.starts_with("ldr")
+                || mnemonic.starts_with("str")
+                || mnemonic.starts_with("ldp")
+                || mnemonic.starts_with("stp")
+        }
+    }
+}
+
 /// Whether the instruction is a conditional block terminator (a flag- or
 /// register-conditional branch): live only via control dependence under ADCE.
 pub(crate) fn conditional_terminator(op: CodeOp) -> bool {

@@ -40,7 +40,7 @@ mod tests {
         inst
     }
 
-    fn run(stream: &mut [CodeInstruction], level: u8) {
+    fn run(stream: &mut Vec<CodeInstruction>, level: u8) {
         with_opt_level(OptLevel(level), || forward(stream, &Aarch64RegisterModel));
     }
 

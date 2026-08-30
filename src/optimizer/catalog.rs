@@ -233,6 +233,174 @@ pub(crate) fn rows() -> &'static [Row] {
             counter: &stats::DEAD_CODE_ELIMINATION,
         },
         Row {
+            name: "Object / aggregate copy propagation",
+            level: 3,
+            stage: "NIR",
+            summary: "Removes a whole-block copy of a record, String or collection \
+                      when neither the copy nor its source is ever written, \
+                      address-taken, captured, or a resource owner — so one block \
+                      does the work of two and one cleanup frees it.",
+            counter: &stats::AGGREGATE_COPIES_FORWARDED,
+        },
+        Row {
+            name: "Recovery-region simplification",
+            level: 3,
+            stage: "NIR",
+            summary: "Removes a `TRAP` handler whose guarded region provably cannot \
+                      enter the error path — no call, no checked arithmetic, no \
+                      `FAIL`, no closing resource — so nothing can ever branch to it.",
+            counter: &stats::RECOVERY_REGIONS_SIMPLIFIED,
+        },
+        Row {
+            name: "String concat / rope fusion",
+            level: 3,
+            stage: "codegen",
+            summary: "Lowers a whole `a & b & c` chain into one pre-sized allocation \
+                      and one pass of writes. `&` is left-associative, so the \
+                      pairwise form allocates and fills an intermediate String per \
+                      operator and copies it again into the next one.",
+            counter: &stats::STRING_CONCATS_FUSED,
+        },
+        Row {
+            name: "Codepoint `len()` caching",
+            level: 3,
+            stage: "NIR",
+            summary: "Scans a String's codepoints once and reuses the count. A \
+                      String's byte length is an O(1) header read, but `len()` is \
+                      the codepoint count and lowers to a loop over every byte, so \
+                      two `len(s)` in one run scan the whole string twice.",
+            counter: &stats::LEN_CACHES,
+        },
+        Row {
+            name: "Store PRE / Load PRE",
+            level: 3,
+            stage: "MIR",
+            summary: "Completes a stack-slot read that is already in a register on \
+                      every path into a join but one, then rewrites the join's own \
+                      read as a copy - one load placed for one removed.",
+            counter: &stats::MEMORY_PRE,
+        },
+        Row {
+            name: "Partial dead-store elimination",
+            level: 3,
+            stage: "MIR",
+            summary: "Sinks a store that is dead on one branch and live on the other \
+                      into the branch that needs it, so the dead path stops writing. \
+                      Only where the receiving branch is reachable no other way.",
+            counter: &stats::PARTIAL_DEAD_STORES,
+        },
+        Row {
+            name: "Loop-nest invariant code motion",
+            level: 3,
+            stage: "MIR",
+            summary: "Hoists an invariant computation to the shallowest enclosing \
+                      loop it is still invariant at, over the loops the machine \
+                      actually has — the desugared and inlined ones the structured \
+                      NIR pass cannot see. Never a trapping operation.",
+            counter: &stats::LOOP_NEST_HOISTS,
+        },
+        Row {
+            name: "Partial redundancy elimination (PRE)",
+            level: 3,
+            stage: "MIR",
+            summary: "Completes an expression already computed on some paths into a \
+                      join by computing it on the one path that lacked it, then \
+                      deletes the join's own copy. Fires only when the insertion \
+                      and the deletion cancel, so the program never grows.",
+            counter: &stats::PARTIAL_REDUNDANCIES,
+        },
+        Row {
+            name: "Code sinking",
+            level: 3,
+            stage: "MIR",
+            summary: "Moves a computation down into the single branch that uses it, \
+                      so the other path stops paying for it. Only where that branch \
+                      is reachable no other way, which makes the move free of any \
+                      trip-count guess.",
+            counter: &stats::CODE_SINKS,
+        },
+        Row {
+            name: "Load/store hoisting and sinking",
+            level: 3,
+            stage: "MIR",
+            summary: "Moves a stack-slot access into the one branch that uses it, and \
+                      the mirror: an identical access leading both arms of a branch \
+                      moves up above it, so it is stored once instead of twice.",
+            counter: &stats::MEMORY_MOTIONS,
+        },
+        Row {
+            name: "Check fusion with existing comparisons",
+            level: 3,
+            stage: "MIR",
+            summary: "Deletes a comparison the condition flags already reflect, so a \
+                      guarded region's second test reuses the guard's own compare \
+                      instead of recomputing it. The branch is untouched.",
+            counter: &stats::CHECK_FUSIONS,
+        },
+        Row {
+            name: "Correlated value propagation",
+            level: 3,
+            stage: "MIR",
+            summary: "Refines a value from the branch conditions that dominate it, \
+                      then uses the refinement: a comparison the dominating \
+                      conditions already settle becomes unconditional flow, and a \
+                      value they pin to one number becomes that number.",
+            counter: &stats::CORRELATED_VALUE_PROPAGATION,
+        },
+        Row {
+            name: "Overflow-check elimination",
+            level: 3,
+            stage: "MIR",
+            summary: "Drops a checked add or subtract's overflow guard when the \
+                      operands' proven ranges cannot sum past the 64-bit range. A \
+                      guard without such a proof is left exactly where it is, so \
+                      every trap that can fire still fires as written.",
+            counter: &stats::OVERFLOW_CHECKS_ELIDED,
+        },
+        Row {
+            name: "Division / modulo-check elimination",
+            level: 3,
+            stage: "MIR",
+            summary: "Drops the divisor-is-zero and `MIN / -1` guards when the \
+                      divisor's proven range excludes those values.",
+            counter: &stats::DIVISION_CHECKS_ELIDED,
+        },
+        Row {
+            name: "Bounds-check elimination",
+            level: 3,
+            stage: "MIR",
+            summary: "Removes an index test whose failing edge raises \
+                      `ErrIndexOutOfRange` when a dominating condition already \
+                      proves the index in range.",
+            counter: &stats::BOUNDS_CHECKS_ELIDED,
+        },
+        Row {
+            name: "Range-check widening / narrowing",
+            level: 3,
+            stage: "MIR",
+            summary: "Carries one proven range through arithmetic to discharge the \
+                      checks on values derived from it — a single `i < n` also \
+                      settling `i + 1` and `i * 2` — without moving any trap.",
+            counter: &stats::RANGE_CHECKS_DERIVED,
+        },
+        Row {
+            name: "Redundant union-tag / error-tag check elimination",
+            level: 3,
+            stage: "MIR",
+            summary: "Removes a discriminant or fallible-result test that an \
+                      equivalent dominating test already settled.",
+            counter: &stats::TAG_CHECKS_ELIDED,
+        },
+        Row {
+            name: "Dead error-handler / fallible-branch elimination",
+            level: 3,
+            stage: "MIR",
+            summary: "When a guard is proven never to fail, its raise path and \
+                      handler are unreachable and the unreachable-code row sweeps \
+                      them.",
+            counter: &stats::DEAD_ERROR_HANDLERS_REMOVED,
+        },
+        Row {
             name: "Aggressive DCE (ADCE)",
             level: 3,
             stage: "MIR",

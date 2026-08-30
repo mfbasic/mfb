@@ -28,6 +28,17 @@
 //! still holds it at the load is the separate question the consumers settle
 //! with the same single-definition rule GVN uses (`def_count == 1`).
 //!
+//! The same fixpoint answers one more question at no extra cost, for the
+//! **Store PRE / Load PRE** row: a load at the top of a join whose slot is
+//! available on every incoming edge *but one*. Placing that load at the end of
+//! the odd edge's predecessor makes it available on all of them, and the
+//! join's own load then becomes a copy — the same copy the fully-available
+//! half produces, which copy propagation bypasses and dead-code elimination
+//! removes. The net effect is that the load moves off the path that already
+//! had the value. The per-predecessor exit states the fixpoint already
+//! computed are exactly the evidence that question needs, which is why it is
+//! answered here rather than by a second traversal.
+//!
 //! Shape matters here: each instruction's memory effect is classified **once**
 //! (no operand re-parsing per round) and each block's exit state is cached, so
 //! the fixpoint costs one transfer per instruction per round rather than one
@@ -71,6 +82,20 @@ pub(crate) struct Available {
 pub(crate) struct Forwardable {
     pub(crate) inst: usize,
     pub(crate) available: Available,
+}
+
+/// A load whose slot value is already in `holder` on every path into its
+/// block **except one** — the Store PRE / Load PRE row's candidate. Placing
+/// the same load at the end of `gap` makes it available on that path too,
+/// after which the load itself becomes a copy.
+pub(crate) struct PartialLoad {
+    pub(crate) inst: usize,
+    /// The one predecessor block that lacks the value.
+    pub(crate) gap: usize,
+    /// The register the other predecessors already leave it in.
+    pub(crate) holder: Operand,
+    /// The slot to read into `holder` on the gap path.
+    pub(crate) offset: i64,
 }
 
 /// One instruction's memory effect, classified once up front.
@@ -120,10 +145,10 @@ pub(crate) fn forwardable_loads(
     blocks: &[Block],
     models: &(ClassModel, ClassModel),
     overlay: &Ssa,
-) -> Vec<Forwardable> {
+) -> (Vec<Forwardable>, Vec<PartialLoad>) {
     let nb = blocks.len();
     if nb == 0 {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
     let effects: Vec<MemEffect> = (0..instructions.len())
         .map(|i| classify(instructions, i, models, overlay))
@@ -134,7 +159,7 @@ pub(crate) fn forwardable_loads(
         .iter()
         .any(|effect| matches!(effect, MemEffect::Load { dst: Some(_), .. }))
     {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
 
     // Only slots some trackable load actually reads are worth carrying: a
@@ -217,6 +242,7 @@ pub(crate) fn forwardable_loads(
 
     // Collection walk: replay each block from its (now stable) entry state.
     let mut found = Vec::new();
+    let mut partial = Vec::new();
     for (b, block) in blocks.iter().enumerate() {
         let Some(mut state) = entry_state(b, &preds[b], &exit_state) else {
             continue; // unreachable block: no facts, no rewrites
@@ -234,12 +260,79 @@ pub(crate) fn forwardable_loads(
                             available: available.clone(),
                         });
                     }
+                } else if i <= block.start + 1 {
+                    // Partially available: every predecessor but one already
+                    // leaves the slot's value in the same register. Only a
+                    // load at the very top of the block qualifies — further
+                    // in, the block's own instructions may have changed the
+                    // slot since entry, and the per-predecessor exit states no
+                    // longer describe what is true at this point.
+                    if let Some(candidate) =
+                        partially_available(blocks, &preds[b], &exit_state, &def_count, i, offset)
+                    {
+                        partial.push(candidate);
+                    }
                 }
             }
             transfer(&effects[i], &mut state, &tracked);
         }
     }
-    found
+    (found, partial)
+}
+
+/// The Store PRE / Load PRE test: all but one predecessor leave the slot's
+/// value in the same single-definition register, and the odd one out reaches
+/// this block unconditionally (so a load placed at its end runs exactly as
+/// often as the edge into this block is taken).
+fn partially_available(
+    blocks: &[Block],
+    preds: &[usize],
+    exit_state: &[Option<State>],
+    def_count: &HashMap<Var, u32>,
+    inst: usize,
+    offset: i64,
+) -> Option<PartialLoad> {
+    if preds.len() < 2 {
+        return None;
+    }
+    let mut leader: Option<Available> = None;
+    let mut gap: Option<usize> = None;
+    for &p in preds {
+        let exit = exit_state[p].as_ref()?;
+        match slot(exit, offset) {
+            Some(available) => match &leader {
+                None => leader = Some(available.clone()),
+                Some(current) => {
+                    if current.value != available.value
+                        || current.holder.rendered() != available.holder.rendered()
+                    {
+                        return None;
+                    }
+                }
+            },
+            None => {
+                if gap.is_some() {
+                    return None; // more than one gap: not a size-neutral fix
+                }
+                gap = Some(p);
+            }
+        }
+    }
+    let (leader, gap) = (leader?, gap?);
+    if def_count.get(&leader.holder_var) != Some(&1) {
+        return None;
+    }
+    // A predecessor that branches would run the inserted load on executions
+    // that never reach this block.
+    if blocks[gap].succ.len() != 1 {
+        return None;
+    }
+    Some(PartialLoad {
+        inst,
+        gap,
+        holder: leader.holder,
+        offset,
+    })
 }
 
 /// The block's entry state: empty for the entry block, otherwise the meet of

@@ -11,6 +11,7 @@
 //! [`plans::loops`] fact base (invariance, loop-control capture, the pure
 //! statement class).
 
+pub(crate) mod aggcopy;
 pub(crate) mod algebraic;
 pub(crate) mod branches;
 pub(crate) mod constant_folding;
@@ -18,10 +19,12 @@ pub(crate) mod dce;
 pub(crate) mod fission;
 pub(crate) mod fuse;
 pub(crate) mod globals;
+pub(crate) mod lencache;
 pub(crate) mod licm;
 pub(crate) mod local_rewrites;
 pub(crate) mod peel;
 pub(crate) mod plans;
+pub(crate) mod recovery;
 pub(crate) mod rotate;
 pub(crate) mod strength;
 pub(crate) mod uce;
@@ -68,12 +71,23 @@ pub(crate) fn optimize_nir(mut module: NirModule, level: OptLevel) -> NirModule 
     // rows: constifying a never-written global turns its reads into literals,
     // which the invariance and folding checks below can then see through.
     globals::simplify(&mut module);
+    // Codepoint `len()` caching (Level 3) runs before the loop rows: a cached
+    // count is a plain local, which the invariance test can then hoist.
+    lencache::cache(&mut module);
     licm::hoist(&mut module);
     unswitch::unswitch(&mut module);
     fuse::fuse(&mut module);
     fission::split(&mut module);
     peel::peel(&mut module);
     rotate::rotate(&mut module);
+    // Recovery-region simplification (Level 3) runs after the rewrites above:
+    // a body they simplified into pure value flow is one whose TRAP handler
+    // is provably unreachable.
+    // Aggregate copy propagation (Level 3): a `LET b = a` on a record,
+    // String or collection is a whole-block copy; forwarding it strands the
+    // binding, which DCE below sweeps.
+    aggcopy::propagate(&mut module);
+    recovery::simplify(&mut module);
     uce::eliminate(&mut module);
     dce::eliminate(&mut module);
     module

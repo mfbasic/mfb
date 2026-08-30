@@ -117,6 +117,60 @@ pub(super) static SPILL_SLOTS_SHARED: AtomicU64 = AtomicU64::new(0);
 /// "Live-range splitting" (regalloc): values kept in registers across their
 /// whole life by splitting the range between two registers.
 pub(super) static LIVE_RANGES_SPLIT: AtomicU64 = AtomicU64::new(0);
+/// "Object / aggregate copy propagation" (Opt1): whole-block copies of a
+/// value-semantic aggregate removed by pointing the readers at the source.
+pub(super) static AGGREGATE_COPIES_FORWARDED: AtomicU64 = AtomicU64::new(0);
+/// "Recovery-region simplification" (Opt1): `TRAP` handlers removed because
+/// the region they guard provably cannot enter the error path.
+pub(super) static RECOVERY_REGIONS_SIMPLIFIED: AtomicU64 = AtomicU64::new(0);
+/// "String concat / rope fusion" (codegen): intermediate Strings a `&` chain
+/// no longer allocates, one per fused operator.
+pub(super) static STRING_CONCATS_FUSED: AtomicU64 = AtomicU64::new(0);
+/// "Codepoint `len()` caching" (Opt1): repeated codepoint scans of the same
+/// String replaced by a read of the first scan's result.
+pub(super) static LEN_CACHES: AtomicU64 = AtomicU64::new(0);
+/// "Store PRE / Load PRE" (Opt2): loads completed on the one edge that lacked
+/// the value, after which the join's own load is a copy.
+pub(super) static MEMORY_PRE: AtomicU64 = AtomicU64::new(0);
+/// "Partial dead-store elimination" (Opt2): stores dead on one edge and live
+/// on the other, sunk into the edge that needs them.
+pub(super) static PARTIAL_DEAD_STORES: AtomicU64 = AtomicU64::new(0);
+/// "Loop-nest invariant code motion" (Opt2): invariant computations hoisted
+/// to the shallowest loop level they are still invariant at.
+pub(super) static LOOP_NEST_HOISTS: AtomicU64 = AtomicU64::new(0);
+/// "Partial redundancy elimination (PRE)" (Opt2): join recomputations removed
+/// by completing the expression on the one path that lacked it.
+pub(super) static PARTIAL_REDUNDANCIES: AtomicU64 = AtomicU64::new(0);
+/// "Code sinking" (Opt2): pure computations moved down into the one branch
+/// that uses them.
+pub(super) static CODE_SINKS: AtomicU64 = AtomicU64::new(0);
+/// "Load/store hoisting and sinking" (Opt2): memory reads moved down into the
+/// one branch that uses them.
+pub(super) static MEMORY_MOTIONS: AtomicU64 = AtomicU64::new(0);
+/// "Check fusion with existing comparisons" (Opt2): comparisons deleted
+/// because the flags already reflect exactly that comparison.
+pub(super) static CHECK_FUSIONS: AtomicU64 = AtomicU64::new(0);
+/// "Correlated value propagation" (Opt2): branches decided — and values
+/// pinned — by the dominating conditions the range lattice refines with.
+pub(super) static CORRELATED_VALUE_PROPAGATION: AtomicU64 = AtomicU64::new(0);
+/// "Overflow-check elimination" (Opt2): `adds`/`subs` guards dropped because
+/// the input intervals cannot sum past the 64-bit range.
+pub(super) static OVERFLOW_CHECKS_ELIDED: AtomicU64 = AtomicU64::new(0);
+/// "Division / modulo-check elimination" (Opt2): divisor-zero and `MIN / -1`
+/// guards proven unreachable.
+pub(super) static DIVISION_CHECKS_ELIDED: AtomicU64 = AtomicU64::new(0);
+/// "Bounds-check elimination" (Opt2): index tests whose failing edge raises
+/// `ErrIndexOutOfRange`, proven never taken.
+pub(super) static BOUNDS_CHECKS_ELIDED: AtomicU64 = AtomicU64::new(0);
+/// "Dead error-handler / fallible-branch elimination" (Opt2): guards whose
+/// raising edge is proven unreachable, orphaning the handler.
+pub(super) static DEAD_ERROR_HANDLERS_REMOVED: AtomicU64 = AtomicU64::new(0);
+/// "Range-check widening / narrowing" (Opt2): checks discharged by a fact
+/// derived through arithmetic from another value's dominating condition.
+pub(super) static RANGE_CHECKS_DERIVED: AtomicU64 = AtomicU64::new(0);
+/// "Redundant union-tag / error-tag check elimination" (Opt2): discriminant
+/// tests a dominating equality already settled.
+pub(super) static TAG_CHECKS_ELIDED: AtomicU64 = AtomicU64::new(0);
 /// "Peephole optimization" (post-regalloc): stack reloads forwarded to a
 /// register move by `forward_stores_to_loads`.
 pub(super) static PEEPHOLE_FORWARDS: AtomicU64 = AtomicU64::new(0);
@@ -288,4 +342,71 @@ fn add(counter: &AtomicU64, fired: u64) {
     if fired != 0 {
         counter.fetch_add(fired, Ordering::Relaxed);
     }
+}
+
+/// The per-row tallies one run of the shared check-elision pass produced.
+/// The pass decides all seven rows from one lattice, so it reports them
+/// together rather than reaching for seven counters at seven call sites.
+pub(crate) struct CheckElisions {
+    pub(crate) overflow: u64,
+    pub(crate) division: u64,
+    pub(crate) bounds: u64,
+    pub(crate) dead_handler: u64,
+    pub(crate) widening: u64,
+    pub(crate) tag: u64,
+    pub(crate) correlated: u64,
+}
+
+pub(crate) fn count_check_elisions(counts: CheckElisions) {
+    add(&OVERFLOW_CHECKS_ELIDED, counts.overflow);
+    add(&DIVISION_CHECKS_ELIDED, counts.division);
+    add(&BOUNDS_CHECKS_ELIDED, counts.bounds);
+    add(&DEAD_ERROR_HANDLERS_REMOVED, counts.dead_handler);
+    add(&RANGE_CHECKS_DERIVED, counts.widening);
+    add(&TAG_CHECKS_ELIDED, counts.tag);
+    add(&CORRELATED_VALUE_PROPAGATION, counts.correlated);
+}
+
+pub(crate) fn count_check_fusions(fired: u64) {
+    add(&CHECK_FUSIONS, fired);
+}
+
+pub(crate) fn count_code_sinks(fired: u64) {
+    add(&CODE_SINKS, fired);
+}
+
+pub(crate) fn count_memory_motions(fired: u64) {
+    add(&MEMORY_MOTIONS, fired);
+}
+
+pub(crate) fn count_partial_redundancies(fired: u64) {
+    add(&PARTIAL_REDUNDANCIES, fired);
+}
+
+pub(crate) fn count_loop_nest_hoists(fired: u64) {
+    add(&LOOP_NEST_HOISTS, fired);
+}
+
+pub(crate) fn count_partial_dead_stores(fired: u64) {
+    add(&PARTIAL_DEAD_STORES, fired);
+}
+
+pub(crate) fn count_memory_pre(fired: u64) {
+    add(&MEMORY_PRE, fired);
+}
+
+pub(crate) fn count_len_caches(fired: u64) {
+    add(&LEN_CACHES, fired);
+}
+
+pub(crate) fn count_string_concats_fused(fired: u64) {
+    add(&STRING_CONCATS_FUSED, fired);
+}
+
+pub(crate) fn count_recovery_regions_simplified(fired: u64) {
+    add(&RECOVERY_REGIONS_SIMPLIFIED, fired);
+}
+
+pub(crate) fn count_aggregate_copies_forwarded(fired: u64) {
+    add(&AGGREGATE_COPIES_FORWARDED, fired);
 }
