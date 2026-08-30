@@ -133,7 +133,7 @@ pub(crate) mod helpers {
 /// type checker rejects them before lowering; once the checker moves onto the
 /// IR (plan-20-Z) lowering runs first, so it must survive them. This test
 /// drives every `*-invalid` fixture through parse → resolve → monomorph →
-/// **lower** (skipping syntaxcheck) and asserts lowering does not panic. Fixtures
+/// **lower** (skipping the former source checker) and asserts lowering does not panic. Fixtures
 /// that fail before lowering (parse/resolve/monomorph errors — also pre-lowering
 /// rejections) are skipped; the assertion is purely "if it reaches lowering, it
 /// does not panic".
@@ -230,7 +230,7 @@ mod lowering_totality_tests {
         assert!(
             reached > 50,
             "only {reached} invalid fixtures reached lowering; expected the \
-             syntaxcheck-invalid majority — the pipeline wiring may be broken"
+             source-checked majority — the pipeline wiring may be broken"
         );
     }
 }
@@ -2417,14 +2417,17 @@ mod lower_tests {
                     ExternalFunctionParam {
                         name: "a".to_string(),
                         type_: crate::types::ParameterType::parse("Integer"),
+                        has_default: false,
                     },
                     ExternalFunctionParam {
                         name: "b".to_string(),
                         type_: crate::types::ParameterType::parse("Integer"),
+                        has_default: false,
                     },
                 ],
                 returns: crate::types::ParameterType::parse("Integer"),
                 isolated: false,
+                sub: false,
             },
         );
         let ir = lower_project_with_external_functions(&project, None, &signatures, &[]);
@@ -2490,13 +2493,70 @@ mod lower_tests {
     }
 
     #[test]
+    fn builtin_enum_advisory_warns_once_per_user_occurrence() {
+        // plan-109-A's enum-value advisory, held by `ir::verify` since the source
+        // checker's deletion (plan-107-D): a registry enum value carrying an
+        // `EnumVariant::advisory` reports its warn-severity rule exactly once per
+        // user-source occurrence — an expression AND a `MATCH` literal both reach
+        // the member-access arm — and rejects nothing. The injected crypto source
+        // compares its `Hash` selector against `Hash.SHA1` in its own dispatch
+        // helpers; those `builtins/` occurrences must not count.
+        let src = "\
+IMPORT crypto
+FUNC pick(h AS Hash) AS Integer
+  MATCH h
+    CASE Hash.SHA1
+      RETURN 1
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+FUNC main AS Integer
+  LET d AS List OF Byte = crypto::hash(Hash.SHA1, \"legacy\")
+  RETURN len(d) + pick(Hash.SHA2_256)
+END FUNC
+";
+        let rules = crate::testutil::check_src(src);
+        let warnings = rules
+            .iter()
+            .filter(|r| *r == "CRYPTO_SHA1_INSECURE")
+            .count();
+        assert_eq!(warnings, 2, "{rules:?}");
+        assert!(
+            rules.iter().all(|r| !crate::rules::is_error(r)),
+            "advisory must not reject the program: {rules:?}"
+        );
+    }
+
+    #[test]
+    fn builtin_enum_without_advisory_never_warns() {
+        let src = "\
+IMPORT crypto
+FUNC main AS Integer
+  LET d AS List OF Byte = crypto::hash(Hash.SHA2_256, \"data\")
+  MATCH Hash.SHA2_512
+    CASE Hash.SHA2_512
+      RETURN len(d)
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+";
+        assert!(
+            crate::testutil::accepts(src),
+            "{:?}",
+            crate::testutil::check_src(src)
+        );
+    }
+
+    #[test]
     fn crypto_call_resolves_and_pads_aad() {
         // crypto::hash resolves via the registry; an AEAD call pads its
         // optional `aad` argument to an empty byte list.
         let ir = lower_src(
             "IMPORT crypto\n\
              FUNC run() AS List OF Byte\n\
-               RETURN crypto::hash(Hash.SHA256, \"data\")\n\
+               RETURN crypto::hash(Hash.SHA2_256, \"data\")\n\
              END FUNC\n\
              SUB main\nEND SUB\n",
         );
@@ -5276,9 +5336,11 @@ END FUNC
                 params: vec![super::ExternalFunctionParam {
                     name: "n".to_string(),
                     type_: crate::types::ParameterType::parse("Integer"),
+                    has_default: false,
                 }],
                 returns: crate::types::ParameterType::parse("String"),
                 isolated: false,
+                sub: false,
             },
         );
         let entry = Some(super::EntryPoint {
@@ -5381,7 +5443,7 @@ FUNC main AS Integer
   LET s AS String = json::stringify(v)
   LET rows AS List OF List OF String = csv::parse("a,b")
   LET back AS String = csv::stringify(rows)
-  LET digest AS List OF Byte = crypto::hash(Hash.SHA256, "abc")
+  LET digest AS List OF Byte = crypto::hash(Hash.SHA2_256, "abc")
   LET hexed AS String = encoding::hexEncode(digest)
   LET u AS net::Url = net::toUrl("http://example.com/")
   RETURN 0
@@ -5708,7 +5770,7 @@ FUNC main AS Integer
   LET js = json::stringify(v)
   LET rows = csv::parse("a,b")
   LET back = csv::stringify(rows)
-  LET dig = crypto::hash(Hash.SHA256, "abc")
+  LET dig = crypto::hash(Hash.SHA2_256, "abc")
   LET hexed = encoding::hexEncode(dig)
   LET u = net::toUrl("http://x/")
   LET m = regex::match("abc", "a.c")
@@ -5733,7 +5795,7 @@ IMPORT crypto
 FUNC main AS Integer
   LET matched AS Boolean = regex::match("abc", "a.c")
   LET dt AS DateTime = datetime::parse("2024-01-02")
-  LET key AS List OF Byte = crypto::hash(Hash.SHA256, "k")
+  LET key AS List OF Byte = crypto::hash(Hash.SHA2_256, "k")
   RETURN 0
 END FUNC
 "#,

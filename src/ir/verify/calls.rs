@@ -1,10 +1,11 @@
+use super::compat::builtin_call_target;
 use super::*;
 
 impl TypeEnv {
     // 10. Call arity/arg types, thread + STATE agreement
     // ===========================================================================
 
-    /// The unary counterpart of `check_binary_operands` (`syntaxcheck`'s
+    /// The unary counterpart of `check_binary_operands` (the former source checker's
     /// `infer_unary` / `TYPE_UNARY_OPERATOR_MISMATCH`): `NOT` requires a Boolean
     /// operand, unary `-` a numeric one. Same memory-safety rationale — codegen
     /// picks the instruction from the operand type. `Unknown` never rejects.
@@ -54,16 +55,20 @@ impl TypeEnv {
     }
 
     /// Reject a direct call whose argument count cannot match the callee's
-    /// signature. Only internal functions have a known signature; builtins,
-    /// runtime helpers, imports and indirect (function-typed local) calls are
-    /// skipped.
+    /// signature (`TYPE_CALL_ARITY_MISMATCH`). Three callee classes
+    /// (plan-107-E): a function value (a local or global of FUNC type) takes
+    /// exactly its type's parameter count; a builtin is `check_builtin_call_args`'s;
+    /// a declared function's count is checked here only on the package path —
+    /// on the source path lowering has already normalized the argument list
+    /// (extras dropped, defaults filled), so the count the source wrote is
+    /// `ir::shape`'s to check.
     pub(super) fn check_call_arity(
         &self,
         target: &str,
         argc: usize,
         locals: &HashMap<String, ParameterType>,
     ) {
-        // Calling something that is not a function — syntaxcheck's
+        // Calling something that is not a function — the former source checker's
         // SYMBOL_NOT_CALLABLE: a package constant (`math.pi()`), or a local
         // binding/parameter of a known non-function type.
         if builtins::is_package_constant(target) {
@@ -77,9 +82,11 @@ impl TypeEnv {
             // A local of FUNC type is an indirect call; its arity is the
             // function type's, not a named signature. Any other *known* local
             // type is not callable at all.
-            if !t.name().is_empty()
-                && !matches!(t, ParameterType::Unknown | ParameterType::Func(_, _, _))
-            {
+            if let ParameterType::Func(params, _, _) = t {
+                self.check_function_value_arity(target, argc, params.len());
+                return;
+            }
+            if !t.name().is_empty() && !matches!(t, ParameterType::Unknown) {
                 self.emit(
                     "SYMBOL_NOT_CALLABLE",
                     format!("Local binding or parameter `{target}` is not callable."),
@@ -88,22 +95,56 @@ impl TypeEnv {
             return;
         }
         let Some(sig) = self.functions.get(target) else {
+            // A global binding holding a function value is callable like a
+            // local one (bug-198).
+            if let Some(ParameterType::Func(params, _, _)) = self.globals.get(target) {
+                self.check_function_value_arity(target, argc, params.len());
+            }
             return;
         };
+        // A builtin call lowering rewrote to its source-companion body is the
+        // builtin's (`check_builtin_call_args`), not the body's signature's.
+        if self.source_path.get() || builtin_call_target(target).is_some() {
+            return;
+        }
         let required = sig.total.saturating_sub(sig.optional);
         if argc < required || argc > sig.total {
             self.emit(
                 "TYPE_CALL_ARITY_MISMATCH",
                 format!(
-                    "Call to `{target}` has {argc} argument(s), expected {required}..={}.",
+                    "Call to `{target}` has {argc} argument(s), expected {required} to {}.",
                     sig.total
                 ),
             );
         }
     }
 
+    /// `TYPE_CALL_ARGUMENT_MISMATCH`, package path only: on the source path
+    /// the argument list the source wrote is `ir::shape`'s to judge — lowering
+    /// pads a builtin's optional arguments, fills a declared function's
+    /// defaults and coerces literal arguments to the parameter type before the
+    /// IR is checked, so the IR-level check would report a different list.
+    pub(super) fn emit_argument_mismatch(&self, detail: String) {
+        if !self.source_path.get() {
+            self.emit("TYPE_CALL_ARGUMENT_MISMATCH", detail);
+        }
+    }
+
+    /// A function value's callable type carries no defaults, so the call
+    /// supplies exactly its parameter count (the former source checker's
+    /// `check_function_value_call`). Package path only, like every count rule:
+    /// the source-written count is `ir::shape`'s.
+    fn check_function_value_arity(&self, target: &str, argc: usize, expected: usize) {
+        if argc != expected && !self.source_path.get() {
+            self.emit(
+                "TYPE_CALL_ARITY_MISMATCH",
+                format!("Call to `{target}` has {argc} argument(s), expected {expected}."),
+            );
+        }
+    }
+
     /// Reject a call to a known user function whose argument types are
-    /// incompatible with the declared parameter types (`syntaxcheck`'s
+    /// incompatible with the declared parameter types (the former source checker's
     /// `TYPE_CALL_ARGUMENT_MISMATCH`). On decoded package IR this is an ABI-level
     /// type confusion: codegen marshals each argument by its declared parameter
     /// type, so a crafted `String` passed where an `Integer` is expected is read
@@ -116,12 +157,39 @@ impl TypeEnv {
         args: &[IrValue],
         locals: &HashMap<String, ParameterType>,
     ) {
-        if locals.contains_key(target) {
-            return; // indirect call — no named signature
+        // A function value (a local or global of FUNC type) has no named
+        // signature; its callable type gives the per-position parameter types
+        // (the former source checker's `check_function_value_call`). A local shadows a global.
+        let function_value = match locals.get(target) {
+            Some(t) => Some(t),
+            None if self.functions.contains_key(target) => None,
+            None => self.globals.get(target),
+        };
+        if let Some(t) = function_value {
+            if let ParameterType::Func(params, _, _) = t {
+                for (index, (arg, expected)) in args.iter().zip(params.iter()).enumerate() {
+                    let Some(actual) = self.infer_type(arg, locals) else {
+                        continue;
+                    };
+                    if !self.expression_compatible(expected, &actual, arg) {
+                        let (actual, expected) = (actual.name(), expected.name());
+                        self.emit_argument_mismatch(format!(
+                            "Argument {} for `{target}` has type {actual}, expected {expected}.",
+                            index + 1
+                        ));
+                    }
+                }
+            }
+            return;
         }
         let Some(sig) = self.functions.get(target) else {
             return;
         };
+        // A builtin call lowering rewrote to its source-companion body is
+        // type-checked as the builtin (`check_builtin_call_args`), whose
+        // registry signature is the one the source wrote against; only the
+        // body's declared `STATE` clauses still bind the arguments here.
+        let rewritten_builtin = builtin_call_target(target).is_some();
         for (index, arg) in args.iter().enumerate() {
             let Some(param_type) = sig.params.get(index) else {
                 break;
@@ -130,6 +198,9 @@ impl TypeEnv {
                 continue;
             };
             self.check_argument_state_agreement(target, index, param_type, &actual);
+            if rewritten_builtin {
+                continue;
+            }
             // Strip a resource argument's `STATE T` clause; the parameter type
             // is the bare resource type.
             let actual = resource_base_type(&actual);
@@ -137,13 +208,10 @@ impl TypeEnv {
             self.check_literal_range(&param_type, arg);
             if !self.expression_compatible(&param_type, &actual, arg) {
                 let (actual, param_type) = (actual.name(), param_type.name());
-                self.emit(
-                    "TYPE_CALL_ARGUMENT_MISMATCH",
-                    format!(
-                        "Argument {} for `{target}` has type {actual}, expected {param_type}.",
-                        index + 1
-                    ),
-                );
+                self.emit_argument_mismatch(format!(
+                    "Argument {} for `{target}` has type {actual}, expected {param_type}.",
+                    index + 1
+                ));
             }
         }
     }

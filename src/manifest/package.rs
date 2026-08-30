@@ -291,14 +291,14 @@ pub(crate) fn installed_package_files(
 pub(crate) fn imported_resource_closers(
     project_dir: &Path,
     manifest: &HashMap<String, JsonValue>,
-) -> Vec<(String, String)> {
+) -> Vec<ir::ImportedResource> {
     let Ok(packages) = installed_package_files(project_dir, manifest) else {
         return Vec::new();
     };
     resource_closers_from_files(&packages)
 }
 
-fn resource_closers_from_files(packages: &[PathBuf]) -> Vec<(String, String)> {
+fn resource_closers_from_files(packages: &[PathBuf]) -> Vec<ir::ImportedResource> {
     let mut closers = Vec::new();
     for package in packages {
         let Ok(decode) = binary_repr::BinaryReprPackageDecode::read(package) else {
@@ -309,7 +309,7 @@ fn resource_closers_from_files(packages: &[PathBuf]) -> Vec<(String, String)> {
         };
         for resource in resources {
             // A built-in is authoritative and already seeded; a package's table
-            // merely references it (`syntaxcheck::collect_package_resources`). A
+            // merely references it (the former source checker's `collect_package_resources`). A
             // referenced builtin may be recorded by its bare base name (`File`) even
             // though the builtin's own identity is package-qualified (`fs.File`,
             // plan-97), so recognize it by bare name.
@@ -330,12 +330,19 @@ fn resource_closers_from_files(packages: &[PathBuf]) -> Vec<(String, String)> {
                 close_function
             };
             // Source names the type bare or as `<binding>.<Type>`; register both,
-            // as `syntaxcheck`'s registry does.
-            closers.push((
-                format!("{package_name}.{}", resource.type_name),
-                close_function.clone(),
-            ));
-            closers.push((resource.type_name, close_function));
+            // as the former source checker's registry does. The sendable bit rides along so
+            // verify's thread-boundary rules see an imported resource exactly as
+            // the exporting package declared it.
+            closers.push(ir::ImportedResource {
+                type_name: format!("{package_name}.{}", resource.type_name),
+                close_function: close_function.clone(),
+                sendable: resource.sendable,
+            });
+            closers.push(ir::ImportedResource {
+                type_name: resource.type_name,
+                close_function,
+                sendable: resource.sendable,
+            });
         }
     }
     closers
@@ -426,7 +433,7 @@ pub(crate) fn external_package_function_types_from_files(
 /// so IR lowering can type accesses to their fields. Reads the installed `.mfp`s
 /// named by the manifest; a package whose metadata cannot be read is skipped
 /// (a lossy read, like `external_package_function_types`) — the build's own
-/// syntaxcheck pass reports an unreadable dependency. Built-in packages contribute
+/// the former source checker pass reports an unreadable dependency. Built-in packages contribute
 /// nothing here: their types reach `TypeIndex` through the AST.
 pub(crate) fn imported_type_defs(
     project_dir: &Path,
@@ -527,10 +534,12 @@ fn package_export_signature(export: &binary_repr::BinaryReprExport) -> ir::Exter
             .map(|param| ir::ExternalFunctionParam {
                 name: param.name.clone(),
                 type_: crate::types::ParameterType::parse(&param.type_),
+                has_default: param.has_default,
             })
             .collect(),
         returns: crate::types::ParameterType::parse(&export.return_type),
         isolated: export.isolated,
+        sub: export.kind == binary_repr::BinaryReprExportKind::Sub,
     }
 }
 
@@ -1879,20 +1888,20 @@ mod tests {
         );
         // Each resource is registered under both its bare and `<pkg>.<Type>` name.
         assert!(
-            closers.iter().any(|(ty, _)| ty.contains('.')),
+            closers.iter().any(|r| r.type_name.contains('.')),
             "package-qualified spelling registered: {closers:?}"
         );
         assert!(
-            closers.iter().any(|(ty, _)| !ty.contains('.')),
+            closers.iter().any(|r| !r.type_name.contains('.')),
             "bare spelling registered: {closers:?}"
         );
         // A native resource's bare close alias is resolved to a dotted
         // `<pkg>.<alias>` op, and no close op is empty.
         assert!(
-            closers.iter().any(|(_, close)| close.contains('.')),
+            closers.iter().any(|r| r.close_function.contains('.')),
             "native close op is dotted: {closers:?}"
         );
-        assert!(closers.iter().all(|(_, close)| !close.is_empty()));
+        assert!(closers.iter().all(|r| !r.close_function.is_empty()));
     }
 
     #[test]

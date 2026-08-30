@@ -120,7 +120,7 @@ impl TypeTable {
             //
             // It must round-trip rather than be stripped: a consumer reads an
             // imported function's signature from the ABI exports
-            // (`syntaxcheck::collect_package_functions` →
+            // (the former source checker's `collect_package_functions` →
             // `binary_repr::read_package_exports`), NOT from the `.mfp`'s IR
             // section. Erasing the STATE here would compile the exporter fine and
             // silently degrade every importer to a bare `File` — which would leave

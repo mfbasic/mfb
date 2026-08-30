@@ -1,11 +1,12 @@
 //! `crypto::hash(type, data)` — the unified `AbiFunction` hash entry point.
 //!
-//! Selected by a [`crypto::Hash`] enum (`SHA224`/`SHA256`/`SHA384`/`SHA512`), this
-//! member's `Body::abi_function` body branches on the enum ordinal and dispatches to
-//! the matching always-emitted MFB software SHA `_bytes` core, exactly how `func_sign`'s
-//! Ed25519 branch routes to `#crypto_ed25519Sign`. The SHA math stays in MFB — this file
-//! only consolidates the four `sha*` members behind one `Hash`-selected surface
-//! (mirroring `generate`/`sign`/`verify` over `Certificate`).
+//! Selected by a [`crypto::Hash`] enum (`SHA1`, `SHA2_224`/`SHA2_256`/`SHA2_384`/
+//! `SHA2_512`), this member's `Body::abi_function` body branches on the enum ordinal
+//! and dispatches to the matching always-emitted MFB software SHA `_bytes` core,
+//! exactly how `func_sign`'s Ed25519 branch routes to `#crypto_ed25519Sign`. The SHA
+//! math stays in MFB — this file only consolidates the per-digest `sha*` members
+//! behind one `Hash`-selected surface (mirroring `generate`/`sign`/`verify` over
+//! `Certificate`).
 //!
 //! Two overloads mirror the per-digest `sha*` members. The `List OF Byte` form is the
 //! `AbiFunction` proper: it branches on the ordinal and calls the `_bytes` cores. The
@@ -58,14 +59,22 @@ pub(crate) fn lower_hash(
     })
 }
 
-const INTRO: &str =
-    r#"Compute a SHA-2 cryptographic hash of a message, selected by a `crypto::Hash`."#;
-const DESC: &str = r#"`crypto::hash(type, data)` computes the SHA-2 message digest of `data` for the
-algorithm selected by `type` — a `crypto::Hash`: `SHA224`, `SHA256`, `SHA384`, or
-`SHA512` — and returns it as a raw `List OF Byte`. The digest length is fixed by the
-algorithm: 28 bytes for `SHA224`, 32 for `SHA256`, 48 for `SHA384`, and 64 for
-`SHA512`. This one call replaces four per-digest members behind a single
-`Hash`-selected surface.
+const INTRO: &str = r#"Compute a cryptographic hash (SHA-1, SHA-2, or SHA-3) of a message, selected by a `crypto::Hash`."#;
+const DESC: &str = r#"`crypto::hash(type, data)` computes the message digest of `data` for the
+algorithm selected by `type` — a `crypto::Hash`: `SHA1`; the SHA-2 family
+`SHA2_224`, `SHA2_256`, `SHA2_384`, `SHA2_512`; or the SHA-3 family `SHA3_224`,
+`SHA3_256`, `SHA3_384`, `SHA3_512` — and returns it as a raw `List OF Byte`. The
+digest length is fixed by the algorithm: 20 bytes for `SHA1`, and 28/32/48/64
+bytes for the 224/256/384/512-bit widths of either family. This one call is the
+package's single fixed-digest hashing surface (the variable-length SHAKE256 XOF is
+`crypto::shake256`).
+
+**`SHA1` is a legacy algorithm.** SHA-1 is not collision-resistant (practical
+collisions have been public since 2017), so every source occurrence of `Hash.SHA1`
+reports the non-fatal `CRYPTO_SHA1_INSECURE` warning (`2-203-0136`) — the program
+still builds and runs, and the digest is the standard FIPS 180-4 value. Select it
+only to interoperate with a system that requires SHA-1; use `SHA2_256` or stronger
+for anything new.
 
 The digest is a deterministic, one-way function of the message alone: the same
 `type` and `data` always produce the same bytes, with no key, salt, or randomness.
@@ -82,17 +91,20 @@ display or store it, and compare a received digest with `crypto::constantTimeEqu
 password hash. Stretch a low-entropy password into key material with the deliberately
 slow, salted `crypto::pbkdf2`, and authenticate a message under a shared secret key
 with `crypto::hmac` — a bare hash provides no authentication. In particular, do
-**not** build a MAC as `hash(type, key ‖ message)`: `SHA256` and `SHA512` are
-vulnerable to length-extension (the truncated `SHA224`/`SHA384` resist it), which
-lets an attacker who never saw `key` append data and forge a valid digest. Use
-`crypto::hmac` for keyed authentication.
+**not** build a MAC as `hash(type, key ‖ message)`: `SHA1`, `SHA2_256`, and
+`SHA2_512` are vulnerable to length-extension (the truncated `SHA2_224`/`SHA2_384`
+resist it, and the SHA-3 sponge is immune), which lets an attacker who never saw
+`key` append data and forge a valid digest. Use `crypto::hmac` for keyed
+authentication.
 
-**Implementation.** SHA-2 is specified by FIPS 180-4 (SHA-224/256/384/512). The
-digest is computed in-process by a portable MFBASIC software core over the `bits`
-package — no platform cryptographic library is called — so the output is
-**byte-identical on macOS, Linux, and Windows** (and across aarch64/x86-64). The core
-is hash-generic over the `Hash` enum, so a future `Hash` variant is supported without
-new code."#;
+**Implementation.** SHA-1 and SHA-2 are specified by FIPS 180-4; SHA-3 by FIPS 202
+(the Keccak-f[1600] sponge at rate 1152/1088/832/576 bits with domain suffix
+`0x06`). Every digest is computed in-process by a portable MFBASIC software core
+over the `bits` package — no platform cryptographic library is called — so the
+output is **byte-identical on macOS, Linux, and Windows** (and across
+aarch64/x86-64). No loop bound, branch, or index depends on the message contents;
+only the public message length does. The core is hash-generic over the `Hash`
+enum, so a future `Hash` variant is supported without new code."#;
 const EX: &str = r#"Hash a byte list and print it as hex:
 
 ```
@@ -103,7 +115,7 @@ IMPORT io
 
 SUB main()
   LET raw AS List OF Byte = strings::toBytes("hello")
-  LET digest AS List OF Byte = crypto::hash(Hash.SHA256, raw)
+  LET digest AS List OF Byte = crypto::hash(Hash.SHA2_256, raw)
   io::print(encoding::hexEncode(digest))
 END SUB
 ```
@@ -116,7 +128,7 @@ IMPORT encoding
 IMPORT io
 
 SUB main()
-  io::print(encoding::hexEncode(crypto::hash(Hash.SHA512, "hello")))
+  io::print(encoding::hexEncode(crypto::hash(Hash.SHA2_512, "hello")))
 END SUB
 ```"#;
 

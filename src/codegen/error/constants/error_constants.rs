@@ -332,6 +332,16 @@ pub(crate) const PRESENTATION_MODE_SLOTS: usize = 1;
 // Arena state layout (ascending offset) & allocator
 // ===========================================================================
 
+/// Back-pointer from a thread's arena state to its thread control block (plan-99),
+/// stored in the reserved arena-state word at offset 8. The worker trampoline
+/// publishes it right after both pinned registers are live; the main thread never
+/// writes it, so the whole-`ARENA_STATE_SIZE` zero-init leaves it `0` there. That
+/// makes `[arena+8]` the reliable "am I a worker, and if so which one" test on
+/// every thread — `os::sleep` reads it to pick between a plain `nanosleep` delay
+/// and the cancellation-aware condvar wait, and the non-zero value it reads IS the
+/// TCB that wait needs. The pinned current-thread register (`abi::CURRENT_THREAD`)
+/// cannot serve: the entry stub reuses it as scratch on the main thread.
+pub(crate) const ARENA_WORKER_THREAD_OFFSET: usize = 8;
 pub(crate) const ARENA_CLEANUP_FAILURE_COUNT_OFFSET: usize = 64;
 pub(crate) const ARENA_CLEANUP_FAILURE_CODE_OFFSET: usize = 72;
 pub(crate) const ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET: usize = 80;

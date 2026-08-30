@@ -1115,7 +1115,6 @@ impl CodeBuilder<'_> {
             }
             "thread.cancel"
             | "thread.send"
-            | "thread.sleep"
             | "thread.transferResource"
             | "thread.emitResource"
             | "thread.openStdIn"

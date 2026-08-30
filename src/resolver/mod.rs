@@ -150,21 +150,20 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // registry-driven augmentation.
     let augmented = crate::codegen::registry::registry().augment_project(ast)?;
 
-    // `term`'s source companion (`package.mfb` — the `LineStyle`/`FillStyle` enums)
+    // `term`'s injected source (the registry-modeled `LineStyle`/`FillStyle` enums)
     // and the `term`↔`astrings` `drawText(AttributedString)` bridge are injected by
-    // the clean-room `registry::augment_project` above (an `Always` helper on the
-    // migrated `term` package and a `WhenImported("astrings")` gated helper).
-    // `astrings`' source companion (`package.mfb`) is injected by the generic
-    // clean-room `registry::augment_project` above (plan-99 PART C), as an `Always`
-    // helper on the migrated `astrings` package — emitted whenever a program
+    // the clean-room `registry::augment_project` above (the package's `get_mfb`
+    // assembly and a `WhenBothImported("term", "astrings")` gated helper chunk).
+    // `astrings`' injected source is emitted by the generic clean-room
+    // `registry::augment_project` above (plan-99 PART C) whenever a program
     // `IMPORT astrings`.
     // app + datetime + money source is injected by the clean-room
     // `registry::augment_project` above.
     // `vector` source is injected by the clean-room `registry::augment_project` above
     // (it imports only the intrinsic `math` package, so it has no source-ordering
     // dependency).
-    // `http` is injected before `net`: `http_package.mfb` imports `net`, so the
-    // net source companion must be added only after http's source is present for
+    // `http` is injected before `net`: http's injected source imports `net`, so the
+    // net source must be added only after http's source is present for
     // `net::uses_package` to see the dependency (plan-03-http.md Phase 4).
     let augmented = crate::codegen::builtins::http::augmented_project(&augmented)?;
     let augmented = crate::codegen::builtins::net::augmented_project(&augmented)?;
@@ -174,7 +173,7 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // clean-room `registry::augment_project` above.
     // `crypto` source is injected by the generic clean-room `registry::augment_project`
     // above; it runs before the `strings`/`encoding` late passes, so
-    // `encoding::uses_package` still sees `crypto_package.mfb`'s `IMPORT encoding`
+    // `encoding::uses_package` still sees crypto's injected `IMPORT encoding`
     // (mirrors `http` before `net`; plan-04-crypto.md Part C).
     // `strings`' scalar-seam companion (which `IMPORT encoding`s) is injected by the
     // generic clean-room `registry::augment_project` above as a `WhenUsed` gated
@@ -190,6 +189,11 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
 /// one decision procedure — `codegen::registry::ProjectView` gates the injection
 /// from either domain — so the two chains cannot drift apart the way two copies
 /// of the gate logic would have.
+///
+/// Test-only since plan-107-D: the build path augments the pre-monomorph AST
+/// once and every later pass consumes that concrete HIR; the in-process tests
+/// that monomorphize a BARE project are the chain's remaining callers.
+#[cfg(test)]
 pub fn augment_hir_project(hir: &HirProject) -> Result<HirProject, ()> {
     let augmented = crate::codegen::registry::registry().augment_hir_project(hir)?;
     let augmented = crate::codegen::builtins::http::augmented_hir_project(&augmented)?;
@@ -233,7 +237,7 @@ fn call_arg_value(argument: &crate::hir::HirCallArg) -> &HirExpression {
     }
 }
 
-/// Whether `type_name` is a raw C ABI type (mirrors `syntaxcheck::is_c_abi_type`),
+/// Whether `type_name` is a raw C ABI type (mirrors the former source checker's `is_c_abi_type`),
 /// which may appear only inside ABI slots (plan-link-update.md §5/§11).
 fn is_c_abi_type(type_name: &str) -> bool {
     matches!(

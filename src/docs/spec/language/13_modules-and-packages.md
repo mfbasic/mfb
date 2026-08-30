@@ -21,14 +21,14 @@ Visibility (default is `PUBLIC`): [[src/ast/types.rs:Visibility]]
   in an executable).
 
 Within a single build, `PUBLIC` and `EXPORT` are treated **identically** by
-the visibility check: [[src/resolver/mod.rs:visible_from]] [[src/syntaxcheck/mod.rs:visible_from]] both are visible across
+the visibility check: [[src/resolver/mod.rs:visible_from]] [[src/ir/shape.rs:type_visible]] both are visible across
 files in the project, and only `PRIVATE` is file-local. The `PUBLIC`/`EXPORT`
 distinction matters only for what is written into the compiled `.mfp` package
 (the exported-symbol flag), not for in-project name resolution. This is why a
 cross-file reference to a `PRIVATE` declaration fails unless the declaration is
 `PUBLIC`/`EXPORT` or the project is built as a single file.
 
-Top-level `LET`, `MUT`, `FUNC`, `SUB`, `TYPE`, `UNION`, `ENUM`, and `RESOURCE` may use `PRIVATE`, `PUBLIC`, or `EXPORT`. [[src/ir/lower_link.rs:native_resources]] (`RESOURCE` was missing from this list, which led bug-288 to propose rejecting `PRIVATE RESOURCE` outright even though resource visibility is modelled and lowered; a `PRIVATE` resource is file-local exactly as a `PRIVATE TYPE` is.) Fields in `TYPE` declarations may also use `PRIVATE`, `PUBLIC`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PUBLIC` — i.e. the containing type's visibility, capped at `PUBLIC` for non-exported types. [[src/syntaxcheck/helpers.rs:effective_field_visibility]]
+Top-level `LET`, `MUT`, `FUNC`, `SUB`, `TYPE`, `UNION`, `ENUM`, and `RESOURCE` may use `PRIVATE`, `PUBLIC`, or `EXPORT`. [[src/ir/lower_link.rs:native_resources]] (`RESOURCE` was missing from this list, which led bug-288 to propose rejecting `PRIVATE RESOURCE` outright even though resource visibility is modelled and lowered; a `PRIVATE` resource is file-local exactly as a `PRIVATE TYPE` is.) Fields in `TYPE` declarations may also use `PRIVATE`, `PUBLIC`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PUBLIC` — i.e. the containing type's visibility, capped at `PUBLIC` for non-exported types. [[src/binary_repr/writer.rs]]
 
 Only project-visible top-level `FUNC` declarations may use `ISOLATED` — i.e.
 `PUBLIC` (the default) or `EXPORT`, not `PRIVATE`. Imported package constructors are addressed as `package::identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.

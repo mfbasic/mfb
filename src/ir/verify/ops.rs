@@ -78,8 +78,11 @@ impl TypeEnv {
         for (op_index, op) in ops.iter().enumerate() {
             let line = op.loc().line;
             self.current_line.set(line);
+            if super::op_carries_closure(op) {
+                self.current_muts.replace(muts.clone());
+            }
             // Anything after an EXIT/CONTINUE in the same block is unreachable
-            // (syntaxcheck reports each following statement, then stops).
+            // (the former source checker reports each following statement, then stops).
             if let Some(exit_index) = exited_at {
                 if op_index > exit_index {
                     self.emit(
@@ -112,13 +115,16 @@ impl TypeEnv {
                         }
                         self.check_value(value, locals);
                         self.allow_sub_call.set(false);
-                        // syntaxcheck's cascade: an initializer whose type could
+                        // the former source checker's cascade: an initializer whose type could
                         // not be determined *because it is erroneous* also gets
                         // TYPE_UNKNOWN_VALUE. Gate on a poisoning rule having
                         // fired for this very value, so a clean-but-untypable
                         // initializer (an external LINK call the lowering has
                         // no signature for) is never rejected.
-                        if self.value_type_poisoned(value, locals) {
+                        // A `$`-temp (the trap machinery's `$trap_res`, a stray
+                        // `$recover_stray`) is not a user binding: the checker
+                        // reported the user's binding, which `ir::shape` does.
+                        if !name.starts_with('$') && self.value_type_poisoned(value, locals) {
                             self.emit(
                                 "TYPE_UNKNOWN_VALUE",
                                 format!(
@@ -130,7 +136,7 @@ impl TypeEnv {
                             self.check_literal_range_errored(&resource_base_type(type_), value);
                         // Only an explicit `AS T` annotation can disagree with
                         // the initializer; an inferred type is the initializer's
-                        // type by construction (matches syntaxcheck).
+                        // type by construction (matches the former source checker).
                         if !range_errored && *explicit_type {
                             self.check_binding_type(name, type_, value, locals);
                         }
@@ -141,8 +147,12 @@ impl TypeEnv {
                     if *explicit_type {
                         self.check_map_key_comparable(type_);
                         self.check_collection_res_axis(&resource_base_type(type_));
+                        self.check_thread_sendability(&type_.without_state());
+                        if let Some(state) = type_.state() {
+                            self.check_thread_sendability(&state);
+                        }
                     }
-                    // The RES ownership axis (syntaxcheck's
+                    // The RES ownership axis (the former source checker's
                     // check_resource_declaration): a resource-typed binding
                     // must be RES-declared (else its close obligation is
                     // untracked — a leak/UAF on decoded IR), and RES may only
@@ -255,7 +265,7 @@ impl TypeEnv {
                     // whichever scope ends up owning it.
                     // An initializer-less binding must be annotated, immutable
                     // ones must have a value, and MUT needs a defaultable type
-                    // (syntaxcheck's check_binding_shape None-value arms).
+                    // (the former source checker's check_binding_shape None-value arms).
                     // Synthesized `$` temps are the compiler's own.
                     if value.is_none() && !name.starts_with('$') {
                         if !*explicit_type {
@@ -279,7 +289,7 @@ impl TypeEnv {
                     }
                     locals.insert(name.clone(), type_.clone());
                     // A capture bind's `mutable` reflects the by-ref/non-escaping
-                    // proof, not the outer binding's MUTness — syntaxcheck judges
+                    // proof, not the outer binding's MUTness — the former source checker judges
                     // assignments to captures at the lambda site (as
                     // TYPE_LAMBDA_CAPTURE_UNSUPPORTED when escaping), so leave
                     // the capture's mutability unknown here.
@@ -301,6 +311,30 @@ impl TypeEnv {
                     // expression's success type (TYPE_RECOVER_TYPE_MISMATCH).
                     if name.starts_with('$') {
                         if name.starts_with("$trap_val") {
+                            // Lowering coerces a numeric literal to the slot's
+                            // `Byte` type without a range check, so `RECOVER
+                            // 300` / `RECOVER 1.5` arrive as a `Const Byte`
+                            // whose text no `Byte` can hold — the literal was
+                            // never a Byte (plan-107-D).
+                            if let IrValue::Const {
+                                type_: ParameterType::Byte,
+                                value: literal,
+                            } = value
+                            {
+                                if literal.parse::<u8>().is_err() {
+                                    let actual = match crate::numeric::classify_literal(literal).1 {
+                                        crate::numeric::LiteralType::Integer => "Integer",
+                                        crate::numeric::LiteralType::Float => "Float",
+                                        crate::numeric::LiteralType::Fixed => "Fixed",
+                                        crate::numeric::LiteralType::Money => "Money",
+                                    };
+                                    self.emit(
+                                        "TYPE_RECOVER_TYPE_MISMATCH",
+                                        format!("RECOVER has type {actual}, expected Byte."),
+                                    );
+                                    continue;
+                                }
+                            }
                             if let (Some(expected), Some(actual)) =
                                 (locals.get(name), self.infer_type(value, locals))
                             {
@@ -425,7 +459,7 @@ impl TypeEnv {
                     self.check_value(value, locals);
                     // `PROPAGATE` outside a TRAP lowers to `Fail(Local("$error"))`
                     // with the sentinel unbound; inside a trap the real error
-                    // binding is used (syntaxcheck's TYPE_PROPAGATE_REQUIRES_TRAP).
+                    // binding is used (the former source checker's TYPE_PROPAGATE_REQUIRES_TRAP).
                     if matches!(value, IrValue::Local(n) if n == "$error")
                         && !locals.contains_key("$error")
                     {
@@ -434,7 +468,7 @@ impl TypeEnv {
                             "PROPAGATE is valid only inside a TRAP.".to_string(),
                         );
                     } else if let Some(actual) = self.infer_type(value, locals) {
-                        // FAIL carries an Error (syntaxcheck's TYPE_FAIL_REQUIRES_ERROR).
+                        // FAIL carries an Error (the former source checker's TYPE_FAIL_REQUIRES_ERROR).
                         if !self.compatible(&ParameterType::named("Error"), &actual) {
                             self.emit(
                                 "TYPE_FAIL_REQUIRES_ERROR",
@@ -518,6 +552,11 @@ impl TypeEnv {
                     self.check_value_captures(condition, closure_slots);
                     self.check_value(condition, locals);
                     self.check_condition_boolean("IF condition", condition, locals);
+                    // The lowered inline-TRAP branch: its scrutinee was bound to
+                    // the `$trap_res` temp just above (in `temp_consts`), and the
+                    // rule reports before the handler's own diagnostics, as
+                    // the former source checker did.
+                    self.check_inline_trap_scrutinee(condition, else_body, &temp_consts);
                     self.check_ops_in_branch(then_body, locals, muts, closure_slots, depth);
                     self.check_ops_in_branch(else_body, locals, muts, closure_slots, depth);
                 }
@@ -531,6 +570,11 @@ impl TypeEnv {
                     self.check_match_patterns(value, cases, locals);
                     self.current_line.set(line);
                     for case in cases {
+                        // A pattern value's own diagnostics (an enum advisory on
+                        // `CASE Hash.SHA1`, plan-109-A) report at the case arm's
+                        // line, as the source checker did; the arm's body ops
+                        // carry their own lines below.
+                        self.current_line.set(case.loc.line);
                         match &case.pattern {
                             super::super::IrMatchPattern::Else => {}
                             // bug-297: the scrutinee is capture-checked above, but
@@ -550,6 +594,7 @@ impl TypeEnv {
                                 }
                             }
                         }
+                        self.current_line.set(line);
                         let mut case_locals = locals.clone();
                         let mut case_muts = muts.clone();
                         if let Some(guard) = &case.guard {
@@ -651,7 +696,7 @@ impl TypeEnv {
                         }
                     }
                     // A literal STEP of zero never advances the counter (a
-                    // non-literal step is left alone, matching syntaxcheck).
+                    // non-literal step is left alone, matching the former source checker).
                     if resolve(step, &temp_consts).is_some_and(numeric_literal_is_zero) {
                         self.emit(
                             "TYPE_FOR_STEP_ZERO",
@@ -661,7 +706,7 @@ impl TypeEnv {
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
                     branch.insert(name.clone(), type_.clone());
-                    // The loop counter is immutable inside the body (syntaxcheck
+                    // The loop counter is immutable inside the body (the former source checker
                     // registers it `mutable: false`).
                     branch_muts.insert(name.clone(), false);
                     self.loop_stack.borrow_mut().push(crate::ast::LoopKind::For);
@@ -753,19 +798,31 @@ impl TypeEnv {
                         depth + 1,
                     );
                     // A function-level TRAP block must leave the function on
-                    // every path (syntaxcheck's TYPE_TRAP_FALLTHROUGH).
+                    // every path (the former source checker's TYPE_TRAP_FALLTHROUGH).
                     self.current_line.set(line);
+                    // A bare `TRAP` synthesizes a `#`-sentinel name the user
+                    // never wrote; keep it out of diagnostics.
+                    let trap_label = if name == crate::ast::SYNTHETIC_TRAP_BINDING {
+                        "the TRAP handler".to_string()
+                    } else {
+                        format!("TRAP `{name}`")
+                    };
                     if !self.block_always_returns(body, &branch) {
-                        // A bare `TRAP` synthesizes a `#`-sentinel name the user
-                        // never wrote; keep it out of diagnostics.
-                        let trap_label = if name == crate::ast::SYNTHETIC_TRAP_BINDING {
-                            "the TRAP handler".to_string()
-                        } else {
-                            format!("TRAP `{name}`")
-                        };
                         self.emit(
                             "TYPE_TRAP_FALLTHROUGH",
                             format!("{trap_label} must return, fail, or propagate."),
+                        );
+                    }
+                    // …and so must the normal flow before it: lowering places the
+                    // TRAP op last, so the ops preceding it ARE the body, and a
+                    // body that can fall through would run into the handler.
+                    if !self.block_always_returns(&ops[..op_index], locals) {
+                        self.emit(
+                            "TYPE_TRAP_FALLTHROUGH",
+                            format!(
+                                "Normal flow in `{}` reaches {trap_label}; body paths before TRAP must end with RETURN or FAIL.",
+                                self.current_function.borrow()
+                            ),
                         );
                     }
                 }

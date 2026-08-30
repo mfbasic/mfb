@@ -17,7 +17,7 @@ checker; the callees are already mangled before either runs the second time.
 ## Pipeline position
 
 ```text
-parsed AST -> resolve -> MONOMORPHIZE -> resolve again -> entry validation -> syntaxcheck -> IR
+parsed AST -> resolve -> MONOMORPHIZE -> resolve again -> entry validation -> shape pass -> IR -> IR verifier
 ```
 
 `monomorphize_project` builds a `Monomorphizer`, calls `run` to lower the

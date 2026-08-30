@@ -68,6 +68,14 @@
           "body": [
           { "kind": "expression", "expression": { "kind": "call", "callee": "expectInteger", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "string", "value": "two" }] }, "line": 23 }
           ]
+        },
+        {
+          "description": "expectEqual on unprintable operands",
+          "line": 25,
+          "body": [
+          { "kind": "binding", "mutable": false, "name": "m", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [] }, "line": 26 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEqual", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "identifier", "value": "m" }] }, "line": 27 }
+          ]
         }
         ]
       }

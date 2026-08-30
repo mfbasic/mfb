@@ -82,7 +82,7 @@ failed assertion aborts its case, and sibling cases and groups continue.
 
 ## Running (`mfb test`)
 
-`mfb test [path] [--coverage]` compiles the project with its `TESTING` blocks
+`mfb test [path] [--coverage] [-v]` compiles the project with its `TESTING` blocks
 retained, replaces the normal entry point with a synthesized driver, builds a
 host executable, runs it, and adopts its exit status. The driver streams a tree
 that indents two columns per nesting level, so a nested `TGROUP` sits under its
@@ -108,6 +108,10 @@ Tests: <total>  Pass: <passed>  Fail: <failed>
 - A genuine runtime error inside a case is reported as a failure — not a crash —
   and the remaining cases still run.
 - The process exits `0` iff `Fail: 0`, so `mfb test` is usable in CI.
+- `-v`/`--verbose` adds the ordinary verbose *build* reporting (the `Building …`
+  summary, `phase <name> <N>ms`, live `codegen: <stage>`, optimizer fire counts)
+  while the tests are compiled; those lines go to stderr, so the tree above and
+  the exit status are unchanged. Without it, `mfb test` builds quietly.
 
 ## Coverage (`mfb test --coverage`)
 

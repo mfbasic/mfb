@@ -1,0 +1,18 @@
+' Every wrapper parameter must reach the native call: through an ABI slot of
+' the same name, a BIND IN field, or a BUFFER SIZE expression. `flags` below
+' does none of these — NATIVE_ABI_UNBOUND_PARAM.
+EXPORT RESOURCE Db CLOSE BY demoLink::close
+
+LINK "demo" AS demoLink
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "demo_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC open(path AS String, flags AS Integer) AS RES Db
+    SYMBOL "demo_open"
+    ABI (path CString) AS handle CPtr
+    RETURN handle
+  END FUNC
+END LINK

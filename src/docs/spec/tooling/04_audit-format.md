@@ -7,7 +7,7 @@ reimplementable detail of its two output formats and its analysis model; the
 command surface is summarized in `./mfb spec architecture commands`.
 
 Audit runs the same front-end pipeline a build does (manifest validation, parse,
-resolve, monomorphize, re-resolve, entry validation, syntaxcheck) and then collects
+resolve, monomorphize, re-resolve, entry validation, shape pass) and then collects
 a report from the parsed AST plus the installed `.mfp` packages. All collection is
 offline.[[src/audit/collect/mod.rs:collect]]
 
@@ -48,7 +48,7 @@ so no surrogate pair encoding arises. [[src/audit/json.rs:write_string]]
 | `0` | Report produced, no error-severity findings |
 | `1` | Report produced, at least one error-severity finding |
 | `2` | Usage error (bad option / `--format` value) |
-| `3` | Unreadable or malformed input (manifest/parse/resolve/syntaxcheck failure) |
+| `3` | Unreadable or malformed input (manifest/parse/resolve/shape-pass failure) |
 
 Exit `2` is raised by the caller when option parsing fails; exit `3` is returned
 when any front-end stage fails; `0`/`1` are decided by whether any finding has

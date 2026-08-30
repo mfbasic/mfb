@@ -5,7 +5,7 @@ impl TypeEnv {
     // ===========================================================================
 
     /// Reject a `MATCH` on an enum or union that neither covers every
-    /// member/variant nor has an unguarded catch-all (`syntaxcheck`'s
+    /// member/variant nor has an unguarded catch-all (the former source checker's
     /// `TYPE_MATCH_NOT_EXHAUSTIVE`). On decoded package IR this is a
     /// memory-safety gate: a non-exhaustive match falls through with no arm
     /// selected, leaving a typed value uninitialized. Only checked when the
@@ -24,7 +24,7 @@ impl TypeEnv {
         let ty = resource_base_type(&ty).to_string();
         // A Result scrutinee's CASE Ok/Error arms are rejected by
         // TYPE_RESULT_NOT_MATCHABLE; suppress the secondary exhaustiveness
-        // cascade like syntaxcheck does. Unknown types are skipped as always.
+        // cascade like the former source checker does. Unknown types are skipped as always.
         if ty.is_empty()
             || ty == "Unknown"
             || ty == "Result"
@@ -57,7 +57,7 @@ impl TypeEnv {
         if all.difference(&covered).next().is_none() {
             return;
         }
-        // Missing-member lists mirror syntaxcheck's wording exactly: unions list
+        // Missing-member lists mirror the former source checker's wording exactly: unions list
         // the uncovered variants in declaration order; enums list sorted
         // `Type.member` names.
         let missing = if is_union {
@@ -102,7 +102,7 @@ impl TypeEnv {
         self.emit("TYPE_MATCH_NOT_EXHAUSTIVE", detail);
     }
 
-    /// `syntaxcheck`'s `TYPE_MATCH_PATTERN_MISMATCH` on the IR: a CASE pattern
+    /// the former source checker's `TYPE_MATCH_PATTERN_MISMATCH` on the IR: a CASE pattern
     /// must fit the scrutinee — a union CASE must name one of the union's
     /// variants, a type-named CASE requires a union scrutinee, and a literal
     /// pattern's type must be compatible with the scrutinee type. Unknown
@@ -126,7 +126,7 @@ impl TypeEnv {
         let union_variants = self.union_variants(&scrutinee_name);
         let check_pattern = |v: &IrValue| {
             // `Result` is internal: `CASE Ok`/`CASE Error` are never valid
-            // match arms (syntaxcheck's TYPE_RESULT_NOT_MATCHABLE). Only fires
+            // match arms (the former source checker's TYPE_RESULT_NOT_MATCHABLE). Only fires
             // when the name is not a real variant of the scrutinee's union.
             if let IrValue::Local(n) | IrValue::MemberAccess { member: n, .. } = v {
                 if matches!(n.as_str(), "Ok" | "Error" | "Err")

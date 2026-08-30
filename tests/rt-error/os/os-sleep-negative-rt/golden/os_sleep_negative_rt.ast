@@ -1,0 +1,29 @@
+{
+  "project": "os_sleep_negative_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 5 },
+    { "module": "os", "line": 6 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.sleep", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected: sleep returned" }] }, "line": 10 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 11 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -2,7 +2,7 @@
 //!
 //! A compiled package (`.mfp`) carries hand-serializable IR that a consumer
 //! decodes and lowers to native code. Only the source front end runs the AST
-//! type checker (`src/syntaxcheck/`); the decoded package IR is otherwise trusted
+//! type checker (`src/the former source checker/`); the decoded package IR is otherwise trusted
 //! to be well typed. A crafted `.mfp` can therefore ship type-confused IR — a
 //! `MemberAccess` on an `Integer`, a `Capture` index past the closure's slots, a
 //! call with the wrong argument count — that codegen turns into memory-unsafe
@@ -61,103 +61,18 @@ pub(crate) struct Diagnostic {
     pub(crate) line: u32,
 }
 
-/// Rules for which `ir::verify` is the sole rejecter (plan-20-Z). On the
-/// **source** path `ir::verify` emits ONLY these (syntaxcheck still owns every
-/// other rule, so emitting a non-relocated rule here would duplicate it); on
-/// the **package** path there is no syntaxcheck, so `ir::verify` emits all of its
-/// checks regardless. `syntaxcheck::report` skips this same set. A rule appears
-/// here only once `ir::verify` reproduces it completely (verified against every
-/// `*-invalid` fixture).
-pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
-    "TYPE_BINARY_OPERATOR_MISMATCH",
-    "TYPE_UNARY_OPERATOR_MISMATCH",
-    "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
-    "TYPE_UNKNOWN_FIELD",
-    "TYPE_RETURN_MISMATCH",
-    "TYPE_LIST_ELEMENT_MISMATCH",
-    "TYPE_SET_ELEMENT_MISMATCH",
-    "TYPE_MAP_KEY_MISMATCH",
-    "TYPE_MAP_VALUE_MISMATCH",
-    "TYPE_RESOURCE_FIELD_FORBIDDEN",
-    "TYPE_MIXED_RESOURCE_UNION",
-    "TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION",
-    "TYPE_BYTE_LITERAL_OVERFLOW",
-    "TYPE_BYTE_LITERAL_UNDERFLOW",
-    "TYPE_INTEGER_LITERAL_OVERFLOW",
-    "TYPE_FLOAT_LITERAL_OVERFLOW",
-    "TYPE_FLOAT_LITERAL_UNDERFLOW",
-    "TYPE_FIXED_LITERAL_OVERFLOW",
-    "TYPE_FIXED_LITERAL_UNDERFLOW",
-    "TYPE_MONEY_LITERAL_OVERFLOW",
-    "TYPE_MONEY_LITERAL_UNDERFLOW",
-    "TYPE_MONEY_LITERAL_PRECISION",
-    "TYPE_MONEY_OPERATION_INVALID",
-    "TYPE_UNARY_OPERATOR_UNKNOWN",
-    "TYPE_UNION_INCLUDE_REQUIRES_UNION",
-    "TYPE_UNION_MEMBER_REQUIRES_TYPE",
-    "TYPE_ENUM_REQUIRES_MEMBER",
-    "TYPE_DUPLICATE_VARIANT",
-    "TYPE_BINDING_MISMATCH",
-    "TYPE_ASSIGN_REQUIRES_MUT",
-    "TYPE_ASSIGNMENT_MISMATCH",
-    "TYPE_FOR_STEP_ZERO",
-    "TYPE_CONDITION_REQUIRES_BOOLEAN",
-    "TYPE_FOR_REQUIRES_NUMERIC",
-    "TYPE_FOR_EACH_REQUIRES_COLLECTION",
-    "TYPE_CONSTRUCTOR_REQUIRES_RECORD",
-    "TYPE_CONSTRUCTOR_ARITY_MISMATCH",
-    "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
-    "TYPE_DEFAULT_VALUE_MISMATCH",
-    "TYPE_READ_ONLY_RECORD_UPDATE",
-    "TYPE_MATCH_PATTERN_MISMATCH",
-    "TYPE_REQUIRES_COMPARABLE",
-    "TYPE_MATCH_NOT_EXHAUSTIVE",
-    "TYPE_USE_AFTER_MOVE",
-    "TYPE_UNKNOWN_ENUM_MEMBER",
-    "SYMBOL_NOT_CALLABLE",
-    "TYPE_BINDING_REQUIRES_TYPE_OR_VALUE",
-    "TYPE_LET_REQUIRES_VALUE",
-    "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
-    "TYPE_DEFAULT_ARG_ORDER",
-    "TYPE_PARAM_REQUIRES_TYPE",
-    "TYPE_FUNC_REQUIRES_RETURN_TYPE",
-    "EXIT_NO_MATCHING_LOOP",
-    "CONTINUE_NO_MATCHING_LOOP",
-    "TYPE_EXIT_PROGRAM_REQUIRES_INTEGER",
-    "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
-    "TYPE_SUB_HAS_NO_VALUE",
-    "TYPE_FUNC_MISSING_RETURN",
-    "TYPE_FAIL_REQUIRES_ERROR",
-    "TYPE_PROPAGATE_REQUIRES_TRAP",
-    "TYPE_RESOURCE_REQUIRES_RES",
-    "TYPE_RES_REQUIRES_RESOURCE",
-    "TYPE_STATE_INVALID",
-    // plan-74 retired TYPE_UNION_STATE_FORBIDDEN (a resource union may carry
-    // uniform STATE); it is no longer emitted, so it leaves this located-rules list.
-    // ir::verify is the SOLE implementer of the STATE-agreement rule (plan-52-C/D)
-    // — syntaxcheck has no twin of it to duplicate — so it is relocated from birth
-    // rather than after a reproduction pass. Without this entry the source path
-    // filters it out and it surfaces only via the package path's `check()`, which
-    // renders unlocated (`error: TYPE_STATE_MISMATCH: …`, no file:line).
-    "TYPE_STATE_MISMATCH",
-    // plan-59-C: the opaque-narrowing rule is the STATE-agreement rule's sibling
-    // and is likewise implemented only here — it needs the function's parameter
-    // list to tell an opaque value from a stateless one, which syntaxcheck does
-    // not track. Same reasoning as TYPE_STATE_MISMATCH above; without this entry
-    // it renders unlocated.
-    "TYPE_STATE_OPAQUE_NARROWING",
-    // Likewise ir::verify is the sole implementer of the BIND STATE validation
-    // (plan-53-B) — syntaxcheck never inspects a `LINK` function's BIND STATE.
-    "NATIVE_BIND_STATE_INVALID",
-    "TYPE_RESULT_NOT_MATCHABLE",
-    "TYPE_RESULT_IS_IMPLICIT",
-    "TYPE_THREAD_RESULT_REMOVED",
-    "TYPE_MEMBER_NOT_VISIBLE",
-    // ir::verify is the sole implementer: the condition is knowable only from
-    // escape analysis' ownership decision, which syntaxcheck does not compute
-    // (bug-291).
-    "TYPE_RESOURCE_RETURN_ORDER",
-];
+/// One imported package's `RESOURCE_TABLE` row as the source-path checker needs
+/// it (bug-377): the type's close op, and whether the exporting package marked
+/// the type thread-sendable. A decoded package contributes no
+/// `native_resources`, so without these rows every resource rule is inert for
+/// an imported type — a double close of a package handle passed clean, and a
+/// non-sendable package resource crossed a thread boundary unchallenged.
+#[derive(Clone, Debug)]
+pub struct ImportedResource {
+    pub type_name: String,
+    pub close_function: String,
+    pub sendable: bool,
+}
 
 /// Diagnostic prefixes shared with the structural `verify_package` checks so a
 /// rejection surfaces as a `PACKAGE_BINARY_REPRESENTATION_*` diagnostic. Forward
@@ -191,8 +106,9 @@ fn is_comparable_defaultable_primitive(type_: &str) -> bool {
 /// them all.
 pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
     // The package path runs on merged IR, whose resource types are already in
-    // `native_resources` or are the package's own, so it registers no extra rows.
-    collect_diagnostics_with(project, false, &[])
+    // `native_resources` or are the package's own, so it registers no extra rows;
+    // and a decoded package has no source, so its LINK rules report unlocated.
+    collect_diagnostics_with(project, false, &[], &crate::ir::LinkSpans::default(), false)
 }
 
 /// `collect_diagnostics`, with `imported_types_unknown` telling the checker which
@@ -207,23 +123,31 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
 fn collect_diagnostics_with(
     project: &IrProject,
     imported_types_unknown: bool,
-    imported_resources: &[(String, String)],
+    imported_resources: &[ImportedResource],
+    link_spans: &crate::ir::LinkSpans,
+    source_path: bool,
 ) -> Vec<Diagnostic> {
     let mut env = TypeEnv::build(project);
     env.imported_types_unknown = imported_types_unknown;
+    env.link_spans = link_spans.clone();
+    env.source_path.set(source_path);
     // bug-377: seed the imported packages' `RESOURCE_TABLE` rows. The project's
     // own `native_resources` win — an importer never overrides a declaration it
     // can see the source of.
-    for (type_name, close_function) in imported_resources {
+    for imported in imported_resources {
         env.resource_closers
-            .entry(type_name.clone())
-            .or_insert_with(|| close_function.clone());
+            .entry(imported.type_name.clone())
+            .or_insert_with(|| imported.close_function.clone());
+        env.resource_sendable
+            .entry(imported.type_name.clone())
+            .or_insert(imported.sendable);
     }
     let env = env;
     for function in &project.functions {
         env.current_file.replace(function.file.clone());
         env.current_return.replace(function.returns.clone());
         env.current_kind.replace(function.kind.clone());
+        env.current_function.replace(function.name.clone());
         env.current_owners
             .replace(function.resource_owners.keys().cloned().collect());
         // plan-59-C: a parameter whose type is a resource and which names no
@@ -242,12 +166,30 @@ fn collect_diagnostics_with(
                 .map(|p| p.name.clone())
                 .collect(),
         );
+        // An ISOLATED function is a thread entry point, reached by name from
+        // another package's `thread::start`, so it must be a project-visible
+        // FUNC (bug-227). `IrFunction` carries all three facts.
+        if function.isolated && (function.kind != "func" || function.visibility == "private") {
+            env.current_line.set(function.loc.line);
+            env.emit(
+                "TYPE_ISOLATED_NOT_VISIBLE",
+                format!(
+                    "ISOLATED function `{}` must be a project-visible FUNC declaration \
+                     (PUBLIC — the default — or EXPORT, not PRIVATE).",
+                    function.name
+                ),
+            );
+        }
         // A declared return type is a type reference too (`AS List OF File`
         // needs the RES element marking like any collection declaration).
         if !function.name.starts_with('$') {
             env.current_line.set(function.loc.line);
             env.check_collection_res_axis(&resource_base_type(&function.returns));
             env.check_return_state_declaration(function);
+            env.check_thread_sendability(&function.returns.without_state());
+            if let Some(state) = function.returns.state() {
+                env.check_thread_sendability(&state);
+            }
         }
         // A declared FUNC must name its return type (`AS T`); lowering stamps
         // `Unknown` when the annotation is absent. Synthesized `$lambda` bodies
@@ -295,8 +237,12 @@ fn collect_diagnostics_with(
             locals.insert(param.name.clone(), param.type_.clone());
             env.check_map_key_comparable(&param.type_);
             env.check_collection_res_axis(&resource_base_type(&param.type_));
+            env.check_thread_sendability(&param.type_.without_state());
+            if let Some(state) = param.type_.state() {
+                env.check_thread_sendability(&state);
+            }
             // Every parameter must declare an `AS` type (lambda parameters
-            // included — syntaxcheck checks both forms with this rule).
+            // included — the former source checker checks both forms with this rule).
             if param.type_ == ParameterType::Unknown {
                 env.emit(
                     "TYPE_PARAM_REQUIRES_TYPE",
@@ -316,7 +262,7 @@ fn collect_diagnostics_with(
                     ),
                 );
             }
-            // Parameters are immutable (syntaxcheck registers them
+            // Parameters are immutable (the former source checker registers them
             // `mutable: false`), so assigning one is TYPE_ASSIGN_REQUIRES_MUT.
             muts.insert(param.name.clone(), false);
             if let Some(default) = &param.default {
@@ -326,7 +272,7 @@ fn collect_diagnostics_with(
                 env.check_value_captures(default, None);
                 env.check_value(default, &locals);
                 // A parameter default must match the declared parameter type —
-                // syntaxcheck's TYPE_DEFAULT_VALUE_MISMATCH (skip-if-unknown).
+                // the former source checker's TYPE_DEFAULT_VALUE_MISMATCH (skip-if-unknown).
                 let expected = resource_base_type(&param.type_);
                 if !matches!(expected, ParameterType::Unknown | ParameterType::Nothing)
                     && !expected.name().is_empty()
@@ -357,7 +303,7 @@ fn collect_diagnostics_with(
         );
         // Resource use-after-move is a separate dataflow pass (straight-line
         // within a block; moves on any fall-through branch propagate past the
-        // join, mirroring syntaxcheck's MaybeMoved).
+        // join, mirroring the former source checker's MaybeMoved).
         let mut non_owning: HashSet<String> = function
             .params
             .iter()
@@ -408,6 +354,10 @@ fn collect_diagnostics_with(
         if binding.explicit_type {
             env.check_map_key_comparable(binding_type);
             env.check_collection_res_axis(&resource_base_type(binding_type));
+            env.check_thread_sendability(&binding_type.without_state());
+            if let Some(state) = binding_type.state() {
+                env.check_thread_sendability(&state);
+            }
         }
         if binding.value.is_none() {
             if !binding.explicit_type {
@@ -449,8 +399,7 @@ fn collect_diagnostics_with(
         }
     }
     env.check_type_declarations(project);
-    env.check_link_functions(project);
-    env.check_link_cstructs(project);
+    env.check_link_blocks(project);
     env.diags.take()
 }
 
@@ -459,16 +408,26 @@ fn collect_diagnostics_with(
 /// error string. Package-path diagnostics carry no source context (the decoded
 /// `.mfp` has no source file), so first-error is sufficient here.
 pub fn check(project: &IrProject) -> Result<(), String> {
-    match collect_diagnostics(project).into_iter().next() {
+    // Only an error-severity rule rejects: an advisory (`Severity::Warn`) rule
+    // such as TYPE_INLINE_TRAP_DEAD_HANDLER is rendered by the source path and
+    // must not fail the merged-project gate (plan-107-B found this the moment
+    // the first warning-severity rule moved here).
+    // The structural `PACKAGE_BINARY_REPRESENTATION_*` pseudo-rules are not
+    // table rows (they are prefixes shared with `verify_package`); they are
+    // always rejections.
+    match collect_diagnostics(project).into_iter().find(|d| {
+        d.rule == VERIFY_TYPE || d.rule == VERIFY_MATCH || crate::rules::is_error(&d.rule)
+    }) {
         Some(d) => Err(format!("{}: {}", d.rule, d.detail)),
         None => Ok(()),
     }
 }
 
 /// The relocated source-path diagnostics as unrendered `PendingDiagnostic`s, so
-/// `build` can merge them with `syntaxcheck`'s stream and render both in one
-/// line-ordered pass (plan-20-Z). Only rules in `RELOCATED_TO_IR_VERIFY` are
-/// ir::verify's to emit on the source path; the rest are still syntaxcheck's.
+/// `build` can merge them with the former source checker's stream and render both in one
+/// line-ordered pass (plan-20-Z). Every rule verify holds is its own to emit
+/// on the source path (plan-107-D: the source checker is gone; the source
+/// rules whose evidence lowering erases run in `ir::shape` ahead of it).
 ///
 /// `imported_resources` carries the `(type, close op)` rows of every imported
 /// package's `RESOURCE_TABLE` (bug-377). A decoded package contributes no
@@ -477,11 +436,17 @@ pub fn check(project: &IrProject) -> Result<(), String> {
 pub fn collect_source_diagnostics(
     project: &IrProject,
     project_dir: &Path,
-    imported_resources: &[(String, String)],
+    imported_resources: &[ImportedResource],
+    link_spans: &crate::ir::LinkSpans,
 ) -> Vec<crate::rules::PendingDiagnostic> {
-    collect_diagnostics_with(project, true, imported_resources)
+    collect_diagnostics_with(project, true, imported_resources, link_spans, true)
         .into_iter()
-        .filter(|d| RELOCATED_TO_IR_VERIFY.contains(&d.rule.as_str()))
+        // The two structural rules are the package path's guard against a
+        // malformed decoded IR (`PACKAGE_BINARY_REPRESENTATION_VERIFY_*`, not
+        // in the source rule table): a source program's equivalent defect is
+        // reported by its source rule (e.g. TYPE_MATCH_PATTERN_MISMATCH beside
+        // a `CASE` naming a non-variant), so they would only duplicate it here.
+        .filter(|d| d.rule != VERIFY_TYPE && d.rule != VERIFY_MATCH)
         .map(|d| crate::rules::PendingDiagnostic {
             rule: d.rule,
             detail: d.detail,
@@ -545,6 +510,15 @@ struct TypeEnv {
     /// `alias.func`), complementing the builtin close table for the
     /// use-after-move pass.
     resource_closers: HashMap<String, String>,
+    /// User-declared native resource type → whether it may cross a thread
+    /// boundary (`RESOURCE … THREAD_SENDABLE`), plus the imported packages'
+    /// `RESOURCE_TABLE` sendable bits. Built-in resources are not here; the
+    /// registry answers for them (`is_builtin_sendable_resource_type`).
+    resource_sendable: HashMap<String, bool>,
+    /// The LINK declarations' source spans (plan-107-C), present on the source
+    /// path only; the native-ABI rules report at these lines, and unlocated
+    /// (the `<generated>` form) when a declaration has none.
+    link_spans: crate::ir::LinkSpans,
     /// Function name → the distinct captured-slot counts observed at the
     /// `Closure` sites that target it. A single count means the closure shape is
     /// known; zero or multiple distinct counts leaves it ambiguous (skip).
@@ -553,7 +527,7 @@ struct TypeEnv {
     /// member-access type inference.
     field_types: HashMap<String, HashMap<String, ParameterType>>,
     /// Record type name → its direct fields as ordered (name, type) pairs, for
-    /// positional constructor checking (mirrors syntaxcheck's `TypeInfo.fields`,
+    /// positional constructor checking (mirrors the former source checker's `TypeInfo.fields`,
     /// which is declaration-ordered and not include-expanded).
     record_field_lists: HashMap<String, Vec<(String, ParameterType)>>,
     /// Enum type name → its complete member-name set, for MATCH exhaustiveness.
@@ -572,11 +546,25 @@ struct TypeEnv {
     current_return: RefCell<ParameterType>,
     /// `kind` (`func`/`sub`) of the function currently being checked.
     current_kind: RefCell<String>,
+    /// Name of the function currently being checked, for diagnostics that name
+    /// it (the normal-flow form of TYPE_TRAP_FALLTHROUGH).
+    current_function: RefCell<String>,
+    /// The mutability of every local in scope at the op whose values are being
+    /// checked — a snapshot of `check_ops`'s `muts`, taken only for ops that
+    /// carry a `Closure`, for the lambda-capture rule (a by-value capture of a
+    /// `MUT` local is the "mutable capture" rejection).
+    current_muts: RefCell<HashMap<String, bool>>,
     /// Whether a type-poisoning rule fired while checking the current value —
-    /// syntaxcheck's inference yields `Unknown` after an operator/constructor
+    /// the former source checker's inference yields `Unknown` after an operator/constructor
     /// failure, cascading a TYPE_UNKNOWN_VALUE at the consuming statement even
     /// where lowering stamped a nominal result type. Reset per checked value.
     poisoned: Cell<bool>,
+    /// Whether this walk is the source path (build: the former source checker and
+    /// `ir::shape` run beside it) rather than the package path (`check`, where
+    /// verify is the only checker). A rule whose evidence lowering erases on
+    /// the source path — the user-FUNC call arity — is `ir::shape`'s there and
+    /// verify's structural check here only on the package path (plan-107-E).
+    source_path: Cell<bool>,
     /// Whether this run's type tables are missing the imported types (the source
     /// path lowers with empty external maps; the package path does not). When set,
     /// a type name absent from every table is treated as an unresolvable *import*
@@ -591,7 +579,7 @@ struct TypeEnv {
     /// kind present here. Checking is sequential, so a RefCell stack suffices.
     loop_stack: RefCell<Vec<crate::ast::LoopKind>>,
     /// Whether the value about to be checked sits in statement position, where
-    /// a value-less SUB call is legal (syntaxcheck's `allow_value_less_call`).
+    /// a value-less SUB call is legal (the former source checker's `allow_value_less_call`).
     /// Consumed (reset) by the first Call node checked.
     allow_sub_call: Cell<bool>,
     /// The RES-declared binding names of the function currently being checked
@@ -615,7 +603,7 @@ struct TypeEnv {
 }
 
 /// Rules whose failure leaves the failing expression's type undeterminable in
-/// syntaxcheck (its `infer_*` returns `Unknown` after reporting them).
+/// the former source checker (its `infer_*` returns `Unknown` after reporting them).
 const POISONING_RULES: &[&str] = &[
     "TYPE_BINARY_OPERATOR_MISMATCH",
     "TYPE_UNARY_OPERATOR_MISMATCH",
@@ -750,6 +738,11 @@ impl TypeEnv {
             .iter()
             .map(|r| (r.name.clone(), r.close_function.clone()))
             .collect();
+        let resource_sendable = project
+            .native_resources
+            .iter()
+            .map(|r| (r.name.clone(), r.sendable))
+            .collect();
 
         let mut closure_counts: HashMap<String, HashSet<usize>> = HashMap::new();
         for function in &project.functions {
@@ -773,6 +766,8 @@ impl TypeEnv {
             globals,
             global_muts,
             resource_closers,
+            resource_sendable,
+            link_spans: crate::ir::LinkSpans::default(),
             closure_counts,
             field_types,
             record_field_lists,
@@ -782,7 +777,10 @@ impl TypeEnv {
             current_file: RefCell::new(String::new()),
             current_return: RefCell::new(ParameterType::Unknown),
             current_kind: RefCell::new(String::new()),
+            current_function: RefCell::new(String::new()),
+            current_muts: RefCell::new(HashMap::new()),
             poisoned: Cell::new(false),
+            source_path: Cell::new(false),
             // Strict by default: the package path (and every unit test) builds the
             // env directly and has the full merged type table. Only
             // `collect_source_diagnostics` opts into the leniency.
@@ -1072,7 +1070,7 @@ fn usable_type(annotated: Option<ParameterType>) -> Option<ParameterType> {
 }
 
 /// Whether an IR value is a numeric literal equal to zero (possibly negated) —
-/// mirrors `syntaxcheck::helpers::numeric_literal_is_zero` on the IR shape.
+/// mirrors the former source checker's `helpers::numeric_literal_is_zero` on the IR shape.
 fn numeric_literal_is_zero(value: &IrValue) -> bool {
     match value {
         IrValue::Const { type_, value }
@@ -1129,7 +1127,7 @@ fn fold_match_coverage(
 }
 
 /// The integer value of a constant expression (possibly negated) — mirrors
-/// `syntaxcheck::helpers::integer_constant_value` on the IR shape.
+/// the former source checker's `helpers::integer_constant_value` on the IR shape.
 fn integer_constant_value(value: &IrValue) -> Option<i128> {
     match value {
         IrValue::Const { type_, value }
@@ -1153,7 +1151,7 @@ fn integer_constant_value(value: &IrValue) -> Option<i128> {
 }
 
 /// Whether an IR value is a `collections.get`/`getOr` call — a *pointer* to a
-/// collection element (mirrors `syntaxcheck::helpers::is_resource_element_pointer`).
+/// collection element (mirrors the former source checker's `helpers::is_resource_element_pointer`).
 pub(crate) fn is_resource_element_pointer(value: &IrValue) -> bool {
     matches!(
         value,
@@ -1166,7 +1164,7 @@ pub(crate) fn is_resource_element_pointer(value: &IrValue) -> bool {
 }
 
 /// Compiler-owned record types users may neither construct nor WITH-update —
-/// mirrors `syntaxcheck::helpers::read_only_record_type`.
+/// mirrors the former source checker's `helpers::read_only_record_type`.
 fn read_only_record_type(type_: &ParameterType) -> bool {
     // A `MapEntry OF K TO V` is read-only structurally; the rest are nominal
     // lookups into per-package read-only tables, which are keyed by NAME.
@@ -1334,6 +1332,51 @@ fn collect_closures(value: &IrValue, out: &mut HashMap<String, HashSet<usize>>) 
             out.entry(name.clone()).or_default().insert(captures.len());
         }
     });
+}
+
+/// Whether one of `op`'s OWN values (not a nested body's) contains a `Closure`
+/// node — the trigger for snapshotting local mutability before the op's
+/// values are checked (see `TypeEnv::current_muts`).
+fn op_carries_closure(op: &IrOp) -> bool {
+    fn has_closure(value: &IrValue) -> bool {
+        let mut found = false;
+        crate::ir::value::visit_value(value, &mut |v| {
+            if matches!(v, IrValue::Closure { .. }) {
+                found = true;
+            }
+        });
+        found
+    }
+    match op {
+        IrOp::Bind { value: Some(v), .. } | IrOp::Return { value: Some(v), .. } => has_closure(v),
+        IrOp::Bind { value: None, .. }
+        | IrOp::Return { value: None, .. }
+        | IrOp::ExitLoop { .. }
+        | IrOp::ContinueLoop { .. }
+        | IrOp::Trap { .. } => false,
+        IrOp::Assign { value, .. }
+        | IrOp::AssignGlobal { value, .. }
+        | IrOp::StateAssign { value, .. }
+        | IrOp::Eval { value, .. }
+        | IrOp::ExitProgram { code: value, .. }
+        | IrOp::Fail { error: value, .. }
+        | IrOp::If {
+            condition: value, ..
+        }
+        | IrOp::Match { value, .. }
+        | IrOp::While {
+            condition: value, ..
+        }
+        | IrOp::DoUntil {
+            condition: value, ..
+        }
+        | IrOp::ForEach {
+            iterable: value, ..
+        } => has_closure(value),
+        IrOp::For {
+            start, end, step, ..
+        } => has_closure(start) || has_closure(end) || has_closure(step),
+    }
 }
 
 fn collect_closures_ops(ops: &[IrOp], out: &mut HashMap<String, HashSet<usize>>) {

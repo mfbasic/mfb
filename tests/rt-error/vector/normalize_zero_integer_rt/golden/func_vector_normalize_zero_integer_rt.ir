@@ -118,7 +118,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Unknown", "target": "io.print", "args": [{ "kind": "call", "type": "Unknown", "target": "#vector_toString_integer2", "args": [{ "kind": "call", "type": "Integer2", "target": "#vector_normalize_integer2", "args": [{ "kind": "constructor", "type": "Integer2", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] }] } },
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#vector_toString_integer2", "args": [{ "kind": "call", "type": "Integer2", "target": "#vector_normalize_integer2", "args": [{ "kind": "constructor", "type": "Integer2", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] }] } },
     { "op": "return", "line": 6, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },

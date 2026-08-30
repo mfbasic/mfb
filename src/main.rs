@@ -24,7 +24,6 @@ mod optimizer;
 mod os;
 mod resolver;
 mod rules;
-mod syntaxcheck;
 mod target;
 mod terminal_safe;
 mod testing;

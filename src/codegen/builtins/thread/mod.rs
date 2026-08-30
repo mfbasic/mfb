@@ -9,7 +9,7 @@
 //! …); each member body is a thin call to its emitter that returns un-finalized parts,
 //! and the `abi_function` wrapper seeds `entry` and finalizes. The parent/worker
 //! direction split + the resource plane resolve to distinct runtime-call NAMES in
-//! `builder_values` (`send`→`emit`, `receive`→`read`, `sleep`→`sleepWorker`, `transfer`
+//! `builder_values` (`send`→`emit`, `receive`→`read`, `transfer`
 //! →`transferResource`/`emitResource`, `accept`→`acceptResource`/`readResource`); each
 //! such code form is an `os_alias` of the owning member, so `abi_function_lower` routes
 //! it to that member's body, which reads [`AbiCtx::call`](crate::codegen::registry::AbiCtx)
@@ -283,23 +283,6 @@ pub(crate) fn register(r: &mut Registry) {
             ),
         ],
     ));
-    pkg.add_function(function(
-        "sleep",
-        Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer"),
-        vec![
-            overload(
-                sleep_params(false),
-                ParameterType::Nothing,
-                Body::abi_function_aliased(lowering::lower_sleep, &["sleepWorker"]),
-            ),
-            overload(
-                sleep_params(true),
-                ParameterType::Nothing,
-                Body::abi_function_aliased(lowering::lower_sleep, &["sleepWorker"]),
-            ),
-        ],
-    ));
-
     // Either-kind resource-plane members → two kind-split, resource-ONLY overloads.
     // The handle's msg/out are wildcards (a resource plane rides any data plane); only
     // `res` is captured, so a data-only handle (`res: Nothing`) is rejected by strict.
@@ -396,22 +379,6 @@ fn receive_params(worker: bool, msg: ParameterType) -> Vec<Parameter> {
             th(worker, msg, ParameterType::Unknown, ParameterType::Unknown),
         ),
         opt("timeoutMs", &[], ParameterType::Integer),
-    ]
-}
-
-fn sleep_params(worker: bool) -> Vec<Parameter> {
-    vec![
-        req(
-            "t",
-            &["thread"],
-            th(
-                worker,
-                ParameterType::Unknown,
-                ParameterType::Unknown,
-                ParameterType::Unknown,
-            ),
-        ),
-        req("ms", &[], ParameterType::Integer),
     ]
 }
 

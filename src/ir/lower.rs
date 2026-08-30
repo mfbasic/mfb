@@ -15,24 +15,29 @@ use crate::types::ParameterType;
 /// plan-106-A each of these was a `HashMap<String, String>` and the engine
 /// inferred over rendered spellings — the plan-102-C3 staging residue this
 /// letter retires.
-struct LowerContext<'a> {
+/// The lowering state: the project-wide tables (borrowed from a
+/// [`LowerFacts`]) plus the per-file / per-function cursor. `pub(super)` so
+/// `ir::shape` — the pre-lowering shape pass (plan-107-E) — can type HIR
+/// expressions with [`expression_type`] against the same tables lowering
+/// itself uses, rather than carrying a third inference.
+pub(super) struct LowerContext<'a> {
     function_returns: &'a HashMap<String, ParameterType>,
     function_types: &'a HashMap<String, ParameterType>,
     function_params: &'a HashMap<String, Vec<CallParam>>,
     binding_types: HashMap<String, ParameterType>,
     bindings: Vec<IrBinding>,
     type_index: &'a TypeIndex,
-    current_imports: HashMap<String, String>,
+    pub(super) current_imports: HashMap<String, String>,
     /// Project-relative path of the source file currently being lowered, used to
     /// populate `IrFunction::file` and `ErrorLoc.filename` for generated errors.
-    current_file: String,
+    pub(super) current_file: String,
     lambdas: Vec<IrFunction>,
     next_lambda_id: usize,
     next_temp_id: usize,
     /// Declared return type of the function currently being lowered, used to
     /// implicitly wrap a `RETURN`ed member constructor into its union (so the
     /// wrap is explicit in the IR rather than re-derived during codegen).
-    current_return_type: Option<ParameterType>,
+    pub(super) current_return_type: Option<ParameterType>,
     /// Stack of inline-`TRAP` recover destinations (innermost last). Each entry
     /// is the local slot a `RECOVER` value should be stored into and its type,
     /// or `None` when the trapped value is discarded (bare-statement form).
@@ -107,20 +112,20 @@ pub fn lower_project_with_external_functions(
         .augment_project(ast)
         .expect("clean-room registry package source must parse");
 
-    // `term`'s source companion (`package.mfb` — the `LineStyle`/`FillStyle` enums)
+    // `term`'s injected source (the registry-modeled `LineStyle`/`FillStyle` enums)
     // and the `term`↔`astrings` `drawText(AttributedString)` bridge are injected by
-    // the clean-room `registry::augment_project` above (the companion as an `Always`
-    // helper on the migrated `term` package, the bridge as a `WhenImported("astrings")`
-    // gated helper).
-    // `astrings`' source companion (`package.mfb`) is injected by the clean-room
-    // `registry::augment_project` above (plan-99 PART C), as an `Always` helper on
-    // the migrated `astrings` package — emitted whenever a program `IMPORT astrings`.
+    // the clean-room `registry::augment_project` above (the package's `get_mfb`
+    // assembly, and the bridge as a `WhenBothImported("term", "astrings")` gated
+    // helper chunk).
+    // `astrings`' injected source is emitted by the clean-room
+    // `registry::augment_project` above (plan-99 PART C) whenever a program
+    // `IMPORT astrings`.
     // app + datetime + money source is injected by the clean-room
     // `registry::augment_project` above.
     // `vector` source (its nine `TYPE`s + `__vector_*` FUNC bodies) is injected by the
     // clean-room `registry::augment_project` above.
-    // `http` before `net`: `http_package.mfb` imports `net`, so net's late pass must
-    // run after http's to see the transitive `IMPORT net` (plan-03-http.md Phase 4).
+    // `http` before `net`: http's injected source imports `net`, so net's late pass
+    // must run after http's to see the transitive `IMPORT net` (plan-03-http.md Phase 4).
     let augmented = crate::codegen::builtins::http::augmented_project(&augmented)
         .expect("built-in http package source must parse");
     let augmented = crate::codegen::builtins::net::augmented_project(&augmented)
@@ -132,7 +137,7 @@ pub fn lower_project_with_external_functions(
     // clean-room `registry::augment_project` above.
     // `crypto` source is injected by the clean-room `registry::augment_project` above
     // (before the `strings`/`encoding` late passes, so `encoding::uses_package` still
-    // sees `crypto_package.mfb`'s `IMPORT encoding`).
+    // sees crypto's injected `IMPORT encoding`).
     // `strings`' scalar-seam companion (which `IMPORT encoding`s, plan-41-D) is
     // injected by the clean-room `registry::augment_project` above (plan-99 PART B),
     // as a `WhenUsed` gated helper — before this `encoding` late pass, so
@@ -192,51 +197,9 @@ pub fn lower_augmented_project(
 ) -> IrProject {
     let mut types = Vec::new();
     let mut functions = Vec::new();
-    let mut function_returns = function_returns(hir);
-    let mut function_types = function_types(hir);
-    let mut function_params = function_params(hir);
-    let binding_types = declared_binding_types(hir);
-    // Imported-package signatures arrive TYPED (plan-105-A): the return type and
-    // the parameter list are read straight off `ExternalSignature` instead of being
-    // re-split out of a formatted `FUNC(…) AS R` string. plan-106-A closed the last
-    // gap here — the lowering context's own maps are `ParameterType` now, so these
-    // three entries are clones rather than `name()` renders.
-    for (name, signature) in external_signatures {
-        function_types.insert(name.clone(), signature.signature_type());
-        function_params.insert(
-            name.clone(),
-            signature
-                .params
-                .iter()
-                .map(|param| CallParam {
-                    name: param.name.clone(),
-                    type_: param.type_.clone(),
-                    default: None,
-                })
-                .collect(),
-        );
-        function_returns.insert(name.clone(), signature.returns.clone());
-    }
-    let type_index = TypeIndex::new(hir, imported_types);
-    let mut context = LowerContext {
-        function_returns: &function_returns,
-        function_types: &function_types,
-        function_params: &function_params,
-        binding_types,
-        type_index: &type_index,
-        current_imports: HashMap::new(),
-        current_file: String::new(),
-        bindings: Vec::new(),
-        lambdas: Vec::new(),
-        next_lambda_id: 0,
-        next_temp_id: 0,
-        current_return_type: None,
-        recover_targets: Vec::new(),
-        mutable_locals: HashSet::new(),
-        nonescaping_callback: false,
-        current_loc: IrSourceLoc::default(),
-    };
-    infer_binding_types(hir, &mut context);
+    let facts = lower_facts(hir, external_signatures, imported_types);
+    let type_index = &facts.type_index;
+    let mut context = facts.context();
     let bindings = lower_bindings(hir, &mut context);
     context.bindings = bindings.clone();
 
@@ -250,7 +213,7 @@ pub fn lower_augmented_project(
                     functions.push(lower_function(function, &mut context))
                 }
                 HirItem::Type(type_decl) => {
-                    types.push(lower_type(type_decl, &type_index, &context.current_file))
+                    types.push(lower_type(type_decl, type_index, &context.current_file))
                 }
                 // Native LINK resource declarations and re-export aliases carry no
                 // executable body. The LINK block's native functions are surfaced
@@ -291,6 +254,106 @@ pub fn lower_augmented_project(
         // path; this default is what a synthesized or test-built project gets.
         max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
     }
+}
+
+/// The project-wide tables lowering computes before it touches a single
+/// statement: declared/imported function signatures, the top-level binding
+/// types (declared and inferred), and the record/union/enum index.
+///
+/// Owned separately from [`LowerContext`] so the pre-lowering shape pass
+/// (`ir::shape`, plan-107-E) can build the same context lowering does — from
+/// the same inputs the build path hands `lower_augmented_project` — and type HIR
+/// expressions with lowering's own inference.
+pub(super) struct LowerFacts {
+    function_returns: HashMap<String, ParameterType>,
+    function_types: HashMap<String, ParameterType>,
+    function_params: HashMap<String, Vec<CallParam>>,
+    binding_types: HashMap<String, ParameterType>,
+    type_index: TypeIndex,
+}
+
+impl LowerContext<'_> {
+    /// The declared or inferred type of a top-level binding, for the shape
+    /// pass's call rules (a global of FUNC type is callable like a local).
+    pub(super) fn binding_type(&self, name: &str) -> Option<&ParameterType> {
+        self.binding_types.get(name)
+    }
+}
+
+impl LowerFacts {
+    /// A fresh lowering context over these facts, positioned before the first
+    /// file (no imports, no current file, no function cursor).
+    pub(super) fn context(&self) -> LowerContext<'_> {
+        LowerContext {
+            function_returns: &self.function_returns,
+            function_types: &self.function_types,
+            function_params: &self.function_params,
+            binding_types: self.binding_types.clone(),
+            type_index: &self.type_index,
+            current_imports: HashMap::new(),
+            current_file: String::new(),
+            bindings: Vec::new(),
+            lambdas: Vec::new(),
+            next_lambda_id: 0,
+            next_temp_id: 0,
+            current_return_type: None,
+            recover_targets: Vec::new(),
+            mutable_locals: HashSet::new(),
+            nonescaping_callback: false,
+            current_loc: IrSourceLoc::default(),
+        }
+    }
+}
+
+/// Compute the [`LowerFacts`] for `hir` — the prologue of
+/// [`lower_augmented_project`], including the top-level binding type
+/// inference that runs before any binding or function is lowered.
+pub(super) fn lower_facts(
+    hir: &crate::hir::HirProject,
+    external_signatures: &HashMap<String, ExternalSignature>,
+    imported_types: &[ImportedTypeDef],
+) -> LowerFacts {
+    let mut function_returns = function_returns(hir);
+    let mut function_types = function_types(hir);
+    let mut function_params = function_params(hir);
+    let binding_types = declared_binding_types(hir);
+    // Imported-package signatures arrive TYPED (plan-105-A): the return type and
+    // the parameter list are read straight off `ExternalSignature` instead of being
+    // re-split out of a formatted `FUNC(…) AS R` string. plan-106-A closed the last
+    // gap here — the lowering context's own maps are `ParameterType` now, so these
+    // three entries are clones rather than `name()` renders.
+    for (name, signature) in external_signatures {
+        function_types.insert(name.clone(), signature.signature_type());
+        function_params.insert(
+            name.clone(),
+            signature
+                .params
+                .iter()
+                .map(|param| CallParam {
+                    name: param.name.clone(),
+                    type_: param.type_.clone(),
+                    default: None,
+                })
+                .collect(),
+        );
+        function_returns.insert(name.clone(), signature.returns.clone());
+    }
+    let type_index = TypeIndex::new(hir, imported_types);
+    let mut facts = LowerFacts {
+        function_returns,
+        function_types,
+        function_params,
+        binding_types,
+        type_index,
+    };
+    // Inference reads the declared tables through a context and writes the
+    // inferred binding types back; the throwaway context borrows `facts`, so the
+    // result is moved out through it before the facts are handed back.
+    let mut context = facts.context();
+    infer_binding_types(hir, &mut context);
+    let binding_types = std::mem::take(&mut context.binding_types);
+    facts.binding_types = binding_types;
+    facts
 }
 
 fn lower_type(type_decl: &HirTypeDecl, type_index: &TypeIndex, file: &str) -> IrType {
@@ -414,7 +477,7 @@ fn lower_enum_member(member: &EnumMember) -> IrEnumMember {
 /// equivalent of parsing the concatenated spelling (guarded by
 /// `with_state_matches_parse_of_the_concatenated_spelling` in `src/types.rs`), so
 /// the clause is attached without a render→parse round trip.
-fn function_return_type(function: &HirFunction) -> ParameterType {
+pub(super) fn function_return_type(function: &HirFunction) -> ParameterType {
     match function.kind {
         FunctionKind::Func => match (&function.return_state_type, function.return_resource) {
             (Some(state), true) => function.returns.with_state(state),
@@ -473,9 +536,19 @@ fn lower_function_body(
     locals: &HashMap<String, ParameterType>,
     context: &mut LowerContext<'_>,
 ) -> Vec<IrOp> {
-    let mut body = lower_statement_block(&function.body, locals, context, None);
+    // The function-level TRAP body sees the function body's own (top-level)
+    // locals as well as the parameters (bug-285: a body local shadowing a
+    // file PRIVATE wins in the trap too), so the body is lowered into a scope
+    // the trap then inherits — typing `x` in the handler as the body's `x`
+    // rather than leaving it `Unknown` (plan-107-E).
+    let mut body_locals = locals.clone();
+    let mut body: Vec<IrOp> = function
+        .body
+        .iter()
+        .flat_map(|statement| lower_statement(statement, &mut body_locals, context, None))
+        .collect();
     if let Some(trap) = &function.trap {
-        let mut trap_locals = locals.clone();
+        let mut trap_locals = body_locals;
         trap_locals.insert(trap.name.clone(), ParameterType::named("Error"));
         body.push(IrOp::Trap {
             name: trap.name.clone(),
@@ -508,10 +581,16 @@ fn lower_param(
     IrParam {
         name: param.name.clone(),
         type_: type_.clone(),
+        // The default is typed by the parameter, exactly as the call site
+        // fills it (`lower_local_call_arguments`): a bare numeric literal — or a
+        // list of them — coerces to a `Fixed`/`Money`/`Float` parameter here too,
+        // so `a AS List OF Fixed = [1, 2]` lowers as the `List OF Fixed` the
+        // declaration names rather than a `List OF Integer` the default-value
+        // rule then rejects.
         default: param
             .default
             .as_ref()
-            .map(|value| lower_expression(value, locals, context)),
+            .map(|value| lower_expression_with_expected(value, Some(&type_), locals, context)),
         loc: IrSourceLoc {
             line: param.line as u32,
             column: 1,
@@ -717,16 +796,29 @@ fn lower_statement(
             loc,
         }],
         HirStatement::Recover { value, .. } => {
-            // Typecheck rejects RECOVER outside an inline-TRAP handler; total
-            // lowering falls back to a discard target rather than panicking.
-            let target = context
-                .recover_targets
-                .last()
-                .cloned()
-                .unwrap_or_else(|| RecoverTarget {
-                    slot: None,
+            // Typecheck rejects RECOVER outside an inline-TRAP handler
+            // (TYPE_RECOVER_OUTSIDE_INLINE_TRAP); total lowering binds the stray
+            // value to a `$recover_stray` temp rather than panicking. The temp —
+            // not a discard `Eval` — because the statement's one surviving fact
+            // must stay readable: the front end's flow analysis treats ANY
+            // RECOVER as diverging, and `ir::verify`'s divergence rules
+            // (TYPE_TRAP_FALLTHROUGH, TYPE_FUNC_MISSING_RETURN) key on the
+            // temp's name to agree. Never reaches codegen: the program is
+            // rejected.
+            let Some(target) = context.recover_targets.last().cloned() else {
+                let name = make_temp_local_name(context, "recover_stray");
+                let value = value
+                    .as_ref()
+                    .map(|value| lower_expression(value, locals, context));
+                return vec![IrOp::Bind {
+                    mutable: false,
+                    name,
                     type_: ParameterType::Unknown,
-                });
+                    value,
+                    explicit_type: false,
+                    loc,
+                }];
+            };
             match (target.slot, value) {
                 (Some(slot), Some(value)) => {
                     let lowered =
@@ -1563,7 +1655,7 @@ fn statement_can_terminate(statement: &HirStatement) -> bool {
 }
 
 /// Whether a statement always diverges or recovers (ends its enclosing handler
-/// path). Mirrors the syntaxcheck flow analysis for the constructs an inline-trap
+/// path). Mirrors the former source checker's flow analysis for the constructs an inline-trap
 /// handler may contain.
 fn statement_terminates(statement: &HirStatement) -> bool {
     match statement {
@@ -1594,7 +1686,7 @@ fn statement_terminates(statement: &HirStatement) -> bool {
 /// plan-106-A: a structural match on the collection's [`ParameterType`], replacing
 /// the `strip_prefix("List OF ")` / `strip_prefix("Set OF ")` / `parse_map_type`
 /// cascade this grew from — `ir::lower` holds no copy of the type grammar.
-fn collection_iteration_type(type_: &ParameterType) -> Option<ParameterType> {
+pub(super) fn collection_iteration_type(type_: &ParameterType) -> Option<ParameterType> {
     match type_ {
         // Iterating `List OF RES File` yields a pointer to each element; the loop
         // variable's type is the bare resource (`File`), not `RES File` (§15.6).
@@ -1650,7 +1742,7 @@ fn lower_match_case(
     context: &mut LowerContext<'_>,
     trap_name: Option<&str>,
 ) -> IrMatchCase {
-    // The case arm's own span (syntaxcheck reports match-arm rules at the case
+    // The case arm's own span (the former source checker reports match-arm rules at the case
     // line); captured locally since the body block re-sets the context copy.
     let loc = IrSourceLoc {
         line: case.line as u32,
@@ -1728,7 +1820,7 @@ fn lower_match_case(
     }
 }
 
-fn match_case_binding(
+pub(super) fn match_case_binding(
     pattern: &HirMatchPattern,
     matched_local: &str,
     matched_type: &ParameterType,
@@ -1799,7 +1891,7 @@ fn lower_match_expression(
     lower_expression_with_expected(expression, Some(matched_type), locals, context)
 }
 
-fn match_expression_type(
+pub(super) fn match_expression_type(
     expression: &HirExpression,
     locals: &HashMap<String, ParameterType>,
     context: &LowerContext<'_>,
@@ -1984,7 +2076,7 @@ fn infer_binding_types(hir: &HirProject, context: &mut LowerContext<'_>) {
     }
 }
 
-fn expression_type(
+pub(super) fn expression_type(
     expression: &HirExpression,
     locals: &HashMap<String, ParameterType>,
     context: &LowerContext<'_>,
@@ -2057,10 +2149,22 @@ fn expression_type(
             }
             // `t.result` is removed; worker outcomes are retrieved only via
             // `thread::waitFor`. (Typecheck rejects `.result` before IR.)
+            // `Error`/`ErrorLoc` are the compiler-generated records
+            // (`build_error_value`): their fields are typed here exactly as the
+            // source checker typed them, so `e.source.line` is an `Integer` to
+            // every consumer of this seam (plan-107-E).
             if target_type == ParameterType::named("Error") {
                 return match member.as_str() {
                     "code" => Some(ParameterType::Integer),
                     "message" => Some(ParameterType::String),
+                    "source" => Some(ParameterType::named("ErrorLoc")),
+                    _ => None,
+                };
+            }
+            if target_type == ParameterType::named("ErrorLoc") {
+                return match member.as_str() {
+                    "filename" => Some(ParameterType::String),
+                    "line" | "char" => Some(ParameterType::Integer),
                     _ => None,
                 };
             }
@@ -2104,11 +2208,24 @@ fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::resolve_call_return_type_typed(
-                    &canonical_callee,
-                    &arg_types,
-                    false,
-                );
+                let resolved =
+                    builtins::resolve_call_return_type_typed(&canonical_callee, &arg_types, false);
+                // A package-provided override of an overridable general builtin
+                // (`toString(net::Url)` → the package's renderer, plan-01-overload
+                // §B.2) yields the builtin's conventional result type — the same
+                // answer the source checker gave, so the seam types it (plan-107-E).
+                if resolved.is_none()
+                    && crate::codegen::builtins::general::is_overridable(&canonical_callee)
+                    && arg_types.len() == 1
+                    && builtins::general_override_target(&canonical_callee, &arg_types[0].name())
+                        .is_some()
+                {
+                    return crate::codegen::builtins::general::override_result_type(
+                        &canonical_callee,
+                    )
+                    .map(ParameterType::parse);
+                }
+                return resolved;
             }
             if crate::codegen::registry::abi_inline_lower(&canonical_callee).is_some() {
                 let normalized =
@@ -2413,7 +2530,7 @@ fn normalize_builtin_call_arguments<'a>(
 }
 
 /// Order the arguments of a call to a builtin with a per-overload parameter-name
-/// table, mirroring `syntaxcheck`'s selection so both agree on which parameter a
+/// table, mirroring the former source checker's selection so both agree on which parameter a
 /// name binds to. An unresolvable call was already rejected by the type checker;
 /// keep its source order so lowering has something well-formed to walk.
 fn normalize_overloaded_builtin_call_arguments<'a>(
@@ -2597,7 +2714,7 @@ fn registry_record_constant(name: &str) -> Option<IrValue> {
 /// position, when `expected` is a concrete unary Boolean function type it
 /// accepts (bug-368).
 ///
-/// Mirrors `syntaxcheck`'s `builtin_predicate_value_type`: both consult
+/// Mirrors the former source checker's `builtin_predicate_value_type`: both consult
 /// `filter_predicate_type`, so the type the checker assigns and the type the
 /// `FunctionRef` carries cannot diverge. A divergence would emit a wrapper under
 /// one symbol and reference another.
@@ -3084,7 +3201,7 @@ fn lower_expression_with_expected(
             IrValue::Call {
                 // The resource plane reuses the proven data-channel runtime:
                 // `thread::transfer`/`accept` lower exactly like `send`/`receive`
-                // (syntaxcheck already enforced their resource semantics).
+                // (the former source checker already enforced their resource semantics).
                 target: thread_resource_plane_target(&resolved_target).to_string(),
                 args,
                 type_: result_type.clone(),
@@ -3128,7 +3245,7 @@ fn lower_expression_with_expected(
                 .iter()
                 .map(|capture| nonescaping && context.mutable_locals.contains(&capture.name))
                 .collect::<Vec<_>>();
-            // Lambdas carry the enclosing statement's span (syntaxcheck reports
+            // Lambdas carry the enclosing statement's span (the former source checker reports
             // lambda rules at the threaded statement line).
             let loc = context.current_loc;
             let mut lambda_locals = HashMap::new();

@@ -274,7 +274,7 @@ impl ParameterType {
         // This is the one place `parse` is deliberately NORMALIZING rather than
         // byte-exact: `parse("(Integer)").name()` is `"Integer"`. That is the
         // form every consumer already computed for itself before plan-106-D —
-        // `resolver::resolve_type_name`, `syntaxcheck::parse_type`, and
+        // `resolver::resolve_type_name`, the former source checker's `parse_type`, and
         // `monomorph::lower` (×2) each called `strip_type_group` at their own
         // position — so nothing downstream sees a type it did not see before.
         // Once the type is structural, the group carries no information, and a
@@ -490,7 +490,7 @@ impl ParameterType {
     /// `STATE` has no variant: outside a thread plane [`parse`](Self::parse) has
     /// no arm for it, so `File STATE Cursor` is one opaque
     /// [`Named`](Self::Named). That makes the clause readable only off a
-    /// spelling, which is why `ir::verify` and `syntaxcheck` both ended up
+    /// spelling, which is why `ir::verify` and the former source checker both ended up
     /// re-parsing to recover it (plan-106-B §Phase 2 census, plan-106-C Phase 1).
     /// This is the structural way back.
     ///
@@ -538,7 +538,7 @@ impl ParameterType {
     /// A NOMINAL only: a scalar variant answers `false` even when its rendered
     /// name matches, because the question this answers is "is this the named
     /// user/builtin type?", not "does this render as?". Added by plan-106-C when
-    /// syntaxcheck's four built-in nominal variants became `Named`.
+    /// the former source checker's four built-in nominal variants became `Named`.
     pub(crate) fn is_named(&self, name: &str) -> bool {
         matches!(self, ParameterType::Named(sym) if sym.resolve() == name)
     }
@@ -640,7 +640,7 @@ impl fmt::Display for ParameterType {
 // splitters/renderers live here — not under `builtins` — because
 // [`ParameterType::parse`]/[`name`](ParameterType::name) decompose/render them into
 // the [`ParameterType::ThreadHandle`] variant, and every other consumer (monomorph,
-// syntaxcheck, codegen, binary_repr) speaks the same string vocabulary. This is the
+// the former source checker, codegen, binary_repr) speaks the same string vocabulary. This is the
 // former `builtins::thread` splitter set, kept byte-identical so the migrated
 // `thread` package and all its codegen citations agree on the spelling.
 
@@ -770,7 +770,7 @@ fn split_thread_types(rest: &str) -> Option<(&str, Option<&str>, &str)> {
 /// [`ParameterType::parse`] at it. Before that, `parse` used the naive leftmost
 /// split while `monomorph::helpers` kept this correct copy — so the "one grammar"
 /// consolidation could not simply route through `parse` without regressing
-/// bug-108.2. The two other copies (`monomorph`, `syntaxcheck::types::split_map_body`)
+/// bug-108.2. The two other copies (`monomorph`, the former source checker's `types::split_map_body`)
 /// are the lockstep-edit hazard the architectural review flagged
 /// (`planning/Compiler Pipeline.md:25`).
 /// Split a type spelling into its base and its OWN top-level ` STATE T` clause.

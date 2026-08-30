@@ -506,7 +506,7 @@ impl CodeBuilder<'_> {
                 .map(|type_| type_.name().into_owned())
         {
             // The list `set` item is always a single element of type `T`
-            // (syntaxcheck-enforced), so — unlike append's bulk-vs-single gate — no
+            // (source-checker-enforced), so — unlike append's bulk-vs-single gate — no
             // static element-type check is needed; the post-lowering `item.type_`
             // check catches any mismatch.
             let index = self.lower_value(&args[1])?;

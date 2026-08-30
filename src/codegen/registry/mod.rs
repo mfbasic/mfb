@@ -660,6 +660,24 @@ pub(crate) struct EnumVariant {
     /// rendered into the `ENUM` declaration [`RegistryPackage::get_mfb`] emits (the
     /// declaration is a bare list of variant names, as in a hand-written companion).
     pub(crate) description: &'static str,
+    /// A compile-time advisory attached to the value: every user-authored source
+    /// occurrence of `Enum.Variant` (an expression or a `MATCH` literal) reports the
+    /// named `warn`-severity rule once, without rejecting the program. `None` for
+    /// the ordinary variant. Injected builtin source (`HirFile::internal`) is
+    /// exempt, so a package's own dispatch helpers never trip it.
+    pub(crate) advisory: Option<EnumAdvisory>,
+}
+
+/// The advisory an [`EnumVariant`] carries — a `warn`-severity rule from
+/// `crate::rules::RULES` plus the detail line the diagnostic renders under it.
+/// The rule table owns the code and severity; this only names them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EnumAdvisory {
+    /// The rule name (`CRYPTO_SHA1_INSECURE`); must be a `Severity::Warn` row of
+    /// `crate::rules::RULES`.
+    pub(crate) rule: &'static str,
+    /// The detail line rendered under the rule's one-line message.
+    pub(crate) detail: &'static str,
 }
 
 /// A package value enum — an `[EXPORT] ENUM Name … END ENUM` declaration, e.g.
@@ -728,7 +746,8 @@ pub(crate) struct RegistryResource {
     /// bit — mirrors [`crate::codegen::resource::ResourceInfo::sendable`]).
     pub(crate) sendable: bool,
     /// Whether the close op can fail (mirrors
-    /// [`crate::codegen::resource::ResourceInfo::close_may_fail`]).
+    /// the drop-time cleanup derives the same fact from the close wrapper's
+    /// `SUCCESS ON`).
     pub(crate) close_may_fail: bool,
     /// Provenance of the registration (`Builtin` for a native package resource).
     pub(crate) kind: crate::codegen::resource::ResourceKind,
@@ -832,7 +851,7 @@ pub(crate) struct RegistryPackage {
     source_types: Vec<&'static str>,
     /// Compile-time package constants (scalar folds + record-constructor inlines) the
     /// package owns — the registry home of the `math`/`errorcode`/`vector` constant
-    /// hand tables. Queried by the [`is_package_constant`] / [`constant_type_name`] /
+    /// hand tables. Queried by the [`is_package_constant`] / [`constant_type`] /
     /// [`constant_value`] / [`constant_components`] boundary fns.
     constants: Vec<RegistryConstant>,
     /// General-builtin overrides (`toString`, …) this package provides for its value
@@ -1210,6 +1229,31 @@ impl Registry {
         self.packages.iter().find(|p| p.import_name == pkg_name)
     }
 
+    /// The advisory carried by the `enum_name.member` value of the package whose
+    /// injected source is `builtins/<import_name>.mfb` — `None` when the package
+    /// or enum is unknown, the member is not a variant, or the variant carries no
+    /// advisory. Keyed by the owning package (not a bare enum-name scan) so a user
+    /// enum that happens to share a builtin enum's name can never inherit its
+    /// advisory. Consulted by `ir::verify` when it resolves a user-source enum
+    /// member access (`check_enum_member_advisory`).
+    pub(crate) fn enum_variant_advisory(
+        &self,
+        import_name: &str,
+        enum_name: &str,
+        member: &str,
+    ) -> Option<EnumAdvisory> {
+        let package = self
+            .packages
+            .iter()
+            .find(|p| p.import_name == import_name)?;
+        let r#enum = package.enums().iter().find(|e| e.name == enum_name)?;
+        r#enum
+            .variants
+            .iter()
+            .find(|variant| variant.name == member)?
+            .advisory
+    }
+
     pub(crate) fn resolve_func(&self, qualified: &str) -> Option<ResolvedFunc<'_>> {
         let (pkg_name, func_name) = qualified.split_once('.')?;
         let package = self.packages.iter().find(|p| p.import_name == pkg_name)?;
@@ -1255,7 +1299,7 @@ impl Registry {
         Ok(augmented)
     }
 
-    /// The same injection, onto the elaborated project syntaxcheck consumes
+    /// The same injection, onto the elaborated project the former source checker consumes
     /// (plan-106-D). One decision procedure, two thin adapters — the synthetic
     /// files are parsed from source and elaborated, exactly as the AST pipeline's
     /// are parsed and then elaborated downstream.
@@ -1617,12 +1661,12 @@ pub(crate) fn is_package_constant(qualified: &str) -> bool {
 }
 
 /// The type name the migrated constant `qualified` evaluates to (scalar type or record
-/// type), or `None` — the registry half of `builtins::package_constant_type_name`.
+/// type), or `None`.
 pub(crate) fn constant_type_name(qualified: &str) -> Option<&'static str> {
     find_constant(qualified).map(|constant| constant.type_name)
 }
 
-/// The typed twin of [`constant_type_name`] (plan-106-A), for the type checker
+/// The typed twin of [`constant_type_name`] (plan-106-A), for the checkers
 /// and IR lowering.
 ///
 /// [`RegistryConstant::type_name`] is a `&'static str` *descriptor literal*, so
@@ -2227,6 +2271,27 @@ pub(crate) fn rewrite_target(qualified: &str, arg_types: &[String]) -> Option<&'
     function.implementations.first()?.body.rewrite_target()
 }
 
+/// The qualified member whose call lowering rewrites to the internal symbol
+/// `target` (either spelling: the descriptor's `__pkg_name` or the internalized
+/// `#pkg_name` the IR carries), or `None` when no member rewrites to it. The
+/// inverse of [`rewrite_target`], for the IR-level checks that must see a
+/// rewritten call as the builtin the source wrote (plan-107-E).
+pub(crate) fn rewrite_owner(target: &str) -> Option<String> {
+    for package in registry().packages() {
+        for function in package.functions() {
+            for implementation in function.implementations() {
+                let Some(rewrite) = implementation.body.rewrite_target() else {
+                    continue;
+                };
+                if rewrite == target || crate::internal_name::internalize(rewrite) == target {
+                    return Some(format!("{}.{}", package.import_name(), function.name));
+                }
+            }
+        }
+    }
+    None
+}
+
 /// The [`AbiInline`] lowering for `qualified`, or `None`. The inline dual-path
 /// (`try_abi_inline_lower`) consults this at the call site.
 pub(crate) fn abi_inline_lower(qualified: &str) -> Option<AbiInline> {
@@ -2613,7 +2678,7 @@ pub(crate) fn default_argument_padding(
 /// program `IMPORT`s, and which call callees it names.
 ///
 /// plan-106-D: both pipelines inject the same builtin sources — the AST one
-/// (`resolver::augment_project`, before monomorphization) and syntaxcheck's HIR
+/// (`resolver::augment_project`, before monomorphization) and the former source checker's HIR
 /// one — and the gates read exactly these two things. Collecting them once, from
 /// either domain, is what lets ONE injector serve both. The alternative was a
 /// second copy of `is_imported_by` plus the ~100-line `references_any` AST walk
@@ -2706,7 +2771,7 @@ pub(crate) fn inject_late_pass(
     }
 }
 
-/// The same injection onto the elaborated project syntaxcheck consumes.
+/// The same injection onto the elaborated project the former source checker consumes.
 pub(crate) fn inject_late_pass_hir(
     hir: &crate::hir::HirProject,
     package: &str,
@@ -3213,6 +3278,7 @@ mod tests {
         EnumVariant {
             name,
             description: "variant doc",
+            advisory: None,
         }
     }
 
@@ -4098,6 +4164,58 @@ mod tests {
             "EXPORT ENUM Stream\n  StdOut\n  StdErr\nEND ENUM"
         );
         assert_eq!(pkg.enums()[1].render(), "ENUM Internal\n  A\nEND ENUM");
+    }
+
+    #[test]
+    fn enum_variant_advisory_is_keyed_by_package_enum_and_member() {
+        let mut r = Registry::new();
+        let mut pkg = RegistryPackage::new("demo", "i", "d");
+        let advisory = EnumAdvisory {
+            rule: "CRYPTO_SHA1_INSECURE",
+            detail: "legacy only",
+        };
+        pkg.add_enum(enm(
+            "Algo",
+            true,
+            vec![
+                EnumVariant {
+                    name: "Weak",
+                    description: "weak",
+                    advisory: Some(advisory),
+                },
+                enum_variant("Strong"),
+            ],
+        ));
+        r.add_package(pkg);
+        // A same-named enum in ANOTHER package carries no advisory: the lookup is
+        // keyed by the owning package, never a bare enum-name scan.
+        let mut other = RegistryPackage::new("other", "i", "d");
+        other.add_enum(enm("Algo", true, vec![enum_variant("Weak")]));
+        r.add_package(other);
+
+        assert_eq!(
+            r.enum_variant_advisory("demo", "Algo", "Weak"),
+            Some(advisory)
+        );
+        assert_eq!(r.enum_variant_advisory("demo", "Algo", "Strong"), None);
+        assert_eq!(r.enum_variant_advisory("demo", "Algo", "Missing"), None);
+        assert_eq!(r.enum_variant_advisory("demo", "Nope", "Weak"), None);
+        assert_eq!(r.enum_variant_advisory("other", "Algo", "Weak"), None);
+        assert_eq!(r.enum_variant_advisory("absent", "Algo", "Weak"), None);
+        // The advisory's rule must be a real `warn` row of the rule table, or the
+        // `ir::verify` emit site would trip the unknown-rule guard.
+        let production = registry().enum_variant_advisory("crypto", "Hash", "SHA1");
+        let rule = production
+            .expect("crypto Hash.SHA1 carries an advisory")
+            .rule;
+        assert!(
+            !crate::rules::is_error(rule),
+            "{rule} must be warn-severity"
+        );
+        assert_eq!(
+            registry().enum_variant_advisory("crypto", "Hash", "SHA256"),
+            None
+        );
     }
 
     #[test]

@@ -85,7 +85,7 @@ enqueue success:
 - Code may attach an inline `TRAP` to `thread::send(...)`/`thread::transfer(...)`
   to separate the success path, where the sent/transferred binding is moved, from
   the error handler, where it remains owned by the sender and can be released. The
-  syntaxchecker treats the argument at index 1 of `thread.start`, `thread.send`, and
+  compiler treats the argument at index 1 of `thread.start`, `thread.send`, and
   `thread.transfer` as a move (`ExprMode::Transfer`). Any holder of a resource
   pointer may transfer it — a resource is owned by the outermost scope that touches
   it (§15.6) — and the transfer is tracked as a move, so a later use of the

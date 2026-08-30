@@ -1,0 +1,30 @@
+' plan-99: `os::sleep` on the MAIN thread is a plain wall-clock delay that needs no
+' thread handle and spawns nothing — the arena+8 worker back-pointer is 0 here, so
+' the body takes its uninterruptible `nanosleep` branch. Proves the delay actually
+' blocks the calling thread and that `ms = 0` returns immediately. Only PASS/FAIL
+' lines are printed — never the raw elapsed value, which varies run-to-run — so the
+' golden stays deterministic.
+IMPORT io
+IMPORT os
+IMPORT datetime
+
+FUNC main AS Integer
+  ' ms = 0 is an immediate no-op (returns without sleeping).
+  os::sleep(0)
+  io::print("immediate ok")
+
+  ' ms = 50 blocks the calling thread for at least ~50 ms of wall-clock. The
+  ' bound is loose (>= 40 ms) to absorb clock granularity without flaking.
+  LET t0 AS Integer = datetime::monotonicNanos()
+  os::sleep(50)
+  LET t1 AS Integer = datetime::monotonicNanos()
+  LET elapsedMs AS Integer = (t1 - t0) / 1000000
+  IF elapsedMs >= 40 THEN
+    io::print("slept ok")
+  ELSE
+    io::print("slept short")
+  END IF
+
+  io::print("done")
+  RETURN 0
+END FUNC

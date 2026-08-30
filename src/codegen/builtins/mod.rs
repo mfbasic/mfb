@@ -319,7 +319,7 @@ pub(crate) fn resolve_call_return_type(
     // Migrated (clean-room registry) packages first: resolve_call validates the
     // argument arity + types (returning None on a mismatch, which the type checker
     // turns into an error), so this cannot blindly hand back the return type. `strict`
-    // (argument validation, from syntaxcheck) rejects a scalar-for-nominal argument;
+    // (argument validation, from the former source checker) rejects a scalar-for-nominal argument;
     // the lenient callers (return-type inference feeding IR lowering / codegen) keep the
     // coarse match so a nominally-spelled argument does not perturb type propagation.
     // `vector` is a registry member but dispatches by EXACT record type (`Float2` ≠
@@ -435,7 +435,7 @@ pub(crate) fn call_return_type(name: &str) -> Option<crate::types::ParameterType
 }
 
 /// The name of the builtin package that owns a fully qualified call, or `None`
-/// (plan-72-BB: the registry's single owner). Used by the syntaxcheck dispatcher
+/// (plan-72-BB: the registry's single owner). Used by the former source checker's dispatcher
 /// to select a table package's argument-inference mode without a per-package
 /// `is_<pkg>_call` chain.
 pub(crate) fn builtin_package_name(callee: &str) -> Option<&'static str> {
@@ -454,6 +454,41 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         return general::arity(name);
     }
     crate::codegen::registry::registry().arity(name)
+}
+
+/// The packages whose calls the shared table checker validates (arity and
+/// arg-typed overload resolution). `general`, `collections`, `term` and
+/// `thread` have bespoke checkers and are deliberately absent; a package in
+/// neither set has its calls' arguments merely inferred, never bound or
+/// validated. Shared by `ir::shape` (the named-argument rules) and `ir::verify`
+/// (the arity/argument rules) so both draw the same boundary (plan-107-E).
+const ARGUMENT_CHECKED_PACKAGES: &[&str] = &[
+    "encoding", "astrings", "crypto", "strings", "math", "bits", "fs", "os", "net", "tls", "audio",
+    "process", "io", "json", "csv", "regex", "datetime", "money", "app", "http", "vector",
+];
+
+/// Whether a builtin call (canonical `package.member` name) is checked by the
+/// package TABLE arm (`expected_arguments` overloads) — as opposed to the four
+/// bespoke arms. The table arm types a matched call by the overload's declared
+/// return type even when an argument's own type is unknown.
+pub(crate) fn table_checked_call(callee: &str) -> bool {
+    crate::codegen::registry::registry()
+        .owning_package(callee)
+        .is_some_and(|package| ARGUMENT_CHECKED_PACKAGES.contains(&package))
+}
+
+/// Whether a builtin call (canonical `package.member` name) reaches one of the
+/// argument checkers — the four bespoke arms or the package table — and so has
+/// its argument list normalized and validated.
+pub(crate) fn checks_call_arguments(callee: &str) -> bool {
+    general::is_general_call(callee)
+        || matches!(
+            crate::codegen::registry::registry().owning_package(callee),
+            Some("collections") | Some("term")
+        )
+        || thread::is_thread_call(callee)
+        || builtin_package_name(callee)
+            .is_some_and(|package| ARGUMENT_CHECKED_PACKAGES.contains(&package))
 }
 
 /// The human-readable expected-argument rendering for a builtin call's
@@ -617,11 +652,7 @@ pub(crate) fn is_package_constant(name: &str) -> bool {
     crate::codegen::registry::is_package_constant(name)
 }
 
-pub(crate) fn package_constant_type_name(name: &str) -> Option<&'static str> {
-    crate::codegen::registry::constant_type_name(name)
-}
-
-/// The typed twin of [`package_constant_type_name`] (plan-106-A).
+/// A package constant's type (plan-106-A).
 pub(crate) fn package_constant_type(name: &str) -> Option<crate::types::ParameterType> {
     crate::codegen::registry::constant_type(name)
 }
@@ -1066,7 +1097,7 @@ mod tests {
     #[test]
     fn is_builtin_type_aggregates() {
         // A thread type routes through the registry's type table. plan-106-C
-        // deleted the `builtins::is_builtin_type` wrapper — syntaxcheck's parser
+        // deleted the `builtins::is_builtin_type` wrapper — the former source checker's parser
         // was its last caller, and that call discarded the answer — so these
         // assertions follow it to the registry.
         assert!(crate::codegen::registry::registry().is_builtin_type("Thread"));
@@ -1196,8 +1227,8 @@ mod tests {
 
     #[test]
     fn package_constant_type_and_value() {
-        assert!(package_constant_type_name("math.pi").is_some());
-        assert!(package_constant_type_name("nope").is_none());
+        assert!(package_constant_type("math.pi").is_some());
+        assert!(package_constant_type("nope").is_none());
         assert!(package_constant_value("math.pi").is_some());
         assert!(package_constant_value("nope").is_none());
     }

@@ -67,18 +67,18 @@
     "returns": "Nothing",
     "body": [
     { "op": "bind", "line": 7, "mutable": false, "name": "first", "type": "Url", "value": { "kind": "call", "type": "Url", "target": "#net_toUrl", "args": [{ "kind": "local", "name": "href" }] } },
-    { "op": "bind", "line": 8, "mutable": false, "name": "rendered", "type": "String", "value": { "kind": "call", "type": "Unknown", "target": "#net_urlToString", "args": [{ "kind": "local", "name": "first" }] } },
+    { "op": "bind", "line": 8, "mutable": false, "name": "rendered", "type": "String", "value": { "kind": "call", "type": "String", "target": "#net_urlToString", "args": [{ "kind": "local", "name": "first" }] } },
     { "op": "bind", "line": 9, "mutable": false, "name": "second", "type": "Url", "value": { "kind": "call", "type": "Url", "target": "#net_toUrl", "args": [{ "kind": "local", "name": "rendered" }] } },
     { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "render=" }, "right": { "kind": "local", "name": "rendered" } }] } },
     {
       "op": "if",
       "line": 11,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "rendered" }, "right": { "kind": "call", "type": "Unknown", "target": "#net_urlToString", "args": [{ "kind": "local", "name": "second" }] } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "rendered" }, "right": { "kind": "call", "type": "String", "target": "#net_urlToString", "args": [{ "kind": "local", "name": "second" }] } },
       "then": [
       { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "  roundtrip=ok" }] } }
       ],
       "else": [
-      { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "  roundtrip=MISMATCH " }, "right": { "kind": "call", "type": "Unknown", "target": "#net_urlToString", "args": [{ "kind": "local", "name": "second" }] } }] } }
+      { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "  roundtrip=MISMATCH " }, "right": { "kind": "call", "type": "String", "target": "#net_urlToString", "args": [{ "kind": "local", "name": "second" }] } }] } }
       ]
     }
     ]

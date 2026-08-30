@@ -1,0 +1,18 @@
+' plan-109-A renamed the SHA-2 selectors to `Hash.SHA2_224`/`SHA2_256`/`SHA2_384`/
+' `SHA2_512` with NO compatibility aliases: each old spelling is not a member of
+' `Hash` and the program is rejected. The new spellings and `Hash.SHA1` resolve
+' (the last binding proves the enum itself is fine). Also pins the argument
+' typing of every hash-selected overload: `hash`/`hmac` `data` must be
+' `List OF Byte` or `String`, `hmac` `key` must be `List OF Byte`.
+IMPORT crypto
+
+FUNC main AS Integer
+  LET a AS List OF Byte = crypto::hash(Hash.SHA224, "abc")
+  LET b AS List OF Byte = crypto::hash(Hash.SHA256, "abc")
+  LET c AS List OF Byte = crypto::hash(Hash.SHA384, "abc")
+  LET d AS List OF Byte = crypto::hash(Hash.SHA512, "abc")
+  LET e AS List OF Byte = crypto::hash(Hash.SHA1, 42)
+  LET f AS List OF Byte = crypto::hmac(Hash.SHA2_256, "key", "data")
+  LET g AS List OF Byte = crypto::hash(Hash.SHA2_256, "abc")
+  RETURN len(a) + len(b) + len(c) + len(d) + len(e) + len(f) + len(g)
+END FUNC

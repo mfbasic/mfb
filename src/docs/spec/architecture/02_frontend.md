@@ -218,35 +218,29 @@ never passed any source check, so running the same checker over its IR is what
 keeps type-confused IR out of a victim's binary (see
 `./mfb spec package verifier-rules`).[[src/ir/verify/]]
 
-The front-end source-syntax checker retains only the
-rules about **source syntax** — constructs that total lowering *erases*, so they
-can never appear in IR or in a package: named-argument call binding
-(`f(x := …)` duplicate/unknown names and the post-normalization arity/argument
-shapes), `EXIT FUNC`/`EXIT SUB` flavor distinctions, inline-`TRAP` boundaries
-and fallibility, lambda capture-escape analysis, and package-metadata ingestion
-(`PACKAGE_INVALID`, thread-sendability, the native-`LINK` slot-level ABI spans).
-It builds indices for local/package functions, user types and their kinds/fields,
-union members, and enum members to evaluate those rules, and it models the
-language's type forms (`./mfb spec language types`) to do so — but nothing
-downstream consumes its inference; lowering re-infers independently. It does
-**not** emit any rule in `ir::RELOCATED_TO_IR_VERIFY` — the 65 rules plan-20 moved
-to the IR semantic verifier, which is their sole rejecter. That is enforced, not
-merely intended: `SyntaxChecker::report` carries a `debug_assert!` that the rule
-it is about to emit is not in that list, so a regression fails a debug build
-rather than double-reporting.
+The pre-lowering **shape pass** (`ir::shape`) holds the only rules that cannot
+live in the IR verifier: the ones whose evidence total lowering *erases*, so
+that the fact never reaches the IR or a package — named-argument binding
+(`f(x := …)` duplicate/unknown names and the omission/count/argument-type
+shapes lowering normalizes away), `EXIT FUNC`/`EXIT SUB` flavors and the
+statements they leave unreachable, inline-`TRAP` boundaries (`RECOVER`
+placement and count, a handler's fall-through edge), the checker's "unknown
+value" cascade, the `TESTING` assertion builtins' argument rules (lowering
+expands the assertion into comparisons + `FAIL`), a `Money` scaled by a bare
+decimal literal (the literal's spelling), the `Error`/`ErrorLoc` constructor
+form (lowering synthesizes `Constructor{Error}` itself), a native `CONST` pin
+that does not fold and a `FREE` block's deallocator signature, and the
+imported-package metadata validation (`PACKAGE_INVALID`). It walks the
+concrete (post-monomorph) HIR with lowering's own typing oracle
+(`ir::lower::expression_type`) and tracks scopes exactly as lowering binds them,
+so it carries no inference of its own; every rule it emits is annotated with the
+erased fact that justifies it. [[src/ir/shape.rs]]
 
-It does still emit semantic rules of its own — the ones that were never
-relocated, including the whole `NATIVE_*` and `TESTING_*` families, the
-inline-`TRAP`/lambda/isolation rules, and a handful such as
-`TYPE_CALL_ARGUMENT_MISMATCH` and `TYPE_CALL_ARITY_MISMATCH`. The dividing line
-is membership in `RELOCATED_TO_IR_VERIFY`, not the distinction between "syntax"
-and "semantics". [[src/syntaxcheck/]] [[src/ir/mod.rs:RELOCATED_TO_IR_VERIFY]]
-
-The build runs both over the source program: the source-syntax checker
-gathers the syntax-rule diagnostics, IR is lowered, the IR semantic verifier
-gathers the semantic-rule diagnostics, and the two streams are concatenated in
-source order and rendered together. On the package path, package merging runs
-the IR semantic verifier once over the fully merged IR before any code is emitted.
+The build runs both over the source program: the shape pass gathers its
+diagnostics, IR is lowered, the IR semantic verifier gathers the rest, and the
+two streams are concatenated (shape's first) and rendered together. On the
+package path, package merging runs the IR semantic verifier once over the fully
+merged IR before any code is emitted.
 [[src/cli/build/mod.rs:build_project]] [[src/target/shared/nir/lower.rs:merge_packages]]
 
 ## See Also

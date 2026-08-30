@@ -14,7 +14,7 @@
 //! `builtins::native_builtin_target`; and seven — the Unicode scalar seam
 //! (`toScalars`/`fromScalars`) and the five classification predicates
 //! (`isLetter`/`isDigit`/`isWhitespace`/`isUpper`/`isLower`) — are `Body::Rewrite`s
-//! into the injected source companion (`seam.mfb`).
+//! into the injected scalar-seam chunk (`helper_scalar_seam.rs`, a gated helper).
 //!
 //! The companion carries the heavy Unicode general-category table
 //! (`__strings_genCat`, the same generated source `regex` uses as `__regex_genCat`,
@@ -30,7 +30,7 @@
 //! matcher, because `AttributedString` is `astrings`' type (still hardcoded, as
 //! `astrings` has not migrated).
 
-use crate::codegen::registry::{HelperGate, Registry, RegistryHelper, RegistryPackage};
+use crate::codegen::registry::{Registry, RegistryPackage};
 
 mod func_byte_len;
 mod func_case_fold;
@@ -71,6 +71,7 @@ mod func_trim_chars;
 mod func_trim_end;
 mod func_trim_start;
 mod func_upper;
+
 mod gen_case_map;
 mod gen_graphemes;
 mod gen_left_right;
@@ -79,24 +80,54 @@ mod gen_strings_support;
 mod gen_strip;
 mod gen_trim;
 mod gen_with_any;
+mod helper_scalar_seam;
 pub(crate) use gen_strings_support::*;
 
 /// One-line package intro (was `BuiltinModule::doc_intro`, historically empty).
-const INTRO: &str = "";
+const INTRO: &str = r#"Unicode-aware helpers for `String` values"#;
 /// Package-overview description (historically empty; the man page is the doc
 /// authority for `strings`).
-const DESC: &str = "";
+const DESC: &str = r#"The `strings` package provides package-qualified helpers for `String` values:
+trimming and case mapping (`trim`, `trimStart`, `trimEnd`, `trimChars`, `upper`,
+`lower`, `caseFold`), Unicode normalization and segmentation (`normalizeNfc`,
+`graphemes`, `graphemeAt`, `graphemesCount`), tests and search (`startsWith`,
+`endsWith`, `contains`, `startsWithAny`, `endsWithAny`, `find`, `count`), slicing
+and reshaping (`left`, `right`, `mid`, `stripPrefix`, `stripSuffix`, `split`,
+`join`, `replace`, `repeat`, `padLeft`, `padRight`), length and byte queries
+(`byteLen`, `toBytes`), and the Unicode-scalar seam (`toScalars`, `fromScalars`,
+and the `Scalar` classifiers `isLetter`, `isDigit`, `isWhitespace`, `isUpper`,
+`isLower`).
 
-/// The Unicode general-category table, `__regex_genCat` renamed to `__strings_genCat`
-/// so `strings`' file-local copy never collides with `regex`' when both are imported
-/// (bug-339 B1: one SOURCE of truth, one COMPILED copy per package — language-mandated
-/// because an injected builtin source is one file whose FUNCs are file-local).
-const GENCAT_TABLE: &str = include_str!("../../string/unicode/unicode_gencat.mfb");
+These helpers do not mutate their arguments. Functions that transform text return
+a new `String`; `graphemes` and `split` return a `List OF String`, `toBytes`
+returns a `List OF Byte`, `toScalars` returns a `List OF Scalar`, and the
+original value is left unchanged. The scalar seam bridges `String` and the
+`Scalar` primitive: `toScalars` walks a string one Unicode scalar at a time and
+`fromScalars` rebuilds one, an exact round trip; the five `isX(Scalar)`
+predicates classify a single scalar by its Unicode general category.
 
-/// The scalar-seam source companion (the `__strings_toScalars`/`__strings_fromScalars`
-/// seam + the five classification predicates), backing the seven `Body::Rewrite`
-/// members. Injected `WhenUsed` alongside the renamed general-category table.
-const SEAM_SOURCE: &str = include_str!("seam.mfb");
+Index- and count-based functions (`find`, `mid`, `left`, `right`) measure
+positions in zero-based Unicode scalar values, not bytes or graphemes. The
+grapheme helpers `graphemes`, `graphemeAt`, and `graphemesCount` are the
+exception: they operate on user-perceived extended grapheme clusters. `byteLen`
+reports the length of the UTF-8 encoding in bytes, and `toBytes` returns those
+raw UTF-8 bytes one element per byte. Case-insensitive comparison should use
+`caseFold` rather than `upper` or `lower`, and content that may combine
+characters differently can be normalized with `normalizeNfc` before comparison.
+
+Several functions accept an optional or defaulted argument: `find` takes an
+optional `start` position, and `padLeft` and `padRight` take an optional
+`padChar` that defaults to a single space. The pad character, when supplied, must
+be exactly one Unicode scalar value.
+
+`strings` is a built-in package: `IMPORT strings` needs no manifest dependency.
+
+Many `strings` functions also accept an `astrings::AttributedString` at the text
+position; the overload is documented on each function's own page. A query returns
+exactly what the `String` overload returns, computed on the visible text; a
+text-transforming function returns an `AttributedString`, remapping the attribute
+spans by the same edit (`upper`, `lower`, `caseFold`, and `normalizeNfc` change
+scalar counts within a span, so they drop attributes)."#;
 
 /// Register the `strings` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
@@ -147,48 +178,9 @@ pub(crate) fn register(r: &mut Registry) {
     func_is_upper::register(&mut pkg);
     func_is_lower::register(&mut pkg);
 
-    // The scalar-seam source companion, gated `WhenUsed`. Named exactly `"strings"`
-    // so its synthetic file derives the legacy `<builtin-strings>` label. The heavy
-    // general-category table is appended with `__regex_genCat` renamed to
-    // `__strings_genCat` (a runtime rename over the shared generated source), leaked
-    // to `'static` once behind the registry's `OnceLock` build (like the other
-    // boundary leaks in `registry`).
-    let seam_body: &'static str = Box::leak(
-        format!(
-            "{}\n{}",
-            SEAM_SOURCE,
-            GENCAT_TABLE.replace("__regex_genCat", "__strings_genCat"),
-        )
-        .into_boxed_str(),
-    );
-    pkg.add_helper(RegistryHelper {
-        name: "strings",
-        gate: HelperGate::WhenUsed(&[
-            "toScalars",
-            "fromScalars",
-            "isLetter",
-            "isDigit",
-            "isWhitespace",
-            "isUpper",
-            "isLower",
-        ]),
-        body: Some(seam_body),
-        import_name: None,
-    });
-    // The injected `astrings` companion (`astrings_package.mfb`) `IMPORT strings` and
-    // calls the scalar seam (`strings::toScalars`/`fromScalars`) from its Tier-B/
-    // attribute bodies. That companion is injected AFTER this generic registry pass, so
-    // the `WhenUsed` gate above (which only sees the user AST) cannot observe the
-    // transitive seam use for an `astrings`-only program. A second gate — same body,
-    // deduped by the shared `"strings"` name — rides the seam in whenever `astrings` is
-    // imported, reproducing the pre-migration late-pass `strings::uses_package` walk
-    // that saw the companion's seam references (plan-99 PART B).
-    pkg.add_helper(RegistryHelper {
-        name: "strings",
-        gate: HelperGate::WhenImported("astrings"),
-        body: Some(seam_body),
-        import_name: None,
-    });
+    // The scalar seam + classification predicates + general-category table, as one
+    // gated chunk (see `helper_scalar_seam.rs` for why it cannot be `Body::mfb`).
+    helper_scalar_seam::register(&mut pkg);
 
     r.add_package(pkg);
 }
@@ -271,28 +263,30 @@ pub(crate) fn is_tier_a_query(name: &str) -> bool {
 /// (re-express it — narrowed, extended, or rewritten), so an `AttributedString`
 /// argument yields an `AttributedString` whose text is transformed exactly as the
 /// `String` overload's and whose attribute spans are remapped by the same edit.
-/// `ir::lower` routes these to their `__astrings_*` body. Keyed on the qualified name.
+/// `ir::lower` routes these to their `__astrings_*` body. Keyed on the qualified
+/// name; each row pairs the member with its source-companion implementation symbol.
+const TIER_B_TRANSFORMS: &[(&str, &str)] = &[
+    ("strings.left", "__astrings_left"),
+    ("strings.right", "__astrings_right"),
+    ("strings.mid", "__astrings_mid"),
+    ("strings.trim", "__astrings_trim"),
+    ("strings.trimStart", "__astrings_trimStart"),
+    ("strings.trimEnd", "__astrings_trimEnd"),
+    ("strings.trimChars", "__astrings_trimChars"),
+    ("strings.stripPrefix", "__astrings_stripPrefix"),
+    ("strings.stripSuffix", "__astrings_stripSuffix"),
+    ("strings.padLeft", "__astrings_padLeft"),
+    ("strings.padRight", "__astrings_padRight"),
+    ("strings.repeat", "__astrings_repeat"),
+    ("strings.replace", "__astrings_replace"),
+    ("strings.upper", "__astrings_upper"),
+    ("strings.lower", "__astrings_lower"),
+    ("strings.caseFold", "__astrings_caseFold"),
+    ("strings.normalizeNfc", "__astrings_normalizeNfc"),
+];
+
 pub(crate) fn is_tier_b_transform(name: &str) -> bool {
-    matches!(
-        name,
-        "strings.left"
-            | "strings.right"
-            | "strings.mid"
-            | "strings.trim"
-            | "strings.trimStart"
-            | "strings.trimEnd"
-            | "strings.trimChars"
-            | "strings.stripPrefix"
-            | "strings.stripSuffix"
-            | "strings.padLeft"
-            | "strings.padRight"
-            | "strings.repeat"
-            | "strings.replace"
-            | "strings.upper"
-            | "strings.lower"
-            | "strings.caseFold"
-            | "strings.normalizeNfc"
-    )
+    TIER_B_TRANSFORMS.iter().any(|(member, _)| *member == name)
 }
 
 /// The `astrings` source-companion implementation symbol for a Tier-B transform of an
@@ -300,25 +294,21 @@ pub(crate) fn is_tier_b_transform(name: &str) -> bool {
 /// `strings::<t>(AttributedString, …)` call to this `__astrings_*` body instead of
 /// the native `String` transform.
 pub(crate) fn tier_b_transform_impl(name: &str) -> Option<&'static str> {
-    let symbol = match name {
-        "strings.left" => "__astrings_left",
-        "strings.right" => "__astrings_right",
-        "strings.mid" => "__astrings_mid",
-        "strings.trim" => "__astrings_trim",
-        "strings.trimStart" => "__astrings_trimStart",
-        "strings.trimEnd" => "__astrings_trimEnd",
-        "strings.trimChars" => "__astrings_trimChars",
-        "strings.stripPrefix" => "__astrings_stripPrefix",
-        "strings.stripSuffix" => "__astrings_stripSuffix",
-        "strings.padLeft" => "__astrings_padLeft",
-        "strings.padRight" => "__astrings_padRight",
-        "strings.repeat" => "__astrings_repeat",
-        "strings.replace" => "__astrings_replace",
-        "strings.upper" => "__astrings_upper",
-        "strings.lower" => "__astrings_lower",
-        "strings.caseFold" => "__astrings_caseFold",
-        "strings.normalizeNfc" => "__astrings_normalizeNfc",
-        _ => return None,
-    };
-    Some(symbol)
+    TIER_B_TRANSFORMS
+        .iter()
+        .find(|(member, _)| *member == name)
+        .map(|(_, symbol)| *symbol)
+}
+
+/// The Tier-B member whose `AttributedString` call lowers to `symbol` (either
+/// the `__astrings_*` spelling or the internalized `#astrings_*` the IR
+/// carries) — the inverse of [`tier_b_transform_impl`], for the IR-level call
+/// rules that report the member the source wrote (plan-107-E).
+pub(crate) fn tier_b_transform_owner(symbol: &str) -> Option<&'static str> {
+    TIER_B_TRANSFORMS
+        .iter()
+        .find(|(_, implementation)| {
+            *implementation == symbol || crate::internal_name::internalize(implementation) == symbol
+        })
+        .map(|(member, _)| *member)
 }

@@ -1,7 +1,7 @@
 //! Assertion builtins for the built-in test framework (plan-18-testing.md §1).
 //!
 //! The assertion builtins are compiler-lowered: they are recognized here,
-//! type-checked in `syntaxcheck`, and lowered directly in `src/ir/lower.rs`
+//! type-checked in the former source checker, and lowered directly in `src/ir/lower.rs`
 //! (there is no runtime helper). They are valid only inside a `TCASE` body —
 //! placement is enforced by `crate::testing` before any other front-end pass.
 //!

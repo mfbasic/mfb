@@ -118,7 +118,13 @@ pub fn run(options: &AuditOptions) -> i32 {
     else {
         return 3;
     };
-    if crate::syntaxcheck::check_project(&options.location, &concrete_hir).is_err() {
+    // plan-107: the shape pass gates audit as on the build path (its stream
+    // renders first; `ir::verify` runs over the lowered IR below it).
+    let imported_signatures =
+        crate::manifest::package::external_package_function_types(&options.location, &manifest);
+    if crate::ir::shape::check_project(&options.location, &concrete_hir, &imported_signatures)
+        .is_err()
+    {
         return 3;
     }
 

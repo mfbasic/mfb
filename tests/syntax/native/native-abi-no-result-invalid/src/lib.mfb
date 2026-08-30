@@ -1,0 +1,17 @@
+' A value-returning wrapper must say which slot (or expression) is its result:
+' `AS Integer` with no `RETURN <expr>` is NATIVE_ABI_NO_RESULT (plan-50-H).
+EXPORT RESOURCE Db CLOSE BY demoLink::close
+
+LINK "demo" AS demoLink
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "demo_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC version(RES db AS Db) AS Integer
+    SYMBOL "demo_version"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status >= 0
+  END FUNC
+END LINK

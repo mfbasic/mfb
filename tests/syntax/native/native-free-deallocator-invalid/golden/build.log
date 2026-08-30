@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/native/native-free-deallocator-invalid
+  15 |     ABI (h CPtr) AS text CPtr
+  16 |     RETURN text
+  17 |     FREE text
+     | ^
+tests/syntax/native/native-free-deallocator-invalid/src/lib.mfb:17 error[2-203-0099 NATIVE_FREE_INVALID]: a FREE block is malformed: it must release the `return` CPtr produced slot through a deallocator taking one CPtr parameter and returning CVoid
+               Native function `describe` has a malformed FREE block: it must name the CPtr produced slot that `RETURN` surfaces, and its deallocator must take one CPtr parameter and return CVoid.
+[exit 1]

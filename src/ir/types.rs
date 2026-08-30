@@ -80,6 +80,10 @@ pub(crate) struct IrRecordUpdate {
 pub struct ExternalFunctionParam {
     pub name: String,
     pub type_: ParameterType,
+    /// Whether the exporting package declared a default for this parameter —
+    /// the fact the call-arity rule needs to tell an omitted optional argument
+    /// from a missing required one (plan-107-E).
+    pub has_default: bool,
 }
 
 /// One imported package function's signature, carried as **typed data** from the
@@ -103,6 +107,10 @@ pub struct ExternalSignature {
     pub params: Vec<ExternalFunctionParam>,
     pub returns: ParameterType,
     pub isolated: bool,
+    /// Whether the export is a `SUB` (value-less) rather than a `FUNC` — the
+    /// fact the thread-entry rule needs (`thread::start` takes an ISOLATED
+    /// FUNC), which the return type alone does not spell (plan-107-E).
+    pub sub: bool,
 }
 
 impl ExternalSignature {

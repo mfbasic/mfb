@@ -1,0 +1,4 @@
+# plan-107 baseline: artifact-gate all at main tip 2299b6326 (2026-08-29)
+# scripts/artifact-gate.sh target/release/mfb all
+artifact-gate [all]: 1259 tests, 1406 build(s), 1734 golden(s) checked, 0 diff(s)
+# DIFF set: (none)

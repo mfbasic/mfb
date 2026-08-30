@@ -41,7 +41,7 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `init` | `mfb init <location>` | 0 ok; 2 missing/extra arg; 1 create/write failed |
 | `init-pkg` | `mfb init-pkg <location>` | 0 ok; 2 missing/extra arg; 1 create/write failed |
 | `build` | `mfb build [flags] [location]` | 0 ok; 2 bad flags; 1 build failed |
-| `test` | `mfb test [--coverage] [--target os-arch] [-O level] [location]` | 0 all cases passed; 1 a case failed or build error; 2 bad flags |
+| `test` | `mfb test [--coverage] [--target os-arch] [-O level] [-v] [location]` | 0 all cases passed; 1 a case failed or build error; 2 bad flags |
 | `fmt` | `mfb fmt [--check] [--indent N] [location]` | 0 ok; 2 bad flags; 1 not-formatted (`--check`) or error |
 | `doc` | `mfb doc [--out file] [location]` | 0 ok; 2 bad flags; 1 invalid DOC block or error |
 | `pkg add` | `mfb pkg add <file://…​.mfp or <owner>#<pkg>[@version]> [--pin\|--no-pin]` | 0 ok; 2 usage; 1 failed |
@@ -198,7 +198,7 @@ implement yet yields ``unknown -O level `<n>` (available: 0, 1)``. An unknown
 [location]`. The location defaults to `.`; the target defaults to the host.
 
 `build` runs the pipeline parse → resolve → monomorphize → resolve (no DOC
-re-validation) → validate entry point → syntaxcheck before emitting any artifact;
+re-validation) → validate entry point → shape pass + IR verifier before emitting any artifact;
 any stage failure exits `1`.[[src/cli/build/mod.rs:build_project]] Build-mode and
 build-flag *semantics* live in `./mfb spec architecture commands`.
 
@@ -224,7 +224,10 @@ mutually exclusive (`mfb build accepts at most one of -q / -v`). Only the
 `-v` and the default take an identical path into codegen. `mfb test`, `mfb repo
 publish`, and `mfb repo check-abi` run the build quietly (their own report is the
 output; the summary would be noise and, via `<target>`, non-portable across
-machines).
+machines). `mfb test` alone takes an explicit `-v`/`--verbose` that opts back
+into the full verbose build reporting; because every one of those lines goes to
+stderr, the pass/fail tree on stdout — and the `.testrun` goldens that capture
+it — are unaffected. `mfb test` takes no `-q` (quiet is already its default).
 
 ## `fmt`, `doc`, `audit` Flags
 

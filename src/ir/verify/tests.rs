@@ -1798,6 +1798,84 @@ fn rejects_unreachable_after_exit() {
     );
 }
 
+#[test]
+fn rejects_recover_literal_lowered_into_a_byte_slot_out_of_range() {
+    // `RECOVER 300` into a `Byte` success type lowers to a `Const Byte "300"`
+    // (the literal is coerced, not range-checked) — verify must still reject
+    // it as the RECOVER mismatch the source checker reported.
+    for (literal, actual) in [("300", "Integer"), ("1.5", "Float")] {
+        let body = vec![
+            IrOp::Bind {
+                mutable: true,
+                name: "$trap_val0".to_string(),
+                type_: ParameterType::Byte,
+                value: None,
+                loc: IrSourceLoc::default(),
+                explicit_type: false,
+            },
+            IrOp::Assign {
+                name: "$trap_val0".to_string(),
+                value: IrValue::Const {
+                    type_: ParameterType::Byte,
+                    value: literal.to_string(),
+                },
+                loc: IrSourceLoc::default(),
+            },
+        ];
+        let diagnostics = collect_diagnostics(&project(
+            vec![func_returns("run", "Nothing", vec![], body)],
+            vec![],
+        ));
+        let details: Vec<_> = diagnostics
+            .iter()
+            .map(|d| (d.rule.as_str(), d.detail.as_str()))
+            .collect();
+        assert_eq!(
+            details,
+            [(
+                "TYPE_RECOVER_TYPE_MISMATCH",
+                format!("RECOVER has type {actual}, expected Byte.").as_str()
+            )]
+        );
+    }
+}
+
+#[test]
+fn rejects_attributed_string_constructor() {
+    // `AttributedString[...]` never lowers to anything but a Constructor of the
+    // opaque nominal; it is created with `astrings::fromString`.
+    let body = vec![IrOp::Bind {
+        mutable: false,
+        name: "a".to_string(),
+        type_: ParameterType::parse("AttributedString"),
+        value: Some(IrValue::Constructor {
+            type_: ParameterType::parse("AttributedString"),
+            args: vec![IrValue::Const {
+                type_: ParameterType::String,
+                value: "hi".to_string(),
+            }],
+        }),
+        loc: IrSourceLoc::default(),
+        explicit_type: true,
+    }];
+    let diagnostics = collect_diagnostics(&project(
+        vec![func_returns("run", "Nothing", vec![], body)],
+        vec![],
+    ));
+    // (The package path's own TYPE_UNKNOWN_VALUE cascade follows; the source
+    // path narrows that to operator nodes and leaves it to ir::shape.)
+    let first = diagnostics
+        .first()
+        .map(|d| (d.rule.as_str(), d.detail.as_str()));
+    assert_eq!(
+        first,
+        Some((
+            "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
+            "`AttributedString` is an opaque built-in type and cannot be constructed; use `astrings::fromString(text)` to create one."
+        ))
+    );
+}
+
 // --- if / while / do-until conditions --------------------------------------
 
 #[test]
@@ -4906,9 +4984,8 @@ fn rejects_global_byte_overflow() {
 // --- source diagnostics filter ---------------------------------------------
 
 #[test]
-fn collect_source_diagnostics_filters_relocated() {
+fn collect_source_diagnostics_maps_rules_to_pending() {
     use std::path::Path;
-    // TYPE_BINARY_OPERATOR_MISMATCH is relocated; UNREACHABLE_AFTER_EXIT is not.
     let body = vec![ret(binary(
         "-",
         const_of("String", "a"),
@@ -4916,7 +4993,12 @@ fn collect_source_diagnostics_filters_relocated() {
         "Integer",
     ))];
     let p = project(vec![func("run", vec![], body)], vec![]);
-    let diags = super::collect_source_diagnostics(&p, Path::new("/proj"), &[]);
+    let diags = super::collect_source_diagnostics(
+        &p,
+        Path::new("/proj"),
+        &[],
+        &crate::ir::LinkSpans::default(),
+    );
     assert!(diags
         .iter()
         .any(|d| d.rule == "TYPE_BINARY_OPERATOR_MISMATCH"));
@@ -4931,7 +5013,12 @@ fn collect_source_diagnostics_generated_path_when_file_empty() {
         vec![func_returns("run", "Nothing", vec![], vec![])],
         vec![ty],
     );
-    let diags = super::collect_source_diagnostics(&p, Path::new("/proj"), &[]);
+    let diags = super::collect_source_diagnostics(
+        &p,
+        Path::new("/proj"),
+        &[],
+        &crate::ir::LinkSpans::default(),
+    );
     assert!(diags
         .iter()
         .any(|d| d.rule == "TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION"
@@ -5871,7 +5958,12 @@ fn rejects_bits_bad_args() {
         "run",
         "Nothing",
         vec![],
-        vec![eval_call("bits.band", vec![const_of("String", "x")])],
+        // Two arguments (the member's arity), both of the wrong type: the arity
+        // check precedes the type check, as in the source checker (plan-107-E).
+        vec![eval_call(
+            "bits.band",
+            vec![const_of("String", "x"), const_of("String", "y")],
+        )],
     );
     expect_rule(&project(vec![f], vec![]), "TYPE_CALL_ARGUMENT_MISMATCH");
 }
@@ -7301,7 +7393,7 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
 // LINK rule parity (bug-325)
 // ---------------------------------------------------------------------------
 
-/// `syntaxcheck::check_link_function_in` and `verify::check_link_functions` are
+/// the former source checker's `check_link_function_in` and `verify::check_link_functions` are
 /// two independently-maintained ~320-line bodies validating the same LINK ABI
 /// facts. They are kept in sync by hand, and adding a `NATIVE_*` rule to one
 /// side and forgetting the other is silent — this test makes it loud.
@@ -7309,77 +7401,6 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
 /// The invariant, with `ir::verify` as the sole rejecter for every relocated
 /// rule (plan-20):
 ///
-/// ```text
-/// syntaxcheck's NATIVE_* set  ∪  (RELOCATED_TO_IR_VERIFY ∩ NATIVE_*)  ==  verify's NATIVE_* set
-/// ```
-///
-/// The two sets are extracted as text from the sources via `include_str!`, so
-/// the test is a pure textual invariant with no coupling to either body's
-/// structure. The asymmetric name is sourced from `RELOCATED_TO_IR_VERIFY`
-/// rather than hardcoded, so relocating another rule updates both sides at once.
-#[test]
-fn native_rule_sets_agree_between_syntaxcheck_and_verify() {
-    use std::collections::BTreeSet;
-
-    fn native_names(source: &str) -> BTreeSet<String> {
-        let mut names = BTreeSet::new();
-        let mut rest = source;
-        while let Some(at) = rest.find("\"NATIVE_") {
-            rest = &rest[at + 1..];
-            if let Some(end) = rest.find('"') {
-                let name = &rest[..end];
-                if name
-                    .chars()
-                    .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
-                {
-                    names.insert(name.to_string());
-                }
-            }
-        }
-        names
-    }
-
-    // The native-LINK rule emitters live in each layer's `link.rs` topic module
-    // (bug-327 T2-6 / T2-1 extracted them from the module roots); scan both files
-    // per layer so this parity guard covers where the rules now live.
-    let syntaxcheck = native_names(&format!(
-        "{}{}",
-        include_str!("../../syntaxcheck/mod.rs"),
-        include_str!("../../syntaxcheck/link.rs"),
-    ));
-    let verify = native_names(&format!(
-        "{}{}",
-        include_str!("mod.rs"),
-        include_str!("link.rs"),
-    ));
-    assert!(
-        !syntaxcheck.is_empty() && !verify.is_empty(),
-        "extraction found no NATIVE_* names — the test itself is broken, \
-         not the rule sets (syntaxcheck={syntaxcheck:?}, verify={verify:?})"
-    );
-
-    let relocated: BTreeSet<String> = super::RELOCATED_TO_IR_VERIFY
-        .iter()
-        .filter(|rule| rule.starts_with("NATIVE_"))
-        .map(|rule| rule.to_string())
-        .collect();
-
-    let expected: BTreeSet<String> = syntaxcheck.union(&relocated).cloned().collect();
-    let missing_in_verify: Vec<_> = expected.difference(&verify).collect();
-    let missing_in_syntaxcheck: Vec<_> = verify.difference(&expected).collect();
-    assert!(
-        missing_in_verify.is_empty(),
-        "ir::verify is missing NATIVE_* rule(s) {missing_in_verify:?} that syntaxcheck emits — \
-         add them to check_link_functions (src/ir/verify/mod.rs)"
-    );
-    assert!(
-        missing_in_syntaxcheck.is_empty(),
-        "syntaxcheck is missing NATIVE_* rule(s) {missing_in_syntaxcheck:?} that ir::verify emits — \
-         add them to check_link_function_in (src/syntaxcheck/mod.rs), or, if verify is meant to be \
-         the sole rejecter, add them to RELOCATED_TO_IR_VERIFY"
-    );
-}
-
 // --- plan-58-A: CBuffer position rules on the PACKAGE path -----------------
 //
 // One twin per `check_buffer_slots` rule. These are the reason the checker is a
@@ -7676,4 +7697,740 @@ fn truncated_thread_spelling_still_counts_as_a_thread() {
     assert!(!super::is_thread_type(&ParameterType::list_of(
         ParameterType::Integer
     )));
+}
+
+// ---------------------------------------------------------------------------
+// plan-107-A pilots — the package-path twins of the relocated rules. A crafted
+// `.mfp` gets exactly the source-path treatment; these prove the rule fires on
+// decoded IR, where no the former source checker ever ran.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rejects_private_isolated_func() {
+    let mut f = func("w", vec![], vec![ret(int_const("0"))]);
+    f.isolated = true;
+    f.visibility = "private".to_string();
+    expect_rule(&project(vec![f], vec![]), "TYPE_ISOLATED_NOT_VISIBLE");
+}
+
+#[test]
+fn rejects_isolated_sub() {
+    let mut s = func_returns("w", "Nothing", vec![], vec![ret_none()]);
+    s.kind = "sub".to_string();
+    s.isolated = true;
+    expect_rule(&project(vec![s], vec![]), "TYPE_ISOLATED_NOT_VISIBLE");
+}
+
+#[test]
+fn accepts_public_isolated_func() {
+    let mut f = func("w", vec![], vec![ret(int_const("0"))]);
+    f.isolated = true;
+    f.visibility = "public".to_string();
+    accept(&project(vec![f], vec![]));
+}
+
+/// The lowered shape of `LET a = <scrutinee> TRAP(e) … END TRAP` with `handler`
+/// as the handler's ops (`lower_inline_trap`).
+fn inline_trap_ops(scrutinee: IrValue, handler: Vec<IrOp>) -> Vec<IrOp> {
+    let res = || IrValue::Local("$trap_res0".to_string());
+    vec![
+        IrOp::Bind {
+            mutable: false,
+            name: "$trap_res0".to_string(),
+            type_: ParameterType::result_of(ParameterType::Integer),
+            value: Some(scrutinee),
+            explicit_type: false,
+            loc: IrSourceLoc::default(),
+        },
+        bind("$trap_val0", "Integer", None, false, true),
+        IrOp::If {
+            condition: IrValue::ResultIsOk {
+                value: Box::new(res()),
+            },
+            then_body: vec![IrOp::Assign {
+                name: "$trap_val0".to_string(),
+                value: IrValue::ResultValue {
+                    type_: ParameterType::Integer,
+                    value: Box::new(res()),
+                },
+                loc: IrSourceLoc::default(),
+            }],
+            else_body: handler,
+            loc: IrSourceLoc::default(),
+        },
+        bind(
+            "a",
+            "Integer",
+            Some(IrValue::Local("$trap_val0".to_string())),
+            false,
+            false,
+        ),
+        ret(IrValue::Local("a".to_string())),
+    ]
+}
+
+fn recover_zero() -> IrOp {
+    IrOp::Assign {
+        name: "$trap_val0".to_string(),
+        value: int_const("0"),
+        loc: IrSourceLoc::default(),
+    }
+}
+
+#[test]
+fn rejects_inline_trap_on_a_non_call() {
+    let body = inline_trap_ops(int_const("5"), vec![recover_zero()]);
+    expect_rule(
+        &project(vec![func("run", vec![], body)], vec![]),
+        "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
+    );
+}
+
+#[test]
+fn rejects_inline_trap_on_a_package_constant() {
+    let scrutinee = IrValue::CallResult {
+        target: "math.pi".to_string(),
+        args: vec![],
+        type_: ParameterType::Float,
+        loc: IrSourceLoc::default(),
+    };
+    let body = inline_trap_ops(scrutinee, vec![recover_zero()]);
+    expect_rule(
+        &project(vec![func("run", vec![], body)], vec![]),
+        "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
+    );
+}
+
+#[test]
+fn accepts_inline_trap_on_a_call() {
+    let scrutinee = IrValue::CallResult {
+        target: "getName".to_string(),
+        args: vec![],
+        type_: ParameterType::Integer,
+        loc: IrSourceLoc::default(),
+    };
+    let body = inline_trap_ops(scrutinee, vec![recover_zero()]);
+    let callee = func("getName", vec![], vec![ret(int_const("1"))]);
+    let got = rules(&project(vec![func("run", vec![], body), callee], vec![]));
+    assert!(
+        !got.iter()
+            .any(|r| r == "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"),
+        "{got:?}"
+    );
+}
+
+#[test]
+fn skips_the_testing_desugared_trap_guard() {
+    // `expectTrap(5)` desugars into the inline-trap shape whose handler sets a
+    // `$expect_trapped` temp; that form has its own TESTING rule in the
+    // front end and must not be reported as an inline TRAP.
+    let handler = vec![IrOp::Assign {
+        name: "$expect_trapped0".to_string(),
+        value: const_of("Boolean", "true"),
+        loc: IrSourceLoc::default(),
+    }];
+    let mut body = inline_trap_ops(int_const("5"), handler);
+    body.insert(
+        0,
+        bind(
+            "$expect_trapped0",
+            "Boolean",
+            Some(const_of("Boolean", "false")),
+            false,
+            true,
+        ),
+    );
+    let got = rules(&project(vec![func("run", vec![], body)], vec![]));
+    assert!(
+        !got.iter()
+            .any(|r| r == "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"),
+        "{got:?}"
+    );
+}
+
+/// A record that is NOT thread-sendable because it holds a thread handle.
+fn unsendable_record() -> IrType {
+    record_typed("BadMessage", &[("handle", "Thread OF String TO Integer")])
+}
+
+#[test]
+fn rejects_unsendable_thread_message_in_a_parameter() {
+    let f = func(
+        "run",
+        vec![param("t", "Thread OF BadMessage TO Integer", None)],
+        vec![ret(int_const("0"))],
+    );
+    expect_rule(
+        &project(vec![f], vec![unsendable_record()]),
+        "TYPE_THREAD_NOT_SENDABLE",
+    );
+}
+
+#[test]
+fn rejects_unsendable_thread_message_in_a_record_field() {
+    let holder = record_typed("Holder", &[("t", "Thread OF BadMessage TO Integer")]);
+    let f = func("run", vec![], vec![ret(int_const("0"))]);
+    expect_rule(
+        &project(vec![f], vec![unsendable_record(), holder]),
+        "TYPE_THREAD_NOT_SENDABLE",
+    );
+}
+
+#[test]
+fn rejects_unsendable_message_sent_across_a_thread() {
+    let send = IrOp::Eval {
+        value: IrValue::Call {
+            target: "thread.send".to_string(),
+            args: vec![
+                IrValue::Local("t".to_string()),
+                IrValue::Local("m".to_string()),
+            ],
+            type_: ParameterType::Nothing,
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    };
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![
+            param("t", "Thread OF BadMessage TO Integer", None),
+            param("m", "BadMessage", None),
+        ],
+        vec![send, ret_none()],
+    );
+    // Both the declared handle type and the call boundary reject.
+    let got = rules(&project(vec![f], vec![unsendable_record()]));
+    assert!(
+        got.iter()
+            .filter(|r| *r == "TYPE_THREAD_NOT_SENDABLE")
+            .count()
+            >= 2,
+        "{got:?}"
+    );
+}
+
+#[test]
+fn rejects_transfer_on_a_thread_without_a_resource_plane() {
+    let transfer = IrOp::Eval {
+        value: IrValue::Call {
+            target: crate::codegen::builtins::thread::TRANSFER_RESOURCE.to_string(),
+            args: vec![
+                IrValue::Local("t".to_string()),
+                IrValue::Local("v".to_string()),
+            ],
+            type_: ParameterType::Nothing,
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    };
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![
+            param("t", "Thread OF String TO Integer", None),
+            param("v", "Integer", None),
+        ],
+        vec![transfer, ret_none()],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_THREAD_NOT_SENDABLE");
+}
+
+/// bug-301 G4: the resource plane's `STATE T` payload crosses the boundary with
+/// the resource (deep-copied into the receiver's arena), so it must be sendable
+/// too — copyable + defaultable does not imply it: a record holding
+/// `List OF RES fs.File` satisfies both yet carries sender-owned pointers.
+#[test]
+fn rejects_unsendable_resource_plane_state_payload() {
+    let holder = record_typed("Holder", &[("files", "List OF RES fs.File")]);
+    let f = func(
+        "worker",
+        vec![param(
+            "t",
+            "ThreadWorker OF Integer RES fs.File STATE Holder TO Integer",
+            None,
+        )],
+        vec![ret(int_const("0"))],
+    );
+    expect_rule(&project(vec![f], vec![holder]), "TYPE_THREAD_NOT_SENDABLE");
+
+    // A STATE of plain sendable fields is accepted — the rule rejects the
+    // unsendable payload, not stateful planes generally.
+    let plain = record_typed("Holder", &[("count", "Integer"), ("label", "String")]);
+    let f = func(
+        "worker",
+        vec![param(
+            "t",
+            "ThreadWorker OF Integer RES fs.File STATE Holder TO Integer",
+            None,
+        )],
+        vec![ret(int_const("0"))],
+    );
+    let got = rules(&project(vec![f], vec![plain]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
+        "{got:?}"
+    );
+}
+
+#[test]
+fn rejects_a_non_resource_on_the_resource_plane() {
+    // `thread::accept` on a thread whose resource plane names `Integer`: the
+    // resource plane moves only resources.
+    let accept = IrOp::Eval {
+        value: IrValue::Call {
+            target: crate::codegen::builtins::thread::ACCEPT_RESOURCE.to_string(),
+            args: vec![IrValue::Local("t".to_string())],
+            type_: ParameterType::Integer,
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    };
+    let f = func(
+        "worker",
+        vec![param(
+            "t",
+            "ThreadWorker OF String RES Integer TO Integer",
+            None,
+        )],
+        vec![accept, ret(int_const("0"))],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_THREAD_NOT_SENDABLE");
+}
+
+#[test]
+fn rejects_a_resource_in_the_message_plane() {
+    // The data plane is resource-free (§7): a resource rides the `RES` plane.
+    let f = func(
+        "run",
+        vec![param("t", "Thread OF fs.File TO Integer", None)],
+        vec![ret(int_const("0"))],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_THREAD_NOT_SENDABLE");
+}
+
+#[test]
+fn accepts_a_sendable_thread_message() {
+    let f = func(
+        "run",
+        vec![param("t", "Thread OF String TO Integer", None)],
+        vec![ret(int_const("0"))],
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
+        "{got:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// plan-107-B — the general semantic cluster's package-path twins.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn warns_dead_handler_on_an_infallible_inline_builtin() {
+    // `len(xs) TRAP(e) … END TRAP`: `len` cannot fail, so the handler is dead
+    // code — an advisory warning (plan-26-A), not an error.
+    let scrutinee = IrValue::CallResult {
+        target: "len".to_string(),
+        args: vec![IrValue::Local("xs".to_string())],
+        type_: ParameterType::Integer,
+        loc: IrSourceLoc::default(),
+    };
+    let mut body = inline_trap_ops(scrutinee, vec![recover_zero()]);
+    body.insert(
+        0,
+        bind(
+            "xs",
+            "List OF Integer",
+            Some(IrValue::ListLiteral {
+                type_: ParameterType::list_of(ParameterType::Integer),
+                values: vec![int_const("1")],
+            }),
+            true,
+            false,
+        ),
+    );
+    expect_rule(
+        &project(vec![func("run", vec![], body)], vec![]),
+        "TYPE_INLINE_TRAP_DEAD_HANDLER",
+    );
+}
+
+#[test]
+fn rejects_normal_flow_reaching_the_trap() {
+    // The handler returns, but the body before the TRAP falls through into it.
+    let body = vec![
+        IrOp::Eval {
+            value: int_const("1"),
+            loc: IrSourceLoc::default(),
+        },
+        IrOp::Trap {
+            name: "e".to_string(),
+            body: vec![ret(int_const("0"))],
+            loc: IrSourceLoc::default(),
+        },
+    ];
+    let f = func("run", vec![], body);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"), "{got:?}");
+}
+
+#[test]
+fn a_stray_recover_counts_as_diverging() {
+    // `RECOVER 0` inside a function-level TRAP is itself an error, but the front
+    // end's flow analysis treats it as diverging, so the handler is not ALSO
+    // reported as falling through. The stray RECOVER lowers to a
+    // `$recover_stray` bind, which the divergence predicate honours.
+    let body = vec![
+        ret(int_const("1")),
+        IrOp::Trap {
+            name: "e".to_string(),
+            body: vec![bind(
+                "$recover_stray0",
+                "Unknown",
+                Some(int_const("0")),
+                false,
+                false,
+            )],
+            loc: IrSourceLoc::default(),
+        },
+    ];
+    let f = func("run", vec![], body);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"), "{got:?}");
+}
+
+#[test]
+fn rejects_a_thread_handle_as_a_list_element() {
+    let f = func(
+        "run",
+        vec![param("xs", "List OF Thread OF Integer TO Integer", None)],
+        vec![ret(int_const("0"))],
+    );
+    expect_rule(
+        &project(vec![f], vec![]),
+        "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+    );
+}
+
+#[test]
+fn rejects_a_thread_handle_as_a_map_value() {
+    let f = func(
+        "run",
+        vec![param(
+            "m",
+            "Map OF String TO Thread OF Integer TO Integer",
+            None,
+        )],
+        vec![ret(int_const("0"))],
+    );
+    expect_rule(
+        &project(vec![f], vec![]),
+        "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+    );
+}
+
+#[test]
+fn rejects_a_resource_in_a_set_literal() {
+    let literal = IrValue::SetLiteral {
+        type_: ParameterType::set_of(ParameterType::named("fs.File")),
+        values: vec![],
+    };
+    let body = vec![
+        bind("s", "Set OF fs.File", Some(literal), true, false),
+        ret(int_const("0")),
+    ];
+    let got = rules(&project(vec![func("run", vec![], body)], vec![]));
+    // Once for the declared type, once for the literal — as the front end did.
+    assert_eq!(
+        got.iter()
+            .filter(|r| *r == "TYPE_COLLECTION_OWNERSHIP_VIOLATION")
+            .count(),
+        2,
+        "{got:?}"
+    );
+}
+
+#[test]
+fn rejects_a_thread_carrying_union_as_a_map_key() {
+    // A union whose variant holds a thread handle: the front end's walk reached
+    // the variant's fields; verify's predicate used to stop at the union name.
+    let mut holder = record_typed("Holder", &[("t", "Thread OF Integer TO Integer")]);
+    holder.visibility = "public".to_string();
+    let plain = record_typed("Plain", &[("n", "Integer")]);
+    let union = IrType {
+        kind: "union".to_string(),
+        visibility: "export".to_string(),
+        name: "Either".to_string(),
+        fields: vec![],
+        includes: vec![],
+        variants: vec![
+            IrVariant {
+                name: "Holder".to_string(),
+                fields: vec![IrField {
+                    visibility: None,
+                    name: "t".to_string(),
+                    type_: ParameterType::parse("Thread OF Integer TO Integer"),
+                    loc: IrSourceLoc::default(),
+                }],
+                loc: IrSourceLoc::default(),
+            },
+            IrVariant {
+                name: "Plain".to_string(),
+                fields: vec![IrField {
+                    visibility: None,
+                    name: "n".to_string(),
+                    type_: ParameterType::Integer,
+                    loc: IrSourceLoc::default(),
+                }],
+                loc: IrSourceLoc::default(),
+            },
+        ],
+        members: vec![],
+        loc: IrSourceLoc::default(),
+        file: String::new(),
+    };
+    let f = func(
+        "run",
+        vec![param("m", "Map OF Either TO Integer", None)],
+        vec![ret(int_const("0"))],
+    );
+    expect_rule(
+        &project(vec![f], vec![holder, plain, union]),
+        "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+    );
+}
+
+/// `LET f AS FUNC(Integer) AS Integer = LAMBDA(v AS Integer) -> v + <capture>`
+/// as lowering shapes it: the closure value binds the lambda by name with its
+/// capture list; `by_ref` captures arrive as `LocalRef`.
+fn closure_bind(captures: Vec<IrValue>) -> IrOp {
+    bind(
+        "f",
+        "FUNC(Integer) AS Integer",
+        Some(IrValue::Closure {
+            name: "$lambda0".to_string(),
+            type_: ParameterType::parse("FUNC(Integer) AS Integer"),
+            captures,
+        }),
+        true,
+        false,
+    )
+}
+
+#[test]
+fn rejects_a_by_value_capture_of_a_mut_local() {
+    let body = vec![
+        bind("offset", "Integer", Some(int_const("1")), true, true),
+        closure_bind(vec![IrValue::Local("offset".to_string())]),
+        ret(int_const("0")),
+    ];
+    expect_rule(
+        &project(vec![func("run", vec![], body)], vec![]),
+        "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
+    );
+}
+
+#[test]
+fn accepts_a_by_ref_capture_of_a_mut_local() {
+    // The compiler-proven non-escaping position (`forEach`'s action) captures a
+    // MUT local by slot reference — lowering's `LocalRef`.
+    let body = vec![
+        bind("total", "Integer", Some(int_const("0")), true, true),
+        closure_bind(vec![IrValue::LocalRef {
+            name: "total".to_string(),
+            type_: ParameterType::Integer,
+        }]),
+        ret(int_const("0")),
+    ];
+    let got = rules(&project(vec![func("run", vec![], body)], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_LAMBDA_CAPTURE_UNSUPPORTED"),
+        "{got:?}"
+    );
+}
+
+#[test]
+fn rejects_a_resource_capture_in_either_shape() {
+    for capture in [
+        IrValue::Local("handle".to_string()),
+        IrValue::LocalRef {
+            name: "handle".to_string(),
+            type_: ParameterType::named("fs.File"),
+        },
+    ] {
+        let body = vec![
+            bind("handle", "fs.File", Some(int_const("0")), true, true),
+            closure_bind(vec![capture]),
+            ret(int_const("0")),
+        ];
+        expect_rule(
+            &project(vec![func("run", vec![], body)], vec![]),
+            "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
+        );
+    }
+}
+
+#[test]
+fn rejects_a_non_copyable_capture() {
+    // A thread handle is neither a resource nor copyable.
+    let body = vec![
+        bind(
+            "t",
+            "Thread OF Integer TO Integer",
+            Some(int_const("0")),
+            true,
+            false,
+        ),
+        closure_bind(vec![IrValue::Local("t".to_string())]),
+        ret(int_const("0")),
+    ];
+    expect_rule(
+        &project(vec![func("run", vec![], body)], vec![]),
+        "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
+    );
+}
+
+#[test]
+fn accepts_a_copyable_immutable_capture() {
+    let body = vec![
+        bind("offset", "Integer", Some(int_const("1")), true, false),
+        closure_bind(vec![IrValue::Local("offset".to_string())]),
+        ret(int_const("0")),
+    ];
+    let got = rules(&project(vec![func("run", vec![], body)], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_LAMBDA_CAPTURE_UNSUPPORTED"),
+        "{got:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// plan-107-C — package-path twins of the LINK sub-forms verify lacked before
+// the front end's rules moved here. Each mutates one thing about a well-formed
+// wrapper over `CSTRUCT S AS Rec { a CInt32 }`.
+// ---------------------------------------------------------------------------
+
+/// A project with `CSTRUCT S AS Rec { a CInt32 }`, record `Rec { a AS Integer }`
+/// and one wrapper whose ABI has a single struct slot `s` of `direction`.
+fn struct_slot_project(
+    direction: crate::ir::AbiDirection,
+) -> (IrProject, crate::ir::IrLinkFunction) {
+    let mut p = project_with_cstructs(vec![cstruct("S", &[("a", "CInt32")])]);
+    p.types = vec![record_typed("Rec", &[("a", "Integer")])];
+    let mut f = link_fn();
+    f.params = vec![];
+    f.abi_slots = vec![crate::ir::IrAbiSlot {
+        name: "s".to_string(),
+        ctype: "S".to_string(),
+        direction,
+    }];
+    (p, f)
+}
+
+fn bind_in(slot: &str, fields: &[(&str, Option<&str>, Option<i64>)]) -> crate::ir::IrBindIn {
+    crate::ir::IrBindIn {
+        slot: slot.to_string(),
+        fields: fields
+            .iter()
+            .map(|(name, param, literal)| crate::ir::IrBindInField {
+                name: (*name).to_string(),
+                param: param.map(str::to_string),
+                literal: *literal,
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn rejects_inout_on_a_non_cstruct_slot() {
+    // A scalar slot is either a C argument or a produced value; INOUT means
+    // nothing for it.
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    let mut f = link_fn();
+    f.abi_slots[0].direction = crate::ir::AbiDirection::InOut;
+    p.link_functions = vec![f];
+    expect_rule(&p, "NATIVE_ABI_UNKNOWN_CTYPE");
+}
+
+#[test]
+fn rejects_returning_an_in_struct_slot() {
+    // An IN slot is zeroed and never read back, so `RETURN s` names nothing.
+    let (mut p, mut f) = struct_slot_project(crate::ir::AbiDirection::In);
+    f.bind_in = vec![bind_in("s", &[("a", None, Some(1))])];
+    f.return_type = "Rec".to_string();
+    f.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
+    p.link_functions = vec![f];
+    expect_rule(&p, "NATIVE_ABI_RESULT_MARKER");
+}
+
+#[test]
+fn rejects_returning_a_struct_slot_as_another_type() {
+    // A wrapper that returns a struct slot must declare its mapped record.
+    let (mut p, mut f) = struct_slot_project(crate::ir::AbiDirection::Out);
+    f.return_type = "Integer".to_string();
+    f.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
+    p.link_functions = vec![f];
+    expect_rule(&p, "NATIVE_STRUCT_FIELD_MISMATCH");
+}
+
+#[test]
+fn rejects_bind_in_on_an_out_slot() {
+    let (mut p, mut f) = struct_slot_project(crate::ir::AbiDirection::Out);
+    f.bind_in = vec![bind_in("s", &[("a", None, Some(1))])];
+    f.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
+    f.return_type = "Rec".to_string();
+    p.link_functions = vec![f];
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+#[test]
+fn rejects_bind_in_setting_a_field_twice() {
+    let (mut p, mut f) = struct_slot_project(crate::ir::AbiDirection::In);
+    f.bind_in = vec![bind_in("s", &[("a", None, Some(1)), ("a", None, Some(2))])];
+    p.link_functions = vec![f];
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+#[test]
+fn rejects_bind_in_field_bound_to_nothing() {
+    // Lowering represents an unmarshalable value as neither param nor literal.
+    let (mut p, mut f) = struct_slot_project(crate::ir::AbiDirection::In);
+    f.bind_in = vec![bind_in("s", &[("a", None, None)])];
+    p.link_functions = vec![f];
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+#[test]
+fn rejects_an_unbound_in_struct_slot() {
+    // An IN struct slot with neither a parameter nor a BIND IN block is unbound
+    // — the front end's second slot pass never exempted struct slots.
+    let (mut p, f) = struct_slot_project(crate::ir::AbiDirection::In);
+    p.link_functions = vec![f];
+    expect_rule(&p, "NATIVE_ABI_UNBOUND_SLOT");
+}
+
+#[test]
+fn accepts_a_bound_in_struct_slot() {
+    let (mut p, mut f) = struct_slot_project(crate::ir::AbiDirection::In);
+    f.bind_in = vec![bind_in("s", &[("a", None, Some(1))])];
+    p.link_functions = vec![f];
+    let got = rules(&p);
+    assert!(!got.iter().any(|r| r.starts_with("NATIVE_")), "{got:?}");
+}
+
+#[test]
+fn accepts_a_body_that_returns_before_its_trap() {
+    let body = vec![
+        ret(int_const("1")),
+        IrOp::Trap {
+            name: "e".to_string(),
+            body: vec![ret(int_const("0"))],
+            loc: IrSourceLoc::default(),
+        },
+    ];
+    let f = func("run", vec![], body);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"), "{got:?}");
 }

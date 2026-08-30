@@ -168,7 +168,9 @@ Options:
   --coverage          Emit coverage.html for the exercised source lines
   --target <os-arch>  Build for a specific target (only host targets are run)
   -O <level>          Optimization level: 0 off, 1 default, 2-3 enable more
-                      passes (also -O0..-O3, --optimize <level>)";
+                      passes (also -O0..-O3, --optimize <level>)
+  -v, --verbose       Also print the build summary, a per-phase timing line for
+                      each build stage, and a per-pass optimizer fire count";
 
 pub(crate) const FMT_HELP: &str = "\
 Usage: mfb fmt [options] [path]

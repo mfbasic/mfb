@@ -9,8 +9,8 @@ A map of the compiler's source modules and their responsibilities.
 | Parser & AST[[src/ast/]] | Parser, AST model, source discovery, AST JSON output. |
 | Name resolver[[src/resolver/]] | Name resolution and import/package symbol checks. |
 | Monomorphizer[[src/monomorph/]] | Template/generic expansion into concrete AST. |
-| Source-syntax checker[[src/syntaxcheck/]] | Source-syntax checking only (named-argument binding, EXIT/inline-TRAP boundaries, lambda capture escape, package metadata). It emits no rule in `ir::RELOCATED_TO_IR_VERIFY` (enforced by a `debug_assert!` in `report`), but does emit the semantic rules that were never relocated — the `NATIVE_*` and `TESTING_*` families among them. |
-| IR semantic verifier[[src/ir/verify/]] | IR semantic verification — the single source of truth for every **relocated** semantic rule (`RELOCATED_TO_IR_VERIFY`), run on both source-lowered IR and decoded-package IR. |
+| Shape pass[[src/ir/shape.rs]] | The source rules whose evidence lowering erases (named-argument binding, EXIT/inline-TRAP boundaries, TESTING assertion arguments, literal spellings, native CONST/FREE facts, imported-package metadata), checked over the concrete HIR with lowering's typing oracle. Its stream renders first. |
+| IR semantic verifier[[src/ir/verify/]] | IR semantic verification — the single source of truth for every other rule, run on both source-lowered IR and decoded-package IR. |
 | Escape analysis[[src/ir/resource_escape.rs]] | Resource escape analysis (resource ownership/scope; see `./mfb spec language resource-management`). |
 | IR & lowering[[src/ir/]] | Shared compiler IR and AST-to-IR lowering. |
 | Internal sigil naming[[src/internal_name.rs]] | Compiler-internal sigil symbol naming for injected source packages. |

@@ -918,7 +918,7 @@ fn elaborate_expression(
 // behind one `deelaborate` entry, rendering the concrete HIR back to an AST for
 // the three post-monomorph validators that still consumed `crate::ast`. All
 // three (`resolver::resolve_augmented`, `manifest::entry::validate_entry_point`,
-// `syntaxcheck::check_project_collect`) now take `&HirProject`, so the render
+// the former source checker's `check_project_collect`) now take `&HirProject`, so the render
 // has no callers and is deleted. It was the last backward edge in the compiler,
 // and the last thing that depended on `parse`↔`name` being byte-exact.
 

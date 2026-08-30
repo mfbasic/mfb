@@ -71,10 +71,12 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "Commercial",
                 description: "Round half away from zero (the default).",
+                advisory: None,
             },
             EnumVariant {
                 name: "Banker",
                 description: "Round half to even (banker's rounding).",
+                advisory: None,
             },
         ],
     });

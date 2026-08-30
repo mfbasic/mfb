@@ -243,7 +243,7 @@ impl CodeBuilder<'_> {
         self.emit_symbol_call(symbol);
 
         // An inline `TRAP` traps the raw send `Result`. On failure the sent value
-        // remains owned by the caller (the syntaxchecker restores the binding into
+        // remains owned by the caller (the former source checker restores the binding into
         // the handler scope); the success continuation treats it as moved.
         if raw {
             // bug-425: stash the enqueue tag before `materialize_current_result`

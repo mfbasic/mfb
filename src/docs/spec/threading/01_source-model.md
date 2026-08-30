@@ -28,7 +28,7 @@ signature that is simultaneously an imported-package export, a `FUNC`,
 and isolated; failure reports `TYPE_CALL_ARGUMENT_MISMATCH` with the message
 `thread.start entry point must be an exported ISOLATED FUNC from an imported
 package.`. The parameter-shape and return-type checks are the ordinary
-function-reference signature match. [[src/syntaxcheck/builtins.rs:check_thread_builtin_call]] [[src/codegen/registry/mod.rs:resolve_call]]
+function-reference signature match. [[src/ir/shape.rs:check_builtin_call]] [[src/codegen/registry/mod.rs:resolve_call]]
 
 The `imported_package_export` requirement is not weakened by the reserved
 `IMPORT self` specifier. In a `kind: "package"` project, `IMPORT self` registers
@@ -39,7 +39,7 @@ the checker never learns about `self`. A bare, unqualified current-package
 reference still carries `imported_package_export == false` and is still rejected;
 only the `self::`-qualified path to an `EXPORT ISOLATED FUNC` newly resolves.
 `self` sees only `EXPORT` symbols, exactly as an external importer does.
-[[src/syntaxcheck/mod.rs:collect_self_exports]] [[src/resolver/packages.rs:resolve_imported_package]]
+[[src/resolver/packages.rs]] [[src/resolver/packages.rs:resolve_imported_package]]
 
 ## Thread type grammar (parsing)
 
@@ -59,12 +59,12 @@ union, and resource types may cross a boundary) are owned by
 
 - Thread sendability is a type property decided by the thread-sendability
   predicate; it is not stored as a per-value flag in every value's memory
-  block. Opaque resource handles opt in through resource metadata. [[src/syntaxcheck/resources.rs:is_thread_sendable_type]]
+  block. Opaque resource handles opt in through resource metadata. [[src/ir/verify/resources.rs:is_thread_sendable]]
 - Statically known non-sendable `In`, `Msg`, `Out`, or `Res` types are rejected
   before lowering, error code
   `TYPE_THREAD_NOT_SENDABLE`. The data plane is additionally resource-free: a
   `Msg` that is itself a resource type is rejected at `thread::send` with guidance
-  to use `thread::transfer`. [[src/syntaxcheck/resources.rs:check_thread_boundary_sendability]]
+  to use `thread::transfer`. [[src/ir/verify/resources.rs:check_thread_boundary_sendability]]
 - Runtime helpers and the verifier still consult type metadata so queued values
   can be moved, dropped, or closed correctly.
 

@@ -1,18 +1,6 @@
 $ mfb build -ast -ir tests/syntax/threads/func_thread_send_invalid
 uses thread_workers - [Unsigned]
 uses thread_file_workers - [Unsigned]
-   8 | END TYPE
-   9 | 
-  10 | SUB rejectBadMessage(t AS Thread OF BadMessage TO Integer, payload AS BadMessage)
-     | ^
-tests/syntax/threads/func_thread_send_invalid/src/main.mfb:10 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
-               Thread message type requires a thread-sendable type, got `BadMessage`.
-   9 | 
-  10 | SUB rejectBadMessage(t AS Thread OF BadMessage TO Integer, payload AS BadMessage)
-  11 |   thread::send(t, payload)
-     | ^
-tests/syntax/threads/func_thread_send_invalid/src/main.mfb:11 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
-               Call to `thread.send` message type requires a thread-sendable type, got `BadMessage`.
   15 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
   16 |   LET fileThread AS Thread OF RES fs::File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
   17 |   LET missing AS Nothing = thread::send()
@@ -67,4 +55,16 @@ tests/syntax/threads/func_thread_send_invalid/src/main.mfb:20 error[2-203-0043 T
      | ^
 tests/syntax/threads/func_thread_send_invalid/src/main.mfb:22 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `thread.send` has argument type(s) (Thread OF RES fs.File TO Integer, fs.File), expected Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer.
+   8 | END TYPE
+   9 | 
+  10 | SUB rejectBadMessage(t AS Thread OF BadMessage TO Integer, payload AS BadMessage)
+     | ^
+tests/syntax/threads/func_thread_send_invalid/src/main.mfb:10 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+               Thread message type requires a thread-sendable type, got `BadMessage`.
+   9 | 
+  10 | SUB rejectBadMessage(t AS Thread OF BadMessage TO Integer, payload AS BadMessage)
+  11 |   thread::send(t, payload)
+     | ^
+tests/syntax/threads/func_thread_send_invalid/src/main.mfb:11 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+               Call to `thread.send` message type requires a thread-sendable type, got `BadMessage`.
 [exit 1]

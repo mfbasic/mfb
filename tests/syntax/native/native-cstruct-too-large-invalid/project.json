@@ -1,0 +1,8 @@
+{
+  "name": "native_cstruct_too_large_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "A CSTRUCT lays out on the marshaling thunk's stack frame, so its size is capped (1024 bytes); NATIVE_CSTRUCT_TOO_LARGE past it.",
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}

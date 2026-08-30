@@ -21,7 +21,6 @@ use crate::manifest::{build_mode_is_app, icon_path};
 use crate::monomorph;
 use crate::resolver;
 use crate::rules;
-use crate::syntaxcheck;
 use crate::target;
 
 /// How much human-facing progress `mfb build` prints (plan-36). Never reaches
@@ -354,7 +353,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // plan-106-D: every pass from here down consumes `&concrete_hir` directly.
     // This is where the compile path used to turn around — `deelaborate` rendered
     // the concrete HIR back to an AST for `resolve_augmented`, entry validation
-    // and `syntaxcheck`, and that render was the last backward edge in the
+    // and the former source checker, and that render was the last backward edge in the
     // compiler (and the last thing depending on `parse`↔`name` byte-exactness).
     //
     // Skip DOC validation on the post-monomorph pass: monomorphization renames
@@ -374,17 +373,19 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         }),
         None => validate_entry_point(&options.location, &manifest, &concrete_hir)?,
     };
-    // plan-20-Z cutover: the semantic rules are split across two passes that
-    // both run to completion (neither short-circuits the other) so a program
-    // with errors of both kinds reports all of them:
-    //   - `syntaxcheck` rejects the source-syntax rules — constructs total
-    //     lowering erases (named arguments, EXIT flavors, inline-trap
-    //     boundaries), which therefore cannot exist in IR or packages;
+    // The semantic rules are split across two passes that both run to
+    // completion (neither short-circuits the other) so a program with errors of
+    // both kinds reports all of them (plan-107):
+    //   - `ir::shape` walks the concrete HIR for the rules whose evidence
+    //     lowering ERASES — named arguments, EXIT flavors, inline-trap
+    //     boundaries, literal spellings, the TESTING assertions, native CONST
+    //     pins and FREE signatures — each with a justification line naming
+    //     the erased fact; its stream renders first;
     //   - `ir::verify` runs on the source-lowered IR and is the sole rejecter
-    //     for every rule ported off `syntaxcheck` — the same implementation that
-    //     guards decoded package IR, so source and package are checked once.
-    // Lowering is total (plan-20-D), so it is safe to run even when syntaxcheck
-    // found errors.
+    //     for every other rule — the same implementation that guards decoded
+    //     package IR, so source and package are checked once.
+    // Lowering is total (plan-20-D), so it is safe to run even when the shape
+    // pass found errors.
     //
     // Empty external maps for everything EXCEPT imported resource producers
     // (bug-377). An inferred binding takes its type from the initializer, so
@@ -406,19 +407,16 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // registry rows to interpret. Signature and definition arrive together, and
     // no other inference shifts.
     //
-    // Both checkers collect (rather than print) so their diagnostics can be
-    // merged and rendered in a single line-ordered pass; otherwise every
-    // relocated `ir::verify` rule would print after all of syntaxcheck's,
-    // scrambling the source-order sequence the goldens record (plan-20-Z).
-    let syntaxcheck_diagnostics =
-        syntaxcheck::check_project_collect(&options.location, &concrete_hir);
+    // Both passes collect (rather than print) so their diagnostics can be
+    // merged and rendered in a single line-ordered pass, in the stream order
+    // the goldens record (plan-20-Z).
     // bug-377: the source IR names an imported resource's type but carries no
     // record that it *is* a resource, so verify's resource rules need the
     // imported packages' `RESOURCE_TABLE` rows handed to them explicitly.
     let imported_resources = imported_resource_closers(&options.location, &manifest);
     let imported_resource_types: std::collections::HashSet<&str> = imported_resources
         .iter()
-        .map(|(type_name, _)| type_name.as_str())
+        .map(|resource| resource.type_name.as_str())
         .collect();
     let all_external_signatures = external_package_function_types(&options.location, &manifest);
     // plan-105-A: the signature arrives TYPED, so the return type is a field —
@@ -432,27 +430,48 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     };
     let source_external_signatures: HashMap<String, ir::ExternalSignature> =
         all_external_signatures
-            .into_iter()
+            .iter()
             .filter(|(_, signature)| returns_imported_resource(signature))
+            .map(|(name, signature)| (name.clone(), signature.clone()))
             .collect();
+    let imported_types = imported_type_defs(&options.location, &manifest);
+    // plan-107-E: the pre-lowering shape pass — the source rules whose evidence
+    // lowering erases — runs over the same HIR, with the same signature and
+    // type inputs, that lowering is about to consume. Its stream comes first.
+    let imported_resource_type_names: Vec<String> = imported_resource_types
+        .iter()
+        .map(|name| name.to_string())
+        .collect();
+    let shape_diagnostics = ir::shape::collect_diagnostics(
+        &options.location,
+        &concrete_hir,
+        &imported_types,
+        &all_external_signatures,
+        &imported_resource_type_names,
+    );
     let source_ir = ir::lower_augmented_project(
         &concrete_hir,
         entry.clone(),
         &source_external_signatures,
-        &imported_type_defs(&options.location, &manifest),
+        &imported_types,
     );
-    let verify_diagnostics =
-        ir::verify_source_diagnostics(&source_ir, &options.location, &imported_resources);
-    let Ok(mut diagnostics) = syntaxcheck_diagnostics else {
-        return Err(());
-    };
+    // plan-107-C: the LINK declarations' source spans, so verify's native-ABI
+    // rules report at the slot/parameter/field lines the former source checker did.
+    let link_spans = ir::link_spans(&concrete_hir);
+    let verify_diagnostics = ir::verify_source_diagnostics(
+        &source_ir,
+        &options.location,
+        &imported_resources,
+        &link_spans,
+    );
+    let mut diagnostics = shape_diagnostics;
     diagnostics.extend(verify_diagnostics);
     // EXPORT is only valid in a package project (it is the `.mfp` export flag);
     // in an executable a top-level EXPORT is an error. Checked here because the
     // manifest `kind` is known at the build boundary (see
-    // `syntaxcheck::export_in_executable_diagnostics`).
+    // `ir::shape::export_in_executable_diagnostics`).
     let is_package = crate::manifest::project_kind(&manifest) == "package";
-    diagnostics.extend(syntaxcheck::export_in_executable_diagnostics(
+    diagnostics.extend(ir::shape::export_in_executable_diagnostics(
         is_package, &ast,
     ));
     diagnostics.extend(scope_diagnostics);
@@ -1188,6 +1207,42 @@ mod tests {
         // non-portable `.testrun` goldens); see plan-36.
         let options = parse_test_options(vec![]).expect("test options");
         assert_eq!(options.verbosity, Verbosity::Quiet);
+    }
+
+    #[test]
+    fn parse_test_options_verbose_both_spellings() {
+        for flag in ["-v", "--verbose"] {
+            let options = parse_test_options(s(&[flag])).expect("verbose test options");
+            assert_eq!(options.verbosity, Verbosity::Verbose, "flag {flag}");
+            // The flag changes nothing else about the run.
+            assert_eq!(
+                options.mode,
+                crate::testing::CompileMode::Test { coverage: false }
+            );
+            assert_eq!(options.location, PathBuf::from("."));
+        }
+        // Repeating it is not an error, and it composes with the other flags.
+        let options =
+            parse_test_options(s(&["-v", "--verbose", "--coverage", "proj"])).expect("options");
+        assert_eq!(options.verbosity, Verbosity::Verbose);
+        assert_eq!(
+            options.mode,
+            crate::testing::CompileMode::Test { coverage: true }
+        );
+        assert_eq!(options.location, PathBuf::from("proj"));
+    }
+
+    /// `mfb test` builds quietly by default, so `-q` would be a no-op flag; it
+    /// stays unknown rather than becoming silently accepted noise.
+    #[test]
+    fn parse_test_options_rejects_quiet() {
+        for flag in ["-q", "--quiet"] {
+            let err = match parse_test_options(s(&[flag])) {
+                Ok(_) => panic!("expected `{flag}` to be rejected by mfb test"),
+                Err(message) => message,
+            };
+            assert!(err.contains("unknown test option"), "flag {flag}: {err}");
+        }
     }
 
     #[test]

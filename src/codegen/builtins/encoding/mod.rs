@@ -239,8 +239,9 @@ pub(crate) fn augmented_project(
     crate::codegen::registry::inject_late_pass(ast, "encoding", SOURCE_LABEL, SOURCE_DOC)
 }
 
-/// The same injection onto the elaborated project syntaxcheck consumes
+/// The same injection onto the elaborated project the former source checker consumes
 /// (plan-106-D).
+#[cfg(test)] // the HIR-domain chain serves the in-process tests only (plan-107-D)
 pub(crate) fn augmented_hir_project(
     hir: &crate::hir::HirProject,
 ) -> Result<crate::hir::HirProject, ()> {

@@ -1,11 +1,5 @@
 $ mfb build -ast -ir tests/syntax/threads/func_thread_start_invalid
 uses thread_workers - [Unsigned]
-  10 | END FUNC
-  11 | 
-  12 | ISOLATED FUNC localBadMessage(t AS ThreadWorker OF BadStartMessage TO Integer, seed AS String) AS Integer
-     | ^
-tests/syntax/threads/func_thread_start_invalid/src/main.mfb:12 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
-               Thread message type requires a thread-sendable type, got `BadStartMessage`.
   15 | 
   16 | FUNC main AS Integer
   17 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
@@ -18,12 +12,6 @@ tests/syntax/threads/func_thread_start_invalid/src/main.mfb:17 error[2-203-0021 
      | ^
 tests/syntax/threads/func_thread_start_invalid/src/main.mfb:17 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `localStart` does not have a known type.
-  16 | FUNC main AS Integer
-  17 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
-  18 |   LET badSendability AS Thread OF BadStartMessage TO Integer = thread::start(localBadMessage, "a")
-     | ^
-tests/syntax/threads/func_thread_start_invalid/src/main.mfb:18 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
-               Thread message type requires a thread-sendable type, got `BadStartMessage`.
   16 | FUNC main AS Integer
   17 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
   18 |   LET badSendability AS Thread OF BadStartMessage TO Integer = thread::start(localBadMessage, "a")
@@ -120,4 +108,16 @@ tests/syntax/threads/func_thread_start_invalid/src/main.mfb:24 error[2-203-0043 
      | ^
 tests/syntax/threads/func_thread_start_invalid/src/main.mfb:25 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `thread.start` omits parameter `inboundLimit` before a later supplied argument.
+  10 | END FUNC
+  11 | 
+  12 | ISOLATED FUNC localBadMessage(t AS ThreadWorker OF BadStartMessage TO Integer, seed AS String) AS Integer
+     | ^
+tests/syntax/threads/func_thread_start_invalid/src/main.mfb:12 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+               Thread message type requires a thread-sendable type, got `BadStartMessage`.
+  16 | FUNC main AS Integer
+  17 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
+  18 |   LET badSendability AS Thread OF BadStartMessage TO Integer = thread::start(localBadMessage, "a")
+     | ^
+tests/syntax/threads/func_thread_start_invalid/src/main.mfb:18 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+               Thread message type requires a thread-sendable type, got `BadStartMessage`.
 [exit 1]

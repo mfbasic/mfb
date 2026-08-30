@@ -31,7 +31,7 @@ The arena-state structure is `ARENA_STATE_SIZE` = **3768 bytes**: [[src/codegen/
 ```text
 ArenaState (at x19)
   +0    U64  blockHead        ; pointer to the current (most-recent) block, 0 if none
-  +8    U64  reserved         ; zero-initialized
+  +8    U64  workerThread     ; this thread's control block, 0 on the main thread
   +16   U64  fillRngLo        ; dedicated memory-fill PCG64 state, low 64 bits
   +24   U64  fillRngHi        ; dedicated memory-fill PCG64 state, high 64 bits
   +32   U64  exitStatus       ; pending exit/result code used during teardown
@@ -66,6 +66,16 @@ ArenaState (at x19)
   +3760 U64  stdinSubscriber  ; pointer to this thread's stdin broadcast-log registry
                               ; entry (NULL when not subscribed)
 ```
+
+`workerThread` is the back-pointer to this thread's control block, published by
+the worker trampoline once its arena and control-block registers are both live.
+Nothing writes it on the program's main thread, so the whole-`ARENA_STATE_SIZE`
+zero-init leaves it `0` there — which makes it the reliable "am I a worker, and if
+so which one" test on every thread, reachable through the pinned arena register
+without a thread-local lookup. `os::sleep` reads it to choose between a plain delay
+and the cancellation-aware worker wait (`./mfb spec threading`); the pinned
+current-thread register cannot serve that role, because the entry stub reuses it as
+scratch on the main thread.
 
 `blockHead` anchors the unmap walk; `freeListHead`, the 128 `quickBin` heads,
 the 64 `largeBin` heads, and the `carvePtr`/`carveSize` designated victim anchor

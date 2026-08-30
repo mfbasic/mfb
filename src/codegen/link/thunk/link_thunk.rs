@@ -1603,7 +1603,7 @@ fn lower_link_thunk(
     // A NULL pointer is passed through unchanged — deallocators such as
     // sqlite3_free treat NULL as a no-op.
     if let Some(free_slot) = free_slot {
-        // sec-01: syntaxcheck + ir::verify now reject `FREE` on an `AS RES`
+        // sec-01: the former source checker + ir::verify now reject `FREE` on an `AS RES`
         // producer, so this deallocation can never run for a resource-wrapping
         // thunk (which keeps the handle live in FD@0). Lock the invariant here so
         // any future path that reintroduces the combination trips in debug.
@@ -1863,7 +1863,7 @@ fn emit_return_passthrough(
             ));
         }
         other => {
-            // Unreachable: `abi_slot_ctype_is_known` gates this at syntaxcheck and
+            // Unreachable: `abi_slot_ctype_is_known` gates this at the former source checker and
             // at `ir::verify` (both paths). This exists so a ctype added to the
             // allow-list without a marshaling arm fails loudly at build time
             // instead of silently moving a raw 64-bit value.

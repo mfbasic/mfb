@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/os/func_os_sleep_valid
+Wrote AST to tests/syntax/os/func_os_sleep_valid/func_os_sleep_valid.ast
+Wrote IR to tests/syntax/os/func_os_sleep_valid/func_os_sleep_valid.ir
+[exit 0]

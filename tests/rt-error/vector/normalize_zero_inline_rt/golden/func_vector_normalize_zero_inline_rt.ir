@@ -119,7 +119,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 10, "mutable": false, "name": "z", "type": "Float3", "value": { "kind": "constructor", "type": "Float3", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }, { "kind": "const", "type": "Float", "value": "0.0" }, { "kind": "const", "type": "Float", "value": "0.0" }] } },
-    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Unknown", "target": "io.print", "args": [{ "kind": "call", "type": "Unknown", "target": "#vector_toString_float3", "args": [{ "kind": "call", "type": "Float3", "target": "#vector_normalize_float3", "args": [{ "kind": "local", "name": "z" }] }] }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#vector_toString_float3", "args": [{ "kind": "call", "type": "Float3", "target": "#vector_normalize_float3", "args": [{ "kind": "local", "name": "z" }] }] }] } },
     { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },

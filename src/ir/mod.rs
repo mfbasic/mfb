@@ -50,6 +50,7 @@ mod json;
 mod link;
 mod lower;
 mod lower_link;
+pub(crate) use lower_link::{link_spans, CStructSpans, LinkFunctionSpans, LinkSpans};
 mod op;
 mod package;
 #[cfg(test)]
@@ -57,6 +58,7 @@ mod variant_corpus_tests;
 // bug-343 A3: resource-escape analysis (was the misleadingly-named crate-root
 // `escape.rs`); pub(crate) so its `src/target/` consumers can reach it.
 pub(crate) mod resource_escape;
+pub(crate) mod shape;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]
@@ -77,8 +79,12 @@ pub(crate) use link::{
     check_struct_slot, compute_c_layout, link_compare_op_valid, link_expr_var_names, AbiDirection,
     BufferSlotsView, CLayout, IrAbiSlot, IrBindIn, IrBindInField, IrBuffer, IrCStruct,
     IrCStructField, IrFree, IrLinkExpr, IrLinkFunction, IrNativeResource, StructSlotView,
-    BYTE_LIST_TYPE,
 };
+// The byte-list spelling's last non-test reader (the former source checker's buffer-rule
+// view) moved into `ir::verify`, which reads `link::BYTE_LIST_TYPE` directly;
+// the codegen and IR corpus tests still spell it through this path.
+#[cfg(test)]
+pub(crate) use link::BYTE_LIST_TYPE;
 #[cfg(test)]
 pub use lower::lower_monomorphized_project;
 #[cfg(test)]
@@ -100,4 +106,4 @@ pub use types::{ExternalFunctionParam, ExternalSignature, IrProject};
 pub(crate) use value::{IrMatchCase, IrMatchPattern, IrValue};
 pub use verify::check as verify_semantics;
 pub use verify::collect_source_diagnostics as verify_source_diagnostics;
-pub use verify::RELOCATED_TO_IR_VERIFY;
+pub use verify::ImportedResource;

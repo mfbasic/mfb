@@ -10,6 +10,83 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
+const INTRO: &str = r#"Split a string into a list of substrings around a delimiter."#;
+
+const DESC: &str = r#"`strings::split` scans `value` left to right, breaks it at every non-overlapping
+occurrence of `delimiter`, and returns the pieces between the matches as a
+`List OF String`. The delimiters themselves are removed from the output.
+
+Matching is an exact byte comparison with no normalization and no case folding.
+After a match is consumed, scanning resumes at the byte immediately following the
+matched delimiter, so matches never overlap. Because both operands are
+well-formed UTF-8, a delimiter is only found where its complete byte sequence
+appears, so a split can never land mid-scalar.
+
+The result always contains exactly one more element than the number of matches
+found, and is therefore never empty. Everything else follows from that rule:
+
+- A `delimiter` that does not occur — including one longer than `value` — yields
+  a single-element list holding `value` unchanged.
+- A leading match yields a leading empty element; a trailing match yields a
+  trailing empty element.
+- Two adjacent matches yield an empty element between them, so
+  `split(",a,,", ",")` has four elements: `""`, `"a"`, `""`, `""`.
+- Splitting the empty string yields a single-element list holding `""`.
+
+`delimiter` must not be empty; an empty delimiter is rejected with
+`ErrInvalidArgument` before any scanning occurs. `value` is not mutated; the
+returned list and its elements are fresh owned values.
+
+`delimiter` is also accepted under the name `separator`. Joining the result with
+the same non-empty delimiter reproduces `value` exactly — `split` and
+`strings::join` are inverses.
+
+`value` may also be an `astrings::AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns (same value, type, and
+errors)."#;
+
+const EX: &str = r#"Split a comma-separated line:
+
+```
+IMPORT io
+IMPORT strings
+IMPORT collections
+
+FUNC main() AS Integer
+  LET parts AS List OF String = strings::split("a,b,c", ",")
+  io::print(toString(len(parts)))
+  io::print(collections::get(parts, 1))
+  RETURN 0
+END FUNC
+```
+
+Empty fields at the edges are preserved, and a delimiter that does not occur
+returns one element:
+
+```
+IMPORT io
+IMPORT strings
+
+FUNC main() AS Integer
+  io::print(toString(len(strings::split(",a,,", ","))))
+  io::print(toString(len(strings::split("abc", "|"))))
+  RETURN 0
+END FUNC
+```
+
+Split and rejoin to round-trip the value:
+
+```
+IMPORT io
+IMPORT strings
+
+FUNC main() AS Integer
+  LET parts AS List OF String = strings::split("a😀b😀c", "😀")
+  io::print(strings::join(parts, "-"))
+  RETURN 0
+END FUNC
+```"#;
+
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -268,23 +345,23 @@ pub(crate) fn lower(
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "split",
-        intro: "",
-        desc: "",
-        example: "",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
         expected_arguments: None,
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The string to divide. Any `String` is accepted, including the empty string.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "delimiter",
-                    desc: "",
+                    desc: "The separator to break `value` on. Must be non-empty. Also accepted under the name `separator`.",
                     aliases: &["separator"],
                     ty: ParameterType::String,
                     default: DefaultValue::None,

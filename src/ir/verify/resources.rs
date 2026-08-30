@@ -5,7 +5,7 @@ impl TypeEnv {
     // ===========================================================================
 
     /// Reject a read of a resource binding after it was moved (closed, returned)
-    /// — `syntaxcheck`'s `TYPE_USE_AFTER_MOVE`. On decoded package IR a
+    /// — the former source checker's `TYPE_USE_AFTER_MOVE`. On decoded package IR a
     /// use-after-move is a use-after-free / double-free: the resource's backing
     /// handle is released by the move, so a later read hands codegen a dangling
     /// handle. Conservative straight-line dataflow: a move is only tracked
@@ -46,7 +46,7 @@ impl TypeEnv {
             seen
         }
         // A branch that always leaves the function never reaches the join, so
-        // its moves must not leak past it (syntaxcheck merges only fall-through
+        // its moves must not leak past it (the former source checker merges only fall-through
         // branches). Top-level test is enough: a mid-block Return makes the
         // rest unreachable anyway.
         fn diverges(ops: &[IrOp]) -> bool {
@@ -58,7 +58,7 @@ impl TypeEnv {
             })
         }
         // Run `body` as a branch: fresh scope, then merge the new moves of a
-        // fall-through branch back into the outer set (syntaxcheck's MaybeMoved —
+        // fall-through branch back into the outer set (the former source checker's MaybeMoved —
         // moved on *some* path means unusable after the join).
         let run_branch = |body: &[IrOp],
                           locals: &HashMap<String, ParameterType>,
@@ -269,7 +269,7 @@ impl TypeEnv {
     }
 
     /// Whether the just-checked value's type is undeterminable the way
-    /// syntaxcheck's inference would see it: either a poisoning rule fired and
+    /// the former source checker's inference would see it: either a poisoning rule fired and
     /// the value's own result rides on the failed node (a Binary/Unary chain,
     /// where lowering stamps a nominal type the failure invalidates), or the
     /// type simply cannot be reconstructed *and* something was reported. The
@@ -282,6 +282,15 @@ impl TypeEnv {
         if !self.poisoned.get() {
             return false;
         }
+        // On the source path `ir::shape` judges the HIR initializer directly —
+        // a value lowering could not type, and every constructor / `WITH`
+        // (the checker typed a read-only nominal's constructor and left an
+        // `Ok[…]` or a union's untyped, verdicts the IR node does not carry);
+        // only an operator node whose type a rule of THIS checker invalidated
+        // cascades here. The package path keeps the full test.
+        if self.source_path.get() {
+            return matches!(value, IrValue::Binary { .. } | IrValue::Unary { .. });
+        }
         matches!(
             value,
             IrValue::Binary { .. }
@@ -289,6 +298,421 @@ impl TypeEnv {
                 | IrValue::Constructor { .. }
                 | IrValue::WithUpdate { .. }
         ) || self.infer_type(value, locals).is_none()
+    }
+
+    // ===========================================================================
+    // Thread sendability + the inline-TRAP scrutinee (relocated by plan-107-A)
+    // ===========================================================================
+
+    /// Whether a resource type may cross a thread boundary: the project's own
+    /// `RESOURCE … THREAD_SENDABLE` opt-in or an imported package's
+    /// `RESOURCE_TABLE` bit (`resource_sendable`), else the built-in registry.
+    fn is_resource_sendable(&self, base: &str) -> bool {
+        self.resource_sendable
+            .get(base)
+            .copied()
+            .unwrap_or_else(|| crate::codegen::resource::is_builtin_sendable_resource_type(base))
+    }
+
+    /// Whether a value of `type_` copies freely (the former source checker's
+    /// `is_copyable_type`): primitives, the built-in nominals, FUNC values and
+    /// a `RES`-marked element (a pointer) yes; collections and `Result` by their
+    /// elements; a thread handle and a resource never; a record by every field,
+    /// a union by every variant (a resource variant is not copyable, bug-231);
+    /// enums and names the tables do not know yes.
+    pub(super) fn is_copyable(&self, type_: &ParameterType, seen: &mut HashSet<String>) -> bool {
+        match type_ {
+            ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::Fixed
+            | ParameterType::Float
+            | ParameterType::Integer
+            | ParameterType::Money
+            | ParameterType::Nothing
+            | ParameterType::String
+            | ParameterType::Unknown => true,
+            ParameterType::Res(_) | ParameterType::Func(..) => true,
+            ParameterType::ListOf(element) | ParameterType::SetOf(element) => {
+                self.is_copyable(element, seen)
+            }
+            ParameterType::MapOf(key, value) => {
+                self.is_copyable(key, seen) && self.is_copyable(value, seen)
+            }
+            ParameterType::ResultOf(success) => self.is_copyable(success, seen),
+            ParameterType::ThreadHandle { .. } => false,
+            other => {
+                let name = other.name();
+                let name = name.as_ref();
+                if matches!(name, "AttributedString" | "Error" | "ErrorLoc" | "Scalar") {
+                    return true;
+                }
+                if self.close_op_for(name).is_some() {
+                    return false;
+                }
+                if !seen.insert(name.to_string()) {
+                    return true;
+                }
+                let result = match self.unions.get(name) {
+                    Some(union) => union.variant_order.iter().all(|variant| {
+                        self.close_op_for(variant).is_none()
+                            && self.record_fields_copyable(variant, seen)
+                    }),
+                    None => self.record_fields_copyable(name, seen),
+                };
+                seen.remove(name);
+                result
+            }
+        }
+    }
+
+    fn record_fields_copyable(&self, name: &str, seen: &mut HashSet<String>) -> bool {
+        self.record_field_lists.get(name).is_none_or(|fields| {
+            fields
+                .iter()
+                .all(|(_, field_type)| self.is_copyable(field_type, seen))
+        })
+    }
+
+    /// A resource type: a registered resource, a `RES`-marked element, or a
+    /// resource union (every variant a resource) — the former source checker's `is_resource_type`.
+    pub(super) fn is_resource_type(&self, type_: &ParameterType) -> bool {
+        match type_ {
+            ParameterType::Res(inner) => self.is_resource_type(inner),
+            other => {
+                let name = other.name();
+                self.close_op_for(&name).is_some()
+                    || self.unions.get(name.as_ref()).is_some_and(|union| {
+                        !union.variant_order.is_empty()
+                            && union
+                                .variant_order
+                                .iter()
+                                .all(|variant| self.close_op_for(variant).is_some())
+                    })
+            }
+        }
+    }
+
+    /// Whether a value of `type_` may cross a thread boundary (the former source checker's
+    /// `is_thread_sendable_type`): primitives and the built-in nominals yes;
+    /// collections and `Result` by their elements; a `RES`-marked element, a
+    /// FUNC and a thread handle never; a resource by its declared sendability; a
+    /// record by every field, a union by every variant (a resource variant by
+    /// its own bit, bug-173 F); enums yes. A name the tables do not know is
+    /// treated as sendable — only a positively known type may reject.
+    pub(super) fn is_thread_sendable(
+        &self,
+        type_: &ParameterType,
+        seen: &mut HashSet<String>,
+    ) -> bool {
+        match type_ {
+            ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::Fixed
+            | ParameterType::Float
+            | ParameterType::Integer
+            | ParameterType::Money
+            | ParameterType::Nothing
+            | ParameterType::String
+            | ParameterType::Unknown => true,
+            ParameterType::ListOf(element) | ParameterType::SetOf(element) => {
+                self.is_thread_sendable(element, seen)
+            }
+            ParameterType::MapOf(key, value) => {
+                self.is_thread_sendable(key, seen) && self.is_thread_sendable(value, seen)
+            }
+            ParameterType::ResultOf(success) => self.is_thread_sendable(success, seen),
+            // Sharing a resource collection across threads is out of scope (§15.6).
+            ParameterType::Res(_) => false,
+            ParameterType::Func(..) | ParameterType::ThreadHandle { .. } => false,
+            other => {
+                let name = other.name();
+                let name = name.as_ref();
+                // The built-in nominals are plain values.
+                if matches!(name, "AttributedString" | "Error" | "ErrorLoc" | "Scalar") {
+                    return true;
+                }
+                if self.close_op_for(name).is_some() {
+                    return self.is_resource_sendable(name);
+                }
+                if !seen.insert(name.to_string()) {
+                    return true;
+                }
+                let result = match self.unions.get(name) {
+                    Some(union) => union.variant_order.iter().all(|variant| {
+                        if self.close_op_for(variant).is_some() {
+                            return self.is_resource_sendable(variant);
+                        }
+                        self.record_fields_sendable(variant, seen)
+                    }),
+                    None => self.record_fields_sendable(name, seen),
+                };
+                seen.remove(name);
+                result
+            }
+        }
+    }
+
+    /// Every field of record `name` is sendable; a name that is not a record
+    /// (an enum, or a type the tables do not know) is vacuously sendable.
+    fn record_fields_sendable(&self, name: &str, seen: &mut HashSet<String>) -> bool {
+        self.record_field_lists.get(name).is_none_or(|fields| {
+            fields
+                .iter()
+                .all(|(_, field_type)| self.is_thread_sendable(field_type, seen))
+        })
+    }
+
+    fn require_thread_sendable(&self, context: &str, type_: &ParameterType) {
+        if !self.is_thread_sendable(type_, &mut HashSet::new()) {
+            self.emit(
+                "TYPE_THREAD_NOT_SENDABLE",
+                format!(
+                    "{context} requires a thread-sendable type, got `{}`.",
+                    type_.name()
+                ),
+            );
+        }
+    }
+
+    /// The thread-handle arm of the former source checker's declared-type walk
+    /// (`check_type_reference`): every `Thread OF M [RES R [STATE S]] TO O`
+    /// nested anywhere in a declared type (a collection element, a Map key or
+    /// value, a FUNC signature, a `RES` element) must name sendable planes, and
+    /// the data plane must not carry a resource (§7: resources ride the resource
+    /// plane only).
+    pub(super) fn check_thread_sendability(&self, type_: &ParameterType) {
+        fn strip_res(type_: &ParameterType) -> &ParameterType {
+            match type_ {
+                ParameterType::Res(inner) => inner.as_ref(),
+                other => other,
+            }
+        }
+        match type_ {
+            ParameterType::ListOf(element) => self.check_thread_sendability(strip_res(element)),
+            ParameterType::SetOf(element) => self.check_thread_sendability(element),
+            ParameterType::MapOf(key, value) => {
+                self.check_thread_sendability(key);
+                self.check_thread_sendability(strip_res(value));
+            }
+            ParameterType::Res(inner) => self.check_thread_sendability(inner),
+            ParameterType::Func(params, returns, _) => {
+                for param in params {
+                    self.check_thread_sendability(param);
+                }
+                self.check_thread_sendability(returns);
+            }
+            ParameterType::ThreadHandle { msg, res, out, .. } => {
+                self.check_thread_sendability(msg);
+                self.check_thread_sendability(out);
+                self.require_thread_sendable("Thread message type", msg);
+                self.require_thread_sendable("Thread output type", out);
+                if self.is_resource_type(msg) {
+                    let name = msg.name();
+                    self.emit(
+                        "TYPE_THREAD_NOT_SENDABLE",
+                        format!(
+                            "Thread message type `{name}` is a resource; the data channel is resource-free — declare it on the resource plane (`Thread OF … RES {name} TO …`)."
+                        ),
+                    );
+                }
+                // An absent resource plane is `Nothing`; a present one carries
+                // its ` STATE T` inside the nominal's spelling.
+                let (plane_resource, plane_state) = res.split_state();
+                if !matches!(plane_resource, ParameterType::Nothing) {
+                    self.check_thread_sendability(&plane_resource);
+                    self.require_thread_sendable("Thread resource type", &plane_resource);
+                }
+                if let Some(plane_state) = &plane_state {
+                    self.check_thread_sendability(plane_state);
+                    self.require_thread_sendable("Thread resource STATE type", plane_state);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// the former source checker's `check_thread_boundary_sendability`: the values that cross
+    /// at `thread::start` (the input and the new handle's planes),
+    /// `thread::send` (the message) and `thread::transfer`/`accept` (the
+    /// resource plane and its STATE). Runs only for a call that resolved (its
+    /// lowered type is known): an unresolvable call is an arity/argument
+    /// rejection, and the former source checker never reached the boundary rules for it.
+    pub(super) fn check_thread_boundary_sendability(
+        &self,
+        target: &str,
+        args: &[IrValue],
+        call: &IrValue,
+        locals: &HashMap<String, ParameterType>,
+    ) {
+        use crate::codegen::builtins::thread::{ACCEPT_RESOURCE, TRANSFER_RESOURCE};
+        let display = match target {
+            TRANSFER_RESOURCE => "thread.transfer",
+            ACCEPT_RESOURCE => "thread.accept",
+            "thread.start" | "thread.send" => target,
+            _ => return,
+        };
+        let Some(return_type) = self.infer_type(call, locals) else {
+            return;
+        };
+        if matches!(return_type, ParameterType::Unknown) {
+            return;
+        }
+        let arg_types: Vec<Option<ParameterType>> = args
+            .iter()
+            .map(|arg| self.infer_type(arg, locals))
+            .collect();
+        match target {
+            "thread.start" => {
+                // the former source checker reaches the boundary rules only for an entry point
+                // that is an imported package's exported ISOLATED FUNC; a local
+                // function or a lambda was already rejected as the argument.
+                let imported_entry = matches!(
+                    args.first(),
+                    Some(IrValue::FunctionRef { name, .. }) if !self.functions.contains_key(name)
+                );
+                if !imported_entry {
+                    return;
+                }
+                if let Some(Some(input)) = arg_types.get(1) {
+                    self.require_thread_sendable(&format!("Call to `{display}` input"), input);
+                }
+                if let ParameterType::ThreadHandle {
+                    worker: false,
+                    msg,
+                    res,
+                    out,
+                    ..
+                } = &return_type
+                {
+                    self.require_thread_sendable(&format!("Call to `{display}` message type"), msg);
+                    if !matches!(**res, ParameterType::Nothing) {
+                        self.require_thread_sendable(
+                            &format!("Call to `{display}` resource type"),
+                            &res.without_state(),
+                        );
+                    }
+                    self.require_thread_sendable(&format!("Call to `{display}` output type"), out);
+                }
+            }
+            "thread.send" => {
+                if let Some(Some(ParameterType::ThreadHandle { msg, .. })) = arg_types.first() {
+                    self.require_thread_sendable(&format!("Call to `{display}` message type"), msg);
+                    // The data plane is resource-free: a resource moves across a
+                    // thread only via `thread::transfer` (§7).
+                    if self.is_resource_type(msg) {
+                        self.emit(
+                            "TYPE_THREAD_NOT_SENDABLE",
+                            format!(
+                                "Call to `{display}` message type `{}` is a resource; the message channel is resource-free — use `thread::transfer`.",
+                                msg.name()
+                            ),
+                        );
+                    }
+                }
+            }
+            _ => {
+                let Some(Some(ParameterType::ThreadHandle { res, .. })) = arg_types.first() else {
+                    return;
+                };
+                let (resource, resource_state) = res.split_state();
+                // bug-301 G4: the plane's `STATE T` payload crosses the boundary
+                // with the resource (deep-copied into the receiver's arena), so it
+                // must be sendable too.
+                if let Some(resource_state) = &resource_state {
+                    self.require_thread_sendable(
+                        &format!("Call to `{display}` resource STATE type"),
+                        resource_state,
+                    );
+                }
+                if matches!(resource, ParameterType::Nothing) {
+                    self.emit(
+                        "TYPE_THREAD_NOT_SENDABLE",
+                        format!(
+                            "Call to `{display}` requires a thread with a resource plane (`Thread OF … RES Res TO …`); this thread has no resource channel."
+                        ),
+                    );
+                } else if self.is_resource_type(&resource) {
+                    // The resource plane carries only thread-sendable resources.
+                    self.require_thread_sendable(
+                        &format!("Call to `{display}` resource type"),
+                        &resource,
+                    );
+                } else {
+                    self.emit(
+                        "TYPE_THREAD_NOT_SENDABLE",
+                        format!(
+                            "Call to `{display}` carries `{}`, which is not a resource; the resource plane moves only resources.",
+                            resource.name()
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    /// the former source checker's TYPE_INLINE_TRAP_REQUIRES_FALLIBLE on the lowered
+    /// inline-TRAP shape: `Bind $trap_resN = <scrutinee>` then
+    /// `If ResultIsOk($trap_resN)`. The scrutinee survives as the temp's bind
+    /// value — a `CallResult` when the source trapped a call, anything else when
+    /// it did not — so the two source forms (a non-call; a package constant,
+    /// which is not a runtime call) are both readable here.
+    ///
+    /// `expectTrap`/`expectNTrap` desugar (`testing::desugar`) into this same
+    /// shape, but the former source checker saw them as assertion calls with their own rule
+    /// (`TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE`), so a handler that sets an
+    /// `$expect_` temp is skipped.
+    pub(super) fn check_inline_trap_scrutinee(
+        &self,
+        condition: &IrValue,
+        handler: &[IrOp],
+        temp_consts: &HashMap<&str, &IrValue>,
+    ) {
+        let IrValue::ResultIsOk { value } = condition else {
+            return;
+        };
+        let IrValue::Local(res) = value.as_ref() else {
+            return;
+        };
+        if !res.starts_with("$trap_res") {
+            return;
+        }
+        // Every assertion desugar's handler touches an `$expect_` temp: it sets
+        // `$expect_trapped` (expectTrap) or reads the `$expect_err` binding the
+        // lowering then binds (expectNTrap's `FAIL error(…, err.message)`).
+        if handler.iter().any(|op| {
+            matches!(op, IrOp::Assign { name, .. } | IrOp::Bind { name, .. } if name.starts_with("$expect_"))
+        }) {
+            return;
+        }
+        let Some(scrutinee) = temp_consts.get(res.as_str()) else {
+            return;
+        };
+        match scrutinee {
+            IrValue::CallResult { target, .. } | IrValue::Call { target, .. } => {
+                if builtins::is_package_constant(target) {
+                    self.emit(
+                        "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
+                        "Inline TRAP requires a fallible call; a package constant is not a call."
+                            .to_string(),
+                    );
+                } else if builtins::inline_builtin_is_infallible(target) {
+                    // A provably-infallible inline built-in (`len`, `toString`,
+                    // every `bits::*`, …) under a TRAP compiles and runs; its
+                    // handler is dead code — an advisory warning, not an error
+                    // (plan-26-A).
+                    self.emit(
+                        "TYPE_INLINE_TRAP_DEAD_HANDLER",
+                        format!(
+                            "Inline TRAP handler is unreachable — `{target}` cannot fail, so the handler is dead code."
+                        ),
+                    );
+                }
+            }
+            _ => self.emit(
+                "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
+                "Inline TRAP requires a call to trap; this expression is not a call.".to_string(),
+            ),
+        }
     }
 
     /// Whether a type has a defined default value: primitives yes, functions/
@@ -358,14 +782,14 @@ impl TypeEnv {
             //
             // Same stance the RES axis takes a few hundred lines up: only a
             // POSITIVELY known type rejects, because an unknown name may be an
-            // external package's. A typo cannot ride in on it — syntaxcheck rejects
+            // external package's. A typo cannot ride in on it — the former source checker rejects
             // an unresolvable name with `SYMBOL_UNKNOWN_TYPE` before this matters.
             //
             // The PACKAGE path keeps rejecting: there the merged IR carries the full
             // type table and every name is decoded from an id that must exist in it
             // (`decode_type_name` errors on an unknown id), so a miss is genuine
             // absence — and ir::verify is the sole rejecter for decoded `.mfp`, with
-            // no syntaxcheck behind it.
+            // no the former source checker behind it.
             None => self.imported_types_unknown,
         };
         seen.remove(type_name.as_ref());
@@ -373,7 +797,7 @@ impl TypeEnv {
     }
 
     /// Whether every path through `ops` leaves the function (mirrors
-    /// syntaxcheck's `Flow::AlwaysReturns`): a Return/Fail/ExitProgram op, an If
+    /// the former source checker's `Flow::AlwaysReturns`): a Return/Fail/ExitProgram op, an If
     /// whose both branches return, a MATCH with an unguarded CASE ELSE whose
     /// every arm returns, or a TRAP whose body returns. Loops never count
     /// (they may run zero times).
@@ -386,6 +810,11 @@ impl TypeEnv {
         for op in ops {
             match op {
                 IrOp::Return { .. } | IrOp::Fail { .. } | IrOp::ExitProgram { .. } => return true,
+                // A stray RECOVER (outside any inline-TRAP handler — an error the
+                // shape pass reports) lowers to a `$recover_stray` bind; the front
+                // end's flow analysis treats every RECOVER as diverging, so the
+                // rules built on this predicate must too.
+                IrOp::Bind { name, .. } if name.starts_with("$recover_stray") => return true,
                 IrOp::If {
                     then_body,
                     else_body,

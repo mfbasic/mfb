@@ -16,120 +16,16 @@
 
 pub(crate) mod cleanup;
 
-use std::collections::HashMap;
-
 use crate::codegen::registry::{registry, ResolvedType};
 
-/// Where a resource registration came from.
+/// Where a resource descriptor came from. Only built-in resources carry a
+/// descriptor (the clean-room registry's); a project's native `LINK` resources
+/// and an imported package's `RESOURCE_TABLE` rows are read by `ir::shape` /
+/// `ir::verify` directly (plan-107-D deleted the source checker's registry).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ResourceKind {
     /// A standard built-in resource (`File`, `Socket`, `Listener`).
     Builtin,
-    /// A resource contributed by an imported package's `RESOURCE_TABLE`.
-    Imported,
-    /// A native resource declared in this package by a `LINK` block
-    /// `RESOURCE … CLOSE BY …` declaration (plan-link-update.md §9).
-    Native,
-}
-
-/// Static description of a single resource type.
-#[derive(Clone, Debug)]
-pub(crate) struct ResourceInfo {
-    /// The registered close op: a built-in call name like `"fs.close"`, or an
-    /// imported package's close function name.
-    pub close_function: String,
-    /// Whether the resource may cross a thread boundary (the `RESOURCE_TABLE`
-    /// "sendable to thread" bit).
-    pub sendable: bool,
-    /// Whether the close op can fail.
-    ///
-    /// Recorded at registration and not read by the compiler: drop-time cleanup
-    /// handling derives the same fact independently, from whether the close
-    /// wrapper declares `SUCCESS ON` (`ir::lower::…`, `ir::link::ResourceRecord::
-    /// close_may_fail`). Kept because it is part of what a `RESOURCE_TABLE` row
-    /// states, and dropping it would make this struct a lossy copy of the table.
-    #[allow(dead_code)]
-    pub close_may_fail: bool,
-    /// Provenance of the registration. Read only by this module's own
-    /// `every_builtin_resource_has_a_close_op` guard, which is the point: it is
-    /// how a built-in seed is told apart from a package contribution if the two
-    /// tables ever drift.
-    #[allow(dead_code)]
-    pub kind: ResourceKind,
-}
-
-/// Dynamic, data-driven table of resource types keyed by resolved type name.
-///
-/// Built once per compilation: seeded with [`ResourceRegistry::with_builtins`]
-/// and then extended with each imported package's resources. Consulted wherever
-/// the compiler needs to know whether a type is a resource, how to close it, or
-/// whether it can be transferred across threads.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct ResourceRegistry {
-    entries: HashMap<String, ResourceInfo>,
-}
-
-impl ResourceRegistry {
-    /// A registry seeded with the standard built-in resources, read from the
-    /// clean-room registry (`crate::codegen::registry`) — the single source of
-    /// truth for every built-in resource's close op, sendability, and provenance.
-    pub(crate) fn with_builtins() -> Self {
-        let mut entries = HashMap::new();
-        for pkg in registry().packages() {
-            for r in pkg.resources() {
-                entries.insert(
-                    // The package-qualified type identity (`fs.File`, `net.Socket`).
-                    format!("{}.{}", pkg.import_name(), r.name),
-                    ResourceInfo {
-                        close_function: r.close_function.to_string(),
-                        sendable: r.sendable,
-                        close_may_fail: r.close_may_fail,
-                        kind: r.kind,
-                    },
-                );
-            }
-        }
-        Self { entries }
-    }
-
-    /// Register (or override) a resource type.
-    pub(crate) fn register(&mut self, type_name: impl Into<String>, info: ResourceInfo) {
-        self.entries.insert(type_name.into(), info);
-    }
-
-    /// Whether `type_name` is a known resource type.
-    pub(crate) fn is_resource(&self, type_name: &str) -> bool {
-        self.entries.contains_key(type_name)
-    }
-
-    /// The registered close op for `type_name`, if it is a resource. Used by the
-    /// type checker to recognize a close call as a transfer (`syntaxcheck::types`).
-    pub(crate) fn close_function(&self, type_name: &str) -> Option<&str> {
-        self.entries
-            .get(type_name)
-            .map(|info| info.close_function.as_str())
-    }
-
-    /// Whether `type_name` is a resource that may cross a thread boundary.
-    pub(crate) fn is_sendable(&self, type_name: &str) -> bool {
-        self.entries
-            .get(type_name)
-            .is_some_and(|info| info.sendable)
-    }
-
-    /// Whether closing `type_name` can fail.
-    ///
-    /// Test-only, and deliberately so: the compiler derives this fact from the
-    /// close wrapper's `SUCCESS ON` clause rather than from here (see
-    /// [`ResourceInfo::close_may_fail`]). It survives as the only way
-    /// `builtins_carry_close_op_and_sendability` can assert what the built-in
-    /// seed table records, so the seed cannot drift unnoticed.
-    #[cfg(test)]
-    pub(crate) fn close_may_fail(&self, type_name: &str) -> bool {
-        self.entries
-            .get(type_name)
-            .is_some_and(|info| info.close_may_fail)
-    }
 }
 
 /// Split a resource type string at its **own** top-level `STATE` clause, if any.
@@ -216,46 +112,37 @@ mod tests {
 
     #[test]
     fn builtins_recognize_standard_resources() {
-        let registry = ResourceRegistry::with_builtins();
-        assert!(registry.is_resource("fs.File"));
-        assert!(registry.is_resource("net.Socket"));
-        assert!(registry.is_resource("net.Listener"));
-        assert!(!registry.is_resource("Integer"));
-        assert!(!registry.is_resource("Address"));
+        assert!(is_builtin_resource_type("fs.File"));
+        assert!(is_builtin_resource_type("net.Socket"));
+        assert!(is_builtin_resource_type("net.Listener"));
+        assert!(!is_builtin_resource_type("Integer"));
+        assert!(!is_builtin_resource_type("Address"));
     }
 
     #[test]
     fn builtins_carry_close_op_and_sendability() {
-        let registry = ResourceRegistry::with_builtins();
-        assert_eq!(registry.close_function("fs.File"), Some("fs.close"));
-        assert_eq!(registry.close_function("net.Socket"), Some("net.close"));
-        assert_eq!(registry.close_function("net.Listener"), Some("net.close"));
-        // File and Socket move across threads; a Listener stays put.
-        assert!(registry.is_sendable("fs.File"));
-        assert!(registry.is_sendable("net.Socket"));
-        assert!(!registry.is_sendable("net.Listener"));
-        // close-may-fail holds for every standard resource.
-        assert!(registry.close_may_fail("fs.File"));
-        assert!(registry.close_may_fail("net.Listener"));
-    }
-
-    #[test]
-    fn imported_resource_registers_and_does_not_disturb_builtins() {
-        let mut registry = ResourceRegistry::with_builtins();
-        registry.register(
-            "DbHandle",
-            ResourceInfo {
-                close_function: "db.close".to_string(),
-                sendable: false,
-                close_may_fail: true,
-                kind: ResourceKind::Imported,
-            },
+        let descriptor = |name: &str| match registry().resolve_type(name) {
+            Some(ResolvedType::Resource(r)) => r,
+            _ => panic!("{name} is not a built-in resource"),
+        };
+        assert_eq!(builtin_resource_close_function("fs.File"), Some("fs.close"));
+        assert_eq!(
+            builtin_resource_close_function("net.Socket"),
+            Some("net.close")
         );
-        assert!(registry.is_resource("DbHandle"));
-        assert_eq!(registry.close_function("DbHandle"), Some("db.close"));
-        assert!(!registry.is_sendable("DbHandle"));
-        // Built-ins remain intact.
-        assert!(registry.is_sendable("fs.File"));
+        assert_eq!(
+            builtin_resource_close_function("net.Listener"),
+            Some("net.close")
+        );
+        // File and Socket move across threads; a Listener stays put.
+        assert!(is_builtin_sendable_resource_type("fs.File"));
+        assert!(is_builtin_sendable_resource_type("net.Socket"));
+        assert!(!is_builtin_sendable_resource_type("net.Listener"));
+        // close-may-fail holds for every standard resource (the descriptor
+        // states it; drop-time cleanup derives the same fact from the close
+        // wrapper's `SUCCESS ON`).
+        assert!(descriptor("fs.File").close_may_fail);
+        assert!(descriptor("net.Listener").close_may_fail);
     }
 
     #[test]
@@ -264,13 +151,12 @@ mod tests {
         // closeable so scope-drop can no-op a closed-default record. Guard against
         // a new built-in added without a registered close op (which would also
         // need a closed-flag review at the canonical offset 8).
-        let registry = ResourceRegistry::with_builtins();
-        for (name, info) in &registry.entries {
-            assert_eq!(info.kind, ResourceKind::Builtin, "{name} must be Builtin");
-            assert!(
-                !info.close_function.is_empty(),
-                "{name} has an empty close op"
-            );
+        for pkg in registry().packages() {
+            for r in pkg.resources() {
+                let name = format!("{}.{}", pkg.import_name(), r.name);
+                assert_eq!(r.kind, ResourceKind::Builtin, "{name} must be Builtin");
+                assert!(!r.close_function.is_empty(), "{name} has an empty close op");
+            }
         }
         // The full set of built-ins the closed-default must cover.
         for name in [
@@ -285,9 +171,12 @@ mod tests {
             "tls.TlsListener",
             "process.Process",
         ] {
-            assert!(registry.is_resource(name), "{name} missing from registry");
             assert!(
-                registry.close_function(name).is_some_and(|c| !c.is_empty()),
+                is_builtin_resource_type(name),
+                "{name} missing from registry"
+            );
+            assert!(
+                builtin_resource_close_function(name).is_some_and(|c| !c.is_empty()),
                 "{name} has no close op"
             );
         }

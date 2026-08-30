@@ -255,7 +255,7 @@ impl<'a> Monomorphizer<'a> {
         for qualifier in qualifiers {
             normalized = strip_qualifier_prefixes(&normalized, qualifier);
         }
-        // Drop a resource's `STATE T` suffix, exactly as `syntaxcheck::parse_type`
+        // Drop a resource's `STATE T` suffix, exactly as the former source checker's `parse_type`
         // does and for the same reason (plan-52-D §4): an imported signature
         // spells a stateful `RES` parameter inline as `SoundFile STATE FileInfo`,
         // while the call site's argument type is the bare `SoundFile`. Without
@@ -320,7 +320,7 @@ impl<'a> Monomorphizer<'a> {
                             }
                         }
                         // Native LINK constructs are not monomorphized; preserve
-                        // them verbatim so later stages (resolve, syntaxcheck,
+                        // them verbatim so later stages (resolve, the former source checker,
                         // package metadata) still see them.
                         HirItem::Resource(resource) => {
                             items.push(HirItem::Resource(resource.clone()));
@@ -1296,7 +1296,7 @@ impl<'a> Monomorphizer<'a> {
                 // resolution must keep this resolvable, dotted name rather than the
                 // mangled `#name`: otherwise the post-monomorph resolver pass reports
                 // SYMBOL_UNKNOWN_IDENTIFIER on an unresolvable `#encoding_utf8Decode`
-                // and aborts before syntaxcheck can emit the real
+                // and aborts before the former source checker can emit the real
                 // TYPE_CALL_ARITY_MISMATCH / TYPE_CALL_ARGUMENT_MISMATCH (bug-443).
                 let public_callee = callee.clone();
                 // Rewrite the public overloaded `encoding::utf8Encode`/`utf8Decode`
@@ -1340,7 +1340,7 @@ impl<'a> Monomorphizer<'a> {
                 } else {
                     // Overload resolution failed (wrong arity/argument types): keep
                     // the PUBLIC callee, not the mangled `#name`, so the second
-                    // resolver pass resolves it and syntaxcheck emits the proper
+                    // resolver pass resolves it and the former source checker emits the proper
                     // argument diagnostic naming the public call (bug-443).
                     public_callee.clone()
                 };
@@ -1872,7 +1872,7 @@ impl<'a> Monomorphizer<'a> {
     }
 
     /// The return type of a builtin/package call, using the same per-package
-    /// `resolve_call` resolvers that syntaxcheck dispatches through
+    /// `resolve_call` resolvers that the former source checker dispatches through
     /// (`SyntaxChecker::check_builtin_call`). Argument types are resolved
     /// positionally, falling back to `Unknown` so a resolver that keys on arity
     /// still sees the right shape. Without this, `expression_type` returned `None`
