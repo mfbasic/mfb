@@ -2222,8 +2222,7 @@ pub(super) fn expression_type(
                 if resolved.is_none()
                     && crate::codegen::builtins::general::is_overridable(&canonical_callee)
                     && arg_types.len() == 1
-                    && builtins::general_override_target(&canonical_callee, &arg_types[0].name())
-                        .is_some()
+                    && builtins::general_override_target(&canonical_callee, &arg_types[0]).is_some()
                 {
                     return crate::codegen::builtins::general::override_result_type(
                         &canonical_callee,
@@ -3067,11 +3066,8 @@ fn lower_expression_with_expected(
                         .first()
                         .map(call_arg_value)
                         .and_then(|argument| expression_type(argument, locals, context))
-                        // The per-package override table is keyed by type NAME
-                        // (a hand-authored dispatch map in codegen), so the
-                        // operand type renders for that lookup.
                         .and_then(|type_| {
-                            builtins::general_override_target(&canonical_callee, &type_.name())
+                            builtins::general_override_target(&canonical_callee, &type_)
                         })
                         .map(crate::internal_name::internalize)
                 } else {

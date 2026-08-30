@@ -658,7 +658,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     ("parse_sites", "codegen", 93),
     // --- 2. a type taken as `&str` — 173. Letters B, D, E, F, G.
     ("str_type_params", "binary_repr", 4),
-    ("str_type_params", "codegen", 141),
+    ("str_type_params", "codegen", 139),
     ("str_type_params", "hir", 1),
     ("str_type_params", "numeric", 1),
     ("str_type_params", "target", 4),

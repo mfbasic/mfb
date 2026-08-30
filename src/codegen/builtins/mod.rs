@@ -92,7 +92,10 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
 /// builtin dispatch symbol. Keyed by `(builtin, arg_type)`. The `toString(net::Url)`
 /// renderer now rides on the migrated `net` package's `add_override`
 /// (`registry::general_override_target`); the remaining hand row is `vector`'s.
-pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&'static str> {
+pub(crate) fn general_override_target(
+    builtin: &str,
+    arg_type: &crate::types::ParameterType,
+) -> Option<&'static str> {
     // Every override — `toString(net::Url)` and the nine `toString(VecN)` renderers — is
     // now registered on the clean-room registry via `add_override`; no hand rows remain.
     crate::codegen::registry::general_override_target(builtin, arg_type)
@@ -1099,12 +1102,21 @@ mod tests {
     #[test]
     fn general_override_target_cases() {
         assert_eq!(
-            general_override_target("toString", crate::codegen::builtins::net::URL_TYPE),
+            general_override_target(
+                "toString",
+                &crate::types::ParameterType::parse(crate::codegen::builtins::net::URL_TYPE),
+            ),
             Some("__net_urlToString")
         );
-        assert_eq!(general_override_target("toString", "Integer"), None);
         assert_eq!(
-            general_override_target("len", crate::codegen::builtins::net::URL_TYPE),
+            general_override_target("toString", &crate::types::ParameterType::parse("Integer")),
+            None
+        );
+        assert_eq!(
+            general_override_target(
+                "len",
+                &crate::types::ParameterType::parse(crate::codegen::builtins::net::URL_TYPE),
+            ),
             None
         );
     }

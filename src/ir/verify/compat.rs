@@ -318,7 +318,7 @@ impl TypeEnv {
                 // rejects (plan-01-overload §A.3.2) — never reject those.
                 if crate::codegen::builtins::general::is_overridable(target)
                     && arg_types.len() == 1
-                    && builtins::general_override_target(target, &arg_types[0].name()).is_some()
+                    && builtins::general_override_target(target, &arg_types[0]).is_some()
                 {
                     return;
                 }

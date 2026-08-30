@@ -1926,12 +1926,12 @@ impl<'a> Walker<'a> {
             if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
                 return;
             }
-            if builtins::resolve_call_return_type(canonical, &names, true).is_none() {
+            if builtins::resolve_call_return_type_typed(canonical, &arg_types, true).is_none() {
                 // A package-provided override may accept what the built-in
                 // rejects (plan-01-overload §A.3.2) — never reject those.
                 if crate::codegen::builtins::general::is_overridable(canonical)
-                    && names.len() == 1
-                    && builtins::general_override_target(canonical, &names[0]).is_some()
+                    && arg_types.len() == 1
+                    && builtins::general_override_target(canonical, &arg_types[0]).is_some()
                 {
                     return;
                 }
@@ -1948,25 +1948,32 @@ impl<'a> Walker<'a> {
             if crate::codegen::registry::callback_member(canonical) && normalized.len() == 2 {
                 if let HirExpression::Identifier(predicate) = normalized[1] {
                     if crate::codegen::builtins::general::builtin_function_id(predicate).is_some() {
-                        let collection = names[0].clone();
+                        let collection = arg_types[0].clone();
+                        // plan-111-C: the typed twin, so the predicate type is a
+                        // `Func` rather than a `format!`ed spelling.
                         let predicate_type = match &arg_types[0] {
                             ParameterType::ListOf(element) => {
-                                crate::codegen::builtins::general::filter_predicate_type(
-                                    predicate,
-                                    &element.name(),
+                                crate::codegen::builtins::general::filter_predicate_type_typed(
+                                    predicate, element,
                                 )
                             }
                             _ => None,
                         };
                         let Some(predicate_type) = predicate_type else {
-                            let detail =
-                                mismatch(&[collection, predicate.clone()], expected_overloads());
+                            let detail = mismatch(
+                                &[collection.name().into_owned(), predicate.clone()],
+                                expected_overloads(),
+                            );
                             self.emit_call_typed_unknown(detail, line);
                             return;
                         };
                         let trial = vec![collection, predicate_type];
-                        if builtins::resolve_call_return_type(canonical, &trial, true).is_none() {
-                            let detail = mismatch(&trial, expected_overloads());
+                        if builtins::resolve_call_return_type_typed(canonical, &trial, true)
+                            .is_none()
+                        {
+                            let names: Vec<String> =
+                                trial.iter().map(|t| t.name().into_owned()).collect();
+                            let detail = mismatch(&names, expected_overloads());
                             self.emit_call_typed_unknown(detail, line);
                         }
                         return;
@@ -1976,7 +1983,7 @@ impl<'a> Walker<'a> {
             if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
                 return;
             }
-            if builtins::resolve_call_return_type(canonical, &names, true).is_none() {
+            if builtins::resolve_call_return_type_typed(canonical, &arg_types, true).is_none() {
                 let detail = mismatch(&names, expected_overloads());
                 self.emit_call_typed_unknown(detail, line);
             }
@@ -2039,7 +2046,7 @@ impl<'a> Walker<'a> {
             if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
                 return;
             }
-            if builtins::resolve_call_return_type(canonical, &names, true).is_none() {
+            if builtins::resolve_call_return_type_typed(canonical, &arg_types, true).is_none() {
                 let detail = mismatch(&names, expected_overloads());
                 self.emit_call_typed_unknown(detail, line);
             }

@@ -1741,12 +1741,21 @@ pub(crate) fn runtime_error_triple(
 /// overridable general builtin `builtin` over `arg_type`, or `None` — the registry half
 /// of the `builtins::general_override_target` dual-path. `None` (fall through to the
 /// hand match) for every un-migrated package.
-pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&'static str> {
+pub(crate) fn general_override_target(
+    builtin: &str,
+    arg_type: &ParameterType,
+) -> Option<&'static str> {
+    // plan-111-C: the QUERY takes a type; the DESCRIPTOR still spells its
+    // `arg_type` (a `&'static str` row, and §Non-goals forbids changing a
+    // descriptor), so the comparison renders the argument. Identical by the
+    // `parse`<->`name` round trip — the old form compared the same two
+    // spellings.
+    let spelled = arg_type.name();
     registry().packages().iter().find_map(|package| {
         package
             .overrides()
             .iter()
-            .find(|o| o.builtin == builtin && o.arg_type == arg_type)
+            .find(|o| o.builtin == builtin && o.arg_type == spelled)
             .map(|o| o.helper)
     })
 }
@@ -3405,10 +3414,13 @@ mod tests {
         assert_eq!(constant_value("demo.pi"), None);
         assert_eq!(constant_components("demo.zero3"), None);
         // A general override the frozen registry does NOT own falls through.
-        assert_eq!(general_override_target("toString", "Nope"), None);
+        assert_eq!(
+            general_override_target("toString", &crate::types::ParameterType::parse("Nope")),
+            None
+        );
         // The migrated `vector` package DOES own `toString(Float3)` now (add_override).
         assert_eq!(
-            general_override_target("toString", "Float3"),
+            general_override_target("toString", &crate::types::ParameterType::parse("Float3")),
             Some("__vector_toString_float3")
         );
 

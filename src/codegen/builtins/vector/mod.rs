@@ -709,14 +709,26 @@ mod tests {
     #[test]
     fn tostring_override_routes_to_the_companion_renderer() {
         assert_eq!(
-            registry::general_override_target("toString", "Float2"),
+            registry::general_override_target(
+                "toString",
+                &crate::types::ParameterType::parse("Float2")
+            ),
             Some("__vector_toString_float2")
         );
         assert_eq!(
-            registry::general_override_target("toString", "Integer4"),
+            registry::general_override_target(
+                "toString",
+                &crate::types::ParameterType::parse("Integer4")
+            ),
             Some("__vector_toString_integer4")
         );
-        assert_eq!(registry::general_override_target("toString", "Nope"), None);
+        assert_eq!(
+            registry::general_override_target(
+                "toString",
+                &crate::types::ParameterType::parse("Nope")
+            ),
+            None
+        );
     }
 
     #[test]
