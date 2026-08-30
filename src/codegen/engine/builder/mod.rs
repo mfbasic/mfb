@@ -1033,14 +1033,27 @@ pub(crate) fn lower_module_for_platform(
     let uses_term = runtime_symbols
         .iter()
         .any(|symbol| symbol.starts_with("_mfb_rt_term_"));
-    // Whether the program reaches any `net::` socket helper — or a `tls::` helper,
-    // whose Schannel client opens its own raw Winsock socket (getaddrinfo/socket/
-    // connect/send/recv). Windows needs WSAStartup/WSACleanup in the entry only
-    // then (plan-47-I §3.2); every other platform ignores the flag, so a
-    // socket-free program stays byte-identical.
+    // Whether the program reaches any socket helper. Windows needs
+    // WSAStartup/WSACleanup in the entry only then (plan-47-I §3.2); every other
+    // platform ignores the flag, so a socket-free program stays byte-identical.
+    //
+    // bug-460: this listed only `net` and `tls`, from when those were the only two
+    // families that touched Winsock. plan-110-B/C moved the transports into `tcp`
+    // and `udp`, which carry their OWN runtime families, so a tcp- or udp-only
+    // program initialized nothing and every socket call failed with
+    // WSANOTINITIALISED. It hid behind `net::lookup`: resolving a host first pulled
+    // in a `_mfb_rt_net_` symbol and the gate fired for the rest of the program.
+    // `tls` stays listed because its Schannel client opens its own raw Winsock
+    // socket (getaddrinfo/socket/connect/send/recv).
+    const WINSOCK_FAMILIES: [&str; 4] = [
+        "_mfb_rt_net_",
+        "_mfb_rt_tcp_",
+        "_mfb_rt_udp_",
+        "_mfb_rt_tls_",
+    ];
     let uses_net = runtime_symbols
         .iter()
-        .any(|symbol| symbol.starts_with("_mfb_rt_net_") || symbol.starts_with("_mfb_rt_tls_"));
+        .any(|symbol| WINSOCK_FAMILIES.iter().any(|f| symbol.starts_with(f)));
     // Whether the program uses the `math::` random generator. When it does we
     // emit the PCG64 helpers, seed each thread's arena, and draw a fresh
     // per-thread stream on spawn.
