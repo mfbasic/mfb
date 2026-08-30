@@ -141,21 +141,21 @@ impl CodeBuilder<'_> {
         dst: impl Into<Operand>,
     ) -> Result<String, String> {
         let dst = dst.into();
-        match scalar.type_.name().as_ref() {
+        match &scalar.type_ {
             // Exact integer scaling: `raw * k`, overflow-checked.
-            "Integer" | "Byte" => {
+            ParameterType::Integer | ParameterType::Byte => {
                 self.emit_checked_integer_multiply(dst.clone(), &money.location, &scalar.location)?;
                 Ok(dst.render())
             }
             // Exact binary fixed-point scaling: `raw * fixed_raw / 2^32` is exactly
             // what `emit_fixed_multiply` computes when fed the Money raw as the
             // left operand and the Q32.32 raw as the right (plan-29-F §4.1).
-            "Fixed" => {
+            ParameterType::Fixed => {
                 self.emit_fixed_multiply(dst.clone(), &money.location, &scalar.location)?;
                 Ok(dst.render())
             }
             // Inexact floating scaling (plan-29-F §4.3).
-            "Float" => self.emit_money_scale_float(&money.location, scalar, dst, false),
+            ParameterType::Float => self.emit_money_scale_float(&money.location, scalar, dst, false),
             other => Err(format!(
                 "native code plan cannot scale Money by operand type '{other}'"
             )),
@@ -171,9 +171,9 @@ impl CodeBuilder<'_> {
         dst: impl Into<Operand>,
     ) -> Result<String, String> {
         let dst = dst.into();
-        match scalar.type_.name().as_ref() {
+        match &scalar.type_ {
             // `raw / k`, mode-rounded (plan-29-E §4.2). `k == 0` → ErrInvalidArgument.
-            "Integer" | "Byte" => {
+            ParameterType::Integer | ParameterType::Byte => {
                 self.emit_nonzero_or_invalid(&scalar.location)?;
                 self.emit_integer_division_overflow_check(&money.location, &scalar.location)?;
                 let quotient = self.allocate_register();
@@ -226,11 +226,11 @@ impl CodeBuilder<'_> {
             }
             // `raw * 2^32 / fixed_raw` is exactly `emit_fixed_divide(raw, fixed_raw)`
             // (plan-29-F §4.2); it guards `fixed_raw == 0` → ErrInvalidArgument.
-            "Fixed" => {
+            ParameterType::Fixed => {
                 self.emit_fixed_divide(dst.clone(), &money.location, &scalar.location)?;
                 Ok(dst.render())
             }
-            "Float" => self.emit_money_scale_float(&money.location, scalar, dst, true),
+            ParameterType::Float => self.emit_money_scale_float(&money.location, scalar, dst, true),
             other => Err(format!(
                 "native code plan cannot divide Money by operand type '{other}'"
             )),

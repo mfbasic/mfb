@@ -215,20 +215,43 @@ Commit: —
 Pure arm conversion; these two files take no type as `&str`, so the change is
 local to their `match` bodies.
 
-- [ ] `builtins/math/gen_math.rs` — convert ~~28~~ **45** spelling arms to
+- [x] `builtins/math/gen_math.rs` — convert ~~28~~ **45** spelling arms to
       `ParameterType` variant patterns. Correction D1: the extra 17 are
       `(function, spelling)` tuple arms in the SIMD kernel selectors, which the
-      pre-D1 scanner could not see.
-- [ ] `builtins/money/gen_money_math.rs` — convert 6 arms.
-- [ ] `builtins/math/gen_pow.rs`, `builtins/money/func_get_rounding.rs` — delete
-      the 1 parse each.
-- [ ] Lower the gate budgets for these four files to 0.
-- [ ] Tests: no new tests — the existing `rt_*` math/money fixtures cover these.
-      If a converted arm turns out to have no fixture, record the gap in
-      Corrections and add one.
+      pre-D1 scanner could not see. Two helpers stop rendering as well:
+      `list_element_type` returns a `ParameterType` instead of a `String`, and
+      `numeric_element_type_code` takes one — which is what let all 45 arms
+      become variant patterns rather than pushing the render one frame out.
+      Every error message is unchanged: `Display for ParameterType` is
+      `write!(f, "{}", self.name())`, so `{other}` / `{element}` render exactly
+      as before.
+- [x] `builtins/money/gen_money_math.rs` — convert 6 arms.
+- [x] `builtins/math/gen_pow.rs`, `builtins/money/func_get_rounding.rs` — delete
+      the 1 parse each. `parse("List OF Float")` →
+      `ListOf(Box::new(Float))`; `parse("Rounding")` → `named("Rounding")` (a
+      literal builtin nominal, which Correction C1 explicitly keeps as `named`
+      rather than `declared` — no lookup key is built from it).
+- [x] Lower the gate budgets for these four files to 0. `codegen`
+      `spelling_match_arms` 172 → 121, `parse_sites` 92 → 90.
+- [x] Tests: no new tests — ~~the existing `rt_*` math/money fixtures cover
+      these~~. **Correction D2**: they do not. There is exactly one `rt_*` file
+      in the math/money area (`rt_native_numeric_pow_div_runtime.rs`); the real
+      coverage is `tests/acceptance/src/math.mfb` and `money.mfb`, and the
+      plan's own policy defers the acceptance corpus to letter G. Taken
+      literally, Phase 1 would have had **no behavioral gate at all** — only
+      "it compiles". So the acceptance project was run scoped, here:
+      `scripts/test-accept.sh target/release/mfb /tmp/accept-111d acceptance`
+      → **passed, 1 test ran**. That is read-only comparison, not regeneration,
+      so it does not touch the deferred-goldens policy. Coverage confirmed by
+      enumeration rather than assumed: every converted member appears —
+      `abs acos asin atan atan2 ceil clamp cos e exp floor log log10 max min pow
+      rand round seed sin sqrt tan` — across scalar, int-array, fixed-array and
+      float-array cases.
 
-Acceptance: the four files read 0 on all six needle classes;
-`cargo test --no-fail-fast -- --skip artifact_gate_all` green, every `rt_*` test included.
+Acceptance: **MET.** The four files read 0 on all seven needle classes (absent
+from `census_by_file` entirely). `cargo test --no-fail-fast -- --skip
+artifact_gate_all` → exit 0, 0 failures, 67 result lines, every `rt_*` included.
+Scoped acceptance green.
 Commit: —
 
 ### Phase 2 — conversion, numeric operators, string representation (60 sites)
@@ -408,6 +431,36 @@ prints the live per-file table, and `MFB_CENSUS_DETAIL=<substring>` adds every
 offending line — so no later letter has to reconstruct a census with `rg` and
 inherit its over-count (Corrections A3 and C3) or the gate's under-count (this
 one). **Both failure directions now have one tool that avoids them.**
+
+**D2 — Phase 1 had no behavioral gate, and the plan said it did.** The phase
+reads "no new tests — the existing `rt_*` math/money fixtures cover these." They
+do not exist: `ls tests/ | grep -iE 'rt_.*(math|money|simd|vector)'` returns one
+file, `rt_native_numeric_pow_div_runtime.rs`. The actual coverage for
+`math::abs/sqrt/clamp/min/max/floor/ceil/round/sin/cos/tan/exp/log/log10/pow/atan2`
+lives in `tests/acceptance/src/math.mfb` and `money.mfb` — and plan-111-A §3
+defers the whole acceptance corpus to letter G.
+
+Taken literally, then, converting 51 arithmetic dispatch arms would have been
+gated by "it compiles" and nothing else, in the letter whose own §3 says a
+wrong arm here is *a wrong number, not a crash* — precisely the failure a
+compile check cannot see.
+
+Resolved by running the acceptance project **scoped**, in this phase:
+
+```
+scripts/test-accept.sh target/release/mfb /tmp/accept-111d acceptance
+→ acceptance tests passed (1 test(s) ran)
+```
+
+This does not violate the deferred-goldens policy, which defers *regeneration*
+and the *full* sweep; a scoped read-only comparison is the same category as the
+scoped artifact gate every letter already runs. Letters E and F should do the
+same for their own clusters rather than inherit the phrase "the rt fixtures
+cover it" — **check that the fixtures exist before believing the sentence.**
+
+Coverage was confirmed by enumerating the fixture rather than assuming it: all
+22 `math::` members appear, across scalar, int-array, fixed-array and
+float-array cases.
 
 The honest summary of this correction: the plan's stated goal is "delete every
 type string after the AST", and for three letters the gate certifying that goal

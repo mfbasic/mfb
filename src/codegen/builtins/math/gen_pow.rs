@@ -500,7 +500,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse("List OF Float"),
+            type_: ParameterType::ListOf(Box::new(ParameterType::Float)),
             location: Operand::from(result.render()),
             text,
         })
