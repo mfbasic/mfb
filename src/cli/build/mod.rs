@@ -1210,6 +1210,42 @@ mod tests {
     }
 
     #[test]
+    fn parse_test_options_verbose_both_spellings() {
+        for flag in ["-v", "--verbose"] {
+            let options = parse_test_options(s(&[flag])).expect("verbose test options");
+            assert_eq!(options.verbosity, Verbosity::Verbose, "flag {flag}");
+            // The flag changes nothing else about the run.
+            assert_eq!(
+                options.mode,
+                crate::testing::CompileMode::Test { coverage: false }
+            );
+            assert_eq!(options.location, PathBuf::from("."));
+        }
+        // Repeating it is not an error, and it composes with the other flags.
+        let options =
+            parse_test_options(s(&["-v", "--verbose", "--coverage", "proj"])).expect("options");
+        assert_eq!(options.verbosity, Verbosity::Verbose);
+        assert_eq!(
+            options.mode,
+            crate::testing::CompileMode::Test { coverage: true }
+        );
+        assert_eq!(options.location, PathBuf::from("proj"));
+    }
+
+    /// `mfb test` builds quietly by default, so `-q` would be a no-op flag; it
+    /// stays unknown rather than becoming silently accepted noise.
+    #[test]
+    fn parse_test_options_rejects_quiet() {
+        for flag in ["-q", "--quiet"] {
+            let err = match parse_test_options(s(&[flag])) {
+                Ok(_) => panic!("expected `{flag}` to be rejected by mfb test"),
+                Err(message) => message,
+            };
+            assert!(err.contains("unknown test option"), "flag {flag}: {err}");
+        }
+    }
+
+    #[test]
     fn parse_build_options_regalloc_both_forms_and_bad_value() {
         assert!(parse_build_options(s(&["--regalloc"])).is_err());
         assert!(parse_build_options(s(&["--regalloc", "not-a-strategy"])).is_err());

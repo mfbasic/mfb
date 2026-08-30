@@ -118,7 +118,7 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
     })
 }
 
-/// Parse `mfb test [location] [--coverage] [--target …] [-O …]`. The build
+/// Parse `mfb test [location] [--coverage] [--target …] [-O …] [-v]`. The build
 /// pipeline is shared with `mfb build`; only the compile mode and the always-run
 /// behavior differ (plan-18).
 pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, String> {
@@ -126,11 +126,14 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
     let mut target = None;
     let mut opt = crate::optimizer::active_opt_level();
     let mut coverage = false;
+    let mut verbose = false;
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
         if arg == "--coverage" {
             coverage = true;
+        } else if arg == "-v" || arg == "--verbose" {
+            verbose = true;
         } else if parse_common_option(&arg, &mut iter, "test", &mut target, &mut opt)? {
             // handled by the shared --target/-O parser
         } else if arg.starts_with('-') {
@@ -155,7 +158,14 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
         mode: crate::testing::CompileMode::Test { coverage },
         // `mfb test`'s user-facing output is the pass/fail tree; the build
         // summary would be noise and (via `target.name()`) non-portable across
-        // machines, churning `.testrun` goldens. Stay quiet (plan-36).
-        verbosity: Verbosity::Quiet,
+        // machines, churning `.testrun` goldens. Stay quiet by default
+        // (plan-36); `-v` opts into the build summary, per-phase timings, live
+        // `codegen:` lines, and optimizer fire counts — all on stderr, so the
+        // pass/fail tree on stdout is unchanged.
+        verbosity: if verbose {
+            Verbosity::Verbose
+        } else {
+            Verbosity::Quiet
+        },
     })
 }
