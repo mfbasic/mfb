@@ -2013,6 +2013,8 @@ pub(crate) fn lower_tls_read_openssl(
     let invalid = format!("{symbol}_invalid");
     let peer_closed = format!("{symbol}_peer_closed");
     let read_fail = format!("{symbol}_read_fail");
+    let read_ok = format!("{symbol}_read_ok");
+    let read_timeout = format!("{symbol}_read_timeout");
     let load_fail = format!("{symbol}_load_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let entry_loop = format!("{symbol}_entry_loop");
@@ -2077,7 +2079,43 @@ pub(crate) fn lower_tls_read_openssl(
         abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&peer_closed),
-        abi::branch_lt(&read_fail),
+        abi::branch_gt(&read_ok),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFFSET),
+    ]);
+    // plan-110-D: distinguish the socket's read deadline from a transport or
+    // protocol failure. `tls::setReadTimeout` installs SO_RCVTIMEO; when it
+    // expires the underlying `read(2)` returns EAGAIN/EWOULDBLOCK, which
+    // OpenSSL surfaces as SSL_ERROR_WANT_READ (2) or SSL_ERROR_WANT_WRITE (3)
+    // — the session is intact and the call may simply be retried. The contract
+    // says a deadline raises ErrTimeout on every platform; without this the
+    // Linux backend reported ErrTlsFailed while macOS reported ErrTimeout for
+    // the identical event, and a caller could not tell a slow peer from a
+    // broken session.
+    emit_dlsym(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        HANDLE_OFFSET,
+        "SSL_get_error",
+        FNPTR_OFFSET,
+        &load_fail,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), N_OFFSET),
+        abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register(&v9),
+        abi::sign_extend_word(&v10, abi::c_return(0)),
+        abi::compare_immediate(&v10, "2"), // SSL_ERROR_WANT_READ
+        abi::branch_eq(&read_timeout),
+        abi::compare_immediate(&v10, "3"), // SSL_ERROR_WANT_WRITE
+        abi::branch_eq(&read_timeout),
+        abi::branch(&read_fail),
+        abi::label(&read_ok),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFFSET),
     ]);
     instructions.extend([
@@ -2149,6 +2187,14 @@ pub(crate) fn lower_tls_read_openssl(
     emit_fail(
         symbol,
         "ErrConnectionClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&read_timeout));
+    emit_fail(
+        symbol,
+        "ErrTimeout",
         &mut instructions,
         &mut relocations,
         &done,

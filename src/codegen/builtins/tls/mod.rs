@@ -40,6 +40,8 @@ mod func_local_address;
 mod func_poll;
 mod func_read;
 mod func_remote_address;
+mod func_set_read_timeout;
+mod func_set_write_timeout;
 mod func_write;
 
 /// The TLS socket handle's bare type name — its identity *within* the `tls`
@@ -178,6 +180,8 @@ pub(crate) fn register(r: &mut Registry) {
     func_write::register(&mut pkg);
     func_local_address::register(&mut pkg);
     func_remote_address::register(&mut pkg);
+    func_set_read_timeout::register(&mut pkg);
+    func_set_write_timeout::register(&mut pkg);
     func_poll::register(&mut pkg);
     func_close::register(&mut pkg);
 

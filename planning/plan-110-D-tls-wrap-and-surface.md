@@ -121,12 +121,19 @@ Commit: 2247bf10f
 
 - [x] Rename public resources to `tls.Socket`/`tls.Listener`; update registry, verifier, cleanup,
       resource tags, tests, aliases, diagnostics, and docs without changing layout accidentally.
-- [~] Provide host and `net.Address` connect overloads; add localAddress/remoteAddress and read/write
+- [x] Provide host and `net.Address` connect overloads; add localAddress/remoteAddress and read/write
       timeout setters; collapse String write into `tls::write`.
-      Done: the String `write` merge, `localAddress`/`remoteAddress` on all three backends, and
-      both `connect` shapes at every arity (measured identical on macOS, Alpine x86_64 and
-      Windows 11). Remaining: `setReadTimeout` / `setWriteTimeout`.
-- [ ] Preserve omitted timeout as unbounded and `0` as immediate per `.ai/net-tls.md`.
+      All six `connect` arities, both endpoint queries, both timeout setters, and the String
+      `write` overload, measured identical on macOS, Alpine x86_64 musl and Windows 11.
+      Linux/Windows reuse `net`'s `setsockopt(SO_*TIMEO)` emitter; macOS carries the deadline on
+      the connection ctx (`CTX_RTO`/`CTX_WTO`) and applies it at the semaphore waits, because
+      Network.framework owns the socket and has no such option.
+- [x] Preserve omitted timeout as unbounded and `0` as immediate per `.ai/net-tls.md`.
+      An omitted `connect` timeout still pads the unbounded sentinel; a fresh socket's read and
+      write deadlines start at that sentinel, so an unconfigured socket blocks exactly as before.
+      `0` is one immediate attempt on every path. §C10 records a defect this uncovered: expiry
+      raised a *different error on each backend* (ErrTimeout on macOS, ErrTlsFailed on Linux,
+      ErrNetworkFailed on Windows) until each was taught to classify it.
 - [ ] Tests: every overload, wrong types/arity, endpoints, timeout conventions, close/drop, and
       certificate-name verification.
 
@@ -580,6 +587,47 @@ One backend per platform, one `tls::Socket` shape per target, every backend on i
 current supported API. The cost is STARTTLS: SMTP/IMAP/FTPS/PostgreSQL upgrade-in-place stays
 unreachable. The only thing that would reopen it is Apple declaring
 `nw_connection_create_with_connected_socket` in a public header.
+
+### C10 — a read deadline raised a different error on each backend
+
+The plan's box says "preserve omitted timeout as unbounded and `0` as immediate", which reads as a
+convention-compliance check. It is, but the interesting half is the error code, and all three
+backends disagreed. The same probe — install a 700 ms read deadline, then read without having sent
+a request, so nothing can ever arrive:
+
+```
+macOS    timed out code=77050008   ErrTimeout        (correct)
+Linux    timed out code=77070008   ErrTlsFailed
+Windows  timed out code=77070003   ErrNetworkFailed
+```
+
+Each backend was reporting its own transport failure because expiry *looks* like one:
+
+- **Linux.** `SSL_read` returns <= 0 and the emitter branched straight to `ErrTlsFailed`. Under
+  `SO_RCVTIMEO` the underlying `read(2)` returns `EAGAIN`, which OpenSSL surfaces as
+  `SSL_ERROR_WANT_READ` (2) / `SSL_ERROR_WANT_WRITE` (3) — the session is intact and the call is
+  simply retryable. Now classified with `SSL_get_error` (added to `TLS_SYMBOLS`).
+- **Windows.** `recv` returns `SOCKET_ERROR` and the emitter branched to `ErrNetworkFailed`.
+  Winsock reports an `SO_RCVTIMEO` expiry as `WSAETIMEDOUT` (10060), **not** `EWOULDBLOCK` —
+  `tls::connect` already special-cased exactly this for its handshake recv, and the read path did
+  not. Now classified the same way.
+
+After the fix all three report `77050008` and the elapsed time lands in band. This is worth
+recording beyond the fix itself: on every backend the *natural* error path swallows a deadline as a
+transport failure, so any future bounded operation has to classify expiry explicitly or a caller
+cannot tell a slow peer from a broken session. `.ai/net-tls.md` now carries the table.
+
+A second, quieter defect fell out of the same work: the macOS timeout could not be implemented
+safely on the read path as it stood. `nw_connection_receive` cannot be cancelled, so a receive
+outstanding at the deadline will still complete — and `tls::read` posted its own receive whose
+completion landed in `CTX_CONTENT`/`CTX_SEM`, a per-operation pair that `emit_fresh_sem` recycles.
+The next read would have replaced the semaphore underneath the in-flight completion (the bug-52/55
+hazard) and posted a second receive, stranding the first one's bytes. Read now posts the *poll*
+block instead (`RECV_POLL_INVOKE` → `CTX_PCONTENT`/`CTX_PSEM`, which survive across calls), marks
+`CTX_ARMED`, and joins the single drain — so a timed-out read is resumable and the bytes that
+arrive after the deadline reach the next read. That also collapsed two receive paths, two drains
+and two release policies into one, which is why the fresh-receive map block and the `MAPPED != 0`
+release branch are deleted rather than adapted.
 
 ## Summary
 

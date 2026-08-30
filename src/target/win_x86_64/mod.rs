@@ -228,6 +228,8 @@ const RUNTIME_CALLS: &[&str] = &[
     "tls.writeText",
     "tls.poll",
     "tls.localAddress",
+    "tls.setReadTimeout",
+    "tls.setWriteTimeout",
     "tls.remoteAddress",
     "tls.pollList",
     "tls.close",

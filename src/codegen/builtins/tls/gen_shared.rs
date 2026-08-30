@@ -95,6 +95,10 @@ pub(crate) const TLS_SYMBOLS: &[&str] = &[
     "SSL_connect",
     "SSL_get_verify_result",
     "SSL_read",
+    // plan-110-D: classify a failed `SSL_read`. A read that hit the socket's
+    // SO_RCVTIMEO surfaces as SSL_ERROR_WANT_READ/WRITE with the session intact,
+    // which is `ErrTimeout`, not `ErrTlsFailed`.
+    "SSL_get_error",
     // plan-76-B: non-consuming count of already-decrypted, buffered app bytes —
     // the readiness fast-path for `tls::poll` (a TLS record can hold app bytes with
     // the fd idle, so an fd-only poll would under-report).
@@ -463,6 +467,35 @@ pub(crate) fn lower_tls_address_helper(
             platform_imports,
             platform,
             remote,
+        ),
+    }
+}
+
+/// `tls::setReadTimeout` / `tls::setWriteTimeout` (plan-110-D Phase 2). `write`
+/// selects the send deadline over the receive one.
+///
+/// Linux and Windows push the deadline down to the OS exactly as `tcp` does --
+/// their TLS record keeps the descriptor in the canonical handle slot, so
+/// `setsockopt(SO_RCVTIMEO/SO_SNDTIMEO)` on it behaves identically to a plain
+/// socket, and the same shared emitter serves both packages. macOS cannot:
+/// Network.framework owns the socket and exposes no such knob, so the deadline
+/// is stored on the connection context and applied at the semaphore waits
+/// (`emit_wait_bounded`).
+pub(crate) fn lower_tls_set_timeout_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    write: bool,
+) -> Result<TlsBodyParts, String> {
+    match platform.family() {
+        PlatformFamily::MacOS => {
+            macos::lower_tls_set_timeout_macos(symbol, platform_imports, platform, write)
+        }
+        _ => crate::codegen::builtins::net::gen_poll::lower_net_set_timeout_helper(
+            symbol,
+            platform_imports,
+            platform,
+            write,
         ),
     }
 }

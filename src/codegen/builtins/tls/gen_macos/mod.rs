@@ -713,6 +713,7 @@ mod client;
 mod server;
 #[cfg(test)]
 mod tests;
+mod timeout;
 
 pub(crate) use address::lower_tls_address_macos;
 pub(crate) use client::{
@@ -722,3 +723,4 @@ pub(crate) use client::{
 pub(crate) use server::{
     lower_tls_accept_macos, lower_tls_close_listener_macos, lower_tls_listen_macos,
 };
+pub(crate) use timeout::lower_tls_set_timeout_macos;

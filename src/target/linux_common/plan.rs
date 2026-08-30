@@ -578,6 +578,12 @@ impl LinuxPlan<'_> {
                         self.libc_import("inet_ntop", required_by),
                     ]);
                 }
+                // plan-110-D: the timeout setters likewise reuse `net`'s emitter,
+                // which is a plain SO_RCVTIMEO/SO_SNDTIMEO setsockopt on the
+                // descriptor the TLS record already holds.
+                if matches!(call, "tls.setReadTimeout" | "tls.setWriteTimeout") {
+                    imports.push(self.libc_import("setsockopt", required_by));
+                }
                 if call == "tls.connect" {
                     // getaddrinfo..connect open the socket; fcntl/poll/getsockopt
                     // bound the TCP connect by timeoutMs (non-blocking connect +

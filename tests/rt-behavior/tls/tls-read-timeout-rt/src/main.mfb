@@ -1,0 +1,57 @@
+' plan-110-D: the per-socket read deadline, and the error it raises.
+'
+' The error code is the point. Expiry LOOKS like a transport failure on every
+' backend -- SSL_read <= 0 on OpenSSL, recv = SOCKET_ERROR on Schannel, a
+' non-zero dispatch_semaphore_wait on Network.framework -- so each one reported
+' its own transport error until it was taught to classify it, and the three
+' disagreed for the identical event (plan-110-D C10):
+'
+'   macOS 77050008 ErrTimeout   Linux 77070008 ErrTlsFailed   Windows 77070003 ErrNetworkFailed
+'
+' All three must now answer 77050008. Live-network like tls-connect-google-rt:
+' 8.8.8.8 is Google Public DNS's permanently-allocated anycast address, serves
+' HTTPS, and its dns.google certificate covers the bare IP.
+IMPORT collections
+IMPORT tls
+IMPORT io
+
+FUNC negativeIsRejected(RES c AS tls::Socket) AS Integer
+  tls::setReadTimeout(c, -1)
+  RETURN 0
+  TRAP(e)
+    RETURN e.code
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  RES conn = tls::connect("8.8.8.8", 443, 5000, "dns.google")
+  io::print("connected=TRUE")
+
+  ' A negative deadline is rejected before anything is stored.
+  LET neg = negativeIsRejected(conn)
+  io::print("negativeRejected=" & toString(neg = 77050002))
+
+  ' Nothing has been requested, so nothing will ever arrive: the read must give
+  ' up at the deadline rather than block, with ErrTimeout on every backend.
+  tls::setReadTimeout(conn, 750)
+  MUT timedOut AS Integer = 0
+  LET dead = tls::read(conn, 64) TRAP(e)
+    timedOut = e.code
+    RECOVER []
+  END TRAP
+  io::print("readTimedOut=" & toString(timedOut = 77050008))
+  io::print("noBytesBeforeRequest=" & toString(len(dead) = 0))
+
+  ' The socket survives a timed-out read: the bytes the peer sends afterwards
+  ' are delivered to the NEXT read rather than stranded on the receive that was
+  ' already outstanding when the deadline fired.
+  tls::setReadTimeout(conn, 10000)
+  tls::write(conn, "HEAD / HTTP/1.0\r\nHost: dns.google\r\n\r\n")
+  LET reply = tls::read(conn, 16)
+  io::print("recoveredAfterTimeout=" & toString(len(reply) > 0))
+  io::print("looksLikeHttp=" & toString(collections::get(reply, 0) = toByte(72)))
+
+  tls::close(conn)
+  io::print("closed=TRUE")
+  RETURN 0
+END FUNC

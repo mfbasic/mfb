@@ -29,6 +29,7 @@ pub(crate) fn lower_tls_read(
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
     let peer_closed = format!("{symbol}_peer");
+    let timed_out = format!("{symbol}_timed_out");
     let fail = format!("{symbol}_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
@@ -79,11 +80,26 @@ pub(crate) fn lower_tls_read(
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
     platform.emit_external_call("recv", symbol, imports, &mut ins, &mut rel)?;
+    let recv_ok = format!("{symbol}_recv_ok");
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&peer_closed),
-        abi::branch_lt(&fail),
+        abi::branch_gt(&recv_ok),
+    ]);
+    // plan-110-D: distinguish the socket's read deadline from a transport
+    // failure. `tls::setReadTimeout` installs SO_RCVTIMEO, whose expiry Winsock
+    // reports as WSAETIMEDOUT (10060) -- not EWOULDBLOCK -- and the contract
+    // says a deadline raises ErrTimeout on every platform. Without this the
+    // Windows backend reported ErrNetworkFailed while macOS reported ErrTimeout
+    // for the identical event. `tls::connect` already applies this mapping to
+    // its handshake recv.
+    platform.emit_errno(symbol, (&v9).into(), imports, &mut ins, &mut rel)?;
+    ins.extend([
+        abi::compare_immediate(&v9, "10060"), // WSAETIMEDOUT
+        abi::branch_eq(&timed_out),
+        abi::branch(&fail),
+        abi::label(&recv_ok),
         abi::load_u64(&v9, abi::stack_pointer(), STATE),
         abi::load_u64(&v11, &v9, st::RECV_LEN),
         abi::add_registers(&v11, &v11, abi::return_register()),
@@ -335,6 +351,8 @@ pub(crate) fn lower_tls_read(
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&invalid));
     emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&timed_out));
+    emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     ins.push(abi::label(&fail));
     emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
