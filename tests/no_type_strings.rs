@@ -650,13 +650,12 @@ fn string_keyed_type_maps(rel: &str, src: &str) -> Vec<Hit> {
 const BUDGETS: &[(&str, &str, usize)] = &[
     // --- 1. `ParameterType::parse` below a boundary — 125. Letters B, D, E, F.
     ("parse_sites", "codegen", 94),
-    ("parse_sites", "monomorph", 15),
+    ("parse_sites", "monomorph", 1),
     ("parse_sites", "resolver", 1),
     // --- 2. a type taken as `&str` — 173. Letters B, D, E, F, G.
     ("str_type_params", "binary_repr", 4),
     ("str_type_params", "codegen", 141),
     ("str_type_params", "hir", 1),
-    ("str_type_params", "monomorph", 2),
     ("str_type_params", "numeric", 1),
     ("str_type_params", "resolver", 1),
     ("str_type_params", "target", 4),
@@ -664,7 +663,6 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // --- 3. a `match` arm on a spelling — 186. Letters B, D, E, F, G.
     ("spelling_match_arms", "binary_repr", 19),
     ("spelling_match_arms", "codegen", 147),
-    ("spelling_match_arms", "monomorph", 1),
     ("spelling_match_arms", "types", 9),
     // --- 4. `==` / `!=` against a spelling — 73. Letters B, D, E, F, G.
     ("spelling_compares", "codegen", 57),
@@ -689,7 +687,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     ("string_keyed_type_maps", "binary_repr", 1),
     ("string_keyed_type_maps", "codegen", 11),
     ("string_keyed_type_maps", "ir", 1),
-    ("string_keyed_type_maps", "monomorph", 5),
+    ("string_keyed_type_maps", "monomorph", 3),
     ("string_keyed_type_maps", "resolver", 1),
     ("string_keyed_type_maps", "target", 1),
 ];

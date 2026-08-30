@@ -45,7 +45,13 @@ struct Monomorphizer<'a> {
     /// to normalize an argument's qualified user/resource type to the bare name
     /// the package stored in its mangled overload names.
     package_qualifiers: Vec<String>,
-    type_instantiations: HashMap<String, (String, Vec<String>)>,
+    /// The mangled concrete nominal -> (template name, its type arguments).
+    /// plan-111-B: keyed by the TYPE and holding types. It is looked up with a
+    /// `ParameterType` in `template_view`, which is what makes it type-keyed;
+    /// the mangled name itself stays a `String` inside the value, because there
+    /// it is a symbol.
+    type_instantiations:
+        HashMap<crate::types::ParameterType, (String, Vec<crate::types::ParameterType>)>,
     emitted_type_keys: HashSet<String>,
     emitted_function_keys: HashSet<String>,
     /// Claimed concrete symbol -> the unambiguous `name<args>` key that owns it.
@@ -106,7 +112,8 @@ struct FunctionContext {
     locals: HashMap<String, ParameterType>,
     function_returns: HashMap<String, ParameterType>,
     function_types: HashMap<String, ParameterType>,
-    record_fields: HashMap<String, Vec<HirTypeField>>,
+    /// plan-111-B: keyed by the record TYPE.
+    record_fields: HashMap<crate::types::ParameterType, Vec<HirTypeField>>,
     /// Declared type of each top-level `LET`/`MUT` binding, keyed by name. Lets
     /// `expression_type` resolve an identifier that names a global so a generic /
     /// overloaded call taking that global infers its type instead of being falsely

@@ -540,7 +540,11 @@ impl<'a> Monomorphizer<'a> {
         type_decl.includes = type_decl
             .includes
             .iter()
-            .map(|include| self.concrete_type_name(include, substitutions))
+            .map(|include| {
+                self.concrete_type(&ParameterType::named(include), substitutions)
+                    .name()
+                    .into_owned()
+            })
             .collect();
         type_decl.fields = type_decl
             .fields
@@ -551,7 +555,10 @@ impl<'a> Monomorphizer<'a> {
             .variants
             .iter()
             .map(|variant| UnionVariant {
-                name: self.concrete_type_name(&variant.name, substitutions),
+                name: self
+                    .concrete_type(&ParameterType::named(&variant.name), substitutions)
+                    .name()
+                    .into_owned(),
                 line: variant.line,
             })
             .collect();
@@ -752,13 +759,15 @@ impl<'a> Monomorphizer<'a> {
             if matches!(param.type_, ParameterType::Unknown) {
                 continue;
             }
-            // `template_view_type` is still name-in/name-out (plan-106-A
-            // Correction 3 → letter E); its result also spells the diagnostic
-            // below, so this render is a message-formatting site either way.
-            let actual_name = self.template_view_type(actual.name().as_ref());
+            // plan-111-B: `template_view` is structural, so the actual type
+            // goes in and comes back as a type. `actual_name` remains only
+            // because the diagnostic below spells it — a message-formatting
+            // sink, not a decision.
+            let actual_view = self.template_view(actual);
+            let actual_name = actual_view.name();
             if !unify_type(
                 &param.type_,
-                &ParameterType::parse(&actual_name),
+                &actual_view,
                 &param_symbols,
                 &mut substitutions,
             ) {
@@ -959,7 +968,7 @@ impl<'a> Monomorphizer<'a> {
         (candidates.len() == 1).then(|| candidates[0].params.clone())
     }
 
-    fn instantiate_type(&mut self, name: &str, args: &[String]) -> String {
+    fn instantiate_type(&mut self, name: &str, args: &[ParameterType]) -> ParameterType {
         // The mangled symbol is a lossy encoding (every non-alphanumeric collapses
         // to `$`), so two distinct same-arity type-argument tuples can produce the
         // same symbol; without disambiguation the second instantiation would
@@ -968,37 +977,42 @@ impl<'a> Monomorphizer<'a> {
         // unambiguous, so claim the symbol against it exactly as
         // `instantiate_function` does (bug-226 fixed the function half but left this
         // one unguarded — bug-400). A symbol claimed by only one key is unchanged.
-        let key = format!("{name}<{}>", args.join(","));
-        let concrete_name = self.unique_concrete_symbol(mangle_name(name, args), &key);
+        //
+        // plan-111-B: the arguments are types; the KEY and the MANGLED SYMBOL
+        // are symbols, so they render here — a symbol sink, which plan-111-A
+        // §Rejected alternatives sanctions alongside diagnostics and wire
+        // encode. What comes back is the mangled nominal as a type, so the
+        // caller no longer re-parses it.
+        let arg_names: Vec<String> = args.iter().map(|a| a.name().into_owned()).collect();
+        let key = format!("{name}<{}>", arg_names.join(","));
+        let concrete_name = self.unique_concrete_symbol(mangle_name(name, &arg_names), &key);
+        let concrete = ParameterType::named(&concrete_name);
         self.type_instantiations
-            .insert(concrete_name.clone(), (name.to_string(), args.to_vec()));
+            .insert(concrete.clone(), (name.to_string(), args.to_vec()));
         if !self.emitted_type_keys.insert(key) {
-            return concrete_name;
+            return concrete;
         }
         let Some(template) = self.type_templates.get(name).cloned() else {
-            return concrete_name;
+            return concrete;
         };
         if !self.charge_instantiation(name, 1) {
-            return concrete_name;
+            return concrete;
         }
         if self.template_instantiation_depth >= MAX_TEMPLATE_INSTANTIATION_DEPTH {
             self.report_instantiation_too_deep(name, 1);
             // Halt the whole enumeration — see the `instantiate_function` twin.
             self.instantiation_limit_reached = true;
-            return concrete_name;
+            return concrete;
         }
         self.template_instantiation_depth += 1;
         let mut substitutions = HashMap::new();
         for (param, arg) in template.template_params.iter().zip(args.iter()) {
-            substitutions.insert(
-                crate::intern::Symbol::intern(param),
-                crate::types::ParameterType::parse(arg),
-            );
+            substitutions.insert(crate::intern::Symbol::intern(param), arg.clone());
         }
-        let concrete = self.lower_type(template, &substitutions, Some(concrete_name.clone()));
+        let lowered = self.lower_type(template, &substitutions, Some(concrete_name.clone()));
         self.template_instantiation_depth -= 1;
-        self.concrete_types.insert(concrete_name.clone(), concrete);
-        concrete_name
+        self.concrete_types.insert(concrete_name.clone(), lowered);
+        concrete
     }
 
     fn lower_field(
@@ -1041,19 +1055,14 @@ impl<'a> Monomorphizer<'a> {
                 line,
             } => {
                 // Mirror the AST `Option<String>` the pre-D3 walk consumed: an
-                // explicit `AS T` annotation carries its rendered type, an inferred
-                // `LET` carries `None`.
-                let type_name = explicit_type.then(|| type_.name().into_owned());
-                // `concrete_type_name` is still name-in/name-out (plan-106-A
-                // Correction 3 assigns its retype to letter E); parse its result
-                // ONCE here rather than at each consumer.
-                let lowered_type = type_name
+                // plan-111-B: an explicit `AS T` annotation substitutes
+                // directly; an inferred `LET` carries `None`. `concrete_type` is
+                // the typed form `concrete_type_name` wrapped, so nothing
+                // renders and nothing re-parses.
+                let lowered_type = explicit_type.then(|| self.concrete_type(type_, substitutions));
+                let lowered_state = state_type
                     .as_ref()
-                    .map(|type_name| self.concrete_type_name(type_name, substitutions))
-                    .map(|type_name| ParameterType::parse(&type_name));
-                let lowered_state = state_type.as_ref().map(|state_type| {
-                    self.concrete_type_name(state_type.name().as_ref(), substitutions)
-                });
+                    .map(|state_type| self.concrete_type(state_type, substitutions));
                 // The declared type with this instantiation's template params
                 // substituted. `type_` IS the parse of `type_name` (they round-trip
                 // byte-exact), so substitute the HIR node directly rather than
@@ -1080,7 +1089,7 @@ impl<'a> Monomorphizer<'a> {
                 HirStatement::Let {
                     mutable: *mutable,
                     resource: *resource,
-                    state_type: lowered_state.map(|s| ParameterType::parse(&s)),
+                    state_type: lowered_state,
                     name: name.clone(),
                     type_: lowered_type.unwrap_or(ParameterType::Unknown),
                     explicit_type: *explicit_type,
@@ -1194,12 +1203,9 @@ impl<'a> Monomorphizer<'a> {
                     .map(|case| {
                         let mut case_context = context.clone();
                         if let HirMatchPattern::Union { binding, type_ } = &case.pattern {
-                            case_context.locals.insert(
-                                binding.clone(),
-                                ParameterType::parse(
-                                    &self.concrete_type_name(type_.name().as_ref(), substitutions),
-                                ),
-                            );
+                            case_context
+                                .locals
+                                .insert(binding.clone(), self.concrete_type(type_, substitutions));
                         }
                         HirMatchCase {
                             pattern: match &case.pattern {
@@ -1499,16 +1505,15 @@ impl<'a> Monomorphizer<'a> {
                         // failed to match its own binding (TYPE_BINDING_MISMATCH).
                         let mut args = Vec::with_capacity(expected_args.len());
                         for arg in expected_args {
-                            args.push(self.concrete_type_name(&arg.name(), substitutions));
+                            args.push(self.concrete_type(arg, substitutions));
                         }
                         concrete_type = Some(self.instantiate_type(expected_name.resolve(), &args));
                     }
                 }
                 let field_types = concrete_type
-                    .as_deref()
-                    .or(Some(type_name.as_str()))
-                    .and_then(|name| context.record_fields.get(name))
-                    .cloned();
+                    .clone()
+                    .or_else(|| Some(ParameterType::named(&type_name)))
+                    .and_then(|type_| context.record_fields.get(&type_).cloned());
                 let lowered_args = arguments
                     .iter()
                     .enumerate()
@@ -1549,18 +1554,14 @@ impl<'a> Monomorphizer<'a> {
                     let args = template
                         .template_params
                         .iter()
-                        .map(|param| {
-                            inferred
-                                .get(&crate::intern::Symbol::intern(param))
-                                .map(|type_| type_.name().into_owned())
-                        })
+                        .map(|param| inferred.get(&crate::intern::Symbol::intern(param)).cloned())
                         .collect::<Option<Vec<_>>>();
                     if let Some(args) = args {
                         concrete_type = Some(self.instantiate_type(&type_name, &args));
                     }
                 }
                 HirExpression::Constructor {
-                    type_: ParameterType::parse(&concrete_type.unwrap_or(type_name)),
+                    type_: concrete_type.unwrap_or_else(|| ParameterType::named(&type_name)),
                     arguments: lowered_args,
                 }
             }
@@ -1600,9 +1601,7 @@ impl<'a> Monomorphizer<'a> {
                 element_type,
                 elements,
             } => HirExpression::SetLiteral {
-                element_type: ParameterType::parse(
-                    &self.concrete_type_name(element_type.name().as_ref(), substitutions),
-                ),
+                element_type: self.concrete_type(element_type, substitutions),
                 elements: elements
                     .iter()
                     .map(|value| {
@@ -1622,12 +1621,8 @@ impl<'a> Monomorphizer<'a> {
                 value_type,
                 entries,
             } => HirExpression::MapLiteral {
-                key_type: ParameterType::parse(
-                    &self.concrete_type_name(key_type.name().as_ref(), substitutions),
-                ),
-                value_type: ParameterType::parse(
-                    &self.concrete_type_name(value_type.name().as_ref(), substitutions),
-                ),
+                key_type: self.concrete_type(key_type, substitutions),
+                value_type: self.concrete_type(value_type, substitutions),
                 entries: entries
                     .iter()
                     .map(|(key, value)| {
@@ -1683,10 +1678,7 @@ impl<'a> Monomorphizer<'a> {
                     .map(|param| {
                         let mut lowered = param.clone();
                         if !matches!(param.type_, ParameterType::Unknown) {
-                            let type_name = param.type_.name().into_owned();
-                            let concrete = ParameterType::parse(
-                                &self.concrete_type_name(&type_name, substitutions),
-                            );
+                            let concrete = self.concrete_type(&param.type_, substitutions);
                             nested.locals.insert(param.name.clone(), concrete.clone());
                             lowered.type_ = concrete;
                         }
@@ -1776,18 +1768,6 @@ impl<'a> Monomorphizer<'a> {
             ParameterType::Named(name) | ParameterType::Var(name) => Some(*name),
             _ => None,
         }
-    }
-
-    /// The name-domain entry to [`concrete_type`](Self::concrete_type), for the
-    /// callers that still hold a type SPELLING.
-    fn concrete_type_name(
-        &mut self,
-        type_name: &str,
-        substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
-    ) -> String {
-        self.concrete_type(&ParameterType::parse(type_name), substitutions)
-            .name()
-            .into_owned()
     }
 
     /// Substitute a template's parameters through `type_`, instantiating any user
@@ -1888,21 +1868,14 @@ impl<'a> Monomorphizer<'a> {
             ParameterType::UserOf(name, args) => {
                 let args = args
                     .iter()
-                    .map(|arg| self.concrete_type(arg, substitutions).name().into_owned())
+                    .map(|arg| self.concrete_type(arg, substitutions))
                     .collect::<Vec<_>>();
-                ParameterType::parse(&self.instantiate_type(name.resolve(), &args))
+                self.instantiate_type(name.resolve(), &args)
             }
             // A scalar, a concrete nominal, `RES`, `Unknown`, `Arg` — identity, as
             // the cascade's fall-through was.
             other => other.clone(),
         }
-    }
-
-    /// The name-domain entry to [`template_view`](Self::template_view).
-    fn template_view_type(&self, type_name: &str) -> String {
-        self.template_view(&ParameterType::parse(type_name))
-            .name()
-            .into_owned()
     }
 
     /// The inverse of [`concrete_type`](Self::concrete_type): rewrite a mangled
@@ -1942,18 +1915,13 @@ impl<'a> Monomorphizer<'a> {
                 )
             }
             other => {
-                let name = other.name();
-                if let Some((template, args)) = self.type_instantiations.get(name.as_ref()) {
-                    let args = args
-                        .iter()
-                        .map(|arg| self.template_view_type(arg))
-                        .collect::<Vec<_>>();
-                    // The template spelling is rebuilt through the grammar rather
-                    // than `format!`ed: `UserOf`'s own render is the one that knows
-                    // how its argument list is separated.
+                if let Some((template, args)) = self.type_instantiations.get(other) {
+                    // plan-111-B: the recorded instantiation arguments are types,
+                    // so the template view is rebuilt structurally — no render,
+                    // no re-parse.
                     return ParameterType::user_of(
                         template,
-                        args.iter().map(|a| ParameterType::parse(a)).collect(),
+                        args.iter().map(|arg| self.template_view(arg)).collect(),
                     );
                 }
                 other.clone()
@@ -1972,7 +1940,7 @@ impl<'a> Monomorphizer<'a> {
             if matches!(type_decl.kind, TypeDeclKind::Type) {
                 context
                     .record_fields
-                    .insert(name.clone(), type_decl.fields.clone());
+                    .insert(ParameterType::named(name), type_decl.fields.clone());
             }
         }
         // Top-level `LET`/`MUT` bindings with an explicit `AS` type, so a call or
@@ -2052,14 +2020,19 @@ impl<'a> Monomorphizer<'a> {
                 .cloned()
                 .or_else(|| context.function_types.get(value).cloned())
                 .or_else(|| context.globals.get(value).cloned()),
-            HirExpression::Constructor { type_, .. } => match type_.name().as_ref() {
-                "Error" => Some(ParameterType::named("Error")),
-                "Ok" => Some(ParameterType::ResultOf(Box::new(ParameterType::Unknown))),
-                name if context.record_fields.contains_key(name) => {
-                    Some(ParameterType::named(name))
+            // plan-111-B: `Error`/`Ok` are nominals, and the record table is
+            // keyed by the type.
+            HirExpression::Constructor { type_, .. } => {
+                if type_.is_named("Error") {
+                    Some(ParameterType::named("Error"))
+                } else if type_.is_named("Ok") {
+                    Some(ParameterType::ResultOf(Box::new(ParameterType::Unknown)))
+                } else if context.record_fields.contains_key(type_) {
+                    Some(type_.clone())
+                } else {
+                    None
                 }
-                _ => None,
-            },
+            }
             HirExpression::WithUpdate { target, .. } => self.expression_type(target, context),
             HirExpression::ListLiteral(values) => Some(ParameterType::ListOf(Box::new(
                 values
@@ -2082,7 +2055,7 @@ impl<'a> Monomorphizer<'a> {
                 let target_type = self.expression_type(target, context)?;
                 context
                     .record_fields
-                    .get(target_type.name().as_ref())?
+                    .get(&target_type)?
                     .iter()
                     .find(|field| field.name == *member)
                     .map(|field| field.type_.clone())
@@ -2403,8 +2376,14 @@ END SUB
             "the two arguments must mangle-collide for this test to exercise the guard"
         );
 
-        let name_a = mono.instantiate_type("Box", std::slice::from_ref(&a));
-        let name_b = mono.instantiate_type("Box", std::slice::from_ref(&b));
+        let name_a = mono
+            .instantiate_type("Box", &[ParameterType::parse(&a)])
+            .name()
+            .into_owned();
+        let name_b = mono
+            .instantiate_type("Box", &[ParameterType::parse(&b)])
+            .name()
+            .into_owned();
 
         // Each colliding instantiation must keep its own distinct concrete symbol...
         assert_ne!(
