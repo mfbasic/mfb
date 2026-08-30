@@ -1234,8 +1234,8 @@ impl Registry {
     /// or enum is unknown, the member is not a variant, or the variant carries no
     /// advisory. Keyed by the owning package (not a bare enum-name scan) so a user
     /// enum that happens to share a builtin enum's name can never inherit its
-    /// advisory. Consulted by syntaxcheck when it resolves a user-source enum
-    /// member access.
+    /// advisory. Consulted by `ir::verify` when it resolves a user-source enum
+    /// member access (`check_enum_member_advisory`).
     pub(crate) fn enum_variant_advisory(
         &self,
         import_name: &str,
@@ -4203,7 +4203,7 @@ mod tests {
         assert_eq!(r.enum_variant_advisory("other", "Algo", "Weak"), None);
         assert_eq!(r.enum_variant_advisory("absent", "Algo", "Weak"), None);
         // The advisory's rule must be a real `warn` row of the rule table, or the
-        // syntaxcheck emit site would trip the unknown-rule guard.
+        // `ir::verify` emit site would trip the unknown-rule guard.
         let production = registry().enum_variant_advisory("crypto", "Hash", "SHA1");
         let rule = production
             .expect("crypto Hash.SHA1 carries an advisory")

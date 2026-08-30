@@ -261,7 +261,7 @@ variant may carry an `EnumVariant::advisory`, and every user-source occurrence
 of that value — an expression or a `MATCH` literal — reports it once, while the
 program still compiles and runs. Injected builtin source is exempt.
 [[src/codegen/registry/mod.rs:EnumAdvisory]]
-[[src/syntaxcheck/mod.rs:builtin_enum_member_advisory]]
+[[src/ir/verify/values.rs:check_enum_member_advisory]]
 [[src/rules/table.rs:RULES]]
 
 | code | NAME | severity | message |

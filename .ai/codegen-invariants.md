@@ -15,7 +15,7 @@ The deliberate STRING boundaries that remain — render `name()` at these sinks,
 
 ## `ParameterType::parse` is the ONLY type-grammar implementation (plan-105-B)
 
-`src/types.rs` owns the type grammar. The only other legitimate parser is the **source-language** one in `src/ast/` (tokenizer-side, produces the AST). Everything else — resolver, monomorph, the shape pass, IR lowering, `ir::verify`, codegen — MATCHES on `ParameterType` variants; it does not re-implement the grammar. The private `strip_prefix("List OF ")`-style cascades that used to live in `monomorph::helpers` (`user_template_parts`, `func_type_parts`, `split_top_level_to`, `split_top_level_commas`), `resolver::resolution` and `syntaxcheck` are deleted.
+`src/types.rs` owns the type grammar. The only other legitimate parser is the **source-language** one in `src/ast/` (tokenizer-side, produces the AST). Everything else — resolver, monomorph, the shape pass, IR lowering, `ir::verify`, codegen — MATCHES on `ParameterType` variants; it does not re-implement the grammar. The private `strip_prefix("List OF ")`-style cascades that used to live in `monomorph::helpers` (`user_template_parts`, `func_type_parts`, `split_top_level_to`, `split_top_level_commas`), `resolver::resolution` and the former source checker are deleted (the checker itself went with plan-107-D).
 
 Two traps this cost real time to learn:
 
