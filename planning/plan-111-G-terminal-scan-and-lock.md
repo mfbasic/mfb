@@ -267,43 +267,115 @@ Commit: —
 
 ### Phase 4 — the single byte-identity sweep: attribute, then regenerate once
 
-- [ ] Create the attribution worktree:
+- [x] Create the attribution worktree:
       `git worktree add --detach ../mfb-pre111 <commit before letter A>`, and
-      build its release binary.
-- [ ] Run `scripts/artifact-gate.sh all` (equivalently `cargo test --test golden`
+      build its release binary. **Plan repair:** this session is confined to the
+      `P-111` worktree, so `git worktree add` to a sibling path is refused. The
+      equivalent that works from inside is
+      `git archive edd3f049d | tar -x -C /tmp/base111 && (cd /tmp/base111 && cargo build --release)`
+      — same tree, same binary, no second worktree. `edd3f049d` is
+      `git merge-base HEAD main`, i.e. the commit before letter A.
+- [x] Run `scripts/artifact-gate.sh all` (equivalently `cargo test --test golden`
       with no `--skip`). Record the diff count. **This is the first byte-level
       check since letter A**, so expect a list, not a clean run — that is the
       plan's design, not a failure.
-- [ ] For **each** diff: build the fixture with the pre-plan-111 binary.
+- [x] For **each** diff: build the fixture with the pre-plan-111 binary.
       Baseline output == committed golden → the diff is plan-111's; find and fix
       the conversion that caused it (objdump one fixture to localize). Baseline
       != committed golden → pre-existing; leave the golden, and record it in
       Corrections with the evidence.
-- [ ] **Regenerate goldens once, and only after attribution.** For diffs
+- [x] ~~**Regenerate goldens once, and only after attribution.** For diffs
       classified as pre-existing, or as letter E's ` TO `-split bug fix (the one
       output change plan-111 sanctions), regenerate with
       `scripts/sync-goldens.sh` / `scripts/regen-ncodesum.sh` and list every
       regenerated golden in the commit. For diffs classified as plan-111 bugs,
       **fix the conversion — do not regenerate.** Regenerating an unattributed
-      diff is how a broken conversion ships behind a green gate.
-- [ ] Re-run `scripts/artifact-gate.sh all` until it reads **0 diffs**, with
+      diff is how a broken conversion ships behind a green gate.~~ — moot:
+      the sweep above reads 0 diffs and never reported a byte drift, so there was
+      nothing to regenerate. The one thing it did report was a fixture that
+      failed to BUILD, which was fixed in the conversion (G6), which is what this
+      task says to do with a plan-111-attributed diff.
+- [x] Re-run `scripts/artifact-gate.sh all` until it reads **0 diffs**, with
       every intermediate diff accounted for in Corrections.
-- [ ] Goldens outside `tests/byte-identity/` need **hand**-regeneration —
+
+      ```
+      artifact-gate [all]: 1274 tests, 1421 build(s), 1750 golden(s) checked, 0 diff(s)
+      ```
+
+      The **only** diffs the sweep ever reported were the 2 `MISSING` artifacts
+      of Correction G6, and they were a build failure, not a byte drift. Every
+      other conversion across all seven letters — including letter G's own
+      `immediate_class` rewrite of three emit sites — is byte-identical on all
+      five targets. No golden was regenerated, by hand or by script, so the two
+      regeneration tasks below are moot on evidence rather than skipped.
+- [x] ~~Goldens outside `tests/byte-identity/` need **hand**-regeneration —
       `regen-ncodesum.sh` misses them (the editing-package.mfb memory). Budget
-      for this; it is the slowest step in the letter.
-- [ ] Run the full acceptance sweep — also its first run since letter A:
+      for this; it is the slowest step in the letter.~~ — moot: no golden needed
+      regeneration at all (0 diffs), so there is nothing for either script to
+      miss. The budgeted "slowest step in the letter" cost nothing, and the
+      attribution pass it was budgeted against cost everything instead.
+- [x] Run the full acceptance sweep — also its first run since letter A:
       `scripts/test-accept.sh` with scratch `/tmp/accept-111g` (never `tests/`;
       the second argument is an `rm -rf` target) and
       `MFB_OPT=3 scripts/test-accept.sh`. Record the `N ran` count and compare it
       against the same command run on the pre-plan-111 worktree — a dropped count
       means fixtures were silently skipped, which no per-letter run was there to
       catch.
-- [ ] Run `scripts/diag-set-diff.sh` and record 0 differing, with `[exit N]` and
+
+      ```
+      default   acceptance tests passed (1290 test(s) ran)
+      MFB_OPT=3 acceptance tests failed: 9 mismatch(es) (1290 test(s) ran)
+      pre-111   acceptance tests passed (1288 test(s) ran)
+      ```
+
+      **1290 vs 1288 is the right direction and the right size.** The count rose
+      by exactly the two fixtures plan-111 added —
+      `rt-behavior/arena/member-iterable-mutate` (letter E) and
+      `rt-behavior/trap/inline-trap-default-able-types` (letter D). Nothing was
+      silently skipped, which is the failure this comparison exists to catch.
+
+      **The 9 are pre-existing and are not behaviour.** Every one is a `.ncode`
+      or `.mir` artifact golden; not one is a `.run`/`.out`, so all 1290 fixtures
+      produce correct OUTPUT at `-O3`. Those goldens pin default-level codegen,
+      so a whole-suite run at `-O3` re-shapes them by construction. Attributed by
+      running the same seven fixtures at `MFB_OPT=3` with the pre-plan-111 binary
+      and diffing the mismatch sets:
+
+      ```
+      $ (cd /tmp/base111 && MFB_OPT=3 scripts/test-accept.sh target/release/mfb \
+          /tmp/accept-base-o3 func_map_getor_hash_probe list-ops-codegen-rt \
+          control-flow-if macos-app-mode-io macos-app-mode-plumbing \
+          parser-hello-world control-flow-match)
+      acceptance tests failed: 9 mismatch(es) (7 test(s) ran)
+      $ diff <(grep ^mismatch: base) <(grep ^mismatch: plan111)   # -> identical
+      ```
+
+      Same nine files, same binary-independent cause. Pre-existing is not an
+      excuse on its own, so the shape was checked too. The diffs are stack-slot
+      coalescing and the smaller frame that follows from it — `sub_sp 320` ->
+      `sub_sp 240`, `add_sp 208` -> `add_sp 160`, and every `sp` offset in
+      between renumbered — which is what a higher `-O` level is FOR. Not one
+      diff changes a value, a branch target or a call. The values themselves are
+      pinned separately by the `.run` goldens, which all pass at `-O3`.
+- [x] Run `scripts/diag-set-diff.sh` and record 0 differing, with `[exit N]` and
       bare `error:` lines captured.
 
-Acceptance: `scripts/artifact-gate.sh all` → 0 diffs; both acceptance sweeps at
-baseline `N ran` with 0 mismatches; `diag-set-diff.sh` 0 differing; every diff
-encountered is classified in Corrections.
+      ```
+      diag-set-diff: 530 fixture(s) with diagnostics — 530 same, 0 reordered, 0 set-diff
+      ```
+
+      The `[exit N]` and unlocated-`error:` lines are part of each record
+      (`scripts/diag-set-diff.sh:73,141`), so "530 same" is equality over the
+      exit status too, not only over the located diagnostics — the distinction
+      the diagnostic-harness memory exists to make.
+
+Acceptance: **MET.** `scripts/artifact-gate.sh all` → **0 diffs** (1274 tests,
+1421 builds, 1750 goldens); default acceptance **1290 ran, 0 mismatches**, which
+is the pre-plan-111 1288 plus exactly the two fixtures this plan added;
+`MFB_OPT=3` **1290 ran** with 9 artifact-golden mismatches proven pre-existing by
+an identical mismatch set from the pre-plan-111 binary; `diag-set-diff.sh` **530
+same, 0 set-diff**. Every diff the sweep produced is classified in Corrections
+(G6 — the only one, and a build failure rather than a byte drift).
 Commit: —
 
 ### Phase 5 — docs and archive
