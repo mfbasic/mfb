@@ -42,7 +42,6 @@ See plan-111-A §Prerequisites. Additionally:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-111-A complete | `cargo test --test no_type_strings` passes; `rg -c 'Stateful' src/types.rs` → >0 | NOT MET until A lands |
-| Kickoff `N ran` baseline recorded | `scripts/test-accept.sh <target> /tmp/accept-111b` → record `N ran` | UNMEASURED — run at kickoff |
 
 ## 1. Goal
 
@@ -171,11 +170,13 @@ Option B. A conversion that turns `*p == "Unknown"` into a variant match must
 preserve that refinement exactly, or width-agnostic native ops like
 `collections::flatten$Unknown` hard-error.
 
-Gate policy per plan-111-A §3: the per-phase signal is `cargo test --no-fail-fast`
-(which includes `golden.rs`, the host-target byte-identity goldens) plus
-`diag-set-diff.sh`; the full cross-target `artifact-gate.sh all` runs **once, in
-letter G**, not here. A diff surfacing there is a bug to root-cause with objdump
-on one fixture, never a reason to stop.
+Per plan-111-A §3, the per-phase gate is `cargo test --no-fail-fast -- --skip artifact_gate_all` —
+the `--skip` keeps the full cross-target artifact sweep out of the loop, since
+`tests/golden.rs`'s only test shells out to `artifact-gate.sh all`. Goldens,
+`test-accept.sh` and the artifact gate are swept **once, in letter G**.
+B is one of the two letters that also runs `diag-set-diff.sh`, because it is one
+of the two that can move a source diagnostic. A diff surfacing in G is a bug to
+root-cause with objdump on one fixture, never a reason to stop.
 
 ## Phases
 
@@ -210,8 +211,8 @@ on one fixture, never a reason to stop.
       removed, in this phase's commit.
 
 Acceptance: `rg -n 'codegen::(engine::types|resource)::' src/ir src/monomorph src/cli --glob '!**/tests*'`
-returns only typed-twin calls (no `&str` helper); `cargo test --no-fail-fast`
-green including `golden.rs`; `scripts/diag-set-diff.sh` 0 differing.
+returns only typed-twin calls (no `&str` helper); `cargo test --no-fail-fast -- --skip artifact_gate_all`
+green; `scripts/diag-set-diff.sh` 0 differing.
 Commit: —
 
 ### Phase 2 — `ir::verify` and `ir::shape` take types, not spellings
@@ -242,8 +243,8 @@ Commit: —
       if one does, that is a coverage gap to record in Corrections.
 
 Acceptance: `rg 'ParameterType::parse\(' src/ir` returns hits only in
-`src/ir/binary.rs`; the `ir` gate budgets are 0; `cargo test --no-fail-fast`
-green including `golden.rs`; `scripts/diag-set-diff.sh` 0 differing with
+`src/ir/binary.rs`; the `ir` gate budgets are 0; `cargo test --no-fail-fast -- --skip artifact_gate_all`
+green; `scripts/diag-set-diff.sh` 0 differing with
 `[exit N]` captured.
 Commit: —
 
@@ -274,26 +275,27 @@ Commit: —
 
 Acceptance (this is also the letter's end-of-letter gate): all six gate budgets
 for `ir`, `monomorph` and `resolver` read 0; `cargo test --no-fail-fast` green
-including `golden.rs`; `scripts/test-accept.sh` with scratch `/tmp/accept-111b`
-reports the same `N ran` as the kickoff baseline and 0 mismatches;
-`scripts/diag-set-diff.sh` 0 differing.
+green;
+`scripts/diag-set-diff.sh` 0 differing (B's end-of-letter diagnostic sweep).
 Commit: —
 
 ## Validation Plan
 
-- Tests: `cargo test --no-fail-fast` (never plain `cargo test` — it stops at
-  `golden.rs` and skips every `rt_*` test).
+- Tests: `cargo test --no-fail-fast -- --skip artifact_gate_all` — `--no-fail-fast` or
+  the `rt_*` tests are skipped; `--skip` or the run is the full artifact sweep.
 - Gate: `cargo test --test no_type_strings` — `ir`, `monomorph` and `resolver`
   budgets at 0 and tight.
 - Coverage check: `ir/verify/values.rs`'s literal-range arms are the one place a
   conversion could silently stop firing. Confirm each rule code still has a
   fixture hit in the corpus rather than assuming the suite covers it.
-- Runtime proof: `scripts/test-accept.sh` with scratch `/tmp/accept-111b` (never
-  `tests/` — the second argument is an `rm -rf` target). Compare `N ran` against
-  the baseline recorded at kickoff.
-- Artifact gate: **not run in this letter** (plan-111-A §3). The per-phase
-  byte-identity signal is `golden.rs` inside `cargo test --no-fail-fast`; the
-  full cross-target sweep is letter G's single run.
+- Runtime proof: **deferred to letter G.** No `test-accept.sh` run in this
+  letter — the acceptance corpus and its goldens are swept once, at the end
+  (plan-111-A §3). The per-phase `rt_*` runtime tests are this letter's
+  behavioral signal.
+
+- Artifact gate / goldens: **not run in this letter** (plan-111-A §3).
+  `artifact-gate.sh all`, `tests/golden.rs` and `test-accept.sh` all run once,
+  in letter G, where any diff is attributed before any golden is regenerated.
 - Diagnostics: `scripts/diag-set-diff.sh` → 0 differing, capturing `[exit N]` and
   bare `error:` lines.
 - Doc sync: repoint any comment in `src/ir/**` that describes the "name-domain

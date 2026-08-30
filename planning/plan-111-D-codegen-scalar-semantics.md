@@ -39,7 +39,6 @@ See plan-111-A §Prerequisites. Additionally:
 |---|---|---|
 | plan-111-C complete | `rg -n '\b(resolve_call\|call_return_type\|argument_types)\(' src/ --glob '!**/tests*'` → definitions only; `string_keyed_type_maps` budget 0 | NOT MET until C lands |
 | Scope re-measured at kickoff | the four census commands from plan-111-A §2, restricted to this letter's file list | UNMEASURED — C reduces the parse denominator; re-measure before starting |
-| Kickoff `N ran` baseline recorded | `scripts/test-accept.sh <target> /tmp/accept-111d` → record `N ran` | UNMEASURED |
 
 ## 1. Goal
 
@@ -126,13 +125,15 @@ Where correctness risk sits, in order:
    ARM but differs on x86 (the audit-ABI-by-emission-path memory), so a mistake
    here is again host-invisible.
 
-Per plan-111-A §3, the per-phase gate is `cargo test --no-fail-fast` (including
-`golden.rs`, host-target byte-identity) plus `diag-set-diff.sh`; the
-cross-target `artifact-gate.sh all` is letter G's single run. For this letter
-specifically, `cargo test --no-fail-fast` must be read as covering the `rt_*`
-runtime tests — **never plain `cargo test`**, which stops at `golden.rs` and
-silently skips every `rt_*` test, which are exactly the tests that catch a wrong
-conversion arm.
+Per plan-111-A §3, the per-phase gate is `cargo test --no-fail-fast -- --skip artifact_gate_all` —
+the `--skip` keeps the full cross-target artifact sweep out of the loop, since
+`tests/golden.rs`'s only test shells out to `artifact-gate.sh all`. Goldens,
+`test-accept.sh` and the artifact gate are swept **once, in letter G**.
+
+For this letter specifically the `rt_*` runtime tests are the whole safety net —
+they are what catches a wrong conversion arm producing a wrong *number*. Drop
+`--no-fail-fast` and they are silently skipped, because they sort after
+`golden.rs`. That would leave this letter with no correctness gate at all.
 
 ## Phases
 
@@ -157,7 +158,7 @@ local to their `match` bodies.
       Corrections and add one.
 
 Acceptance: the four files read 0 on all six needle classes;
-`cargo test --no-fail-fast` green including `golden.rs` and every `rt_*` test.
+`cargo test --no-fail-fast -- --skip artifact_gate_all` green, every `rt_*` test included.
 Commit: —
 
 ### Phase 2 — conversion, numeric operators, string representation (60 sites)
@@ -179,8 +180,7 @@ The highest-value files in this letter, and the one real correctness risk.
       matrix against the fixture list, not by assuming coverage.
 
 Acceptance: the three files read 0 on all six needle classes; every `rt_*`
-numeric/conversion/string test green under `cargo test --no-fail-fast`;
-`scripts/diag-set-diff.sh` 0 differing.
+numeric/conversion/string test green under `cargo test --no-fail-fast`.
 Commit: —
 
 ### Phase 3 — SIMD, error emission, entry and thunk (28 sites, host-invisible risk)
@@ -209,17 +209,22 @@ Commit: —
 
 - Tests: `cargo test --no-fail-fast` — **never plain `cargo test`**. The `rt_*`
   tests sort after `golden.rs` and are silently skipped without `--no-fail-fast`;
-  they are the only tests that catch a wrong conversion arm.
+  with the golden sweep deferred to G, they are the only tests in this letter
+  that catch a wrong conversion arm.
 - Gate: `cargo test --test no_type_strings` — all 15 files at 0, budgets tight.
 - Coverage check: the conversion matrix in `builder_conversions.rs` is the one
   place to verify coverage rather than assume it — enumerate its arms against the
   rt fixture list and record any arm with no fixture.
-- Runtime proof: `scripts/test-accept.sh` with scratch `/tmp/accept-111d` at the
-  kickoff `N ran` and 0 mismatches, plus `MFB_OPT=3 scripts/test-accept.sh` —
-  `-O2+` rows are not exercised by default-level sweeps.
-- Artifact gate: **not run in this letter** (plan-111-A §3). Host-target
-  byte-identity comes from `golden.rs`; the cross-target sweep is letter G's.
-- Diagnostics: `scripts/diag-set-diff.sh` → 0 differing.
+- Runtime proof: **deferred to letter G.** No `test-accept.sh` run in this
+  letter — the acceptance corpus and its goldens are swept once, at the end
+  (plan-111-A §3). The per-phase `rt_*` runtime tests are this letter's
+  behavioral signal.
+
+- Artifact gate / goldens: **not run in this letter** (plan-111-A §3).
+  `artifact-gate.sh all`, `tests/golden.rs` and `test-accept.sh` all run once,
+  in letter G, where any diff is attributed before any golden is regenerated.
+- Diagnostics: **not run in this letter** — this letter touches codegen, which
+  emits no source diagnostics (plan-111-A §3). G re-checks it.
 - Doc sync: `.ai/codegen-invariants.md` if any emitter's documented contract
   mentions a `&str` type argument.
 - Formatting: `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.

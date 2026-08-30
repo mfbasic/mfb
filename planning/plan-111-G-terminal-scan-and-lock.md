@@ -43,7 +43,7 @@ See plan-111-A §Prerequisites. Additionally:
 |---|---|---|
 | plan-111-F complete | `rg` for all six needle classes over `src/codegen/` → 0 hits; every `codegen` budget 0 | NOT MET until F lands |
 | A pre-plan-111 worktree exists for attribution | `git worktree add --detach ../mfb-pre111 <commit before letter A>` | UNMEASURED — create in Phase 4 |
-| Kickoff `N ran` baseline recorded | `scripts/test-accept.sh <target> /tmp/accept-111g` → record `N ran` | UNMEASURED |
+| Pre-plan-111 `N ran` baseline | `scripts/test-accept.sh <target> /tmp/accept-pre111` in the attribution worktree | UNMEASURED — Phase 4 |
 
 ## 1. Goal
 
@@ -150,7 +150,7 @@ Where risk sits:
 - [ ] Lower the `target` gate budgets to 0.
 
 Acceptance: `src/target` reads 0 on all six needle classes;
-`cargo test --no-fail-fast` green including `golden.rs`.
+`cargo test --no-fail-fast -- --skip artifact_gate_all` green.
 Commit: —
 
 ### Phase 2 — the `.mfp` encoder takes a type, not a spelling
@@ -171,7 +171,7 @@ Commit: —
 
 Acceptance: every wire type id is byte-identical to the pre-phase values
 (recorded in the test); a package built before this phase still decodes;
-`cargo test --no-fail-fast` green.
+`cargo test --no-fail-fast -- --skip artifact_gate_all` green.
 Commit: —
 
 ### Phase 3 — the terminal scan, and locking the gate
@@ -199,25 +199,39 @@ Acceptance: every line of the terminal census reads 0;
 count is impossible because there is nothing left to lower.
 Commit: —
 
-### Phase 4 — the single artifact-gate run, and attribution
+### Phase 4 — the single byte-identity sweep: attribute, then regenerate once
 
 - [ ] Create the attribution worktree:
       `git worktree add --detach ../mfb-pre111 <commit before letter A>`, and
       build its release binary.
-- [ ] Run `scripts/artifact-gate.sh all`. Record the diff count.
+- [ ] Run `scripts/artifact-gate.sh all` (equivalently `cargo test --test golden`
+      with no `--skip`). Record the diff count. **This is the first byte-level
+      check since letter A**, so expect a list, not a clean run — that is the
+      plan's design, not a failure.
 - [ ] For **each** diff: build the fixture with the pre-plan-111 binary.
       Baseline output == committed golden → the diff is plan-111's; find and fix
       the conversion that caused it (objdump one fixture to localize). Baseline
       != committed golden → pre-existing; leave the golden, and record it in
       Corrections with the evidence.
+- [ ] **Regenerate goldens once, and only after attribution.** For diffs
+      classified as pre-existing, or as letter E's ` TO `-split bug fix (the one
+      output change plan-111 sanctions), regenerate with
+      `scripts/sync-goldens.sh` / `scripts/regen-ncodesum.sh` and list every
+      regenerated golden in the commit. For diffs classified as plan-111 bugs,
+      **fix the conversion — do not regenerate.** Regenerating an unattributed
+      diff is how a broken conversion ships behind a green gate.
 - [ ] Re-run `scripts/artifact-gate.sh all` until it reads **0 diffs**, with
       every intermediate diff accounted for in Corrections.
-- [ ] Note for regeneration, if any is needed: goldens outside
-      `tests/byte-identity/` need hand-regeneration — `regen-ncodesum.sh` misses
-      them (the editing-package.mfb memory).
-- [ ] Run the full acceptance sweep: `scripts/test-accept.sh` with scratch
-      `/tmp/accept-111g` and `MFB_OPT=3 scripts/test-accept.sh`, both at the
-      kickoff `N ran` with 0 mismatches.
+- [ ] Goldens outside `tests/byte-identity/` need **hand**-regeneration —
+      `regen-ncodesum.sh` misses them (the editing-package.mfb memory). Budget
+      for this; it is the slowest step in the letter.
+- [ ] Run the full acceptance sweep — also its first run since letter A:
+      `scripts/test-accept.sh` with scratch `/tmp/accept-111g` (never `tests/`;
+      the second argument is an `rm -rf` target) and
+      `MFB_OPT=3 scripts/test-accept.sh`. Record the `N ran` count and compare it
+      against the same command run on the pre-plan-111 worktree — a dropped count
+      means fixtures were silently skipped, which no per-letter run was there to
+      catch.
 - [ ] Run `scripts/diag-set-diff.sh` and record 0 differing, with `[exit N]` and
       bare `error:` lines captured.
 
@@ -244,7 +258,7 @@ Commit: —
 - [ ] Delete the `../mfb-pre111` attribution worktree (`--force` if needed).
 
 Acceptance: the seven letters are in `planning/completed/`; no `src/` comment
-claims a permitted type-string re-parse; `cargo test --no-fail-fast` green.
+claims a permitted type-string re-parse; `cargo test --no-fail-fast` green — **with no `--skip`**, since Phase 4 has run.
 Commit: —
 
 ## The terminal census
@@ -273,15 +287,17 @@ Phase 3 with the real number, which is 0 or the plan is not done.
 
 ## Validation Plan
 
-- Tests: `cargo test --no-fail-fast` — never plain `cargo test`.
+- Tests: `cargo test --no-fail-fast` — **with no `--skip` in this letter**, so
+  `artifact_gate_all` runs. Letters A–F skipped it (plan-111-A §3); G is where
+  it comes back, in Phase 4.
 - Gate: `cargo test --test no_type_strings` — no budget table; hard zeros;
   `boundary_list_is_exactly_five` passing.
 - Coverage check: the gate test itself must be proven to fire — reintroduce one
   violation in a scratch commit, watch the gate fail with its file:line, revert.
   A gate that cannot fail is not a gate.
 - Runtime proof: `scripts/test-accept.sh` and `MFB_OPT=3 scripts/test-accept.sh`,
-  both with scratch `/tmp/accept-111g`, both at the kickoff `N ran` with 0
-  mismatches.
+  both with scratch `/tmp/accept-111g`, at the pre-plan-111 `N ran` with 0
+  mismatches after regeneration.
 - Artifact gate: `scripts/artifact-gate.sh all` → **0 diffs**. This is plan-111's
   single run and its final acceptance check.
 - Diagnostics: `scripts/diag-set-diff.sh` → 0 differing, `[exit N]` captured.

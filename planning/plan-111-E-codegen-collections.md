@@ -38,7 +38,6 @@ See plan-111-A §Prerequisites. Additionally:
 |---|---|---|
 | plan-111-D complete | D's 15 files read 0 on all six needle classes | NOT MET until D lands |
 | Scope re-measured at kickoff | the four census commands from plan-111-A §2, restricted to this letter's file list | UNMEASURED — C and D may have reduced it |
-| Kickoff `N ran` baseline recorded | `scripts/test-accept.sh <target> /tmp/accept-111e` → record `N ran` | UNMEASURED |
 
 ## 1. Goal
 
@@ -145,9 +144,10 @@ Where correctness risk sits:
    **bug fix**, and it must be called out in the commit and in Corrections
    rather than landed silently.
 
-Per plan-111-A §3, the per-phase gate is `cargo test --no-fail-fast` (including
-`golden.rs`) plus `diag-set-diff.sh`; the cross-target `artifact-gate.sh all` is
-letter G's single run.
+Per plan-111-A §3, the per-phase gate is `cargo test --no-fail-fast -- --skip artifact_gate_all` —
+the `--skip` keeps the full cross-target artifact sweep out of the loop, since
+`tests/golden.rs`'s only test shells out to `artifact-gate.sh all`. Goldens,
+`test-accept.sh` and the artifact gate are swept **once, in letter G**.
 
 ## Phases
 
@@ -196,7 +196,7 @@ Commit: —
 
 Acceptance: the file reads 0 on all six needle classes; the layout-code test
 passes with the same codes as before the change (record them);
-`cargo test --no-fail-fast` green including `golden.rs` and every `rt_*` test.
+`cargo test --no-fail-fast -- --skip artifact_gate_all` green, every `rt_*` test included.
 Commit: —
 
 ### Phase 3 — comparison, mutation and loop paths (43 sites)
@@ -214,7 +214,7 @@ Commit: —
       `FOR EACH` and mutating it, pinning the no-UAF behavior across the change.
 
 Acceptance: the six files read 0 on all six needle classes;
-`cargo test --no-fail-fast` green; `scripts/diag-set-diff.sh` 0 differing.
+`cargo test --no-fail-fast -- --skip artifact_gate_all` green.
 Commit: —
 
 ### Phase 4 — the per-function collection builtins (63 sites, 18 files)
@@ -241,17 +241,23 @@ Commit: —
 
 ## Validation Plan
 
-- Tests: `cargo test --no-fail-fast` — never plain `cargo test`.
+- Tests: `cargo test --no-fail-fast -- --skip artifact_gate_all` — the `--skip` keeps the full
+  cross-target artifact sweep out of the per-phase loop (plan-111-A §3), and
+  `--no-fail-fast` is required or the `rt_*` tests are silently skipped.
 - Gate: `cargo test --test no_type_strings` — all 25 files at 0, budgets tight.
 - Coverage check: `.ai/collections.md` documents native-lowering paths that the
   default fixture set may not reach. Confirm the converted lowering paths are in
   the suite's denominator rather than assuming a green run covers them.
-- Runtime proof: `scripts/test-accept.sh` with scratch `/tmp/accept-111e` at the
-  kickoff `N ran` and 0 mismatches, **plus `MFB_OPT=3 scripts/test-accept.sh`** —
-  this cluster feeds the optimizer's collection rows, which default-level sweeps
-  do not exercise.
-- Artifact gate: **not run in this letter** (plan-111-A §3).
-- Diagnostics: `scripts/diag-set-diff.sh` → 0 differing.
+- Runtime proof: **deferred to letter G.** No `test-accept.sh` run in this
+  letter — the acceptance corpus and its goldens are swept once, at the end
+  (plan-111-A §3). The per-phase `rt_*` runtime tests are this letter's
+  behavioral signal.
+
+- Artifact gate / goldens: **not run in this letter** (plan-111-A §3).
+  `artifact-gate.sh all`, `tests/golden.rs` and `test-accept.sh` all run once,
+  in letter G, where any diff is attributed before any golden is regenerated.
+- Diagnostics: **not run in this letter** — this letter touches codegen, which
+  emits no source diagnostics (plan-111-A §3). G re-checks it.
 - Doc sync: `.ai/collections.md` if any documented signature changes.
 - Formatting: `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
 

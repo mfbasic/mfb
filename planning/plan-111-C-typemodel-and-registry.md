@@ -45,7 +45,6 @@ See plan-111-A §Prerequisites. Additionally:
 |---|---|---|
 | plan-111-A complete | `cargo test --test no_type_strings` passes; `ParameterType` derives `Hash` | NOT MET until A lands |
 | plan-111-B complete | `rg 'ParameterType::parse\(' src/ir src/monomorph src/resolver` → hits only `src/ir/binary.rs` | NOT MET until B lands |
-| Kickoff `N ran` baseline recorded | `scripts/test-accept.sh <target> /tmp/accept-111c` → record `N ran` | UNMEASURED — run at kickoff |
 
 ## 1. Goal
 
@@ -174,9 +173,9 @@ resolution.
 deliberately.** Per plan-111-A §3 the full `artifact-gate.sh all` runs only in
 letter G, but this letter touches symbol-adjacent tables, and uniform label
 renumbering is invisible to `test-accept` — only `.ncodesum` sees it (the
-abi-function-migration memory). `golden.rs` inside `cargo test --no-fail-fast`
-covers the **host** target only, so a cross-arch drift introduced here would not
-surface until G.
+abi-function-migration memory). With the golden sweep deferred, **no** byte-level
+check runs in this letter at all, so a drift introduced here would not surface
+until G.
 
 The compensation is Phase 2's equivalence assertions: rather than detecting a
 changed lookup downstream in the emitted bytes, this letter proves *at the lookup
@@ -221,9 +220,10 @@ Commit: —
 - [ ] Change each field Phase 1 marked "type" to a `ParameterType` key.
 - [ ] Add a temporary `#[cfg(debug_assertions)]` equivalence assertion at each
       converted lookup: the typed lookup's result equals the string lookup's
-      result. Run the full acceptance corpus in a **debug** build with it active
-      — CI is linux + DEBUG and local gates are mac + RELEASE, so a release-only
-      run proves neither axis (the CI-jobs memory).
+      result. Then compile the whole fixture corpus with the **debug** binary and
+      confirm no assertion trips — CI is linux + DEBUG and the local gates are
+      mac + RELEASE, so a release-only run proves neither axis (the CI-jobs
+      memory). This is a compile sweep only; no goldens are diffed.
 - [ ] Remove the equivalence assertions and the shadow string tables once the
       corpus is clean, in a separate commit that names the run that proved them.
 - [ ] Convert the emitters' *lookups* only — do not convert emitter signatures
@@ -234,9 +234,9 @@ Commit: —
       (`File STATE Cursor`) and asserting both resolve — the two shapes most
       likely to differ between spelling-keyed and type-keyed lookup.
 
-Acceptance: the debug-build corpus run with equivalence assertions active
+Acceptance: the debug-build compile sweep with equivalence assertions active
 reports zero mismatches (record the command and the fixture count);
-`cargo test --no-fail-fast` green including `golden.rs`.
+`cargo test --no-fail-fast -- --skip artifact_gate_all` green.
 Commit: —
 
 ### Phase 3 — collapse the registry's dual API (largest blast radius)
@@ -263,9 +263,8 @@ Commit: —
       regression guard.
 
 Acceptance: `rg -n '\b(resolve_call|call_return_type|argument_types)\(' src/ --glob '!**/tests*'`
-returns 0 hits outside the function definitions themselves; `cargo test --no-fail-fast`
-green including `golden.rs`; `scripts/test-accept.sh` with scratch
-`/tmp/accept-111c` at the kickoff `N ran` and 0 mismatches.
+returns 0 hits outside the function definitions themselves; `cargo test --no-fail-fast -- --skip artifact_gate_all`
+green.
 Commit: —
 
 ### Phase 4 — the last `format!` type construction
@@ -279,27 +278,31 @@ Commit: —
 - [ ] Lower the gate's `format!` budget for `codegen` to 0.
 
 Acceptance: the `format!` needle class reads 0 for `codegen`;
-`cargo test --no-fail-fast` green including `golden.rs`.
+`cargo test --no-fail-fast -- --skip artifact_gate_all` green.
 Commit: —
 
 ## Validation Plan
 
-- Tests: `cargo test --no-fail-fast`.
+- Tests: `cargo test --no-fail-fast -- --skip artifact_gate_all`.
 - Gate: `cargo test --test no_type_strings` — `string_keyed_type_maps` 0
   tree-wide; `codegen` `format!` 0.
-- Coverage check: the equivalence assertions in Phase 2 must run over the
-  acceptance corpus in a **debug** build, not just the release local gate —
-  `#[cfg(debug_assertions)]` guards do not fire in release
-  (`.ai/testing-gates.md`, and the CI-axis memory).
-- Runtime proof: `scripts/test-accept.sh` with scratch `/tmp/accept-111c`, plus
-  `MFB_OPT=3 scripts/test-accept.sh` — optimizer rows are not exercised by
-  default-level sweeps, and this letter changes what the layout tables answer.
-- Artifact gate: **not run in this letter** (plan-111-A §3) — letter G's single
-  run covers it. Phase 2's equivalence assertions are this letter's substitute
-  for the cross-target signal; see §3. Note for F: goldens outside
-  `tests/byte-identity/` need hand-regeneration if they drift, because
-  `regen-ncodesum.sh` misses them.
-- Diagnostics: `scripts/diag-set-diff.sh` → 0 differing.
+- Coverage check: Phase 2's equivalence assertions need a **debug**-build
+  compile sweep over the fixture corpus — `#[cfg(debug_assertions)]` guards do
+  not fire in release, and the local gates are RELEASE (the CI-axis memory).
+  This is a *compile* sweep, not `test-accept.sh`: build the fixtures with the
+  debug binary and check that no assertion trips. It does no golden diffing, so
+  it is far cheaper than the acceptance run and does not violate the
+  deferred-goldens policy — and it is the one thing in this letter that must
+  not be deferred, because it is C's substitute for the byte-level gate.
+- Runtime proof: **deferred to letter G.** No `test-accept.sh` run in this
+  letter — the acceptance corpus and its goldens are swept once, at the end
+  (plan-111-A §3). The per-phase `rt_*` runtime tests are this letter's
+  behavioral signal.
+- Artifact gate / goldens: **not run in this letter** (plan-111-A §3).
+  `artifact-gate.sh all`, `tests/golden.rs` and `test-accept.sh` all run once,
+  in letter G, where any diff is attributed before any golden is regenerated.
+- Diagnostics: **not run in this letter** — this letter touches codegen, which
+  emits no source diagnostics (plan-111-A §3). G re-checks it.
 - Doc sync: `.ai/resources-packages.md` (registry query surface),
   `.ai/collections.md` (layout table keys), and
   `src/docs/spec/architecture/21_type-name-encoding.md`.

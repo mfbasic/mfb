@@ -30,7 +30,7 @@ estimated (§2):
 | **D** | codegen's scalar-semantics cluster (math, conversion, numeric, strings, money, SIMD) | 122 | large |
 | **E** | codegen's collections and layout cluster | 161 | large |
 | **F** | codegen's memory, engine, resource and builtin-package remainder → **codegen at zero** | 175 | large |
-| **G** | `src/target` + the `.mfp` encoder; the terminal census; gate locked to hard zero; the single `artifact-gate all` run; archive | residue + proof | large |
+| **G** | `src/target` + the `.mfp` encoder; the terminal census; gate locked to hard zero; **the single byte-identity sweep** — `artifact-gate all` + `test-accept` + goldens regenerated once, after attribution; archive | residue + proof | large |
 
 Dependency graph is a straight line: A → B → C → D → E → F → G. Every letter
 lowers a gate budget CI enforces, so "mostly done" is not a state this plan can
@@ -82,10 +82,11 @@ Everything below is written against the world where these hold.
 > **If you stop, report the current status of *all* prerequisites**, not only the
 > one that blocked you.
 
-**`artifact-gate.sh all` runs ONCE, at the end of plan-111 (letter G) — not per
-phase and not per letter.** It is the plan's final acceptance check, and the
-per-phase gates below are deliberately the cheaper ones. See §3 for the gate
-policy this implies and how a diff found at the end gets attributed.
+**Every golden/byte-identity sweep runs ONCE, at the end of plan-111 (letter G)
+— not per phase and not per letter.** That means `artifact-gate.sh all`,
+`tests/golden.rs` (whose only test *is* `artifact-gate.sh all`), and
+`scripts/test-accept.sh`. Per-phase gating uses the fast suite only. See §3 for
+the exact commands and how a diff found at the end gets attributed.
 
 ## 1. Goal
 
@@ -253,22 +254,52 @@ mechanical.
 
 So the gate is tiered:
 
-- **Per phase** — `cargo test --no-fail-fast` (which includes `golden.rs`, the
-  host-target byte-identity goldens), the `no_type_strings` ratchet, and
-  `scripts/diag-set-diff.sh`.
-- **Per letter** — additionally `scripts/test-accept.sh` against a
-  session-unique scratch dir, with the `N ran` count compared to the letter's
-  kickoff baseline.
-- **Once, in letter G** — `scripts/artifact-gate.sh all`, the full cross-target
-  `.ncode`/`.ncodesum` sweep, expected to read **0 diffs**.
+- **Per phase** — the fast suite and the ratchet, nothing corpus-scale:
 
-**Attribution at the end.** Because the gate is not run to zero before each
-landing, a diff surfacing in G cannot be assumed to be G's. Classify each one
-against the pre-plan-111 binary (`git worktree add --detach` at the commit before
-letter A): baseline output == golden → the diff is plan-111's, find and fix the
-conversion that caused it; baseline != golden → pre-existing, leave it and say so
-(`.ai/testing-gates.md`; the abi-function-migration memory). Letter G budgets
-time for this classification explicitly.
+  ```
+  cargo test --no-fail-fast -- --skip artifact_gate_all
+  cargo test --test no_type_strings
+  ```
+
+  The `--skip` is load-bearing. `tests/golden.rs` contains exactly one test,
+  `artifact_gate_all`, and it shells out to `scripts/artifact-gate.sh all` — so
+  a plain `cargo test` *is* the full cross-target sweep. Verified: with the skip,
+  the golden target reports `0 passed; 1 filtered out; finished in 0.00s`. What
+  the per-phase run still covers is every unit test and every `rt_*` runtime
+  test — which is where a wrong conversion shows up as a wrong **value**, the
+  failure mode that actually matters during the conversion letters.
+
+- **Per letter A and B only** — `scripts/diag-set-diff.sh`. These are the only
+  two letters that can move a source diagnostic; C–F touch codegen, which emits
+  none. Running it on the codegen letters would cost a corpus sweep to prove
+  something that cannot change.
+
+- **Once, in letter G** — the entire byte-identity and acceptance surface:
+  `scripts/artifact-gate.sh all` (equivalently, `cargo test --test golden`
+  unskipped), `scripts/test-accept.sh` and `MFB_OPT=3 scripts/test-accept.sh`,
+  and `scripts/diag-set-diff.sh`. Goldens are regenerated **once**, there, after
+  attribution.
+
+**Attribution at the end — and this is the cost being bought.** Because no
+byte-level gate runs before G, a diff surfacing there carries no "everything up
+to here was clean" context, and it could have been introduced six letters
+earlier. That is an accepted, deliberate trade: the sweeps are expensive and the
+conversion letters are mechanical. It is paid for two ways.
+
+First, the per-phase `rt_*` runtime tests catch *wrong behavior* as it lands, so
+what reaches G should be byte drift, not miscompiles. Second, G Phase 4 classifies
+every diff against a pre-plan-111 binary (`git worktree add --detach` at the
+commit before letter A): baseline output == committed golden → the diff is
+plan-111's, find and fix the conversion that caused it; baseline != committed
+golden → pre-existing, leave it and record it (`.ai/testing-gates.md`; the
+abi-function-migration memory).
+
+**A changed golden is not automatically a golden to regenerate.** plan-111 is a
+representation migration: it should be byte-identical. The one place output may
+legitimately move is letter E's ` TO `-split fix, if Phase 1's census finds one —
+a real bug fix with a real output change, which E is required to call out by name.
+Everything else that moved is a bug in a conversion. Regenerating first and asking
+later is exactly how plan-102 shipped backward seams behind a green gate.
 
 **A failing byte-identity gate is a bug to root-cause, never a signal the design
 is dead.** Objdump one fixture to localize, find the site converted wrong, fix
@@ -278,9 +309,10 @@ what plan-106-E did with codegen's 109 parses, and it is why this plan exists.
 
 The one place output *may* legitimately move is diagnostics whose text embeds a
 type spelling. It must not: `name()` renders identically before and after, so a
-diagnostic diff is also a bug. `scripts/diag-set-diff.sh` runs per phase and must
-record 0 differing, capturing `[exit N]` and bare `error:` lines (the
-diagnostic-harness memory — a "518 same" reading once hid a failing build).
+diagnostic diff is also a bug. `scripts/diag-set-diff.sh` runs at the end of
+letters A and B and again in G, and must record 0 differing, capturing `[exit N]`
+and bare `error:` lines (the diagnostic-harness memory — a "518 same" reading
+once hid a failing build).
 
 ### Rejected alternatives
 
@@ -375,9 +407,8 @@ One line; unblocks letter C. Safe to land alone.
       for the `round_trip` corpus, equal types hash equal and unequal types
       (at least across all container variants) do not collide in a `HashSet`.
 
-Acceptance: `cargo test --no-fail-fast` green (including `golden.rs`, the
-host-target byte-identity goldens — a derive cannot move codegen; if it does,
-root-cause it).
+Acceptance: `cargo test --no-fail-fast -- --skip artifact_gate_all` green. (A derive
+cannot move codegen; if letter G later shows it did, root-cause it there.)
 Commit: —
 
 ### Phase 3 — `STATE` becomes a variant
@@ -424,29 +455,30 @@ hand-rolled grammar copies. Highest design uncertainty in plan-111.
       plan-106-E Correction 3 must stay green.
 
 Acceptance: the full `round_trip` corpus is byte-exact including every new
-stateful spelling; `cargo test --no-fail-fast` green (including `golden.rs`);
+stateful spelling; `cargo test --no-fail-fast -- --skip artifact_gate_all` green;
 `scripts/diag-set-diff.sh` 0 differing with exit code and unlocated `error:`
-lines captured.
+lines captured (A is one of the two letters that runs it — §3).
 Commit: —
 
 ## Validation Plan
 
 Run at the end of this letter, and repeated per letter B–G.
 
-- Tests: `cargo test --no-fail-fast` — **never plain `cargo test`**, which stops
-  at `golden.rs` and silently skips every `rt_*` test (they sort after it).
+- Tests: `cargo test --no-fail-fast -- --skip artifact_gate_all`. Both flags matter:
+  `--no-fail-fast` or the `rt_*` tests are silently skipped (they sort after
+  `golden.rs`), and `--skip artifact_gate_all` or the run *is* the full
+  cross-target sweep this plan defers to letter G.
 - Gate: `cargo test --test no_type_strings` — budgets tight and not exceeded.
 - Coverage check: the changed code is signature-level and reached by the existing
   suite; confirm `src/types.rs`'s new arms are executed by the round-trip corpus
   rather than assumed (`cargo llvm-cov --bin mfb` per `.ai/build-tooling.md` —
   `mfb` is a binary crate, measure with `--bin`, not `--lib`).
-- Runtime proof: `scripts/test-accept.sh` with a **session-unique scratch dir**
-  (`/tmp/accept-111a`) — the second argument is an `rm -rf` target, never
-  `tests/` or any real directory. Record the `N ran` count and compare it between
-  runs; a dropped count means fixtures were silently skipped.
-- Artifact gate: **not run in this letter.** `scripts/artifact-gate.sh all` is a
-  single end-of-plan check in letter G. The per-phase byte-identity signal here
-  is `golden.rs` inside `cargo test --no-fail-fast`.
+- Runtime proof: **deferred to letter G.** The acceptance corpus is swept once,
+  at the end (§3). When G does run it, the second argument is an `rm -rf`
+  target — use `/tmp/accept-111g`, never `tests/` or any real directory.
+- Artifact gate / goldens: **not run in this letter.** `artifact-gate.sh all`,
+  `tests/golden.rs` and `test-accept.sh` are a single end-of-plan sweep in
+  letter G.
 - Diagnostics: `scripts/diag-set-diff.sh` → 0 differing, with `[exit N]` and bare
   `error:` lines recorded.
 - Doc sync: `src/docs/spec/architecture/21_type-name-encoding.md` gains the
