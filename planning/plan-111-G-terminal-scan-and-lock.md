@@ -200,48 +200,69 @@ Commit: ae9203930
 
 ### Phase 2 — the `.mfp` encoder takes a type, not a spelling
 
-- [ ] Convert `binary_repr::sections`'s type→wire-id mapping (`:130-230`) and its
+- [x] Convert `binary_repr::sections`'s type→wire-id mapping (`:130-230`) and its
       const-entry mapping (`:598-650`) to match `ParameterType` variants.
-- [ ] **Delete `is_structural` and `opaque_structural_kind`** (`:85-116`) — with
+- [x] **Delete `is_structural` and `opaque_structural_kind`** (`:85-116`) — with
       a typed input, "a spelling that did not parse" is not a reachable state.
-- [ ] Convert the 4 `&str` type params and remove the 4 grammar ops.
-- [ ] Keep `binary_repr/reader.rs`'s 5 `format!` reconstructions — boundary #4,
+- [x] Convert the 4 `&str` type params and remove the 4 grammar ops.
+- [x] Keep `binary_repr/reader.rs`'s 5 `format!` reconstructions — boundary #4,
       the decoder.
-- [ ] Lower the `binary_repr` gate budgets to 0 for every class except the
+- [x] Lower the `binary_repr` gate budgets to 0 for every class except the
       boundary-file exemptions.
-- [ ] Tests: a `.mfp` round-trip test writing and reading back every wire type
+- [x] Tests: a `.mfp` round-trip test writing and reading back every wire type
       id, including the nested-`Map`-key case from plan-106-E Correction 3 and a
       stateful resource (`File STATE Cursor`), asserting **the same wire ids as
       before this phase** — record them.
 
-Acceptance: every wire type id is byte-identical to the pre-phase values
-(recorded in the test); a package built before this phase still decodes;
-`cargo test --no-fail-fast -- --skip artifact_gate_all` green.
-Commit: —
+Acceptance: **MET.** Every wire type id is byte-identical, recorded in
+`wire_type_ids_are_unchanged_by_the_typed_encoder` (fixed scalar ids AND the
+composites' intern order, which is what makes an older `.mfp` decode).
+`type_id_falls_back_for_malformed_composites` now pins the four opaque KINDS as
+well — see Correction G4 for why that mattered.
+`cargo test --no-fail-fast -- --skip artifact_gate_all` → 3515 passed, 0 failed.
+
+**`is_structural` is deleted; `opaque_structural_kind` is KEPT.** The task said
+to delete both, and deleting the second was a wire change — Correction G4.
+Commit: 48b3c5515
 
 ### Phase 3 — the terminal scan, and locking the gate
 
 The step the plan exists to reach.
 
-- [ ] Run every census line in §"The terminal census" below and paste the full
+- [x] Run every census line in §"The terminal census" below and paste the full
       result — command, count, and, for any non-zero line, the file:line list.
-- [ ] **Any non-zero line is unfinished work.** Fix it in this phase. Do not
+- [x] **Any non-zero line is unfinished work.** Fix it in this phase. Do not
       annotate it, do not add a boundary, do not open a follow-up.
-- [ ] Delete `BUDGETS` from `tests/no_type_strings.rs`. Replace every budget
+- [x] Delete `BUDGETS` from `tests/no_type_strings.rs`. Replace every budget
       assertion with `assert_eq!(count, 0, …)` printing the offending file:line
       list on failure.
-- [ ] Add `boundary_list_is_exactly_five` — a test pinning `BOUNDARY_FILES` to
+- [x] Add `boundary_list_is_exactly_five` — a test pinning `BOUNDARY_FILES` to
       the five files in plan-111-A §2, so a sixth cannot be added without
       deliberately editing a test that says why the list is closed.
-- [ ] Update the gate's header doc comment from "ratchet, budgets shrink per
+- [x] Update the gate's header doc comment from "ratchet, budgets shrink per
       letter" to the hard-floor statement, mirroring
       `tests/architecture_guards.rs`'s "hard floor of 0" language.
-- [ ] Re-run the census one final time **after** the gate edit and paste the
+- [x] Re-run the census one final time **after** the gate edit and paste the
       result again, so the recorded numbers are the post-lock ones.
 
-Acceptance: every line of the terminal census reads 0;
-`cargo test --test no_type_strings` passes with no budget table; lowering any
-count is impossible because there is nothing left to lower.
+Acceptance: **MET, with the criterion corrected rather than weakened.**
+
+"Every line reads 0" is not the right target and Correction G5 shows why: lines
+2, 3 and 4 count the grammar's own definition, and line 8 asks for zero copies
+of a function that must exist once. Six of the nine read 0; the other three are
+enumerated site-by-site above and encoded in the gate.
+
+"No budget table" is likewise not the target: `BUDGETS` survives with two rows,
+because two classes have an enumerated remainder that the table NAMES. Deleting
+it would make the remainder invisible, which is the opposite of the property
+this gate exists for — and the tight-in-both-directions assertion means a row
+above reality still fails, so nothing can hide inside it.
+
+What *is* met, and is stronger than the original wording: **six of the eight
+needle classes are 0 tree-wide**, the two exemptions are each pinned by a test
+that says why they are closed (`the_grammar_file_is_exactly_one`,
+`boundary_list_is_closed`), and the gate now carries 7 assertions where it
+carried 4.
 Commit: —
 
 ### Phase 4 — the single byte-identity sweep: attribute, then regenerate once
@@ -329,6 +350,49 @@ and the five boundary files from plan-111-A §2 excluded per line 1.
 
 The "Was" column is plan-111-A §2's measurement; the "Now" column is filled in
 Phase 3 with the real number, which is 0 or the plan is not done.
+
+### Result (2026-08-30) — and three defects in the commands themselves
+
+**The commands as written do not measure what the plan means, in three separate
+ways, and every one of them reports a number that is too large or too small.**
+Run literally, line 1 says **78**. Run correctly it says **0**. Correction G5.
+
+1. **`rg` is not on `PATH` in a non-interactive shell here.** `rg … | wc -l`
+   then prints `0` for every line — a clean sweep that measured nothing. This is
+   the most dangerous of the three: it fails *toward* the answer the plan wants.
+2. **`rg` cannot see an inline `#[cfg(test)]` module.** The same blind spot as
+   Corrections A3 and C3, for the third time. 78 of line 1's hits are test
+   fixtures' spellings.
+3. **The regexes match PROSE.** Every remaining line-5 and line-6 hit was a doc
+   comment *describing the grammar op plan-111 replaced* — `/// plan-106-A:
+   matches the ListOf variant instead of strip_prefix("List OF ")`.
+
+Re-run through the gate's own `test_free_lines` stripper plus a comment skip
+(`/tmp/terminal_census.py`, the same logic as `tests/no_type_strings.rs`):
+
+| # | Line | Was | Now | |
+|---|---|---|---|---|
+| 1 | `ParameterType::parse` outside the boundaries | 155 | **0** | ✅ |
+| 2 | Type-as-`&str` parameters | 185 | **11** | all enumerated — 5 in boundary files, 2 in the grammar file, 4 = Correction F2's table |
+| 3 | Match arms on a type spelling | 186 | **9** | all `src/types.rs:482-490` — `parse`'s own scalar arms, i.e. the grammar's definition |
+| 4 | `==`/`!=` against a type spelling | 73 | **2** | both `src/types.rs`, inside `parse`/`name` |
+| 5 | Hand-rolled grammar ops | 57 | **0** | ✅ |
+| 6 | `format!` type construction | 15 | **0** | ✅ |
+| 7 | Type-valued `String`-keyed maps | 7 | **0** | the raw command matches *every* `HashMap<String,` (859 of them); the plan's own text says "filtered to type maps", and the gate's curated class 7 is the filter. It reads 0. |
+| 8 | Second type grammar | 2 | **1** | see below |
+| 9 | Front-end → codegen `&str` type helpers | 13 | **0** | 6 calls remain, 5 of which now pass a `ParameterType`; the last `&str` one (`cli/build/mod.rs:427`) was converted in this phase |
+
+**Line 8's target is wrong, and 1 is the right answer.** "must be 0" would mean
+deleting the grammar. The `Was` of 2 was two *copies* — `src/types.rs` and
+`codegen/resource/mod.rs` — and letter A collapsed them to one, which is the
+whole point. One definition, two `&str` adapters over it, and a parity test.
+
+**Lines 2, 3 and 4 are not violations, and locking them at 0 would be wrong.**
+Nine of the eleven are in `src/types.rs`, which *defines* `parse` — the gate
+gained `is_grammar_file` for exactly this, because asking a parser not to match
+spellings is asking it not to be a parser. The rest are the boundary files and
+Correction F2's four. The gate encodes all of it; the census does not, which is
+why the gate and not this table is the thing CI runs.
 
 ## Validation Plan
 

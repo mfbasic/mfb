@@ -422,11 +422,12 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // plan-105-A: the signature arrives TYPED, so the return type is a field —
     // not the tail after the last ` AS ` of a string the driver formatted itself.
     // A stateful resource return (`SoundFile STATE FileInfo`) carries its STATE
-    // clause inside the nominal leaf, which `base_resource_name` strips.
+    // clause inside the nominal leaf; plan-111-G strips it structurally, so the
+    // driver no longer reaches into codegen's `&str` name helpers at all.
+    // `imported_resource_types` is a NAME set, so the base renders for that
+    // lookup only.
     let returns_imported_resource = |signature: &ir::ExternalSignature| {
-        imported_resource_types.contains(crate::codegen::resource::base_resource_name(
-            &signature.returns.name(),
-        ))
+        imported_resource_types.contains(signature.returns.without_state().name().as_ref())
     };
     let source_external_signatures: HashMap<String, ir::ExternalSignature> =
         all_external_signatures

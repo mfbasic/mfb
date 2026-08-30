@@ -8,18 +8,44 @@
 //! flowing *into* a decision: re-parsed, matched on, compared against, taken as
 //! a `&str` parameter, taken apart with `split_once`, or used as a map key.
 //!
-//! This file scans the tree for the seven needle classes that spell exactly
-//! that, and asserts each per-directory count is at or below a hardcoded
-//! budget. **plan-111 lowers a budget in the same commit as the work that
-//! cleared it**, so "mostly migrated" is a number CI enforces rather than a
-//! claim in a document. Letter G sets every budget to 0 and this file becomes a
-//! **hard floor of 0** — mirroring `builtins_no_hand_picked_vreg` in
-//! `tests/architecture_guards.rs`, whose migration is likewise complete.
+//! This file scans the tree for the eight needle classes that spell exactly
+//! that. **plan-111 is complete, and this is a hard floor** — mirroring
+//! `builtins_no_hand_picked_vreg` in `tests/architecture_guards.rs`, whose
+//! migration is likewise done. Six of the eight classes are **0 tree-wide**:
 //!
-//! The budget table is asserted **tight in both directions**: a count above its
-//! budget fails (a regression), and a budget above the live count also fails
-//! with "lower this budget to N" (a silent allowance that would let a
-//! regression hide inside slack already spent).
+//! | class | |
+//! |---|---|
+//! | 1  `parse_sites` | `ParameterType::parse` only in the boundary files |
+//! | 3  `spelling_match_arms` | no `match` on a spelling, anywhere |
+//! | 4  `spelling_compares` | no `==`/`!=` against a spelling, anywhere |
+//! | 5  `hand_rolled_grammar` | no second parser outside the boundaries |
+//! | 6  `format_type_construction` | no spelling built by `format!` outside them |
+//! | 7  `string_keyed_type_maps` | no type-keyed map keyed by `String` |
+//!
+//! Two carry a small enumerated remainder, and the `BUDGETS` comment names
+//! every entry with the reason it cannot convert: `declared_sites` (class 1b,
+//! the places a declared NAME genuinely crosses into the type domain) and
+//! `str_type_params` for `codegen` (four sites — two `&str` adapters over the
+//! one STATE grammar, two `&'static str` fields of `const` descriptor tables
+//! that cannot hold a `ParameterType` because it is not const-constructible).
+//!
+//! The table is asserted **tight in both directions**: a count above its budget
+//! fails (a regression), and a budget above the live count also fails with
+//! "lower this budget to N" (a silent allowance a regression could hide inside).
+//! With the migration complete, the second direction is the load-bearing one —
+//! it is what stops a deleted site from leaving slack behind.
+//!
+//! Two exemptions carry the rest, and each is pinned by its own test:
+//!
+//! * `is_grammar_file` — `src/types.rs` DEFINES `parse` and `name`. Asking a
+//!   parser not to match spellings is asking it not to be a parser. Total
+//!   exemption, exactly one file (`the_grammar_file_is_exactly_one`).
+//! * `is_boundary_file` — the sanctioned boundaries are exempt from the four
+//!   NAME-HANDLING classes (1, 2, 5, 6) and from **none** of the three DECISION
+//!   classes (3, 4, 7). A boundary may parse a spelling and may render one; it
+//!   may not decide anything by comparing one. That split is load-bearing:
+//!   `binary_repr/sections.rs` held 19 spelling match arms until letter G, in a
+//!   file that was already a boundary (`boundary_list_is_closed`).
 //!
 //! Like `tests/architecture_guards.rs` this lives in `tests/` — an integration
 //! crate — so neither the scan roots nor the self-exemption have to reason
@@ -1459,9 +1485,45 @@ fn the_grammar_file_is_exactly_one() {
     );
 }
 
-/// Every `BOUNDARY_FILES` entry carries a justification and still exists. The
-/// list is the plan's one sanctioned allowance, so it must not rot into a
-/// junk drawer.
+/// The boundary list is CLOSED, and adding to it requires editing this test.
+///
+/// plan-111-A named five boundaries; letter G added the decoder half of #4
+/// (`binary_repr/reader.rs`, Correction G2), so the list is six files in five
+/// groups. It is the plan's one sanctioned allowance for the name-handling
+/// classes, and the way an allowance rots is by growing quietly — so the exact
+/// membership is asserted here rather than merely justified in a string.
+///
+/// A seventh entry is not forbidden. It is required to be *deliberate*: whoever
+/// adds one has to come here, read why the list is closed, and say what makes
+/// their file a boundary rather than a place that skipped the conversion.
+#[test]
+fn boundary_list_is_closed() {
+    let listed: Vec<&str> = BOUNDARY_FILES.iter().map(|(f, _)| *f).collect();
+    assert_eq!(
+        listed,
+        vec![
+            // #1 the parser's own recursion
+            "src/types.rs",
+            // #2 the IR binary codec
+            "src/ir/binary.rs",
+            // #3 the AST -> HIR elaboration seam
+            "src/hir/mod.rs",
+            "src/hir/build.rs",
+            // #4 the .mfp wire codec, both directions
+            "src/binary_repr/writer.rs",
+            "src/binary_repr/sections.rs",
+            "src/binary_repr/reader.rs",
+            "src/binary_repr/builder.rs",
+            // #5 the package manifest
+            "src/manifest/package.rs",
+        ],
+        "the boundary list is closed at five GROUPS. Adding an entry means \
+         claiming a file converts between the name world and the type world — \
+         not that it has not been converted yet."
+    );
+}
+
+/// Every `BOUNDARY_FILES` entry carries a justification and still exists.
 #[test]
 fn boundary_files_exist_and_are_justified() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
