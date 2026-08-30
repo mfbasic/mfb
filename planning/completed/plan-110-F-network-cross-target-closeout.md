@@ -186,7 +186,7 @@ matrix, plus TLS client+server proofs on macOS, Windows and four Linux boxes. Bo
 (aarch64 musl), 2232 (riscv64 glibc), 2222, 2225 and 2226 refused connections and are reported as
 unavailable, not as passes; both architectures they would have added are execution-covered by
 another libc (2223 aarch64 glibc, 2229 riscv64 musl).
-Commit: —
+Commit: 62e92782a (bug-460 + the matrix), fcac5a55c (bug-461, bug-462)
 
 ### Phase 3 — Artifacts, docs, and final gates
 
@@ -226,7 +226,7 @@ Commit: —
 Acceptance: all required gates and native runtime proofs pass; generated deltas are exclusively
 attributable to plan 110; the four rendered package surfaces exactly match the request. **Met**, as
 measured in the three boxes above.
-Commit: —
+Commit: fcac5a55c
 
 ## Validation Plan
 
