@@ -127,15 +127,34 @@ Commit: 5629fc9bb, and the type-confusion fix below
 
 ### Phase 2 — Remaining first-party consumers
 
-- [ ] Migrate every compiler-owned source, acceptance source, runtime/syntax fixture, integration
+- [x] Migrate every compiler-owned source, acceptance source, runtime/syntax fixture, integration
       test, script, audit capability expectation, and example from the fresh census.
-- [ ] Rename/move fixtures from net to tcp/udp/tls buckets where their behavior lives; preserve each
+      24 fixture sources, 2 package sources (`tools/thread-package-sources/`), the
+      `rt_macos_d4_union_state_tls` integration test, the audit-capability fixture, and the
+      blackhole tooling's docs. `scripts/check-tcp-connect-timeout.sh` was already on `tcp::connect`
+      from plan-110-B and still passes. Deliberately NOT migrated: the ~20 remaining `net::`
+      mentions in compiler sources are prose citing net's behaviour as precedent, accurate until
+      Phase 3 removes the surface.
+- [x] Rename/move fixtures from net to tcp/udp/tls buckets where their behavior lives; preserve each
       behavioral assertion and use `git log -S`/blame before changing any disputed expected line.
-- [ ] Update timeout blackhole tooling and byte-identity fixture sources.
+      **36 fixtures moved** with `git mv` (so history follows them): 20 rt-behavior, 15 syntax,
+      1 rt-error. `net` keeps exactly the 10 that test what it retains — lookup, ping, parseQuery,
+      percentDecode, toUrl (×2), url_toString, decode, ping_range. No assertion was dropped; the
+      two `readText` fixtures keep theirs by decoding explicitly
+      (`encoding::utf8Decode(tcp::read(..))`), since `tcp::read` is bytes-only by design.
+- [x] Update timeout blackhole tooling and byte-identity fixture sources.
+      `scripts/net_blackhole_server.py`'s contract line now names `tcp::connect`;
+      `scripts/check-tcp-connect-timeout.sh` was already migrated by plan-110-B and re-verified
+      green here (`PASS: tcp::connect timed out with ErrTimeout`). `byte-identity/http` migrated;
+      `byte-identity/net` deliberately keeps net's stream corpus until Phase 3 deletes the surface
+      it covers.
 
 Acceptance: `rg` finds old symbols only in historical plans/bugs and explicit negative migration
-tests; all migrated runtime tests retain their prior observable behavior.
-Commit: —
+tests; all migrated runtime tests retain their prior observable behavior. **MET for the consumer
+half** — every migrated fixture keeps its prior observable behaviour (acceptance 1299 tests,
+0 mismatches, and no `.run` golden or exit code moved anywhere in the migration). The `rg` half
+completes with Phase 3, which removes the surface the remaining hits describe.
+Commit: 9b62dcf23, and the fixture move below
 
 ### Phase 3 — Remove legacy surface
 

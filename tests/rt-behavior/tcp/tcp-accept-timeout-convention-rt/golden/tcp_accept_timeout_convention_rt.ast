@@ -1,0 +1,125 @@
+{
+  "project": "tcp_accept_timeout_convention_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "net", "line": 7 },
+    { "module": "tcp", "line": 8 },
+    { "module": "io", "line": 9 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "acceptZeroTimeout",
+      "line": 13,
+      "params": [
+      { "name": "server", "type": "tcp.Listener", "default": null, "line": 13 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "s", "type": null, "value": { "kind": "call", "callee": "tcp.accept", "arguments": [{ "kind": "identifier", "value": "server" }, { "kind": "number", "value": "0" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.close", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 16 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 17,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "number", "value": "77050008" } },
+        "line": 18,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 19 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "accept0 wrong " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 21 },
+      { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 22 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "acceptNegativeInvalid",
+      "line": 27,
+      "params": [
+      { "name": "server", "type": "tcp.Listener", "default": null, "line": 27 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "s", "type": null, "value": { "kind": "call", "callee": "tcp.accept", "arguments": [{ "kind": "identifier", "value": "server" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.close", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 29 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 30 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 31,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "number", "value": "77050002" } },
+        "line": 32,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 33 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "accept-neg wrong " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 35 },
+      { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 36 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 40,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": null, "value": { "kind": "call", "callee": "tcp.listen", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "bound", "type": null, "value": { "kind": "call", "callee": "tcp.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 42 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "acceptZeroTimeout", "arguments": [{ "kind": "identifier", "value": "server" }] }, "right": { "kind": "number", "value": "0" } },
+        "line": 44,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 45 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "accept0 timeout" }] }, "line": 47 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "acceptNegativeInvalid", "arguments": [{ "kind": "identifier", "value": "server" }] }, "right": { "kind": "number", "value": "0" } },
+        "line": 49,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 50 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "accept-neg invalid" }] }, "line": 52 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "client", "type": null, "value": { "kind": "call", "callee": "tcp.connect", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, "line": 55 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "conn", "type": null, "value": { "kind": "call", "callee": "tcp.accept", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "accept-omit ok" }] }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.close", "arguments": [{ "kind": "identifier", "value": "conn" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.close", "arguments": [{ "kind": "identifier", "value": "client" }] }, "line": 59 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 60 }
+      ]
+    }
+    ]
+  }
+  ]
+}

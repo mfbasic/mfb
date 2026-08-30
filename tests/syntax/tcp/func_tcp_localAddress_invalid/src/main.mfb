@@ -1,0 +1,9 @@
+IMPORT net
+IMPORT tcp
+
+FUNC main AS Integer
+  LET missing = tcp::localAddress()
+  LET wrongType = tcp::localAddress(1)
+  LET tooMany = tcp::localAddress(1, 2)
+  RETURN 0
+END FUNC

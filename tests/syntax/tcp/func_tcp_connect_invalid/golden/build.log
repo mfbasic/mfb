@@ -1,0 +1,104 @@
+$ mfb build -ast -ir tests/syntax/tcp/func_tcp_connect_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   RES missing = tcp::connect()
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `tcp.connect` has 0 argument(s), expected 1 to 3.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   RES missing = tcp::connect()
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   RES missing = tcp::connect()
+   5 |   RES wrongHost = tcp::connect(1, 80)
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `tcp.connect` has argument type(s) (Integer, Integer), expected String, Integer, Integer or Address, Integer.
+   3 | FUNC main AS Integer
+   4 |   RES missing = tcp::connect()
+   5 |   RES wrongHost = tcp::connect(1, 80)
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongHost` does not have a known type.
+   4 |   RES missing = tcp::connect()
+   5 |   RES wrongHost = tcp::connect(1, 80)
+   6 |   RES wrongPort = tcp::connect("h", "p")
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `tcp.connect` has argument type(s) (String, String), expected String, Integer, Integer or Address, Integer.
+   4 |   RES missing = tcp::connect()
+   5 |   RES wrongHost = tcp::connect(1, 80)
+   6 |   RES wrongPort = tcp::connect("h", "p")
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongPort` does not have a known type.
+   5 |   RES wrongHost = tcp::connect(1, 80)
+   6 |   RES wrongPort = tcp::connect("h", "p")
+   7 |   RES tooMany = tcp::connect("h", 80, 0, 0)
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `tcp.connect` has 4 argument(s), expected 1 to 3.
+   5 |   RES wrongHost = tcp::connect(1, 80)
+   6 |   RES wrongPort = tcp::connect("h", "p")
+   7 |   RES tooMany = tcp::connect("h", 80, 0, 0)
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+   8 |   ' `timeoutMs` names the timeout, so it must never silently fill the port slot:
+   9 |   ' this omits `port` and is an arity error, not a connection to port 5000.
+  10 |   RES timeoutAsPort = tcp::connect(host := "h", timeoutMs := 5000)
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:10 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `tcp.connect` omits parameter `port` before a later supplied argument.
+   9 |   ' this omits `port` and is an arity error, not a connection to port 5000.
+  10 |   RES timeoutAsPort = tcp::connect(host := "h", timeoutMs := 5000)
+  11 |   RES unknownName = tcp::connect(host := "h", port := 80, deadline := 1)
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:11 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `tcp.connect` does not have a parameter named `deadline`.
+  10 |   RES timeoutAsPort = tcp::connect(host := "h", timeoutMs := 5000)
+  11 |   RES unknownName = tcp::connect(host := "h", port := 80, deadline := 1)
+  12 |   RES duplicateName = tcp::connect(host := "h", host := "h2", port := 80)
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:12 error[2-203-0058 TYPE_DUPLICATE_ARGUMENT_NAME]: call argument is supplied more than once
+               Call to `tcp.connect` supplies parameter `host` more than once.
+  10 |   RES timeoutAsPort = tcp::connect(host := "h", timeoutMs := 5000)
+  11 |   RES unknownName = tcp::connect(host := "h", port := 80, deadline := 1)
+  12 |   RES duplicateName = tcp::connect(host := "h", host := "h2", port := 80)
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:12 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `tcp.connect` has argument type(s) (String, String, Integer), expected String, Integer, Integer or Address, Integer.
+  10 |   RES timeoutAsPort = tcp::connect(host := "h", timeoutMs := 5000)
+  11 |   RES unknownName = tcp::connect(host := "h", port := 80, deadline := 1)
+  12 |   RES duplicateName = tcp::connect(host := "h", host := "h2", port := 80)
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `duplicateName` does not have a known type.
+  11 |   RES unknownName = tcp::connect(host := "h", port := 80, deadline := 1)
+  12 |   RES duplicateName = tcp::connect(host := "h", host := "h2", port := 80)
+  13 |   RES positionalCollision = tcp::connect("h", host := "h2")
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:13 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `tcp.connect` omits parameter `port` before a later supplied argument.
+  11 |   RES unknownName = tcp::connect(host := "h", port := 80, deadline := 1)
+  12 |   RES duplicateName = tcp::connect(host := "h", host := "h2", port := 80)
+  13 |   RES positionalCollision = tcp::connect("h", host := "h2")
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:13 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `tcp.connect` has argument type(s) (String, String), expected String, Integer, Integer or Address, Integer.
+  11 |   RES unknownName = tcp::connect(host := "h", port := 80, deadline := 1)
+  12 |   RES duplicateName = tcp::connect(host := "h", host := "h2", port := 80)
+  13 |   RES positionalCollision = tcp::connect("h", host := "h2")
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:13 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `positionalCollision` does not have a known type.
+  12 |   RES duplicateName = tcp::connect(host := "h", host := "h2", port := 80)
+  13 |   RES positionalCollision = tcp::connect("h", host := "h2")
+  14 |   RES noSuchOverload = tcp::connect(address := "h", port := 80)
+     | ^
+tests/syntax/tcp/func_tcp_connect_invalid/src/main.mfb:14 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `tcp.connect` has no overload taking these arguments.
+[exit 1]

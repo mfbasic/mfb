@@ -1,0 +1,9 @@
+IMPORT tcp
+
+FUNC main AS Integer
+  LET missing = tcp::setReadTimeout()
+  LET wrongType = tcp::setReadTimeout(1, 100)
+  LET wrongMs = tcp::setReadTimeout("s", "x")
+  LET tooMany = tcp::setReadTimeout(1, 2, 3)
+  RETURN 0
+END FUNC

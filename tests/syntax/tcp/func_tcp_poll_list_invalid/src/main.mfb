@@ -1,0 +1,21 @@
+' plan-76-A: the tcp::poll list overload rejects incorrect usage.
+'  - A bare `List OF tcp::Socket` (no RES) is not a constructible collection type
+'    (§15.6): a resource element must be marked RES.
+'  - A non-list, non-tcp::Socket argument matches neither overload.
+'  - A non-Integer timeout is rejected.
+IMPORT tcp
+IMPORT collections
+
+FUNC main AS Integer
+  ' Resource element without the RES marker — rejected at the declaration.
+  MUT bare AS List OF tcp::Socket = []
+  RES pickBare AS tcp::Socket = tcp::poll(bare)
+
+  ' Neither tcp::Socket nor List OF RES tcp::Socket.
+  LET pickStr = tcp::poll("not a socket")
+
+  ' Wrong timeout type on the list overload.
+  MUT socks AS List OF RES tcp::Socket = []
+  RES pickBad AS tcp::Socket = tcp::poll(socks, "later")
+  RETURN 0
+END FUNC

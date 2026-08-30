@@ -6,6 +6,7 @@
 ' The removed `net` spellings (`readText`/`writeText`/`connectTcp`/`listenTcp`)
 ' are unknown-member errors, which the resolver reports before type checking, so
 ' they live in `func_tcp_removed_members_invalid` instead.
+IMPORT net
 IMPORT tcp
 
 FUNC main AS Integer

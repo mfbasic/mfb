@@ -1,0 +1,14 @@
+IMPORT net
+IMPORT tcp
+IMPORT io
+
+FUNC main AS Integer
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound = tcp::localAddress(server)
+  RES c1 = tcp::connect("127.0.0.1", bound.port)
+  RES c2 = tcp::connect("127.0.0.1", bound.port)
+  RES conn1 = tcp::accept(server)
+  RES conn2 = tcp::accept(server, 5000)
+  io::print("accepted two")
+  RETURN 0
+END FUNC

@@ -1,0 +1,50 @@
+$ mfb build -ast -ir tests/syntax/tcp/func_tcp_write_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing = tcp::write()
+     | ^
+tests/syntax/tcp/func_tcp_write_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `tcp.write` has 0 argument(s), expected 2.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing = tcp::write()
+     | ^
+tests/syntax/tcp/func_tcp_write_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET missing = tcp::write()
+   5 |   LET wrongType = tcp::write(1, 2)
+     | ^
+tests/syntax/tcp/func_tcp_write_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `tcp.write` has argument type(s) (Integer, Integer), expected Socket, List OF Byte or Socket, String.
+   3 | FUNC main AS Integer
+   4 |   LET missing = tcp::write()
+   5 |   LET wrongType = tcp::write(1, 2)
+     | ^
+tests/syntax/tcp/func_tcp_write_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+   4 |   LET missing = tcp::write()
+   5 |   LET wrongType = tcp::write(1, 2)
+   6 |   LET wrongBytes = tcp::write("s", "b")
+     | ^
+tests/syntax/tcp/func_tcp_write_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `tcp.write` has argument type(s) (String, String), expected Socket, List OF Byte or Socket, String.
+   4 |   LET missing = tcp::write()
+   5 |   LET wrongType = tcp::write(1, 2)
+   6 |   LET wrongBytes = tcp::write("s", "b")
+     | ^
+tests/syntax/tcp/func_tcp_write_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongBytes` does not have a known type.
+   5 |   LET wrongType = tcp::write(1, 2)
+   6 |   LET wrongBytes = tcp::write("s", "b")
+   7 |   LET tooMany = tcp::write(1, 2, 3)
+     | ^
+tests/syntax/tcp/func_tcp_write_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `tcp.write` has 3 argument(s), expected 2.
+   5 |   LET wrongType = tcp::write(1, 2)
+   6 |   LET wrongBytes = tcp::write("s", "b")
+   7 |   LET tooMany = tcp::write(1, 2, 3)
+     | ^
+tests/syntax/tcp/func_tcp_write_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]

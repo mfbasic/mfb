@@ -1,0 +1,9 @@
+IMPORT tcp
+
+FUNC main AS Integer
+  LET missing = tcp::write()
+  LET wrongType = tcp::write(1, "v")
+  LET wrongValue = tcp::write("s", 5)
+  LET tooMany = tcp::write(1, "v", 3)
+  RETURN 0
+END FUNC

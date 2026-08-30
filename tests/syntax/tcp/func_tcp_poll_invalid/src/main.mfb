@@ -1,0 +1,8 @@
+IMPORT tcp
+
+FUNC main AS Integer
+  LET missing = tcp::poll()
+  LET wrongType = tcp::poll(1, 0)
+  LET tooMany = tcp::poll(1, 2, 3)
+  RETURN 0
+END FUNC

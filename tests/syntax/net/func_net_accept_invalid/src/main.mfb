@@ -1,8 +1,0 @@
-IMPORT net
-
-FUNC main AS Integer
-  RES missing = net::accept()
-  RES wrongType = net::accept(1)
-  RES tooMany = net::accept(1, 2, 3)
-  RETURN 0
-END FUNC

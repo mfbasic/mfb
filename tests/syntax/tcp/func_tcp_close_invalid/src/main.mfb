@@ -1,0 +1,8 @@
+IMPORT tcp
+
+FUNC main AS Integer
+  LET missing = tcp::close()
+  LET wrongType = tcp::close(1)
+  LET tooMany = tcp::close(1, 2)
+  RETURN 0
+END FUNC

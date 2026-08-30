@@ -1,0 +1,25 @@
+IMPORT collections
+IMPORT net
+IMPORT tcp
+IMPORT io
+
+FUNC main AS Integer
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound = tcp::localAddress(server)
+  LET address = collections::get(net::lookup("127.0.0.1", bound.port), 0)
+  RES c1 = tcp::connect("127.0.0.1", bound.port)
+  RES c2 = tcp::connect("127.0.0.1", bound.port, 5000)
+  RES c3 = tcp::connect(address)
+  RES c4 = tcp::connect(address, 5000)
+  ' Every overload is reachable with named arguments, and `timeoutMs` binds to
+  ' the timeout parameter in each of them — never to `port`.
+  RES n1 = tcp::connect(host := "127.0.0.1", port := bound.port)
+  RES n2 = tcp::connect(host := "127.0.0.1", port := bound.port, timeoutMs := 5000)
+  RES n3 = tcp::connect(address := address)
+  RES n4 = tcp::connect(address := address, timeoutMs := 5000)
+  ' Named arguments may be given out of order, or follow a positional one.
+  RES n5 = tcp::connect(timeoutMs := 5000, port := bound.port, host := "127.0.0.1")
+  RES n6 = tcp::connect("127.0.0.1", timeoutMs := 5000, port := bound.port)
+  io::print("connected all overloads")
+  RETURN 0
+END FUNC

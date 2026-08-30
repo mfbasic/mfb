@@ -1,0 +1,28 @@
+' plan-76-A: both tcp::poll overloads resolve — the scalar readiness query
+' (`tcp::Socket → Boolean`) and the readiness multiplex (`List OF RES tcp::Socket → tcp::Socket`,
+' a borrowed element pointer the list still owns). Compile-only (-ast -ir).
+IMPORT net
+IMPORT tcp
+IMPORT io
+IMPORT collections
+
+FUNC main AS Integer
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound = tcp::localAddress(server)
+  RES client = tcp::connect("127.0.0.1", bound.port)
+  RES conn = tcp::accept(server)
+
+  ' Scalar overload: tcp::poll(tcp::Socket[, Integer]) → Boolean.
+  LET ready AS Boolean = tcp::poll(conn)
+  LET readyT AS Boolean = tcp::poll(conn, 100)
+  io::print(toString(ready) & toString(readyT))
+
+  ' List overload: tcp::poll(List OF RES tcp::Socket[, Integer]) → tcp::Socket (borrowed).
+  MUT socks AS List OF RES tcp::Socket = []
+  socks = collections::append(socks, conn)
+  RES first AS tcp::Socket = tcp::poll(socks)
+  RES firstT AS tcp::Socket = tcp::poll(socks, 100)
+  tcp::write(first, "x")
+  tcp::write(firstT, "y")
+  RETURN 0
+END FUNC

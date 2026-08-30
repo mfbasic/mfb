@@ -1,0 +1,39 @@
+' plan-73-C: tcp::poll timeout convention on a loopback TCP pair.
+'  - poll(conn, 0) on a not-yet-readable socket -> immediate FALSE.
+'  - poll(conn) with the timeout OMITTED blocks until readable; the peer has
+'    written by then, so it returns TRUE (proving omit routes to the block path,
+'    not to the negative-reject — the sentinel is i64::MIN, a negative value).
+'  - poll(conn, -1) -> ErrInvalidArgument (a real negative, still rejected).
+IMPORT net
+IMPORT tcp
+IMPORT io
+
+FUNC main AS Integer
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound = tcp::localAddress(server)
+  RES client = tcp::connect("127.0.0.1", bound.port)
+  RES conn = tcp::accept(server)
+
+  ' Nothing written yet: an immediate (0) poll reports not-ready.
+  LET immediate = tcp::poll(conn, 0)
+  io::print("immediate " & toString(immediate))
+
+  ' Omitted timeout blocks until readable. The peer writes first, so the wait
+  ' completes and reports ready (TRUE) — it never hangs.
+  tcp::write(client, "x")
+  LET blocked = tcp::poll(conn)
+  io::print("omit " & toString(blocked))
+
+  ' A genuine negative timeout is still ErrInvalidArgument.
+  LET bad = tcp::poll(conn, -1)
+  io::print("no-trap")
+  RETURN 1
+  TRAP(err)
+    IF err.code = 77050002 THEN
+      io::print("neg invalid")
+      RETURN 0
+    END IF
+    io::print("neg wrong " & toString(err.code))
+    RETURN 1
+  END TRAP
+END FUNC
