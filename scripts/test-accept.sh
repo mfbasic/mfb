@@ -64,7 +64,12 @@ for pid in $(pgrep -f 'test-accept\.sh'); do
 done
 if [ -n "$other" ]; then
   echo "Another test-accept (pid $other) is running." >&2
-  exit 1
+# Exit 98, not 1: a refusal is NOT a gate result. Sharing 1 with "found diffs"
+# means a lock collision reads as a golden regression, and the reader spends
+# their time on the wrong question (observed: `cargo test` and a manual
+# `test-accept.sh` refusing each other, and `tests/golden.rs` reporting it
+# as a failed gate in 0.16s).
+  exit 98
 fi
 
 # Shared codegen-dump artifact table (also sourced by scripts/artifact-gate.sh),

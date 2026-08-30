@@ -98,8 +98,13 @@ for pid in $(pgrep -f 'artifact-gate\.sh'); do
   break
 done
 if [ -n "$other" ]; then
-  echo "Another artifact-gate (pid $other) is running."
-  exit 1
+  echo "Another artifact-gate (pid $other) is running." >&2
+# Exit 98, not 1: a refusal is NOT a gate result. Sharing 1 with "found diffs"
+# means a lock collision reads as a golden regression, and the reader spends
+# their time on the wrong question (observed: `cargo test` and a manual
+# `artifact-gate.sh all` refusing each other, and `tests/golden.rs` reporting it
+# as a failed gate in 0.16s).
+  exit 98
 fi
 # shellcheck source=artifact-kinds.sh
 . "$SCRIPT_DIR/artifact-kinds.sh"
