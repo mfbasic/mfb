@@ -69,9 +69,9 @@ negotiate. Letters B–G point here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-106 complete | `ls planning/completed/plan-106-*` → 5 letters + 2 baselines | MET (2026-08-29) |
-| plan-107 complete | `ls src/syntaxcheck` → no such directory; `rg -c RELOCATED_TO_IR_VERIFY src/` → 0 | MET (2026-08-29) |
-| Tree compiles clean at HEAD | `cargo check --all-targets` | MET (2026-08-29, 1m11s, no warnings) |
+| plan-106 complete | `ls planning/completed/plan-106-*` → 5 letters + 2 baselines | MET (re-verified 2026-08-29: 5 letters + 2 baselines) |
+| plan-107 complete | `ls src/syntaxcheck` → no such directory; `rg -c RELOCATED_TO_IR_VERIFY src/` → 0 | MET (re-verified 2026-08-29: no such directory, 0 hits) |
+| Tree compiles clean at HEAD | `cargo check --all-targets` | MET (re-verified 2026-08-29 in worktree P-111, 35s, no warnings) |
 
 Everything below is written against the world where these hold.
 
@@ -385,34 +385,50 @@ signatures take `&ParameterType` instead of `&str` (B, D, E).
 
 Lands the enforcement before any conversion, so all later progress is CI-visible.
 
-- [ ] Create `tests/no_type_strings.rs`, modelled on `tests/architecture_guards.rs`:
-      reuse its scan-root walk and its `code_above_tests` `#[cfg(test)]` stripper
+- [x] Create `tests/no_type_strings.rs`, modelled on `tests/architecture_guards.rs`:
+      reuse its scan-root walk and its ~~`code_above_tests` `#[cfg(test)]` stripper~~
       (copy, don't share — the two files are independent integration tests).
-- [ ] Implement the six needle classes from §2 as named scan functions:
+      **Correction 2**: `code_above_tests` is unusable across `src/` and was
+      replaced by `test_free_lines`, a brace-depth `#[cfg(test)]`-item stripper.
+- [x] Implement the ~~six~~ **seven** needle classes from §1+§2 as named scan functions:
       `parse_sites`, `str_type_params`, `spelling_match_arms`, `spelling_compares`,
-      `hand_rolled_grammar`, `string_keyed_type_maps`.
-- [ ] Scan roots: all of `src/` **except** `src/ast/**`, `src/lexer.rs`,
+      `hand_rolled_grammar`, `format_type_construction`, `string_keyed_type_maps`.
+      **Correction 1**: this task's original list dropped §2's `format!` class.
+- [x] Scan roots: all of `src/` **except** `src/ast/**`, `src/lexer.rs`,
       `src/docs/**`, and `tests/no_type_strings.rs` itself. Document each
       exclusion in a doc comment with the reason (the AST is the string domain).
-- [ ] Encode the five sanctioned boundary files (§2) as a `const BOUNDARY_FILES`
+      (`is_excluded_from_scan` + `is_test_file`, each doc-commented.)
+- [x] Encode the five sanctioned boundary files (§2) as a `const BOUNDARY_FILES`
       list, each entry carrying a one-line justification comment. `parse_sites`
-      exempts exactly these; the other five classes exempt none.
-- [ ] Add `const BUDGETS: &[(&str, usize)]` — per-directory ceilings seeded with
+      exempts exactly these; the other five classes exempt none. Pinned by
+      `boundary_files_exist_and_are_justified`.
+- [x] Add `const BUDGETS: &[(&str, usize)]` — per-directory ceilings seeded with
       §2's measured counts. Assert `count <= budget` and, on failure, print every
       offending `file:line` so the implementer sees the work, not just a number.
-- [ ] Assert the budget table is **tight**: any budget strictly greater than the
+      Seeded at **630** across 7 classes (**Correction 3** reconciles this against
+      §2's rg counts); shape is `(&str, &str, usize)` — `(class, dir, ceiling)`.
+- [x] Assert the budget table is **tight**: any budget strictly greater than the
       live count also fails, with "lower this budget to N". A budget that drifts
       above reality is a silent allowance.
-- [ ] Doc-comment the file with the "hard floor of 0" statement and a pointer to
+- [x] Doc-comment the file with the "hard floor of 0" statement and a pointer to
       this plan, mirroring `architecture_guards.rs`'s header.
-- [ ] Tests: the gate IS the test. Add one negative self-test asserting the
+- [x] Tests: the gate IS the test. Add one negative self-test asserting the
       scanner actually fires — a fixture string containing `ParameterType::parse(`
-      is counted by `parse_sites`.
+      is counted by `parse_sites`. Delivered as
+      `scanners_fire_on_their_own_needles` (17 assertions: one positive and, where
+      it separates a hit from a lookalike, one negative per class).
+- [x] **Added task** — `curated_type_keyed_tables_all_exist`: every
+      `TYPE_KEYED_TABLES` entry must still name a live table, so a rename cannot
+      silently drop a row out of the population and look like progress
+      (**Correction 5**).
 
-Acceptance: `cargo test --test no_type_strings` passes at HEAD with the seeded
-budgets, and fails when any budget is lowered by one — demonstrated by lowering
-one budget, observing the failure with its file:line list, and restoring it.
-Commit: —
+Acceptance: **MET.** `cargo test --test no_type_strings` → `4 passed; 0 failed`
+at HEAD with the seeded budgets. Failure demonstrated by lowering
+`("parse_sites", "resolver", 1)` to `0`: the run failed with
+`parse_sites / resolver: 1 > budget 0` followed by
+`src/resolver/resolution.rs:1276 — ParameterType::parse(` and the paste-ready
+live table; restoring the row returned it to green.
+Commit: 05f2ba4d8
 
 ### Phase 2 — `ParameterType: Hash`
 
@@ -540,9 +556,94 @@ Run at the end of this letter, and repeated per letter B–G.
 
 ## Corrections
 
-<Filled in DURING execution. Every place this letter turned out to be wrong: the
-claim, what was actually true, and the evidence. A corrected count also needs a
-check of whether B–G's scope was derived from the wrong one.>
+**1 — Phase 1 named six scan classes; there are seven.** The task list spelled
+`parse_sites, str_type_params, spelling_match_arms, spelling_compares,
+hand_rolled_grammar, string_keyed_type_maps` — it took §1's sixth goal bullet
+("0 type-keyed maps keyed by `String`") but dropped §2's sixth *measured*
+population, `format!` type construction (15 sites). Both are real classes with
+real populations, so the gate implements **seven**, adding
+`format_type_construction`. No scope moved between letters: the `format!` sites
+live in `types` (6), `binary_repr` (5) and `codegen` (1), all already owned by
+E/F/G.
+
+**2 — `code_above_tests` is wrong outside `src/codegen` and `src/target`.** §Phase 1
+says to reuse `architecture_guards.rs`'s stripper, which truncates the file at
+the first `#[cfg(test)]`. That is safe *there* because those two roots keep test
+code in a trailing module. It is not safe across `src/`: this tree also attaches
+`#[cfg(test)]` to individual mid-file items — `src/ir/shape.rs:158`
+(`bound_types`, a test-only probe field) and `src/resolver/mod.rs:105`
+(`resolve_hir_project`, a test-only entry point) — and truncating there discards
+the rest of the file.
+
+Measured, with the naive stripper: `parse_sites/ir` read **4** where 13 exist;
+`hand_rolled_grammar/resolver`, `str_type_params/numeric`,
+`string_keyed_type_maps/resolver` and `string_keyed_type_maps/binary_repr` read
+**0** each, and `src/resolver/mod.rs:275` (`types: HashSet<String>`) was invisible
+— 4202-line and 1199-line files scanned down to their first 158 and 105 lines.
+Replaced with `test_free_lines`, which strips each `#[cfg(test)]` item by brace
+depth and keeps everything else. **This is a latent defect in
+`tests/architecture_guards.rs` too**, harmless only because of its narrower
+roots; it is noted here rather than changed, since altering that file's counts
+is outside plan-111.
+
+**3 — the gate's total is 630, and it is not directly comparable to §2's rg
+counts.** §2 measured with `rg -c`, which counts *lines* and whose `--glob`
+exclusions can only drop whole files. The gate counts *occurrences* and excludes
+inline `#[cfg(test)]` items. Both differences make the gate the stricter and more
+honest number, and both were verified rather than assumed:
+
+Reconciled by re-running each §2 command with `-o` (occurrences) and again with
+`--glob '!src/ast/**'` added, so the two effects separate cleanly. The
+`occurrences, no ast` column is the exact quantity the gate measures, and the
+whole remaining gap is inline `#[cfg(test)]` code:
+
+| Class | §2 (`rg -c` lines) | `rg -o` occ. | occ., no `ast` | Gate | Gap = inline test code |
+|---|---|---|---|---|---|
+| `parse_sites` (non-boundary) | 155 | 155 | 155 | 125 | 30 |
+| `str_type_params` | 185 | 185 | 180 | 173 | 7 |
+| `spelling_match_arms` | 186 | 186 | 186 | 186 | 0 |
+| `spelling_compares` | 73 | 76 | 75 | 73 | 2 |
+| `hand_rolled_grammar` | 57 | 59 | 58 | 37 | 21 |
+| `format_type_construction` | 15 | 15 | 14 | 12 | 2 |
+| `string_keyed_type_maps` | — (not censused) | — | — | 24 | new class, curated (Correction 5) |
+
+(`parse_sites` shows no line/occurrence gap because the one line in the tree
+carrying two calls — `src/types.rs:321`,
+`map_of(ParameterType::parse(key), ParameterType::parse(value))` — is inside a
+boundary file and is exempt anyway. §2's own "228 total / 229 occurrences" is
+where that line shows up.)
+
+All 30 dropped `parse_sites` were enumerated and read, and every one is a test
+assertion or fixture: 13 in `codegen` (`registry/mod.rs` ×5,
+`function_lowering.rs` ×4, `data_objects.rs` ×2, `datetime/mod.rs` ×1), 11 in
+`monomorph` (all 8 of `helpers.rs` sit below its `mod tests` at line 596, plus
+`lower.rs:2881,2887,2898`), and 6 in `ir`. **No letter's scope changes**: the
+per-directory distribution is unchanged, only test-fixture noise is gone, and
+B–G lower these gate numbers rather than §2's.
+
+**4 — `TypeModel` has nine type-keyed fields, not "eight maps, seven of them
+`String`-keyed" (§2).** Read at `src/codegen/engine/builder/mod.rs:598-641`:
+seven `HashMap` (`enum_members`, `record_fields`, `union_variants`,
+`union_variant_unions`, `union_variant_tags`, `union_variant_fields`,
+`resource_closers`) and two `HashSet` (`union_names`, `resource_names`). All nine
+are keyed by a type spelling — eight by a bare `String` and `enum_members` by
+`(String, String)`, whose first element is the type name. **Letter C's population
+is 9, not 7.** C should re-check its own task list against this.
+
+**5 — "type-keyed maps keyed by `String`" cannot be scanned by a regex.** §1
+states the goal but §Phase 1 gives no needle for it, and there is no honest one:
+`rg '(HashMap|BTreeMap)<(String|&str|\(String, String\)),|Hash(Set)?<String>|BTreeSet<String>' src/`
+returns **1209** lines, of which nearly all are keyed by a *symbol* — a function
+name, a binding name, a package alias — which is legitimately a string. Narrowing
+to identifiers containing `type` returns 23 lines that both over- and
+under-report: it catches `ir/lower.rs`'s `binding_types` (keyed by variable name,
+not a type) and misses every `TypeModel` field, none of which contains `type`.
+
+So the class is a curated `TYPE_KEYED_TABLES` list of `(file, identifier)` pairs,
+each read and confirmed type-keyed, with the four nearest non-type-keyed
+lookalikes named in its doc comment so a later reader does not "fix" them.
+`curated_type_keyed_tables_all_exist` (an added task) fails if an entry stops
+naming something real, so a rename cannot masquerade as progress.
 
 ## Summary
 
