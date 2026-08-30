@@ -323,7 +323,7 @@ Acceptance: **MET.** All three files read 0 on all seven needle classes (absent
 from `census_by_file`). `cargo test --no-fail-fast -- --skip artifact_gate_all`
 → exit 0, 0 failures. Scoped acceptance green (the corpus that actually
 exercises the matrix — see Correction D2).
-Commit: 9a2b8bec5, 2506bfad1, 5d8e8a1f8, 9bf446af3
+Commit: 9a2b8bec5, 2506bfad1, 5d8e8a1f8, 9bf446af3, 70c9a7389
 
 ### Phase 3 — SIMD, error emission, entry and thunk (28 sites, host-invisible risk)
 
@@ -379,7 +379,7 @@ Acceptance: **MET.** All 15 files in §2 read 0 on all seven needle classes —
 verified by their joint absence from `census_by_file`, not by reading the
 budget table. `cargo test --no-fail-fast -- --skip artifact_gate_all` → exit 0,
 0 failures. The letter's end gate below passes.
-Commit: —
+Commit: df6956caa
 
 ### End-of-letter spot-check (scoped, read-only)
 
