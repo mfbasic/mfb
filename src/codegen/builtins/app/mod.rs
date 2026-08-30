@@ -128,11 +128,15 @@ mod tests {
             assert_eq!(registry().owning_package(name), Some("app"), "{name}");
         }
         assert_eq!(
-            registry::call_return_type(GET_MODE).as_deref(),
+            registry::call_return_type_typed(GET_MODE)
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Mode")
         );
         assert_eq!(
-            registry::call_return_type(SET_MODE).as_deref(),
+            registry::call_return_type_typed(SET_MODE)
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Nothing")
         );
     }

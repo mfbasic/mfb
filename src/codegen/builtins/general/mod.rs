@@ -287,8 +287,17 @@ pub(crate) struct ResolvedCall<'a> {
 /// [`resolve_call`] (the returns are argument-dependent). The `strict` mode of the
 /// generic registry oracle does not apply: general resolution has always been a single
 /// per-position accepted-type-set match.
-pub(crate) fn resolve_return_type(name: &str, arg_types: &[String]) -> Option<String> {
-    resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+pub(crate) fn resolve_return_type(
+    name: &str,
+    arg_types: &[crate::types::ParameterType],
+) -> Option<crate::types::ParameterType> {
+    // plan-111-C: typed at the boundary. `general`'s own `resolve_call` matches
+    // over a hand-authored signature table keyed by spelling, so the arguments
+    // render for it and its answer is classified once, here, instead of by every
+    // caller.
+    let names: Vec<String> = arg_types.iter().map(|a| a.name().into_owned()).collect();
+    resolve_call(name, &names)
+        .map(|resolved| crate::types::ParameterType::parse(&resolved.return_type))
 }
 
 /// The static (argument-independent) nominal return of a general call — the six
@@ -714,6 +723,11 @@ mod tests {
         items.iter().map(|s| s.to_string()).collect()
     }
 
+    /// plan-111-C: `resolve_return_type` takes and returns types now.
+    fn types(items: &[&str]) -> Vec<ParameterType> {
+        items.iter().map(|s| ParameterType::parse(s)).collect()
+    }
+
     fn rt(name: &str, args: &[&str]) -> Option<String> {
         resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
     }
@@ -1010,10 +1024,10 @@ mod tests {
     #[test]
     fn resolve_return_type_wrapper_delegates() {
         assert_eq!(
-            resolve_return_type(TO_MONEY, &strings(&["Integer"])),
-            Some("Money".to_string())
+            resolve_return_type(TO_MONEY, &types(&["Integer"])),
+            Some(ParameterType::Money)
         );
-        assert_eq!(resolve_return_type("nope", &strings(&["Integer"])), None);
+        assert_eq!(resolve_return_type("nope", &types(&["Integer"])), None);
     }
 
     #[test]

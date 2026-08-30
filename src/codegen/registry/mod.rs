@@ -1662,20 +1662,14 @@ pub(crate) fn is_package_constant(qualified: &str) -> bool {
 
 /// The type name the migrated constant `qualified` evaluates to (scalar type or record
 /// type), or `None`.
-pub(crate) fn constant_type_name(qualified: &str) -> Option<&'static str> {
-    find_constant(qualified).map(|constant| constant.type_name)
-}
-
-/// The typed twin of [`constant_type_name`] (plan-106-A), for the checkers
-/// and IR lowering.
-///
-/// [`RegistryConstant::type_name`] is a `&'static str` *descriptor literal*, so
-/// this is the one place the canonical grammar is applied to it — the callers
-/// then stay typed instead of each classifying the spelling themselves. Storing
-/// a `ParameterType` in the descriptor directly is a const-context change
-/// (interning is not `const`), recorded as a candidate in letter E.
-pub(crate) fn constant_type(qualified: &str) -> Option<ParameterType> {
-    constant_type_name(qualified).map(ParameterType::parse)
+pub(crate) fn constant_type_name(qualified: &str) -> Option<ParameterType> {
+    // plan-111-C: one API, typed. [`RegistryConstant::type_name`] is a
+    // `&'static str` DESCRIPTOR literal and stays one (§Non-goals forbids a
+    // descriptor change), so this is the single place the canonical grammar is
+    // applied to it — callers stay typed instead of each classifying the
+    // spelling themselves. Storing a `ParameterType` in the descriptor directly
+    // is a const-context change, not this plan's.
+    find_constant(qualified).map(|constant| ParameterType::parse(constant.type_name))
 }
 
 /// The literal a migrated **scalar** constant `qualified` folds to, or `None` (a record
@@ -1758,15 +1752,6 @@ pub(crate) fn general_override_target(
             .find(|o| o.builtin == builtin && o.arg_type == spelled)
             .map(|o| o.helper)
     })
-}
-
-/// The *static* nominal return type of the migrated call `qualified`, independent of
-/// its arguments, or `None`. A generic member whose return type mentions a
-/// [`ParameterType::Var`] (`collections::get AS T`) has no static nominal — its return
-/// is only known once the arguments are known — so this yields `None` for it, and the
-/// argument-aware [`resolve_call`] is used instead.
-pub(crate) fn call_return_type(qualified: &str) -> Option<Cow<'static, str>> {
-    call_return_type_typed(qualified).map(|return_type| Cow::Owned(return_type.name().into_owned()))
 }
 
 /// The typed twin of [`call_return_type`] (plan-106-A). The descriptor already
@@ -2181,34 +2166,21 @@ fn contains_var(ty: &ParameterType) -> bool {
         _ => false,
     }
 }
-
-/// Resolve the migrated call `qualified` against `arg_types`, returning its concrete
-/// return type only when the arguments are a valid arity and type match — the
-/// clean-room equivalent of the old `DefaultResolver::resolve_call` *and* every
-/// package's `BuiltinResolver::resolve_return_type`. Delegates to
-/// [`RegistryFunction::select`], which unifies the arguments against each overload
-/// (binding type variables) and substitutes them into the return type, so a generic
-/// member like `collections::get(List OF Integer, 0)` resolves to `Integer`. `None`
-/// means "no migrated package accepts this call with these arguments" (wrong arity or
-/// a type mismatch), which the type checker turns into an arity / argument-type error.
+/// The spelling form of [`resolve_call_typed`], for the per-package
+/// registration tests **only**.
 ///
-/// This is a boundary function: it takes/returns type-name strings because the type
-/// checker still speaks strings. The conversion happens here ([`ParameterType::parse`]
-/// in, [`ParameterType::name`] out); nothing inside the registry is a string.
+/// plan-111-C collapsed this query's dual API: `resolve_call_typed` is the one
+/// production entry, and the `&[String]`-in/`Option<String>`-out original is
+/// gone. What is left is ~140 registration assertions across the per-package
+/// modules, and a SPELLING is the right thing for those to assert — a
+/// descriptor's job is to resolve to a particular type, and its name is how the
+/// test says which. Rewriting each as `.map(|t| t.name().into_owned())` would
+/// make them harder to read for no behavioural gain, so the shim is
+/// `#[cfg(test)]` and cannot become a second production API.
+#[cfg(test)]
 pub(crate) fn resolve_call(qualified: &str, arg_types: &[String], strict: bool) -> Option<String> {
-    let call = CallShape {
-        args: arg_types
-            .iter()
-            .map(|arg| ParameterType::parse(arg))
-            .collect(),
-    };
-    resolved_return_type(qualified, &call, strict).map(|return_type| match return_type {
-        // Echo the caller's original argument-type string verbatim, preserving any
-        // non-canonical spelling byte-exactly (e.g. a `RES ` ownership marker on
-        // `collections::append(List OF RES File STATE Cursor, x)`).
-        ParameterType::Arg(n) => arg_types[n].clone(),
-        other => other.name().into_owned(),
-    })
+    let args: Vec<ParameterType> = arg_types.iter().map(|a| ParameterType::parse(a)).collect();
+    resolve_call_typed(qualified, &args, strict).map(|type_| type_.name().into_owned())
 }
 
 /// The typed resolution entry (plan-104-C): the same selection as

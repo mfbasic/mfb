@@ -314,42 +314,6 @@ pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
 /// guarantees each qualified name is owned by exactly one module
 /// (`duplicate_function_name` is `None`), so this is order-independent — replacing
 /// the hand-ordered per-package `resolve_call` chain it grew from.
-pub(crate) fn resolve_call_return_type(
-    callee: &str,
-    arg_types: &[String],
-    strict: bool,
-) -> Option<String> {
-    // Migrated (clean-room registry) packages first: resolve_call validates the
-    // argument arity + types (returning None on a mismatch, which the type checker
-    // turns into an error), so this cannot blindly hand back the return type. `strict`
-    // (argument validation, from the former source checker) rejects a scalar-for-nominal argument;
-    // the lenient callers (return-type inference feeding IR lowering / codegen) keep the
-    // coarse match so a nominally-spelled argument does not perturb type propagation.
-    // `vector` is a registry member but dispatches by EXACT record type (`Float2` ≠
-    // `Integer2`) with a per-type return type, which the generic coarse-nominal matcher
-    // below cannot select. It keeps its own exact resolver over the same overload data.
-    // `general` (the unqualified global builtins) is bare-named, so it is disjoint from
-    // every qualified registry member and order-independent here. Its argument-dependent
-    // returns come from the co-located bespoke resolver, not the generic matcher.
-    if general::is_general_call(callee) {
-        return general::resolve_return_type(callee, arg_types);
-    }
-    if crate::codegen::registry::registry().owning_package(callee) == Some("vector") {
-        return crate::codegen::builtins::vector::resolve_return_type(callee, arg_types);
-    }
-    // `strings` is a registry member but carries the `AttributedString` Tier-A/Tier-B
-    // return typing (astrings' still-hardcoded type), which the generic coarse-nominal
-    // matcher below cannot express. Its co-located resolver reproduces the deleted
-    // `StringsResolver::resolve_return_type`, deferring to `registry::resolve_call` for
-    // every non-`AttributedString` call (plan-99 PART B).
-    if crate::codegen::registry::registry().owning_package(callee) == Some("strings") {
-        return crate::codegen::builtins::strings::resolve_return_type(callee, arg_types, strict);
-    }
-    if crate::codegen::registry::registry().is_member(callee) {
-        return crate::codegen::registry::resolve_call(callee, arg_types, strict);
-    }
-    None
-}
 
 /// Typed twin of [`resolve_call_return_type`] (plan-104-C): the entry codegen
 /// uses so no type is rendered only to be re-parsed at the registry boundary.
@@ -365,18 +329,36 @@ pub(crate) fn resolve_call_return_type_typed(
     arg_types: &[crate::types::ParameterType],
     strict: bool,
 ) -> Option<crate::types::ParameterType> {
-    let bespoke = general::is_general_call(callee)
-        || matches!(
-            crate::codegen::registry::registry().owning_package(callee),
-            Some("vector") | Some("strings")
-        );
-    if bespoke {
-        let arg_names: Vec<String> = arg_types
-            .iter()
-            .map(|type_| type_.name().into_owned())
-            .collect();
-        return resolve_call_return_type(callee, &arg_names, strict)
-            .map(|return_type| crate::types::ParameterType::parse(&return_type));
+    // Migrated (clean-room registry) packages resolve through the generic
+    // matcher: `resolve_call_typed` validates arity and argument types (yielding
+    // `None` on a mismatch, which the type checker turns into an error), so this
+    // cannot blindly hand back the return type. `strict` rejects a
+    // scalar-for-nominal argument; the lenient callers (return-type inference
+    // feeding IR lowering / codegen) keep the coarse match so a nominally-spelled
+    // argument does not perturb type propagation.
+    //
+    // Three packages carry a computed return the generic matcher cannot express
+    // and keep their own co-located resolver:
+    //
+    // * `general` — bare-named, so disjoint from every qualified member and
+    //   order-independent here; its argument-dependent returns come from its own
+    //   hand-authored table.
+    // * `vector` — dispatches by EXACT record type (`Float2` != `Integer2`) with
+    //   a per-type return, which the coarse-nominal matcher cannot select.
+    // * `strings` — carries the `AttributedString` Tier-A/Tier-B return typing,
+    //   deferring to the generic path for every other call (plan-99 PART B).
+    //
+    // plan-111-C: all three take and return `ParameterType` now, so this is the
+    // ONE entry — the render-in/parse-out pocket plan-104-C recorded here as a
+    // deliberate boundary is gone, and so is the string twin that fed it.
+    if general::is_general_call(callee) {
+        return general::resolve_return_type(callee, arg_types);
+    }
+    if crate::codegen::registry::registry().owning_package(callee) == Some("vector") {
+        return crate::codegen::builtins::vector::resolve_return_type(callee, arg_types);
+    }
+    if crate::codegen::registry::registry().owning_package(callee) == Some("strings") {
+        return crate::codegen::builtins::strings::resolve_return_type(callee, arg_types, strict);
     }
     if crate::codegen::registry::registry().is_member(callee) {
         return crate::codegen::registry::resolve_call_typed(callee, arg_types, strict);
@@ -407,8 +389,11 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<std::borrow::Cow<'stat
     if crate::codegen::registry::registry().owning_package(name) == Some("vector") {
         return None;
     }
-    if let Some(return_type) = crate::codegen::registry::call_return_type(name) {
-        return Some(return_type);
+    // plan-111-C: the registry has ONE query, typed. This oracle still hands its
+    // seven codegen callers a NAME, so it renders here — those signatures are
+    // letters D-F's.
+    if let Some(return_type) = crate::codegen::registry::call_return_type_typed(name) {
+        return Some(std::borrow::Cow::Owned(return_type.name().into_owned()));
     }
     None
 }
@@ -648,7 +633,7 @@ pub(crate) fn is_package_constant(name: &str) -> bool {
 
 /// A package constant's type (plan-106-A).
 pub(crate) fn package_constant_type(name: &str) -> Option<crate::types::ParameterType> {
-    crate::codegen::registry::constant_type(name)
+    crate::codegen::registry::constant_type_name(name)
 }
 
 pub(crate) fn package_constant_value(name: &str) -> Option<&'static str> {

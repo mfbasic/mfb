@@ -214,23 +214,30 @@ pub(crate) fn register(r: &mut Registry) {
 /// through the bug-443 strict(validation)/lenient(inference) split.
 pub(crate) fn resolve_return_type(
     name: &str,
-    arg_types: &[String],
+    arg_types: &[crate::types::ParameterType],
     strict: bool,
-) -> Option<String> {
-    if arg_types.first().map(String::as_str) == Some("AttributedString") {
+) -> Option<crate::types::ParameterType> {
+    use crate::types::ParameterType;
+    // plan-111-C: typed. `AttributedString` has no variant, so the leading
+    // argument is recognized as the nominal it is; the substitution swaps in the
+    // `String` variant, which is what `parse("String")` produced before.
+    if arg_types
+        .first()
+        .is_some_and(|a| a.is_named("AttributedString"))
+    {
         if is_tier_a_query(name) {
             let mut substituted = arg_types.to_vec();
-            substituted[0] = "String".to_string();
-            return crate::codegen::registry::resolve_call(name, &substituted, strict);
+            substituted[0] = ParameterType::String;
+            return crate::codegen::registry::resolve_call_typed(name, &substituted, strict);
         }
         if is_tier_b_transform(name) {
             let mut substituted = arg_types.to_vec();
-            substituted[0] = "String".to_string();
-            return crate::codegen::registry::resolve_call(name, &substituted, strict)
-                .map(|_| "AttributedString".to_string());
+            substituted[0] = ParameterType::String;
+            return crate::codegen::registry::resolve_call_typed(name, &substituted, strict)
+                .map(|_| ParameterType::named("AttributedString"));
         }
     }
-    crate::codegen::registry::resolve_call(name, arg_types, strict)
+    crate::codegen::registry::resolve_call_typed(name, arg_types, strict)
 }
 
 /// The Tier-A `strings::` query members (plan-89-C): they *interrogate* the text

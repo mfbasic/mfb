@@ -925,15 +925,21 @@ mod tests {
             Some("__regex_findAll")
         );
         assert_eq!(
-            registry::call_return_type("regex.match").as_deref(),
+            registry::call_return_type_typed("regex.match")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Boolean")
         );
         assert_eq!(
-            registry::call_return_type("regex.find").as_deref(),
+            registry::call_return_type_typed("regex.find")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Integer")
         );
         assert_eq!(
-            registry::call_return_type("regex.replace").as_deref(),
+            registry::call_return_type_typed("regex.replace")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("String")
         );
         // match takes exactly 2 args; find/findAll's trailing `start` is optional.

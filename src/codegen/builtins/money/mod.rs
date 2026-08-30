@@ -130,14 +130,23 @@ mod tests {
             );
         }
         assert_eq!(
-            registry::call_return_type(SET_ROUNDING).as_deref(),
+            registry::call_return_type_typed(SET_ROUNDING)
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Nothing")
         );
         assert_eq!(
-            registry::call_return_type(GET_ROUNDING).as_deref(),
+            registry::call_return_type_typed(GET_ROUNDING)
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Rounding")
         );
-        assert_eq!(registry::call_return_type(ROUND).as_deref(), Some("Money"));
+        assert_eq!(
+            registry::call_return_type_typed(ROUND)
+                .map(|t| t.name().into_owned())
+                .as_deref(),
+            Some("Money")
+        );
     }
 
     #[test]

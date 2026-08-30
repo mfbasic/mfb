@@ -256,27 +256,39 @@ mod tests {
         assert_eq!(registry::rewrite_target("process.spawn", &[]), None);
         // Fixed per-name return types.
         assert_eq!(
-            registry::call_return_type("process.pid").as_deref(),
+            registry::call_return_type_typed("process.pid")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Integer")
         );
         assert_eq!(
-            registry::call_return_type("process.isRunning").as_deref(),
+            registry::call_return_type_typed("process.isRunning")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Boolean")
         );
         assert_eq!(
-            registry::call_return_type("process.close").as_deref(),
+            registry::call_return_type_typed("process.close")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Nothing")
         );
         assert_eq!(
-            registry::call_return_type("process.spawn").as_deref(),
+            registry::call_return_type_typed("process.spawn")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("process.Process")
         );
         assert_eq!(
-            registry::call_return_type("process.receive").as_deref(),
+            registry::call_return_type_typed("process.receive")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("String")
         );
         assert_eq!(
-            registry::call_return_type("process.didSignal").as_deref(),
+            registry::call_return_type_typed("process.didSignal")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Signal")
         );
         // Arity ranges: spawn's two structurally distinct overloads (1 and 4 args),

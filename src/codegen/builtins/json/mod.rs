@@ -294,11 +294,15 @@ mod tests {
             Some("__json_getOr")
         );
         assert_eq!(
-            registry::call_return_type("json.parse").as_deref(),
+            registry::call_return_type_typed("json.parse")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Json")
         );
         assert_eq!(
-            registry::call_return_type("json.stringify").as_deref(),
+            registry::call_return_type_typed("json.stringify")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("String")
         );
         assert_eq!(registry().arity("json.parse"), Some((1, 1)));

@@ -148,47 +148,69 @@ mod tests {
         assert_eq!(registry::rewrite_target("os.getEnv", &[]), None);
         // Fixed per-name return types.
         assert_eq!(
-            registry::call_return_type("os.getEnv").as_deref(),
+            registry::call_return_type_typed("os.getEnv")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("String")
         );
         assert_eq!(
-            registry::call_return_type("os.hasEnv").as_deref(),
+            registry::call_return_type_typed("os.hasEnv")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Boolean")
         );
         assert_eq!(
-            registry::call_return_type("os.setEnv").as_deref(),
+            registry::call_return_type_typed("os.setEnv")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Nothing")
         );
         assert_eq!(
-            registry::call_return_type("os.pid").as_deref(),
+            registry::call_return_type_typed("os.pid")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Integer")
         );
         assert_eq!(
-            registry::call_return_type("os.cpuCount").as_deref(),
+            registry::call_return_type_typed("os.cpuCount")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Integer")
         );
         assert_eq!(
-            registry::call_return_type("os.version").as_deref(),
+            registry::call_return_type_typed("os.version")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("String")
         );
         assert_eq!(
-            registry::call_return_type("os.uptime").as_deref(),
+            registry::call_return_type_typed("os.uptime")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Integer")
         );
         assert_eq!(
-            registry::call_return_type("os.isAdmin").as_deref(),
+            registry::call_return_type_typed("os.isAdmin")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Boolean")
         );
         assert_eq!(
-            registry::call_return_type("os.environ").as_deref(),
+            registry::call_return_type_typed("os.environ")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Map OF String TO String")
         );
         assert_eq!(
-            registry::call_return_type("os.args").as_deref(),
+            registry::call_return_type_typed("os.args")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("List OF String")
         );
         assert_eq!(
-            registry::call_return_type("os.resourcePath").as_deref(),
+            registry::call_return_type_typed("os.resourcePath")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("String")
         );
     }
@@ -222,7 +244,9 @@ mod tests {
             None
         );
         assert_eq!(
-            registry::call_return_type("os.sleep").as_deref(),
+            registry::call_return_type_typed("os.sleep")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
             Some("Nothing")
         );
         assert_eq!(

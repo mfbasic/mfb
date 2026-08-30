@@ -2720,7 +2720,7 @@ fn registry_record_constant(name: &str) -> Option<IrValue> {
             _ => return None,
         };
     Some(IrValue::Constructor {
-        type_: ParameterType::declared(type_name),
+        type_: type_name,
         args: components
             .iter()
             .enumerate()

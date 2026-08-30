@@ -349,8 +349,14 @@ mod tests {
         assert!(!registry().is_builtin_type("math"));
         // The 14 constants are registered.
         assert!(registry::is_package_constant("math.pi"));
-        assert_eq!(registry::constant_type_name("math.pi"), Some("Float"));
-        assert_eq!(registry::constant_type_name("math.piFixed"), Some("Fixed"));
+        assert_eq!(
+            registry::constant_type_name("math.pi"),
+            Some(crate::types::ParameterType::Float)
+        );
+        assert_eq!(
+            registry::constant_type_name("math.piFixed"),
+            Some(crate::types::ParameterType::Fixed)
+        );
         assert_eq!(
             registry::constant_value("math.pi"),
             Some("3.141592653589793")
