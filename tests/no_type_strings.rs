@@ -787,17 +787,14 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     ("declared_sites", "manifest", 1),
     ("declared_sites", "monomorph", 8),
     ("declared_sites", "resolver", 8),
-    ("declared_sites", "target", 9),
+    ("declared_sites", "target", 8),
     ("str_type_params", "binary_repr", 5),
     ("str_type_params", "codegen", 4),
     ("str_type_params", "hir", 1),
     ("str_type_params", "numeric", 1),
-    ("str_type_params", "target", 3),
     ("str_type_params", "types", 2),
     ("spelling_match_arms", "binary_repr", 19),
     ("spelling_match_arms", "types", 9),
-    ("spelling_compares", "optimizer", 6),
-    ("spelling_compares", "target", 2),
     ("spelling_compares", "types", 2),
     ("hand_rolled_grammar", "binary_repr", 3),
     ("hand_rolled_grammar", "types", 25),
@@ -1245,6 +1242,126 @@ fn census_by_file() {
         );
     }
     println!("{:<62} {:>50}", "TOTAL", grand);
+}
+
+/// The NIR `mov_imm` operand-class vocabulary is CLOSED, and holds no type.
+///
+/// plan-111-G Correction G1. `abi::move_immediate`'s second argument and the
+/// `instruction.get("type")` reads in `src/optimizer/opt2/**` look like a type
+/// site and are not one: the attribute is the immediate encoder's
+/// width/interpretation class. Its whole vocabulary is six tokens, two of which
+/// (`UnionTag`, `EnumOrdinal`) name no MFBASIC type at all.
+///
+/// So those sites are excluded from classes 2 and 4 — but the exclusion is
+/// *checked*, not asserted. A bare exclusion would let a real type spelling
+/// drift into the slot silently; this fails the moment one does. That is the
+/// property the plan actually wants, and it is stronger than the `0` the phase
+/// originally asked for.
+#[test]
+fn immediate_operand_class_vocabulary_is_closed() {
+    const ALLOWED: &[&str] = &[
+        "Integer",
+        "Byte",
+        "Boolean",
+        "Fixed",
+        // Not types: a union's discriminant and an enum's ordinal.
+        "UnionTag",
+        "EnumOrdinal",
+    ];
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut offenders: Vec<String> = Vec::new();
+
+    for path in rs_files(&[manifest.join("src")]) {
+        let rel = path
+            .strip_prefix(manifest)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        if is_excluded_from_scan(&rel) {
+            continue;
+        }
+        let src = std::fs::read_to_string(&path).expect("read source");
+        for (n, line) in src.lines().enumerate() {
+            if let Some(lit) = immediate_class_argument(line, "move_immediate(") {
+                if !ALLOWED.contains(&lit.as_str()) {
+                    offenders.push(format!("{rel}:{} — mov_imm class `{lit}`", n + 1));
+                }
+            }
+            // The READ side: `instruction.get("type") … Some("X")`.
+            if line.contains("get(\"type\")") {
+                for lit in quoted_literals_after(line, "Some(") {
+                    if !ALLOWED.contains(&lit.as_str()) {
+                        offenders.push(format!("{rel}:{} — mov_imm class read `{lit}`", n + 1));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "the `mov_imm` operand class is a CLOSED encoder vocabulary, not a type. \
+         A spelling outside {ALLOWED:?} reached it — if that is a real MFBASIC \
+         type, this attribute has become a type site and belongs in classes 2 \
+         and 4 after all:\n{}",
+        offenders.join("\n")
+    );
+}
+
+/// The `mov_imm` operand-class ARGUMENT on `line`, if it is a literal.
+///
+/// Argument index 1 of `move_immediate(dst, class, value)`, taken by splitting
+/// the call's argument list on top-level commas. Index matters both ways: `dst`
+/// is often a `"x0"`-style literal and `value` is always one (`"0"`, `"8"`, a
+/// bit pattern), and reading either as a class is how the first version of this
+/// test both false-positived on values AND missed a planted `"List OF Integer"`
+/// sitting in the class slot behind a literal `dst`.
+fn quoted_literals_after(line: &str, needle: &str) -> Vec<String> {
+    let Some(at) = line.find(needle) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut rest = &line[at + needle.len()..];
+    while let Some(open) = rest.find('"') {
+        let after = &rest[open + 1..];
+        match after.find('"') {
+            Some(close) => {
+                out.push(after[..close].to_string());
+                rest = &after[close + 1..];
+            }
+            None => break,
+        }
+    }
+    out
+}
+
+fn immediate_class_argument(line: &str, needle: &str) -> Option<String> {
+    let at = line.find(needle)? + needle.len();
+    let rest = &line[at..];
+    let mut depth = 0i32;
+    let mut args: Vec<&str> = Vec::new();
+    let mut start = 0usize;
+    let mut in_str = false;
+    for (i, c) in rest.char_indices() {
+        match c {
+            '"' => in_str = !in_str,
+            _ if in_str => {}
+            '(' | '[' => depth += 1,
+            ')' | ']' if depth == 0 => {
+                args.push(&rest[start..i]);
+                break;
+            }
+            ')' | ']' => depth -= 1,
+            ',' if depth == 0 => {
+                args.push(&rest[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    let arg = args.get(1)?.trim();
+    // Only a literal is checkable here; a variable is whatever it is at runtime.
+    let inner = arg.strip_prefix('"')?.strip_suffix('"')?;
+    Some(inner.to_string())
 }
 
 /// The curated `TYPE_KEYED_TABLES` list is only trustworthy if every entry

@@ -266,7 +266,9 @@ pub(super) fn canonical(
                 }
             }
             CodeOp::MovImm => {
-                if instruction.get("type").as_deref() == Some("Integer") {
+                if instruction.get("type").as_deref()
+                    == Some(crate::target::shared::abi::IMMEDIATE_CLASS_INTEGER)
+                {
                     if let Some(bits) = instruction.get("value").and_then(|text| bits_of(&text)) {
                         return KeyPart::Constant(bits);
                     }

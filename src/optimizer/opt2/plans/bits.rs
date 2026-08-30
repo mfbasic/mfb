@@ -162,7 +162,9 @@ pub(crate) fn analyze(
 fn transfer(instruction: &CodeInstruction, operand: impl Fn(&str) -> Known) -> Known {
     match instruction.op {
         CodeOp::MovImm => {
-            if instruction.get("type").as_deref() != Some("Integer") {
+            if instruction.get("type").as_deref()
+                != Some(crate::target::shared::abi::IMMEDIATE_CLASS_INTEGER)
+            {
                 return Known::UNKNOWN;
             }
             match instruction

@@ -153,9 +153,11 @@ pub(super) fn storage_for_type(
     // fell through to the error. That is `bindings/libsnd`'s exact shape
     // (plan-52-D Phase 3). The `STATE` composite is a nominal spelling, so the
     // strip works on the rendered name (a nominal-name sink).
-    let name = type_.name();
-    let base = crate::codegen::resource::base_resource_name(&name);
-    if let Some(storage) = type_storage.get(base) {
+    // The STATE clause is stripped structurally; `base` stays a rendered name
+    // because `type_storage` is keyed by one.
+    let base_type = type_.without_state();
+    let base = base_type.name();
+    if let Some(storage) = type_storage.get(base.as_ref()) {
         return Ok(storage.clone());
     }
     let (class, size, align) = match type_ {
@@ -166,16 +168,13 @@ pub(super) fn storage_for_type(
         ParameterType::Float => (StorageClass::Float, 8, 8),
         ParameterType::Fixed => (StorageClass::Fixed, 8, 8),
         ParameterType::Money => (StorageClass::Money, 8, 8),
-        ParameterType::Named(n) if n.resolve() == "Scalar" => (StorageClass::Scalar, 4, 4),
+        t if t.is_named("Scalar") => (StorageClass::Scalar, 4, 4),
         _ if is_reference_type(type_) => (StorageClass::Reference, 8, 8),
         // A resource (optionally `File STATE T`) is a pointer to its record.
-        _ if crate::codegen::builtins::is_resource_type(
-            &crate::types::ParameterType::declared(base),
-        ) =>
-        {
+        _ if crate::codegen::builtins::is_resource_type(&base_type) => {
             (StorageClass::Reference, 8, 8)
         }
-        _ if is_user_type_name(base) => (StorageClass::Reference, 8, 8),
+        _ if is_user_type_name(&base_type) => (StorageClass::Reference, 8, 8),
         _ => {
             return Err(format!(
                 "native plan has no storage class for type '{base}'"
@@ -212,20 +211,33 @@ pub(super) fn is_reference_type(type_: &crate::types::ParameterType) -> bool {
     )
 }
 
-pub(super) fn is_user_type_name(type_: &str) -> bool {
+/// Whether `type_` is a user-declared nominal.
+///
+/// plan-111-G: the `Unknown` half is a variant test; the rest genuinely inspects
+/// the NAME's characters (a file-local PRIVATE declaration is renamed to
+/// `#<hash>$<name>`, so the sigil and the `$` separator are part of the
+/// spelling), which is why the nominal renders for that half only.
+pub(super) fn is_user_type_name(type_: &crate::types::ParameterType) -> bool {
+    if matches!(type_, crate::types::ParameterType::Unknown) {
+        return false;
+    }
+    let rendered = type_.name();
+    is_user_type_spelling(&rendered)
+}
+
+fn is_user_type_spelling(spelling: &str) -> bool {
     // bug-288: a file-local PRIVATE declaration is renamed to `#<hash>$<name>`, so
     // its type name legitimately carries the internal sigil and the `$` separator.
     // A private *record* still reaches this predicate only after missing
     // `type_storage`, but a private *resource* has no storage entry at all and
     // lands here directly -- where the bare alphanumeric test rejected it and the
     // build failed with "no storage class for type '#…$Db'".
-    let type_ = match crate::internal_name::strip_sigil(type_) {
+    let spelling = match crate::internal_name::strip_sigil(spelling) {
         Some(rest) => rest.split_once('$').map_or(rest, |(_, plain)| plain),
-        None => type_,
+        None => spelling,
     };
-    !type_.is_empty()
-        && type_ != "Unknown"
-        && type_
+    !spelling.is_empty()
+        && spelling
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '.')
 }

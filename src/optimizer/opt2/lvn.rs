@@ -140,7 +140,10 @@ pub(crate) fn eliminate(instructions: &mut [CodeInstruction], model: &dyn Regist
                 }
             }
             // Equal Integer literals share a number, so ALU over them dedups.
-            CodeOp::MovImm if instruction.get("type").as_deref() == Some("Integer") => {
+            CodeOp::MovImm
+                if instruction.get("type").as_deref()
+                    == Some(crate::target::shared::abi::IMMEDIATE_CLASS_INTEGER) =>
+            {
                 if let (Some(dst), Some(text)) = (
                     int_vreg_spelling(instruction, "dst", int_model),
                     instruction.get("value"),

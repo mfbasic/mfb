@@ -443,7 +443,9 @@ fn transfer(
 fn apply(instruction: &CodeInstruction, operand: &dyn Fn(&str) -> Range) -> Range {
     match instruction.op {
         CodeOp::MovImm => {
-            if instruction.get("type").as_deref() != Some("Integer") {
+            if instruction.get("type").as_deref()
+                != Some(crate::target::shared::abi::IMMEDIATE_CLASS_INTEGER)
+            {
                 return Range::FULL;
             }
             match instruction.get("value").as_deref().and_then(literal) {
