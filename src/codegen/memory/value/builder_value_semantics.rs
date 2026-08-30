@@ -161,7 +161,11 @@ impl CodeBuilder<'_> {
             ) || __t.is_named("Scalar") =>
             {
                 let register = self.allocate_register();
-                self.emit(abi::move_immediate(&register, &type_.name(), "0"));
+                self.emit(abi::move_immediate(
+                    &register,
+                    &abi::immediate_class(type_),
+                    "0",
+                ));
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
@@ -220,7 +224,7 @@ impl CodeBuilder<'_> {
                 let tag_register = self.allocate_register();
                 self.emit(abi::move_immediate(
                     &tag_register,
-                    "UnionTag",
+                    abi::IMMEDIATE_CLASS_UNION_TAG,
                     &tag.to_string(),
                 ));
                 self.emit(abi::store_u64(&tag_register, &block, 0));

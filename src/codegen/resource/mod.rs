@@ -53,6 +53,14 @@ pub(crate) fn base_resource_name(type_name: &str) -> &str {
 
 /// The `STATE` record type carried by a resource type string, if any. See
 /// [`base_resource_name`] for why the grammar is not restated here.
+///
+/// plan-111-G: every production caller now holds a `ParameterType` and asks
+/// [`ParameterType::state`](crate::types::ParameterType::state) directly, so the
+/// only reader left is the round-trip parity test in `src/types.rs` that pins
+/// this `&str` adapter against the structural splitter. Gated to `cfg(test)`
+/// rather than deleted, because deleting it deletes that parity check — the one
+/// thing standing between the two spellings of the STATE grammar.
+#[cfg(test)]
 pub(crate) fn state_type_name(type_name: &str) -> Option<&str> {
     crate::types::split_state_clause(type_name).map(|(_, state)| state)
 }

@@ -25,9 +25,12 @@
 //! Two carry a small enumerated remainder, and the `BUDGETS` comment names
 //! every entry with the reason it cannot convert: `declared_sites` (class 1b,
 //! the places a declared NAME genuinely crosses into the type domain) and
-//! `str_type_params` for `codegen` (four sites — two `&str` adapters over the
-//! one STATE grammar, two `&'static str` fields of `const` descriptor tables
+//! `str_type_params` for `codegen` (three sites — one `&str` adapter over the
+//! one STATE grammar, and two `&'static str` fields of `const` descriptor tables
 //! that cannot hold a `ParameterType` because it is not const-constructible).
+//! There were two adapters until plan-111-G gated `state_type_name` to
+//! `cfg(test)`: its last production caller had already retyped, so it survived
+//! only as the parity partner of `ParameterType::split_state`.
 //!
 //! The table is asserted **tight in both directions**: a count above its budget
 //! fails (a regression), and a budget above the live count also fails with
@@ -850,7 +853,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     ("declared_sites", "monomorph", 8),
     ("declared_sites", "resolver", 8),
     ("declared_sites", "target", 8),
-    ("str_type_params", "codegen", 4),
+    ("str_type_params", "codegen", 3),
 ];
 
 /// First path component under `src/`, or the stem of a file directly in `src/`.
@@ -1326,10 +1329,17 @@ fn immediate_operand_class_vocabulary_is_closed() {
         "Byte",
         "Boolean",
         "Fixed",
+        // Reached only through `abi::immediate_class` (a scalar default, a
+        // scalar `Const`, `collections::sum`'s accumulator seed).
+        "Float",
+        "Money",
+        "Nothing",
         // Not types: a union's discriminant and an enum's ordinal.
         "UnionTag",
         "EnumOrdinal",
     ];
+    /// The one sanctioned way to DERIVE a class from a value's type.
+    const DERIVED: &[&str] = &["immediate_class(", "IMMEDIATE_CLASS_"];
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut offenders: Vec<String> = Vec::new();
 
@@ -1344,9 +1354,27 @@ fn immediate_operand_class_vocabulary_is_closed() {
         }
         let src = std::fs::read_to_string(&path).expect("read source");
         for (n, line) in src.lines().enumerate() {
-            if let Some(lit) = immediate_class_argument(line, "move_immediate(") {
-                if !ALLOWED.contains(&lit.as_str()) {
-                    offenders.push(format!("{rel}:{} — mov_imm class `{lit}`", n + 1));
+            if let Some(arg) = immediate_class_argument(line, "move_immediate(") {
+                match as_literal(&arg) {
+                    Some(lit) if !ALLOWED.contains(&lit) => {
+                        offenders.push(format!("{rel}:{} — mov_imm class `{lit}`", n + 1));
+                    }
+                    Some(_) => {}
+                    // Correction G7: a COMPUTED class argument is the hole this
+                    // test used to have. Three emitters passed `&type_.name()`
+                    // here, so a real type spelling reached the attribute and
+                    // this scan — literals only — reported a clean vocabulary.
+                    // The `.ncode` goldens carry `"type": "Money"` and
+                    // `"type": "Nothing"` as the proof. A derived class must now
+                    // come from the single mapping in `target::shared::abi`,
+                    // which is where the tokens are enumerated.
+                    None if !DERIVED.iter().any(|d| arg.contains(d)) => {
+                        offenders.push(format!(
+                            "{rel}:{} — mov_imm class computed as `{arg}`",
+                            n + 1
+                        ));
+                    }
+                    None => {}
                 }
             }
             // The READ side: `instruction.get("type") … Some("X")`.
@@ -1421,9 +1449,12 @@ fn immediate_class_argument(line: &str, needle: &str) -> Option<String> {
         }
     }
     let arg = args.get(1)?.trim();
-    // Only a literal is checkable here; a variable is whatever it is at runtime.
-    let inner = arg.strip_prefix('"')?.strip_suffix('"')?;
-    Some(inner.to_string())
+    Some(arg.to_string())
+}
+
+/// The literal spelling inside `arg`, or `None` when the argument is computed.
+fn as_literal(arg: &str) -> Option<&str> {
+    arg.strip_prefix('"')?.strip_suffix('"')
 }
 
 /// The curated `TYPE_KEYED_TABLES` list is only trustworthy if every entry

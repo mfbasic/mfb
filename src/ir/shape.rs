@@ -3078,10 +3078,18 @@ impl<'a> Walker<'a> {
         if matches!(variant.as_ref(), "Ok" | "Error" | "Err") {
             return false;
         }
-        let ParameterType::Named(_) = matched_type else {
+        // Correction G6: peel the STATE clause BEFORE asking "is this a
+        // nominal?". Until plan-111-B a stateful resource union arrived here as
+        // one opaque `Named("Stream STATE Cursor")` — it passed this guard, and
+        // the string-splitting `without_state` below peeled the clause out of
+        // the spelling. `Stateful` is a NEW variant, so the unpeeled value is no
+        // longer a `Named`, the guard rejected every `CASE File(f)` over a
+        // stateful union, `f` went unbound, and `f.state.pos` typed `Unknown`.
+        // Peeled first, this decides exactly as it did before for every input.
+        let union = matched_type.without_state();
+        let ParameterType::Named(_) = union else {
             return false;
         };
-        let union = matched_type.without_state();
         self.types
             .get(&union)
             .is_some_and(|info| info.is_union && info.variants.iter().any(|v| *v == variant))

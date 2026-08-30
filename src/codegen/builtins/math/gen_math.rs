@@ -1161,7 +1161,7 @@ impl CodeBuilder<'_> {
                 let one = self.allocate_register();
                 self.emit(abi::move_immediate(
                     &one,
-                    "Fixed",
+                    abi::IMMEDIATE_CLASS_FIXED,
                     &(1u64 << 32).to_string(),
                 ));
                 self.emit_fixed_atan2(&values[0].location, &one)?

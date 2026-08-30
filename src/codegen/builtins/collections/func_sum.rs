@@ -188,7 +188,11 @@ pub(crate) fn lower_sum(
         &scratch8,
         COLLECTION_HEADER_SIZE,
     ));
-    builder.emit(abi::move_immediate(&scratch14, &element_type.name(), "0"));
+    builder.emit(abi::move_immediate(
+        &scratch14,
+        &abi::immediate_class(&element_type),
+        "0",
+    ));
     builder.emit(abi::label(&loop_label));
     builder.emit(abi::compare_registers(&scratch10, &scratch9));
     builder.emit(abi::branch_ge(&done));

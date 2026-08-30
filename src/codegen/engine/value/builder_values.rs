@@ -391,7 +391,11 @@ impl CodeBuilder<'_> {
                 // `*type_ == ParameterType::String` branch was removed.
                 let register = self.allocate_register();
                 let immediate = native_immediate_value(&type_, value)?;
-                self.emit(abi::move_immediate(&register, &type_.name(), &immediate));
+                self.emit(abi::move_immediate(
+                    &register,
+                    &abi::immediate_class(&type_),
+                    &immediate,
+                ));
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
@@ -1291,7 +1295,7 @@ impl CodeBuilder<'_> {
                 let tag_register = self.allocate_register();
                 self.emit(abi::move_immediate(
                     &tag_register,
-                    "UnionTag",
+                    abi::IMMEDIATE_CLASS_UNION_TAG,
                     &tag.to_string(),
                 ));
                 self.emit(abi::store_u64(&tag_register, abi::mfb_return(1), 0));
@@ -1406,7 +1410,7 @@ impl CodeBuilder<'_> {
                 let tag_register = self.allocate_register();
                 self.emit(abi::move_immediate(
                     &tag_register,
-                    "UnionTag",
+                    abi::IMMEDIATE_CLASS_UNION_TAG,
                     &tag.to_string(),
                 ));
                 self.emit(abi::store_u64(&tag_register, abi::mfb_return(1), 0));
@@ -1550,7 +1554,7 @@ impl CodeBuilder<'_> {
                         let register = self.allocate_register();
                         self.emit(abi::move_immediate(
                             &register,
-                            "EnumOrdinal",
+                            abi::IMMEDIATE_CLASS_ENUM_ORDINAL,
                             &ordinal.to_string(),
                         ));
                         return Ok(ValueResult {

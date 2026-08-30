@@ -757,7 +757,11 @@ impl CodeBuilder<'_> {
             result_slot,
         ));
         // tag@0, size@8.
-        self.emit(abi::move_immediate(&scratch9, "UnionTag", &tag.to_string()));
+        self.emit(abi::move_immediate(
+            &scratch9,
+            abi::IMMEDIATE_CLASS_UNION_TAG,
+            &tag.to_string(),
+        ));
         self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 0));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), size_slot));
         self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 8));

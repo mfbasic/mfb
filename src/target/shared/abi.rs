@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::codegen::engine::operand::AbiConvention;
 use crate::codegen::engine::operand::AbiRole;
 use crate::codegen::engine::operand::Operand;
@@ -470,10 +472,53 @@ pub(crate) const IMMEDIATE_CLASS_BYTE: &str = "Byte";
 pub(crate) const IMMEDIATE_CLASS_BOOLEAN: &str = "Boolean";
 /// See [`IMMEDIATE_CLASS_INTEGER`].
 pub(crate) const IMMEDIATE_CLASS_FIXED: &str = "Fixed";
+/// See [`IMMEDIATE_CLASS_INTEGER`].
+pub(crate) const IMMEDIATE_CLASS_FLOAT: &str = "Float";
+/// See [`IMMEDIATE_CLASS_INTEGER`].
+pub(crate) const IMMEDIATE_CLASS_MONEY: &str = "Money";
+/// See [`IMMEDIATE_CLASS_INTEGER`]. A `Nothing` immediate is the zero a
+/// value-less default materializes into a register.
+pub(crate) const IMMEDIATE_CLASS_NOTHING: &str = "Nothing";
 /// A union's discriminant. Names no MFBASIC type.
 pub(crate) const IMMEDIATE_CLASS_UNION_TAG: &str = "UnionTag";
 /// An enum member's ordinal. Names no MFBASIC type.
 pub(crate) const IMMEDIATE_CLASS_ENUM_ORDINAL: &str = "EnumOrdinal";
+
+/// The operand class for an immediate whose class is DERIVED from the value's
+/// scalar type rather than written as a literal at the emit site.
+///
+/// plan-111-G Correction G7: three emitters passed `&type_.name()` straight into
+/// [`move_immediate`]'s class slot — a default-scalar materialization, a scalar
+/// `Const`, and `collections::sum`'s accumulator seed. The
+/// `immediate_operand_class_vocabulary_is_closed` test reads only *literal*
+/// class arguments, so it could not see them, and its "closed vocabulary of six"
+/// claim was false: the committed `.ncode` goldens contain `"type": "Money"` and
+/// `"type": "Nothing"`, neither of which is in that six.
+///
+/// Routing the three through here does two things. The tokens those emitters can
+/// produce are now enumerated in one place instead of being whatever `name()`
+/// happened to render, and the scan test can require that a non-literal class
+/// argument is a call to *this* function — which is what makes "closed" a
+/// property rather than a comment.
+///
+/// The fallback still renders. It is reachable: `native_immediate_value` ends in
+/// a pass-through arm, so a `Const` of any type at all can arrive at the second
+/// site. Mapping such a type to a fixed token would change the emitted `.ncode`
+/// for it, so the fallback reproduces exactly what the three sites did before —
+/// and every token an emitter is *known* to produce is named above it.
+pub(crate) fn immediate_class(type_: &crate::types::ParameterType) -> Cow<'static, str> {
+    use crate::types::ParameterType as P;
+    match type_ {
+        P::Integer => Cow::Borrowed(IMMEDIATE_CLASS_INTEGER),
+        P::Byte => Cow::Borrowed(IMMEDIATE_CLASS_BYTE),
+        P::Boolean => Cow::Borrowed(IMMEDIATE_CLASS_BOOLEAN),
+        P::Fixed => Cow::Borrowed(IMMEDIATE_CLASS_FIXED),
+        P::Float => Cow::Borrowed(IMMEDIATE_CLASS_FLOAT),
+        P::Money => Cow::Borrowed(IMMEDIATE_CLASS_MONEY),
+        P::Nothing => Cow::Borrowed(IMMEDIATE_CLASS_NOTHING),
+        other => other.name(),
+    }
+}
 
 /// `mov_imm dst, <class>, value` — load an immediate.
 ///

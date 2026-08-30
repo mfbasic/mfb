@@ -1,11 +1,18 @@
 use crate::types::ParameterType;
 
-/// plan-106-E: the three names below are reached only by the name-domain
+/// plan-106-E: the five names below are reached only by the name-domain
 /// pinning harness in this file's tests (see [`binary_result_type`]); production
 /// promotion is entirely typed.
+///
+/// plan-111-G: `TYPE_FIXED`/`TYPE_FLOAT` carried no `#[cfg(test)]` while the
+/// other three did, so they compiled into the release binary as dead constants
+/// — two more `&str` type spellings than the census counted. Gated with the
+/// rest.
 #[cfg(test)]
 pub(crate) const TYPE_BYTE: &str = "Byte";
+#[cfg(test)]
 pub(crate) const TYPE_FIXED: &str = "Fixed";
+#[cfg(test)]
 pub(crate) const TYPE_FLOAT: &str = "Float";
 #[cfg(test)]
 pub(crate) const TYPE_INTEGER: &str = "Integer";

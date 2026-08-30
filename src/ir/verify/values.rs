@@ -657,7 +657,17 @@ impl TypeEnv {
         // plan-111-B: the record-field tables are keyed by the TYPE now; the
         // rendered name is still needed for the primitive-set membership test
         // and for diagnostic text.
-        let base_type = resource_base_type(&target_type);
+        //
+        // Correction G6: the record-field lookup below keys on `target_type`
+        // ITSELF, not on its resource base. Stripping `RES`/`STATE` first looks
+        // like a tidier key, but it changes the RULE: a `fs.File STATE Cursor`
+        // spelling is absent from the record table, so the member access is left
+        // unchecked (`.state` is handled structurally above, and by `ir::shape`),
+        // whereas the bare `fs.File` base IS present as a record — a resource
+        // declares its inline fields — and the check then rejects `f.state` on
+        // every stateful resource. `resource_base_type` is the right key for
+        // `field_types` (which wants the base's field TYPES) and for the
+        // resource/thread predicates below; it is the wrong key here.
         let type_name = target_type.name();
         // Reading `.state` off a resource that declares none. Diagnosed here so it
         // names STATE, matching the write path's `TYPE_STATE_INVALID` (plan-52-C
@@ -711,13 +721,13 @@ impl TypeEnv {
         // record whose complete field set is known, the member must be present;
         // otherwise (collections, unions, unresolved includes, unknown types)
         // the access is left unchecked.
-        if let Some(fields) = self.record_fields(&base_type) {
+        if let Some(fields) = self.record_fields(&target_type) {
             if !fields.contains(member) {
                 self.emit(
                     "TYPE_UNKNOWN_FIELD",
                     format!("record `{type_name}` has no member `{member}`."),
                 );
-            } else if self.hidden_from_here(&base_type, member) {
+            } else if self.hidden_from_here(&target_type, member) {
                 self.emit(
                     "TYPE_MEMBER_NOT_VISIBLE",
                     format!("Field `{type_name}::{member}` is not visible from this file."),

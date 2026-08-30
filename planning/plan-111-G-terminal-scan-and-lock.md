@@ -423,8 +423,115 @@ why the gate and not this table is the thing CI runs.
 
 ## Corrections
 
-<Filled in DURING execution. Every artifact-gate diff and its attribution belongs
-here, with the pre-plan-111 baseline output that classified it.>
+Corrections G1–G5 are recorded inline in the phases above. G6 and G7 are the two
+findings from Phase 4's attribution pass.
+
+### G6 — the `Stateful` variant is NEW, and two `Named(_)` guards never learned it
+
+**Symptom.** `artifact-gate.sh all` reported 2 diffs, both `MISSING` artifacts on
+one fixture — `rt-behavior/resources/resource-union-state-access-valid`, which
+**failed to build**:
+
+```
+./src/main.mfb:29 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]:
+  Call to `toString` has argument type(s) (Unknown), expected Integer, Float[, Byte], ...
+./src/main.mfb:29 error[2-203-0045 TYPE_UNKNOWN_FIELD]:
+  record `fs.File STATE Cursor` has no member `state`.
+```
+
+Line 29 is `CASE fs::File(f)` / `io::print(toString(f.state.pos))` — reading the
+STATE through a MATCH-extracted variant. Lines 22/23/25 read the same payload
+through the union value itself and were fine, which is what localized it.
+
+**Attribution.** Built the same fixture with a pre-plan-111 binary (`git archive
+edd3f049d | cargo build --release`): it builds and prints `0 5 15 15`. The diff
+is plan-111's, so the conversion is fixed, not the golden.
+
+**Root cause — one cause, two sites.** `ParameterType::Stateful` does not exist
+before this plan (`grep -c Stateful` on the base `src/types.rs` is `0`). Until
+letter B, `Stream STATE Cursor` was ONE opaque `Named` whose spelling carried the
+clause, and `split_state` rendered-and-string-split, so it peeled that spelling
+anyway. Instrumenting both binaries at `ir::shape`'s match-case walk:
+
+```
+base:  DBG case matched_type=Named("Stream STATE Cursor")                          binds=true
+plan:  DBG case matched_type=Stateful { base: Named("Stream"), state: Named("Cursor") } binds=false
+```
+
+Two guards ask `Named(_)` of a value that *used* to be one:
+
+1. `ir::shape::checker_binds_pattern` — `let ParameterType::Named(_) = matched_type
+   else { return false }`, then `matched_type.without_state()`. Self-contradictory
+   once the clause is structure: a `Named` has no state to peel. It rejected every
+   `CASE Variant(v)` over a **stateful** union, so `v` went unbound, `v.state`
+   typed `Unknown`, and the cascade surfaced as `toString(Unknown)`. **Fix: peel
+   before asking.**
+2. `ir::verify::values`'s member-access check — letter B changed the record-field
+   lookup key from `type_name` (the FULL type) to `resource_base_type(...)` (the
+   base). That reads like a tidy-up and is a rule change: `fs.File STATE Cursor`
+   is absent from the record table so the access was left unchecked, while the
+   bare `fs.File` base **is** present — a resource declares inline fields — so
+   `.state` was rejected on every stateful resource. **Fix: key on `target_type`.**
+   `resource_base_type` stays the key for `field_types` and the resource/thread
+   predicates, which do want the base.
+
+**Audit, not a mental model.** Every `ParameterType::Named` pattern site outside
+`src/types.rs` was enumerated (`grep -rn "ParameterType::Named" src`, 21 hits) and
+each checked for whether a `Stateful` can reach it and what it used to do:
+
+| site | verdict |
+|---|---|
+| `ir/shape.rs` `checker_binds_pattern` | **BUG — fixed** |
+| `ir/verify/values.rs` member access | **BUG — fixed** (the `base_type` key) |
+| `ir/shape.rs` `validate_package_type`, `is_comparable_seen` | already have explicit `Stateful` arms (letter B) |
+| `ir/shape.rs` `compatible` | strips `RES`+STATE at entry, before the match |
+| `ir/shape.rs` `is_printable`, `with_update_typed` | a stateful spelling failed the name test before and the variant test now — same answer |
+| `resolver/mod.rs` `is_c_abi_type`, `plan/lower.rs`, `builder_collection_layout.rs`, `builder_vector_inline.rs`, `registry/mod.rs`, `type_utils.rs` | closed name lists; a stateful spelling was never in them |
+| `monomorph/lower.rs` `leaf_symbol` | substitution keys are bare param names; the walk has explicit `Stateful` arms |
+
+**The lesson this cost.** Adding a variant to `ParameterType` is not additive.
+Every `Named(_)` in the tree was written when a nominal-with-a-clause was a
+`Named`, and each is a silent behaviour change — no compiler error, because none
+of them is an exhaustive match. `.ai/codegen-invariants.md`'s "a new variant is
+silent if unwired" rule now names `Stateful` and this fixture.
+
+### G7 — the immediate-class vocabulary was never closed, and the test could not see it
+
+Phase 1 ruled `move_immediate`'s second argument an encoder class rather than a
+type site and pinned it with `immediate_operand_class_vocabulary_is_closed`. Both
+the ruling and the pin were partly wrong.
+
+`cargo build --release` reported three constants of that vocabulary as **never
+used**. Chasing that: three emitters pass `&type_.name()` straight into the class
+slot — `builder_value_semantics.rs` (scalar default), `builder_values.rs` (scalar
+`Const`), `func_sum.rs` (accumulator seed) — and the test reads only *literal*
+arguments, so it reported a clean six-token vocabulary while the committed
+goldens disagree:
+
+```
+$ find tests -name '*.ncode' -exec grep -ho '"op": "mov_imm".*' {} \; \
+    | grep -o '"type": "[^"]*"' | sort | uniq -c
+  17 "Boolean"   332 "Byte"   2 "EnumOrdinal"
+5219 "Integer"     3 "Money"   1 "Nothing"   2 "UnionTag"
+```
+
+`Money` and `Nothing` are in the goldens and were in neither the doc's list nor
+`ALLOWED`. Fixes: the three sites now derive their class from one mapping
+(`abi::immediate_class`), `ALLOWED` gains the three derived tokens, and the test
+gains the assertion that a **computed** class argument must come from that
+mapping — RED-checked by reverting one site (`func_sum.rs:191 — mov_imm class
+computed as ``&element_type.name()``). `native_immediate_value` ends in a
+pass-through arm, so the mapping keeps a rendering fallback rather than inventing
+a token and changing bytes; that residue is documented at the function.
+
+Two more dead-code findings came out of the same warning sweep, both real:
+`numeric::TYPE_FIXED`/`TYPE_FLOAT` were missing the `#[cfg(test)]` their three
+siblings carry, so two `&str` type spellings compiled into the release binary;
+and `codegen::resource::state_type_name` had lost its last production caller, so
+it is now `cfg(test)` as the parity partner of `ParameterType::split_state`. That
+drops `("str_type_params", "codegen")` from **4 to 3** — the budget is lowered in
+the same commit, which is the direction the gate exists to make impossible to
+fake.
 
 ## Summary
 

@@ -577,7 +577,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&x, abi::stack_pointer(), x_slot));
         // Domain check: |x| <= 1.
         let one = self.allocate_register();
-        self.emit(abi::move_immediate(&one, "Fixed", &FIXED_ONE.to_string()));
+        self.emit(abi::move_immediate(
+            &one,
+            abi::IMMEDIATE_CLASS_FIXED,
+            &FIXED_ONE.to_string(),
+        ));
         let in_domain_upper = self.label("fixed_asin_upper_ok");
         let domain_error = self.label("fixed_asin_domain_error");
         let checked = self.label("fixed_asin_checked");
@@ -597,7 +601,7 @@ impl CodeBuilder<'_> {
         let one_minus = self.allocate_register();
         self.emit(abi::move_immediate(
             &one_minus,
-            "Fixed",
+            abi::IMMEDIATE_CLASS_FIXED,
             &FIXED_ONE.to_string(),
         ));
         self.emit(abi::subtract_registers(&one_minus, &one_minus, &x2));
@@ -645,8 +649,16 @@ impl CodeBuilder<'_> {
         let counter = self.allocate_register();
         let s0 = self.allocate_register();
         let s1 = self.allocate_register();
-        self.emit(abi::move_immediate(&sum, "Fixed", &FIXED_ONE.to_string()));
-        self.emit(abi::move_immediate(&term, "Fixed", &FIXED_ONE.to_string()));
+        self.emit(abi::move_immediate(
+            &sum,
+            abi::IMMEDIATE_CLASS_FIXED,
+            &FIXED_ONE.to_string(),
+        ));
+        self.emit(abi::move_immediate(
+            &term,
+            abi::IMMEDIATE_CLASS_FIXED,
+            &FIXED_ONE.to_string(),
+        ));
         self.emit(abi::move_immediate(&k, "Integer", "1"));
         self.emit(abi::move_immediate(&counter, "Integer", "18"));
         let series = self.label("fixed_exp_series");
@@ -782,7 +794,11 @@ impl CodeBuilder<'_> {
         let numerator = self.allocate_register();
         let denominator = self.allocate_register();
         let one = self.allocate_register();
-        self.emit(abi::move_immediate(&one, "Fixed", &FIXED_ONE.to_string()));
+        self.emit(abi::move_immediate(
+            &one,
+            abi::IMMEDIATE_CLASS_FIXED,
+            &FIXED_ONE.to_string(),
+        ));
         self.emit(abi::subtract_registers(&numerator, &m, &one));
         self.emit(abi::add_registers(&denominator, &m, &one));
         // Spill e across the division helper (which resets the register file).
@@ -900,7 +916,7 @@ impl CodeBuilder<'_> {
         let product = self.allocate_register();
         self.emit(abi::move_immediate(
             &result,
-            "Fixed",
+            abi::IMMEDIATE_CLASS_FIXED,
             &FIXED_ONE.to_string(),
         ));
         let mul_loop = self.label("fixed_pow_int_loop");
@@ -916,7 +932,7 @@ impl CodeBuilder<'_> {
         let neg_one_reg = self.allocate_register();
         self.emit(abi::move_immediate(
             &neg_one_reg,
-            "Fixed",
+            abi::IMMEDIATE_CLASS_FIXED,
             &fixed_neg_one.to_string(),
         ));
         self.emit(abi::compare_registers(&base_reg, &result));
@@ -972,7 +988,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&recip_ok));
         self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&recip_ok));
-        self.emit(abi::move_immediate(&one, "Fixed", &FIXED_ONE.to_string()));
+        self.emit(abi::move_immediate(
+            &one,
+            abi::IMMEDIATE_CLASS_FIXED,
+            &FIXED_ONE.to_string(),
+        ));
         self.emit_fixed_divide(&recip, &one, &denom)?;
         self.emit(abi::store_u64(
             &recip,
