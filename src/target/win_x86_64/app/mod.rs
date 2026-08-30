@@ -887,6 +887,17 @@ fn emit_wndproc() -> CodeFunction {
     // WM_PAINT + a live TUI surface → BitBlt the off-screen grid to the client.
     ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_PAINT));
     ins.push(abi::branch_ne("wnd_check_destroy"));
+    // plan-98-A Phase 3 (Open Decision 3): never BitBlt the term grid over a canvas
+    // surface. `term::on` traps in `Mode.Canvas`, but a program can call it in
+    // `Console` — leaving `TUI_MEMDC_SYM` live — and *then* switch to `Canvas`. The
+    // memDC outlives the switch, so without this gate every WM_PAINT would repaint
+    // the stale character grid on top of the canvas client area. Gating the paint
+    // (rather than destroying the memDC on mode exit) also keeps switching back to
+    // `Console` cheap: the grid is still there, just not presented.
+    load_addr(abi::mfb_arg(0), CANVAS_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_ne("wnd_default")); // canvas presented → no term paint
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
@@ -3726,9 +3737,43 @@ mod canvas_reconcile_tests {
         let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
         assert_eq!(
             externals(&wndproc, CANVAS_HWND_SYM),
-            8,
-            "4 address loads — Canvas publishes, Console and None clear, WM_CHAR \
-             gates on it — each an adrp/add pair = 2 relocations"
+            10,
+            "5 address loads — Canvas publishes, Console and None clear, WM_CHAR \
+             gates on it, WM_PAINT gates on it — each an adrp/add pair = 2 \
+             relocations"
+        );
+    }
+
+    /// Open Decision 3: `term::on` traps in `Mode.Canvas`, but a program can call it
+    /// in `Console` and *then* switch — the memDC outlives the switch, so every
+    /// WM_PAINT would repaint the stale character grid over the canvas client area.
+    /// The canvas gate must therefore come **before** the memDC test.
+    #[test]
+    fn wm_paint_checks_canvas_mode_before_the_term_grid() {
+        let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
+        let order: Vec<&str> = wndproc
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|name| {
+                *name == CANVAS_HWND_SYM || *name == TUI_MEMDC_SYM || *name == "BeginPaint"
+            })
+            .collect();
+        let canvas = order
+            .iter()
+            .position(|name| *name == CANVAS_HWND_SYM)
+            .expect("WM_PAINT must consult canvas mode");
+        let memdc = order
+            .iter()
+            .position(|name| *name == TUI_MEMDC_SYM)
+            .expect("WM_PAINT must consult the term memDC");
+        let paint = order
+            .iter()
+            .position(|name| *name == "BeginPaint")
+            .expect("the term paint path must BeginPaint");
+        assert!(
+            canvas < memdc && memdc < paint,
+            "canvas gate, then memDC test, then paint; got {order:?}"
         );
     }
 

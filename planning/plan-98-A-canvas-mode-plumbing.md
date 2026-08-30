@@ -702,7 +702,7 @@ UI-thread writers are non-blocking (`O_NONBLOCK` / `WriteFile` on a pipe).
 `cargo test --test cli_app_canvas_mode --test cli_linux_app_mode --test
 cli_macos_app_io_input_imports` = 17 passed;
 `MFB_MACAPP_GUI=1 bash scripts/test-macapp.sh ./target/release/mfb` = all 17 ok.
-Commit: —
+Commit: b3bc8e5c2
 
 ## Validation Plan
 
@@ -740,19 +740,29 @@ Commit: —
 
 ## Open Decisions
 
-- **Mode name: `Canvas` vs `Graphics`.** Both spellings appear in early drafts of this
-  plan set. `src/codegen/builtins/app/mod.rs:MODULE_DESC` anticipates the extension but names it
-  only generically ("A future graphical mode is a new `Mode` variant entered through
-  `app::setMode`, with no change to this surface") — it does not pick a name, so
-  neither choice contradicts shipped docs. Recommended: **`Canvas`**, for name-parity
-  with the `canvas::` package. (§1)
-- **Does the `canvas::` package shell register in this sub-plan or in B?** Recommended:
-  **B** — this sub-plan needs no drawing call, so registering an empty package here
-  would add a `runtime_calls` surface with nothing behind it. Register the package
-  when its first call (`present`) exists. (§Non-goals)
-- **Windows surface in Phase 3 without a renderer.** An HWND with no WM_PAINT content
-  is fine, but confirm the GDI message loop doesn't assume a term memDC exists in
-  canvas mode. Recommended: gate the term memDC paint on `mode == Console`. (§Phase 3)
+All three are resolved; kept with their resolutions so a later letter does not
+re-litigate them.
+
+- ~~**Mode name: `Canvas` vs `Graphics`.**~~ **RESOLVED: `Canvas`**, for name-parity
+  with the `canvas::` package (the recommendation, taken). Shipped in Phase 1 as
+  `EnumVariant { name: "Canvas" }` with discriminant `2`; `mfb man app types` renders
+  it. The `MODULE_DESC` sentence that anticipated the extension generically ("A future
+  graphical mode…") was rewritten to say `Canvas` is how it happened.
+- ~~**Does the `canvas::` package shell register in this sub-plan or in B?**~~
+  **RESOLVED: B** (the recommendation, taken). A had no drawing call, so registering
+  an empty package here would have added a `runtime_calls` surface with nothing behind
+  it. No `canvas::` package exists after A; B registers it with `present`.
+- ~~**Windows surface in Phase 3 without a renderer.**~~ **RESOLVED, and the concern
+  was real.** The check found the WM_PAINT arm already tolerates a *null* memDC
+  (`TUI_MEMDC_SYM == 0` → `DefWindowProcW`), so an HWND with no content is fine. But
+  the dangerous case is the opposite one: `term::on` traps in `Mode.Canvas`, yet a
+  program can call it in `Console` and *then* switch — the memDC **outlives the
+  switch**, so every WM_PAINT would repaint the stale character grid on top of the
+  canvas client area. The recommended gate was therefore implemented, keyed on
+  `CANVAS_HWND_SYM` being non-zero and placed **before** the memDC test, with
+  `wm_paint_checks_canvas_mode_before_the_term_grid` pinning that order. Gating the
+  paint rather than destroying the memDC on mode exit also keeps switching back to
+  `Console` cheap — the grid survives, it is just not presented.
 
 ## Corrections
 
@@ -963,6 +973,17 @@ while leaving its design intact. Applied:
     up as a bad value anywhere. `editproc` on Windows already did this translation for
     the transcript; the macOS canvas `keyDown:` and the Windows canvas `WM_CHAR` arm
     now both do too, and a test pins each.
+
+20. **Open Decision 3 found a real bug, not just a confirmation.** The decision asked
+    to "confirm the GDI message loop doesn't assume a term memDC exists in canvas
+    mode". It does not — the WM_PAINT arm already falls through to `DefWindowProcW`
+    on a null `TUI_MEMDC_SYM`. But the *inverse* case is the damaging one: `term::on`
+    traps in `Mode.Canvas`, yet nothing stops a program calling it in `Console` and
+    then switching. The memDC outlives the switch, so every WM_PAINT would have
+    repainted the stale character grid over the canvas client area. The recommended
+    gate is now implemented and ordered before the memDC test, pinned by
+    `wm_paint_checks_canvas_mode_before_the_term_grid`. Windows `CANVAS_HWND_SYM`
+    relocations moved 8 → 10 for the extra read.
 
 <Further corrections filled in during execution.>
 
