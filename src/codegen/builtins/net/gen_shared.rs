@@ -87,31 +87,48 @@ pub(crate) fn net_symbol(platform: &dyn CodegenPlatform, intent: NetSymbol) -> &
     }
 }
 
-/// Write the `events = POLLIN` and zeroed `revents` fields of a pollfd whose fd
-/// (8 bytes) has already been stored at `sp + pollfd_offset`. POSIX `struct pollfd`
-/// is `{ int fd; short events; short revents }` (events at +4, POLLIN = 1); Windows
-/// `WSAPOLLFD` is `{ SOCKET fd; SHORT events; SHORT revents }` — an 8-byte fd, so
-/// events sit at +8 and readability is `POLLRDNORM` (0x0100), not POSIX `POLLIN`
-/// (plan-47-I). The POSIX arm is byte-identical to the pre-seam inline sequence.
+/// Write the `events` and zeroed `revents` fields of a pollfd whose fd (8 bytes)
+/// has already been stored at `sp + pollfd_offset`. POSIX `struct pollfd` is
+/// `{ int fd; short events; short revents }` (events at +4, POLLIN = 1,
+/// POLLOUT = 4); Windows `WSAPOLLFD` is `{ SOCKET fd; SHORT events; SHORT
+/// revents }` — an 8-byte fd, so events sit at +8, readability is `POLLRDNORM`
+/// (0x0100) rather than POSIX `POLLIN`, and writability is `POLLWRNORM`
+/// (0x0010) rather than POSIX `POLLOUT` (plan-47-I). The POSIX arms are
+/// byte-identical to the pre-seam inline sequences.
 pub(crate) fn emit_pollfd_events(
     platform: &dyn CodegenPlatform,
     pollfd_offset: usize,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,
 ) {
+    emit_pollfd_events_for(platform, pollfd_offset, false, instructions, vregs)
+}
+
+/// [`emit_pollfd_events`] with an explicit direction: `writable` selects
+/// POLLOUT/`POLLWRNORM` (the non-blocking connect wait) over POLLIN/`POLLRDNORM`
+/// (a readability query).
+pub(crate) fn emit_pollfd_events_for(
+    platform: &dyn CodegenPlatform,
+    pollfd_offset: usize,
+    writable: bool,
+    instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+) {
     let v10 = vregs.next();
     if platform.family() == PlatformFamily::Windows {
+        // POLLRDNORM = 0x0100 (high byte 1), POLLWRNORM = 0x0010 (low byte 0x10).
+        let (low, high) = if writable { ("16", "0") } else { ("0", "1") };
         instructions.extend([
-            // events (SHORT) @ +8 = POLLRDNORM (0x0100).
-            abi::store_u8(abi::ZERO, abi::stack_pointer(), pollfd_offset + 8),
-            abi::move_immediate(&v10, "Integer", "1"),
+            abi::move_immediate(&v10, "Integer", low),
+            abi::store_u8(&v10, abi::stack_pointer(), pollfd_offset + 8),
+            abi::move_immediate(&v10, "Integer", high),
             abi::store_u8(&v10, abi::stack_pointer(), pollfd_offset + 9),
             abi::store_u8(abi::ZERO, abi::stack_pointer(), pollfd_offset + 10),
             abi::store_u8(abi::ZERO, abi::stack_pointer(), pollfd_offset + 11),
         ]);
     } else {
         instructions.extend([
-            abi::move_immediate(&v10, "Integer", POLLIN),
+            abi::move_immediate(&v10, "Integer", if writable { POLLOUT } else { POLLIN }),
             abi::store_u8(&v10, abi::stack_pointer(), pollfd_offset + 4),
             abi::store_u8(abi::ZERO, abi::stack_pointer(), pollfd_offset + 5),
             abi::store_u8(abi::ZERO, abi::stack_pointer(), pollfd_offset + 6),
@@ -130,6 +147,8 @@ const HINTS_FAMILY_WORD_PASSIVE: &str = "8589934593"; // ai_flags = AI_PASSIVE (
 pub(crate) const SOCKADDR_STORAGE_SIZE: usize = 128;
 const ADDR_STR_CAP: usize = 64;
 pub(crate) const POLLIN: &str = "1";
+/// POSIX `POLLOUT` — the writability bit the non-blocking connect wait polls for.
+pub(crate) const POLLOUT: &str = "4";
 /// `EINTR` errno (Linux/macOS both use 4): a `poll` interrupted by a signal
 /// returns `-1`/`EINTR` and must be re-issued rather than treated as a hard
 /// connect failure (bug-115).
@@ -776,11 +795,22 @@ fn lower_net_endpoint_helper(
             abi::label(&connect_poll_retry),
             abi::load_u64(&v9, abi::stack_pointer(), FD_OFFSET),
             abi::store_u64(&v9, abi::stack_pointer(), POLLFD_OFFSET),
-            abi::move_immediate(&v10, "Integer", "4"), // POLLOUT
-            abi::store_u8(&v10, abi::stack_pointer(), POLLFD_OFFSET + 4),
-            abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 5),
-            abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 6),
-            abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 7),
+        ]);
+        // The connect wait is a WRITABILITY poll. This used to be written inline
+        // in the POSIX layout on every platform — `events` at +4 with POLLOUT (4)
+        // — which on Windows lands inside the 8-byte `SOCKET` of a `WSAPOLLFD`
+        // and leaves the real `events` (at +8) zero. WSAPoll rejects a zero
+        // `events`, so every bounded connect failed. `revents` occupies +10..+11
+        // on Windows, four bytes below `SOERR_OFFSET`, which is only written
+        // AFTER this poll returns.
+        emit_pollfd_events_for(
+            platform,
+            POLLFD_OFFSET,
+            true,
+            &mut instructions,
+            &mut vregs,
+        );
+        instructions.extend([
             abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
             abi::move_immediate(abi::c_arg(1), "Integer", "1"),
             abi::load_u64(abi::c_arg(2), abi::stack_pointer(), EXTRA_OFFSET),

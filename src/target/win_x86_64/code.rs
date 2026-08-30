@@ -807,9 +807,9 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // the shared Linux emitter; only the import *library* differs (kernel32/
         // bcrypt vs libc), and that lives in `platform_imports`.
         crate::target::linux_common::code::emit_linux_c_call(
-            // Win64's MFB result bank is `rax`-based (= the C return), so no
-            // `%retC`→aligned staging is needed; pass the Windows target so the
-            // shared emitter skips it (plan-85).
+            // Win64's aligned MFB result bank starts at `rcx` (plan-85-A), not at
+            // the C return `rax`, so the shared emitter stages `mov rcx, rax`
+            // after the call exactly as it does for SysV's `rdi`.
             "windows-x86_64",
             from,
             base,

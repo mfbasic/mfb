@@ -277,12 +277,23 @@ pub(crate) fn emit_linux_c_call(
     // result into the MFB result register here, ONCE, so every downstream consumer is
     // correct whether it reads the result (`return_register()`) or feeds it straight
     // into the next call's first argument (`c_arg(0)`, the `getuid`→`getpwuid` shape).
-    // This is emitted ONLY on `linux-x86_64`: on AArch64/RISC-V the argument and result
-    // banks coincide (both `x0`) so the result is already there. Win64 external calls go
-    // through `win_x86_64::code::call_external`, which stages the C result the same way
-    // (`mov rcx,rax`) for the aligned Win64 result bank; this Linux emitter never runs
-    // for Win64.
-    if target == "linux-x86_64" {
+    // This is emitted on BOTH x86 targets: on AArch64/RISC-V the argument and result
+    // banks coincide (both `x0`) so the result is already there, but on x86 they never
+    // do — SysV's aligned bank starts at `rdi` and Win64's at `rcx`, while the C result
+    // is `rax` on both.
+    //
+    // Win64 was excluded here until plan-110-D, on the strength of a comment claiming
+    // its "MFB result bank is `rax`-based (= the C return)". That was true before
+    // plan-85-A re-aligned `%retMFB` onto the call-argument bank
+    // (`CALL_ARGS_WIN64[0] == "rcx"`, `src/arch/x86_64/select.rs`), and the exclusion
+    // was never revisited. The consequence was silent and total: every shared OS-seam
+    // emitter reads a call result through `abi::return_register()`, so on Windows
+    // `socket()`/`connect()`/`getsockname()`/... were all checked against `rcx` — the
+    // third outgoing argument — instead of their real return value. `tcp::connect`
+    // failed for every host including loopback, and `tcp::listen` "succeeded" while
+    // storing a non-socket as its handle (measured on box 2230: `bl socket` followed by
+    // `sxtw rcx, rcx` with no staging move).
+    if target == "linux-x86_64" || target == "windows-x86_64" {
         instructions.push(abi::move_register(
             abi::return_register(),
             crate::target::shared::abi::c_return(0),
