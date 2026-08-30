@@ -38,6 +38,11 @@ pub(crate) struct CodeParam {
     pub(crate) location: Operand,
 }
 
+// Clone: the tail-duplication row (`optimizer::opt2::tailduped`) copies a
+// join block's instructions into each predecessor. Every field is cheaply
+// cloneable — `op` is Copy, `source` is a static Location reference, and an
+// `Operand` clone is a small enum copy (only the `Raw` arm allocates).
+#[derive(Clone)]
 pub(crate) struct CodeInstruction {
     pub(crate) op: CodeOp,
     /// Operand fields, keyed by role name. plan-78-B flipped the value from a
@@ -159,6 +164,45 @@ pub(crate) fn layout_data_objects(
         .collect();
     let const_count = ordered.len();
     ordered.extend(objects.iter().filter(|object| object.kind != "constant"));
+
+    // "Alignment optimization" (Level 2 catalog row): each object is padded up
+    // to its own alignment before it is written, so a widely-aligned object
+    // following a narrow one wastes the gap. Ordering each partition by
+    // *descending* alignment makes every object land already-aligned behind
+    // its predecessor, which removes that padding entirely. The sort is
+    // stable and tie-broken by symbol, so the blob stays deterministic; the
+    // two partitions are sorted independently so the const→writable page
+    // boundary is untouched. Off at `-O1`, where the layout is byte-identical
+    // to what it has always been.
+    let mut alignment_savings = 0usize;
+    if crate::optimizer::level_enabled(2) {
+        let padding_of = |objects: &[&CodeDataObject]| -> usize {
+            let mut cursor = 0usize;
+            let mut padding = 0usize;
+            for object in objects {
+                let aligned = align(cursor, object.align);
+                padding += aligned - cursor;
+                cursor = aligned + object.size.max(1);
+            }
+            padding
+        };
+        let before = padding_of(&ordered[..const_count]) + padding_of(&ordered[const_count..]);
+        ordered[..const_count].sort_by(|left, right| {
+            right
+                .align
+                .cmp(&left.align)
+                .then_with(|| left.symbol.cmp(&right.symbol))
+        });
+        ordered[const_count..].sort_by(|left, right| {
+            right
+                .align
+                .cmp(&left.align)
+                .then_with(|| left.symbol.cmp(&right.symbol))
+        });
+        let after = padding_of(&ordered[..const_count]) + padding_of(&ordered[const_count..]);
+        alignment_savings = before.saturating_sub(after);
+    }
+    crate::optimizer::stats::count_alignment_bytes_saved(alignment_savings as u64);
 
     let mut data = Vec::new();
     let mut symbols = Vec::new();

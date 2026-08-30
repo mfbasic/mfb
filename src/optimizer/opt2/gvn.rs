@@ -233,11 +233,13 @@ fn value_key(
 
 /// Canonicalize an operand's SSA value for keying: chase copy chains to the
 /// underlying value, and fold a value defined by `mov_imm` (Integer) to its
-/// constant bits — two different `mov_imm 8` feeders are *different* SSA
+/// constant bits. pub(super): the induction-variable row compares two
+/// counters' initial values through the same canonicalization, so separate
+/// `mov`s of one source count as the same start — two different `mov_imm 8` feeders are *different* SSA
 /// values but the same constant, and without this no constant-fed expression
 /// ever matches another (measured: zero table hits across the whole example
 /// corpus before this canonicalization).
-fn canonical(
+pub(super) fn canonical(
     mut value: usize,
     instructions: &[CodeInstruction],
     models: &(ClassModel, ClassModel),

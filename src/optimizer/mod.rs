@@ -15,21 +15,25 @@
 //! ```
 //!
 //! [`opt1`] is the `NirModule -> NirModule` seam; [`opt2`] holds the MIR/machine
-//! passes plus the between-selection-and-regalloc MIR seam. Twenty-two rows
-//! ship today, each gated by [`level_enabled`] on its own catalog level:
-//! constant folding (both seams), algebraic simplification, non-loop strength
-//! reduction, and the two machine peepholes at Level 1; constant propagation
-//! and copy propagation (on the `opt2::plans::ssa` overlay), branch
-//! simplification (both seams), dead-code elimination (both seams),
-//! unreachable code elimination (both seams), dead-store elimination, and
-//! basic block merging at Level 2; and aggressive DCE, jump threading,
-//! local/global value numbering (GVN also covering the CSE row), and the six
-//! structured-loop rows (LICM, unswitching, fusion, fission, peeling,
-//! rotation) at Level 3. The single
-//! code-level description of the landed rows is [`catalog`] (rendered by both
-//! `mfb build -v` and `mfb man optimizations`); the rows' optimization-only
-//! analyses live under `opt1::plans` / `opt2::plans`, distinct from the
-//! compile-required analyses (regalloc liveness/CFG) they build on.
+//! passes plus the between-selection-and-regalloc MIR seam. Every landed row is
+//! gated by [`level_enabled`] on its own catalog level, and the authoritative
+//! list of them — with the level and stage of each — is [`catalog::rows`],
+//! which both `mfb build -v` and `mfb man optimizations` render. Count them
+//! from there rather than from a number written in prose, which goes stale the
+//! first time a row lands.
+//!
+//! Broadly: the Level-1 rows are the local identity rewrites (constant folding
+//! on both seams, algebraic simplification, non-loop strength reduction, the
+//! two machine peepholes); Level 2 is removal and deduplication (the
+//! propagation rows on the `opt2::plans::ssa` overlay, branch simplification,
+//! DCE, UCE, dead-store elimination, block merging, CFG simplification, the
+//! known-bits and global rows, and the regalloc rows); and Level 3 is
+//! restructuring — value numbering, jump threading, the structured-loop rows,
+//! SCCP, induction variables, the memory rows, the range-driven check-elision
+//! cluster, PRE, sinking, and loop-nest code motion. The rows'
+//! optimization-only analyses live under `opt1::plans` / `opt2::plans`,
+//! distinct from the compile-required analyses (regalloc liveness/CFG) they
+//! build on.
 //!
 //! **The dial's contract: `-O0`..`-O5` change the emitted code, never the
 //! observable results.** Only a pass that is behavior-preserving *by

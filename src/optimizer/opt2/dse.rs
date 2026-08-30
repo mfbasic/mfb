@@ -23,6 +23,31 @@
 //! dead when its own slot is already in the dead set at its point. Removing
 //! a store never removes its source computation — the DCE row, which runs
 //! after, sweeps the stranded feeders.
+//!
+//! # Partial dead-store elimination (Level 3)
+//!
+//! The same dataflow answers a second, weaker question at no extra cost: is
+//! the store dead along *some* successor edges but not all? `dead_in[s]` is
+//! already "the slots certain to be overwritten before any read from the top
+//! of `s`", so a store in a two-way block whose slot is dead entering one
+//! successor and live entering the other is *partially* dead — useless on one
+//! path, needed on the other.
+//!
+//! It is then sunk into the successor that needs it. Three conditions make
+//! that sound and profitable, and the row declines rather than work around
+//! any of them:
+//!
+//! - the live successor's **only** predecessor is this block, so no other
+//!   path into it loses the store;
+//! - nothing between the store and the end of the block touches memory, so
+//!   the moved store still writes the same slot at the same point in the
+//!   memory order;
+//! - nothing between them redefines the stored register, so it still holds
+//!   the value being stored.
+//!
+//! The move is size-neutral and the dead path stops writing entirely. This
+//! half is Level 3, not 2: it moves an observable effect rather than only
+//! removing a provably unobservable one.
 
 use crate::arch::ops::CodeOp;
 use crate::codegen::engine::regalloc::analysis::{build_cfg, is_block_terminator};
@@ -81,7 +106,10 @@ fn test_bit(bits: &[u64], i: usize) -> bool {
 
 /// Run the DSE row over one function's selected stream, in place.
 /// Self-guarded on the row's catalog level (2).
-pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>) {
+pub(crate) fn eliminate(
+    instructions: &mut Vec<CodeInstruction>,
+    model: &dyn crate::target::shared::regmodel::RegisterModel,
+) {
     if !crate::optimizer::level_enabled(2) {
         return;
     }
@@ -162,20 +190,138 @@ pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>) {
         }
     }
 
+    // The partial half (Level 3): stores dead on one edge and live on the
+    // other, sunk into the edge that needs them.
+    let sinks = if crate::optimizer::level_enabled(3) {
+        partial_sinks(instructions, &blocks, &slots, &dead_in, &dead_stores, model)
+    } else {
+        Vec::new()
+    };
+
     let removed = dead_stores.len() as u64;
-    if removed != 0 {
+    let sunk = sinks.len() as u64;
+    if removed != 0 || sunk != 0 {
         let mut keep = vec![true; instructions.len()];
         for index in dead_stores {
             keep[index] = false;
         }
-        let mut index = 0;
-        instructions.retain(|_| {
-            let keep = keep[index];
-            index += 1;
-            keep
-        });
+        let mut arrivals: Vec<(usize, usize)> = Vec::new();
+        for &(index, target) in &sinks {
+            keep[index] = false;
+            let start = blocks[target].start;
+            let point = if instructions[start].op == CodeOp::Label {
+                start + 1
+            } else {
+                start
+            };
+            arrivals.push((point, index));
+        }
+        let taken = std::mem::take(instructions);
+        let mut carried: Vec<Option<CodeInstruction>> = taken.into_iter().map(Some).collect();
+        let mut rebuilt: Vec<CodeInstruction> = Vec::with_capacity(carried.len());
+        for index in 0..carried.len() {
+            for &(point, source) in &arrivals {
+                if point == index {
+                    if let Some(instruction) = carried[source].take() {
+                        rebuilt.push(instruction);
+                    }
+                }
+            }
+            if !keep[index] {
+                continue;
+            }
+            if let Some(instruction) = carried[index].take() {
+                rebuilt.push(instruction);
+            }
+        }
+        *instructions = rebuilt;
     }
     crate::optimizer::stats::count_dead_stores_eliminated(removed);
+    crate::optimizer::stats::count_partial_dead_stores(sunk);
+}
+
+/// The partially dead stores and the successor block each should sink into.
+fn partial_sinks(
+    instructions: &[CodeInstruction],
+    blocks: &[crate::codegen::engine::regalloc::analysis::Block],
+    slots: &Slots,
+    dead_in: &[Vec<u64>],
+    already_dead: &[usize],
+    model: &dyn crate::target::shared::regmodel::RegisterModel,
+) -> Vec<(usize, usize)> {
+    use crate::codegen::engine::regalloc::analysis::{classify_ref, effect, RegRef};
+
+    let models = crate::codegen::engine::regalloc::class_models(model);
+    let mut preds: Vec<usize> = vec![0; blocks.len()];
+    for block in blocks {
+        for &successor in &block.succ {
+            preds[successor] += 1;
+        }
+    }
+
+    let mut sinks: Vec<(usize, usize)> = Vec::new();
+    for block in blocks.iter() {
+        // Two distinct successors, or there is no "one edge" to be dead on.
+        if block.succ.len() != 2 || block.succ[0] == block.succ[1] {
+            continue;
+        }
+        let (first, second) = (block.succ[0], block.succ[1]);
+        for i in block.start..block.end {
+            if already_dead.contains(&i) {
+                continue;
+            }
+            let instruction = &instructions[i];
+            if instruction.op != CodeOp::StrU64 || !sp_based(instruction) {
+                continue;
+            }
+            let Some(index) = numeric_offset(instruction).and_then(|o| slots.index_of(o)) else {
+                continue;
+            };
+            let dead_first = test_bit(&dead_in[first], index);
+            let dead_second = test_bit(&dead_in[second], index);
+            // Dead on exactly one edge: that is what makes it *partially*
+            // dead. Dead on both is the full row's case, above.
+            let target = match (dead_first, dead_second) {
+                (true, false) => second,
+                (false, true) => first,
+                _ => continue,
+            };
+            if preds[target] != 1 {
+                continue;
+            }
+            // The path from here to the end of the block must not touch
+            // memory or redefine the stored register.
+            let Some(source) = instruction.operand("src").cloned() else {
+                continue;
+            };
+            let stored = classify_ref(&source, &models.0);
+            let clear = instructions[i + 1..block.end].iter().all(|later| {
+                let quiet = matches!(later.op, CodeOp::Label)
+                    || removable_op(later.op)
+                    || is_block_terminator(later.op)
+                    || matches!(
+                        later.op,
+                        CodeOp::Adds | CodeOp::Subs | CodeOp::Cmp | CodeOp::CmpImm
+                    );
+                if !quiet {
+                    return false;
+                }
+                match stored {
+                    Some(RegRef::VReg(id)) => !effect(later, &models.0)
+                        .defs
+                        .iter()
+                        .any(|reference| matches!(reference, RegRef::VReg(other) if *other == id)),
+                    // A store out of a physical register has no tracked
+                    // lifetime: never moved.
+                    _ => false,
+                }
+            });
+            if clear {
+                sinks.push((i, target));
+            }
+        }
+    }
+    sinks
 }
 
 /// Apply one instruction's backward transfer to the dead-slot bitset.
@@ -260,7 +406,8 @@ mod tests {
     }
 
     fn run(stream: &mut Vec<CodeInstruction>, level: u8) {
-        with_opt_level(OptLevel(level), || eliminate(stream));
+        let model = crate::arch::aarch64::regmodel::Aarch64RegisterModel;
+        with_opt_level(OptLevel(level), || eliminate(stream, &model));
     }
 
     /// A store fully overwritten with only pure ALU in between is dead; the
@@ -334,6 +481,80 @@ mod tests {
         let before = stream.len();
         run(&mut stream, 2);
         assert_eq!(stream.len(), before, "a possible read keeps the store");
+    }
+
+    /// The partial half: the store is overwritten before any read on the
+    /// taken edge but read on the fall-through, so it sinks into the
+    /// fall-through and the taken path stops writing.
+    #[test]
+    fn a_partially_dead_store_sinks_into_the_live_edge() {
+        let mut stream = vec![
+            store("%v1", "8"),
+            ci("b.eq", &[("target", "dead")]),
+            // fall-through: reads the slot, so the store is live here.
+            load("%v9", "8"),
+            ci("ret", &[]),
+            ci("label", &[("name", "dead")]),
+            // overwritten without ever reading: the store was useless here.
+            store("%v2", "8"),
+            ci("ret", &[]),
+        ];
+        let before = stream.len();
+        run(&mut stream, 3);
+        assert_eq!(stream.len(), before, "sinking is size-neutral");
+        assert_eq!(
+            stream[0].op,
+            CodeOp::BranchEq,
+            "the store no longer runs before the branch"
+        );
+        assert_eq!(stream[1].op, CodeOp::StrU64, "it runs on the live edge now");
+        assert_eq!(stream[1].get("src").as_deref(), Some("%v1"));
+    }
+
+    /// The partial half is Level 3: at `-O2` the store stays put.
+    #[test]
+    fn partial_sinking_is_off_at_level_two() {
+        let stream = || {
+            vec![
+                store("%v1", "8"),
+                ci("b.eq", &[("target", "dead")]),
+                load("%v9", "8"),
+                ci("ret", &[]),
+                ci("label", &[("name", "dead")]),
+                store("%v2", "8"),
+                ci("ret", &[]),
+            ]
+        };
+        let mut off = stream();
+        run(&mut off, 2);
+        assert_eq!(off[0].op, CodeOp::StrU64, "still the first instruction");
+    }
+
+    /// A live edge reachable from elsewhere would lose the store on those
+    /// other paths, so the row declines.
+    #[test]
+    fn a_shared_live_edge_is_not_a_sink_target() {
+        let stream = || {
+            vec![
+                ci("b", &[("target", "live")]),
+                ci("label", &[("name", "top")]),
+                store("%v1", "8"),
+                ci("b.eq", &[("target", "dead")]),
+                ci("label", &[("name", "live")]),
+                load("%v9", "8"),
+                ci("ret", &[]),
+                ci("label", &[("name", "dead")]),
+                store("%v2", "8"),
+                ci("ret", &[]),
+            ]
+        };
+        let mut off = stream();
+        run(&mut off, 3);
+        assert_eq!(
+            off.iter().position(|i| i.op == CodeOp::StrU64),
+            Some(2),
+            "the store stays where it was"
+        );
     }
 
     /// A store consumed by a load in a later loop iteration survives: the

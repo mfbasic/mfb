@@ -16,32 +16,47 @@
 //!    rounds once instead of twice and so changes float results, making it
 //!    mandatory lowering rather than a dial row. It stays in
 //!    `crate::codegen::compiler::opt::fma_fusion` (plan-100 Corrections).
-//! 2. **The between-selection-and-regalloc MIR seam**, [`optimize_mir`],
-//!    occupied by twelve rows: the Opt2 halves of constant folding
-//!    ([`constant_folding`], Level 1), constant propagation ([`constprop`],
-//!    Level 2) and copy propagation ([`copyprop`], Level 2) on the SSA
-//!    overlay, local and global value numbering ([`lvn`]/[`gvn`], Level 3 —
-//!    the latter also the CSE row), branch folding ([`branches`], Level 2),
-//!    jump threading ([`threading`], Level 3), dead-code elimination
-//!    ([`dce`], Level 2), unreachable code elimination ([`uce`], Level 2),
-//!    dead-store elimination ([`dse`], Level 2), aggressive DCE ([`adce`],
-//!    Level 3), and basic block merging ([`merge`], Level 2). The [`plans`]
-//!    module holds their optimization-only analyses (def-use marking,
-//!    postdominators/control dependence, the SSA overlay), built on the
+//! 2. **The between-selection-and-regalloc MIR seam**, [`optimize_mir`]. The
+//!    rows there are listed in pipeline order in that function's own body and
+//!    described one apiece in their modules; `optimizer::catalog::rows` is the
+//!    authoritative level/stage list. They fall into families: the propagation
+//!    and folding rows on the SSA overlay ([`constant_folding`], [`constprop`],
+//!    [`sccp`], [`copyprop`], [`knownbits`]); the redundancy rows
+//!    ([`lvn`], [`gvn`], [`pre`], and the memory pair in [`stldfwd`]); the
+//!    control-flow rows ([`branches`], [`threading`], [`tailduped`], [`uce`],
+//!    [`simplifycfg`], [`merge`]); the removal rows ([`dce`], [`adce`],
+//!    [`dse`]); the code-motion rows ([`sink`], [`licm`]); and the
+//!    range-driven check-elision cluster ([`checks`]) with its flag-availability
+//!    sibling ([`flags`]). The [`plans`] module holds their optimization-only
+//!    analyses — def-use marking, postdominators/control dependence, the SSA
+//!    overlay, stack-slot availability, the known-bits lattice, the integer
+//!    range lattice, and the natural-loop finder — all built on the
 //!    allocator's own effect model and CFG.
 
 pub(crate) mod adce;
 pub(crate) mod branches;
+pub(crate) mod checks;
 pub(crate) mod constant_folding;
 pub(crate) mod constprop;
 pub(crate) mod copyprop;
 pub(crate) mod dce;
 pub(crate) mod dse;
+pub(crate) mod flags;
 pub(crate) mod gvn;
+pub(crate) mod indvars;
+pub(crate) mod knownbits;
+pub(crate) mod licm;
 pub(crate) mod lvn;
 pub(crate) mod merge;
 pub(crate) mod peephole;
 pub(crate) mod plans;
+pub(crate) mod pre;
+pub(crate) mod rle;
+pub(crate) mod sccp;
+pub(crate) mod simplifycfg;
+pub(crate) mod sink;
+pub(crate) mod stldfwd;
+pub(crate) mod tailduped;
 pub(crate) mod threading;
 pub(crate) mod uce;
 
@@ -52,26 +67,27 @@ use crate::target::shared::regmodel::RegisterModel;
 /// The Opt2 seam: MIR-level optimization between instruction selection and
 /// register allocation, in place on the selected stream.
 ///
-/// Occupied by the block-local MIR constant folder ([`constant_folding`],
-/// L1), the SSA-overlay propagation rows ([`constprop`] and [`copyprop`],
-/// L2), branch folding ([`branches`], L2), jump threading ([`threading`],
-/// L3), the precise-DCE sweep ([`dce`], L2), dead-store elimination
-/// ([`dse`], L2), control-dependence ADCE ([`adce`], L3),
-/// unreachable-block pruning ([`uce`], L2), and basic block merging
-/// ([`merge`], L2) — consuming the optimization-only
-/// analyses in [`plans`] (the SSA overlay, def-use marking,
-/// postdominators/control dependence), which reuse the allocator's effect
-/// model and CFG. Plan2's SSA is an **overlay**: the stream keeps its `%vN`
-/// registers and the values live only in the analysis, so no out-of-SSA
-/// lowering runs before regalloc. Its remaining demand-driven analyses —
-/// alias analysis, memory-SSA / memory-dependence, range and trap analysis,
-/// loop canonicalization, function-attribute (`no-trap`) inference — each
-/// arrive with the first Opt2 pass that needs them (plan-100 §5).
+/// The row order is the body below, each row self-guarded on its own catalog
+/// level and each documented in its own module. They consume the
+/// optimization-only analyses in [`plans`], which reuse the allocator's effect
+/// model and CFG rather than restating them.
+///
+/// Plan2's SSA is an **overlay**: the stream keeps its `%vN` registers and the
+/// values live only in the analysis, so no out-of-SSA lowering runs before
+/// regalloc. Its demand-driven analyses arrive with the first row that needs
+/// them (plan-100 §5) — the SSA overlay itself, stack-slot availability, the
+/// known-bits lattice, the integer range lattice with dominating-predicate
+/// refinement, and the natural-loop finder have all landed that way. What is
+/// still missing is a general alias analysis: every memory row here is
+/// confined to `sp` slots because nothing yet distinguishes two heap
+/// addresses.
 ///
 /// Rows still to land here are the remaining CFG/dataflow ones in
-/// `planning/optimizations.md` — redundant-load elimination, the alias-based
-/// broadening of store-to-load forwarding and of DSE beyond `sp` slots,
-/// behavior-preserving check elision.
+/// `planning/optimizations.md` — the alias-based broadening of store-to-load
+/// forwarding and of dead-store elimination beyond `sp` slots, and the
+/// predication family (if-conversion, select formation, memcpy/memset idioms),
+/// which needs a neutral select op and per-backend lowering rather than
+/// optimizer work.
 ///
 /// The two machine peepholes are deliberately **not** here: they operate on
 /// physical registers and so stay at their post-regalloc call sites. `level` is
@@ -83,30 +99,74 @@ pub(crate) fn optimize_mir(
     level: OptLevel,
 ) {
     let _ = level;
-    // Pipeline order, each row self-guarded on its own catalog level: folding
+    // Pipeline order, each row self-guarded on its own catalog level. Folding
     // (L1) strands dead feeders; constant propagation (L2) folds the
-    // cross-block constants the block-local folder cannot see; local and
-    // global value numbering (L3) rewrite recomputes into copies; copy
-    // propagation (L2) bypasses register copies — the minted ones included —
-    // stranding them; branch
-    // folding (L2) turns known compares into unconditional flow (creating
-    // statically-dead blocks); jump threading (L3) collapses jump-to-jump
-    // chains; dead-store elimination (L2) strands more; DCE (L2) sweeps them
-    // all; ADCE (L3) removes the dead control structure plain DCE keeps;
-    // unreachable-block pruning (L2) drops what the folded branches and
-    // threaded jumps orphaned; block merging (L2) runs last, fusing the
-    // branch-to-next hops and orphaned labels back into straight-line blocks.
+    // cross-block constants the block-local folder cannot see; SCCP (L3)
+    // re-runs the constant question optimistically with reachability,
+    // deciding branches the pessimistic pass could not; the memory rows (L3)
+    // turn reloads into register copies and induction-variable simplification
+    // (L3) merges duplicate loop counters, both feeding the numbering below;
+    // tail duplication (L3) removes merges so the block-local rows keep their
+    // facts; the known-bits rows (L2) turn masks and extensions into copies;
+    // local and global value numbering (L3) rewrite recomputes into copies and
+    // copy propagation (L2) bypasses them; PRE (L3) completes the
+    // partially-available expressions numbering had to decline; loop-nest code
+    // motion (L3) lifts what is left in a loop body; branch folding (L2) turns
+    // known compares into unconditional flow; the check-elision cluster (L3)
+    // decides the guards constants alone cannot and orphans their raise paths;
+    // check fusion (L3) drops a comparison the flags already hold; sinking
+    // (L3) moves work into the branch that uses it; jump threading (L3)
+    // collapses hop chains; dead-store elimination (L2/L3) removes and sinks
+    // stores; DCE (L2) sweeps what everything above stranded; ADCE (L3)
+    // removes the dead control structure plain DCE keeps; unreachable-block
+    // pruning (L2) drops what the folded branches orphaned; CFG simplification
+    // (L2) tidies the leftovers and block merging (L2) fuses them back into
+    // straight-line blocks.
     constant_folding::fold_constants(instructions);
     constprop::eliminate(instructions, model);
+    sccp::eliminate(instructions, model);
+    // One traversal serves both memory rows (see `stldfwd::forward`).
+    stldfwd::forward(instructions, model);
+    indvars::simplify(instructions, model);
+    // Tail duplication (L3) runs before the block-local rows below: removing a
+    // merge is what lets them keep their facts through the duplicated tail.
+    tailduped::duplicate(instructions);
+    // The known-bits rows (L2) run before value numbering: a mask or
+    // extension they turn into a copy is one fewer expression to number.
+    knownbits::simplify(instructions, model);
     lvn::eliminate(instructions, model);
     gvn::eliminate(instructions, model);
     copyprop::eliminate(instructions, model);
+    // PRE (L3) picks up where global value numbering had to stop: the
+    // expressions available on only some paths into a join. It runs before the
+    // control-flow rows below so the joins it reasons about are the ones the
+    // stream actually still has.
+    pre::eliminate(instructions, model);
+    // Loop-nest code motion (L3) runs on the redundancy-free stream: what is
+    // left in a loop body by now is what genuinely recomputes each iteration.
+    licm::hoist(instructions, model);
     branches::fold_branches(instructions);
+    // The range-driven check-elision rows (L3) run after the constant-based
+    // branch folding above and before threading/UCE below: what they decide is
+    // exactly the guards constants alone cannot, and the raise paths they
+    // orphan are what the unreachable-block sweep then removes.
+    checks::eliminate(instructions, model);
+    // Check fusion (L3) runs right after them, on what survives: a comparison
+    // the flags already hold is deleted, its branch left to read the earlier
+    // one's flags.
+    flags::fuse(instructions, model);
+    // Sinking (L3) runs once the control flow above has settled: the branches
+    // it moves work into are the ones that survive folding and threading.
+    sink::sink(instructions, model);
     threading::thread_jumps(instructions);
-    dse::eliminate(instructions);
+    dse::eliminate(instructions, model);
     dce::eliminate(instructions, model);
     adce::eliminate(instructions, model);
     uce::eliminate(instructions);
+    // CFG simplification (L2) tidies what the control-flow rows above leave —
+    // no-op conditionals, jumps to returns, duplicate labels — and runs just
+    // before merging so a label it removes can let a merge happen.
+    simplifycfg::simplify(instructions);
     merge::merge_blocks(instructions);
 }
 
