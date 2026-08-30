@@ -200,6 +200,17 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     if module.build_mode.is_app() && module_uses_any_call(module, &["app.getMode", "app.setMode"]) {
         push_string_value(&mut values, err_msg("ErrWrongMode"));
     }
+    // plan-98-B: the `canvas::` surface members carry the same `ErrWrongMode` gate
+    // (they require `Mode.Canvas`), and `canvas::present` deep-copies the scene into
+    // the arena, so it can raise `ErrOutOfMemory`. A canvas program need not
+    // reference `app::` by name to reach either — it always does in practice, since
+    // it must `setMode` to get into canvas mode, but keying on the canvas calls
+    // themselves makes the gate's relocation resolve from its own cause.
+    if module_uses_any_call(module, &["canvas.present"]) {
+        for value in [err_msg("ErrWrongMode"), err_msg("ErrOutOfMemory")] {
+            push_string_value(&mut values, value);
+        }
+    }
     if module_uses_any_call(
         module,
         &[

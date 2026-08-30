@@ -28,6 +28,7 @@ impl<'a> CodeBuilder<'a> {
             module_name: "",
             term_state_offset: None,
             presentation_mode_offset: None,
+            canvas_scene_offset: None,
             // The inline path lowers per call site and hands the body its raw args +
             // target directly; no `abi_function` runtime-call name applies.
             call: "",

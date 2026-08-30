@@ -1263,8 +1263,10 @@ pub(crate) fn lower_abi_function_helper(
     type_model: &TypeModel,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    string_symbols: &HashMap<String, String>,
     term_state_offset: Option<usize>,
     presentation_mode_offset: Option<usize>,
+    canvas_scene_offset: Option<usize>,
     arena_global_slots: usize,
     uses_rng: bool,
 ) -> Result<
@@ -1287,7 +1289,6 @@ pub(crate) fn lower_abi_function_helper(
     let functions: HashMap<String, &NirFunction> = HashMap::new();
     let package_return_types: HashMap<String, ParameterType> = HashMap::new();
     let globals: HashMap<String, GlobalValue> = HashMap::new();
-    let string_symbols: HashMap<String, String> = HashMap::new();
 
     let mut builder = CodeBuilder {
         current_symbol: symbol.to_string(),
@@ -1299,7 +1300,7 @@ pub(crate) fn lower_abi_function_helper(
         build_mode,
         globals: &globals,
         type_model: type_model.clone(),
-        string_symbols: &string_symbols,
+        string_symbols,
         locals: HashMap::new(),
         instructions: vec![abi::label("entry")],
         relocations: Vec::new(),
@@ -1375,6 +1376,7 @@ pub(crate) fn lower_abi_function_helper(
         module_name,
         term_state_offset,
         presentation_mode_offset,
+        canvas_scene_offset,
         call,
         arena_global_slots,
         uses_rng,

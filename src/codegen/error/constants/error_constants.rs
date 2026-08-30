@@ -328,6 +328,32 @@ pub(crate) const TERM_STATE_SLOTS: usize = (TERM_STATE_RAW_TERMIOS_OFFSET + 72) 
 /// `_mfb_rt_app_get_mode` loads it and `_mfb_rt_app_set_mode` stores it.
 pub(crate) const PRESENTATION_MODE_SLOTS: usize = 1;
 
+// plan-98-B: the per-arena **canvas scene** region — the retained scene
+// `canvas::present` publishes. Reserved just past the presentation-mode word, on the
+// same pinned arena-state register, and only when the program uses `canvas::`.
+//
+// It lives in the arena rather than in a writable global because the arena region is
+// per-execution-context and its slot offsets are already threaded to every runtime
+// helper; a global would have to be declared per target.
+//
+// The scene must outlive the `present` call that publishes it — the renderer reads it
+// on vsync/resize/damage until the next `present` — which the arena satisfies: it is
+// a growing bump region owned by the execution context, not a call frame.
+/// Byte offset (within the canvas region) of the publish counter, incremented on
+/// every `present` that actually changes the scene. A `present` of an identical
+/// scene leaves it alone, which is how "re-presenting unchanged content is free"
+/// becomes observable.
+pub(crate) const CANVAS_SCENE_REVISION_OFFSET: usize = 0;
+/// Byte offset of the item count of the published scene.
+pub(crate) const CANVAS_SCENE_COUNT_OFFSET: usize = 8;
+/// Byte offset of the pointer to the published items — a deep copy of the caller's
+/// `List OF DrawItem`, owned by the arena, pointing at nothing caller-owned.
+pub(crate) const CANVAS_SCENE_ITEMS_OFFSET: usize = 16;
+/// Byte offset of the pointer to the per-item content hashes (plan-98-B Phase 3).
+pub(crate) const CANVAS_SCENE_HASHES_OFFSET: usize = 24;
+/// Total reserved slots for the canvas scene region.
+pub(crate) const CANVAS_SCENE_SLOTS: usize = (CANVAS_SCENE_HASHES_OFFSET + 8) / 8;
+
 // ===========================================================================
 // Arena state layout (ascending offset) & allocator
 // ===========================================================================

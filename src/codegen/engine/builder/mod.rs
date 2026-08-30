@@ -1082,6 +1082,23 @@ pub(crate) fn lower_module_for_platform(
         None
     };
     let presentation_mode_slots = if uses_app { PRESENTATION_MODE_SLOTS } else { 0 };
+    // plan-98-B: the `canvas::` retained-scene region sits one region past the
+    // presentation-mode word, on the same pinned arena-state register. Reserved only
+    // when the program actually uses `canvas::` — the same `uses_term`/`uses_app`
+    // model — so no program that never draws pays for it. `canvas::` is `--app`-gated
+    // like `app::`, so this is implicitly false in console builds.
+    let uses_canvas = runtime_symbols
+        .iter()
+        .any(|symbol| symbol.starts_with("_mfb_rt_canvas_"));
+    let canvas_scene_offset = if uses_canvas {
+        Some(
+            ENTRY_GLOBALS_OFFSET
+                + (globals_base + link_slot_count + term_state_slots + presentation_mode_slots) * 8,
+        )
+    } else {
+        None
+    };
+    let canvas_scene_slots = if uses_canvas { CANVAS_SCENE_SLOTS } else { 0 };
     // plan-62-B §3.3: the static initial presentation mode. A program that
     // references `app::setMode` anywhere starts windowless (`None`); one that
     // never does keeps the default terminal-in-a-window surface (`Console`). Keyed
@@ -1109,8 +1126,11 @@ pub(crate) fn lower_module_for_platform(
     // this same number in `lower_thread_start_helper` (bug-369). Before that, a
     // worker's arena block was only `ARENA_STATE_SIZE` bytes, so every global read
     // in a worker ran off the end of the block into neighbouring arena memory.
-    let arena_global_slots =
-        globals_base + link_slot_count + term_state_slots + presentation_mode_slots;
+    let arena_global_slots = globals_base
+        + link_slot_count
+        + term_state_slots
+        + presentation_mode_slots
+        + canvas_scene_slots;
     let link_init_symbol = if link_count > 0 {
         Some(nir::LINK_INIT_SYMBOL)
     } else {
@@ -1631,12 +1651,14 @@ pub(crate) fn lower_module_for_platform(
             ArenaLayout {
                 term_state_offset,
                 presentation_mode_offset,
+                canvas_scene_offset,
                 global_slots: arena_global_slots,
             },
             uses_rng,
             &type_model,
             &platform_imports,
             platform,
+            &string_symbols,
         )?);
     }
     if uses_rng {
@@ -1873,6 +1895,7 @@ pub(crate) fn lower_module_mir_for_platform(
     Ok(mir::build_mir_plan(&plan, captured))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_runtime_helper(
     symbol: &str,
     build_mode: crate::target::NativeBuildMode,
@@ -1882,6 +1905,7 @@ pub(crate) fn lower_runtime_helper(
     type_model: &TypeModel,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    string_symbols: &HashMap<String, String>,
 ) -> Result<CodeFunction, String> {
     let Some(spec) = runtime::spec_for_symbol(symbol) else {
         return Err(format!(
@@ -1907,8 +1931,10 @@ pub(crate) fn lower_runtime_helper(
                 type_model,
                 platform_imports,
                 platform,
+                string_symbols,
                 arena_layout.term_state_offset,
                 arena_layout.presentation_mode_offset,
+                arena_layout.canvas_scene_offset,
                 arena_layout.global_slots,
                 uses_rng,
             )?

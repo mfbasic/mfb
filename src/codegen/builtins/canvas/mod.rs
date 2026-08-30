@@ -36,6 +36,7 @@ use crate::types::ParameterType;
 
 mod func_fill;
 mod func_fill_stroke;
+mod func_present;
 mod func_rgb;
 mod func_rgba;
 mod func_stroke;
@@ -658,6 +659,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_fill::register(&mut pkg);
     func_stroke::register(&mut pkg);
     func_fill_stroke::register(&mut pkg);
+    func_present::register(&mut pkg);
     helper_clamp_byte::register(&mut pkg);
     helper_paint_defaults::register(&mut pkg);
 

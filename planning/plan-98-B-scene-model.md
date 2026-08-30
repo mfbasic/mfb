@@ -300,22 +300,73 @@ exercises the full frozen type set at runtime, which the original did not.)
 `cargo test --bin mfb catalog_is_consistent` = 1 passed;
 `cargo test --test cli_canvas_package` = 5 passed.
 Rendered: `mfb man canvas`, `mfb man canvas types`.
-Commit: —
+Commit: d3cd3a0f6
 
 ### Phase 2 — Scene arena + transitive deep copy
 
-- [ ] Define the runtime scene arena `mfb.runtime.canvas_scene.v1` (fields per the
+- [x] Define the runtime scene arena `mfb.runtime.canvas_scene.v1` (fields per the
       design layout) as runtime-owned storage (not caller-frame-scoped).
-- [ ] Implement `present()` deep copy: walk the `List OF DrawItem`, copy every
+      → Reserved as a region in the **arena state**, one region past the
+      presentation-mode word, on the same pinned arena-state register — the
+      established `term_state_offset`/`presentation_mode_offset` pattern, threaded
+      through `ArenaLayout` → `AbiCtx` and gated on `uses_canvas` so no program that
+      never draws pays for it. Chosen over a writable global because a global must be
+      declared per target, while the arena region is already threaded to every
+      runtime helper; and it satisfies "outlives the call" because the arena is a
+      growing region owned by the execution context, not a frame.
+      Layout: `revision@0`, `count@8`, `items@16`, `hashes@24` (the last reserved for
+      Phase 3).
+- [x] Implement `present()` deep copy: walk the `List OF DrawItem`, copy every
       reachable payload (params, polygon point arrays, text strings, `Paint`) into
       `params[]`. After copy, assert (in tests) no field points into caller memory.
-- [ ] Publish into a single "live scene" slot (no ring yet); bump `revision`.
-- [ ] Tests: build a scene referencing caller-frame arrays/strings, `present()`, drop
+      → **No walk is needed, and writing one would have been a mistake**
+      (Correction 13). An MFBASIC collection is already a self-contained flat block —
+      strings, records and nested collections are inlined, not referenced — so
+      `copy_flat_block` (the codebase's existing deep-copy primitive, shared with
+      value-copy semantics and thread transfer) *is* the transitive copy. Its own
+      contract says so: "because a flat block has no internal pointers, the byte copy
+      **is** a deep copy".
+- [x] Publish into a single "live scene" slot (no ring yet); bump `revision`.
+      → Published in the order **items → count → revision**, revision last, because
+      the revision is what a reader gates on: bumping it first would let a reader see
+      a new revision beside the previous frame's pointer. Pinned by test.
+- [x] Tests: build a scene referencing caller-frame arrays/strings, `present()`, drop
       the caller frame, and read the published scene back intact — proves the copy is
       transitive and self-contained.
+      → **Read-back is not possible yet and the acceptance is corrected accordingly**
+      (Correction 14). Nothing can read the published scene until the renderer exists
+      (plan-98-D), so a runtime test can only show `present` does not crash — it
+      cannot distinguish "copied" from "aliased". Replaced with the checks that do
+      discriminate: `tests/rt_canvas_present_deep_copy.rs` asserts on the emitted
+      helper that (a) it **allocates**, so it cannot be publishing the caller's own
+      block; (b) the publish order is items/count/revision with the revision last;
+      (c) the mode gate **precedes** the allocation, so a wrong-mode call cannot
+      strand an arena block. Plus the runtime case in `tests/cli_canvas_package.rs`
+      presenting a scene built entirely in a dead callee frame.
+- [x] **Added task — advertise `canvas.present`.** Phase 1 had no runtime call to
+      advertise (every member was `Body::mfb`); `present` is the first, so it is now
+      in all three `--app` backends' `runtime_calls`, and `RuntimeHelper::Canvas`
+      exists so the helper is `_mfb_rt_canvas_*` rather than falling back to the
+      shared `Abi` family (which the `uses_canvas` arena probe would not have seen).
+- [x] **Added task — `abi_function` bodies could not raise a message-carrying
+      error.** `lower_abi_function_helper` built its `CodeBuilder` with an *empty*
+      `string_symbols` map, so any body reaching `raise_error_bare` failed with
+      "native code string literal 'Allocation failed.' has no data object". Threaded
+      the module's real string table through; see Correction 15.
+- [x] **Added task — fixed a pre-existing capability-validation hole this uncovered.**
+      A *trapped* runtime call escaped `validate_capabilities` entirely. See
+      Correction 16; regression test `tests/rt_trapped_call_capability_gate.rs`.
 
-Acceptance: a scene whose sources go out of scope is fully readable from runtime
-storage after `present()`; no dangling pointer into caller memory (test-verified).
+Acceptance (**corrected, Correction 14** — the original required reading the scene
+back, which nothing can do until D): `present` deep-copies the scene into
+runtime-owned storage rather than publishing the caller's block, publishes it in an
+order no reader can observe half-written, and gates on `Mode.Canvas` before
+allocating — all proven on the emitted helper; and a scene built entirely in a frame
+that is gone by the time `present` is called installs cleanly at runtime.
+→ MET. `cargo test --test rt_canvas_present_deep_copy` = 3 passed;
+`cargo test --test rt_trapped_call_capability_gate` = 3 passed (RED-checked);
+`cargo test --bin mfb` = 3555 passed. Cross-builds green for `linux-aarch64`,
+`linux-x86_64`, `windows-x86_64`.
 Commit: —
 
 ### Phase 3 — Content hashing, geometry cache, frame-skip
@@ -401,8 +452,12 @@ Commit: —
 
 ## Open Decisions
 
-- **`params[]` encoding for variable-length payloads** — recommended: length-prefixed
-  contiguous blobs per item so the hash spans a stable byte range. (§Design 2)
+- ~~**`params[]` encoding for variable-length payloads**~~ — **MOOT (Correction 13):
+  there is no `params[]`.** The concern was that a hash needs a stable, contiguous
+  byte range. An MFBASIC collection already *is* one: strings, records and nested
+  collections are inlined into the block, not referenced from it, which is why one
+  `copy_flat_block` is the whole transitive copy. Phase 3's hash spans those bytes
+  directly. (§Design 2)
 - **Compute damage in B or defer to G** — recommended: **defer the bounds-union damage
   to G** (it has no consumer until damage-rect present); keep only the cheap
   whole-sequence frame-skip in B. Note the deferral in Phase 3 rather than computing
@@ -539,6 +594,92 @@ false surface.
     nothing. There is direct precedent: `io::readByte` sits outside the gated set
     while its three siblings are in it. Documented in `MODULE_DESC` and on both
     members, so the exemption is visible where a user reads it.
+
+**2026-08-30 — Phase 2.**
+
+13. **The transitive deep copy is one call, not a per-variant walk — and the Open
+    Decision on `params[]` encoding is moot.** The plan's design §2 has `present`
+    walking the list and copying "every reachable payload … into `params[]`", with an
+    Open Decision on how to encode variable-length payloads so the hash spans a
+    stable byte range. Neither is needed: **an MFBASIC collection is already a
+    self-contained flat block.** Strings, records and nested collections are inlined
+    into it, not referenced from it, which is exactly why `copy_flat_block` — the
+    codebase's existing deep-copy primitive, shared with value-copy semantics and
+    `thread::transfer` — states outright that "because a flat block has no internal
+    pointers, the byte copy **is** a deep copy".
+
+    So `present` calls it once. Writing a bespoke walk would have duplicated a
+    load-bearing primitive with a second copy of its layout knowledge, which is the
+    kind of divergence that goes wrong silently. It also means Phase 3's hash can span
+    the copied bytes directly, since they are already contiguous and pointer-free —
+    the Open Decision's whole concern.
+
+14. **Phase 2's acceptance required reading the published scene back, which nothing
+    can do until plan-98-D.** There is no reader — that is the renderer, and D builds
+    it. A runtime test can therefore show only that `present` does not crash; it
+    cannot tell a copy from an alias, so "no dangling pointer into caller memory
+    (test-verified)" was not testable as written.
+
+    Corrected to checks that actually discriminate, on the emitted helper:
+    - **It allocates.** Publishing the caller's own pointer would be cheaper, would
+      pass every runtime test that exists, and would hand the renderer a pointer into
+      storage the program may reuse the instant `present` returns. `_mfb_arena_alloc`
+      being called is the discriminating fact.
+    - **The publish order is items → count → revision.** The revision is what a
+      reader gates on; bumping it first would expose a half-written scene.
+    - **The mode gate precedes the allocation.** A gate placed after it would strand
+      an arena block on every wrong-mode `present` — and the program would still
+      behave correctly, so nothing else would catch it.
+
+    The transitivity of the copy itself is *inherited* from `copy_flat_block`, which
+    is already covered by the existing value-copy and thread-transfer tests; what
+    Phase 2 newly claims is that `present` uses it and publishes the copy, which is
+    what the above proves.
+
+15. **`abi_function` bodies could not raise a message-carrying error.**
+    `lower_abi_function_helper` constructed its `CodeBuilder` with
+    `string_symbols: HashMap::new()` — an empty table — so any body reaching
+    `raise_error_bare` died at codegen with "native code string literal 'Allocation
+    failed.' has no data object". `present` is the first `abi_function` body to
+    allocate, so it is the first to hit it.
+
+    Fixed at the seam rather than worked around in `present`: the module's real
+    string table is now threaded into `lower_abi_function_helper`, so **every**
+    `abi_function` body can raise, not just this one. Two further pieces the raise
+    path needs and that a runtime helper cannot pull in by itself: `canvas.present`
+    now registers `ErrWrongMode`/`ErrOutOfMemory` in the data-object pass, and it
+    forces the `_mfb_str_empty` sentinel via `module_requires_empty_string_constant`
+    — the same override the recursive-transfer copy functions already use, for the
+    same reason (the requirement comes from the *helper*, not from anything in the
+    program's own ops).
+
+16. **A trapped runtime call escaped capability validation entirely — pre-existing,
+    and the common case.** Found because `canvas::present` built fine in one test
+    program and was correctly rejected in another. The difference was `TRAP`.
+
+    The TRAP desugar emits `NirValue::CallResult { target: "canvas.present", … }`,
+    not `NirValue::RuntimeCall`, and `collect_runtime_calls_from_value` walked a
+    `CallResult`'s **arguments only**, never its target. So on any backend that does
+    not advertise a call, the bare form was rejected and the trapped form was
+    silently accepted — and since a program almost always traps a fallible call, the
+    trapped form is how the code is normally written. The result was a binary emitted
+    for a backend with no implementation behind the call: precisely what
+    `validate_capabilities` exists to prevent.
+
+    Fixed with the predicate the sibling pass (`runtime::usage::push_value_helpers`)
+    already used, so the two agree by construction. **Both halves of the predicate are
+    load-bearing**: the first attempt collected any target `helper_for_call`
+    recognized, which swept in the bare-named `general` family (`toString`, `toInt`)
+    — those appear in no backend's `runtime_calls`, so every program trapping a
+    conversion started failing validation (caught by
+    `builtin_codegen_corpora_lower_in_process`). Requiring a package-qualified name
+    as well fixes that, since every `runtime_calls` entry is `pkg.member`.
+
+    RED-checked: with the collection disabled, the trapped-form test fails while the
+    bare-form premise still passes. `tests/rt_trapped_call_capability_gate.rs` covers
+    all three cases — supported+trapped builds, general+trapped builds, and
+    unsupported+trapped is rejected exactly as unsupported+bare is (with the premise
+    asserted, so it cannot pass vacuously if that call is ever advertised).
 
 <Further corrections filled in during execution — especially the RES record wiring and
 payload encoding.>

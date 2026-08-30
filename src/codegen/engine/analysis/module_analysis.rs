@@ -9,6 +9,15 @@ use crate::types::ParameterType;
 use std::collections::HashMap;
 use std::collections::HashSet;
 pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool {
+    // plan-98-B: `canvas::present` deep-copies the scene into the arena, and the
+    // shared copy path builds an empty-message error on allocation failure. The
+    // sentinel is therefore required by the *helper* rather than by anything in the
+    // program's own ops, which is the same reason the recursive-transfer copy
+    // functions force it in `lower_module` — that path just cannot key on a call
+    // name, and this one can.
+    if module_uses_call(module, "canvas.present") {
+        return true;
+    }
     let type_model = TypeModel::from_module(module).unwrap_or_else(|_| TypeModel::empty());
     module.functions.iter().any(|function| {
         function

@@ -250,6 +250,10 @@ mod tests {
             RuntimeHelper::Abi,
             RuntimeHelper::App,
             RuntimeHelper::Audio,
+            // plan-98-B: `canvas.present` (and, from Phase 4, the `Image`/`Font`
+            // close ops) — an `AbiFunction` family that keeps its own package name
+            // rather than falling back to the shared `Abi` family.
+            RuntimeHelper::Canvas,
             RuntimeHelper::Datetime,
             RuntimeHelper::Fs,
             RuntimeHelper::Io,
@@ -268,6 +272,6 @@ mod tests {
                 helper.name()
             );
         }
-        assert_eq!(families.len(), 13, "unexpected extra catalogued family");
+        assert_eq!(families.len(), 14, "unexpected extra catalogued family");
     }
 }

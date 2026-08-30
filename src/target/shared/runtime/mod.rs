@@ -6,6 +6,11 @@ pub enum RuntimeHelper {
     Abi,
     App,
     Audio,
+    /// plan-98-B: the `canvas::` 2D drawing package. Its surface members are OS-seam
+    /// `AbiFunction`s, so without a family of its own they would fall back to the
+    /// shared `Abi` family and emit `_mfb_rt_abi_canvas_*` — which the arena layout's
+    /// `uses_canvas` probe (and every other `_mfb_rt_<pkg>_` reader) would not see.
+    Canvas,
     Datetime,
     Fs,
     General,
@@ -33,6 +38,7 @@ impl RuntimeHelper {
             RuntimeHelper::Abi => "abi",
             RuntimeHelper::App => "app",
             RuntimeHelper::Audio => "audio",
+            RuntimeHelper::Canvas => "canvas",
             RuntimeHelper::Datetime => "datetime",
             RuntimeHelper::Fs => "fs",
             RuntimeHelper::General => "general",
@@ -56,6 +62,7 @@ impl RuntimeHelper {
             "abi" => RuntimeHelper::Abi,
             "app" => RuntimeHelper::App,
             "audio" => RuntimeHelper::Audio,
+            "canvas" => RuntimeHelper::Canvas,
             "datetime" => RuntimeHelper::Datetime,
             "fs" => RuntimeHelper::Fs,
             "general" => RuntimeHelper::General,

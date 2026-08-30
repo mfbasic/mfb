@@ -102,6 +102,8 @@ const RUNTIME_CALLS: &[&str] = &[
     // (`app::emit_reconcile_seam`) that `setMode` appends.
     "app.getMode",
     "app.setMode",
+    // plan-98-B: the canvas:: scene surface.
+    "canvas.present",
     "fs.exists",
     "fs.fileExists",
     "fs.directoryExists",

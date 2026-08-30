@@ -51,6 +51,15 @@ pub(crate) enum ModeRequirement {
     /// the alternative would be a two-compare gate whose second arm a new variant
     /// would silently fall off the end of, trapping in a mode that has a window.
     WindowedMode,
+    /// `Canvas` only — the helper needs the 2D drawing surface, which only canvas
+    /// mode presents. Emitted as "fall through iff mode `== 2`". Used by the
+    /// surface-touching `canvas::` members (plan-98-B).
+    ///
+    /// The mirror image of [`Console`](Self::Console), and for the same reason: the
+    /// surface either exists or it does not, so this is an equality test rather than
+    /// an exclusion. A future mode gets no canvas for free, which is correct — a
+    /// canvas is a specific surface, not a capability like "has input".
+    Canvas,
 }
 
 /// plan-62-E / plan-98-A: prepend an `ErrWrongMode` gate to an app-mode `term::` /
@@ -80,6 +89,7 @@ pub(crate) fn prepend_wrong_mode_gate(
     let (immediate, branch) = match requirement {
         ModeRequirement::Console => ("0", abi::branch_eq(&ok)), // fall through iff Console
         ModeRequirement::WindowedMode => ("1", abi::branch_ne(&ok)), // trap iff None
+        ModeRequirement::Canvas => ("2", abi::branch_eq(&ok)),  // fall through iff Canvas
     };
     let mut gate = vec![
         abi::load_u64(abi::SCRATCH[0], ARENA_STATE_REGISTER, offset),
@@ -129,7 +139,11 @@ mod tests {
 
     #[test]
     fn absent_presentation_state_leaves_the_helper_byte_identical() {
-        for requirement in [ModeRequirement::Console, ModeRequirement::WindowedMode] {
+        for requirement in [
+            ModeRequirement::Console,
+            ModeRequirement::WindowedMode,
+            ModeRequirement::Canvas,
+        ] {
             let mut instructions = vec![abi::label("entry"), abi::return_()];
             let mut relocations = Vec::new();
 
@@ -241,10 +255,35 @@ mod tests {
         );
     }
 
-    /// The two requirements must not emit the same gate — if they did, the Phase 2
-    /// relaxation would be a no-op that every behavioral test above still passed.
+    /// plan-98-B: the `canvas::` surface members require `Canvas` and nothing else —
+    /// the mirror of the `Console` gate, since a canvas is a specific surface rather
+    /// than a capability. `Console` (0) and `None` (1) both trap.
     #[test]
-    fn the_two_requirements_emit_different_gates() {
+    fn canvas_requirement_falls_through_only_on_canvas() {
+        let mut instructions = vec![abi::label("entry"), abi::return_()];
+        let mut relocations = Vec::new();
+
+        prepend_wrong_mode_gate(
+            &mut instructions,
+            &mut relocations,
+            "#canvas_present",
+            Some(8),
+            ModeRequirement::Canvas,
+        );
+
+        let (immediate, branch) = gate_predicate(&instructions);
+        assert_eq!(immediate, "2", "compares against Canvas == 2");
+        assert_eq!(
+            branch,
+            CodeOp::BranchEq,
+            "falls through on equality, so 0 (Console) and 1 (None) both trap"
+        );
+    }
+
+    /// No two requirements may emit the same gate — if any pair did, one of them
+    /// would be silently doing the other's job while every behavioral test passed.
+    #[test]
+    fn every_requirement_emits_a_distinct_gate() {
         let build = |requirement| {
             let mut instructions = vec![abi::label("entry"), abi::return_()];
             let mut relocations = Vec::new();
@@ -257,9 +296,15 @@ mod tests {
             );
             gate_predicate(&instructions)
         };
-        assert_ne!(
+        let gates = [
             build(ModeRequirement::Console),
-            build(ModeRequirement::WindowedMode)
-        );
+            build(ModeRequirement::WindowedMode),
+            build(ModeRequirement::Canvas),
+        ];
+        for (i, a) in gates.iter().enumerate() {
+            for b in gates.iter().skip(i + 1) {
+                assert_ne!(a, b, "two requirements emit the same gate");
+            }
+        }
     }
 }
