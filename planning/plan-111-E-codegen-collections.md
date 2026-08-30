@@ -36,8 +36,24 @@ See plan-111-A §Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-111-D complete | D's 15 files read 0 on all six needle classes | NOT MET until D lands |
-| Scope re-measured at kickoff | the four census commands from plan-111-A §2, restricted to this letter's file list | UNMEASURED — C and D may have reduced it **Use `census_by_file`, not `rg`** — `cargo test --test no_type_strings census_by_file -- --ignored --nocapture`, with `MFB_CENSUS_DETAIL=<substring>` for the offending lines. `rg` over-counts by including `#[cfg(test)]` modules (Corrections A3, C3) and this letter's §2 table additionally UNDER-counts, because it was built before plan-111-D Correction D1 strengthened three scanners: tuple match arms, `== Some("X")` compares, and ten missing `*type*: &str` parameter names. Expect this letter's real population to be LARGER than §2 says. |
+| plan-111-D complete | D's 15 files read 0 on all six needle classes | **MET** (2026-08-30, `df6956caa`). All 15 absent from `census_by_file`; D's end gate 0 diffs on math/money/vector/strings. |
+| Scope re-measured at kickoff | the four census commands from plan-111-A §2, restricted to this letter's file list | UNMEASURED — C and D may have reduced it **Use `census_by_file`, not `rg`** — `cargo test --test no_type_strings census_by_file -- --ignored --nocapture`, with `MFB_CENSUS_DETAIL=<substring>` for the offending lines. `rg` over-counts by including `#[cfg(test)]` modules (Corrections A3, C3) and this letter's §2 table additionally UNDER-counts, because it was built before plan-111-D Correction D1 strengthened three scanners: tuple match arms, `== Some("X")` compares, and ten missing `*type*: &str` parameter names. Expect this letter's real population to be LARGER than §2 says. **MET** (2026-08-30) — see the kickoff table below; it is larger, as predicted. |
+
+### Kickoff re-measurement (2026-08-30)
+
+`cargo test --test no_type_strings census_by_file -- --ignored --nocapture`.
+All 25 files in §2 are still live; **none was cleared by C or D**, and the
+population is **168, not 161**. The whole delta is `str_type_params`, from the
+ten names Correction D1 added to `TYPE_PARAM_NAMES`:
+
+| File (under `src/codegen/`) | §2 | live | delta |
+|---|---|---|---|
+| `collection/layout/builder_collection_layout.rs` | 55 | **61** | **+6** (`stride_type`, `record_type`) |
+| `collection/compare/builder_collection_compare.rs` | 20 | **23** | **+3** (`stride_type`) |
+| `builtins/collections/gen_list.rs` | 5 | 5 | — |
+| `builtins/collections/func_sum.rs` | 4 | 4 | — |
+| every other file | | | — |
+| **Total** | **161** | **168** | **+7** |
 
 ## 1. Goal
 
@@ -160,22 +176,102 @@ the `--skip` keeps the full cross-target artifact sweep out of the loop, since
 
 No behavior change. Produces the conversion order Phase 2 executes.
 
-- [ ] List all 31 `&str` type parameters in
+- [x] List all ~~31~~ **38** `&str` type parameters in
       `collection/layout/builder_collection_layout.rs` with their visibility
       (private / `pub(crate)`) and their callers, and record the leaf-first
-      conversion order in this file.
-- [ ] Identify any that are called from letter F's files; those convert here (the
-      callee) and their call sites update in F.
-- [ ] Confirm whether `refined_list_literal_type` (`:2459`) still builds a type
+      conversion order in this file. **Done — see the table below.** The 38 hits
+      belong to **30 functions**; 7 are file-private with no external caller and
+      23 are `pub(crate)`.
+- [x] Identify any that are called from letter F's files; those convert here (the
+      callee) and their call sites update in F. **Done, and this is the finding
+      that reshapes the letter** — see the note below the table.
+- [x] Confirm whether `refined_list_literal_type` (`:2459`) still builds a type
       by `format!`; if letter C removed it, mark E's copy of the task moot with
-      the commit hash as evidence.
-- [ ] Grep this cluster for ` TO ` and ` OF ` string splits
-      (`rg -n "split_once\(\" TO \"|split_once\(\" OF \"" src/codegen/collection src/codegen/builtins/collections`)
-      and record every hit — each is a potential nested-`Map`-key mis-split.
+      the commit hash as evidence. **Moot: letter C removed it** (`34f300996`,
+      "plan-111-C Phase 4: the last format! type construction"). It is now
+      `refined_list_literal_type(declared: &ParameterType, first_element_type:
+      Option<&ParameterType>) -> Option<ParameterType>`, a `ListOf` variant match
+      building `ParameterType::list_of(element.clone())`, and the caller no
+      longer parses the result back.
+- [x] Grep this cluster for ` TO ` and ` OF ` string splits and record every hit
+      — each is a potential nested-`Map`-key mis-split.
+      **Count: 0.** `grep -rn 'split_once(" TO ")|split_once(" OF ")|
+      strip_prefix("List OF |strip_prefix("Map OF |strip_prefix("Set OF '
+      over `src/codegen/collection src/codegen/builtins/collections` returns
+      nothing. So §3's risk 3 — "if any code in this file splits on ` TO `,
+      converting it is a **bug fix**" — does not arise: there is no ` TO ` split
+      left in this cluster to fix. Every remaining violation here is a spelling
+      *match* or a `&str` *parameter*, not a hand-rolled decomposition.
 
-Acceptance: the conversion order is recorded in this file, every `&str` param has
-a visibility and a caller list, and the ` TO `-split census is recorded with its
-command and count. No code changed.
+#### The 30 functions, and the conversion order
+
+`in-file` is call sites inside `builder_collection_layout.rs`; `external` is the
+files that call it.
+
+| fn | vis | param(s) | in-file | external call sites |
+|---|---|---|---|---|
+| `collection_payload_types` | private | `type_` | 1 | — |
+| `type_is_flat_inner` | private | `type_` | 5 | — |
+| `emit_load_payload_with_stride` | private | `stride_type`, `type_` | 2 | — |
+| `emit_flat_block_size` | pub(crate) | `type_` | 2 | — |
+| `is_pointer_string_record` | pub(crate) | `type_` | 4 | — |
+| `record_has_inline_data` | pub(crate) | `record_type` | 3 | — |
+| `type_components` | pub(crate) | `type_` | 3 | — |
+| `is_pointer_collection_payload_type` | pub(crate) | `type_` | 4 | compare ×3 |
+| `collection_payload_alignment` | pub(crate) | `type_` | 4 | map_mutate ×2 |
+| `list_element_padding_alignment` | pub(crate) | `type_` | 2 | list_mutate ×6 |
+| `type_participates_in_cycle` | pub(crate) | `type_` | 1 | arena_transfer ×1 |
+| `record_field_is_pointer` | pub(crate) | `field_type` | 2 | arena_transfer, builder_control |
+| `list_block_kind` | pub(crate) | `element_type` | 3 | arena ×3, validation ×1 |
+| `emit_wrap_record_in_union` | pub(crate) | `member_type` | 0 | value_semantics, builder_values |
+| `thread_copy_symbol` | pub(crate) | `type_` | 0 | arena_transfer, builder/mod ×2 |
+| `list_element_is_fixed_width` | pub(crate) | `element_type` | 3 | list_mutate ×2, func_set, engine/tests ×2 |
+| `emit_record_block_size_to_slot` | pub(crate) | `record_type` | 4 | arena_transfer, error_emission |
+| `type_is_flat` | pub(crate) | `type_` | 4 | arena_transfer ×2, thread_cleanup, builder_values |
+| `emit_load_map_payload` | pub(crate) | `type_` | 0 | gen_map ×4, builder_control ×3 |
+| `union_is_data` | pub(crate) | `type_` | 6 | marshal/record, value_semantics ×3, arena_transfer ×2, thread_cleanup, builder_values |
+| `emit_copy_payload_to_collection` | pub(crate) | `stride_type` | 2 | map_mutate ×4, list_mutate ×5 |
+| `emit_element_value_offset` | pub(crate) | `element_type` | 0 | group_by, gen_list, flatten, func_sort ×3, sort_by |
+| `emit_load_collection_payload` | pub(crate) | `type_` | 0 | collection_loop ×2, for_each, group_by, gen_list, sort, sort_by, builder_control |
+| `record_field_is_inlined` | pub(crate) | `field_type`, `record_type` | 5 | compare, marshal/record ×2, value_semantics ×2, arena_transfer, builder_control ×3 |
+| `emit_inlined_block_size_from_ptr_slot` | pub(crate) | `field_type` | 4 | collection_loop, arena_transfer, func_zip, owned_cleanup ×2, thread_cleanup, resource_cleanup, error_emission |
+| `inline_collection_payload_size` | pub(crate) | `type_` | 7 | compare ×3, arena_transfer, builder_strings, builder_exits, error_emission |
+| `emit_build_inlined_record` | pub(crate) | `record_type` | 0 | marshal/record, value_semantics ×2, crypto ×3, astrings ×2, partition, zip, vector_inline, builder_values |
+| `kind2_payload_size` | pub(crate) | `element_type` | 2 | collection_loop ×6, search ×3, list_mutate ×3, for_each, find_last_index ×2, slice, zip ×2, contains, sum ×2, builder_strings |
+| `list_entry_stride` | pub(crate) | `element_type` | 15 | list_mutate ×8, marshal/record, arena ×2, gen_memory, gen_mutate, merge, builder_strings |
+| `emit_collection_data_pointer_for` | pub(crate) | `element_type` | 3 | **24 files, ~80 sites** — list_mutate ×23, compare ×4, map_mutate ×4, simd_math ×7, simd_float ×5, simd_fixed ×4, func_sort ×4, gen_mutate ×4, merge ×4, gen_pow ×3, slice ×2, zip ×2, map_values ×2, arena_transfer ×2, builder_strings ×2, search, gen_with_any, gen_graphemes, func_split, func_join, grapheme_at, gen_memory, flatten, sum |
+
+**Conversion order = the table's own order** (leaf-first): the three private
+helpers, then the four `pub(crate)` ones with no external caller, then the rest
+by ascending external fan-out. Following it means no intermediate commit needs a
+`.name()` bridge inside this file.
+
+#### The finding: this cluster's surface is the whole of codegen
+
+The plan assumed a handful of these helpers reach letter F. The measurement says
+**23 of the 30 are `pub(crate)`, with roughly 250 external call sites across
+letters D's, E's, F's and G's files** — `emit_collection_data_pointer_for` alone
+has ~80 across 24 files, including files letter D has already converted.
+
+This is not a scope error to re-split; it is the shape of the thing. The layout
+builder is codegen's type→memory oracle, so *every* emitter that touches memory
+calls it. Two consequences, both recorded rather than worked around:
+
+1. **Letter F is pulled forward.** Converting a callee here forces its call sites
+   to compile, so `memory/arena/builder_arena_transfer.rs`,
+   `memory/value/builder_value_semantics.rs`, `memory/marshal/record.rs`,
+   `cleanup/*` and `engine/control|value` are edited in this letter. F's boxes
+   for those sites become moot-with-evidence as they land; F keeps whatever the
+   census still shows when E closes.
+2. **The direction of travel is right.** Nearly every one of those ~250 sites
+   passes `&something.name()` — a render of a `ParameterType` it already holds.
+   Typing the callee deletes the render at the caller; it does not create work
+   there. That is the opposite of the boundary-render cost letter D paid, and it
+   is why this letter shrinks the tree-wide count far more than its own 168.
+
+Acceptance: **MET.** The conversion order is recorded above, every `&str` param
+has a visibility and a caller list, and the ` TO `-split census is recorded with
+its command and its count (0). No code changed.
 Commit: —
 
 ### Phase 2 — the layout builder (55 sites, the worst file in the compiler)
