@@ -52,11 +52,11 @@ impl CodeBuilder<'_> {
         self.reset_temporary_registers();
         let source = self.allocate_register();
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
-        match value.type_.name().as_ref() {
-            "Fixed" => self.emit_fixed_to_int_value(&source),
-            "Float" => self.emit_float_to_int_value(&source),
-            "Money" => self.emit_money_to_int_value(&source),
-            "String" => match base_slot {
+        match &value.type_ {
+            ParameterType::Fixed => self.emit_fixed_to_int_value(&source),
+            ParameterType::Float => self.emit_float_to_int_value(&source),
+            ParameterType::Money => self.emit_money_to_int_value(&source),
+            ParameterType::String => match base_slot {
                 Some(slot) => self.emit_string_to_int_value_base(&source, slot),
                 None => self.emit_string_to_int_value(&source),
             },
@@ -581,18 +581,18 @@ impl CodeBuilder<'_> {
     /// failing for an empty or multi-scalar string.
     pub(crate) fn lower_to_scalar(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
-        match value.type_.name().as_ref() {
-            "Byte" => {
+        match &value.type_ {
+            ParameterType::Byte => {
                 let register = self.allocate_register();
                 self.emit(abi::move_register(&register, &value.location));
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse("Scalar"),
+                    type_: ParameterType::named("Scalar"),
                     location: Operand::from(register.render()),
                     text: format!("toScalar({})", value.text),
                 })
             }
-            "Integer" => {
+            ParameterType::Integer => {
                 let cp = value.location.clone();
                 let ok = self.label("to_scalar_ok");
                 let invalid = self.label("to_scalar_invalid");
@@ -617,16 +617,16 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&register, &cp));
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse("Scalar"),
+                    type_: ParameterType::named("Scalar"),
                     location: Operand::from(register.render()),
                     text: format!("toScalar({})", value.text),
                 })
             }
-            "String" => {
+            ParameterType::String => {
                 let result = self.emit_string_to_scalar_value(&value.location)?;
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse("Scalar"),
+                    type_: ParameterType::named("Scalar"),
                     location: Operand::from(result.render()),
                     text: format!("toScalar({})", value.text),
                 })
