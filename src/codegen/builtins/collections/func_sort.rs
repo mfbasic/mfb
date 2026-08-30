@@ -88,7 +88,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&reg, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse("List OF Integer"),
+            type_: ParameterType::list_of(ParameterType::Integer),
             location: Operand::from(reg.render()),
             text: "index-list".to_string(),
         })

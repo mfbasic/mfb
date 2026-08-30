@@ -312,23 +312,6 @@ pub(crate) fn is_collection_type(type_: &str) -> bool {
     typed_is_collection_type(&ParameterType::parse(type_))
 }
 
-/// Whether a type SPELLING denotes a `Result OF T`.
-///
-/// The same NAME-domain boundary as [`is_collection_type`]: codegen's block and
-/// payload emitters hold a spelling, and the shape question goes to the canonical
-/// grammar rather than a `starts_with("Result OF ")` repeated at each site.
-pub(crate) fn is_result_type(type_: &str) -> bool {
-    matches!(ParameterType::parse(type_), ParameterType::ResultOf(_))
-}
-
-/// The payload type NAME of a `Result OF T`.
-pub(crate) fn result_payload_type(type_: &str) -> Option<String> {
-    match ParameterType::parse(type_) {
-        ParameterType::ResultOf(payload) => Some(payload.name().into_owned()),
-        _ => None,
-    }
-}
-
 /// Whether a type SPELLING denotes a PARENT-side thread handle.
 pub(crate) fn is_parent_thread_type(type_: &str) -> bool {
     matches!(
@@ -420,63 +403,10 @@ pub(crate) fn collection_has_buckets(type_: &str) -> bool {
     )
 }
 
-/// The element type NAME of a `List OF T`.
-///
-/// A `List OF RES File` element stores and is read as the bare resource pointer
-/// (`File`); the `RES` ownership-axis marker is not part of the value (§15.6),
-/// which is what [`typed_list_element_type`] peels.
-pub(crate) fn list_element_type(type_: &str) -> Option<String> {
-    typed_list_element_type(&ParameterType::parse(type_)).map(|element| element.name().into_owned())
-}
-
-pub(crate) fn map_type_parts(type_: &str) -> Option<(String, String)> {
-    typed_map_type_parts(&ParameterType::parse(type_))
-        .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
-}
-
-/// True when `type_` is a first-class function value type — a `FUNC(...) AS T`
-/// or `ISOLATED FUNC(...) AS T`. A function value is a single 8-byte pointer to
-/// an arena-lifetime closure object (`{code, env}`); it has **reference**
-/// semantics, so it is stored, copied, and read as a bare pointer word with no
-/// deep copy and no per-value free (bug-73). This mirrors the front-end
-/// `is_function_type` in `target/shared/validate.rs`.
-pub(crate) fn is_function_type(type_: &str) -> bool {
-    matches!(ParameterType::parse(type_), ParameterType::Func(_, _, _))
-}
-
-/// Byte index of the top-level `") AS "` that separates a function type's
-/// parameter list from its return type — the `)` that closes the outermost
-/// `FUNC(`, not one nested inside a higher-order parameter or return type. A
-/// naive `split_once`/`rsplit_once(") AS ")` mis-parses e.g.
-/// `FUNC(FUNC() AS Integer) AS String` (bug-175 F). `depth` is the paren nesting
-/// already opened before `s` begins — 0 for a full `FUNC(...) AS T`, 1 when the
-/// leading `FUNC(` has already been stripped.
-fn top_level_return_arrow(s: &str, mut depth: i32) -> Option<usize> {
-    let bytes = s.as_bytes();
-    for i in 0..bytes.len() {
-        match bytes[i] {
-            b'(' => depth += 1,
-            b')' => {
-                depth -= 1;
-                if depth == 0 && s[i..].starts_with(") AS ") {
-                    return Some(i);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
 /// Split a function type's parameter list on the top-level `", "` separators
 /// only, so a higher-order parameter type carrying its own `", "` (e.g.
 /// `FUNC(Integer, String) AS Bool`) is kept intact (bug-175 F). Byte-identical to
 /// `split(", ")` for parameter lists with no nested parens.
-
-pub(crate) fn callable_return_type(type_: &str) -> Option<String> {
-    let idx = top_level_return_arrow(type_, 0)?;
-    Some(type_[idx + ") AS ".len()..].to_string())
-}
 
 /// The promoted result type of a binary numeric operation, defaulting a
 /// non-numeric pairing to `Integer` — codegen's total flavour of the ONE

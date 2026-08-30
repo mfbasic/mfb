@@ -1,0 +1,72 @@
+' plan-111-E Phase 3: FOR EACH over a record's INLINED collection field, with the
+' loop body mutating a sibling collection in the same record.
+'
+' The hazard this pins: `FOR EACH x IN rec.field` iterates the record's inlined
+' buffer in place rather than a copy, so anything that can reallocate the
+' record's block while the loop runs turns the cursor into a dangling pointer.
+' `for_each_iterable_locals` tracks plain locals only, so a MEMBER iterable is
+' handled separately -- and plan-111-E retyped every signature on that path
+' (collection_loop.rs, list_mutate.rs, the layout builder), exactly the kind of
+' change that could perturb which iterables get tracked without failing to
+' compile.
+'
+' Reading the right values back is what says the cursor survived.
+
+IMPORT io
+IMPORT collections
+
+TYPE Bag
+  items AS List OF Integer
+  seen AS List OF Integer
+END TYPE
+
+' Iterate the inlined `items` field while appending to `seen` -- a growing
+' sibling collection inside the same record -- so the record is rebuilt on every
+' iteration with the cursor live.
+FUNC copyItems(bag AS Bag) AS Bag
+  MUT out AS Bag = bag
+  FOR EACH n IN bag.items
+    out = WITH out { seen := collections::append(out.seen, n) }
+  NEXT
+  RETURN out
+END FUNC
+
+' The same shape one level down: a member iterable of a record that is itself an
+' element of a collection.
+FUNC sumNested(bags AS List OF Bag) AS Integer
+  MUT total AS Integer = 0
+  FOR EACH b IN bags
+    FOR EACH n IN b.items
+      total = total + n
+    NEXT
+  NEXT
+  RETURN total
+END FUNC
+
+FUNC main AS Integer
+  LET start AS Bag = Bag[[3, 1, 4, 1, 5], []]
+  LET done AS Bag = copyItems(start)
+
+  ' Every element arrived, in order, with the source untouched.
+  io::print(toString(len(done.seen)))
+  io::print(toString(collections::get(done.seen, 0)))
+  io::print(toString(collections::get(done.seen, 4)))
+  io::print(toString(len(start.seen)))
+  io::print(toString(len(done.items)))
+
+  ' A member iterable one level down.
+  LET bags AS List OF Bag = [Bag[[1, 2], []], Bag[[3], []], Bag[[4, 5, 6], []]]
+  io::print(toString(sumNested(bags)))
+
+  ' Read the last element through a member iterable, then read element 0 back
+  ' from the same field: the buffer must still be the one the cursor walked.
+  LET acc AS Bag = Bag[[7, 8, 9], []]
+  MUT tail AS Integer = 0
+  FOR EACH n IN acc.items
+    tail = n
+  NEXT
+  io::print(toString(tail))
+  io::print(toString(collections::get(acc.items, 0)))
+
+  RETURN 0
+END FUNC

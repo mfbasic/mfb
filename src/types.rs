@@ -837,27 +837,6 @@ pub(crate) fn is_parent_thread_type(name: &str) -> bool {
     thread_parts(name).is_some_and(|(kind, _, _)| kind == THREAD_TYPE)
 }
 
-/// The data-plane message type of a thread handle (`"Nothing"` for a resource-only
-/// thread), or `None` for a non-thread type.
-pub(crate) fn thread_message(name: &str) -> Option<&str> {
-    thread_parts(name).map(|(_, message, _)| message)
-}
-
-/// The resource type carried on the thread's resource plane
-/// (`thread::transfer`/`thread::accept`), or `None` for a data-only thread. A
-/// data-only thread is spelled `Thread OF Msg TO Out`; the resource plane is the
-/// optional `RES Res` clause: `Thread OF Msg RES Res TO Out` (or `Thread OF RES
-/// Res TO Out` when there is no data channel).
-pub(crate) fn thread_resource(name: &str) -> Option<&str> {
-    thread_parts_full(name).and_then(|(_, _, resource, _)| resource)
-}
-
-/// Output type for `thread::waitFor`, which is only valid on a parent `Thread`
-/// handle (not a `ThreadWorker`).
-pub(crate) fn parent_thread_output(name: &str) -> Option<&str> {
-    thread_parts(name).and_then(|(kind, _, output)| (kind == THREAD_TYPE).then_some(output))
-}
-
 /// A thread handle's `(kind, message, output)`, dropping the resource plane.
 pub(crate) fn thread_parts(name: &str) -> Option<(&str, &str, &str)> {
     thread_parts_full(name).map(|(kind, message, _, output)| (kind, message, output))

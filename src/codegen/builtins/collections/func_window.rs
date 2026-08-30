@@ -29,8 +29,14 @@ pub(crate) fn window_fast_path(
             _ => None,
         }
     };
-    let elem_ok = matches!(t, "Integer" | "Float" | "Fixed" | "Money");
-    if (elem_ok || t == "String") && (args.len() == 2 || args.len() == 3) {
+    // The monomorph suffix of a `#collections_*$T` runtime target is a NAME
+    // the NIR carries; parsed once here, at the symbol boundary.
+    let element = ParameterType::declared(t);
+    let elem_ok = matches!(
+        element,
+        ParameterType::Integer | ParameterType::Float | ParameterType::Fixed | ParameterType::Money
+    );
+    if (elem_ok || element == ParameterType::String) && (args.len() == 2 || args.len() == 3) {
         let size = args.get(1).and_then(const_i64);
         let stride = if args.len() == 3 {
             args.get(2).and_then(const_i64)
@@ -38,7 +44,7 @@ pub(crate) fn window_fast_path(
             Some(1)
         };
         if let (Some(sz), Some(st)) = (size, stride) {
-            if sz >= 1 && st >= 1 && t == "String" {
+            if sz >= 1 && st >= 1 && element == ParameterType::String {
                 return builder
                     .lower_collection_window_string_call(args, sz, st)
                     .map(Some);

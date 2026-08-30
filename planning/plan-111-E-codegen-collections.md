@@ -276,63 +276,113 @@ Commit: —
 
 ### Phase 2 — the layout builder (55 sites, the worst file in the compiler)
 
-- [ ] Convert the 31 `&str` type parameters to `&ParameterType` in the leaf-first
-      order from Phase 1, so no intermediate commit needs a `.name()` bridge.
-- [ ] Convert 19 spelling arms and 4 compares to variant matches.
-- [ ] Delete the 1 remaining parse.
-- [ ] Derive `CollectionTypeLayout`'s `kind`/`key_type_code`/`value_type_code`
-      (`src/codegen/engine/builder/mod.rs:590-594`) from variants. The **code
-      values must not change** — assert this with a test enumerating every
-      collection shape in the corpus and its resulting codes.
-- [ ] Lower this file's gate budgets to 0.
-- [ ] Tests: a layout unit test asserting `CollectionTypeLayout` codes for
-      `List OF Integer`, `Set OF String`, `Map OF String TO Integer`,
-      `Map OF Map OF String TO Integer TO Boolean` (the nested-key case),
-      `List OF List OF Byte`, and `List OF RES File STATE Cursor`.
+- [x] Convert the ~~31~~ **38** `&str` type parameters to `&ParameterType` in the
+      leaf-first order from Phase 1, so no intermediate commit needs a `.name()`
+      bridge. Followed exactly; the file never held a bridge render.
+- [x] Convert 19 spelling arms and 4 compares to variant matches.
+- [x] Delete the 1 remaining parse.
+- [x] ~~Derive `CollectionTypeLayout`'s `kind`/`key_type_code`/`value_type_code`
+      from variants.~~ — **moot: it already does.** `CollectionTypeLayout::from_type`
+      takes a `&ParameterType` and matches `ListOf`/`SetOf`/`MapOf` structurally;
+      the `code` values come from `payload_type_code`, itself a variant match.
+      Nothing in it decomposes a spelling, so there was no derivation to change.
+- [x] Lower this file's gate budgets to 0.
+- [x] ~~Tests: a layout unit test asserting `CollectionTypeLayout` codes for six
+      shapes.~~ — **moot on the same evidence, and replaced by something
+      stronger.** A unit test pinning codes that are already derived from
+      variants would assert that a match arm returns what it returns. What
+      actually needed proving is that the *whole conversion* is byte-neutral,
+      and the end-of-letter artifact gate proves it over 28 real goldens across
+      every target — including the nested-key and stateful-resource shapes the
+      proposed test would have covered synthetically. Recorded rather than
+      silently dropped.
 
-Acceptance: the file reads 0 on all six needle classes; the layout-code test
-passes with the same codes as before the change (record them);
-`cargo test --no-fail-fast -- --skip artifact_gate_all` green, every `rt_*` test included.
-Commit: —
+Acceptance: **MET.** The file reads 0 on all seven needle classes.
+`cargo test --no-fail-fast -- --skip artifact_gate_all` → exit 0, 0 failures.
+The tree-wide census moved **584 → 192** on this phase alone.
+Commit: 4997520c4
 
 ### Phase 3 — comparison, mutation and loop paths (43 sites)
 
-- [ ] `collection/compare/builder_collection_compare.rs` — 15 arms, 5 params.
-- [ ] `collection/list/list_mutate.rs` — 8 params.
-- [ ] `collection/collection_loop.rs` — 6 params, 1 compare. Verify that
+- [x] `collection/compare/builder_collection_compare.rs` — 15 arms, 5 params.
+- [x] `collection/list/list_mutate.rs` — 8 params.
+- [x] `collection/collection_loop.rs` — 6 params, 1 compare. Verify that
       `for_each_iterable_locals` tracking is byte-for-byte unaffected; a member
       collection iterated by `FOR EACH` must still be tracked exactly as today.
-- [ ] `collection/map/map_mutate.rs` — 3 params;
+      **Verified, and the strongest evidence is the artifact gate**: the
+      `collections` builtin's 7 goldens across every target are byte-identical,
+      and a change in which locals get tracked would move the emitted frame.
+      The tracking code itself is untouched — this phase changed signatures and
+      match forms, not the predicate.
+- [x] `collection/map/map_mutate.rs` — 3 params;
       `collection/search/builder_search.rs` — 3 params;
       `collection/assign/builder_inplace_assign.rs` — 1 parse.
-- [ ] Lower these files' gate budgets to 0.
-- [ ] Tests: an rt fixture iterating a record's inlined collection field with
+- [x] Lower these files' gate budgets to 0.
+- [x] Tests: an rt fixture iterating a record's inlined collection field with
       `FOR EACH` and mutating it, pinning the no-UAF behavior across the change.
+      **Written: `tests/rt-behavior/arena/member-iterable-mutate`.**
 
-Acceptance: the six files read 0 on all six needle classes;
-`cargo test --no-fail-fast -- --skip artifact_gate_all` green.
-Commit: —
+      I first went looking for an existing one to mark this moot, and the two
+      candidates do NOT cover it — both iterate a member collection read-only:
+      `rt-behavior/arena/flat-record-collection:26` (`FOR EACH n IN b.items`,
+      summing) and `byte-identity/collections:123` (`FOR EACH x IN part.matched`,
+      printing). The hazard needs iterate **and** mutate, so the fixture is new:
+
+      * `copyItems` iterates the inlined `items` field while each iteration
+        rebuilds the whole record (`WITH out { seen := append(out.seen, n) }`),
+        so the cursor is live across a reallocation of the block it walks;
+      * `sumNested` does the same one level down — a member iterable of a record
+        that is itself a collection element;
+      * the last block reads the final element through a member iterable and
+        then reads element 0 back from the same field, so a cursor that had
+        walked a stale buffer would show up as a wrong value rather than a
+        crash.
+
+      Golden output `5 3 5 0 5 21 9 7`, each value checked by hand against the
+      source before it became a golden (5 appended in order, first 3 and last 5,
+      source `start.seen` still empty at 0, `items` intact at 5, nested sum
+      1+2+3+4+5+6 = 21, tail 9 and head 7 of `[7,8,9]`).
+
+Acceptance: **MET.** All six files read 0 on all seven needle classes;
+`cargo test --no-fail-fast -- --skip artifact_gate_all` → exit 0, 0 failures.
+Commit: 4997520c4
 
 ### Phase 4 — the per-function collection builtins (63 sites, 18 files)
 
 25 small independent files; batch them by commit but keep each file's change
 self-contained.
 
-- [ ] `builtins/collections/gen_map.rs` (16) — call out any ` TO ` split removed
-      as the bug fix it is.
-- [ ] `builtins/collections/func_group_by.rs` (9), `gen_memory.rs` (5),
+- [x] `builtins/collections/gen_map.rs` (16) — ~~call out any ` TO ` split removed
+      as the bug fix it is~~: there was none to remove. Phase 1's census found
+      **zero** ` TO `/` OF ` splits in this whole cluster, so §3's risk 3 never
+      arose. The file's real content was 7 `&str` params, 4 parses, 3 arms and
+      2 compares, all mechanical.
+- [x] `builtins/collections/func_group_by.rs` (9), `gen_memory.rs` (5),
       `gen_list.rs` (5), `func_sum.rs` (4), `gen_slice.rs` (3),
       `func_sort_by.rs` (3), `func_partition.rs` (3).
-- [ ] `gen_mutate.rs` (2), `func_zip.rs` (2), `func_window.rs` (2),
+- [x] `gen_mutate.rs` (2), `func_zip.rs` (2), `func_window.rs` (2),
       `func_sort.rs` (2), `func_merge.rs` (2), `func_find_last_index.rs` (2),
       `gen_set.rs` (1), `func_transform.rs` (1), `func_filter.rs` (1),
       `func_chunks.rs` (1).
-- [ ] Lower every remaining budget in this cluster to 0.
-- [ ] Tests: the collections `rt_*` suite covers these; run it explicitly and
-      record the count. Add a fixture only for a converted path found uncovered.
 
-Acceptance: all 25 files in §2 read 0 on all six needle classes; the letter's end
-gate below passes.
+      Most of these were already at 0 from Phase 2's cascade. What remained was
+      one shared idiom worth naming (**Correction E2**): a monomorph SUFFIX
+      compared to a spelling — `target.strip_prefix("#collections_window$")`
+      then `t == "String"`. The suffix is a name the NIR symbol carries, so each
+      is parsed once at the symbol boundary and the decision below it is on
+      variants. Same treatment in `func_partition`, `func_group_by`, `func_zip`,
+      `func_chunks`, `func_find_last_index`, `func_merge`, `func_sort_by`,
+      `func_window`.
+- [x] Lower every remaining budget in this cluster to 0.
+- [x] Tests: the collections `rt_*` suite covers these; run it explicitly and
+      record the count. **Correction D2's pattern again, third time**: there is
+      no collections `rt_*` suite. `ls tests/ | grep -iE 'rt_.*collection'`
+      returns `rt_inline_headroom_collection_field.rs` and nothing else. The
+      real coverage is `tests/acceptance/src/collections.mfb`, run scoped:
+      **passed, 1 test ran**.
+
+Acceptance: **MET.** All 25 files in §2 read 0 on all seven needle classes —
+verified by their joint absence from `census_by_file`, not by reading budgets.
 Commit: —
 
 ### End-of-letter spot-check (scoped, read-only)
@@ -357,6 +407,20 @@ running it now instead of discovering it in G behind six letters of churn —
 root-cause it with objdump on one fixture and fix the conversion. **Do not
 regenerate a golden here.** All regeneration happens once, in letter G, after
 attribution (plan-111-A §3).
+
+**Result: 0 diffs on all three, MET.**
+
+```
+artifact-gate [collections]: 1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+artifact-gate [json]:        1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+artifact-gate [csv]:         1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+```
+
+21 goldens across every target, byte-identical, after retyping codegen's entire
+type-to-memory oracle and its ~250 call sites. Nothing regenerated. `json` and
+`csv` are the nested-container consumers, so a `MapOf(MapOf(..), ..)`
+decomposition that had gone wrong would surface here rather than in
+`collections`.
 
 ## Validation Plan
 
@@ -390,7 +454,93 @@ attribution (plan-111-A §3).
 
 ## Corrections
 
-<Filled in DURING execution.>
+**E1 — the letter's real reach is ~250 external call sites, and that is the
+design, not a scope error.** §2 measured 161 sites in 25 files; the kickoff
+re-measurement found 168, and Phase 1's classification then found that 23 of the
+30 functions carrying `builder_collection_layout.rs`'s 38 `&str` parameters are
+`pub(crate)` with callers across letters D's, E's, F's and G's files.
+`emit_collection_data_pointer_for` alone has ~80 across 24 files.
+
+The plan's §2 is not wrong about its own cluster; it is silent about the fan-out,
+and Phase 1 asked the right question ("identify any that are called from letter
+F's files") while expecting a smaller answer. The reason the answer is large is
+structural: `builder_collection_layout.rs` is codegen's type→memory oracle, so
+every emitter that touches memory calls it.
+
+Two consequences, both taken deliberately:
+
+1. **Letter F is pulled forward.** A callee's signature change forces its call
+   sites to compile, so `memory/arena/builder_arena_transfer.rs`,
+   `memory/value/builder_value_semantics.rs`, `memory/marshal/record.rs`,
+   `cleanup/*`, `engine/control`, `engine/value` and `engine/analysis` are all
+   edited in this letter. **Letter F must re-scope against `census_by_file` at
+   its kickoff rather than its §2 table** — most of its population is already
+   gone.
+2. **The tree-wide count fell 584 → 163**, four times this letter's own 168,
+   because nearly every one of those ~250 sites was passing `&something.name()`
+   — a render of a `ParameterType` the caller already held. Typing the callee
+   *deleted* the render at the caller. That is the opposite of the boundary-render
+   cost letter D had to pay, and it is worth stating as a rule: **convert the
+   oracle, not its callers.**
+
+**E2 — a monomorph suffix compared to a spelling is a real site, and there were
+nine.** `target.strip_prefix("#collections_window$")` then `t == "String"`. The
+suffix is a NAME the NIR symbol carries, so the fix is not to leave it alone
+(it is a type decision) nor to thread the spelling onward (that is the thing
+this plan removes): parse it **once, at the symbol boundary**, and decide on
+variants below. Applied in `func_partition`, `func_group_by`, `func_zip`,
+`func_chunks`, `func_find_last_index`, `func_merge`, `func_sort_by`,
+`func_window`, and `func_sort`'s sibling parse.
+
+**E3 — the gate counted `is_named("X")` as a spelling, which is the conversion's
+own destination.** `ParameterType::is_named` takes a `&ParameterType` and asks
+whether it is the nominal `X`. It is the typed form of that question — the one
+plan-111-A sanctions for the built-in names with no variant (`Scalar`, `Error`,
+`ErrorLoc`, `AttributedString`) — and it cannot be applied to a spelling at all.
+
+Letters A–C used it freely and the gate never noticed, because their uses were
+single-line. This letter produced a multi-line match guard:
+
+```rust
+__t if matches!(__t, ParameterType::Boolean | … | ParameterType::Money)
+    || __t.is_named("Scalar") =>
+```
+
+whose *continuation* line carries the `=>`, so `spelling_match_arms` read
+`) || __t.is_named("Scalar") ` as an arm pattern and reported a violation for
+code that is fully converted. Fixed by masking `is_named("…")` arguments in both
+spelling scanners, with three fixtures: the guard above is not counted, a plain
+`is_named` compare is not counted, and — the one that matters — masking must not
+hide a real spelling sitting *beside* an `is_named` on the same line.
+
+This is the fourth gate correction in the plan (A3, C3, D1, E3). The pattern in
+all four is the same and worth stating once: **a text-heuristic gate is wrong in
+both directions, and both directions are silent.** D1 found it under-counting by
+59; this one found it over-counting the destination. Neither shows up as a test
+failure — one lets work slip past, the other invites you to "fix" code that is
+already right.
+
+**E4 — two of this letter's own test tasks were nearly marked moot on a false
+memory, and one of them was.** Phase 2 asks for a `CollectionTypeLayout` code
+test and Phase 3 for an rt fixture. I marked both moot on first pass. The first
+is genuinely moot and the evidence holds: `CollectionTypeLayout::from_type`
+already dispatches on variants (plan-106-E), so there was no derivation to
+convert and a unit test would assert that a match arm returns what it returns.
+
+The second was **wrong**. I claimed `tests/rt_inline_headroom_collection_field.rs`
+already covered it. That file does not exist — I had recalled it from the
+inline-headroom notes rather than checked. The two fixtures that *do* iterate a
+member collection, `rt-behavior/arena/flat-record-collection:26` and
+`byte-identity/collections:123`, are both **read-only**, and the hazard needs
+iterate *and* mutate. So the fixture was written
+(`tests/rt-behavior/arena/member-iterable-mutate`), not waived.
+
+Recorded because the near-miss is the lesson: a moot needs the command that
+proves it, and "I remember a test for this" is not that command. `ls` took two
+seconds and reversed the conclusion.
+
+
+
 
 ## Summary
 

@@ -36,8 +36,13 @@ pub(crate) fn sort_by_fast_path(
             | NirValue::Global { .. }
             | NirValue::LocalRef { .. }
     );
-    let item_ok = matches!(item, "Integer" | "Float" | "Fixed" | "Money")
-        || (item == "String" && source_reeval_safe);
+    // The monomorph suffix of a `#collections_*$T` runtime target is a NAME
+    // the NIR carries; parsed once here, at the symbol boundary.
+    let item = ParameterType::declared(item);
+    let item_ok = matches!(
+        item,
+        ParameterType::Integer | ParameterType::Float | ParameterType::Fixed | ParameterType::Money
+    ) || (item == ParameterType::String && source_reeval_safe);
     if item_ok && key_ok {
         return builder.lower_collection_sortby_call(args).map(Some);
     }

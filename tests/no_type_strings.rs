@@ -543,9 +543,37 @@ fn str_type_params(src: &str) -> Vec<Hit> {
 }
 
 /// 3 — a `match` arm on a type spelling: `"Integer" | "Float" => ...`.
+/// Blank out `is_named("X")` arguments so neither spelling scanner counts them.
+///
+/// `ParameterType::is_named` takes a `&ParameterType` and asks whether it is the
+/// nominal `X`. It is the TYPED form of that question — the one plan-111-A
+/// sanctions for the built-in names that have no variant (`Scalar`, `Error`,
+/// `ErrorLoc`, `AttributedString`) — and it cannot be applied to a spelling at
+/// all. Counting its argument would report the conversion's own destination as
+/// a violation, and (via a multi-line match guard) did.
+fn mask_is_named(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(at) = rest.find("is_named(\"") {
+        out.push_str(&rest[..at]);
+        out.push_str("is_named(");
+        rest = &rest[at + "is_named(\"".len()..];
+        match rest.find('"') {
+            Some(close) => {
+                out.push_str("__NOMINAL__");
+                rest = &rest[close + 1..];
+            }
+            None => break,
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 fn spelling_match_arms(src: &str) -> Vec<Hit> {
     let mut out = Vec::new();
     for (n, line) in code_lines(src) {
+        let line = &mask_is_named(line)[..];
         // The arm PATTERN is everything left of the arrow. Scanning the pattern
         // (rather than requiring the line to *begin* with a quoted spelling)
         // is what catches a tuple arm — `("sin", "Float") => …` — which
@@ -592,6 +620,7 @@ fn spelling_match_arms(src: &str) -> Vec<Hit> {
 fn spelling_compares(src: &str) -> Vec<Hit> {
     let mut out = Vec::new();
     for (n, line) in code_lines(src) {
+        let line = &mask_is_named(line)[..];
         let bytes = line.as_bytes();
         for (i, _) in line.match_indices("= \"") {
             if i == 0 || !matches!(bytes[i - 1], b'=' | b'!') {
@@ -724,17 +753,17 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     //     0 in letter C and its row is gone.
     // --- 7. a type-keyed map keyed by `String`. Reached 0 tree-wide in letter C;
     //     the class has no row at all, which is the shape every class ends in.
-    ("parse_sites", "codegen", 31),
+    ("parse_sites", "codegen", 25),
     ("str_type_params", "binary_repr", 5),
-    ("str_type_params", "codegen", 24),
+    ("str_type_params", "codegen", 18),
     ("str_type_params", "hir", 1),
     ("str_type_params", "numeric", 1),
     ("str_type_params", "target", 4),
     ("str_type_params", "types", 2),
     ("spelling_match_arms", "binary_repr", 19),
-    ("spelling_match_arms", "codegen", 23),
+    ("spelling_match_arms", "codegen", 19),
     ("spelling_match_arms", "types", 9),
-    ("spelling_compares", "codegen", 24),
+    ("spelling_compares", "codegen", 7),
     ("spelling_compares", "optimizer", 3),
     ("spelling_compares", "target", 2),
     ("spelling_compares", "types", 2),
@@ -943,6 +972,22 @@ fn scanners_fire_on_their_own_needles() {
         spelling_compares("        _ if t == \"Integer\" => 8,").len(),
         1,
         "…and spelling_compares must be the one that counts it"
+    );
+    assert_eq!(
+        spelling_match_arms("            ) || __t.is_named(\"Scalar\") =>").len(),
+        0,
+        "plan-111-E: `is_named` is the TYPED nominal test, not a spelling match"
+    );
+    assert_eq!(
+        spelling_compares("        if !type_.is_named(\"Error\") {").len(),
+        0,
+        "…and it is not a spelling compare either"
+    );
+    assert_eq!(
+        spelling_match_arms("            ) || __t.is_named(\"Scalar\") || x == \"Integer\" =>")
+            .len(),
+        1,
+        "…but masking `is_named` must not hide a real spelling beside it"
     );
     assert_eq!(
         spelling_compares("            if x.get(\"type\").as_deref() == Some(\"Integer\") {").len(),

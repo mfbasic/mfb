@@ -52,7 +52,14 @@ impl CodeBuilder<'_> {
         // plan-86 A3: both-String zip builds a variable-width `Pair$String$String`
         // per element (get + inlined-record build + append), since the flat
         // 16-byte-record path only fits fixed-width fields.
-        if parts[0] == "String" && parts[1] == "String" {
+        // `parts` are the `$K$V` suffixes of a `#collections_zip$K$V` runtime
+        // target -- NAMES the NIR carries. Parsed once here, at the symbol
+        // boundary, so the decision below is on types.
+        let (a, b) = (
+            ParameterType::declared(parts[0]),
+            ParameterType::declared(parts[1]),
+        );
+        if a == ParameterType::String && b == ParameterType::String {
             return Ok(Some(self.lower_list_zip_string(args)?));
         }
         if !is_fixed(parts[0]) || !is_fixed(parts[1]) {

@@ -278,7 +278,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            ParameterType::Named(name) if name.resolve() == "Scalar" => {
+            type_ if type_.is_named("Scalar") => {
                 let candidate = self.allocate_register();
                 self.emit(abi::load_u32(&candidate, &data, 0));
                 self.emit(abi::compare_registers(&candidate, value.clone()));
@@ -396,7 +396,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            ParameterType::Named(name) if name.resolve() == "Scalar" => {
+            type_ if type_.is_named("Scalar") => {
                 self.emit(abi::load_u32(cval, cur, 0));
                 self.emit(abi::compare_registers(cval, value.clone()));
                 self.emit(abi::branch_eq(equal_label));
@@ -513,7 +513,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            ParameterType::Named(name) if name.resolve() == "Scalar" => {
+            type_ if type_.is_named("Scalar") => {
                 self.emit(abi::load_u32(lval, lcur, 0));
                 self.emit(abi::load_u32(rval, rcur, 0));
                 self.emit(abi::compare_registers(lval, rval));

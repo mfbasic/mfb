@@ -77,7 +77,7 @@ impl CodeBuilder<'_> {
             | ParameterType::Money => 8,
             // A Scalar is a 4-byte codepoint payload with alignment 4 (plan-41-C).
             // A bare nominal, so matched by name (see `list_element_is_fixed_width`).
-            ParameterType::Named(name) if name.resolve() == "Scalar" => 4,
+            type_ if type_.is_named("Scalar") => 4,
             // A function value is an 8-byte code/closure pointer (bug-73).
             other if matches!(other, ParameterType::Func(..)) => 8,
             other if self.is_pointer_collection_payload_type(other) => 8,
@@ -1715,7 +1715,7 @@ impl CodeBuilder<'_> {
             ParameterType::Boolean | ParameterType::Byte => {
                 self.emit(abi::move_immediate(&scratch8, "Integer", "1"));
             }
-            ParameterType::Named(name) if name.resolve() == "Scalar" => {
+            type_ if type_.is_named("Scalar") => {
                 self.emit(abi::move_immediate(&scratch8, "Integer", "4"));
             }
             ParameterType::Integer
@@ -1837,7 +1837,7 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::store_u8(&scratch12, &scratch10, 0));
             }
-            ParameterType::Named(name) if name.resolve() == "Scalar" => {
+            type_ if type_.is_named("Scalar") => {
                 self.emit(abi::load_u64(
                     &scratch12,
                     abi::stack_pointer(),
@@ -2150,7 +2150,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u8(&result, &data, 0));
                 Ok(result)
             }
-            ParameterType::Named(name) if name.resolve() == "Scalar" => {
+            type_ if type_.is_named("Scalar") => {
                 let result = self.allocate_register();
                 self.emit(abi::load_u32(&result, &data, 0));
                 Ok(result)
@@ -2294,7 +2294,7 @@ pub(crate) fn list_element_is_fixed_width(element_type: &ParameterType) -> Optio
         ParameterType::Boolean | ParameterType::Byte => Some(1),
         // `Scalar` is a bare nominal, not a variant (it is a Unicode scalar
         // value, `Named("Scalar")`), so it is matched by name rather than shape.
-        ParameterType::Named(name) if name.resolve() == "Scalar" => Some(4),
+        type_ if type_.is_named("Scalar") => Some(4),
         ParameterType::Integer
         | ParameterType::Float
         | ParameterType::Fixed

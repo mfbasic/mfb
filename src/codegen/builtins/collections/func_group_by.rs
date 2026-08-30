@@ -31,10 +31,23 @@ pub(crate) fn group_by_fast_path(
             | NirValue::Global { .. }
             | NirValue::LocalRef { .. }
     );
+    // The `$K$B$V` suffixes of a `#collections_groupBy$...` runtime target are
+    // NAMES the NIR carries; parsed once here so the eligibility test is on
+    // types (see the `kt`/`vt` bind below, which parses the same three).
+    let supported = |part: &str| {
+        matches!(
+            ParameterType::declared(part),
+            ParameterType::Integer
+                | ParameterType::Float
+                | ParameterType::Fixed
+                | ParameterType::Money
+                | ParameterType::String
+        )
+    };
     let ok = parts.len() == 3
-        && matches!(parts[0], "Integer" | "Float" | "Fixed" | "Money" | "String")
-        && parts[1] == "Integer"
-        && matches!(parts[2], "Integer" | "Float" | "Fixed" | "Money" | "String")
+        && supported(parts[0])
+        && ParameterType::declared(parts[1]) == ParameterType::Integer
+        && supported(parts[2])
         && reeval_safe;
     if !ok {
         return Ok(None);

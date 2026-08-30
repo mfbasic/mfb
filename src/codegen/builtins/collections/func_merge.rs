@@ -29,9 +29,18 @@ pub(crate) fn merge_fast_path(
         &args[2],
         NirValue::Const { type_, value } if matches!(type_, ParameterType::Boolean) && value == "true"
     );
+    // The monomorph suffix of a `#collections_*$T` runtime target is a NAME
+    // the NIR carries; parsed once here, at the symbol boundary.
     let ok = parts.len() == 2
-        && parts[0] == "String"
-        && matches!(parts[1], "Integer" | "Float" | "Fixed" | "Money" | "String")
+        && ParameterType::declared(parts[0]) == ParameterType::String
+        && matches!(
+            ParameterType::declared(parts[1]),
+            ParameterType::Integer
+                | ParameterType::Float
+                | ParameterType::Fixed
+                | ParameterType::Money
+                | ParameterType::String
+        )
         && prefer_true;
     if ok {
         return builder.lower_collection_merge_call(args).map(Some);
