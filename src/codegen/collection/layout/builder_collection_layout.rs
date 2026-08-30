@@ -29,7 +29,7 @@ impl CodeBuilder<'_> {
                 .type_model
                 .variants_for_union(type_)
                 .map(|variant| {
-                    if crate::codegen::builtins::is_resource_type(&variant.name()) {
+                    if crate::codegen::builtins::is_resource_type(&variant) {
                         1
                     } else {
                         self.type_model
@@ -57,7 +57,7 @@ impl CodeBuilder<'_> {
         if typed_is_collection_type(type_) {
             return !self.type_is_flat(type_);
         }
-        crate::codegen::builtins::is_resource_type(&type_.name())
+        crate::codegen::builtins::is_resource_type(&type_)
             && !self.type_model.union_names.contains(type_)
     }
 
@@ -2670,9 +2670,7 @@ fn collection_payload_types(type_: &ParameterType) -> Vec<ParameterType> {
 fn base_resource_type(type_: &ParameterType) -> ParameterType {
     match type_ {
         ParameterType::Stateful { base, .. } => (**base).clone(),
-        other => {
-            ParameterType::declared(&crate::codegen::resource::base_resource_name(&other.name()))
-        }
+        other => other.without_state(),
     }
 }
 
@@ -2723,7 +2721,7 @@ fn type_is_flat_inner(
             .collect::<Vec<_>>()
             .iter()
             .all(|variant| type_is_flat_inner(model, variant, visited))
-    } else if crate::codegen::builtins::is_resource_type(&type_.name()) {
+    } else if crate::codegen::builtins::is_resource_type(&type_) {
         // A resource is a move-only handle to its single instance, never a
         // copyable flat block.
         false
@@ -2772,7 +2770,7 @@ pub(crate) fn union_is_data(model: &TypeModel, type_: &ParameterType) -> bool {
     let mut saw_variant = false;
     for variant in model.variants_for_union(&type_) {
         saw_variant = true;
-        if crate::codegen::builtins::is_resource_type(&variant.name()) {
+        if crate::codegen::builtins::is_resource_type(&variant) {
             return false;
         }
     }
@@ -2912,16 +2910,17 @@ mod kind2_layout_tests {
             .iter()
             .map(|(element, _)| *element)
             .chain(VARIABLE_WIDTH.iter().copied());
-        for element in every_type {
-            let entry_free = list_entry_stride(element) == 0;
+        for spelling in every_type {
+            let element = ParameterType::parse(spelling);
+            let entry_free = list_entry_stride(&element) == 0;
             assert_eq!(
                 entry_free,
-                list_block_kind(element) == COLLECTION_KIND_LIST_FIXED,
+                list_block_kind(&element) == COLLECTION_KIND_LIST_FIXED,
                 "stride and kind disagree for {element:?}"
             );
             assert_eq!(
                 entry_free,
-                kind2_payload_size(element).is_some(),
+                kind2_payload_size(&element).is_some(),
                 "stride and payload size disagree for {element:?}"
             );
         }
@@ -2951,14 +2950,16 @@ mod kind2_layout_tests {
                     &declared_type,
                     Some(&ParameterType::declared(element)),
                 )
-                .map(|t| t.name().into_owned())
-                .unwrap_or_else(|| declared.clone());
+                .unwrap_or_else(|| declared_type.clone());
                 for count in [0usize, 1, 2, 7, 1000] {
                     // Allocation: stride from the element's own type.
-                    let allocated =
-                        COLLECTION_HEADER_SIZE + count * list_entry_stride(element) + count * width;
+                    let allocated = COLLECTION_HEADER_SIZE
+                        + count * list_entry_stride(&ParameterType::declared(element))
+                        + count * width;
                     // Free: stride from the type the block was laid out as.
-                    let free_element = list_element_type(&laid_out).unwrap_or_default();
+                    let free_element = typed_list_element_type(&laid_out)
+                        .cloned()
+                        .unwrap_or_else(|| ParameterType::named(""));
                     let freed = COLLECTION_HEADER_SIZE
                         + count * list_entry_stride(&free_element)
                         + count * width;
@@ -3006,19 +3007,31 @@ mod kind2_layout_tests {
     #[test]
     fn nested_list_outer_keeps_entries() {
         assert_eq!(
-            list_entry_stride("List OF List OF Integer"),
+            list_entry_stride(&ParameterType::declared("List OF List OF Integer")),
             COLLECTION_ENTRY_SIZE
         );
-        assert_eq!(list_entry_stride("List OF Integer"), COLLECTION_ENTRY_SIZE);
+        assert_eq!(
+            list_entry_stride(&ParameterType::declared("List OF Integer")),
+            COLLECTION_ENTRY_SIZE
+        );
         assert_eq!(list_entry_stride(&ParameterType::Integer), 0);
-        assert_eq!(list_block_kind("List OF Integer"), COLLECTION_KIND_LIST);
+        assert_eq!(
+            list_block_kind(&ParameterType::declared("List OF Integer")),
+            COLLECTION_KIND_LIST
+        );
     }
 
     /// A `RES` element marker is an ownership axis, not part of the value type,
     /// and a resource pointer is never a fixed-width payload.
     #[test]
     fn resource_elements_keep_entries() {
-        assert_eq!(list_entry_stride("fs.File"), COLLECTION_ENTRY_SIZE);
-        assert_eq!(list_entry_stride("RES File"), COLLECTION_ENTRY_SIZE);
+        assert_eq!(
+            list_entry_stride(&ParameterType::declared("fs.File")),
+            COLLECTION_ENTRY_SIZE
+        );
+        assert_eq!(
+            list_entry_stride(&ParameterType::declared("RES File")),
+            COLLECTION_ENTRY_SIZE
+        );
     }
 }

@@ -233,6 +233,15 @@ mod tests {
     use crate::codegen::registry::{self, registry};
     use std::path::Path;
 
+    /// plan-111-F: `rewrite_target` selects on TYPES, so the test's spellings
+    /// are parsed at this one helper rather than threaded onward as names.
+    fn types(items: &[&str]) -> Vec<crate::types::ParameterType> {
+        items
+            .iter()
+            .map(|s| crate::types::ParameterType::declared(s))
+            .collect()
+    }
+
     fn strings(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
     }
@@ -413,7 +422,7 @@ mod tests {
         // (the monomorph rewrite source of truth), resolves a generic call, and
         // carries its arity.
         assert_eq!(
-            registry::rewrite_target("collections.sort", &strings(&["List OF Integer"])),
+            registry::rewrite_target("collections.sort", &types(&["List OF Integer"])),
             Some("__collections_sort")
         );
         assert_eq!(registry().arity("collections.sort"), Some((1, 1)));

@@ -17,6 +17,7 @@
 pub(crate) mod cleanup;
 
 use crate::codegen::registry::{registry, ResolvedType};
+use crate::types::ParameterType;
 
 /// Where a resource descriptor came from. Only built-in resources carry a
 /// descriptor (the clean-room registry's); a project's native `LINK` resources
@@ -58,9 +59,9 @@ pub(crate) fn state_type_name(type_name: &str) -> Option<&str> {
 
 /// Whether `type_name` is a built-in resource type. Used by stages that only
 /// ever see built-in resources (codegen, binary-representation writer).
-pub(crate) fn is_builtin_resource_type(type_name: &str) -> bool {
+pub(crate) fn is_builtin_resource_type(type_: &ParameterType) -> bool {
     matches!(
-        registry().resolve_type(base_resource_name(type_name)),
+        registry().resolve_type(&type_.without_state().name()),
         Some(ResolvedType::Resource(_))
     )
 }
@@ -72,14 +73,14 @@ pub(crate) fn is_builtin_resource_type(type_name: &str) -> bool {
 /// builtin's own identity is package-qualified (plan-97). Deliberately more lenient
 /// than [`is_builtin_resource_type`] — it must NOT be used for user-type resolution,
 /// where a bare `File` is a distinct user type.
-pub(crate) fn is_builtin_backed_resource(type_name: &str) -> bool {
-    if is_builtin_resource_type(type_name) {
+pub(crate) fn is_builtin_backed_resource(type_: &ParameterType) -> bool {
+    if is_builtin_resource_type(type_) {
         return true;
     }
-    let bare = base_resource_name(type_name)
-        .rsplit('.')
-        .next()
-        .unwrap_or(type_name);
+    // The BARE base (`File` for `fs.File`): a package qualifier is a name-domain
+    // prefix, not a type constructor, so it is stripped from the rendered base.
+    let base = type_.without_state().name().into_owned();
+    let bare = base.rsplit('.').next().unwrap_or(&base);
     registry()
         .packages()
         .iter()
@@ -87,16 +88,16 @@ pub(crate) fn is_builtin_backed_resource(type_name: &str) -> bool {
 }
 
 /// The built-in close op for `type_name`, if it is a built-in resource.
-pub(crate) fn builtin_resource_close_function(type_name: &str) -> Option<&'static str> {
-    match registry().resolve_type(base_resource_name(type_name)) {
+pub(crate) fn builtin_resource_close_function(type_: &ParameterType) -> Option<&'static str> {
+    match registry().resolve_type(&type_.without_state().name()) {
         Some(ResolvedType::Resource(r)) => Some(r.close_function),
         _ => None,
     }
 }
 
 /// Whether `type_name` is a built-in resource that may cross a thread boundary.
-pub(crate) fn is_builtin_sendable_resource_type(type_name: &str) -> bool {
-    match registry().resolve_type(base_resource_name(type_name)) {
+pub(crate) fn is_builtin_sendable_resource_type(type_: &ParameterType) -> bool {
+    match registry().resolve_type(&type_.without_state().name()) {
         Some(ResolvedType::Resource(r)) => r.sendable,
         _ => false,
     }
@@ -108,11 +109,21 @@ mod tests {
 
     #[test]
     fn builtins_recognize_standard_resources() {
-        assert!(is_builtin_resource_type("fs.File"));
-        assert!(is_builtin_resource_type("net.Socket"));
-        assert!(is_builtin_resource_type("net.Listener"));
-        assert!(!is_builtin_resource_type("Integer"));
-        assert!(!is_builtin_resource_type("Address"));
+        assert!(is_builtin_resource_type(
+            &crate::types::ParameterType::declared("fs.File")
+        ));
+        assert!(is_builtin_resource_type(
+            &crate::types::ParameterType::declared("net.Socket")
+        ));
+        assert!(is_builtin_resource_type(
+            &crate::types::ParameterType::declared("net.Listener")
+        ));
+        assert!(!is_builtin_resource_type(
+            &crate::types::ParameterType::declared("Integer")
+        ));
+        assert!(!is_builtin_resource_type(
+            &crate::types::ParameterType::declared("Address")
+        ));
     }
 
     #[test]
@@ -121,19 +132,28 @@ mod tests {
             Some(ResolvedType::Resource(r)) => r,
             _ => panic!("{name} is not a built-in resource"),
         };
-        assert_eq!(builtin_resource_close_function("fs.File"), Some("fs.close"));
         assert_eq!(
-            builtin_resource_close_function("net.Socket"),
+            builtin_resource_close_function(&crate::types::ParameterType::declared("fs.File")),
+            Some("fs.close")
+        );
+        assert_eq!(
+            builtin_resource_close_function(&crate::types::ParameterType::declared("net.Socket")),
             Some("net.close")
         );
         assert_eq!(
-            builtin_resource_close_function("net.Listener"),
+            builtin_resource_close_function(&crate::types::ParameterType::declared("net.Listener")),
             Some("net.close")
         );
         // File and Socket move across threads; a Listener stays put.
-        assert!(is_builtin_sendable_resource_type("fs.File"));
-        assert!(is_builtin_sendable_resource_type("net.Socket"));
-        assert!(!is_builtin_sendable_resource_type("net.Listener"));
+        assert!(is_builtin_sendable_resource_type(
+            &crate::types::ParameterType::declared("fs.File")
+        ));
+        assert!(is_builtin_sendable_resource_type(
+            &crate::types::ParameterType::declared("net.Socket")
+        ));
+        assert!(!is_builtin_sendable_resource_type(
+            &crate::types::ParameterType::declared("net.Listener")
+        ));
         // close-may-fail holds for every standard resource (the descriptor
         // states it; drop-time cleanup derives the same fact from the close
         // wrapper's `SUCCESS ON`).
@@ -167,12 +187,13 @@ mod tests {
             "tls.TlsListener",
             "process.Process",
         ] {
+            let type_ = ParameterType::declared(name);
             assert!(
-                is_builtin_resource_type(name),
+                is_builtin_resource_type(&type_),
                 "{name} missing from registry"
             );
             assert!(
-                builtin_resource_close_function(name).is_some_and(|c| !c.is_empty()),
+                builtin_resource_close_function(&type_).is_some_and(|c| !c.is_empty()),
                 "{name} has no close op"
             );
         }
@@ -180,13 +201,21 @@ mod tests {
 
     #[test]
     fn free_helpers_match_registry() {
-        assert!(is_builtin_resource_type("fs.File"));
-        assert!(!is_builtin_resource_type("Nothing"));
+        assert!(is_builtin_resource_type(
+            &crate::types::ParameterType::declared("fs.File")
+        ));
+        assert!(!is_builtin_resource_type(
+            &crate::types::ParameterType::declared("Nothing")
+        ));
         assert_eq!(
-            builtin_resource_close_function("net.Socket"),
+            builtin_resource_close_function(&crate::types::ParameterType::declared("net.Socket")),
             Some("net.close")
         );
-        assert!(is_builtin_sendable_resource_type("net.Socket"));
-        assert!(!is_builtin_sendable_resource_type("net.Listener"));
+        assert!(is_builtin_sendable_resource_type(
+            &crate::types::ParameterType::declared("net.Socket")
+        ));
+        assert!(!is_builtin_sendable_resource_type(
+            &crate::types::ParameterType::declared("net.Listener")
+        ));
     }
 }

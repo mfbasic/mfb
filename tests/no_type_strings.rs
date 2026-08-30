@@ -504,6 +504,30 @@ fn parse_sites(src: &str) -> Vec<Hit> {
     out
 }
 
+/// 1b — `ParameterType::declared(…)`: a declared type NAME converted to a type.
+///
+/// `declared` IS `parse` (`src/types.rs`: `pub(crate) fn declared(name: &str) ->
+/// Self { ParameterType::parse(name) }`). The two names mark different *kinds*
+/// of call, and the distinction is real — Correction C1 exists because a
+/// declared name may shadow a builtin spelling, so building a table key with
+/// `named` instead of `declared` silently splits the record from the scalar.
+///
+/// But it means class 1 could be dodged by spelling `parse` as `declared`, so
+/// this class counts them SEPARATELY rather than leaving the escape hatch
+/// invisible (plan-111-F). A `declared` site is legitimate exactly where a
+/// declared name genuinely crosses into the type domain — a wire type export, a
+/// registry descriptor's `&'static str`, a NIR symbol's monomorph suffix — and
+/// illegitimate wherever the caller already had a `ParameterType`.
+fn declared_sites(src: &str) -> Vec<Hit> {
+    let mut out = Vec::new();
+    for (n, line) in code_lines(src) {
+        for _ in line.match_indices("ParameterType::declared(") {
+            out.push(hit(n, "ParameterType::declared("));
+        }
+    }
+    out
+}
+
 /// 2 — a parameter whose *name* says "type" and whose *type* is `&str`.
 fn str_type_params(src: &str) -> Vec<Hit> {
     let mut out = Vec::new();
@@ -732,43 +756,50 @@ fn string_keyed_type_maps(rel: &str, src: &str) -> Vec<Hit> {
 /// `assert_eq!(count, 0)` (letter G). A row missing from this table is a
 /// ceiling of 0, so a new violation in a clean directory fails immediately.
 const BUDGETS: &[(&str, &str, usize)] = &[
-    // Re-measured 2026-08-30 after plan-111-D Correction D1 strengthened three
-    // scanners (tuple match arms, `== Some("X")` compares, ten missing
-    // `*type*: &str` parameter names). That surfaced 59 sites letters A-C could
-    // not see; every row below is the live count, tight in both directions.
+    // Re-measured 2026-08-30 at the close of plan-111-F.
     //
-    // --- 1. `ParameterType::parse` below a boundary. Letters D, E, F.
-    // --- 2. a type taken as `&str`. Letters D, E, F, G.
-    // --- 3. a `match` arm on a spelling, INCLUDING a tuple arm. Letters D, E, F, G.
-    // --- 4. `==` / `!=` against a spelling, incl. through `Some(...)`. D, E, F, G.
-    //     `optimizer` is new and belongs to G: its three sites read the NIR
-    //     `mov_imm` "type" operand-class attribute, whose producer is
-    //     `target/shared/abi.rs`'s `move_immediate(type_: &str)` — already a
-    //     counted `target` row. Producer and consumers convert together.
-    // --- 5. a hand-rolled second grammar. Letter A, then B, E, G. `types` 25
-    //     is `ParameterType::contains_state`'s one `contains(" STATE ")` for the
-    //     composite-base spelling `parse` declines to split, plus the parser's
-    //     own recursion; letter G retires the rest.
-    // --- 6. a spelling built with `format!`. Letters E, F, G. `codegen` reached
-    //     0 in letter C and its row is gone.
-    // --- 7. a type-keyed map keyed by `String`. Reached 0 tree-wide in letter C;
-    //     the class has no row at all, which is the shape every class ends in.
-    ("parse_sites", "codegen", 25),
+    // --- 1. `ParameterType::parse` below a boundary: **ZERO, tree-wide.** The
+    //     class has no row at all. `parse` now appears only in the five
+    //     sanctioned boundary files.
+    // --- 1b. `ParameterType::declared` — `parse` under the name it wears at a
+    //     DECLARED-NAME boundary. Added as its own class in letter F because it
+    //     was invisible to class 1 and therefore an escape hatch; 125 calls were
+    //     hiding behind it. Most are legitimate (Correction C1: a table key must
+    //     be built with `declared`, never `named`), but "legitimate" is a
+    //     judgement that belongs in the open. Letter G rules on the population.
+    // --- 2. a type taken as `&str`. codegen is down to 4, all justified:
+    //     `resource/mod.rs`'s two `&str` adapters over the one STATE grammar
+    //     (their parity with `split_state` is pinned in `types.rs`), and
+    //     `registry/mod.rs`'s two `&'static str` descriptor fields, which cannot
+    //     hold a `ParameterType` — it carries an interned `Symbol` and a `Box`,
+    //     so it is not const-constructible. Letter G decides whether those four
+    //     become a sixth boundary or stay budgeted.
+    // --- 3. a `match` arm on a spelling: **codegen ZERO.**
+    // --- 4. `==` / `!=` against a spelling: **codegen ZERO.** `optimizer`'s
+    //     three read the NIR `mov_imm` operand-class attribute whose producer is
+    //     `target/shared/abi.rs`; they convert together, in letter G.
+    // --- 5. a hand-rolled second grammar: **codegen ZERO.**
+    // --- 6. a spelling built with `format!`: codegen reached 0 in letter C.
+    // --- 7. a type-keyed map keyed by `String`: 0 tree-wide since letter C.
+    ("declared_sites", "binary_repr", 2),
+    ("declared_sites", "codegen", 50),
+    ("declared_sites", "ir", 47),
+    ("declared_sites", "manifest", 1),
+    ("declared_sites", "monomorph", 8),
+    ("declared_sites", "resolver", 8),
+    ("declared_sites", "target", 9),
     ("str_type_params", "binary_repr", 5),
-    ("str_type_params", "codegen", 18),
+    ("str_type_params", "codegen", 4),
     ("str_type_params", "hir", 1),
     ("str_type_params", "numeric", 1),
-    ("str_type_params", "target", 4),
+    ("str_type_params", "target", 3),
     ("str_type_params", "types", 2),
     ("spelling_match_arms", "binary_repr", 19),
-    ("spelling_match_arms", "codegen", 19),
     ("spelling_match_arms", "types", 9),
-    ("spelling_compares", "codegen", 7),
     ("spelling_compares", "optimizer", 3),
     ("spelling_compares", "target", 2),
     ("spelling_compares", "types", 2),
     ("hand_rolled_grammar", "binary_repr", 3),
-    ("hand_rolled_grammar", "codegen", 7),
     ("hand_rolled_grammar", "types", 25),
     ("format_type_construction", "binary_repr", 5),
     ("format_type_construction", "types", 6),
@@ -785,6 +816,7 @@ fn bucket(rel: &str) -> String {
 
 const CLASSES: &[&str] = &[
     "parse_sites",
+    "declared_sites",
     "str_type_params",
     "spelling_match_arms",
     "spelling_compares",
@@ -823,6 +855,7 @@ fn scan_tree() -> BTreeMap<(String, String), Vec<String>> {
         if !is_boundary_file(&rel) {
             record("parse_sites", parse_sites(&src));
         }
+        record("declared_sites", declared_sites(&src));
         record("str_type_params", str_type_params(&src));
         record("spelling_match_arms", spelling_match_arms(&src));
         record("spelling_compares", spelling_compares(&src));
@@ -904,6 +937,22 @@ fn no_type_strings() {
 /// hit and a lookalike, one negative.
 #[test]
 fn scanners_fire_on_their_own_needles() {
+    assert_eq!(
+        declared_sites("let t = ParameterType::declared(name);").len(),
+        1,
+        "plan-111-F: `declared` is `parse` under another name — count it, so \
+         class 1 cannot be dodged by renaming the call"
+    );
+    assert_eq!(
+        declared_sites("let t = ParameterType::named(name);").len(),
+        0,
+        "…but `named` is a CONSTRUCTOR, not a grammar entry"
+    );
+    assert_eq!(
+        parse_sites("let t = ParameterType::declared(name);").len(),
+        0,
+        "the two classes are disjoint, so a site is never counted twice"
+    );
     assert_eq!(
         parse_sites("let t = ParameterType::parse(name);").len(),
         1,
@@ -1109,6 +1158,7 @@ fn census_by_file() {
         if !is_boundary_file(&rel) {
             row.insert("parse_sites", parse_sites(&src).len());
         }
+        row.insert("declared_sites", declared_sites(&src).len());
         row.insert("str_type_params", str_type_params(&src).len());
         row.insert("spelling_match_arms", spelling_match_arms(&src).len());
         row.insert("spelling_compares", spelling_compares(&src).len());
@@ -1132,6 +1182,7 @@ fn census_by_file() {
                 if !is_boundary_file(&rel) {
                     all.extend(parse_sites(&src).into_iter().map(|h| ("parse", h)));
                 }
+                all.extend(declared_sites(&src).into_iter().map(|h| ("declrd", h)));
                 all.extend(str_type_params(&src).into_iter().map(|h| ("param", h)));
                 all.extend(spelling_match_arms(&src).into_iter().map(|h| ("arm", h)));
                 all.extend(spelling_compares(&src).into_iter().map(|h| ("cmp", h)));
@@ -1172,17 +1223,18 @@ fn census_by_file() {
         rows.len()
     );
     println!(
-        "{:<62} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>6}",
-        "file", "parse", "param", "arm", "cmp", "gram", "fmt", "map", "total"
+        "{:<62} {:>5} {:>6} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>6}",
+        "file", "parse", "declrd", "param", "arm", "cmp", "gram", "fmt", "map", "total"
     );
     let mut grand = 0usize;
     for (file, total, row) in &rows {
         grand += total;
         let g = |c: &str| row.get(c).copied().unwrap_or(0);
         println!(
-            "{:<62} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>6}",
+            "{:<62} {:>5} {:>6} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>6}",
             file,
             g("parse_sites"),
+            g("declared_sites"),
             g("str_type_params"),
             g("spelling_match_arms"),
             g("spelling_compares"),

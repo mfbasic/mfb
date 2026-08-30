@@ -447,7 +447,9 @@ pub(super) fn value_uses_resource_type(value: &IrValue) -> bool {
 }
 
 pub(super) fn is_resource_type_name(type_name: &str) -> bool {
-    builtins::is_resource_type(type_name)
+    // A wire-section type NAME (boundary file #4), classified through the one
+    // grammar rather than a second copy of it.
+    builtins::is_resource_type(&crate::types::ParameterType::declared(type_name))
 }
 
 /// Collect the package-qualified resource type identities (`fs.File`,
@@ -986,7 +988,9 @@ pub(super) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
 /// "sendable to thread" bit (bit 2) when the registry marks the type sendable.
 pub(super) fn standard_resource_flags(type_name: &str) -> u32 {
     let mut flags = RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD | RESOURCE_FLAG_CLOSE_MAY_FAIL;
-    if crate::codegen::resource::is_builtin_sendable_resource_type(type_name) {
+    if crate::codegen::resource::is_builtin_sendable_resource_type(
+        &crate::types::ParameterType::declared(type_name),
+    ) {
         flags |= RESOURCE_FLAG_SENDABLE;
     }
     flags

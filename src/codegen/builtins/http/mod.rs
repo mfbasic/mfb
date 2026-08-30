@@ -112,7 +112,20 @@ pub(crate) fn stream_state() -> ParameterType {
 pub(crate) const LISTENER_TYPE: &str = "net.Listener";
 pub(crate) const TLS_LISTENER_TYPE: &str = "tls.TlsListener";
 pub(crate) const FILE_TYPE: &str = "fs.File";
-pub(crate) const HANDLER_TYPE: &str = "FUNC(Request) AS Response";
+/// The route handler's exact function type, `FUNC(Request) AS Response`.
+///
+/// plan-111-F: built as the `Func` variant rather than parsed from a spelling.
+/// The STRUCTURE is what matters here — the registry matcher compares
+/// element-wise, so a wrong-shaped handler (`FUNC(Integer) AS Integer`) is
+/// rejected, where a `Named("FUNC(…)")` blob would match coarsely and let it
+/// through.
+pub(crate) fn handler_type() -> ParameterType {
+    ParameterType::Func(
+        vec![ParameterType::named(REQUEST_TYPE)],
+        Box::new(ParameterType::named(RESPONSE_TYPE)),
+        false,
+    )
+}
 
 /// A required `http` member parameter.
 pub(crate) fn req(

@@ -283,7 +283,9 @@ mod tests {
     #[test]
     fn os_owns_no_resource() {
         assert_eq!(
-            crate::codegen::builtins::resource_close_function("os"),
+            crate::codegen::builtins::resource_close_function(
+                &crate::types::ParameterType::declared("os")
+            ),
             None
         );
         assert!(registry()

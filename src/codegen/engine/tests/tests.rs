@@ -144,17 +144,26 @@ fn arena_checks_arithmetic_overflow() {
 #[test]
 fn negative_integer_const_materializes_as_its_u64_bit_pattern() {
     assert_eq!(
-        native_immediate_value("Integer", "-9223372036854775808"),
+        native_immediate_value(
+            &crate::types::ParameterType::declared("Integer"),
+            "-9223372036854775808"
+        ),
         Ok((i64::MIN as u64).to_string())
     );
     assert_eq!(
-        native_immediate_value("Integer", "-1"),
+        native_immediate_value(&crate::types::ParameterType::declared("Integer"), "-1"),
         Ok(u64::MAX.to_string())
     );
     // Non-negative Integers are passed through unchanged.
-    assert_eq!(native_immediate_value("Integer", "0"), Ok("0".to_string()));
     assert_eq!(
-        native_immediate_value("Integer", "9223372036854775807"),
+        native_immediate_value(&crate::types::ParameterType::declared("Integer"), "0"),
+        Ok("0".to_string())
+    );
+    assert_eq!(
+        native_immediate_value(
+            &crate::types::ParameterType::declared("Integer"),
+            "9223372036854775807"
+        ),
         Ok(i64::MAX.to_string())
     );
 }
@@ -239,12 +248,13 @@ fn binding_leaves_already_resolved_and_none_relocations_alone() {
 /// call), so asserting against it pins the same numbers.
 #[test]
 fn fixed_width_agrees_with_payload_alignment() {
-    for type_ in [
+    for spelling in [
         "Boolean", "Byte", "Scalar", "Integer", "Float", "Fixed", "Money",
     ] {
-        let size = list_element_is_fixed_width(type_)
+        let type_ = crate::types::ParameterType::parse(spelling);
+        let size = list_element_is_fixed_width(&type_)
             .unwrap_or_else(|| panic!("{type_} must be fixed-width"));
-        let code = collection_type_code(&crate::types::type_.clone())
+        let code = collection_type_code(&type_)
             .unwrap_or_else(|| panic!("{type_} must have a collection type code"));
         assert_eq!(
             size,
@@ -267,7 +277,7 @@ fn variable_width_element_types_are_not_fixed_width() {
         "SomeRecord",
     ] {
         assert_eq!(
-            list_element_is_fixed_width(type_),
+            list_element_is_fixed_width(&crate::types::ParameterType::declared(type_)),
             None,
             "{type_} must not claim a fixed stride"
         );

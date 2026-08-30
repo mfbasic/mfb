@@ -2312,7 +2312,7 @@ impl<'a> Walker<'a> {
         // table row carries the bare name).
         let base = type_.without_state();
         let base_name = base.name();
-        crate::codegen::resource::builtin_resource_close_function(&base_name).is_some()
+        crate::codegen::resource::builtin_resource_close_function(&base).is_some()
             || self.resource_types.contains(&base)
             || base_name.rsplit_once('.').is_some_and(|(_, bare)| {
                 self.resource_types.contains(&ParameterType::declared(bare))
@@ -2910,7 +2910,7 @@ impl<'a> Walker<'a> {
                 if let Some(ParameterType::Func(params, returns, _)) = expected {
                     if params.len() == 1
                         && **returns == ParameterType::Boolean
-                        && crate::codegen::builtins::general::filter_predicate_type(
+                        && crate::codegen::builtins::general::filter_predicate_type_typed(
                             name, &params[0],
                         )
                         .is_some()

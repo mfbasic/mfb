@@ -60,9 +60,7 @@ pub(crate) fn static_nir_value_type(
                 }
                 _ => None,
             }
-            .or_else(|| {
-                builtins::call_return_type_name(target).map(|type_| ParameterType::parse(&type_))
-            })
+            .or_else(|| builtins::call_return_type(target))
         }
         NirValue::ResultIsOk { .. } => Some(ParameterType::Boolean),
         NirValue::ResultValue { value } => match static_nir_value_type(value, locals, fields)? {
@@ -121,7 +119,7 @@ pub(crate) fn collection_type_code(type_: &ParameterType) -> Option<usize> {
         ParameterType::ListOf(_) => Some(COLLECTION_TYPE_LIST),
         ParameterType::MapOf(_, _) => Some(COLLECTION_TYPE_MAP),
         // `Scalar` is a nominal, not a variant.
-        ParameterType::Named(name) if name.resolve() == "Scalar" => Some(COLLECTION_TYPE_SCALAR),
+        type_ if type_.is_named("Scalar") => Some(COLLECTION_TYPE_SCALAR),
         _ => Some(COLLECTION_TYPE_OBJECT),
     }
 }
@@ -264,15 +262,19 @@ pub(crate) fn static_primitive_text_with_constants(
     constants: &HashMap<String, NirValue>,
 ) -> Option<String> {
     match value {
-        NirValue::Const { type_, value } => match type_.name().as_ref() {
+        NirValue::Const { type_, value } => match type_ {
             // A Float/Fixed constant folds to the runtime formatter's
             // default-precision rendering (2 places), so the same value prints
             // identically whether or not the argument was foldable (bug-358).
             // Scientific notation goes through the same conversions, so `2.5e2`
             // still reads the same as the plain literal (plan-28-B).
-            "Float" | "Fixed" => numeric::default_to_string_text(&type_.name(), value),
-            "Integer" | "Byte" | "String" => Some(value.clone()),
-            "Boolean" => match value.as_str() {
+            ParameterType::Float | ParameterType::Fixed => {
+                numeric::default_to_string_text(&type_.name(), value)
+            }
+            ParameterType::Integer | ParameterType::Byte | ParameterType::String => {
+                Some(value.clone())
+            }
+            ParameterType::Boolean => match value.as_str() {
                 "true" => Some("TRUE".to_string()),
                 "false" => Some("FALSE".to_string()),
                 _ => None,
@@ -301,23 +303,9 @@ pub(crate) fn join_texts(values: &[ValueResult]) -> String {
         .join(", ")
 }
 
-/// Whether a type SPELLING denotes a collection.
-///
-/// plan-106-E: the shape question goes to the canonical grammar, not a local
-/// prefix cascade — the same move plan-105-B made in the resolver. This and the
-/// four predicates below are codegen's NAME-domain boundary: the block-layout
-/// and symbol tables are keyed by name, so these consumers hold a spelling and
-/// legitimately need it classified. What is gone is a second grammar.
-pub(crate) fn is_collection_type(type_: &str) -> bool {
-    typed_is_collection_type(&ParameterType::parse(type_))
-}
-
 /// Whether a type SPELLING denotes a PARENT-side thread handle.
-pub(crate) fn is_parent_thread_type(type_: &str) -> bool {
-    matches!(
-        ParameterType::parse(type_),
-        ParameterType::ThreadHandle { worker: false, .. }
-    )
+pub(crate) fn is_parent_thread_type(type_: &ParameterType) -> bool {
+    matches!(type_, ParameterType::ThreadHandle { worker: false, .. })
 }
 
 // --- Typed structural twins (plan-104-C) -----------------------------------
@@ -396,11 +384,8 @@ pub(crate) fn typed_map_entry_type_parts(
 /// sizing / copy / free / reserve site consults instead of an inline
 /// `kind == MAP` test, so a Set is never sized one way and freed another
 /// (plan-63-B §3).
-pub(crate) fn collection_has_buckets(type_: &str) -> bool {
-    matches!(
-        ParameterType::parse(type_),
-        ParameterType::MapOf(_, _) | ParameterType::SetOf(_)
-    )
+pub(crate) fn collection_has_buckets(type_: &ParameterType) -> bool {
+    matches!(type_, ParameterType::MapOf(_, _) | ParameterType::SetOf(_))
 }
 
 /// Split a function type's parameter list on the top-level `", "` separators
@@ -445,10 +430,10 @@ pub(crate) fn error_type() -> ParameterType {
     ParameterType::named("Error")
 }
 
-pub(crate) fn native_immediate_value(type_: &str, value: &str) -> Result<String, String> {
+pub(crate) fn native_immediate_value(type_: &ParameterType, value: &str) -> Result<String, String> {
     match type_ {
-        "Nothing" => Ok("0".to_string()),
-        "Float" => Ok(value
+        ParameterType::Nothing => Ok("0".to_string()),
+        ParameterType::Float => Ok(value
             .parse::<f64>()
             .map_err(|_| format!("invalid Float constant `{value}`"))?
             .to_bits()
@@ -458,11 +443,11 @@ pub(crate) fn native_immediate_value(type_: &str, value: &str) -> Result<String,
         // so a negative raw must not be printed with a `-`. For every non-negative
         // raw this is identical to the signed decimal; it only matters for the
         // minimum `Fixed` (raw == i64::MIN), which bug-07's fold produces directly.
-        "Fixed" => Ok((numeric::fixed_raw_from_decimal(value)? as u64).to_string()),
+        ParameterType::Fixed => Ok((numeric::fixed_raw_from_decimal(value)? as u64).to_string()),
         // Money materializes its base-10 scaled raw i64 as a u64 bit pattern, the
         // same negative-safe treatment as Fixed (the min Money raw is i64::MIN,
         // which the plan-29-B fold produces directly). (plan-29-C §4.2)
-        "Money" => Ok((numeric::money_raw_from_decimal(value)? as u64).to_string()),
+        ParameterType::Money => Ok((numeric::money_raw_from_decimal(value)? as u64).to_string()),
         // bug-286: a *negative* `Integer` const needs the same u64 bit-pattern
         // treatment as `Fixed`/`Money`, because the immediate encoders on both
         // backends parse `u64` and reject a leading `-`. Before bug-286's fold
@@ -472,7 +457,7 @@ pub(crate) fn native_immediate_value(type_: &str, value: &str) -> Result<String,
         // i64 so a future fold cannot reintroduce the same encoder failure.
         // A value that does not parse as i64 is passed through untouched, which
         // keeps every existing const byte-identical.
-        "Integer" => Ok(match value.parse::<i64>() {
+        ParameterType::Integer => Ok(match value.parse::<i64>() {
             Ok(number) if number < 0 => (number as u64).to_string(),
             _ => value.to_string(),
         }),

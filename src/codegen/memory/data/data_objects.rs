@@ -1349,7 +1349,7 @@ pub(crate) fn builtin_function_symbol_for_type(
     name: &str,
     type_: &ParameterType,
 ) -> Option<String> {
-    crate::codegen::builtins::general::builtin_function_id_for_type(name, &type_.name())?;
+    crate::codegen::builtins::general::builtin_function_id_for_type(name, type_)?;
     Some(format!(
         "_mfb_builtin_{}_{}",
         nir::symbol_fragment(name),
@@ -1438,7 +1438,10 @@ mod tests {
     fn call(target: &str, arg_types: &[&str]) -> NirValue {
         NirValue::Call {
             target: target.to_string(),
-            args: arg_types.iter().map(|t| const_of(t)).collect(),
+            args: arg_types
+                .iter()
+                .map(|t| const_of(&crate::types::ParameterType::declared(t)))
+                .collect(),
             loc: NirSourceLoc::default(),
         }
     }

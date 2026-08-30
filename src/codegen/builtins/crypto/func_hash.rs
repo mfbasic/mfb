@@ -53,7 +53,7 @@ pub(crate) fn lower_hash(
 
     Ok(ValueResult {
         origin: None,
-        type_: ParameterType::parse("List OF Byte"),
+        type_: ParameterType::list_of(ParameterType::Byte),
         location: Operand::from("void"),
         text: "crypto.hash".to_string(),
     })

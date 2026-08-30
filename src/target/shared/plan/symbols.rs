@@ -3,6 +3,7 @@ use super::*;
 use std::collections::HashMap;
 
 use super::nir::constfold::native_constant_value;
+use crate::types::ParameterType;
 
 pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
     let mut symbols = Vec::new();
@@ -25,15 +26,18 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
         if type_.kind != "union"
             || !bind_types.contains(&type_.name)
             || type_.variants.is_empty()
-            || !type_
-                .variants
-                .iter()
-                .all(|variant| crate::codegen::builtins::is_resource_type(&variant.name))
+            || !type_.variants.iter().all(|variant| {
+                crate::codegen::builtins::is_resource_type(&crate::types::ParameterType::declared(
+                    &variant.name,
+                ))
+            })
         {
             continue;
         }
         for variant in &type_.variants {
-            if let Some(close) = crate::codegen::builtins::resource_close_function(&variant.name) {
+            if let Some(close) = crate::codegen::builtins::resource_close_function(
+                &crate::types::ParameterType::declared(&variant.name),
+            ) {
                 if let Some(helper) = runtime::helper_for_call(close) {
                     push_unique(&mut symbols, runtime::symbol_for_call(helper, close));
                 }
@@ -101,9 +105,7 @@ pub(super) fn collect_bind_type_names(
                 // form, and the union close-symbol loop matches against the bare
                 // union type name — so the base must be recorded or the stateful
                 // bind's tag-dispatched close symbol is never defined.
-                self.types.insert(
-                    crate::codegen::resource::base_resource_name(&type_.name()).to_string(),
-                );
+                self.types.insert(type_.without_state().name().into_owned());
             }
             walk_op(self, op);
         }
@@ -151,15 +153,18 @@ pub(super) fn platform_imports(
         if type_.kind != "union"
             || !bind_types.contains(&type_.name)
             || type_.variants.is_empty()
-            || !type_
-                .variants
-                .iter()
-                .all(|variant| crate::codegen::builtins::is_resource_type(&variant.name))
+            || !type_.variants.iter().all(|variant| {
+                crate::codegen::builtins::is_resource_type(&crate::types::ParameterType::declared(
+                    &variant.name,
+                ))
+            })
         {
             continue;
         }
         for variant in &type_.variants {
-            if let Some(close) = crate::codegen::builtins::resource_close_function(&variant.name) {
+            if let Some(close) = crate::codegen::builtins::resource_close_function(
+                &crate::types::ParameterType::declared(&variant.name),
+            ) {
                 for import in platform_imports_for_runtime_call(platform, close) {
                     push_platform_import(&mut imports, import);
                 }
@@ -279,7 +284,7 @@ fn os_env_lock_helper_symbols(module: &NirModule) -> Vec<String> {
         .collect()
 }
 
-pub(super) fn is_thread_type(type_: &str) -> bool {
+pub(super) fn is_thread_type(type_: &ParameterType) -> bool {
     crate::codegen::engine::types::is_parent_thread_type(type_)
 }
 
@@ -288,19 +293,15 @@ pub(super) fn module_has_thread_owner(module: &NirModule) -> bool {
         function
             .params
             .iter()
-            .any(|param| is_thread_type(&param.type_.name()))
+            .any(|param| is_thread_type(&param.type_))
             || ops_have_thread_owner(&function.body)
     })
 }
 
 pub(super) fn ops_have_thread_owner(ops: &[NirOp]) -> bool {
     ops.iter().any(|op| match op {
-        NirOp::Bind { type_, .. } | NirOp::StoreGlobal { type_, .. } => {
-            is_thread_type(&type_.name())
-        }
-        NirOp::ForEach { type_, body, .. } => {
-            is_thread_type(&type_.name()) || ops_have_thread_owner(body)
-        }
+        NirOp::Bind { type_, .. } | NirOp::StoreGlobal { type_, .. } => is_thread_type(&type_),
+        NirOp::ForEach { type_, body, .. } => is_thread_type(&type_) || ops_have_thread_owner(body),
         NirOp::If {
             then_body,
             else_body,
@@ -334,9 +335,7 @@ pub(super) fn collect_platform_imports_from_ops(
                 // mirroring `collect_runtime_symbols`, which adds the close symbol.
                 // Without this an implicitly-dropped resource whose close needs a
                 // unique import (e.g. audio's `_munmap`) links with it missing.
-                if let Some(close) =
-                    crate::codegen::builtins::resource_close_function(&type_.name())
-                {
+                if let Some(close) = crate::codegen::builtins::resource_close_function(&type_) {
                     for import in platform_imports_for_runtime_call(platform, close) {
                         push_platform_import(imports, import);
                     }
@@ -537,9 +536,7 @@ pub(super) fn collect_runtime_symbols_from_ops_with_constants(
             NirOp::Bind {
                 name, type_, value, ..
             } => {
-                if let Some(close) =
-                    crate::codegen::builtins::resource_close_function(&type_.name())
-                {
+                if let Some(close) = crate::codegen::builtins::resource_close_function(&type_) {
                     if let Some(helper) = runtime::helper_for_call(close) {
                         push_unique(symbols, runtime::symbol_for_call(helper, close));
                     }

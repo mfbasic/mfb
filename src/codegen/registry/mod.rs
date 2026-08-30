@@ -1473,7 +1473,30 @@ impl Registry {
         // The head token of a parametric spelling (`Thread OF …`): a source-declared
         // opaque type used with type arguments. `List`/`Map`/… are never source types,
         // so their `X OF …` spellings are correctly not matched here.
-        let head = name.split_once(" OF ").map(|(head, _)| head);
+        //
+        // plan-111-F: taken from the one grammar's own variants rather than a
+        // local `split_once(" OF ")`.
+        //
+        // `UserOf` alone is NOT enough: `Thread OF Integer TO String` parses to
+        // `ThreadHandle`, not `UserOf`, so a `UserOf`-only read silently stopped
+        // recognizing the thread handles — which are precisely the
+        // "source-declared opaque type used with type arguments" this exists for
+        // (caught by `thread::tests::opaque_handle_types_recognized`). `List`,
+        // `Set`, `Map` and `Result` are never source types, so they still yield
+        // no head, exactly as the string split did.
+        let head_owned = match crate::types::ParameterType::declared(name) {
+            crate::types::ParameterType::UserOf(base, _) => Some(base.resolve().to_string()),
+            crate::types::ParameterType::ThreadHandle { worker, .. } => Some(
+                if worker {
+                    crate::types::THREAD_WORKER_TYPE
+                } else {
+                    crate::types::THREAD_TYPE
+                }
+                .to_string(),
+            ),
+            _ => None,
+        };
+        let head = head_owned.as_deref();
         self.packages().iter().any(|package| {
             package.records().iter().any(|record| record.name == name)
                 || package.unions().iter().any(|union| union.name == name)
@@ -1669,7 +1692,7 @@ pub(crate) fn constant_type_name(qualified: &str) -> Option<ParameterType> {
     // applied to it — callers stay typed instead of each classifying the
     // spelling themselves. Storing a `ParameterType` in the descriptor directly
     // is a const-context change, not this plan's.
-    find_constant(qualified).map(|constant| ParameterType::parse(constant.type_name))
+    find_constant(qualified).map(|constant| ParameterType::declared(constant.type_name))
 }
 
 /// The literal a migrated **scalar** constant `qualified` folds to, or `None` (a record
@@ -2081,9 +2104,7 @@ fn resource_base_eq(a: &ParameterType, b: &ParameterType) -> bool {
     if a == b {
         return true;
     }
-    let (an, bn) = (a.name(), b.name());
-    crate::codegen::resource::base_resource_name(&an)
-        == crate::codegen::resource::base_resource_name(&bn)
+    a.without_state() == b.without_state()
 }
 
 /// Substitute `bindings` into a (possibly generic) type `pattern`, producing a
@@ -2226,13 +2247,10 @@ fn resolved_return_type(qualified: &str, call: &CallShape, strict: bool) -> Opti
 /// overloads rewrite to `__datetime_instant{N}`) carries a distinct rewrite target per
 /// overload, so the call's argument types select which one. A single-overload member
 /// resolves the same regardless of the arguments.
-pub(crate) fn rewrite_target(qualified: &str, arg_types: &[String]) -> Option<&'static str> {
+pub(crate) fn rewrite_target(qualified: &str, arg_types: &[ParameterType]) -> Option<&'static str> {
     let function = registry().resolve_func(qualified)?.function;
     let call = CallShape {
-        args: arg_types
-            .iter()
-            .map(|arg| ParameterType::parse(arg))
-            .collect(),
+        args: arg_types.to_vec(),
     };
     // Prefer STRICT selection: a call whose arguments precisely name one overload's
     // types picks that overload. This is required to disambiguate two overloads that

@@ -129,9 +129,7 @@ impl CodeBuilder<'_> {
         // the already success-gated `deactivate_moved_resource_arguments`.
         let defer_resource_flag =
             matches!(target, "thread.transferResource" | "thread.emitResource")
-                && crate::codegen::builtins::is_thread_sendable_resource_type(
-                    &arg_values[1].type_.name(),
-                );
+                && crate::codegen::builtins::is_thread_sendable_resource_type(&arg_values[1].type_);
         let saved_arena_slot = self.allocate_stack_object("runtime_thread_send_saved_arena", 8);
         let copied_message_slot =
             self.allocate_stack_object("runtime_thread_send_copied_message", 8);
@@ -210,8 +208,7 @@ impl CodeBuilder<'_> {
         // teardown. A *stateful* resource additionally deep-copies a separate STATE
         // block that this single size cannot describe, so it keeps the pre-existing
         // bounded leak rather than reclaim the record and strand the STATE.
-        let bare_resource_reclaimable = defer_resource_flag
-            && crate::codegen::resource::state_type_name(&msg_type.name()).is_none();
+        let bare_resource_reclaimable = defer_resource_flag && msg_type.state().is_none();
         if size_computable {
             self.emit_inlined_block_size_from_ptr_slot(&msg_type, copied_message_slot, size_slot)?;
         } else if bare_resource_reclaimable {

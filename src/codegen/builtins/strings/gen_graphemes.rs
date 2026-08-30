@@ -268,7 +268,7 @@ pub(crate) fn lower_strings_graphemes(
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     Ok(ValueResult {
         origin: None,
-        type_: ParameterType::parse("List OF String"),
+        type_: ParameterType::list_of(ParameterType::String),
         location: Operand::from(result.render()),
         text: "strings.graphemes".to_string(),
     })

@@ -133,7 +133,11 @@ pub fn required_helpers(ir: &IrProject) -> Vec<RuntimeHelper> {
             let closes: Vec<&'static str> = type_
                 .variants
                 .iter()
-                .map(|variant| crate::codegen::builtins::resource_close_function(&variant.name))
+                .map(|variant| {
+                    crate::codegen::builtins::resource_close_function(
+                        &crate::types::ParameterType::declared(&variant.name),
+                    )
+                })
                 .collect::<Option<Vec<_>>>()?;
             if closes.is_empty() {
                 return None;
@@ -169,9 +173,7 @@ fn push_op_helpers(
                 // `validate.rs` unused-runtime-helper check. Mirrors
                 // `Builder::value_aliases_live_resource`; keep the two in step.
                 if !value.as_ref().is_some_and(value_aliases_live_resource) {
-                    if let Some(close) =
-                        crate::codegen::builtins::resource_close_function(&type_.name())
-                    {
+                    if let Some(close) = crate::codegen::builtins::resource_close_function(&type_) {
                         if let Some(helper) = helper_for_call(close) {
                             push_unique(helpers, helper);
                         }

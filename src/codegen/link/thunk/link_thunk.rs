@@ -2710,7 +2710,7 @@ mod tests {
         let lowered = lower_link_thunk(
             &function,
             std::slice::from_ref(&cstruct),
-            record_fields,
+            &record_fields,
             TEST_THUNK_CONTEXT,
             &HashSet::new(),
             false,
@@ -2783,10 +2783,12 @@ mod tests {
     #[test]
     fn only_the_builtin_file_resource_uses_io_buffers() {
         // The one type that owns the two fixed-capacity I/O buffers.
-        assert!(CodeBuilder::resource_uses_io_buffers("fs.File"));
+        assert!(CodeBuilder::resource_uses_io_buffers(
+            &crate::types::ParameterType::declared("fs.File")
+        ));
         // A `STATE`-carrying spelling is still the same base type.
         assert!(CodeBuilder::resource_uses_io_buffers(
-            "fs.File STATE Cursor"
+            &crate::types::ParameterType::declared("fs.File STATE Cursor")
         ));
 
         // Every resource type a native `LINK` block declares in-tree, plus the
@@ -2803,7 +2805,9 @@ mod tests {
             "audio.AudioOutput",
         ] {
             assert!(
-                !CodeBuilder::resource_uses_io_buffers(type_),
+                !CodeBuilder::resource_uses_io_buffers(&crate::types::ParameterType::declared(
+                    type_
+                )),
                 "{type_} must not take the I/O-buffer free path: its record's \
                  words 24..72 are not buffer pointers"
             );

@@ -169,7 +169,12 @@ pub(super) fn storage_for_type(
         ParameterType::Named(n) if n.resolve() == "Scalar" => (StorageClass::Scalar, 4, 4),
         _ if is_reference_type(type_) => (StorageClass::Reference, 8, 8),
         // A resource (optionally `File STATE T`) is a pointer to its record.
-        _ if crate::codegen::builtins::is_resource_type(base) => (StorageClass::Reference, 8, 8),
+        _ if crate::codegen::builtins::is_resource_type(
+            &crate::types::ParameterType::declared(base),
+        ) =>
+        {
+            (StorageClass::Reference, 8, 8)
+        }
         _ if is_user_type_name(base) => (StorageClass::Reference, 8, 8),
         _ => {
             return Err(format!(

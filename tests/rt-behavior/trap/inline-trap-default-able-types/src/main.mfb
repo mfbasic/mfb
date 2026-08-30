@@ -1,0 +1,98 @@
+' plan-111-F Phase 2: an inline TRAP over a fallible call for EACH default-able
+' scalar type, so `lower_default_value`'s per-type arm is actually produced.
+'
+' `lower_default_value` used to match a rendered spelling ("Nothing", "Boolean",
+' "Byte" | "Integer" | ... ) and then re-parse that same spelling to label the
+' result; plan-111-E's conversion made both halves a variant match. An inline
+' TRAP is what forces the never-otherwise-observed `$trap_valN` default into
+' existence: the trapped slot has to hold *some* value of the bound type on the
+' failing path, and that value comes from exactly those arms.
+'
+' The existing tests/rt-behavior/trap suite exercises Integer, String and
+' Boolean only (161 / 32 / 2 occurrences of `AS <type>`); Float, Fixed, Money,
+' Byte and Scalar had no coverage, which is why this fixture exists.
+'
+' Every call below FAILS, so every RECOVER runs and every default arm is live.
+
+IMPORT io
+
+FUNC trapInteger(text AS String) AS Integer
+  LET v AS Integer = toInt(text) TRAP(e)
+    RECOVER 0 - 1
+  END TRAP
+  RETURN v
+END FUNC
+
+FUNC trapFloat(text AS String) AS Float
+  LET v AS Float = toFloat(text) TRAP(e)
+    RECOVER 0.0 - 1.5
+  END TRAP
+  RETURN v
+END FUNC
+
+FUNC trapFixed(text AS String) AS Fixed
+  LET v AS Fixed = toFixed(text) TRAP(e)
+    RECOVER 0.0F - 2.25F
+  END TRAP
+  RETURN v
+END FUNC
+
+FUNC trapMoney(text AS String) AS Money
+  LET v AS Money = toMoney(text) TRAP(e)
+    RECOVER 0.0m - 3.5m
+  END TRAP
+  RETURN v
+END FUNC
+
+FUNC trapByte(value AS Integer) AS Byte
+  LET v AS Byte = toByte(value) TRAP(e)
+    RECOVER toByte(7)
+  END TRAP
+  RETURN v
+END FUNC
+
+FUNC trapScalar(value AS Integer) AS Scalar
+  LET v AS Scalar = toScalar(value) TRAP(e)
+    RECOVER `?`
+  END TRAP
+  RETURN v
+END FUNC
+
+FUNC trapString(text AS String) AS String
+  LET n AS Integer = toInt(text) TRAP(e)
+    RECOVER 0
+  END TRAP
+  RETURN toString(n)
+END FUNC
+
+FUNC trapBoolean(text AS String) AS Boolean
+  LET n AS Integer = toInt(text) TRAP(e)
+    RECOVER 0
+  END TRAP
+  RETURN n = 0
+END FUNC
+
+FUNC main AS Integer
+  ' Each call takes the failing path, so each RECOVER value is what prints.
+  io::print(toString(trapInteger("not-a-number")))
+  io::print(toString(trapFloat("not-a-number")))
+  io::print(toString(trapFixed("not-a-number")))
+  io::print(toString(trapMoney("not-a-number")))
+  ' 300 is outside Byte range; -1 and a surrogate are not Unicode scalars.
+  io::print(toString(trapByte(300)))
+  io::print(toString(trapScalar(0 - 1)))
+  io::print(toString(trapScalar(55296)))
+  io::print(trapString("not-a-number"))
+  io::print(toString(trapBoolean("not-a-number")))
+
+  ' And the succeeding path, so the fixture pins both sides of each arm rather
+  ' than only the default.
+  io::print(toString(trapInteger("42")))
+  io::print(toString(trapFloat("2.5")))
+  io::print(toString(trapFixed("1.25")))
+  io::print(toString(trapMoney("9.75")))
+  io::print(toString(trapByte(200)))
+  io::print(toString(trapScalar(65)))
+
+  RETURN 0
+END FUNC

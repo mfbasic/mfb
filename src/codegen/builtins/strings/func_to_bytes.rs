@@ -248,7 +248,7 @@ pub(crate) fn lower(
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     Ok(ValueResult {
         origin: None,
-        type_: ParameterType::parse("List OF Byte"),
+        type_: ParameterType::list_of(ParameterType::Byte),
         location: Operand::from(result.render()),
         text: "strings.toBytes".to_string(),
     })

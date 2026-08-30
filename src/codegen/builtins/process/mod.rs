@@ -191,7 +191,7 @@ pub(crate) fn register(r: &mut Registry) {
 
     // The opaque `Process` resource handle. Semantic-only (no injectable source):
     // it makes `registry().qualified_builtin_type("process.Process")` and
-    // `builtins::resource_close_function("Process")` answer generically, replacing
+    // `builtins::resource_close_function(&crate::types::ParameterType::declared("Process"))` answer generically, replacing
     // the deleted per-package `is_builtin_type`/`resource_close_function` seams. The
     // `close_function` is the internal `__drop` scope-drop op (SIGKILL + waitpid); a
     // `Process` is released automatically by lexical scope, not a public `close`.
@@ -352,11 +352,15 @@ mod tests {
     #[test]
     fn process_close_op_is_drop() {
         assert_eq!(
-            crate::codegen::builtins::resource_close_function(super::PROCESS_TYPE_ID),
+            crate::codegen::builtins::resource_close_function(&crate::types::ParameterType::named(
+                super::PROCESS_TYPE_ID
+            )),
             Some(super::DROP)
         );
         assert_eq!(
-            crate::codegen::builtins::resource_close_function("Nothing"),
+            crate::codegen::builtins::resource_close_function(
+                &crate::types::ParameterType::declared("Nothing")
+            ),
             None
         );
     }

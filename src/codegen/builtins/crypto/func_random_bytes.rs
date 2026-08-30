@@ -254,7 +254,7 @@ pub(crate) fn lower_random_bytes(
 
     Ok(ValueResult {
         origin: None,
-        type_: ParameterType::parse("List OF Byte"),
+        type_: ParameterType::list_of(ParameterType::Byte),
         location: Operand::from("void"),
         text: "crypto.randomBytes".to_string(),
     })

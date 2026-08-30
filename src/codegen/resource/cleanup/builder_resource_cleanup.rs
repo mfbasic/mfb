@@ -17,11 +17,11 @@ impl CodeBuilder<'_> {
     /// the words are readable-as-pointers only for a `File`, and the drop-path
     /// reclaim must ask before it frees them (plan-52-B Phase 2).
     pub(crate) fn resource_uses_io_buffers(type_: &ParameterType) -> bool {
-        crate::codegen::resource::base_resource_name(&type_.name()) == "fs.File"
+        type_.without_state().is_named("fs.File")
     }
 
     pub(crate) fn resource_cleanup_symbol(&self, type_: &ParameterType) -> Option<String> {
-        let Some(close) = crate::codegen::builtins::resource_close_function(&type_.name()) else {
+        let Some(close) = crate::codegen::builtins::resource_close_function(&type_) else {
             // bug-374: not one of the language's own resources, so fall back to
             // the user-declared `RESOURCE T CLOSE BY op` table. The close op is
             // an ordinary `LINK` call target, so it resolves through
@@ -31,9 +31,7 @@ impl CodeBuilder<'_> {
             let close = self
                 .type_model
                 .resource_closers
-                .get(&ParameterType::declared(
-                    crate::codegen::resource::base_resource_name(&type_.name()),
-                ))?;
+                .get(&ParameterType::declared(&type_.without_state().name()))?;
             return crate::codegen::engine::builder::resolve_closer_symbol(
                 close,
                 self.function_symbols,
@@ -78,7 +76,7 @@ impl CodeBuilder<'_> {
         }
         let mut out = Vec::new();
         for variant in variants {
-            if !crate::codegen::builtins::is_resource_type(&variant.name()) {
+            if !crate::codegen::builtins::is_resource_type(&variant) {
                 return None;
             }
             let tag = *self.type_model.union_variant_tags.get(&variant)?;
@@ -237,8 +235,7 @@ impl CodeBuilder<'_> {
             let Some(local) = self.locals.get(name) else {
                 continue;
             };
-            let Some(close) =
-                crate::codegen::builtins::resource_close_function(&local.type_.name())
+            let Some(close) = crate::codegen::builtins::resource_close_function(&local.type_)
             else {
                 continue;
             };
@@ -257,9 +254,7 @@ impl CodeBuilder<'_> {
                 // path (after the result-tag branch), so the sender keeps
                 // ownership and cleanup when the transfer fails with `Err`.
                 index == 1
-                    && crate::codegen::builtins::is_thread_sendable_resource_type(
-                        &local.type_.name(),
-                    )
+                    && crate::codegen::builtins::is_thread_sendable_resource_type(&local.type_)
             } else if crate::codegen::builtins::is_builtin_call(target) {
                 false
             } else {

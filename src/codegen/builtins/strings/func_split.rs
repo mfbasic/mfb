@@ -336,7 +336,7 @@ pub(crate) fn lower(
 
     Ok(ValueResult {
         origin: None,
-        type_: ParameterType::parse("List OF String"),
+        type_: ParameterType::list_of(ParameterType::String),
         location: Operand::from(result.render()),
         text: "strings.split".to_string(),
     })

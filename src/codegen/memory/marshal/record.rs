@@ -265,7 +265,7 @@ fn emit_collection_flat_size(
         abi::load_u64(scratch_reg, ptr_reg, COLLECTION_OFFSET_DATA_CAPACITY),
         abi::add_registers(out_reg, out_reg, scratch_reg),
     ]);
-    if collection_has_buckets(&collection_type.name()) {
+    if collection_has_buckets(&collection_type) {
         instructions.extend([
             abi::load_u64(scratch_reg, ptr_reg, COLLECTION_OFFSET_CAPACITY),
             abi::shift_left_immediate(scratch_reg, scratch_reg, 4),

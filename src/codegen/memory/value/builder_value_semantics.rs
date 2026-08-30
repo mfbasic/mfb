@@ -244,13 +244,11 @@ impl CodeBuilder<'_> {
                     text: format!("closed union {type_}"),
                 })
             }
-            _ if crate::codegen::builtins::is_resource_type(&type_.name())
+            _ if crate::codegen::builtins::is_resource_type(&type_)
                 || self
                     .type_model
                     .resource_names
-                    .contains(&ParameterType::declared(
-                        crate::codegen::resource::base_resource_name(&type_.name()),
-                    )) =>
+                    .contains(&ParameterType::declared(&type_.without_state().name())) =>
             {
                 // A resource wraps an OS handle we cannot re-open, so it has no
                 // reconstructible default. The site that needs one is the
@@ -391,13 +389,11 @@ impl CodeBuilder<'_> {
             }
             _ if typed_is_collection_type(type_) => true,
             _ if self.is_resource_union_type(type_) => true,
-            _ if builtins::is_resource_type(&type_.name())
+            _ if builtins::is_resource_type(&type_)
                 || self
                     .type_model
                     .resource_names
-                    .contains(&ParameterType::declared(
-                        crate::codegen::resource::base_resource_name(&type_.name()),
-                    )) =>
+                    .contains(&ParameterType::declared(&type_.without_state().name())) =>
             {
                 true
             }

@@ -582,11 +582,8 @@ pub(super) fn validate_value(
             validate_type_name(&type_.name())?;
             if function_names.contains(name)
                 || import_names.contains(name)
-                || crate::codegen::builtins::general::builtin_function_id_for_type(
-                    name,
-                    &type_.name(),
-                )
-                .is_some()
+                || crate::codegen::builtins::general::builtin_function_id_for_type(name, type_)
+                    .is_some()
             {
                 Ok(())
             } else {

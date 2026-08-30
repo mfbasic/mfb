@@ -3200,13 +3200,12 @@ fn lower_expression_with_expected(
                     // These per-package selectors match on type NAMES (exact
                     // record-type dispatch tables in codegen), so the argument
                     // types render at that seam.
-                    let arg_types: Vec<String> = arguments
+                    let arg_types: Vec<crate::types::ParameterType> = arguments
                         .iter()
                         .map(call_arg_value)
                         .map(|argument| {
                             expression_type(argument, locals, context)
-                                .map(|type_| type_.name().into_owned())
-                                .unwrap_or_default()
+                                .unwrap_or_else(|| crate::types::ParameterType::named(""))
                         })
                         .collect();
                     // `strings`' seven scalar-seam members (`toScalars`/`isLetter`/…)

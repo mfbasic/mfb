@@ -37,7 +37,6 @@ use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, Registry, RegistryFunction, RegistryPackage,
 };
 use crate::types::ParameterType;
-use std::borrow::Cow;
 
 const ERROR: &str = "error";
 const LEN: &str = "len";
@@ -181,46 +180,50 @@ pub(crate) fn builtin_function_id(name: &str) -> Option<u32> {
     }
 }
 
-pub(crate) fn builtin_function_id_for_type(name: &str, function_type: &str) -> Option<u32> {
-    let (params, returns) = function_parts(function_type)?;
-    if params.len() != 1 || returns != "Boolean" {
+pub(crate) fn builtin_function_id_for_type(
+    name: &str,
+    function_type: &ParameterType,
+) -> Option<u32> {
+    // plan-111-F: the FUNC shape is the variant's own fields, so this reads the
+    // single parameter off it instead of splitting a rendered signature.
+    //
+    // A non-FUNC type answers `None`, NOT `builtin_function_id(name)` — that is
+    // what the `function_parts(...)?` this replaced did, and conflating the two
+    // makes a bare `Integer` resolve to the unspecialized id (caught by
+    // `builtin_function_id_for_type_non_predicate_shape`).
+    let ParameterType::Func(params, returns, false) = function_type else {
+        return None;
+    };
+    if params.len() != 1 || **returns != ParameterType::Boolean {
         return builtin_function_id(name);
     }
-    match (name, params[0].as_str()) {
-        (IS_POSITIVE, "Float") => Some(BUILTIN_FUNCTION_IS_POSITIVE_FLOAT),
-        (IS_POSITIVE, "Fixed") => Some(BUILTIN_FUNCTION_IS_POSITIVE_FIXED),
-        (IS_NEGATIVE, "Float") => Some(BUILTIN_FUNCTION_IS_NEGATIVE_FLOAT),
-        (IS_NEGATIVE, "Fixed") => Some(BUILTIN_FUNCTION_IS_NEGATIVE_FIXED),
-        (IS_ZERO, "Float") => Some(BUILTIN_FUNCTION_IS_ZERO_FLOAT),
-        (IS_ZERO, "Fixed") => Some(BUILTIN_FUNCTION_IS_ZERO_FIXED),
+    match (name, &params[0]) {
+        (IS_POSITIVE, ParameterType::Float) => Some(BUILTIN_FUNCTION_IS_POSITIVE_FLOAT),
+        (IS_POSITIVE, ParameterType::Fixed) => Some(BUILTIN_FUNCTION_IS_POSITIVE_FIXED),
+        (IS_NEGATIVE, ParameterType::Float) => Some(BUILTIN_FUNCTION_IS_NEGATIVE_FLOAT),
+        (IS_NEGATIVE, ParameterType::Fixed) => Some(BUILTIN_FUNCTION_IS_NEGATIVE_FIXED),
+        (IS_ZERO, ParameterType::Float) => Some(BUILTIN_FUNCTION_IS_ZERO_FLOAT),
+        (IS_ZERO, ParameterType::Fixed) => Some(BUILTIN_FUNCTION_IS_ZERO_FIXED),
         _ => builtin_function_id(name),
     }
 }
 
-pub(crate) fn filter_predicate_type(name: &str, element_type: &ParameterType) -> Option<String> {
-    builtin_function_id(name)?;
-    let arg_types = vec![element_type.to_string()];
-    let resolved = resolve_call(name, &arg_types)?;
-    (resolved.return_type == "Boolean").then(|| format!("FUNC({element_type}) AS Boolean"))
-}
-
-/// The typed twin of [`filter_predicate_type`] (plan-106-A): the callback type a
-/// bare general builtin adopts when passed as a `filter`/`transform` predicate
-/// over `element_type`, built as a [`Func`](crate::types::ParameterType::Func)
-/// rather than `format!`ed.
+/// The callback type a bare general builtin adopts when passed as a
+/// `filter`/`transform` predicate over `element_type`, built as a
+/// [`Func`](crate::types::ParameterType::Func) rather than `format!`ed
+/// (plan-106-A).
 ///
-/// The `resolve_call` half still speaks names (`general`'s bespoke resolver is one
-/// of the three the typed registry entry does not cover — plan-104-C), so the
-/// element renders for that lookup only.
+/// plan-111-F: `resolve_call` speaks types now, so the element no longer renders
+/// for the lookup, and the `String`-returning twin this used to sit beside is
+/// deleted — its last caller converted in letter E.
 pub(crate) fn filter_predicate_type_typed(
     name: &str,
     element_type: &crate::types::ParameterType,
 ) -> Option<crate::types::ParameterType> {
     use crate::types::ParameterType;
     builtin_function_id(name)?;
-    let arg_types = vec![element_type.name().into_owned()];
-    let resolved = resolve_call(name, &arg_types)?;
-    (resolved.return_type == "Boolean").then(|| {
+    let resolved = resolve_call(name, std::slice::from_ref(element_type))?;
+    (resolved.return_type == ParameterType::Boolean).then(|| {
         ParameterType::Func(
             vec![element_type.clone()],
             Box::new(ParameterType::Boolean),
@@ -251,35 +254,13 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     }
 }
 
-/// Splits a `FUNC(<params>) AS <return>` type into its parameter types and its
-/// return type.
-///
-/// A parameter can itself be a function type — `FUNC(FUNC(Integer, Integer) AS
-/// Integer) AS Integer` is what `collections::transform` receives over a list of
-/// two-argument function values — so the parameter list is scanned with paren
-/// depth: the closing paren and the separating commas are the ones at depth 0.
-///
-/// plan-106-E: the split is the [`ParameterType::Func`] variant's own fields, not
-/// a `strip_prefix("FUNC(")` plus a depth scan. `ISOLATED FUNC(…)` still answers
-/// `None`, as the bare-`FUNC(` strip did — the isolated flag is matched
-/// explicitly rather than falling out of the prefix.
-pub(crate) fn function_parts(type_name: &str) -> Option<(Vec<String>, String)> {
-    match crate::types::ParameterType::parse(type_name) {
-        crate::types::ParameterType::Func(params, returns, false) => Some((
-            params.iter().map(|p| p.name().into_owned()).collect(),
-            returns.name().into_owned(),
-        )),
-        _ => None,
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Return-type resolution (argument-dependent — the bespoke resolver).
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
-pub(crate) struct ResolvedCall<'a> {
-    pub(crate) return_type: Cow<'a, str>,
+pub(crate) struct ResolvedCall {
+    pub(crate) return_type: ParameterType,
 }
 
 /// Return-type resolution for the general calls, the successor of
@@ -291,13 +272,9 @@ pub(crate) fn resolve_return_type(
     name: &str,
     arg_types: &[crate::types::ParameterType],
 ) -> Option<crate::types::ParameterType> {
-    // plan-111-C: typed at the boundary. `general`'s own `resolve_call` matches
-    // over a hand-authored signature table keyed by spelling, so the arguments
-    // render for it and its answer is classified once, here, instead of by every
-    // caller.
-    let names: Vec<String> = arg_types.iter().map(|a| a.name().into_owned()).collect();
-    resolve_call(name, &names)
-        .map(|resolved| crate::types::ParameterType::parse(&resolved.return_type))
+    // plan-111-F: `general`'s own `resolve_call` is typed too now, so the
+    // render-in / parse-out pair plan-111-C left here is gone with it.
+    resolve_call(name, arg_types).map(|resolved| resolved.return_type)
 }
 
 /// The static (argument-independent) nominal return of a general call — the six
@@ -305,14 +282,15 @@ pub(crate) fn resolve_return_type(
 /// resolved through `resolve_call` (`Custom`) yields `None`. Reproduces the legacy
 /// `call_return_type_name` fast-oracle (`DefaultResolver::return_type_name` over the
 /// `ReturnType::Fixed`/`Custom` split), consumed by `term_return_type`.
-pub(crate) fn nominal_return_type(name: &str) -> Option<&'static str> {
+pub(crate) fn nominal_return_type(name: &str) -> Option<ParameterType> {
     match name {
-        TO_INT => Some("Integer"),
-        TO_FLOAT => Some("Float"),
-        TO_FIXED => Some("Fixed"),
-        TO_BYTE => Some("Byte"),
-        TO_MONEY => Some("Money"),
-        TO_SCALAR => Some("Scalar"),
+        TO_INT => Some(ParameterType::Integer),
+        TO_FLOAT => Some(ParameterType::Float),
+        TO_FIXED => Some(ParameterType::Fixed),
+        TO_BYTE => Some(ParameterType::Byte),
+        TO_MONEY => Some(ParameterType::Money),
+        // `Scalar` is a bare nominal, not a variant.
+        TO_SCALAR => Some(ParameterType::named("Scalar")),
         _ => None,
     }
 }
@@ -329,12 +307,12 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     crate::codegen::registry::registry().arity(&format!("general.{name}"))
 }
 
-pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_call(name: &str, arg_types: &[ParameterType]) -> Option<ResolvedCall> {
     let resolved = match name {
         ERROR => {
-            if exact(arg_types, &["Integer", "String"]) {
+            if exact(arg_types, &[ParameterType::Integer, ParameterType::String]) {
                 ResolvedCall {
-                    return_type: Cow::Borrowed("Error"),
+                    return_type: ParameterType::named("Error"),
                 }
             } else {
                 return None;
@@ -344,11 +322,11 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             if arg_types.len() != 1 {
                 return None;
             }
-            if arg_types[0] == "String"
-                || crate::codegen::engine::types::is_collection_type(&arg_types[0])
+            if arg_types[0] == ParameterType::String
+                || crate::codegen::engine::types::typed_is_collection_type(&arg_types[0])
             {
                 ResolvedCall {
-                    return_type: Cow::Borrowed("Integer"),
+                    return_type: ParameterType::Integer,
                 }
             } else {
                 return None;
@@ -357,7 +335,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         TYPE_NAME => {
             if arg_types.len() == 1 {
                 ResolvedCall {
-                    return_type: Cow::Borrowed("String"),
+                    return_type: ParameterType::String,
                 }
             } else {
                 return None;
@@ -367,24 +345,27 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             // 2-arg `(Float|Fixed|Money, Byte)` precision form, or 1-arg over the nine
             // scalars plus `List OF Byte`. Both yield `String`.
             let two_arg = arg_types.len() == 2
-                && matches!(arg_types[0].as_str(), "Float" | "Fixed" | "Money")
-                && arg_types[1] == "Byte";
+                && matches!(
+                    arg_types[0],
+                    ParameterType::Float | ParameterType::Fixed | ParameterType::Money
+                )
+                && arg_types[1] == ParameterType::Byte;
             let one_arg = arg_types.len() == 1
                 && (matches!(
-                    arg_types[0].as_str(),
-                    "Integer"
-                        | "Float"
-                        | "Fixed"
-                        | "Money"
-                        | "Boolean"
-                        | "String"
-                        | "Byte"
-                        | "Scalar"
-                        | "AttributedString"
-                ) || arg_types[0] == "List OF Byte");
+                    arg_types[0],
+                    ParameterType::Integer
+                        | ParameterType::Float
+                        | ParameterType::Fixed
+                        | ParameterType::Money
+                        | ParameterType::Boolean
+                        | ParameterType::String
+                        | ParameterType::Byte
+                ) || arg_types[0].is_named("Scalar")
+                    || arg_types[0].is_named("AttributedString")
+                    || arg_types[0] == ParameterType::list_of(ParameterType::Byte));
             if two_arg || one_arg {
                 ResolvedCall {
-                    return_type: Cow::Borrowed("String"),
+                    return_type: ParameterType::String,
                 }
             } else {
                 return None;
@@ -397,38 +378,68 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             // not a user-level default parameter, since `toInt` is overloaded.
             if exact_one_of(
                 arg_types,
-                &["String", "Byte", "Float", "Fixed", "Money", "Scalar"],
-            ) || exact(arg_types, &["String", "Integer"])
+                &[
+                    ParameterType::String,
+                    ParameterType::Byte,
+                    ParameterType::Float,
+                    ParameterType::Fixed,
+                    ParameterType::Money,
+                    ParameterType::named("Scalar"),
+                ],
+            ) || exact(arg_types, &[ParameterType::String, ParameterType::Integer])
             {
                 ResolvedCall {
-                    return_type: Cow::Borrowed("Integer"),
+                    return_type: ParameterType::Integer,
                 }
             } else {
                 return None;
             }
         }
         TO_FLOAT => {
-            if exact_one_of(arg_types, &["String", "Integer", "Fixed", "Money"]) {
+            if exact_one_of(
+                arg_types,
+                &[
+                    ParameterType::String,
+                    ParameterType::Integer,
+                    ParameterType::Fixed,
+                    ParameterType::Money,
+                ],
+            ) {
                 ResolvedCall {
-                    return_type: Cow::Borrowed("Float"),
+                    return_type: ParameterType::Float,
                 }
             } else {
                 return None;
             }
         }
         TO_FIXED => {
-            if exact_one_of(arg_types, &["String", "Integer", "Float", "Money"]) {
+            if exact_one_of(
+                arg_types,
+                &[
+                    ParameterType::String,
+                    ParameterType::Integer,
+                    ParameterType::Float,
+                    ParameterType::Money,
+                ],
+            ) {
                 ResolvedCall {
-                    return_type: Cow::Borrowed("Fixed"),
+                    return_type: ParameterType::Fixed,
                 }
             } else {
                 return None;
             }
         }
         TO_BYTE => {
-            if exact_one_of(arg_types, &["Integer", "Money", "Scalar"]) {
+            if exact_one_of(
+                arg_types,
+                &[
+                    ParameterType::Integer,
+                    ParameterType::Money,
+                    ParameterType::named("Scalar"),
+                ],
+            ) {
                 ResolvedCall {
-                    return_type: Cow::Borrowed("Byte"),
+                    return_type: ParameterType::Byte,
                 }
             } else {
                 return None;
@@ -439,9 +450,16 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             // byte 0..255 is a valid non-surrogate scalar); `toScalar(Integer)`
             // and `toScalar(String)` are fallible (surrogate/range or non-single-
             // scalar string trap `ErrInvalidArgument`) (plan-41-D §1).
-            if exact_one_of(arg_types, &["Integer", "String", "Byte"]) {
+            if exact_one_of(
+                arg_types,
+                &[
+                    ParameterType::Integer,
+                    ParameterType::String,
+                    ParameterType::Byte,
+                ],
+            ) {
                 ResolvedCall {
-                    return_type: Cow::Borrowed("Scalar"),
+                    return_type: ParameterType::named("Scalar"),
                 }
             } else {
                 return None;
@@ -449,36 +467,52 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         }
         TO_MONEY => {
             // Explicit crossing into Money from every scalar type (plan-29-G §4.2).
-            if exact_one_of(arg_types, &["String", "Integer", "Float", "Fixed", "Byte"]) {
+            if exact_one_of(
+                arg_types,
+                &[
+                    ParameterType::String,
+                    ParameterType::Integer,
+                    ParameterType::Float,
+                    ParameterType::Fixed,
+                    ParameterType::Byte,
+                ],
+            ) {
                 ResolvedCall {
-                    return_type: Cow::Borrowed("Money"),
+                    return_type: ParameterType::Money,
                 }
             } else {
                 return None;
             }
         }
         IS_NUMERIC => {
-            if exact(arg_types, &["String"]) {
+            if exact(arg_types, &[ParameterType::String]) {
                 ResolvedCall {
-                    return_type: Cow::Borrowed("Boolean"),
+                    return_type: ParameterType::Boolean,
                 }
             } else {
                 return None;
             }
         }
         IS_EVEN | IS_ODD => {
-            if exact(arg_types, &["Integer"]) {
+            if exact(arg_types, &[ParameterType::Integer]) {
                 ResolvedCall {
-                    return_type: Cow::Borrowed("Boolean"),
+                    return_type: ParameterType::Boolean,
                 }
             } else {
                 return None;
             }
         }
         IS_POSITIVE | IS_NEGATIVE | IS_ZERO => {
-            if exact_one_of(arg_types, &["Integer", "Float", "Fixed"]) {
+            if exact_one_of(
+                arg_types,
+                &[
+                    ParameterType::Integer,
+                    ParameterType::Float,
+                    ParameterType::Fixed,
+                ],
+            ) {
                 ResolvedCall {
-                    return_type: Cow::Borrowed("Boolean"),
+                    return_type: ParameterType::Boolean,
                 }
             } else {
                 return None;
@@ -486,11 +520,11 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         }
         IS_EMPTY | IS_NOT_EMPTY
             if arg_types.len() == 1
-                && (arg_types[0] == "String"
-                    || crate::codegen::engine::types::is_collection_type(&arg_types[0])) =>
+                && (arg_types[0] == ParameterType::String
+                    || crate::codegen::engine::types::typed_is_collection_type(&arg_types[0])) =>
         {
             ResolvedCall {
-                return_type: Cow::Borrowed("Boolean"),
+                return_type: ParameterType::Boolean,
             }
         }
         _ => return None,
@@ -498,9 +532,14 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
     Some(resolved)
 }
 
-use crate::codegen::builtins::exact;
-fn exact_one_of(arg_types: &[String], expected: &[&str]) -> bool {
-    arg_types.len() == 1 && expected.iter().any(|expected| arg_types[0] == *expected)
+/// Exactly the `expected` argument types, in order.
+fn exact(arg_types: &[ParameterType], expected: &[ParameterType]) -> bool {
+    arg_types.len() == expected.len() && arg_types.iter().zip(expected).all(|(a, e)| a == e)
+}
+
+/// Exactly one argument, of any of the `expected` types.
+fn exact_one_of(arg_types: &[ParameterType], expected: &[ParameterType]) -> bool {
+    arg_types.len() == 1 && expected.contains(&arg_types[0])
 }
 
 // ---------------------------------------------------------------------------
@@ -729,7 +768,16 @@ mod tests {
     }
 
     fn rt(name: &str, args: &[&str]) -> Option<String> {
-        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
+        // The assertions read as spellings on purpose — a resolver test says
+        // which type a call resolves to, and a name is how it says it. The parse
+        // is here, once, at the test boundary (plan-111-C Correction C4's rule).
+        resolve_call(name, &types(args)).map(|r| r.return_type.name().into_owned())
+    }
+
+    /// A FUNC signature for `builtin_function_id_for_type`, parsed at the same
+    /// test boundary.
+    fn ft(spelling: &str) -> ParameterType {
+        ParameterType::parse(spelling)
     }
 
     const ALL_GENERAL: &[&str] = &[
@@ -847,35 +895,35 @@ mod tests {
     #[test]
     fn builtin_function_id_for_type_specialized() {
         assert_eq!(
-            builtin_function_id_for_type(IS_POSITIVE, "FUNC(Float) AS Boolean"),
+            builtin_function_id_for_type(IS_POSITIVE, &ft("FUNC(Float) AS Boolean")),
             Some(BUILTIN_FUNCTION_IS_POSITIVE_FLOAT)
         );
         assert_eq!(
-            builtin_function_id_for_type(IS_POSITIVE, "FUNC(Fixed) AS Boolean"),
+            builtin_function_id_for_type(IS_POSITIVE, &ft("FUNC(Fixed) AS Boolean")),
             Some(BUILTIN_FUNCTION_IS_POSITIVE_FIXED)
         );
         assert_eq!(
-            builtin_function_id_for_type(IS_NEGATIVE, "FUNC(Float) AS Boolean"),
+            builtin_function_id_for_type(IS_NEGATIVE, &ft("FUNC(Float) AS Boolean")),
             Some(BUILTIN_FUNCTION_IS_NEGATIVE_FLOAT)
         );
         assert_eq!(
-            builtin_function_id_for_type(IS_NEGATIVE, "FUNC(Fixed) AS Boolean"),
+            builtin_function_id_for_type(IS_NEGATIVE, &ft("FUNC(Fixed) AS Boolean")),
             Some(BUILTIN_FUNCTION_IS_NEGATIVE_FIXED)
         );
         assert_eq!(
-            builtin_function_id_for_type(IS_ZERO, "FUNC(Float) AS Boolean"),
+            builtin_function_id_for_type(IS_ZERO, &ft("FUNC(Float) AS Boolean")),
             Some(BUILTIN_FUNCTION_IS_ZERO_FLOAT)
         );
         assert_eq!(
-            builtin_function_id_for_type(IS_ZERO, "FUNC(Fixed) AS Boolean"),
+            builtin_function_id_for_type(IS_ZERO, &ft("FUNC(Fixed) AS Boolean")),
             Some(BUILTIN_FUNCTION_IS_ZERO_FIXED)
         );
         assert_eq!(
-            builtin_function_id_for_type(IS_POSITIVE, "FUNC(Integer) AS Boolean"),
+            builtin_function_id_for_type(IS_POSITIVE, &ft("FUNC(Integer) AS Boolean")),
             Some(BUILTIN_FUNCTION_IS_POSITIVE)
         );
         assert_eq!(
-            builtin_function_id_for_type(IS_EVEN, "FUNC(Integer) AS Boolean"),
+            builtin_function_id_for_type(IS_EVEN, &ft("FUNC(Integer) AS Boolean")),
             Some(BUILTIN_FUNCTION_IS_EVEN)
         );
     }
@@ -883,28 +931,34 @@ mod tests {
     #[test]
     fn builtin_function_id_for_type_non_predicate_shape() {
         assert_eq!(
-            builtin_function_id_for_type(IS_EVEN, "FUNC(Integer, Integer) AS Boolean"),
+            builtin_function_id_for_type(IS_EVEN, &ft("FUNC(Integer, Integer) AS Boolean")),
             Some(BUILTIN_FUNCTION_IS_EVEN)
         );
         assert_eq!(
-            builtin_function_id_for_type(IS_EVEN, "FUNC(Integer) AS Integer"),
+            builtin_function_id_for_type(IS_EVEN, &ft("FUNC(Integer) AS Integer")),
             Some(BUILTIN_FUNCTION_IS_EVEN)
         );
-        assert_eq!(builtin_function_id_for_type(IS_EVEN, "Integer"), None);
+        assert_eq!(builtin_function_id_for_type(IS_EVEN, &ft("Integer")), None);
     }
 
     #[test]
     fn filter_predicate_type_cases() {
         assert_eq!(
-            filter_predicate_type(IS_EVEN, "Integer"),
-            Some("FUNC(Integer) AS Boolean".to_string())
+            filter_predicate_type_typed(IS_EVEN, &ParameterType::Integer),
+            Some(ft("FUNC(Integer) AS Boolean"))
         );
         assert_eq!(
-            filter_predicate_type(IS_POSITIVE, "Float"),
-            Some("FUNC(Float) AS Boolean".to_string())
+            filter_predicate_type_typed(IS_POSITIVE, &ParameterType::Float),
+            Some(ft("FUNC(Float) AS Boolean"))
         );
-        assert_eq!(filter_predicate_type(LEN, "String"), None);
-        assert_eq!(filter_predicate_type(IS_EVEN, "String"), None);
+        assert_eq!(
+            filter_predicate_type_typed(LEN, &ParameterType::String),
+            None
+        );
+        assert_eq!(
+            filter_predicate_type_typed(IS_EVEN, &ParameterType::String),
+            None
+        );
     }
 
     #[test]
@@ -1033,12 +1087,15 @@ mod tests {
     #[test]
     fn nominal_return_type_matches_fast_oracle() {
         // The six numeric narrowing conversions carry a fixed return type.
-        assert_eq!(nominal_return_type(TO_INT), Some("Integer"));
-        assert_eq!(nominal_return_type(TO_FLOAT), Some("Float"));
-        assert_eq!(nominal_return_type(TO_FIXED), Some("Fixed"));
-        assert_eq!(nominal_return_type(TO_BYTE), Some("Byte"));
-        assert_eq!(nominal_return_type(TO_MONEY), Some("Money"));
-        assert_eq!(nominal_return_type(TO_SCALAR), Some("Scalar"));
+        assert_eq!(nominal_return_type(TO_INT), Some(ParameterType::Integer));
+        assert_eq!(nominal_return_type(TO_FLOAT), Some(ParameterType::Float));
+        assert_eq!(nominal_return_type(TO_FIXED), Some(ParameterType::Fixed));
+        assert_eq!(nominal_return_type(TO_BYTE), Some(ParameterType::Byte));
+        assert_eq!(nominal_return_type(TO_MONEY), Some(ParameterType::Money));
+        assert_eq!(
+            nominal_return_type(TO_SCALAR),
+            Some(ParameterType::named("Scalar"))
+        );
         // Every other general call (Custom / reserved) has no static nominal.
         assert_eq!(nominal_return_type(LEN), None);
         assert_eq!(nominal_return_type(TYPE_NAME), None);
@@ -1080,43 +1137,67 @@ mod tests {
     #[test]
     fn helpers_exact_and_one_of() {
         assert!(exact(
-            &strings(&["Integer", "String"]),
-            &["Integer", "String"]
+            &types(&["Integer", "String"]),
+            &types(&["Integer", "String"])
         ));
-        assert!(!exact(&strings(&["Integer"]), &["Integer", "String"]));
-        assert!(!exact(&strings(&["String"]), &["Integer"]));
-        assert!(exact_one_of(&strings(&["String"]), &["String", "Integer"]));
+        assert!(!exact(&types(&["Integer"]), &types(&["Integer", "String"])));
+        assert!(!exact(&types(&["String"]), &types(&["Integer"])));
+        assert!(exact_one_of(
+            &types(&["String"]),
+            &types(&["String", "Integer"])
+        ));
         assert!(!exact_one_of(
-            &strings(&["Boolean"]),
-            &["String", "Integer"]
+            &types(&["Boolean"]),
+            &types(&["String", "Integer"])
         ));
-        assert!(!exact_one_of(&strings(&["String", "Integer"]), &["String"]));
+        assert!(!exact_one_of(
+            &types(&["String", "Integer"]),
+            &types(&["String"])
+        ));
     }
 
+    /// bug-175 F, repointed by plan-111-F.
+    ///
+    /// This pinned `general::function_parts`, which split a rendered FUNC
+    /// signature at the top-level `") AS "` rather than the first one — so
+    /// `FUNC(FUNC(Integer, Integer) AS Integer) AS Integer` kept its
+    /// higher-order parameter intact. That function is deleted (its last caller
+    /// took a `ParameterType`), and the contract belongs to the one grammar now.
+    /// The cases are unchanged; only the owner is.
     #[test]
-    fn function_parts_splits_nested_function_parameters() {
+    fn nested_function_parameters_split_at_the_top_level_arrow() {
+        let parts = |spelling: &str| match ParameterType::parse(spelling) {
+            ParameterType::Func(params, returns, false) => Some((
+                params
+                    .iter()
+                    .map(|p| p.name().into_owned())
+                    .collect::<Vec<_>>(),
+                returns.name().into_owned(),
+            )),
+            _ => None,
+        };
         assert_eq!(
-            function_parts("FUNC(Integer, String) AS Boolean"),
+            parts("FUNC(Integer, String) AS Boolean"),
             Some((
                 vec!["Integer".to_string(), "String".to_string()],
                 "Boolean".to_string()
             ))
         );
         assert_eq!(
-            function_parts("FUNC() AS Nothing"),
+            parts("FUNC() AS Nothing"),
             Some((vec![], "Nothing".to_string()))
         );
-        assert_eq!(function_parts("Integer"), None);
-        assert_eq!(function_parts("FUNC(Integer)"), None);
+        assert_eq!(parts("Integer"), None);
+        assert_eq!(parts("FUNC(Integer)"), None);
         assert_eq!(
-            function_parts("FUNC(FUNC(Integer, Integer) AS Integer) AS Integer"),
+            parts("FUNC(FUNC(Integer, Integer) AS Integer) AS Integer"),
             Some((
                 vec!["FUNC(Integer, Integer) AS Integer".to_string()],
                 "Integer".to_string()
             ))
         );
         assert_eq!(
-            function_parts("FUNC(String, FUNC(Integer, Integer) AS Integer) AS Boolean"),
+            parts("FUNC(String, FUNC(Integer, Integer) AS Integer) AS Boolean"),
             Some((
                 vec![
                     "String".to_string(),
@@ -1126,13 +1207,13 @@ mod tests {
             ))
         );
         assert_eq!(
-            function_parts("FUNC(Integer) AS FUNC(Integer) AS Integer"),
+            parts("FUNC(Integer) AS FUNC(Integer) AS Integer"),
             Some((
                 vec!["Integer".to_string()],
                 "FUNC(Integer) AS Integer".to_string()
             ))
         );
-        assert_eq!(function_parts("FUNC(FUNC(Integer) AS Integer"), None);
+        assert_eq!(parts("FUNC(FUNC(Integer) AS Integer"), None);
     }
 
     /// The package registers exactly the 18 unqualified globals, all `Body::Intrinsic`,

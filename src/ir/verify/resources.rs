@@ -314,7 +314,7 @@ impl TypeEnv {
             .unwrap_or_else(|| {
                 // plan-111-B: the registry half still speaks names (its `&str`
                 // signature dies in letter E), so the type renders only there.
-                crate::codegen::resource::is_builtin_sendable_resource_type(&base.name())
+                crate::codegen::resource::is_builtin_sendable_resource_type(&base)
             })
     }
 

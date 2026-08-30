@@ -369,7 +369,7 @@ impl CodeBuilder<'_> {
                 // arm only reaches non-String scalar constants. bug-175 C: the dead
                 // `*type_ == ParameterType::String` branch was removed.
                 let register = self.allocate_register();
-                let immediate = native_immediate_value(&type_.name(), value)?;
+                let immediate = native_immediate_value(&type_, value)?;
                 self.emit(abi::move_immediate(&register, &type_.name(), &immediate));
                 Ok(ValueResult {
                     origin: None,
@@ -386,7 +386,7 @@ impl CodeBuilder<'_> {
                 {
                     return Ok(ValueResult {
                         origin: None,
-                        type_: ParameterType::parse("VariantTag"),
+                        type_: ParameterType::named("VariantTag"),
                         location: Operand::from(name.clone()),
                         text: name.clone(),
                     });
@@ -428,7 +428,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_double(&d, abi::stack_pointer(), stack_offset));
                     return Ok(ValueResult {
                         origin: None,
-                        type_: ParameterType::parse(&type_name.name()),
+                        type_: type_name.clone(),
                         location: Operand::from(d.render()),
                         text: name.clone(),
                     });
@@ -444,7 +444,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse(&type_name.name()),
+                    type_: type_name.clone(),
                     location: Operand::from(register.render()),
                     text: name.clone(),
                 })
@@ -1232,7 +1232,7 @@ impl CodeBuilder<'_> {
                     .type_model
                     .variants_for_union(&union_name)
                     .map(|variant| {
-                        if crate::codegen::builtins::is_resource_type(&variant.name()) {
+                        if crate::codegen::builtins::is_resource_type(&variant) {
                             1
                         } else {
                             self.type_model
@@ -1305,8 +1305,7 @@ impl CodeBuilder<'_> {
                 // A resource-union variant is a bare resource whose payload is
                 // the resource pointer itself (one word at offset 8), not record
                 // fields.
-                let is_resource_variant =
-                    crate::codegen::builtins::is_resource_type(&member_type.name());
+                let is_resource_variant = crate::codegen::builtins::is_resource_type(&member_type);
                 let fields = if is_resource_variant {
                     Vec::new()
                 } else {
@@ -1348,7 +1347,7 @@ impl CodeBuilder<'_> {
                     .type_model
                     .variants_for_union(union_type)
                     .map(|variant| {
-                        if crate::codegen::builtins::is_resource_type(&variant.name()) {
+                        if crate::codegen::builtins::is_resource_type(&variant) {
                             1
                         } else {
                             self.type_model
@@ -1408,7 +1407,7 @@ impl CodeBuilder<'_> {
             NirValue::UnionExtract { type_, value } => {
                 // A resource-union variant's payload is the resource pointer
                 // itself (offset 8): extracting it yields that pointer directly.
-                if crate::codegen::builtins::is_resource_type(&type_.name()) {
+                if crate::codegen::builtins::is_resource_type(&type_) {
                     let source = self.lower_value(value)?;
                     let register = self.allocate_register();
                     self.emit(abi::load_u64(&register, &source.location, 8));
@@ -1484,7 +1483,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_immediate(&register, &result.location, 16));
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse("Error"),
+                    type_: ParameterType::named("Error"),
                     location: Operand::from(register.render()),
                     text: "resultError".to_string(),
                 })
@@ -1535,7 +1534,7 @@ impl CodeBuilder<'_> {
                         ));
                         return Ok(ValueResult {
                             origin: None,
-                            type_: ParameterType::parse(&type_name),
+                            type_: ParameterType::declared(type_name),
                             location: Operand::from(register.render()),
                             text: format!("{type_name}.{member}"),
                         });

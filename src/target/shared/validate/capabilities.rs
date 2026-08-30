@@ -66,9 +66,7 @@ pub(super) fn collect_bind_types(ops: &[NirOp], types: &mut HashSet<String>) {
                 // bare union type name — so its variants' close helpers must be
                 // recognized as used, or a valid stateful union bind trips the
                 // "declares unused runtime helper" guard.
-                self.types.insert(
-                    crate::codegen::resource::base_resource_name(&type_.name()).to_string(),
-                );
+                self.types.insert(type_.without_state().name().into_owned());
             }
             walk_op(self, op);
         }

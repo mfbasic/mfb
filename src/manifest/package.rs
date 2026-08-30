@@ -313,7 +313,9 @@ fn resource_closers_from_files(packages: &[PathBuf]) -> Vec<ir::ImportedResource
             // referenced builtin may be recorded by its bare base name (`File`) even
             // though the builtin's own identity is package-qualified (`fs.File`,
             // plan-97), so recognize it by bare name.
-            if crate::codegen::resource::is_builtin_backed_resource(&resource.type_name) {
+            if crate::codegen::resource::is_builtin_backed_resource(
+                &crate::types::ParameterType::declared(&resource.type_name),
+            ) {
                 continue;
             }
             let Some(close_function) = resource.close_function else {

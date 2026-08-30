@@ -596,7 +596,7 @@ impl TypeModel {
                     type_export
                         .fields
                         .into_iter()
-                        .map(|field| (field.name, ParameterType::parse(&field.type_)))
+                        .map(|field| (field.name, ParameterType::declared(&field.type_)))
                         .collect(),
                 );
             }
@@ -626,7 +626,7 @@ impl TypeModel {
                         variant
                             .fields
                             .into_iter()
-                            .map(|field| (field.name, ParameterType::parse(&field.type_)))
+                            .map(|field| (field.name, ParameterType::declared(&field.type_)))
                             .collect(),
                     );
                 }

@@ -959,7 +959,7 @@ impl TypeEnv {
                 // plan-111-B: the builtin close table is registry surface that still
                 // speaks names; its `&str` signature dies in letter E, so the type
                 // renders only for that one lookup.
-                crate::codegen::resource::builtin_resource_close_function(&base.name())
+                crate::codegen::resource::builtin_resource_close_function(&base)
             })
     }
 

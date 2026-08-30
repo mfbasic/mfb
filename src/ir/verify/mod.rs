@@ -1206,7 +1206,10 @@ fn read_only_record_type(type_: &ParameterType) -> bool {
 
 /// Whether `name` is a built-in resource type (has a registered close op).
 fn is_resource_name(name: &str) -> bool {
-    crate::codegen::resource::builtin_resource_close_function(name).is_some()
+    crate::codegen::resource::builtin_resource_close_function(
+        &crate::types::ParameterType::declared(name),
+    )
+    .is_some()
 }
 
 /// The base resource type name, stripping the `RES ` ownership marker and a

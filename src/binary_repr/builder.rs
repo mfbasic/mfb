@@ -37,11 +37,11 @@ pub(super) fn resolve_resource_close_name(
 ) -> Result<Option<String>, String> {
     match close_function_id {
         BUILTIN_FS_CLOSE_FUNCTION_ID => Ok(builtins::resource_close_function(
-            crate::codegen::builtins::fs::FILE_TYPE_ID,
+            &crate::types::ParameterType::named(crate::codegen::builtins::fs::FILE_TYPE_ID),
         )
         .map(str::to_string)),
         BUILTIN_NET_CLOSE_FUNCTION_ID => Ok(builtins::resource_close_function(
-            crate::codegen::builtins::net::SOCKET_TYPE,
+            &crate::types::ParameterType::named(crate::codegen::builtins::net::SOCKET_TYPE),
         )
         .map(str::to_string)),
         id => match package.project.functions.get(id as usize) {
