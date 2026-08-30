@@ -637,3 +637,48 @@ Rework the current `net` and `tls` packages into the following.
 - add `fs::pathListSeparator() as String`
 - add `fs::lineEnding() AS String`
 
+---
+
+# MORE FUCKING STRINGS
+
+Straight answer first: plan-111's charter, in its own words (`planning/completed/plan-111-A…md:8`), was *"delete every **type** string after the AST."* It did that and only that. Nothing in it addressed names, operators, keywords, literals, symbols, or machine operands. The gate it left behind (`tests/no_type_strings.rs`) encodes that same narrow scope, which is why it reads green while 899 `== "` / `!= "` sites remain in `src/` (`grep -rn --include="*.rs" '[!=]= *"' src/ | wc -l`) — `ir` 204, `codegen` 212, `arch` 86, `target` 82, `monomorph` 32, `optimizer` 26, `hir` 5, `resolver` 2.
+
+Here is the enumerated census of what is still a string after the AST.
+
+## Still strings
+
+- **Operators** — `HirExpression::Binary/Unary { operator: String }` (`src/hir/mod.rs:420,426`), `IrValue::Binary/Unary { op: String }` (`src/ir/value.rs:123,132`). The source token itself is carried and re-decided: `operator == "&"` (`src/ir/lower.rs:2368`), `== "NOT"` (`:2392`), `== "-"` (`:3596`), `== "SIZEOF"` (`src/ir/shape.rs:383`). 22 sites (`grep -rn 'operator ==\|operator\.as_str()\|match operator' src/ir src/monomorph src/resolver src/codegen | grep -v _tests.rs`).
+
+- **Local/global variable identity** — `IrValue::Local(String)`, `Global(String)` (`src/ir/value.rs:25,26`), `IrOp::Bind/Assign/AssignGlobal { name: String }` (`src/ir/op.rs:8,21,26`), `NirValue::Local(String)` (`src/target/shared/nir/mod.rs:264`). Bindings are matched by name string from HIR to register allocation — no index, no `Symbol`.
+
+- **Call targets / function identity** — `Call { callee: String }` (`src/hir/mod.rs:432`), `IrValue::Call/CallResult { target: String }` (`src/ir/value.rs:57,65`), `NirValue::Call/CallResult/RuntimeCall { target: String }`. Dispatch is string compare plus `split_once('.')` on `"pkg.member"` (27 sites; `src/ir/shape.rs:1769,1834,1854`, `src/ir/lower.rs:2462`) against literals `"thread.start"`, `"net.poll"`, `"process.spawnEnv"`, `"tls.listen"`, `"crypto.sign"`.
+
+- **Member / field names** — `MemberAccess { member: String }` (`src/hir/mod.rs:466`), `HirRecordUpdate.field: String` (`:291`), `IrValue::MemberAccess { member: String }` (`src/ir/value.rs:118`), decided by `member.as_str()` match (`src/ir/lower.rs:2164,2172,2179`).
+
+- **Declaration keywords, as text, inside the IR** — `IrType { kind: String, visibility: String }` (`src/ir/types.rs:6,7`), `IrFunction.kind: String` (`:209`), `IrField.visibility: Option<String>`. `"record"`/`"union"`/`"enum"`, `"public"`/`"private"`, `"function"`/`"sub"` are compared as spellings: 53 sites (`grep -rn 'visibility *== *"\|kind *== *"' src/ | grep -v _tests.rs`).
+
+- **Literal payloads** — `HirExpression::Number(String)` (`src/hir/mod.rs:415`), `IrValue::Const { value: String }` (`src/ir/value.rs:23`), `NirValue::Const { value: String }`. Numeric literals stay source text and are re-parsed downstream: 24 `parse::<f64>/<i64>/<u64>` in `src/ir`+`src/codegen`.
+
+- **The entire C FFI type vocabulary — a second type domain plan-111 never touched** — `ctype: String` (`src/ir/link.rs:97,432,872`; `src/ast/types.rs:299,364,366,378,388`). `"CString"`/`"CPtr"`/`"CInt32"`/`"CBuffer"`/`"CVoid"` decided by spelling in 19 places. Invisible to the gate by construction: its needle vocabulary is the MFBASIC scalars only. `src/hir/mod.rs:18-21` says why — the native-binding nodes are "reused verbatim from `crate::ast`", so these strings flow straight to codegen.
+
+- **Machine operands and registers** — `Operand::Raw(Box<str>)` plus `impl From<&str> for Operand` (`src/codegen/engine/operand/operand.rs:163,362`), so any `"x0".into()` mints a string operand. The file's own doc: *"in the pre-allocation stream every register operand is `Raw`"*. Regalloc then re-parses it: `starts_with('%')` (`src/codegen/engine/regalloc/analysis.rs:298,352`), `value.starts_with('%') || value == "sp"` (`src/codegen/engine/regalloc/mod.rs:107`). 465 non-test `.render()`/`.rendered()` calls.
+
+- **Type spellings inside the codegen code plan** — `CodeParam.type_: String`, `CodeFunction.returns: String`, `CodeStackSlot.type_: String` (`src/codegen/engine/types/types.rs:37,23,1332`), filled by rendering a `ParameterType` back out — `param.type_.clone().name().into_owned()` (`src/codegen/engine/function/function_lowering.rs:829`, `src/codegen/link/thunk/link_thunk.rs:1755`) — and by bare literals `"Nothing".to_string()`, `"Integer".to_string()` (`src/codegen/engine/builder/mod.rs:2185,2267,2397`). These contradict plan-111's headline ("`ParameterType` is the compiler's only type currency … to the emitted byte") and pass the gate because the gate has a class for `&str` *parameters* and none for a `String` *struct field*. In fairness: I grepped for readers and found none that decide on them — they terminate in `json_string(&self.returns)` (`src/codegen/engine/builder/code_impl.rs:252`, `src/codegen/engine/mir/mir.rs:901`). Dead carriers, not live decisions — but they are type strings after the AST.
+
+- **Generic instantiation identity** — monomorph names instantiations with a mangled string (`emit$Integer`, `show$List$OF$String`) built by `sanitize_type_name` (`src/monomorph/helpers.rs:546`), documented lossy at `src/monomorph/lower.rs:2352`: "`(`/`)` and `{`/`}` both sanitize to `$`."
+
+- **Link symbol / library identity** — `library: String`, `symbol: String`, `alias: String` (`src/hir/mod.rs:102,104,123`; `src/codegen/engine/types/types.rs:120,121,125`), compared against `"libc.so.6"`, `"libpthread.so.0"`, `"GetStdHandle"`, `"getentropy"`.
+
+- **Target/platform identity** — `NativeCodePlan { target: String, arch: String }` (`src/codegen/engine/types/types.rs:7,11`), compared `== "macos-aarch64"`.
+
+- **Data-object and relocation tags** — `CodeDataObject { kind: String, layout: String, value: String }` (`:126,127,130`); operand-class tags `== "label"`, `== "external"`, `== "symbol"`, `== "data"`, `== "str_u64"` in `src/arch`; and `emit_symbol_ref(kind: &str)` matching `"adrp"`/`"add_pageoff"` (`src/arch/aarch64/encode/emitter.rs:1190-1195`).
+
+- **Ad-hoc positional tags** — e.g. `side(instructions, models, overlay, i, "lhs")` / `"rhs"` (`src/optimizer/opt2/plans/ranges.rs:229-230`).
+
+## Two things that are actually clean
+
+- **Lexer tokens do not survive the AST.** `grep -rn "TokenKind\|lexer::" --include="*.rs" src/ | grep -v "^src/lexer.rs" | grep -v "^src/ast/"` → one file, `src/fmt.rs`, the source formatter working on raw text.
+- **Instruction opcodes are typed.** `CodeOp` is a `Copy` enum; the `== "adrp"`/`== "fadd_d"`/`== "lr"` hits in `src/arch` are almost all `#[cfg(test)]` inspection via `op.mnemonic()`, not selection logic. Same for `RuntimeHelper`, `RegClass`, `AbiConvention`/`AbiRole`, `LoopKind`.
+
+So the typed machinery exists and works — it was applied to exactly one vocabulary. No changes made.
+
