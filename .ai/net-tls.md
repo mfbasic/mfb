@@ -18,7 +18,7 @@ A TLS socket's "is a read ready?" is **not** an fd `poll(2)`. One TLS record dec
 - **schannel** (Windows, `tls/schannel_io.rs` / `schannel_read_close.rs`): a decrypted-record carry-over buffer, else `WSAPoll(POLLRDNORM)` (`schannel_impl.rs` `WSAPOLLFD`).
 - **macOS** (`tls/macos/`): **Network.framework — there is NO raw fd.** Decrypted data lands in a single-producer/single-consumer ring of pending retained buffers (`macos/mod.rs:106`), drained on the owning thread; readiness = ring non-empty OR terminal state, and any bounded wait uses the read path's `dispatch_semaphore` (which already has a per-read release/leak hazard, `macos/mod.rs:418` — a poll waiting on it must not steal the read's signal or leak a semaphore).
 
-`tls` now has `poll` (plan-76-B/C) and, since plan-110-D, `localAddress`/`remoteAddress` and `setReadTimeout`/`setWriteTimeout`. Related: the resources ownership model, and `net::poll` fd scaffolding.
+`tls` now has `poll` (plan-76-B/C) and, since plan-110-D, `localAddress`/`remoteAddress` and `setReadTimeout`/`setWriteTimeout`. Related: the resources ownership model, and `tcp::poll` fd scaffolding.
 
 ## A TLS read/write deadline is a socket option on two platforms and a ctx field on the third
 

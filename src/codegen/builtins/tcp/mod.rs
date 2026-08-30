@@ -83,6 +83,7 @@ mod func_remote_address;
 mod func_set_read_timeout;
 mod func_set_write_timeout;
 mod func_write;
+pub(crate) mod gen_io;
 
 /// The bare resource type names — the identity *within* the `tcp` package.
 pub(crate) const SOCKET_TYPE: &str = "Socket";
@@ -222,12 +223,15 @@ mod tests {
             crate::codegen::resource::builtin_resource_close_function(super::LISTENER_TYPE_ID),
             Some("tcp.close")
         );
-        // The net identities still exist and still route to net.close: the two
-        // packages coexist until plan-110-E removes net's transport surface.
-        assert_eq!(
-            crate::codegen::resource::builtin_resource_close_function("net.Socket"),
-            Some("net.close")
-        );
+        // plan-110-E removed net's transport surface, so the identity that this
+        // one was "distinct from" no longer exists at all -- which is a stronger
+        // guarantee than the two coexisting and not being substitutable.
+        assert!(!crate::codegen::resource::is_builtin_resource_type(
+            "net.Socket"
+        ));
+        assert!(!crate::codegen::resource::is_builtin_resource_type(
+            "net.Listener"
+        ));
     }
 
     #[test]

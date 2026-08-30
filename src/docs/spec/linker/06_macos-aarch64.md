@@ -88,7 +88,10 @@ libz            /usr/lib/libz.1.dylib
 
 Console builds draw their POSIX/pthread surface from `libSystem` using
 Darwin C ABI symbol names (leading underscore: `_write`, `_read`, `_open`,
-`_close`, `_pthread_create`, …); `net::` adds `Network`. There is no math
+`_close`, `_pthread_create`, …). `tls::` adds no library import at all: its
+backend resolves Network.framework (and, server-side, Security.framework +
+CoreFoundation) through `dlopen`/`dlsym` at load time, so only `_dlopen`,
+`_dlsym` and `___error` are statically imported. [[src/target/macos_aarch64/plan.rs:runtime_imports]] There is no math
 import surface — `pow`/`sin`/`cos` and the rest are in-tree kernels.
 App-mode builds add `AppKit`/`Foundation`/`libobjc` for the toolkit bootstrap. A
 library name outside this set is a linker error. Threading uses libSystem pthread

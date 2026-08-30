@@ -5,8 +5,9 @@
 use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-use crate::codegen::builtins::net::{gen_io, gen_shared};
+use super::gen_io;
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::os::socket::shared as gen_shared;
 use crate::codegen::registry::AbiCtx;
 
 const INTRO: &str = r#"Receive the next datagram, with the address it came from."#;

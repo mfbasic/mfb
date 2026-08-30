@@ -164,7 +164,7 @@ pub(crate) fn lower_tls_address_macos(
     // Build the `net::Address` from the borrowed sockaddr with the same shared
     // builder `net`/`tcp`/`udp` use, so every package renders an endpoint
     // identically.
-    crate::codegen::builtins::net::gen_shared::emit_address_from_sockaddr(
+    crate::codegen::os::socket::shared::emit_address_from_sockaddr(
         &mut EmitCtx {
             symbol,
             platform_imports,

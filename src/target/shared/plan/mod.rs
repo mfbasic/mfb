@@ -26,49 +26,20 @@ pub(crate) struct PlatformImport {
     pub(crate) required_by: String,
 }
 
-/// Base libc symbol names required by each `net` runtime helper. These are
+/// Base libc symbol names required by each socket runtime helper (`net::lookup`
+/// and `net::ping` plus every `tcp`/`udp` member). These are
 /// platform independent; macOS prepends a leading `_` (libSystem) and Linux uses
 /// them verbatim (libc). The platform's `errno` accessor (`___error` /
 /// `__errno_location`) is added separately because its name differs by platform.
 pub(crate) fn net_libc_symbols(call: &str) -> &'static [&'static str] {
     match call {
         "net.lookup" => &["getaddrinfo", "freeaddrinfo", "inet_ntop"],
-        "net.connectTcp" => &[
-            "getaddrinfo",
-            "freeaddrinfo",
-            "socket",
-            "connect",
-            "close",
-            "fcntl",
-            "poll",
-            "getsockopt",
-        ],
-        "net.listenTcp" => &[
-            "getaddrinfo",
-            "freeaddrinfo",
-            "socket",
-            "setsockopt",
-            "bind",
-            "listen",
-            "close",
-        ],
+        // plan-110-B/E: `tcp` took net's stream surface and owns these rows
+        // outright -- they were spelled out rather than aliased to the `net.*`
+        // originals precisely so that deleting net's transport members here in
+        // plan-110-E could not silently empty them.
         // bug-314 H2: the bounded wait sets the listener non-blocking around the
-        // accept and restores its flags at each exit, so the helper needs fcntl.
-        "net.accept" => &["accept", "poll", "close", "fcntl"],
-        "net.poll" => &["poll"],
-        "net.read" | "net.readText" => &["read"],
-        "net.write" | "net.writeText" => &["write"],
-        "net.close" => &["close"],
-        "net.localAddress" => &["getsockname", "inet_ntop"],
-        "net.remoteAddress" => &["getpeername", "inet_ntop"],
-        "net.setReadTimeout" | "net.setWriteTimeout" => &["setsockopt"],
-        "net.bindUdp" => &["getaddrinfo", "freeaddrinfo", "socket", "bind", "close"],
-        "net.receiveFrom" | "net.receiveTextFrom" => &["recvfrom", "inet_ntop"],
-        "net.sendTo" | "net.sendTextTo" => &["getaddrinfo", "freeaddrinfo", "sendto"],
-        // plan-110-B: `tcp` lowers through the same emitters as the `net` originals
-        // it replaces, so each member needs the same libc symbols. The rows are
-        // spelled out rather than aliased to the `net.*` ones so that deleting
-        // net's transport surface in plan-110-E cannot silently empty them.
+        // accept and restores its flags at each exit, so `accept` needs fcntl.
         "tcp.connect" | "tcp.connectAddr" => &[
             "getaddrinfo",
             "freeaddrinfo",

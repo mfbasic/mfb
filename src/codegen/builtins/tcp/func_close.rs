@@ -6,8 +6,8 @@
 use crate::codegen::registry::{Implementation, Parameter, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-use crate::codegen::builtins::net::gen_shared;
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::os::socket::shared as gen_shared;
 use crate::codegen::registry::AbiCtx;
 
 const INTRO: &str = r#"Close a TCP socket or listener and release its OS handle."#;

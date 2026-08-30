@@ -127,21 +127,21 @@ freedom is whether a given function is a *readiness query* or a *producing call*
 | `< 0` | rejected | `ErrInvalidArgument` (77050002) | `ErrInvalidArgument` (77050002) |
 
 - A **readiness query** has a not-ready value to return (`FALSE` for a
-  `Boolean` poll, `-1`, etc.): `net::poll` (scalar `Socket → Boolean` form),
-  `tls::poll` (scalar `tls::Socket → Boolean` form), `audio::poll`, `io::pollInput`.
+  `Boolean` poll, `-1`, etc.): the scalar `Socket → Boolean` form of `tcp::poll`,
+  `udp::poll` and `tls::poll`; `audio::poll`; `io::pollInput`.
 - A **producing call** yields a resource, message, connection, or bytes and has
-  no not-ready value, so an unmet deadline is an error: `net::accept`,
-  `net::connectTcp`, `net::poll` (the multiplex `List OF RES net::Socket → Socket`
-  form, which yields the first ready socket), `tls::poll` (the multiplex
-  `List OF RES tls::Socket → tls::Socket` form), `net::read`/`readText`/`write`/`writeText`,
+  no not-ready value, so an unmet deadline is an error: `tcp::accept`,
+  `tcp::connect`, the multiplex `List OF RES <pkg>::Socket → <pkg>::Socket` form of
+  `tcp::poll`/`udp::poll`/`tls::poll` (which yields the first ready socket),
   `tcp::read`/`write`, `udp::receive`/`send`, `tls::read`/`write`
   (all under a socket read/write timeout), `tls::connect`, `tls::accept`, `audio::read`,
   `thread::send`, `thread::receive`, `thread::transfer`, `thread::accept`.
 - **Expiry raises exactly one error, `ErrTimeout` (77050008)**, for every
-  producing call. There is no family-specific expiry code. (`net` read/write
-  formerly raised `ErrReadTimeout`/`ErrWriteTimeout`; thread `receive`/`accept`
+  producing call. There is no family-specific expiry code. (The socket read/write
+  members formerly raised `ErrReadTimeout`/`ErrWriteTimeout`; thread `receive`/`accept`
   at `0` formerly raised `ErrNotFound`. Both were retired for this convention.)
-- The **socket-option setters** `net::setReadTimeout`/`net::setWriteTimeout` bind
+- The **socket-option setters** `setReadTimeout`/`setWriteTimeout` (on `tcp`,
+  `udp` and `tls` alike) bind
   a socket's subsequent read/write deadline rather than waiting themselves: `0`
   makes those operations non-blocking (immediate `ErrTimeout` when not ready),
   `> 0` bounds them, `< 0` is `ErrInvalidArgument`. A fresh socket is unbounded;
@@ -153,12 +153,13 @@ routes that sentinel to its block-forever path and rejects every other negative
 value. [[src/codegen/error/constants/error_constants.rs:TIMEOUT_UNBOUNDED_SENTINEL]]
 
 **Conforming functions** (every waiting built-in obeys the table above):
-`net::poll`, `net::accept`, `net::connectTcp`, `net::setReadTimeout`,
-`net::setWriteTimeout`, `net::read`, `net::readText`, `net::write`,
-`net::writeText`, `tls::connect`, `tls::accept`, `tls::poll`, `audio::poll`, `audio::read`,
-`io::pollInput`, `thread::send`, `thread::receive`, `thread::transfer`,
-`thread::accept`. Conformance was completed across the codebase in one pass;
-`thread` was the pilot.
+`tcp::connect`, `tcp::accept`, `tcp::poll`, `tcp::read`, `tcp::write`,
+`tcp::setReadTimeout`, `tcp::setWriteTimeout`, `udp::poll`, `udp::receive`,
+`udp::send`, `udp::setReadTimeout`, `udp::setWriteTimeout`, `tls::connect`,
+`tls::accept`, `tls::poll`, `tls::read`, `tls::write`, `tls::setReadTimeout`,
+`tls::setWriteTimeout`, `audio::poll`, `audio::read`, `io::pollInput`,
+`thread::send`, `thread::receive`, `thread::transfer`, `thread::accept`.
+Conformance was completed across the codebase in one pass; `thread` was the pilot.
 
 (`thread::poll` requires its `ms` argument and has no omit form; it already
 rejects negatives and treats `0` as an immediate check, so its value meanings

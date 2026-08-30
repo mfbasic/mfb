@@ -113,8 +113,10 @@ mod tests {
     #[test]
     fn builtins_recognize_standard_resources() {
         assert!(is_builtin_resource_type("fs.File"));
-        assert!(is_builtin_resource_type("net.Socket"));
-        assert!(is_builtin_resource_type("net.Listener"));
+        assert!(is_builtin_resource_type("tcp.Socket"));
+        assert!(is_builtin_resource_type("tcp.Listener"));
+        // plan-110-E: net has no resources of its own any more.
+        assert!(!is_builtin_resource_type("net.Socket"));
         assert!(!is_builtin_resource_type("Integer"));
         assert!(!is_builtin_resource_type("Address"));
     }
@@ -127,22 +129,22 @@ mod tests {
         };
         assert_eq!(builtin_resource_close_function("fs.File"), Some("fs.close"));
         assert_eq!(
-            builtin_resource_close_function("net.Socket"),
-            Some("net.close")
+            builtin_resource_close_function("tcp.Socket"),
+            Some("tcp.close")
         );
         assert_eq!(
-            builtin_resource_close_function("net.Listener"),
-            Some("net.close")
+            builtin_resource_close_function("tcp.Listener"),
+            Some("tcp.close")
         );
         // File and Socket move across threads; a Listener stays put.
         assert!(is_builtin_sendable_resource_type("fs.File"));
-        assert!(is_builtin_sendable_resource_type("net.Socket"));
-        assert!(!is_builtin_sendable_resource_type("net.Listener"));
+        assert!(is_builtin_sendable_resource_type("tcp.Socket"));
+        assert!(!is_builtin_sendable_resource_type("tcp.Listener"));
         // close-may-fail holds for every standard resource (the descriptor
         // states it; drop-time cleanup derives the same fact from the close
         // wrapper's `SUCCESS ON`).
         assert!(descriptor("fs.File").close_may_fail);
-        assert!(descriptor("net.Listener").close_may_fail);
+        assert!(descriptor("tcp.Listener").close_may_fail);
     }
 
     #[test]
@@ -162,8 +164,8 @@ mod tests {
         for name in [
             // All built-in resources carry their package-qualified identity (plan-97).
             "fs.File",
-            "net.Socket",
-            "net.Listener",
+            "tcp.Socket",
+            "tcp.Listener",
             // plan-110-B/C: the transport handles moved out of `net`.
             // `net.UdpSocket` is gone entirely — `udp.Socket` replaces it.
             "tcp.Socket",
@@ -191,10 +193,10 @@ mod tests {
         assert!(is_builtin_resource_type("fs.File"));
         assert!(!is_builtin_resource_type("Nothing"));
         assert_eq!(
-            builtin_resource_close_function("net.Socket"),
-            Some("net.close")
+            builtin_resource_close_function("tcp.Socket"),
+            Some("tcp.close")
         );
-        assert!(is_builtin_sendable_resource_type("net.Socket"));
-        assert!(!is_builtin_sendable_resource_type("net.Listener"));
+        assert!(is_builtin_sendable_resource_type("tcp.Socket"));
+        assert!(!is_builtin_sendable_resource_type("tcp.Listener"));
     }
 }

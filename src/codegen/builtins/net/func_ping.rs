@@ -139,7 +139,7 @@ pub(crate) fn lower_ping(
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
     builder.stack_size = stack_size;
-    Ok(super::gen_shared::void_result(ctx.call))
+    Ok(crate::codegen::os::socket::shared::void_result(ctx.call))
 }
 
 const TIMEOUT_DESC: &str = "Optional. How long to wait for a reply, in milliseconds. Omit to wait indefinitely (in which case `Timeout` can never be reported); `0` checks once and reports `Timeout` unless a reply is already waiting; a positive value bounds the wait; a negative value raises `ErrInvalidArgument`.";

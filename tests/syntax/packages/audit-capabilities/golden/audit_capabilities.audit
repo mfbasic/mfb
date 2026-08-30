@@ -8,7 +8,7 @@ Lockfile: absent
 Summary:
   errors: 0
   warnings: 0
-  infos: 6
+  infos: 8
 
 Permissions:
   clock
@@ -18,6 +18,9 @@ Permissions:
   native
     sql.open at src/main.mfb:34
     sql.close at src/main.mfb:35
+  network
+    tcp.connect at src/main.mfb:32
+    tcp.close at src/main.mfb:33
   process
     os.pid at src/main.mfb:29
   randomness
@@ -26,6 +29,9 @@ Permissions:
     io.print at src/main.mfb:36
     io.print at src/main.mfb:37
     io.print at src/main.mfb:38
+
+Resources:
+  tcp.Socket socket at src/main.mfb:32 (standard, close tcp.close, may fail)
 
 Native links:
   audit_capabilities sqlite3_close close= may_fail=true
@@ -45,9 +51,11 @@ Control flow:
     fallible call io.print at src/main.mfb:38 -> trap
 
 Findings:
+  info AUDIT-RESOURCE-CLOSE-MAY-FAIL resource `socket` (tcp.Socket) is closed by lexical drop; explicit `tcp.close` is required to observe a close failure (src/main.mfb:32)
   info AUDIT-PERM-CLOCK project uses host capability: clock
   info AUDIT-PERM-ENVIRONMENT project uses host capability: environment
   info AUDIT-PERM-NATIVE project uses host capability: native
+  info AUDIT-PERM-NETWORK project uses host capability: network
   info AUDIT-PERM-PROCESS project uses host capability: process
   info AUDIT-PERM-RANDOMNESS project uses host capability: randomness
   info AUDIT-PERM-TERMINAL project uses host capability: terminal
@@ -71,7 +79,7 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
   "summary": {
     "errors": 0,
     "warnings": 0,
-    "infos": 6
+    "infos": 8
   },
   "lockfile": {
     "path": "mfb.lock",
@@ -135,7 +143,18 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
       ]
     }
   ],
-  "resources": [],
+  "resources": [
+    {
+      "function": "main",
+      "name": "socket",
+      "resourceType": "tcp.Socket",
+      "closeOp": "tcp.close",
+      "path": "src/main.mfb",
+      "line": 32,
+      "native": false,
+      "closeMayFail": true
+    }
+  ],
   "nativeLinks": [
     {
       "package": "audit_capabilities",
@@ -197,6 +216,22 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
       "kind": "native"
     },
     {
+      "capability": "network",
+      "package": "tcp",
+      "function": "tcp.connect",
+      "path": "src/main.mfb",
+      "line": 32,
+      "kind": "standard"
+    },
+    {
+      "capability": "network",
+      "package": "tcp",
+      "function": "tcp.close",
+      "path": "src/main.mfb",
+      "line": 33,
+      "kind": "standard"
+    },
+    {
       "capability": "process",
       "package": "os",
       "function": "os.pid",
@@ -239,6 +274,17 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
   ],
   "findings": [
     {
+      "code": "AUDIT-RESOURCE-CLOSE-MAY-FAIL",
+      "severity": "info",
+      "category": "resource",
+      "message": "resource `socket` (tcp.Socket) is closed by lexical drop; explicit `tcp.close` is required to observe a close failure",
+      "location": {
+        "path": "src/main.mfb",
+        "line": 32
+      },
+      "package": null
+    },
+    {
       "code": "AUDIT-PERM-CLOCK",
       "severity": "info",
       "category": "permission",
@@ -259,6 +305,14 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
       "severity": "info",
       "category": "permission",
       "message": "project uses host capability: native",
+      "location": null,
+      "package": null
+    },
+    {
+      "code": "AUDIT-PERM-NETWORK",
+      "severity": "info",
+      "category": "permission",
+      "message": "project uses host capability: network",
       "location": null,
       "package": null
     },

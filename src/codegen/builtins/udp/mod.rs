@@ -69,6 +69,7 @@ mod func_receive;
 mod func_send;
 mod func_set_read_timeout;
 mod func_set_write_timeout;
+pub(crate) mod gen_io;
 
 /// The bare type names — the identity *within* the `udp` package.
 pub(crate) const SOCKET_TYPE: &str = "Socket";
@@ -205,11 +206,14 @@ mod tests {
             !crate::codegen::resource::is_builtin_resource_type("net.UdpSocket"),
             "net.UdpSocket must be gone -- udp.Socket replaces it"
         );
-        // net's STREAM surface is untouched and still goes in plan-110-E.
-        assert_eq!(
-            crate::codegen::resource::builtin_resource_close_function("net.Socket"),
-            Some("net.close")
-        );
+        // plan-110-E has since removed net's stream surface too, so neither half
+        // of what `net` used to carry is left.
+        assert!(!crate::codegen::resource::is_builtin_resource_type(
+            "net.Socket"
+        ));
+        assert!(!crate::codegen::resource::is_builtin_resource_type(
+            "net.Listener"
+        ));
     }
 
     /// The receive emitter writes the `Datagram` record's two slots positionally,

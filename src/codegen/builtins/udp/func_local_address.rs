@@ -2,8 +2,8 @@
 
 use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
 
-use crate::codegen::builtins::net::{gen_io, gen_shared};
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::os::socket::shared as gen_shared;
 use crate::codegen::registry::AbiCtx;
 
 const INTRO: &str = r#"Report the local address and port a UDP socket is bound to."#;
@@ -49,7 +49,12 @@ pub(crate) fn lower_local_address(
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
     let (instructions, relocations, stack_size) =
-        gen_io::lower_net_address_helper(&symbol, ctx.platform_imports, ctx.platform, false)?;
+        crate::codegen::os::socket::shared::lower_net_address_helper(
+            &symbol,
+            ctx.platform_imports,
+            ctx.platform,
+            false,
+        )?;
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
     builder.stack_size = stack_size;

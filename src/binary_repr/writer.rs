@@ -455,7 +455,7 @@ pub(super) fn is_resource_type_name(type_name: &str) -> bool {
 }
 
 /// Collect the package-qualified resource type identities (`fs.File`,
-/// `net.Socket`, `net.Listener`) actually referenced by the project so only the
+/// `tcp.Socket`, `tcp.Listener`) actually referenced by the project so only the
 /// resource tables that are used get emitted. Resource handles cannot appear
 /// inside collections, so a resource type string is always a single type
 /// identity (never a `List OF ...` wrapper).

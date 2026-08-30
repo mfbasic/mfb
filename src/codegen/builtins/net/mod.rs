@@ -1,21 +1,26 @@
-//! The built-in `net` package (DNS, TCP, and UDP sockets) on the clean-room
+//! The built-in `net` package (DNS, ICMP, addresses, and URLs) on the clean-room
 //! registry.
 //!
-//! `net` resolves host names, opens and accepts plaintext TCP connections, binds
-//! UDP datagram sockets, and transfers bytes over both. Its three resources —
-//! `Socket` (a connected TCP stream), `Listener` (a bound TCP server endpoint),
-//! and `UdpSocket` (a bound datagram socket) — are opaque, owned handles released
-//! by lexical drop.
+//! `net` names hosts; it does not connect to them. `net::lookup` resolves a host
+//! name and `net::ping` sends one ICMP echo request. plan-110 moved every
+//! transport out: `tcp` took the stream (`Socket`/`Listener`), `udp` the datagram
+//! (`Socket`/`Datagram`), and `tls` the encrypted stream. **`net` owns no
+//! resources at all.**
 //!
-//! Like `fs`/`audio`, `net` is a **native OS-seam** package migrated to the
-//! `Body::abi_function` clean-room shape: every socket/DNS/UDP member carries a
-//! per-platform runtime-helper lowering. The relocated syscall emission lives in the
-//! `gen_shared`/`gen_io`/`gen_poll` `lower_net_*_helper` emitters; each member owns
-//! its own [`Body::abi_function_aliased`] body in its `func_*.rs` (`lower_<name>`),
-//! which calls the matching `lower_net_*_helper` (with any bool/alias discriminant)
-//! and finalizes; each emitter selects the posix/win emission by `platform.family()`.
-//! The member plus its `connectTcpAddr` /
-//! `pollList` code-form aliases route through `is_abi_function_call` /
+//! What all four still share is the `Address` value record, which stays here: it
+//! is what `net::lookup` returns, what a `udp` datagram reports as its sender, and
+//! what every transport's connect/bind/localAddress speaks. A file that names an
+//! `Address` must `IMPORT net` as well as its transport — imports are not
+//! transitive.
+//!
+//! Like `fs`/`audio`, `net` is a **native OS-seam** package on the
+//! `Body::abi_function` clean-room shape: `lookup` and `ping` each carry a
+//! per-platform runtime-helper lowering. The syscall emission lives in `gen_io`
+//! (the resolver) and `gen_ping`, over the shared address/handle primitives in
+//! [`crate::codegen::os::socket`]; each member owns its own
+//! [`Body::abi_function_aliased`] body in its `func_*.rs` (`lower_<name>`) and
+//! finalizes, selecting the posix/win emission by `platform.family()`. `ping`'s
+//! `pingAddr` code-form alias routes through `is_abi_function_call` /
 //! `abi_function_lower` (the aux→primary routing is registry data), and the `Net`
 //! runtime family is preserved via `abi_function_family` so the `_mfb_rt_net_*`
 //! symbols are unchanged.
@@ -26,8 +31,8 @@
 //! private helpers live one per `helper_*.rs` (`add_helper` — private-only), and
 //! `toString(net::Url)` is registered as an [`RegistryPackage::add_override`].
 //!
-//! `poll`/`connectTcp` are argument-shape-overloaded — two/four `Implementation`s —
-//! so the registry's generic overload/return resolution answers everything with no
+//! `lookup`/`ping` are argument-shape-overloaded — two/four `Implementation`s — so
+//! the registry's generic overload/return resolution answers everything with no
 //! custom resolver (the datetime/net idiom).
 
 use crate::codegen::registry::{
@@ -86,8 +91,6 @@ mod helper_url_to_string;
 
 pub(crate) mod gen_io;
 mod gen_ping;
-pub(crate) mod gen_poll;
-pub(crate) mod gen_shared;
 
 /// The bare resource/record type names — the identity *within* the `net` package
 /// (the `RegistryResource`/`RegistryRecord` name, the `type` half of a qualified
@@ -102,37 +105,36 @@ pub(crate) const PING_RESULT_TYPE: &str = "PingResult";
 /// round-tripped via `description`).
 pub(crate) const URL_TYPE: &str = "Url";
 
-/// The package-qualified type identities (`net.Socket`, `net.Listener`,
-/// `net.UdpSocket`) — plan-97 / bug-441. The string every `RES` binding,
-/// parameter, and return of a net resource carries; the `ResourceRegistry` key.
-
 /// The internal source-companion (`package.mfb`) render target for the
 /// `toString(net::Url)` override — routed here by [`RegistryPackage::add_override`].
 pub(crate) const URL_TO_STRING: &str = "__net_urlToString";
 
-const MODULE_INTRO: &str =
-    r#"DNS lookup, TCP client and server sockets, UDP datagram sockets, and URL parsing"#;
-const MODULE_DESC: &str = r#"The `net` package resolves host names and opens plaintext TCP and UDP network
-connections. `net::connectTcp` opens an outbound TCP stream; `net::listenTcp` and
-`net::accept` run a TCP server; `net::bindUdp`, `net::sendTo`, and
-`net::receiveFrom` exchange UDP datagrams; and `net::read`/`net::write` (and their
-text forms) transfer bytes. `net::ping` sends an ICMP echo request and reports
-whether the host answered. For encrypted TLS connections use `tls`; for HTTP use
-`http`.
+const MODULE_INTRO: &str = r#"DNS lookup, ICMP echo, URL parsing, and the shared network address"#;
+const MODULE_DESC: &str = r#"The `net` package names hosts. `net::lookup` resolves a host name to a list of
+`Address` values, and `net::ping` sends one ICMP echo request and reports how the
+host answered. Nothing in this package opens a connection.
 
-The package also parses and renders URLs: `net::toUrl` decomposes an absolute
-URL into a `Url` value record, `toString` renders it back, and
-`net::percentDecode` / `net::parseQuery` decode request-target components. The
-`Socket`, `Listener`, and `UdpSocket` handles are opaque, owned resources closed
-automatically by lexical drop; `net::close` releases one earlier."#;
+`Address` is the shared endpoint record every transport speaks: an address from
+`net::lookup`, from a received datagram's `from` field, or from a socket's local
+or remote address query can be handed straight to any of them. **A program that
+names an `Address` must `IMPORT net` as well as its transport** — imports are not
+transitive and a package cannot re-export another's types.
+
+The transports live in their own packages: `tcp` for byte streams, `udp` for
+datagrams, `tls` for encrypted streams, and `http` for requests and responses.
+
+The package also parses and renders URLs: `net::toUrl` decomposes an absolute URL
+into a `Url` value record, `toString` renders it back, and `net::percentDecode` /
+`net::parseQuery` decode request-target components.
+
+`net` owns no resources. It has no handles to close."#;
 
 /// Build a native `net.*` member's `Body::abi_function_aliased`: its own per-member
 /// lowering `lower` (which lives in the member's `func_*.rs` and calls the matching
-/// `gen_shared`/`gen_io`/`gen_poll` `lower_net_*_helper` emitter), plus any code-form
-/// `os_aliases` (`connectTcpAddr`/`pollList`) the overload emits — the `abi_function`
-/// successor to the `native_os_seam` twin idiom (crypto/io/fs/audio shape). Aliases
-/// route to the same member body through `abi_function_lower`, distinguished off
-/// `AbiCtx::call`.
+/// `gen_io`/`gen_ping` emitter over `codegen::os::socket`), plus any code-form
+/// `os_aliases` (`pingAddr`) the overload emits — the `abi_function` successor to
+/// the `native_os_seam` twin idiom (crypto/io/fs/audio shape). Aliases route to the
+/// same member body through `abi_function_lower`, distinguished off `AbiCtx::call`.
 pub(crate) fn native_body(
     lower: crate::codegen::registry::AbiFunction,
     os_aliases: &'static [&'static str],

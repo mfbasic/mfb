@@ -50,7 +50,7 @@ use std::collections::HashMap;
 
 use crate::target::shared::abi;
 
-use super::gen_shared::{
+use crate::codegen::os::socket::shared::{
     emit_address_from_sockaddr, emit_cstring, emit_hints, emit_pollfd_events, net_symbol,
     NetBodyParts, NetSymbol, AF_INET, SOCKADDR_STORAGE_SIZE, SOCK_DGRAM,
 };

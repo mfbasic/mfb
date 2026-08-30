@@ -6,8 +6,8 @@
 use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-use crate::codegen::builtins::net::{gen_poll, gen_shared};
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::os::socket::{poll as gen_poll, shared as gen_shared};
 use crate::codegen::registry::AbiCtx;
 
 const INTRO: &str = r#"Wait until a socket — or one socket out of a list — is readable."#;

@@ -1100,3 +1100,125 @@ pub(crate) fn void_result(call: &str) -> ValueResult {
         text: call.to_string(),
     }
 }
+
+// --- moved from builtins/net/gen_io.rs by plan-110-E Phase 3 ---------------
+// `lower_net_address_helper` serves tcp, udp AND tls, so it belongs with the
+// other shared primitives rather than in any one package.
+
+pub(crate) fn lower_net_address_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    remote: bool,
+) -> Result<NetBodyParts, String> {
+    const FRAME_SIZE: usize = 224;
+    const FD_OFFSET: usize = 8;
+    const LEN_OFFSET: usize = 16;
+    const DST_OFFSET: usize = 24;
+    const HOST_OFFSET: usize = 32;
+    const SADDR_PTR_OFFSET: usize = 40;
+    const HOSTLEN_OFFSET: usize = 48;
+    const ADDR_OFFSET: usize = 64; // 64..192 sockaddr_storage
+
+    let closed = format!("{symbol}_closed");
+    let name_fail = format!("{symbol}_name_fail");
+    let addr_fail = format!("{symbol}_addr_fail");
+    let alloc_fail = format!("{symbol}_alloc_fail");
+    let done = format!("{symbol}_done");
+
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
+    let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    instructions.extend([
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
+        abi::compare_immediate(&v9, "0"),
+        abi::branch_ne(&closed),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
+        abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
+        abi::move_immediate(&v10, "Integer", &SOCKADDR_STORAGE_SIZE.to_string()),
+        abi::store_u64(&v10, abi::stack_pointer(), LEN_OFFSET),
+        abi::move_register(abi::return_register(), &v9),
+        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), ADDR_OFFSET),
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), LEN_OFFSET),
+    ]);
+    let call = if remote { "getpeername" } else { "getsockname" };
+    platform.emit_external_call(
+        call,
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        // C `int` return (getpeername/getsockname) — sign-extend before the signed
+        // compare (bug-04/bug-170).
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&name_fail),
+        abi::add_immediate(&v9, abi::stack_pointer(), ADDR_OFFSET),
+        abi::store_u64(&v9, abi::stack_pointer(), SADDR_PTR_OFFSET),
+    ]);
+    emit_address_from_sockaddr(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "addr",
+        SADDR_PTR_OFFSET,
+        HOSTLEN_OFFSET,
+        DST_OFFSET,
+        HOST_OFFSET,
+        &alloc_fail,
+        &addr_fail,
+        &mut vregs,
+    )?;
+    instructions.extend([
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&name_fail),
+    ]);
+    emit_fail(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&addr_fail));
+    emit_fail(
+        symbol,
+        "ErrAddressInvalid",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&closed));
+    emit_fail(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&alloc_fail));
+    emit_fail(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    {
+        Ok((instructions, relocations, FRAME_SIZE))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// net.read / net.readText
+// ---------------------------------------------------------------------------

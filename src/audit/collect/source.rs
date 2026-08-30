@@ -674,7 +674,10 @@ fn builtin_capability(callee: &str, link_aliases: &HashSet<String>) -> Option<&'
         // pre-monomorph AST, before the http→net source rewrite, so these must be
         // listed directly or a TLS/HTTP-only program discloses no network use —
         // bug-96).
-        "net" | "tls" | "http" => Some("network"),
+        // plan-110-B/C split net's transport into `tcp` and `udp`; both are as
+        // much network use as `net` ever was, and omitting them would let a
+        // tcp-only program disclose no network capability at all.
+        "net" | "tcp" | "udp" | "tls" | "http" => Some("network"),
         // Secure-randomness surface: the entropy-drawing crypto builtins (the
         // rest of `crypto` is pure computation over caller-supplied bytes).
         "crypto" => match callee {
@@ -871,29 +874,39 @@ fn is_fallible_builtin(callee: &str) -> bool {
     )
 }
 
+/// The `(resource type, close op)` a producing call yields, or `None` for a call
+/// that produces no resource.
+///
+/// plan-110 gave `tcp`, `udp` and `tls` resources with the same bare names
+/// (`Socket`, `Listener`), so the transport rows spell the type qualified the way
+/// `fs.File` always has -- a bare `Socket` in an audit report would no longer say
+/// which package's handle it is.
 fn resource_producer(callee: &str) -> Option<(&'static str, &'static str)> {
     match callee {
         "fs.open" | "fs.openFile" | "fs.openFileNoFollow" | "fs.createTempFile" => {
             Some(("fs.File", "fs.close"))
         }
         "thread.start" => Some(("Thread", "thread.waitFor")),
-        "net.connectTcp" | "net.accept" => Some(("Socket", "net.close")),
-        "net.listenTcp" => Some(("Listener", "net.close")),
+        // plan-110-B/C moved every transport producer out of `net`: the stream
+        // half to `tcp` and the datagram half to `udp`. Each package closes with
+        // its own op, so the rows are per-package rather than one shared net row.
+        "tcp.connect" | "tcp.accept" => Some(("tcp.Socket", "tcp.close")),
+        "tcp.listen" => Some(("tcp.Listener", "tcp.close")),
         // bug-96: the tls/http/udp resource producers were missing, so those
         // handles never appeared in the Resources section or the
         // close-may-fail findings.
-        "net.bindUdp" => Some(("UdpSocket", "net.close")),
-        "tls.connect" | "tls.accept" => Some(("Socket", "tls.close")),
-        "tls.listen" | "http.serverSSL" => Some(("Listener", "tls.close")),
+        "udp.bind" => Some(("udp.Socket", "udp.close")),
+        "tls.connect" | "tls.accept" => Some(("tls.Socket", "tls.close")),
+        "tls.listen" | "http.serverSSL" => Some(("tls.Listener", "tls.close")),
         // bug-278: three more producers that were never added, so their handles
         // got no Resources row and no AUDIT-RESOURCE-CLOSE-MAY-FAIL finding.
         // `fs.openWithin` returns a `File` (added by bug-259); `http.server`
-        // returns a plain `net::Listener` — only its TLS sibling above was
+        // returns a plain `tcp::Listener` — only its TLS sibling above was
         // mapped; and the audio streams are closed by type-specific ops
         // (`audio.closeInput` / `audio.closeOutput`, per `resource_close_function`),
         // not the generic `audio.close`.
         "fs.openWithin" => Some(("fs.File", "fs.close")),
-        "http.server" => Some(("Listener", "net.close")),
+        "http.server" => Some(("tcp.Listener", "tcp.close")),
         "audio.openInput" | "audio.openInputDevice" => Some(("AudioInput", "audio.closeInput")),
         "audio.openOutput" | "audio.openOutputDevice" => Some(("AudioOutput", "audio.closeOutput")),
         _ => None,
@@ -967,7 +980,7 @@ mod tests {
             "  END FUNC\n",
             "END LINK\n",
             "FUNC f()\n",
-            "  net::close(s)\n",
+            "  tcp::close(s)\n",
             "  os::getEnv(\"HOME\")\n",
             "  os::pid()\n",
             "  math::rand(1, 6)\n",
@@ -988,7 +1001,7 @@ mod tests {
                 ("clock", "datetime.now"),
                 ("environment", "os.getEnv"),
                 ("native", "sql.open"),
-                ("network", "net.close"),
+                ("network", "tcp.close"),
                 ("process", "os.pid"),
                 ("randomness", "math.rand"),
             ]
@@ -1029,24 +1042,27 @@ mod tests {
             "    LET b = fs::openFile(\"b\")\n",
             "  END IF\n",
             "  FOR i = 1 TO n\n",
-            "    LET c = net::connectTcp(addr)\n",
+            "    LET c = tcp::connect(addr)\n",
             "  NEXT\n",
             "  FOR EACH x IN items\n",
-            "    LET d = net::listenTcp(addr)\n",
+            "    LET d = tcp::listen(addr)\n",
             "  NEXT\n",
             "  WHILE n > 0\n",
             "    LET e = thread::start(worker)\n",
             "  END WHILE\n",
             "  DO\n",
-            "    LET g = net::accept(listener)\n",
+            "    LET g = tcp::accept(listener)\n",
             "  LOOP UNTIL n < 0\n",
             "END FUNC\n",
         );
         let (_, _, resources) = collect_source(&project(source));
         let types: Vec<&str> = resources.iter().map(|r| r.resource_type.as_str()).collect();
         assert!(types.contains(&"fs.File"));
-        assert!(types.contains(&"Socket"));
-        assert!(types.contains(&"Listener"));
+        // plan-110-E: the stream producers are tcp's, and the audit names them
+        // package-qualified like `fs.File` rather than by the bare spelling that
+        // three packages now share.
+        assert!(types.contains(&"tcp.Socket"));
+        assert!(types.contains(&"tcp.Listener"));
         assert!(types.contains(&"Thread"));
     }
 

@@ -890,8 +890,10 @@ pub(super) fn primitive_type_name(id: u32) -> Option<&'static str> {
         TYPE_TERM_COLOR => Some("TermColor"),
         TYPE_TERM_SIZE => Some("TermSize"),
         TYPE_FILE_HANDLE => Some("fs.File"),
-        TYPE_SOCKET_HANDLE => Some("net.Socket"),
-        TYPE_LISTENER_HANDLE => Some("net.Listener"),
+        // plan-110-E: the wire ids are unchanged, but the identity they name
+        // is `tcp`'s now -- net has no stream resources left to decode to.
+        TYPE_SOCKET_HANDLE => Some("tcp.Socket"),
+        TYPE_LISTENER_HANDLE => Some("tcp.Listener"),
         _ => None,
     }
 }

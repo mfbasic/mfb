@@ -462,7 +462,7 @@ pub(crate) fn lower_tls_address_helper(
         PlatformFamily::MacOS => {
             macos::lower_tls_address_macos(symbol, platform_imports, platform, remote)
         }
-        _ => crate::codegen::builtins::net::gen_io::lower_net_address_helper(
+        _ => crate::codegen::os::socket::shared::lower_net_address_helper(
             symbol,
             platform_imports,
             platform,
@@ -491,7 +491,7 @@ pub(crate) fn lower_tls_set_timeout_helper(
         PlatformFamily::MacOS => {
             macos::lower_tls_set_timeout_macos(symbol, platform_imports, platform, write)
         }
-        _ => crate::codegen::builtins::net::gen_poll::lower_net_set_timeout_helper(
+        _ => crate::codegen::os::socket::poll::lower_net_set_timeout_helper(
             symbol,
             platform_imports,
             platform,

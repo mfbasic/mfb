@@ -140,8 +140,8 @@ impl TypeTable {
             "String" => TYPE_STRING,
             "Scalar" => TYPE_SCALAR,
             "fs.File" => TYPE_FILE_HANDLE,
-            "net.Socket" => TYPE_SOCKET_HANDLE,
-            "net.Listener" => TYPE_LISTENER_HANDLE,
+            "tcp.Socket" => TYPE_SOCKET_HANDLE,
+            "tcp.Listener" => TYPE_LISTENER_HANDLE,
             // The structural shapes, decomposed by the CANONICAL grammar
             // (plan-106-E) rather than a prefix cascade with its own splitter.
             //

@@ -7,10 +7,10 @@ non-blocking, cooperatively-drivable form (`startRead`/`ready`/`pump`/`done`/
 over the same non-blocking core. There is no connection pool: each request opens a
 connection, sends one request with `Connection: close`, reads until end-of-stream,
 parses, and returns; the socket is a scoped resource. All protocol work is string
-manipulation; only the transport branches reach native code (`net::` for
+manipulation; only the transport branches reach native code (`tcp::` for
 cleartext, `tls::` for TLS).
 
-`IMPORT http` does not leak `net`/`tls`/`strings`/`collections` into the
+`IMPORT http` does not leak `tcp`/`tls`/`net`/`strings`/`collections` into the
 importing program — the package's own imports are file-scoped.
 
 ## Response Record
@@ -172,13 +172,13 @@ exchange(url, request) =
 
 Both branches connect and write identically aside from the native calls:
 
-- TCP: `net::connectTcp(host, port, 30_000)`, then `net::writeText`.
+- TCP: `tcp::connect(host, port, 30_000)`, then `tcp::write` (String overload).
 - TLS: `tls::connect(host, port, 30_000, host)` — 30 s connect deadline, SNI
   server-name = host — then `tls::write`.
 
-The transport is carried as a `Stream` resource union over `net::Socket` /
+The transport is carried as a `Stream` resource union over `tcp::Socket` /
 `tls::Socket`; the reader `MATCH`es the active variant and reads 64 KiB at a
-time (`net::read` / `tls::read`). A read that returns `[]` marks the stream closed
+time (`tcp::read` / `tls::read`). A read that returns `[]` marks the stream closed
 (end of stream). A read that fails with `errorCode::ErrConnectionClosed` is
 recovered as a close; any other transport error is captured in the stream's STATE.
 The size cap is enforced as bytes accumulate. The socket is a scoped resource
@@ -189,7 +189,7 @@ The size cap is enforced as bytes accumulate. The socket is a scoped resource
 ## Non-Blocking Client
 
 The client is a non-blocking core with a thin blocking veneer. The core is a
-`Stream` resource union (`net::Socket | tls::Socket`) carrying a `PendingState`
+`Stream` resource union (`tcp::Socket | tls::Socket`) carrying a `PendingState`
 as plan-74 union STATE; five entry points drive an exchange without blocking the
 calling thread:
 
@@ -205,12 +205,12 @@ finish(stream) -> Response   ' FAIL on STATE.err; else parseResponse(STATE.raw)
 A program binds the stream, loops `IF ready(s) THEN pump(s)` until `done(s)` —
 interleaving its own work between pumps — then calls `finish(s)`. Because plan-80
 relocated the union STATE slot to a record offset free in every transport layout,
-the STATE works over the `tls::Socket` variant as well as `Socket`.
+the STATE works over the `tls::Socket` variant as well as `tcp::Socket`.
 
 ## Request Flow
 
 `read`/`write` are thin blocking wrappers over the same core: they `startExchange`,
-then loop a blocking readiness wait (`net::poll`/`tls::poll` with the 30 s read
+then loop a blocking readiness wait (`tcp::poll`/`tls::poll` with the 30 s read
 deadline — a stalled peer sets `ErrTimeout`) plus `pump` until `done`, then
 `finish`.
 
@@ -236,7 +236,7 @@ point follows redirects or retries.
 
 The `http` package also provides a single-threaded, blocking, user-driven HTTP
 server — the server-side sibling of the client, in the same package, over the
-same `net`/`tls` transport, adding no native intrinsics.
+same `tcp`/`tls` transport, adding no native intrinsics.
 
 ### Lifecycle
 
@@ -244,11 +244,11 @@ A program binds a listener and drives its own accept loop:
 
 | Function | Signature |
 | --- | --- |
-| `http::server` | `server(port AS Integer, host AS String = "0.0.0.0", backlog AS Integer = 128) AS net::Listener` |
+| `http::server` | `server(port AS Integer, host AS String = "0.0.0.0", backlog AS Integer = 128) AS tcp::Listener` |
 | `http::serverSSL` | `serverSSL(port AS Integer, certPath AS String, keyPath AS String, host AS String = "0.0.0.0", backlog AS Integer = 128) AS tls::Listener` |
-| `http::handleRequest` | `handleRequest(listener AS net::Listener, routes AS List OF Route) AS Nothing` — also overloaded for `tls::Listener` |
+| `http::handleRequest` | `handleRequest(listener AS tcp::Listener, routes AS List OF Route) AS Nothing` — also overloaded for `tls::Listener` |
 
-`http::server` returns the `net::Listener` directly (no wrapper resource);
+`http::server` returns the `tcp::Listener` directly (no wrapper resource);
 `http::serverSSL` returns a `tls::Listener` owning the bound socket and the
 loaded PEM certificate + key, and works on both Linux and macOS.
 `http::handleRequest` is overloaded by listener type — both feed one shared
@@ -258,7 +258,7 @@ malformed request a `400`, an oversize request (64 MiB cap) a `413`, and a peer
 I/O error drops the one connection without failing the loop.
 
 ```text
-RES s AS net::Listener = http::server(8080)
+RES s AS tcp::Listener = http::server(8080)
 DO
   http::handleRequest(s, routes)
 LOOP UNTIL FALSE

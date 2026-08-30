@@ -167,12 +167,19 @@ Commit: 9b62dcf23, and the fixture move below
       remained. See plan-110-C §C1. What is left here is the **stream** half: net's `Socket`,
       `Listener`, `connectTcp`, `listenTcp`, `accept`, `read`, `readText`, `write`, `writeText`,
       `poll`, `close`, `localAddress`, `remoteAddress`, `setReadTimeout`, `setWriteTimeout`.
-- [ ] Physically move the shared native emitters into `tcp/` and `udp/` (deferred here from
+- [x] Physically move the shared native emitters into `tcp/` and `udp/` (deferred here from
       plan-110-B §C2 and plan-110-C): `tcp` and `udp` currently lower through the
       `lower_net_*_helper` emitters in `net::{gen_shared, gen_io, gen_poll}`. Once net's stream
       descriptors are deleted, split them so each package owns its own, leaving `net` only the
       resolver/address/URL emitters `lookup` and `ping` still need. Doing it here rather than in
       B/C means editing those ~2,700 lines once instead of twice.
+      Done: `net::gen_shared`/`gen_poll` became `codegen::os::socket::{shared, poll}` (the
+      platform-neutral sockaddr/handle/pollfd primitives all three transports share, which belong
+      to no one package); the stream I/O emitters moved to `tcp/gen_io.rs` (967 lines:
+      accept/read/write) and the datagram ones to `udp/gen_io.rs` (883: bind/receive/send), leaving
+      `net/gen_io.rs` at ~295 lines holding only the resolver. `artifact-gate all` proved the
+      ~3,400-line move byte-identical: 1284 tests, 1441 builds, 1772 goldens, 0 diffs. The sweep it
+      forced then found two live defects and the dead call tables -- Corrections C4-C6.
 - [x] Remove `TlsSocket`/`TlsListener`, readText/writeText, and old aliases after confirming zero
       live consumers; keep only the exact requested package surfaces.
       Done by plan-110-D: `TlsSocket`/`TlsListener` became `tls::Socket`/`tls::Listener`,
@@ -207,7 +214,75 @@ tests and render all four man packages. Run both required rustfmt commands.
 
 ## Corrections
 
-To be filled during execution, including the mandatory post-D census.
+**C1 — the post-D census's own first run was wrong (Phase 1, commit 32d2ee215).**
+An unanchored `net::read` also matches `net::readText`, and `net::write` matches
+`net::writeText`, which inflated `read` from 14 source files to 18 and its tests from 3 to 10.
+Every symbol is now anchored with a trailing non-identifier boundary
+(`rg -l 'net::read[^A-Za-z]'`), and the wrong numbers are recorded beside the right ones in the
+census table rather than quietly replaced. Post-D totals moved as the plan predicted: **270**
+non-golden files mention `net::` or `tls::` (§2 said 231) and **20** under `builtins/http` (§2 said
+18) — `rg -l 'net::|tls::' src tests scripts --glob '!**/golden/**' | wc -l`.
+
+**C2 — a prerequisite the plan did not list: two built-in resources with the same bare name were
+the same type (commit f670ec6f8).** plan-110 gave `net`, `tcp`, `udp` and `tls` resources with
+IDENTICAL bare names (`Socket`, `Listener`), and `ir::verify::compat::compatible()`'s bare-name
+fallback then equated them, so `RES s AS udp::Socket = tcp::accept(server, 0)` compiled clean. The
+fallback was correct when written — bare names were globally unique — so this is a hole plan-110
+opened and plan-110 closes. Narrowed to *built-in resources* after a first, too-broad attempt
+("two differing qualified names are different types") was caught by
+`syntax/packages/package-comparable-import-invalid`, where `comparable::Box` and
+`package_comparable_types.Box` are the same type under an import alias. The tightening then found
+two latent wrong annotations that had been compiling silently — `byte-identity/http` and
+`http_server_loopback` both bound `net::Listener` from `http::server`, which returns a
+`tcp::Listener`. Pinned by `tests/syntax/tcp/resource_bare_name_confusion_invalid` (six shapes,
+both directions).
+
+**C3 — two mistakes in the Phase 2 fixture move, corrected rather than shipped (commit
+9a194a716).** (a) The mover dropped `IMPORT net` from any source that stopped naming a `net::`
+symbol — but `Address` is net's RECORD, so a fixture reading `bound.port` still needs net in scope.
+13 fixtures failed with "native plan has no storage class for type 'Unknown'", an error naming
+neither the import nor the type; 16 sources got the import back. (b) An earlier over-broad pass also
+rewrote net's OWN fixtures and an `_invalid` fixture whose whole point is that `readText` is
+rejected; reverted, because those belong to Phase 3, which deletes the surface they cover.
+
+**C4 — Phase 3's first box under-counted "now-dead code": the runtime-call tables.** Deleting net's
+stream descriptors left the *call names* behind in six places that no longer had anything to name —
+`SUPPORTED_RUNTIME_CALLS` on all three backends (`linux_common`, `macos_aarch64`, `win_x86_64`:
+18/18/19 rows), the error-message pool trigger in `codegen/memory/data/data_objects.rs` (18 rows),
+the libc-symbol table `target::shared::plan::net_libc_symbols` (15 arms), and four
+`builder_values.rs` padding/code-form dispatch arms. plan-110-B had anticipated exactly this: it
+spelled tcp's `net_libc_symbols` rows out rather than aliasing them to net's "so that deleting net's
+transport surface in plan-110-E cannot silently empty them." Measured dead, not assumed:
+`target::shared::runtime::spec_for_call("net.write")` returns `None`, which is what reds
+`target::linux_x86_64::plan::tests::write_is_never_imported`.
+
+**C5 — the sweep found a live resource-lifetime bug: `poll(List)` double-closed its borrowed
+element (bugs/completed/bug-458).** `CodeBuilder::value_aliases_live_resource` — bug-375's
+classifier — matched only `NirValue::Call`/`CallResult`, but a built-in package member lowers to
+`NirValue::RuntimeCall`. The `net.poll` and `tls.poll` names it listed were therefore never reached:
+dead conditions that read as a fix. Every `RES ready = tcp::poll(socks)` was classified as an OWNER,
+closing the borrowed element at the bind's scope exit and again when the list drained. Proven by
+A/B, macOS aarch64, `tests/rt-behavior/tcp/tcp-poll-list-rt` copied to `/tmp/pollprobe`: adding
+`"tcp.poll"` to the name list alone changed nothing (`diff` of `mfb build -ncode` output = 0 lines);
+adding the `RuntimeCall` variant removed **315** lines of `.ncode` — the four binds' close cleanups.
+`udp.poll`, which never had a name arm at all, is added for the same contract. The 1200-iteration
+leak loop in `tcp-poll-list-rt` did not catch it because the two closes are adjacent, so the second
+`close(2)` just returns `EBADF`; the guard is therefore the codegen-inspection unit test
+`borrowed_resource_tests::poll_list_forms_alias_a_live_resource`.
+
+**C6 — the same sweep found the audit blind to `tcp` and `udp`.** `audit::collect::source` mapped
+only `"net" | "tls" | "http"` to the `network` capability and had zero `tcp.*`/`udp.*` rows in
+`resource_producer`, so since plan-110-B/C a tcp-only program disclosed **no** network capability
+and every `tcp::connect`/`tcp::listen`/`tcp::accept`/`udp::bind` handle was missing from the audit's
+Resources section and its close-may-fail findings — the exact class of bug-96 and bug-278.
+`http.server` was still mapped to `("Listener", "net.close")` and now names the `tcp::Listener` it
+actually returns.
+
+**C7 — `mfb man tcp poll` renders `List OF RES tcp::Socket`, not `List OF tcp::Socket`.**
+`cli::man::tests::function_types_use_public_package_qualification` expected the latter because net's
+descriptor omitted the `RES`, which no source spelling of a resource list may do (§15.6). tcp's
+descriptor is the more correct one; the assertion was corrected to the real render, and the
+qualification the test guards is unaffected.
 
 ## Summary
 

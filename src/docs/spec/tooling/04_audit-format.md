@@ -151,7 +151,7 @@ line, function)`, sorted by `(capability, path, line,
 function)`.[[src/audit/collect/source.rs:collect_source]]
 
 A call discloses a capability by package — `fs` → `filesystem`, `io`/`term` →
-`terminal`, `thread` → `threads`, `net`/`tls`/`http` → `network`, any `LINK`
+`terminal`, `thread` → `threads`, `net`/`tcp`/`udp`/`tls`/`http` → `network`, any `LINK`
 alias → `native` — except for the packages that mix pure and host-touching
 builtins (`crypto`, `os`, `math`, `datetime`) or that split one surface into two
 disclosures (`audio`), which map per builtin:[[src/audit/collect/source.rs:builtin_capability]]
@@ -270,7 +270,7 @@ segment before the first `.`):[[src/audit/collect/source.rs:builtin_capability]]
 | `fs` | `filesystem` |
 | `io` | `terminal` |
 | `thread` | `threads` |
-| `net` / `tls` / `http` | `network` |
+| `net` / `tcp` / `udp` / `tls` / `http` | `network` |
 | `crypto` (entropy builtins) | `randomness` |
 | `os` / `math` / `datetime` (per builtin) | `environment` / `process` / `randomness` / `clock` |
 | any `LINK` alias | `native` |
@@ -315,13 +315,19 @@ resources have `native = false` and `closeMayFail = true`:[[src/audit/collect/so
 
 | Callee | resourceType | closeOp |
 |---|---|---|
-| `fs.open`, `fs.openFile`, `fs.openFileNoFollow`, `fs.createTempFile` | `File` | `fs.close` |
+| `fs.open`, `fs.openFile`, `fs.openFileNoFollow`, `fs.openWithin`, `fs.createTempFile` | `fs.File` | `fs.close` |
 | `thread.start` | `Thread` | `thread.waitFor` |
-| `net.connectTcp`, `net.accept` | `Socket` | `net.close` |
-| `net.listenTcp` | `Listener` | `net.close` |
-| `net.bindUdp` | `UdpSocket` | `net.close` |
-| `tls.connect`, `tls.accept` | `tls::Socket` | `tls.close` |
-| `tls.listen`, `http.serverSSL` | `tls::Listener` | `tls.close` |
+| `tcp.connect`, `tcp.accept` | `tcp.Socket` | `tcp.close` |
+| `tcp.listen`, `http.server` | `tcp.Listener` | `tcp.close` |
+| `udp.bind` | `udp.Socket` | `udp.close` |
+| `tls.connect`, `tls.accept` | `tls.Socket` | `tls.close` |
+| `tls.listen`, `http.serverSSL` | `tls.Listener` | `tls.close` |
+| `audio.openInput`, `audio.openInputDevice` | `AudioInput` | `audio.closeInput` |
+| `audio.openOutput`, `audio.openOutputDevice` | `AudioOutput` | `audio.closeOutput` |
+
+The transport rows spell `resourceType` package-qualified because `tcp`, `udp`
+and `tls` each declare a resource named `Socket`: a bare `Socket` in a report
+would not say which handle it is.
 
 ### Project hash
 

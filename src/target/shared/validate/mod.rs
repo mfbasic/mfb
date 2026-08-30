@@ -336,7 +336,7 @@ mod tests {
     /// A resource-union bind nested inside a `FOR EACH` body drops by dispatching
     /// to each variant's close op, so those close helpers must be counted as used.
     /// bug-45: `collect_bind_types` skipped `NirOp::ForEach` bodies, so the union
-    /// bind went unseen and `validate_nir` wrongly rejected the declared `net`
+    /// bind went unseen and `validate_nir` wrongly rejected the declared transport
     /// helper as unused. Build the module directly so the collector is exercised
     /// in isolation from the front end.
     fn module_with_union_bind(body: Vec<NirOp>) -> NirModule {
@@ -362,7 +362,7 @@ mod tests {
                         fields: Vec::new(),
                     },
                     NirVariant {
-                        name: "net.Socket".to_string(),
+                        name: "tcp.Socket".to_string(),
                         fields: Vec::new(),
                     },
                 ],
@@ -370,9 +370,9 @@ mod tests {
             }],
             globals: Vec::new(),
             imports: Vec::new(),
-            // `File` closes via `fs`, `Socket` via `net`; both are declared so the
+            // `File` closes via `fs`, `Socket` via `tcp`; both are declared so the
             // cross-check must find both in `used_helpers`.
-            runtime_helpers: vec![RuntimeHelper::Fs, RuntimeHelper::Net],
+            runtime_helpers: vec![RuntimeHelper::Fs, RuntimeHelper::Tcp],
             functions: vec![NirFunction {
                 name: "main".to_string(),
                 visibility: "private".to_string(),

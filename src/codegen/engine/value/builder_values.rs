@@ -290,23 +290,20 @@ impl CodeBuilder<'_> {
     ///   never a transfer: the collection's owning scope closes it. Every other
     ///   call — `fs::openFile`, a user `FUNC … AS RES File` — *does* transfer
     ///   ownership to this binding and must keep its cleanup.
-    /// * `net.poll(List OF RES Socket)` (plan-76-A) — the readiness multiplex
-    ///   returns a pointer to the first ready list element, the exact
-    ///   borrowed-element shape as `collections::get`: the list still owns and
-    ///   closes it. Classified via `net::returns_borrowed_resource`.
+    /// * `tcp.poll`/`udp.poll`/`tls.poll` over a `List OF RES Socket`
+    ///   (plan-76-A) — the readiness multiplex returns a pointer to the first
+    ///   ready list element, the exact borrowed-element shape as
+    ///   `collections::get`: the list still owns and closes it.
     pub(crate) fn value_aliases_live_resource(value: &NirValue) -> bool {
         match value {
             NirValue::Local(_) => true,
-            NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => {
+            NirValue::Call { target, .. }
+            | NirValue::CallResult { target, .. }
+            | NirValue::RuntimeCall { target, .. } => {
                 matches!(
                     crate::codegen::registry::native_bare_target(target),
                     Some("get" | "getOr")
-                ) || target == "net.poll"
-                    // `tls::poll(List OF RES tls::Socket)` returns a borrowed pointer to
-                    // the first ready list element (the list keeps ownership), like
-                    // `net::poll(List)` — the migrated tls package folds this into the
-                    // call-name check here.
-                    || target == "tls.poll"
+                ) || matches!(target.as_str(), "tcp.poll" | "udp.poll" | "tls.poll")
             }
             _ => false,
         }
@@ -2009,21 +2006,6 @@ impl CodeBuilder<'_> {
                 type_: ParameterType::Integer,
                 value: "0".to_string(),
             });
-        } else if target == "net.connectTcp" {
-            // `connectTcp(Address, timeoutMs?)` keeps its single Address argument
-            // and is routed to the `net.connectTcpAddr` helper below; the
-            // `connectTcp(host, port, timeoutMs?)` form is 3-arg. The only ever-missing
-            // argument is the trailing `timeoutMs`; plan-73-C pads it with the
-            // unbounded sentinel so an omitted connect timeout BLOCKS until the
-            // connection resolves (was the 120s DEFAULT_CONNECT_TIMEOUT_MS).
-            let is_address = self.net_connect_is_address_form(args);
-            let target_args = if is_address { 2 } else { 3 };
-            while helper_args.len() < target_args {
-                helper_args.push(NirValue::Const {
-                    type_: ParameterType::Integer,
-                    value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
-                });
-            }
         } else if target == "net.ping" {
             // plan-110-A: `ping(host|address, timeoutMs?, ttl?, size?)`. Both
             // overloads take the same three optional trailing arguments, so the
@@ -2046,29 +2028,6 @@ impl CodeBuilder<'_> {
                     value: value.to_string(),
                 });
             }
-        } else if target == "net.listenTcp" && helper_args.len() == 2 {
-            helper_args.push(NirValue::Const {
-                type_: ParameterType::Integer,
-                value: "128".to_string(),
-            });
-        } else if target == "net.poll" && helper_args.len() == 1 {
-            // plan-73-C: an omitted `net::poll` timeout blocks until the socket is
-            // readable (the convention's readiness-query omit rule). Pad with the
-            // unbounded sentinel; the poll helper routes it to a -1 (infinite) poll.
-            helper_args.push(NirValue::Const {
-                type_: ParameterType::Integer,
-                value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
-            });
-        } else if target == "net.accept" && helper_args.len() == 1 {
-            // plan-73-C: an omitted `net::accept` timeout blocks until a client
-            // arrives (the convention's producing-call omit rule). Pad with the
-            // unbounded sentinel; the accept helper routes it to the block path,
-            // treats `0` as one immediate attempt (`ErrTimeout` if none pending),
-            // and rejects other negatives.
-            helper_args.push(NirValue::Const {
-                type_: ParameterType::Integer,
-                value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
-            });
         } else if target == "tcp.connect" {
             // plan-110-B: the same padding `net.connectTcp` takes. The Address form
             // keeps its single record argument (2 total), the host/port form is 3;
@@ -2227,13 +2186,6 @@ impl CodeBuilder<'_> {
                     "thread.readResource"
                 }
             }
-            "net.connectTcp" => {
-                if self.net_connect_is_address_form(args) {
-                    "net.connectTcpAddr"
-                } else {
-                    "net.connectTcp"
-                }
-            }
             // plan-110-A: `ping(Address, …)` lowers through `net.pingAddr`, which
             // reads the host out of the record. Unlike `connectTcp`, the two ping
             // overloads share a positional layout, so the first argument's type
@@ -2327,17 +2279,6 @@ impl CodeBuilder<'_> {
                     "tls.writeText"
                 } else {
                     "tls.write"
-                }
-            }
-            // plan-76-A: the readiness-multiplex overload `poll(List OF RES Socket)`
-            // lowers through a distinct helper (`net.pollList`) that builds a
-            // `pollfd[n]` over the list's fds and returns the first ready element's
-            // record ptr, vs the scalar `poll(Socket) → Boolean`.
-            "net.poll" => {
-                if self.net_poll_is_list_form(args) {
-                    "net.pollList"
-                } else {
-                    "net.poll"
                 }
             }
             // plan-76-C: `tls::poll(List OF RES tls::Socket)` lowers through the portable
@@ -2503,5 +2444,58 @@ mod concat_spine_tests {
     #[test]
     fn a_lone_operand_is_its_own_spine() {
         assert_eq!(spine(&text("a")), vec!["a"]);
+    }
+}
+
+#[cfg(test)]
+mod borrowed_resource_tests {
+    use super::*;
+    use crate::codegen::engine::builder::CodeBuilder;
+    use crate::target::shared::nir::NirSourceLoc;
+    use crate::target::shared::runtime::RuntimeHelper;
+
+    fn runtime_call(target: &str) -> NirValue {
+        NirValue::RuntimeCall {
+            helper: RuntimeHelper::Tcp,
+            target: target.to_string(),
+            args: Vec::new(),
+            loc: NirSourceLoc::default(),
+        }
+    }
+
+    fn plain_call(target: &str) -> NirValue {
+        NirValue::Call {
+            target: target.to_string(),
+            args: Vec::new(),
+            loc: NirSourceLoc::default(),
+        }
+    }
+
+    /// The list form of `poll` returns a pointer to an element the list still
+    /// owns, so its `RES` bind must register no close (bug-375).
+    ///
+    /// The guard is on the **NIR variant**, not just the name: a built-in
+    /// package's member lowers to `NirValue::RuntimeCall`, and this predicate
+    /// used to match only `Call`/`CallResult`. The `net.poll`/`tls.poll` names it
+    /// listed were therefore never reached, and every `poll(List)` bind was
+    /// classified as an owner -- closing the borrowed element at the bind's scope
+    /// exit and again when the list drained.
+    #[test]
+    fn poll_list_forms_alias_a_live_resource() {
+        for target in ["tcp.poll", "udp.poll", "tls.poll"] {
+            assert!(
+                CodeBuilder::value_aliases_live_resource(&runtime_call(target)),
+                "{target} returns a borrowed list element"
+            );
+        }
+        // A producing member of the same package still transfers ownership.
+        assert!(!CodeBuilder::value_aliases_live_resource(&runtime_call(
+            "tcp.accept"
+        )));
+        // `collections::get`/`getOr` keep their own borrow classification, which
+        // arrives as a plain call rather than a runtime call.
+        assert!(CodeBuilder::value_aliases_live_resource(&plain_call(
+            "collections.get"
+        )));
     }
 }

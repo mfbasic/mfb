@@ -104,11 +104,14 @@ All four backends declare the same set of supported native runtime calls:
   `term.getForeground`, `term.setBackground`, `term.getBackground`,
   `term.setBold`, `term.getBold`, `term.setUnderline`, `term.getUnderline`,
   `term.terminalSize`
-- All `net.*` calls: `net.lookup`, `net.connectTcp`, `net.listenTcp`,
-  `net.accept`, `net.bindUdp`, `net.read`, `net.readText`, `net.write`,
-  `net.writeText`, `net.sendTo`, `net.sendTextTo`, `net.receiveFrom`,
-  `net.receiveTextFrom`, `net.localAddress`, `net.remoteAddress`, `net.close`,
-  `net.poll`, `net.setReadTimeout`, `net.setWriteTimeout`
+- All `net.*` calls: `net.lookup`, `net.ping`, `net.pingAddr`
+- All `tcp.*` calls: `tcp.connect`, `tcp.connectAddr`, `tcp.listen`,
+  `tcp.accept`, `tcp.read`, `tcp.write`, `tcp.writeText`, `tcp.poll`,
+  `tcp.pollList`, `tcp.close`, `tcp.localAddress`, `tcp.remoteAddress`,
+  `tcp.setReadTimeout`, `tcp.setWriteTimeout`
+- All `udp.*` calls: `udp.bind`, `udp.send`, `udp.sendText`, `udp.receive`,
+  `udp.poll`, `udp.pollList`, `udp.close`, `udp.localAddress`,
+  `udp.setReadTimeout`, `udp.setWriteTimeout`
 - All `tls.*` calls: `tls.connect`, `tls.read`, `tls.write`,
   `tls.writeText`, `tls.close`, `tls.listen`, `tls.accept`, `tls.closeListener`
 

@@ -21,7 +21,7 @@ Permissions:
     io.print at src/main.mfb:15
 
 Resources:
-  Socket s at src/main.mfb:11 (standard, close tls.close, may fail)
+  tls.Socket s at src/main.mfb:11 (standard, close tls.close, may fail)
 
 Control flow:
   main at src/main.mfb:10 (fallible)
@@ -32,7 +32,7 @@ Control flow:
     fallible call io.print at src/main.mfb:15 -> return
 
 Findings:
-  info AUDIT-RESOURCE-CLOSE-MAY-FAIL resource `s` (Socket) is closed by lexical drop; explicit `tls.close` is required to observe a close failure (src/main.mfb:11)
+  info AUDIT-RESOURCE-CLOSE-MAY-FAIL resource `s` (tls.Socket) is closed by lexical drop; explicit `tls.close` is required to observe a close failure (src/main.mfb:11)
   info AUDIT-PERM-NETWORK project uses host capability: network
   info AUDIT-PERM-RANDOMNESS project uses host capability: randomness
   info AUDIT-PERM-TERMINAL project uses host capability: terminal
@@ -114,7 +114,7 @@ $ mfb audit --format json tests/syntax/security/bug96_audit_tls_http_crypto
     {
       "function": "main",
       "name": "s",
-      "resourceType": "Socket",
+      "resourceType": "tls.Socket",
       "closeOp": "tls.close",
       "path": "src/main.mfb",
       "line": 11,
@@ -171,7 +171,7 @@ $ mfb audit --format json tests/syntax/security/bug96_audit_tls_http_crypto
       "code": "AUDIT-RESOURCE-CLOSE-MAY-FAIL",
       "severity": "info",
       "category": "resource",
-      "message": "resource `s` (Socket) is closed by lexical drop; explicit `tls.close` is required to observe a close failure",
+      "message": "resource `s` (tls.Socket) is closed by lexical drop; explicit `tls.close` is required to observe a close failure",
       "location": {
         "path": "src/main.mfb",
         "line": 11

@@ -600,13 +600,13 @@ fn socket_and_listener_resources_are_emitted_when_used() {
     f.params = vec![
         IrParam {
             name: "s".to_string(),
-            type_: crate::types::ParameterType::parse("net.Socket"),
+            type_: crate::types::ParameterType::parse("tcp.Socket"),
             default: None,
             loc: loc(),
         },
         IrParam {
             name: "l".to_string(),
-            type_: crate::types::ParameterType::parse("net.Listener"),
+            type_: crate::types::ParameterType::parse("tcp.Listener"),
             default: None,
             loc: loc(),
         },
