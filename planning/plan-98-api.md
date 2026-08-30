@@ -1,6 +1,6 @@
 # plan-98 — Canvas API surface (quick reference)
 
-Last updated: 2026-08-15
+Last updated: 2026-08-30
 
 A flat list of the language-visible API added by plan-98 (consolidated 2D graphics /
 canvas mode). This is the reference the sub-plans implement — all resource calls live
@@ -19,10 +19,13 @@ invisible to MFB.
 **Mode gate:** every `canvas::` call requires `Mode.Canvas` and traps `ErrWrongMode`
 elsewhere. `term::*` traps in canvas mode. **`io::*` works fully in canvas mode**:
 outputs (`io::print`/`io::write`/error variants) go to stdout/stderr, and inputs
-(`io::readByte`/`readChar`/`readLine`) come **from the window** — the same input source
-console mode uses, just delivered from the canvas window's key events. (In `Mode.None`,
-which has no window, `io::` outputs still degrade to stdout/stderr but blocking `io::`
-reads trap — there is nowhere for input to come from.)
+(`io::readByte`/`readChar`/`readLine`/`input`) come **from the window** — the same input
+source console mode uses, just delivered from the canvas window's key events. (In
+`Mode.None`, which has no window, `io::` outputs still degrade to stdout/stderr but the
+gated console reads trap — there is nowhere for input to come from.) The wrong-mode gate
+covers exactly three calls today — `io::input`, `io::readLine`, `io::readChar`;
+`io::readByte` is ungated (see plan-98-A §2). plan-98-A relaxes those three from
+"`Console` only" to "not `None`".
 
 `(fallible)` = returns per the result ABI (tag in x0, value in x1); may trap.
 
@@ -161,12 +164,10 @@ FUNC main AS Integer
   canvas::present(scene)
 
   ' When main returns, the program exits — so keep it alive. The runtime keeps rendering
-  ' the installed scene while we wait. io input comes from the window in canvas mode;
-  ' io::pollInput() (non-blocking) reports whether a keystroke is pending. Tight loop:
-  ' spin until any key is pressed, then exit.
-  WHILE NOT io::pollInput()
-    ' spin until a key is available
-  END WHILE
+  ' the installed scene while we wait. io input comes from the window in canvas mode.
+  ' io::pollInput() with NO argument BLOCKS until input is ready (an optional timeoutMs
+  ' bounds the wait), so this is a single blocking wait, not a spin.
+  LET keyReady AS Boolean = io::pollInput()
 
   RETURN 0
 END FUNC
@@ -188,20 +189,32 @@ END FUNC
 - **Union-variant widening into `List OF DrawItem` is load-bearing** — each bare
   `Circle[…]`/`Arc[…]` must widen to `DrawItem` in the list literal (works per the union
   model; called out so B's type checking covers it).
-- **Variant-constructor qualification needs pinning.** Exported types/enums are bare for
-  importers (`Mode.Canvas`, `Color`; verified against `tests/syntax/app/app_mode_surface_valid`),
-  so the example uses bare `Circle[…]`/`Paint[…]`. But the spec's union-*member* addressing
-  rule shows `extras::Circle[radius := 10.0]` (qualified) for *included* members — so whether
-  a directly-exported union variant is bare `Circle[…]` or `canvas::Circle[…]` must be
-  confirmed against the package/union addressing rules in B's Phase 1 (open item).
+- ~~**Variant-constructor qualification needs pinning.**~~ **RESOLVED 2026-08-30: bare.**
+  `.ai/resources-packages.md:24` states the rule for a new native backend outright —
+  "Declare union variants with BARE ids (no `pkg::Type` normalization)". The spec's
+  qualified `extras::Circle[radius := 10.0]` form applies to *included* union members,
+  not to a directly-exported variant. The example's bare `Circle[…]`/`Paint[…]` is
+  correct as written; B's Phase 1 declares them bare.
 - **Program lifecycle: when `main` returns, the program exits** — so a canvas program must
   keep `main` alive. The example spins on `io::pollInput()` until any key. This drove the
   decision that **`io::*` works in canvas mode** (outputs to stdout/stderr, inputs from the
   window) — otherwise a canvas program would have no way to read input and would need a
   bespoke event API. Wiring window key events into the `io::` input path (mirroring term
   keyboard input) lands in plan-98-A.
-- **A blocking-wait / frame-wait primitive would beat the tight poll loop.** The example's
-  `WHILE NOT io::pollInput()` spin is a busy loop (100% CPU); `io::pollInput(timeoutMs)`
-  takes an optional timeout that would idle it, and a canvas frame-wait / blocking key-wait
-  would be cleaner still (MFB's only sleep today is `thread::sleep(handle, ms)`, which needs
-  a thread handle). Worth considering — noted, not added here.
+- ~~**A blocking-wait primitive would beat the tight poll loop.**~~ **Corrected
+  2026-08-30 — no gap here.** `io::pollInput()` with the argument **omitted already
+  blocks** until standard input is ready
+  (`src/codegen/builtins/io/func_poll_input.rs:198`: "When it is **omitted, `pollInput`
+  blocks** until standard input is ready"), and an optional `timeoutMs` bounds the wait
+  per the plan-73 timeout convention (negative → `ErrInvalidArgument`). The example was
+  rewritten from a `WHILE NOT` spin to a single blocking call; there is no 100%-CPU busy
+  loop and nothing to add. A canvas *frame*-wait is still a possible future convenience,
+  but it is not needed for the keep-main-alive case.
+
+
+## Revision note
+
+**2026-08-30.** Corrected against the tree: the `io::pollInput()` blocking semantics (the
+smiley example no longer spins) and the union-variant qualification open item (resolved:
+bare ids). No API surface changed. The `Mode` enum this references is now registry data in
+`src/codegen/builtins/app/mod.rs`, not a `.mfb` source file — see plan-98-A's Corrections.

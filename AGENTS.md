@@ -88,10 +88,30 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
   * `.ai/testing-gates.md` — artifact-gate, byte-identity, acceptance golden harness,
     perf-golden and concurrency hazards, citation sweeps.
   * `.ai/build-tooling.md` — rustfmt/clippy policy, cross-compile + vendor rebuild mechanics.
-* Creating or updating `mfb man` content → `.ai/man-content.md`. Built-in package,
-  function, and type documentation lives in the registry descriptors and Rust doc
-  comments described there; the old `src/docs/man/**` built-in-page workflow and its
-  generation scripts are retired.
+* Creating or updating `mfb man` content. Two separate sources — pick by page kind:
+  * **Built-in package / function / type pages are rendered from the clean-room
+    registry descriptors**, not from any Markdown file (`src/cli/man.rs:1-15`,
+    `crate::codegen::registry`). Edit the prose fields on the descriptor in
+    `src/codegen/builtins/<pkg>/`: package `MODULE_INTRO`/`MODULE_DESC`
+    (`mod.rs`), per-member `intro`/`desc`/`example` on `RegistryFunction`
+    (`func_*.rs`), `Parameter.desc`, and the `description` on
+    `RegistryRecord`/`RegistryResource`/`EnumVariant`/`UnionVariant`. Verify by
+    rendering: `mfb man <pkg>`, `mfb man <pkg> <func>`, `mfb man <pkg> types`,
+    `mfb man <pkg> --all`.
+  * **Narrative guide topics still live as Markdown** under `src/docs/man/**`
+    (`errors`, `flow`, `lambda`, `link`, `optimizations`, `tooling`, `tour`,
+    `types`, `unicode`) — a directory with a `package.md` is a topic, embedded at
+    build time (`src/docs/man/mod.rs`). Only reached when the first positional is
+    not a known package.
+  * **Do NOT use `.ai/man_template.md` / `man_package_template.md` /
+    `man_type_template.md`.** They are the retired `src/docs/man/**` per-builtin-page
+    workflow (last touched 2026-06-29, before the registry migration) and no longer
+    describe anything real. Several pending plans still cite them; that is stale, not
+    a reason to follow them. `.ai/man-content.md` does not exist either — it is an
+    output plan-108-A has not delivered yet. Until it lands, this bullet is the
+    authority.
+  * Prose fields are `&'static str` the compiler never reads, so no compiler gate
+    catches a doc error — `mfb man` output is the only verification.
 * The embedded spec (`mfb spec`, `src/docs/spec/**`) → `.ai/specifications.md` (keep it
   current with every compiler change).
 * Remote test machines → `.ai/remote_systems.md`.

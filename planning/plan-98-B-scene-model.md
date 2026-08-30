@@ -1,6 +1,6 @@
 # plan-98-B: Canvas scene model — union, deep copy, arena, hashing, RES resources
 
-Last updated: 2026-08-15
+Last updated: 2026-08-30
 Effort: large (3h–1d)
 Depends on: plan-98-A (mode plumbing + reconcile build/teardown must be complete)
 
@@ -14,13 +14,14 @@ deep-copies a scene into runtime-owned storage (nothing points at caller memory)
 hashes each item, populates/reuses the geometry cache, and — this is all pure
 worker-thread logic — is fully unit-testable without a GPU or a graphics thread.
 
-This is design-doc **build step 2**.
+This is **build step 2** of the A–G sequence.
 
 References:
 
-- The design summary — "Type model", "present() Semantics", "Scene Arena Layout",
-  "Geometry Cache", "Resource Lifetime", and the work-split table.
-- plan-98-A cross-cutting invariants 1–4 and 6 (binding here).
+- **plan-98-A** — the feature's top-level design lives in its "Cross-cutting
+  invariants" section; invariants 1–4, 6 and 8 are binding here. There is no separate
+  design document (plan-98-A … plan-98-G + plan-98-api.md are the whole corpus).
+- `planning/plan-98-api.md` — the exact field shapes for every type declared here.
 - `.ai/resources-packages.md` — RES resource system + package authoring seams.
 - `.ai/collections.md` — `List OF` representation (the scene is a language array).
 - `.ai/codegen-invariants.md` — record layout, monomorph, deep-copy patterns.
@@ -31,15 +32,19 @@ References:
 |---|---|---|
 | plan-98-A complete (Canvas mode enters/tears down) | `ls planning/completed/plan-98-A-*` → hit | NOT MET (A precedes B) |
 | Canvas surface handle retrievable in canvas mode | plan-98-A Phase 3 acceptance met | NOT MET |
-| Full suite green at HEAD | `cargo test` → pass | UNVERIFIED |
+| The registry can declare unions/records/resources as data | `rg -n "fn add_union\|fn add_record\|fn add_resource" src/codegen/registry/mod.rs` → 3 hits | MET (2026-08-30) |
+| Working tree builds | `cargo build` → pass | UNVERIFIED (run before starting) |
 
 > plan-98-A is a precondition, not scope. If A is incomplete, B cannot start, full stop.
+> Per A's invariant 8 there is no "full suite green at HEAD" row and no byte-identity
+> obligation in this letter; the full suite runs once, at the end of the plan (G).
 
 ## 1. Goal
 
-- Register the `canvas::` builtin package (`canvas_package.mfb` + `canvas.rs`
-  `BuiltinModule` + `descriptor.rs:REGISTRY` + `mod.rs:ALL_BUILTIN_PACKAGES` +
-  per-backend `runtime_calls`), exposing the closed `DrawItem` UNION type and the
+- Register the `canvas::` builtin package on the clean-room registry
+  (`src/codegen/builtins/canvas/mod.rs:register` + a `register` call in
+  `src/codegen/registry/mod.rs` + `mod.rs:ALL_BUILTIN_PACKAGES` + per-backend
+  `runtime_calls`), exposing the closed `DrawItem` UNION type and the
   calls `canvas::present(items AS List OF DrawItem)` and
   `canvas::presentLayers(layers AS List OF DrawLayer)`, both requiring `Mode.Canvas`.
 - `canvas::present` **deep-copies the scene transitively** (item params, polygon
@@ -88,16 +93,27 @@ References:
 
 ## 2. Current State
 
-- **Package registration seams** (from A's research, re-cited):
-  `src/builtins/descriptor.rs:643:REGISTRY`, `src/builtins/mod.rs:1074:ALL_BUILTIN_PACKAGES`,
-  per-backend `BackendCapabilities.runtime_calls` (`src/target.rs:106`), enforced by
-  `src/target/shared/validate/capabilities.rs:validate_capabilities`. A new call not
-  advertised is a hard compile error.
-- **`term::` as the present precedent:** `src/target/shared/code/term.rs:lower_term_helper`
-  (152), `term::sync` → `term_grid::emit_grid_present`. The `term::` model is *ambient
+- **Package registration seams** (from A's research, re-cited; all verified
+  2026-08-30): every builtin package registers itself on the clean-room registry via
+  `crate::codegen::builtins::<pkg>::register(&mut r)` in
+  `src/codegen/registry/mod.rs:1550-1576` (28 calls today), with the test mirror
+  `src/codegen/builtins/mod.rs:921:ALL_BUILTIN_PACKAGES` (26 user-visible names), and
+  per-backend `BackendCapabilities.runtime_calls` (`src/target.rs:106`) enforced by
+  `src/target/shared/validate/capabilities.rs:7:validate_capabilities`. A new call not
+  advertised is a hard compile error. **`canvas` is greenfield on this model** — a new
+  `src/codegen/builtins/canvas/` directory with `mod.rs` + one `func_*.rs` per member,
+  following `planning/migrate.md`. The registry already carries types as data:
+  `add_union`, `add_record`, `add_enum`, `add_resource`
+  (`src/codegen/registry/mod.rs:1100-1145`), so `DrawItem`/`Paint`/`Image`/`Font` need
+  no new registry machinery. The old `.mfb` package file + `BuiltinModule` +
+  `descriptor.rs:REGISTRY` authoring model this plan was first written against no
+  longer exists (deleted by `4ed7d60de` / `0bf877510`).
+- **`term::` as the present precedent:** `src/codegen/term/core/term.rs:158:lower_term_helper`,
+  `term::sync` → `term_grid::emit_grid_present`. The `term::` model is *ambient
   mutation + present-diffs*; canvas deliberately differs (retained scene, content-hash
-  cache) per the design summary, but the deep-copy-before-handoff discipline is the
-  same lesson as the live→snapshot copy (`term_draw.rs:emit_term_snapshot_copy`).
+  cache — a deliberate divergence, decided here); but the deep-copy-before-handoff
+  discipline is the same lesson as the live→snapshot copy
+  (`term_draw.rs:emit_term_snapshot_copy`).
 - **RES resource system** is the model for `Image`/`Font` (`.ai/resources-packages.md`):
   every resource is a 96-byte record `tag@0 / handle@8 / closed@16 / STATE@24`
   (`RESOURCE_OFFSET_CLOSED = 16`, `RESOURCE_RECORD_SIZE_BYTES = 96`); `close ≠ drop`
@@ -115,17 +131,21 @@ References:
 | What | Count | Command |
 |---|---|---|
 | `DrawItem` variants to define | 8 | Image, Rectangle, Line, Polygon, Circle, Arc, Text, RoundedRect (see plan-98-api.md) |
-| Existing builtin packages in REGISTRY | UNMEASURED | `rg -c '&[a-z_]*::[A-Z_]*,' src/builtins/descriptor.rs` (run Phase 1) |
+| Existing builtin packages on the registry | 28 registered / 26 user-visible | `rg -c 'crate::codegen::builtins::[a-z_]*::register' src/codegen/registry/mod.rs` → 28; `ALL_BUILTIN_PACKAGES` (`src/codegen/builtins/mod.rs:921`) → 26 (2026-08-30) |
 | RES record offsets to reserve for the canvas backend | 4 (`tag@0/handle@8/closed@16/STATE@24`) | `.ai/resources-packages.md` "Adding a NEW native backend" |
 
 ### Verified properties
 
-- **A `List OF DrawItem` is a plain language array** (invariant: retained scene is a
-  language value, cache is runtime-side keyed on content hash). VERIFIED against the
-  design summary's central claim; the array carries no opaque handle.
-- **Deep copy is mandatory** because the render thread reads at arbitrary times.
-  VERIFIED from the design's `present()` semantics; enforced here even though the
-  reader is only a test until D.
+- **A `List OF DrawItem` is a plain language array** — the retained scene is an
+  ordinary language value and the geometry cache is runtime-side, keyed on content
+  hash, so the array carries no opaque handle. This is a **design decision of this
+  plan**, not an external finding; it is what makes `Circle[…]` in a list literal work
+  (plan-98-api.md) and it is what forces the content-hash cache (A invariant 2).
+  Phase 1 proves the type checks and Phase 3 proves the cache; until then it is a
+  decision, not a verified property.
+- **Deep copy is mandatory** because the render thread reads the scene at arbitrary
+  times after `present()` returns — A invariant 3. Enforced here even though the reader
+  is only a test until D. Phase 2's caller-frame-drop test is what actually proves it.
 - **The RES closed flag is sufficient for lifetime; no refcount is needed.** VERIFIED
   from the model: `close ≠ drop` and scope-ownership floats to the outermost scope, so a
   single owner ends the resource's life via `closed@16`. Scenes reference the id (an
@@ -140,7 +160,7 @@ Four layered pieces, worker-thread only:
 1. **`canvas::` package + `DrawItem`/`DrawLayer`/`Paint` types + `present`/
    `presentLayers` signatures.** Registration and the closed union. Lowest risk.
 2. **Scene arena + transitive deep copy.** A runtime-owned arena
-   (`mfb.runtime.canvas_scene.v1` per the design's layout: `revision`, `itemCount`,
+   (`mfb.runtime.canvas_scene.v1`, laid out as: `revision`, `itemCount`,
    `generation`, `damage`, `hashes[]`, `bounds[]`, `vtxOffset[]`, `vtxCount[]`,
    `params[]`). `present()` walks the incoming list and copies every reachable byte
    into `params[]`.
@@ -166,10 +186,9 @@ variable-length payloads (polygon points, strings). Resolve the encoding before 
 since the hash spans the copied bytes. (The resource model is settled: RES closed-flag,
 no table decision to make.)
 
-**Byte-identity is not this sub-plan's gate.** This is new behavior; it is verified by
-unit tests over the copy/hash/cache/resource-close logic (pure worker-thread, GPU-free — the
-design's step-2 selling point). Non-canvas programs remain byte-identical (verified via
-the corpus), but that is a guardrail, not the acceptance criterion.
+**There is no byte-identity gate here** (A's invariant 8). This is new behavior; it is
+verified by unit tests over the copy/hash/cache/resource-close logic (pure
+worker-thread, GPU-free — which is the point of sequencing this as step 2).
 
 **Rejected alternatives:**
 - *Store geometry in the user-visible `DrawItem`.* Rejected: it would force opaque
@@ -201,24 +220,41 @@ the corpus), but that is a guardrail, not the acceptance criterion.
       canvas resource record reserves `tag@0/handle@8/closed@16/STATE@24` and how close
       dispatch / scope-drop reclaim are wired (`resource_close_function`, LINK thunks).
       Record the offsets/wiring in Corrections.
-- [ ] Create `src/builtins/canvas_package.mfb` (`EXPORT UNION DrawItem` with the 8
-      frozen variants — Image, Rectangle, Line, Polygon, Circle, Arc, Text, RoundedRect;
-      `DrawLayer`, `Paint`, `Color`, `Point`, `Size`, `Bounds`, `TextMetrics` records;
-      `Image`/`Font` RES types; `present`/`presentLayers`/`rgb`/`rgba` signatures; helper
-      bodies stay in the `.mfb`, member codegen in `canvas.rs` per the migration pattern in
-      `.ai/resources-packages.md`). Field shapes per plan-98-api.md.
-- [ ] Create `src/builtins/canvas.rs` `CANVAS: BuiltinModule`; register in
-      `descriptor.rs:REGISTRY` and `mod.rs:ALL_BUILTIN_PACKAGES`; advertise the new
-      calls in each `--app` backend's `runtime_calls`; add runtime helper specs.
+- [ ] Read `planning/migrate.md` (the canonical builtin-package authoring procedure)
+      before writing any of it. `canvas` is a **new** clean-room package, so it starts
+      at the migration playbook's end state — there is no `.mfb` package file and no
+      `BuiltinModule`.
+- [ ] Create `src/codegen/builtins/canvas/mod.rs` with `pub(crate) fn register(r: &mut
+      Registry)` building a `RegistryPackage::new("canvas", …)`, declaring the types as
+      registry data: `add_union` for `DrawItem` with the 8 frozen variants (Image,
+      Rectangle, Line, Polygon, Circle, Arc, Text, RoundedRect); `add_record` for
+      `DrawLayer`, `Paint`, `Color`, `Point`, `Size`, `Bounds`, `TextMetrics`;
+      `add_resource` for `Image`/`Font`. Field shapes per plan-98-api.md. Declare union
+      variants with **bare** ids (no `pkg::Type` normalization) per
+      `.ai/resources-packages.md:24` — this also settles the Open Decision below.
+- [ ] One `func_*.rs` per member (`func_present.rs`, `func_present_layers.rs`,
+      `func_rgb.rs`, …), each with its own `register(pkg: &mut RegistryPackage)` and a
+      `Body`. **Only `Body::abi_inline` and `Body::abi_function` are sanctioned**
+      lowering shapes — do not invent a variant. `present`/`presentLayers` and the
+      resource calls are OS-seam/heavy work → `abi_function`; `rgb`/`rgba` are pure
+      arithmetic on pre-lowered args → `abi_inline`.
+- [ ] Add `crate::codegen::builtins::canvas::register(&mut r);` to
+      `src/codegen/registry/mod.rs`, add `"canvas"` to
+      `src/codegen/builtins/mod.rs:ALL_BUILTIN_PACKAGES`, and advertise the new calls in
+      each `--app` backend's `runtime_calls` (`src/target/macos_aarch64/mod.rs:33`,
+      `src/target/linux_common/mod.rs`, `src/target/win_x86_64/`).
 - [ ] Gate every `canvas::` call on `Mode.Canvas` (reuse the mode-gate seam;
-      `canvas::present` in `Console`/`None` traps `ErrWrongMode`, per the design's I/O
-      matrix).
+      `canvas::present` in `Console`/`None` traps `ErrWrongMode`, per the mode gate
+      in plan-98-api.md).
 - [ ] Tests: package imports only in `--app` builds; `canvas::present` traps
       `ErrWrongMode` outside canvas mode; the union type is exhaustively matchable.
 
 Acceptance: a `--app` program imports `canvas::`, and `canvas::present` compiles in
 canvas mode and traps `ErrWrongMode` elsewhere; `validate_capabilities` passes on all
-backends; full `cargo test` green.
+backends. Run only `cargo test --bin mfb codegen::builtins::canvas`, the registry
+consistency tests (`cargo test --bin mfb codegen::registry`), and the new syntax
+fixtures — the registry's own `catalog_is_consistent` / `ALL_BUILTIN_PACKAGES` tests are
+the ones a new package can break.
 Commit: —
 
 ### Phase 2 — Scene arena + transitive deep copy
@@ -293,7 +329,9 @@ Commit: —
 Acceptance: canvas `Image`/`Font` load/close/scope-drop exactly like a file resource
 (reclaim, transfer, double-close no-op all correct); `present()` does zero refcount work;
 a closed image marks its texture pending-free without B freeing it; `setBytes` rejects a
-wrong pixel count and `getBytes`/`getSize` reflect the shadow. Full `cargo test` green.
+wrong pixel count and `getBytes`/`getSize` reflect the shadow. Run only the new
+resource tests plus the existing RES-lifecycle targets this touches
+(`cargo test --bin mfb resource`, `rg -rln "resource" tests/ | head`).
 Commit: —
 
 ## Validation Plan
@@ -313,7 +351,8 @@ Commit: —
   closed-flag, no refcount); man pages for `canvas::present`, `presentLayers`, `loadImage`,
   `createImage`, `destroyImage`, `loadFont`, `destroyFont`, `getBytes`, `setBytes`,
   `getSize`, `rgb`, `rgba`, `measureText` per the man templates.
-- Acceptance: full `cargo test`; non-canvas byte-identity corpus unchanged; fmt.
+- Acceptance: the per-phase targeted tests above — **no full-suite run and no
+  byte-identity check in this letter** (A's invariant 8); fmt.
 
 ## Open Decisions
 
@@ -323,16 +362,38 @@ Commit: —
   to G** (it has no consumer until damage-rect present); keep only the cheap
   whole-sequence frame-skip in B. Note the deferral in Phase 3 rather than computing
   unused work (invariant against per-frame waste). (§Phase 3)
-- **`DrawItem` variant constructor qualification** — bare `Circle[…]` (like the exported
-  `Mode` enum, verified in `tests/syntax/app/app_mode_surface_valid`) vs qualified
-  `canvas::Circle[…]` (the spec's *included* union-member rule shows `extras::Circle[…]`).
-  Recommended: confirm which applies to a directly-exported union variant against the
-  package/union addressing checker in Phase 1 and make the man-page examples match.
-  (surfaced by the plan-98-api.md smiley example)
+- ~~**`DrawItem` variant constructor qualification**~~ — **RESOLVED 2026-08-30: bare
+  `Circle[…]`.** `.ai/resources-packages.md:24` states the rule directly for a new
+  native backend: "Declare union variants with BARE ids (no `pkg::Type`
+  normalization)." The spec's qualified `extras::Circle[…]` form applies to *included*
+  union members, not directly-exported variants. Phase 1 declares them bare and the man
+  examples match. (surfaced by the plan-98-api.md smiley example)
 
 ## Corrections
 
-<Filled in during execution — especially the RES record wiring and payload encoding.>
+**2026-08-30 — pre-execution revision (no code written yet).** See plan-98-A's
+Corrections for the full account; applied here:
+
+1. **Package-authoring model replaced.** The `.mfb` package file + `canvas.rs
+   BuiltinModule` + `descriptor.rs:REGISTRY` + `mod.rs:ALL_BUILTIN_PACKAGES` recipe this
+   plan was written against was deleted by `0bf877510` (2026-08-10) / `4ed7d60de`
+   (2026-08-16). `canvas` is now a greenfield clean-room package under
+   `src/codegen/builtins/canvas/`, authored per `planning/migrate.md`, with types as
+   registry data (`add_union`/`add_record`/`add_resource`, already present at
+   `src/codegen/registry/mod.rs:1100-1145`) and `Body::abi_inline`/`Body::abi_function`
+   as the only sanctioned lowering shapes. Net effect: **less** work than the plan
+   assumed, not more.
+2. **Citation remap.** 6 stale `src/builtins/*` / `src/target/shared/code/*` mentions
+   repointed; `lower_term_helper` is now `src/codegen/term/core/term.rs:158`. The RES
+   record layout claim (`tag@0/handle@8/closed@16/STATE@24`, 96-byte envelope) was
+   re-verified against `.ai/resources-packages.md:203` and **still holds** — Phase 4 is
+   unaffected.
+3. **Byte-identity and full-suite acceptance removed** per A's invariant 8.
+4. **Open Decision on variant qualification resolved** (bare ids) from
+   `.ai/resources-packages.md:24`.
+
+<Further corrections filled in during execution — especially the RES record wiring and
+payload encoding.>
 
 ## Summary
 

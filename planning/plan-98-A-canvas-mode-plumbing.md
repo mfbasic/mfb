@@ -1,6 +1,6 @@
 # plan-98-A: Canvas presentation mode — mode plumbing & reconcile seam
 
-Last updated: 2026-08-15
+Last updated: 2026-08-30
 Overall Effort: huge (>3d)
 Effort: x-large (1d–3d) — split A-1 (enum + gate + surface, Phases 1–3) / A-2 (window
 keyboard input, Phase 4) if it exceeds one sitting
@@ -11,19 +11,22 @@ enum and wires the per-platform reconcile seam to **build and tear down an
 empty layer-backed surface** on entry/exit — no drawing, no GPU. The single
 checkable outcome: a program that calls `app::setMode(Mode.Canvas)` in an
 `--app` build enters canvas mode, a blank canvas surface is created on the UI
-thread (macOS `CAMetalLayer`-capable view / GTK window / Win32 HWND), switching
-back to `Console`/`None` tears it down cleanly, and every existing app-mode and
-console test stays byte-identical because the new slot value and gate are inert
-for programs that never select `Canvas`.
+thread (macOS `CAMetalLayer`-capable view / GTK window / Win32 HWND), and switching
+back to `Console`/`None` tears it down cleanly.
 
-This is design-doc **build step 1**. It validates the mode plumbing against the
-existing test suite before any scene/GPU machinery exists.
+This is **build step 1** of the A–G sequence. It validates the mode plumbing before any
+scene/GPU machinery exists.
 
 References:
 
-- The design summary (this feature's north star) — the "Integration With Existing
-  App Mode", "Mode-gated I/O", "Teardown on mode switch", and "Platform Surfaces"
-  sections.
+> **plan-98-A is the north star for this feature.** There is no separate design
+> document: `planning/plan-98-A` … `plan-98-G` plus `planning/plan-98-api.md` are the
+> entire corpus. This file's "Cross-cutting invariants" section below is the top-level
+> design; `plan-98-api.md` is the language-visible surface. Nothing else exists — do not
+> go looking for one, and do not cite one.
+
+- `planning/plan-98-api.md` — the full language-visible API (types, calls, error
+  contract, worked example).
 - `src/docs/spec/app/05_presentation-mode.md` — the mode model, "universal I/O
   degrades, specialized I/O hard-fails" asymmetry, the presentation-mode slot.
 - `src/docs/spec/app/04_term-backend.md` — the content-view swap (`term::on`/`off`)
@@ -41,7 +44,7 @@ References:
 split by effort into lettered sub-plans; **letter order is implementation order**
 (A lands before B before C …). Each is a complete plan file.
 
-| Letter | Scope (design-doc build step) | Effort | Depends on |
+| Letter | Scope (build step) | Effort | Depends on |
 |---|---|---|---|
 | **A** | `Mode.Canvas` variant + reconcile-seam build/teardown of an empty surface + `io::` gate & window keyboard input (step 1) | x-large→split A-1/A-2 if it grows | — |
 | **B** | `DrawItem` union, deep copy, scene arena, content hashing, `Image`/`Font` as RES resources (step 2) | large | A |
@@ -49,10 +52,12 @@ split by effort into lettered sub-plans; **letter order is implementation order*
 | **D** | Graphics thread + triple-buffer scene ring + resize handshake + **deferred texture free** (closed-flag + frame-drain) (step 4) | x-large→split if it grows | C |
 | **E** | Metal backend (step 5) | large | D |
 | **F** | Vulkan backend — Linux + Windows (step 6) | x-large→split if it grows | E |
-| **G** | Text (stb path), atlas eviction, `measureText`/`TextMetrics`, damage-rect present (step 7) | large | F |
+| **G** | Text (stb path), atlas eviction, `measureText`/`TextMetrics`, damage-rect present (step 7) **+ the plan's closeout: its one full-suite run** | large | F |
 
-A–D deliver the design doc's "fully shippable software-path product" (canvas mode
-that renders correctly headless with no GPU). E–G add GPU backends and real text.
+A–D deliver a **fully shippable software-path product** (canvas mode that renders
+correctly headless with no GPU). E–G add GPU backends and real text.
+**The full `cargo test --no-fail-fast` suite runs once, at the end of the whole
+plan (G's closeout) — not per letter and not per phase** (invariant 8).
 E/F/G phase detail is written against the scene format that C/D make real; where a
 GPU specific is not yet pinnable it is marked `UNVERIFIED`/`UNMEASURED` in that
 sub-plan, to be resolved when D lands — never guessed.
@@ -102,13 +107,15 @@ letter re-litigates them.
      retain resources; the closed flag alone ends a resource's life. Lands in B (RES
      backend + close helper) and D (the `lastUsedFrame`/`lastCompletedFrame` free gate).
 
-5. **GPU goldens are tolerance-based; the software backend is the byte-identity
+5. **GPU goldens are tolerance-based; the software backend is the exact-match
    oracle.** Blending, AA, SDF `fwidth`, and sRGB rounding differ per driver/GPU, so
-   Metal/Vulkan output will not be byte-identical to each other or to the software
-   rasteriser. Decision: the **software** backend gets deterministic byte-identity
-   goldens (the CI oracle, per this repo's `tests/byte-identity/` discipline); GPU
-   backends are compared to the software reference with a per-channel epsilon / SSIM
-   tolerance. This is settled in C and binds E/F.
+   Metal/Vulkan output will not match each other or the software rasteriser exactly.
+   Decision: the **software** backend gets deterministic **exact-match reference
+   images** (the CI oracle); GPU backends are compared to that software reference with
+   a per-channel epsilon / SSIM tolerance. This is settled in C and binds E/F.
+   These reference images are **new artifacts this plan creates** — they are an oracle
+   for a new rasteriser, not instances of the repo's `tests/byte-identity/` codegen
+   drift gate, which invariant 8 puts out of scope for the whole plan.
 
 6. **The `DrawItem` variant set is closed up front.** Adding a variant to a
    user-visible `UNION` is a breaking change (a `SELECT CASE` over it becomes
@@ -118,7 +125,26 @@ letter re-litigates them.
 
 7. **Software backend is permanent and first-class**, not a fallback: it keeps the
    GPU backends honest via golden images, guarantees canvas mode can never fail for
-   lack of a GPU, and lets the full suite run headless.
+   lack of a GPU, and lets the whole feature be tested headless.
+
+8. **This is new work: no byte-identity gate, and no full-suite run until the end.**
+   Two testing-policy decisions, binding on every letter:
+   - **No codegen byte-identity obligation anywhere in plan-98.** Per AGENTS.md,
+     `.ncode`/`.ncodesum` byte-identity is a *drift sentinel for pure code motion*;
+     plan-98 adds new behavior, so there is nothing for its output to be identical to.
+     No letter asserts "the `tests/byte-identity/` corpus is unchanged", runs
+     `artifact-gate.sh`, or shapes a change to keep bytes stable. If an unrelated
+     fixture's `.ncode` does drift, that is an ordinary regression to root-cause — not
+     a gate this plan owns. (The one exception is *terminology*: C's software-raster
+     **reference images** are exact-match by design — invariant 5 — because they are
+     this plan's own new oracle.)
+   - **Run only the tests the phase adds or touches; run the full suite once, at the
+     end of the plan.** Each phase's acceptance is its own new tests plus whatever
+     existing targets its change can actually reach (scope by blast radius). The
+     single full `cargo test --no-fail-fast` run — plus the acceptance harness
+     (`test-accept.sh`, which is *not* in `cargo test`) — is G's closeout. Use
+     `--no-fail-fast`: plain `cargo test` stops at the first failing target and
+     silently skips every `rt_*` runtime test that sorts after it.
 
 ## Prerequisites
 
@@ -126,10 +152,14 @@ This is sub-plan A; it has no plan dependency. Its preconditions are environment
 
 | Must be true | Command | Status |
 |---|---|---|
-| App-mode enum & reconcile seam exist as described | `rg -n "EXPORT ENUM Mode" src/builtins/app_package.mfb` → hit | MET |
-| Reconcile hook is a platform trait method | `rg -n "fn emit_app_mode_reconcile" src/target/shared/code/types.rs` → hit | MET |
-| Presentation-mode slot machinery is live | `rg -n "presentation_mode_offset" src/target/shared/code` → hits | MET |
-| Full suite green at HEAD | `cargo test` → pass | UNVERIFIED (run before starting) |
+| The `Mode` enum is a registry descriptor (no `.mfb` companion) | `rg -n 'add_enum\(RegistryEnum' src/codegen/builtins/app/mod.rs` → hit | MET (2026-08-30) |
+| Reconcile hook is a platform trait method | `rg -n "fn emit_app_mode_reconcile" src/codegen/engine/types/types.rs` → hit | MET (2026-08-30) |
+| Presentation-mode slot machinery is live | `rg -n "presentation_mode_offset" src/codegen src/target` → hits | MET (2026-08-30) |
+| `app.getMode`/`app.setMode` are `Body::abi_function` members | `rg -n "Body::abi_function" src/codegen/builtins/app/` → 2 hits | MET (2026-08-30) |
+| Working tree builds | `cargo build` → pass | UNVERIFIED (run before starting) |
+
+> Per invariant 8 there is deliberately **no** "full suite green at HEAD" row: the
+> full suite runs once at the end of the plan, not before each letter.
 
 > The Status column is a snapshot; the Command column is the truth. Re-run and
 > re-confirm before starting and before stopping.
@@ -156,72 +186,94 @@ This is sub-plan A; it has no plan dependency. Its preconditions are environment
 
 - **No change to `Console = 0` / `None = 1` discriminants or their stored slot
   values.** `Canvas = 2` is appended; discriminants are declaration order and are
-  the stored value with no remap (`app_package.mfb` enum comment).
+  the stored value with no remap (`src/codegen/builtins/app/mod.rs:register` doc
+  comment).
 - **No new `Result`-typed surface in `app::`.** Mode entry failure surfaces via the
   existing trappable-error path, matching `term::` (which has no `Result` returns).
-- **Byte-identical output for every non-app (console) program**, and for app-mode
-  programs that use neither the changed `io::`-read gate nor `Canvas`. The new slot value,
-  the appended enum variant, and the `term::`/`canvas::` gate are inert when
-  `presentation_mode_offset` is `None`. **Expected diff (the plan working, not failing):**
-  the blocking-`io::`-read gate predicate at `mod.rs:2529` changes from "trap unless
-  `Console`" to "trap only in `None`", so **app-mode fixtures containing a blocking `io::`
-  read will have an intentional gate-codegen diff** — re-baseline those specific golden
-  lines with the behavior proof (io read now permitted in `Canvas`, still trapped in
-  `None`), per AGENTS.md. Console (`== 0`) and `None` (`== 1`) read behavior is unchanged;
-  only the emitted comparison differs.
+- **No behavior change for non-canvas programs.** The new slot value, the appended
+  enum variant, and the `term::`/`canvas::` gate are inert when
+  `presentation_mode_offset` is `None`; `Console` (`== 0`) and `None` (`== 1`) read
+  behavior is unchanged. This is a *behavioral* claim proven by targeted tests, **not**
+  a byte-identity claim — per invariant 8 this plan asserts nothing about
+  `.ncode`/`.ncodesum` output. Phase 2 does change the emitted comparison in the
+  console-read gate (from "trap unless `Console`" to "trap only in `None`"), so
+  app-mode codegen for those three helpers legitimately differs; that is the plan
+  working.
 - No `canvas::` drawing package yet (that is B onward). This sub-plan may register
   the package *shell* only if needed to host `setMode` gating; drawing calls are not
   added here.
 
 ## 2. Current State
 
-App mode already solved the hard structural problems this feature extends. Cited:
+App mode already solved the hard structural problems this feature extends. Cited
+**against the tree as of 2026-08-30** — every path below moved in the two
+restructurings that landed right after this plan was first written (`4ed7d60de`
+"app: migrate onto clean-room registry", 2026-08-16, deleted
+`src/builtins/app_package.mfb`; `f32179ed4` "relocate target-generic codegen into a
+tiered `src/codegen`", 2026-08-17, deleted `src/target/shared/code/`):
 
-- **`Mode` enum, source of truth:** `src/builtins/app_package.mfb` — `EXPORT ENUM
-  Mode` with `Console = 0`, `None = 1`; the comment states discriminants are exactly
-  the stored values and that a future `Canvas` mode is "a new variant appended here".
-  Type surfaced to the compiler in `src/builtins/app.rs:APP` via `APP_TYPES`
-  (`Mode` as `TypeKind::Enum`); callables `app.getMode`/`app.setMode`
-  (`GET_MODE`/`SET_MODE`, both `Lowering::Inline`).
+- **`Mode` enum, source of truth:** `src/codegen/builtins/app/mod.rs:register` —
+  `pkg.add_enum(RegistryEnum { name: "Mode", variants: [Console, None] })`. There is
+  **no `.mfb` companion source**: the registry renders the enum into the injected
+  package source (`get_mfb`), exactly as `money`/`datetime` do. The `register` doc
+  comment states variant declaration order fixes the discriminants and that those are
+  the values `setMode`/`getMode` store and load. The two callables are
+  `app.getMode`/`app.setMode`, each registering itself from its own
+  `func_get_mode.rs`/`func_set_mode.rs`, both **`Body::abi_function`**
+  (`func_get_mode.rs:87`, `func_set_mode.rs:111`). The old `BuiltinModule`/`APP_TYPES`/
+  `TypeKind::Enum`/`Lowering::Inline` vocabulary is gone tree-wide.
 - **Mode storage = arena slot:** a per-arena presentation-mode word at
-  `presentation_mode_offset` (`src/target/shared/code/types.rs:1135`; seeded by
-  `src/target/shared/code/entry.rs:23:seed_presentation_mode_offset`), reserved one
-  slot past the `term::` state region, app builds only. Non-app builds reserve no
-  slot (`Option<usize>` is `None`), which is what keeps console output byte-identical.
-- **setMode codegen:** `src/target/shared/code/app.rs:emit_set_mode` **stores the
-  discriminant to the slot, then calls the reconcile seam** — store-before-reconcile
-  so the seam re-reads the authoritative mode from memory, not a clobbered register
-  (its doc comment says so explicitly). `emit_get_mode` loads the word.
+  `presentation_mode_offset` (`src/codegen/engine/types/types.rs:1294`
+  `seed_presentation_mode_offset`; seeded in
+  `src/codegen/engine/builder/mod.rs:1101`), reserved one slot past the `term::` state
+  region, app builds only. Non-app builds reserve no slot (`Option<usize>` is `None`),
+  which is what makes the gate inert for console programs.
+- **setMode codegen:** `src/codegen/builtins/app/func_set_mode.rs:lower_set_mode`
+  **stores the discriminant to the slot, then calls the reconcile seam** —
+  store-before-reconcile so the seam re-reads the authoritative mode from memory, not
+  a clobbered register (its doc comment says so explicitly, and specifically
+  anticipates that "in C/D the reconcile emits register-clobbering `bl`s").
+  `func_get_mode.rs:lower_get_mode` loads the word.
 - **Reconcile seam (the hook this sub-plan implements a `Canvas` arm of):**
-  `src/target/shared/code/types.rs:1087:CodegenPlatform::emit_app_mode_reconcile`
-  (default no-op → `None`), called from `emit_set_mode`.
-  - macOS: `src/target/macos_aarch64/code.rs:212` → `src/target/macos_aarch64/app/mod.rs:emit_reconcile_seam`
-    (mod.rs:716); worker marshals `mfbReconcile:` to the main thread via
+  `src/codegen/engine/types/types.rs:1157:CodegenPlatform::emit_app_mode_reconcile`
+  (default no-op → `None`), called from `lower_set_mode` (`func_set_mode.rs:41`).
+  - macOS: `src/target/macos_aarch64/code.rs:249` → `src/target/macos_aarch64/app/mod.rs:emit_reconcile_seam`
+    (mod.rs:721); worker marshals `mfbReconcile:` to the main thread via
     `performSelectorOnMainThread:waitUntilDone:YES`. Symbols `RECONCILE_SYMBOL`
-    (`_mfb_macapp_reconcile`), `RECONCILE_MARSHAL_SYMBOL` (worker side, **no-op when
-    headless** — no run loop to drain), `RECONCILE_BUILD_SYMBOL` (builds a transcript
-    window on first `None`→`Console`).
-  - Linux: `src/target/linux_gtk/bootstrap.rs:emit_reconcile_seam` (318) marshals via
+    (`_mfb_macapp_reconcile`, mod.rs:353), `RECONCILE_MARSHAL_SYMBOL` (worker side,
+    **no-op when headless** — no run loop to drain), `RECONCILE_BUILD_SYMBOL`
+    (mod.rs:363 — builds a transcript window on first `None`→`Console`).
+  - Linux: `src/target/linux_common/code.rs:520:emit_app_mode_reconcile` →
+    `src/target/linux_gtk/bootstrap.rs:emit_reconcile_seam` (320) marshals via
     `g_idle_add`; callback `emit_reconcile_idle_helper` (348). A `None`-start program
-    takes `g_application_hold` (289) which the reconcile balances.
+    takes `g_application_hold` (291) which the reconcile balances.
   - Windows: GDI path in `src/target/win_x86_64/app/mod.rs` (no `term::`-style reconcile
     build helper today; the new mode's teardown/build hook is new code here).
 - **Worker/main split the surface build hooks into:**
   - macOS `src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap` — `_main`
-    allocs `NSWindow`, synthesizes `TermView : NSView` (bootstrap.rs:212); worker is a
-    pthread spawned from `applicationDidFinishLaunching:` via `gui_defer_worker`
-    (bootstrap.rs:521).
+    allocs `NSWindow`, synthesizes `TermView : NSView`; worker is a pthread spawned
+    from `applicationDidFinishLaunching:` via `gui_defer_worker`.
   - Linux `src/target/linux_gtk/bootstrap.rs:emit_activate_handler` (121) builds the
     `gtk_application_window_new` window and spawns the worker; a `None`-default program
-    skips the surface and holds the app.
+    skips the surface and holds the app (`g_application_hold`, bootstrap.rs:291).
   - Windows `src/target/win_x86_64/app/mod.rs` — `_main` `RegisterClassExW`/
     `CreateWindowExW`, worker `WORKER_SYMBOL`, `WNDPROC_SYMBOL` handles `WM_DESTROY`.
+    Its own presentation-mode guard is at `win_x86_64/app/mod.rs:1749`.
 - **Mode-gated I/O asymmetry (the model the `Canvas` gate extends):**
-  `src/target/shared/code/app.rs:prepend_wrong_mode_gate` loads the presentation slot,
-  branches on `== 0` (Console) else raises trappable `ErrWrongMode`; applied at
-  `src/target/shared/code/mod.rs:1977` (every app-mode `term::` helper) and `mod.rs:2529`
-  (blocking `io::` reads). `io::print` **degrades to stdout** outside `Console`
-  (`src/docs/spec/app/05_presentation-mode.md:88-91`, "universal I/O degrades,
+  `src/codegen/app/hook/app.rs:33:prepend_wrong_mode_gate` (plan-62-E) loads the
+  presentation slot, branches on `== 0` (Console) else raises trappable `ErrWrongMode`.
+  It has exactly **two** call sites today:
+  - `src/codegen/builtins/term/gen_shared.rs:95` — every app-mode `term::` helper.
+  - `src/codegen/engine/builder/mod.rs:1988` — the console-reading `io::` helpers,
+    gated on the literal predicate `matches!(spec.call, "io.input" | "io.readLine" |
+    "io.readChar")`.
+
+  **Correction to this plan's first draft:** `io.readByte` is **not** in that list and
+  never has been — `git log -S` over the predicate finds a single author commit,
+  `b7964aa43` (plan-62-E), which shipped the three-call form. So `io::readByte`
+  already works outside `Console` today; Phase 2's gate relaxation covers three calls,
+  not four. `io::print` **degrades to stdout** outside `Console`
+  (`src/docs/spec/app/05_presentation-mode.md:86-93`, "universal I/O degrades,
   specialized I/O hard-fails"). This sub-plan **relaxes the read gate** so `Canvas` (not
   just `Console`) permits reads.
 - **Window key events already feed the `io::` read path in app mode** (so Phase 4 is a
@@ -232,47 +284,55 @@ App mode already solved the hard structural problems this feature extends. Cited
   `src/docs/spec/app/03_console-io.md`; the term keyboard-input work,
   plan-69-term-keyboard-input). Canvas reuses this: its window's key handler feeds the same
   path the term view does.
-- **Package registration seams (for the `canvas::` shell, used from B on):**
-  `src/builtins/descriptor.rs:643:REGISTRY`, test mirror
-  `src/builtins/mod.rs:1074:ALL_BUILTIN_PACKAGES`, per-backend advertised calls
-  `BackendCapabilities.runtime_calls` (`src/target.rs:106`, e.g.
+- **Package registration seams (for the `canvas::` shell, used from B on):** every
+  builtin package now registers itself on the clean-room registry —
+  `src/codegen/registry/mod.rs:1550-1576` (28 `crate::codegen::builtins::<pkg>::register(&mut r)`
+  calls), test mirror `src/codegen/builtins/mod.rs:921:ALL_BUILTIN_PACKAGES` (26
+  user-visible names; `general` and `testing` are internal), per-backend advertised
+  calls `BackendCapabilities.runtime_calls` (`src/target.rs:106`, e.g.
   `src/target/macos_aarch64/mod.rs:33`), enforced by
-  `src/target/shared/validate/capabilities.rs:validate_capabilities`.
-- **Headless harness:** `MFB_MACAPP_HEADLESS` (`src/target/macos_aarch64/app/mod.rs:75:STR_HEADLESS_ENV`,
-  read in bootstrap.rs:71-79 — skips window + `[NSApp run]` but runs full AppKit
+  `src/target/shared/validate/capabilities.rs:7:validate_capabilities`. The registry
+  already exposes `add_record` / `add_union` / `add_enum` / `add_resource`
+  (`src/codegen/registry/mod.rs:1100-1145`), so B's `DrawItem` union and `Image`/`Font`
+  resources are declarable as registry data with no new machinery. The authoring
+  procedure is `planning/migrate.md`.
+- **Headless harness:** `MFB_MACAPP_HEADLESS` (`src/target/macos_aarch64/app/mod.rs:80:STR_HEADLESS_ENV`,
+  read in bootstrap.rs:87 — skips window + `[NSApp run]` but runs full AppKit
   construction + worker), `MFB_WINAPP_HEADLESS`, and the GTK equivalent.
-  `scripts/test-macapp.sh` builds+launches a bundle headless. Byte-identity codegen
-  corpus at `tests/byte-identity/term/golden/`.
+  `scripts/test-macapp.sh` builds+launches a bundle headless.
 
 ### Measured populations
 
 | What | Count | Command |
 |---|---|---|
-| `Mode` enum variants today | 2 (Console, None) | `rg -n "Console = 0\|None = 1" src/builtins/app_package.mfb` |
-| Platform reconcile impls to add a `Canvas` arm to | 3 (macos, linux_gtk, win) | `rg -rn "emit_app_mode_reconcile\|emit_reconcile_seam" src/target` |
-| Backends advertising `app.setMode` in `runtime_calls` | UNMEASURED | `rg -n '"app.setMode"' src/target/*/mod.rs src/target/*/*.rs` (run in Phase 1) |
-| Sites reading the presentation slot / gating on mode | 2 gate sites | `rg -n "prepend_wrong_mode_gate" src/target/shared/code/mod.rs` |
+| `Mode` enum variants today | 2 (Console, None) | `rg -n '"Console"\|"None"' src/codegen/builtins/app/mod.rs` |
+| Platform reconcile impls to add a `Canvas` arm to | 3 (macos, linux_common→gtk, win) | `rg -rn "emit_app_mode_reconcile\|emit_reconcile_seam" src/target` |
+| Backends advertising `app.setMode` in `runtime_calls` | 2 files (`macos_aarch64/mod.rs:37`, `linux_common/mod.rs:52`) | `rg -rln '"app.setMode"' src/target/` (2026-08-30) |
+| Sites reading the presentation slot / gating on mode | 2 gate call sites | `rg -rn "prepend_wrong_mode_gate\(" src/ \| grep -v hook/app.rs` |
 
 ### Verified properties
 
-- **Appending `Canvas = 2` is slot-safe.** VERIFIED from `app_package.mfb`'s own
-  comment that discriminants are declaration order and are the stored value with no
-  remap; existing stored values `0`/`1` are undisturbed.
+- **Appending `Canvas = 2` is slot-safe.** VERIFIED from the `register` doc comment in
+  `src/codegen/builtins/app/mod.rs`: variant declaration order fixes the discriminants,
+  and those are the values `setMode`/`getMode` store and load, with no remap. Existing
+  stored values `0`/`1` are undisturbed by appending a third `EnumVariant`.
 - **The gate no-ops for non-canvas programs.** VERIFIED by the existing
-  `prepend_wrong_mode_gate` pattern being a no-op when `presentation_mode_offset` is
-  `None`; a `Canvas` arm added to the same branch inherits that.
+  `prepend_wrong_mode_gate` pattern (`src/codegen/app/hook/app.rs:39` — early-returns
+  when `presentation_mode_offset` is `None`); a `Canvas` arm added to the same branch
+  inherits that.
 - **Headless construction exercises the surface path without a window server on
-  macOS.** VERIFIED from bootstrap.rs:71-79 (headless still runs AppKit construction +
-  worker). UNVERIFIED for the GTK/Windows equivalents doing full surface construction
-  headless — Phase task confirms before relying on it.
+  macOS.** VERIFIED from `src/target/macos_aarch64/app/bootstrap.rs:87` (headless still
+  runs AppKit construction + worker). UNVERIFIED for the GTK/Windows equivalents doing
+  full surface construction headless — Phase task confirms before relying on it.
 
 ## 3. Design Overview
 
 Three independent pieces, layered:
 
-1. **Enum + validation (worker-visible, no platform code).** Append `Canvas = 2` to
-   `app_package.mfb`; confirm `app.setMode` accepts it and `app.getMode` returns it.
-   Lowest risk — pure declaration. Land first.
+1. **Enum + validation (worker-visible, no platform code).** Append a third
+   `EnumVariant { name: "Canvas", … }` to the `RegistryEnum` in
+   `src/codegen/builtins/app/mod.rs:register`; confirm `app.setMode` accepts it and
+   `app.getMode` returns it. Lowest risk — pure registry data. Land first.
 
 2. **The `Canvas` reconcile arm per platform (surface build/teardown).** Extend each
    `emit_*_reconcile` to branch on the new discriminant: on entry build an empty
@@ -284,30 +344,35 @@ Three independent pieces, layered:
 
 3. **The mode gate arm + `io::` input from the window.** `term::` calls hard-fail outside
    `Console` and continue to (they trap in `Canvas`). But **`io::` works fully in `Canvas`**:
-   outputs degrade to stdout/stderr as today, and blocking `io::` reads (`readByte`/`readChar`/
-   `readLine`) must **not** trap in `Canvas` — they read from the window's key events, the
-   same input source `Console` uses. This is a change from today's `!= 0 → ErrWrongMode`
-   gate for blocking reads: the read gate becomes "trap only in `None`" (`Console` and
-   `Canvas` both have an input source; `None` has no window). It requires wiring the canvas
-   window's key events into the `io::` input path — mirroring term keyboard input
-   (plan-69-term-keyboard-input). `term::` stays trap-in-`Canvas`.
+   outputs degrade to stdout/stderr as today, and the gated console reads
+   (`io::input`/`io::readLine`/`io::readChar` — the three calls actually in the
+   predicate) must **not** trap in `Canvas`; they read from the window's key events,
+   the same input source `Console` uses. This is a change from today's
+   `!= 0 → ErrWrongMode` gate: the read gate becomes "trap only in `None`" (`Console`
+   and `Canvas` both have an input source; `None` has no window). `io::readByte` is
+   already ungated and needs no gate change — only the Phase 4 window wiring. It
+   requires wiring the canvas window's key events into the `io::` input path —
+   mirroring term keyboard input (plan-69-term-keyboard-input). `term::` stays
+   trap-in-`Canvas`.
 
 **Where correctness risk concentrates:** the per-platform teardown ordering (build a
 surface, switch away, ensure no leaked view/window/HWND and no dangling UI-thread
-references). This is the mode-switch mirror the design doc calls out. It lands last,
+references). This is the mirror of the implicit `term::off` teardown. It lands last,
 behind an explicit teardown test target (which cannot assert pixels yet, but can
 assert clean enter→exit→re-enter cycles and no crash under headless).
 
-**Byte-identity is the right gate for the inertness claim only** (non-canvas programs
-must be byte-identical) — verified via the `tests/byte-identity/` corpus. The new
-behavior (surface build) is **not** a byte-identity claim; it is verified by runtime
-enter/teardown tests. A byte-identity diff on a non-canvas fixture is a bug to
-root-cause (objdump one fixture), never a signal the design is dead.
+**How the inertness claim is proven (invariant 8).** "Non-canvas programs are
+unaffected" is a *behavioral* claim, proven by targeted tests: a `Console`-mode and a
+`None`-mode program still gate exactly as they do today, and a non-app build still
+reserves no presentation slot. It is **not** a byte-identity claim — this plan adds new
+behavior, so `.ncode`/`.ncodesum` stability is neither asserted nor gated anywhere in
+plan-98, and no phase runs `artifact-gate.sh`.
 
 **Rejected alternatives:**
-- *A separate `Subsystem` rather than a new `Mode`.* Rejected in the design doc:
-  graphics is a presentation mode; app mode already owns worker/main split, retained
-  double-buffered surface, and marshaling. Reusing `Mode` inherits all of it.
+- *A separate `Subsystem` rather than a new `Mode`.* Rejected: graphics **is** a
+  presentation mode, and app mode already owns the worker/main split, the retained
+  double-buffered surface, and the UI-thread marshaling. Reusing `Mode` inherits all
+  of it; a parallel `Subsystem` axis would duplicate every one of those.
 - *Start canvas programs in `Console` then switch.* Rejected: a canvas program
   necessarily calls `setMode`, so starting `None` avoids a transcript flash — same
   reasoning as existing `None`-default programs.
@@ -316,64 +381,83 @@ root-cause (objdump one fixture), never a signal the design is dead.
 
 - **Changes:** one appended enum variant `Mode.Canvas = 2` (additive; no existing
   discriminant moves). New per-platform reconcile arms. New presentation-slot value
-  `2` is now reachable. The blocking-`io::`-read gate predicate changes to "trap only in
+  `2` is now reachable. The console-read gate predicate changes to "trap only in
   `None`" so `Canvas` permits reads; canvas-window key events feed the `io::` input path.
 - **Unchanged:** `Console`/`None` discriminants and stored values; the presentation
   slot layout and offset; `term::` gate semantics (traps outside `Console`); `io::`
-  output degradation; `Console`/`None` `io::`-read behavior; all console (non-app)
-  codegen (byte-identical); the `app::` `Result`-free error contract.
+  output degradation; `Console`/`None` `io::`-read behavior; `io::readByte` (already
+  ungated); all console (non-app) behavior; the `app::` `Result`-free error contract.
 
 ## Phases
 
 > Keep checkboxes current in the same commit as the work. An unticked box means NOT
 > DONE.
+>
+> **Test scope for every phase (invariant 8):** run the tests this phase adds, plus the
+> existing targets its change can actually reach — not the full suite. Name the exact
+> command in the Commit line. The full `cargo test --no-fail-fast` run is G's closeout.
 
 ### Phase 1 — Append `Mode.Canvas` and confirm setMode/getMode round-trip
 
-Pure declaration; safe to land alone because no platform arm consumes `2` yet
+Pure registry data; safe to land alone because no platform arm consumes `2` yet
 (reconcile default-no-ops on an unknown discriminant, leaving mode a stored word).
 
-- [ ] Add `Canvas = 2` to `EXPORT ENUM Mode` in `src/builtins/app_package.mfb`,
-      following the existing comment's "appended variant" note.
-- [ ] Measure and, if needed, advertise: run `rg -n '"app.setMode"' src/target` to
-      confirm every `--app` backend's `runtime_calls` still covers `app.setMode`
-      (no new call name is introduced, so this should already pass —
-      record the result).
-- [ ] Confirm `emit_set_mode` stores `2` and `emit_get_mode` reads it back with no
-      arm-specific change (`src/target/shared/code/app.rs`).
-- [ ] Tests: add an app-mode integration case (alongside `tests/cli_macos_app_io_input_imports.rs`
-      / the linux app-mode tests) asserting `app::setMode(Mode.Canvas)` then
+- [ ] Add a third `EnumVariant { name: "Canvas", description: …, advisory: None }` to
+      the `RegistryEnum` in `src/codegen/builtins/app/mod.rs:register`, after `None`
+      so the discriminant is `2`. There is no `.mfb` file to edit — the registry
+      renders the enum into the injected package source via `get_mfb`.
+- [ ] Update the in-file tests in `src/codegen/builtins/app/mod.rs` that assert the
+      rendered source contains the variants, and the `MODULE_DESC` prose that today
+      says the mode "is one of `Console` … or `None`".
+- [ ] Measure and, if needed, advertise: `rg -rln '"app.setMode"' src/target/` (2 files
+      as of 2026-08-30) to confirm every `--app` backend's `runtime_calls` still covers
+      `app.setMode` — no new call name is introduced, so this should already pass;
+      record the result.
+- [ ] Confirm `lower_set_mode` stores `2` and `lower_get_mode` reads it back with no
+      arm-specific change (`src/codegen/builtins/app/func_set_mode.rs`,
+      `func_get_mode.rs`).
+- [ ] Tests: the `src/codegen/builtins/app/mod.rs` unit tests above, plus an app-mode
+      integration case (alongside `tests/cli_macos_app_io_input_imports.rs` / the linux
+      app-mode tests) asserting `app::setMode(Mode.Canvas)` then
       `app::getMode() = Mode.Canvas` under `MFB_MACAPP_HEADLESS=1` / GTK-headless,
       with the reconcile still default-no-op (mode stored, no surface yet).
 
-Acceptance: a headless app program sets and reads back `Mode.Canvas`; the full
-`cargo test` suite passes; the `tests/byte-identity/` corpus is unchanged for all
-non-canvas fixtures.
+Acceptance: a headless app program sets and reads back `Mode.Canvas`. Run only
+`cargo test --bin mfb codegen::builtins::app` and the new app-mode integration test.
 Commit: —
 
 ### Phase 2 — Mode gate: `term::` traps in `Canvas`, `io::` reads allowed in `Canvas`
 
-`term::` hard-fails in `Canvas` (like `None`). But **`io::` reads must be allowed in
-`Canvas`** (input from the window), a change from the current "blocking reads trap outside
-`Console`" gate — so the read gate becomes "trap only in `None`". `io::` outputs still
-degrade to stdout/stderr.
+`term::` hard-fails in `Canvas` (like `None`). But **the console `io::` reads must be
+allowed in `Canvas`** (input from the window), a change from the current "reads trap
+outside `Console`" gate — so the read gate becomes "trap only in `None`". `io::` outputs
+still degrade to stdout/stderr.
 
-- [ ] Read `src/target/shared/code/app.rs:prepend_wrong_mode_gate`: it raises `ErrWrongMode`
-      for any non-`Console` slot value. For `term::` (applied at `mod.rs:1977`) this is
-      correct for `Canvas` (value `2`) with no change.
-- [ ] For the blocking-`io::` read gate (`mod.rs:2529`), change the predicate from "trap
-      unless `Console` (`== 0`)" to "trap only in `None` (`== 1`)" so `Console` **and**
-      `Canvas` both permit reads. Keep it a no-op when `presentation_mode_offset` is `None`.
+- [ ] Read `src/codegen/app/hook/app.rs:33:prepend_wrong_mode_gate`: it raises
+      `ErrWrongMode` for any non-`Console` slot value. For `term::` (applied at
+      `src/codegen/builtins/term/gen_shared.rs:95`) this is already correct for
+      `Canvas` (value `2`) with no change.
+- [ ] For the console-read gate (`src/codegen/engine/builder/mod.rs:1988`, predicate
+      `matches!(spec.call, "io.input" | "io.readLine" | "io.readChar")`), change the
+      comparison from "trap unless `Console` (`== 0`)" to "trap only in `None`
+      (`== 1`)" so `Console` **and** `Canvas` both permit reads. This is a change to
+      `prepend_wrong_mode_gate`'s emitted comparison, so it needs a mode parameter (or
+      a second entry point) — `term::` must keep the "`Console` only" form. Keep it a
+      no-op when `presentation_mode_offset` is `None`.
+- [ ] `io.readByte` is **not** in the gate predicate and needs no change here (see
+      §2's correction); it is covered by Phase 4's window wiring only.
 - [ ] Confirm `io::print`/`io::write` (and error variants) still **degrade to stdout/stderr**
       in `Canvas`.
 - [ ] Tests: `term::sync` in `Mode.Canvas` traps `ErrWrongMode`; `io::print` in `Mode.Canvas`
-      reaches stdout; a blocking `io::readByte` in `Mode.Canvas` does **not** trap (fed by
-      the test harness / window-input stub — full window-key wiring is Phase 4); `io::readByte`
-      in `Mode.None` still traps.
+      reaches stdout; a blocking `io::readLine` in `Mode.Canvas` does **not** trap (fed by
+      the test harness / window-input stub — full window-key wiring is Phase 4); the same
+      read in `Mode.None` still traps; a `Console`-mode read is unchanged.
 
 Acceptance: in canvas mode `term::` raises trappable `ErrWrongMode`, `io::` outputs reach
-stdout/stderr, and blocking `io::` reads are permitted (do not trap); `None` still traps
-blocking reads — all proven by tests. Cite the `mod.rs:2529` predicate diff.
+stdout/stderr, and the console `io::` reads are permitted (do not trap); `None` still
+traps them — all proven by the tests above. Run only the `src/codegen/app/hook/app.rs`
+unit tests, the term wrong-mode gate test (`b2485eb45` added one — find it with
+`rg -rn "wrong_mode" tests/`), and the new cases.
 Commit: —
 
 ### Phase 3 — Per-platform reconcile `Canvas` arm: build/teardown an empty surface (largest blast radius last)
@@ -385,34 +469,36 @@ renderer, no GPU, no scene.
       (and its `RECONCILE_BUILD_SYMBOL` helper) with a `Canvas` arm that swaps the
       content view for a layer-backed `NSView` (`wantsLayer = YES`) sized to the
       window, and a teardown arm on exit that restores/removes it. Reuse the existing
-      `NSWindow` + content-view swap machinery (the design doc's "substitute for
-      TermView"). Marshal on the main thread (`waitUntilDone:YES`), no-op headless
+      `NSWindow` + content-view swap machinery — the canvas view is a substitute for
+      `TermView`, not a second window. Marshal on the main thread (`waitUntilDone:YES`), no-op headless
       marshal as today.
-- [ ] Linux: extend `src/target/linux_gtk/bootstrap.rs:emit_reconcile_seam` /
-      `emit_reconcile_idle_helper` with a `Canvas` arm that ensures the GTK window
+- [ ] Linux: extend `src/target/linux_gtk/bootstrap.rs:emit_reconcile_seam` (320) /
+      `emit_reconcile_idle_helper` (348) with a `Canvas` arm that ensures the GTK window
       exists and its native surface handle is retrievable
       (`gdk_x11_surface_get_xid`/`gdk_wayland_surface_get_wl_surface` — retrieval only,
       no Vulkan yet), balancing `g_application_hold` on exit.
 - [ ] Windows: extend `src/target/win_x86_64/app/mod.rs` reconcile/mode path with a
       `Canvas` arm that ensures the HWND exists for later `VK_KHR_win32_surface` use
       and tears it down on exit (new code — no `term::` reconcile precedent here).
-- [ ] **Teardown test target** (the design doc's highest-crash-risk mirror): a
+- [ ] **Teardown test target** (this phase's highest-crash-risk surface): a
       headless test that enters `Canvas`, exits to `None`, re-enters `Canvas`, and
       exits — asserting no crash, no leaked window/view/HWND, clean worker/main
       marshaling. It cannot assert pixels yet; it asserts lifecycle only. Wire it for
       all three headless env vars.
 
 Acceptance: under each platform's headless mode, enter→exit→re-enter→exit of
-`Mode.Canvas` completes without crash or leak; the surface's native handle is
-retrievable while in canvas mode and released after exit; full `cargo test` green;
-non-canvas byte-identity corpus unchanged.
+`Mode.Canvas` completes without crash or leak, and the surface's native handle is
+retrievable while in canvas mode and released after exit. Run only the new lifecycle
+test plus the existing app-mode integration tests (`rg -rln "MACAPP_HEADLESS" tests/`)
+— they are the targets this change can reach.
 Commit: —
 
 ### Phase 4 — Window key events → `io::` input path (canvas keyboard input)
 
 Deliver the canvas window's key events into the worker's `io::` input source, so
-`io::readByte`/`readChar`/`readLine` in `Mode.Canvas` read real keystrokes. Mirrors term
-keyboard input (plan-69-term-keyboard-input); reuse its input-queue/marshaling machinery.
+`io::readByte`/`readChar`/`readLine`/`input` in `Mode.Canvas` read real keystrokes.
+Mirrors term keyboard input (plan-69-term-keyboard-input); reuse its
+input-queue/marshaling machinery.
 
 - [ ] macOS: the layer-backed `NSView`'s `keyDown:` marshals bytes into the same input
       channel the worker's `io::` reads drain (reuse the term keyboard-input path).
@@ -424,7 +510,8 @@ keyboard input (plan-69-term-keyboard-input); reuse its input-queue/marshaling m
 
 Acceptance: with the canvas window focused, `io::readByte`/`readChar`/`readLine` return the
 window's keystrokes on all three platforms (injected-key headless test green); no busy-spin
-while waiting. Full `cargo test` green.
+while waiting. Run only the new injected-key tests plus the existing app-mode `io::` input
+tests (`tests/cli_macos_app_io_input_imports.rs` and its linux/windows peers).
 Commit: —
 
 ## Validation Plan
@@ -436,27 +523,39 @@ Commit: —
   `MFB_WINAPP_HEADLESS`.
 - Coverage check: confirm the new reconcile arms are in the `--bin mfb` denominator
   (per `.ai/build-tooling.md` coverage mechanics — src/ coverage is in-process bin
-  unit tests; the headless subprocess is integration and uncaptured). Add `.ncode`
-  or in-process unit tests for the arm-selection logic so the changed codegen is
-  actually measured, not just exercised by the uncaptured subprocess.
+  unit tests; the headless subprocess is integration and uncaptured). Add in-process
+  unit tests for the arm-selection logic so the changed codegen is actually measured,
+  not just exercised by the uncaptured subprocess. (A `.ncode` *inspection* test —
+  asserting the emitted arm is present — is fine and is not a byte-identity golden;
+  see `.ai/testing-gates.md` and the "register/slot/import bugs need
+  codegen-inspection" lesson.)
 - Runtime proof: a small `--app` program `app::setMode(Mode.Canvas)` then a blank
   loop, launched headless on each platform, exits 0 with the surface built and torn
   down (observable via the lifecycle test's assertions / logs).
 - Doc sync: update `src/docs/spec/app/05_presentation-mode.md` (add `Canvas` to the
   mode table and the I/O matrix — note `io::` reads work in `Canvas` from the window,
-  `term::` traps) and `app_package.mfb`'s enum doc.
-  Per `.ai/specifications.md`, keep the spec current with the compiler change.
-- Acceptance: full `cargo test`; `tests/byte-identity/` corpus unchanged **except** the
-  intentional io-read-gate diff for app-mode fixtures containing a blocking `io::` read
-  (re-baseline those specific lines with the behavior proof — Phase 2); non-app fixtures
-  unchanged; `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0
-  cargo fmt)` at session end.
+  `term::` traps), the `MODULE_DESC` / `Mode` variant descriptions in
+  `src/codegen/builtins/app/mod.rs`, and the `ErrWrongMode` row in
+  `src/docs/spec/diagnostics/02_error-codes.md:139` (it names the three gated `io::`
+  calls and the `Console` requirement). Per `.ai/specifications.md`, keep the spec
+  current with the compiler change. Per AGENTS.md, built-in man content is **rendered
+  from the registry descriptors** — there is no Markdown page to hand-edit and no
+  template to follow. For `app` that means the `MODULE_DESC` and the `Mode` variant
+  `description`s in `src/codegen/builtins/app/mod.rs`; verify with `mfb man app` and
+  `mfb man app setMode`. (The `.ai/man*_template.md` files are the retired
+  `src/docs/man/**` workflow — do not use them.)
+- Acceptance: the per-phase targeted tests above — **no full-suite run and no
+  byte-identity check in this letter** (invariant 8); `rustup run 1.96.0 cargo fmt --all
+  && (cd repository && rustup run 1.96.0 cargo fmt)` at session end.
 
 ## Open Decisions
 
-- **Mode name: `Canvas` vs `Graphics`.** The design summary wrote `Mode.Graphics`;
-  the existing enum comment anticipates a `Canvas` mode and the package is `canvas::`.
-  Recommended: **`Canvas`**, for name-parity with the `canvas::` package. (§1)
+- **Mode name: `Canvas` vs `Graphics`.** Both spellings appear in early drafts of this
+  plan set. `src/codegen/builtins/app/mod.rs:MODULE_DESC` anticipates the extension but names it
+  only generically ("A future graphical mode is a new `Mode` variant entered through
+  `app::setMode`, with no change to this surface") — it does not pick a name, so
+  neither choice contradicts shipped docs. Recommended: **`Canvas`**, for name-parity
+  with the `canvas::` package. (§1)
 - **Does the `canvas::` package shell register in this sub-plan or in B?** Recommended:
   **B** — this sub-plan needs no drawing call, so registering an empty package here
   would add a `runtime_calls` surface with nothing behind it. Register the package
@@ -467,7 +566,68 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+**2026-08-30 — pre-execution revision (no code written yet).** This plan was authored
+2026-08-15; two restructurings landed within 48 hours and invalidated its mechanics
+while leaving its design intact. Applied:
+
+1. **Citation remap.** 18 mentions of `src/builtins/*` and `src/target/shared/code/*`
+   repointed. Commits responsible: `4ed7d60de` (2026-08-16, app onto the clean-room
+   registry — deleted `src/builtins/app_package.mfb`) and `f32179ed4` (2026-08-17,
+   codegen relocated into a tiered `src/codegen` — deleted `src/target/shared/code/`).
+   Verified by extracting every `src/…` path from this file and testing it with
+   `[ -e ]`. Consequences beyond the paths: there is **no `.mfb` companion for `app`**
+   (the `Mode` enum is `RegistryEnum` data), `BuiltinModule`/`APP_TYPES`/`TypeKind`
+   are gone, and `Lowering::Inline` no longer exists — the sanctioned body kinds are
+   `Body::abi_inline` and `Body::abi_function` (`app.getMode`/`app.setMode` are both
+   `abi_function`).
+2. **`io.readByte` correction.** The plan asserted the console-read gate covers
+   `readByte`/`readChar`/`readLine`. It never has: the predicate at
+   `src/codegen/engine/builder/mod.rs:1988` is `"io.input" | "io.readLine" |
+   "io.readChar"`, and `git log -S` over it finds one author commit (`b7964aa43`,
+   plan-62-E) that shipped the three-call form. Phase 2's scope shrinks by one call;
+   `io::readByte` needs Phase 4's window wiring only.
+3. **Byte-identity removed (invariant 8, first bullet).** Per the user's direction and
+   AGENTS.md — byte-identity is a drift sentinel for pure code motion, and plan-98 is
+   new work. Every "the `tests/byte-identity/` corpus is unchanged" acceptance line and
+   the "re-baseline the gate golden" expected-diff machinery are deleted from all eight
+   files. **Judgment call, flag if wrong:** C's software-rasteriser *reference images*
+   are kept as exact-match (invariant 5) — they are this plan's own new oracle for a new
+   rasteriser and the reference E/F compare against with tolerance, not an instance of
+   the repo's codegen byte-identity gate. Their description was reworded from
+   "byte-identity golden" to "exact-match reference image" throughout so the two ideas
+   are not confused.
+4. **Test scoping (invariant 8, second bullet).** Every "full `cargo test` green"
+   phase-acceptance line is replaced with the targeted tests that phase can actually
+   reach. The single full-suite run — `cargo test --no-fail-fast`, plus the acceptance
+   harness, which is not in `cargo test` — moved to G's closeout.
+5. **Prerequisites re-verified against the tree** on 2026-08-30; the "full suite green
+   at HEAD" row was dropped per (4).
+
+6. **All 47 "design summary" / "design doc" citations deleted.** There is no separate
+   design document and there never was — `planning/plan-98-A` … `plan-98-G` plus
+   `planning/plan-98-api.md` are the entire corpus. Every letter's References section
+   used to open with "The design summary — …", and facts throughout were sourced to
+   section names in it ("Rendering Notes", "Threading Model", "Platform Surfaces",
+   "Diff / damage", …). All of them are now either owned by the plan that states them
+   or pointed at plan-98-A's "Cross-cutting invariants" (the real top-level design) and
+   plan-98-api.md (the real API surface). Each References section now says outright that
+   no other document exists, so the citation cannot regrow.
+7. **Four false `VERIFIED` claims downgraded**, all of which were "verified" only
+   against the phantom document. Per AGENTS.md a claim is measured or it is a guess:
+   - B: "a `List OF DrawItem` is a plain language array" and "deep copy is mandatory"
+     → restated as design decisions of this plan, with the phase that actually proves
+     each one named.
+   - F: "Vulkan needs no SDK" and "GTK4 hands over the native surface handle"
+     → **UNVERIFIED**, with the Phase 1 task that must prove each before pipeline code
+     lands.
+   - G: "stb_truetype is single-header, public-domain, vendorable" → **UNVERIFIED
+     here**; Phase 1 must read the actual header's licence before vendoring. And
+     "`measureText` from day one makes the shaper swappable" → a design decision,
+     conditional on `TextMetrics` staying shaper-independent.
+   Several `Measured populations` rows also cited `design "X"` in the Command column —
+   those are decisions, not measurements, and now say so.
+
+<Further corrections filled in during execution.>
 
 ## Summary
 

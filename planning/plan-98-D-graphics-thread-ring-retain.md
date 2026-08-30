@@ -1,31 +1,33 @@
 # plan-98-D: Graphics thread, scene ring, resize handshake, deferred texture free
 
-Last updated: 2026-08-15
+Last updated: 2026-08-30
 Effort: x-large (1d–3d) — split into D-1/D-2 if Phase 3 grows past a sitting
 Depends on: plan-98-C (software rasteriser + golden harness)
 
 This sub-plan introduces the **third thread** (graphics) and the concurrency
-machinery the design doc flags as its two highest-risk areas: the triple-buffer scene
+machinery this plan set flags as its two highest-risk areas (see the Summary): the triple-buffer scene
 ring, the resize/swapchain-recreation handshake, and the **OS-side texture free** — the
 one runtime-side rule that a closed `Image`/`Font` (B) must not have its GPU texture
 freed while a frame is still reading it. It renders **still on the software backend**:
-the point is to get threading correct before GPU complexity lands (design "Get threading
-right *before* GPU complexity lands"). After D, canvas mode runs a graphics thread that
+the point is to get threading correct **before** GPU complexity lands. After D, canvas mode runs a graphics thread that
 repaints on vsync/resize/damage with **zero language-program involvement**, and the
 texture-free rule is proven against the exact race the design names: publish → immediate
 `canvas::destroyImage` → graphics thread mid-record. There is **no** refcount and **no**
 retain/release protocol — MFB owns the resource via its closed flag (B); D only defers
 the OS free past the GPU frame-drain.
 
-This is design-doc **build step 4**, and it completes the "fully shippable software-path
-product".
+This is **build step 4** of the A–G sequence, and it completes the fully shippable
+software-path product (A–D).
 
 References:
 
-- The design summary — "Threading Model", "Scene handoff — triple buffer", "Resize
-  handshake", "Redraw Triggers", "Resource Lifetime", and "Open Items" 1 & 2.
-- plan-98-A invariant 4 (RES closed-flag lifetime; free gated on `closed AND
-  lastUsedFrame < lastCompletedFrame`; no refcount).
+- **plan-98-A** — invariant 4 (RES closed-flag lifetime; free gated on `closed AND
+  lastUsedFrame < lastCompletedFrame`; no refcount), invariants 1–2 (what may and may
+  not run on the frame path), invariant 8 (testing policy). plan-98-A's "Cross-cutting
+  invariants" section is this feature's top-level design; there is no separate design
+  document.
+- **plan-98-B** — the scene arena and RES backend this threads; **plan-98-C** — the
+  software renderer this moves onto the graphics thread.
 - The existing UI-thread-owned snapshot handoff (`term_draw.rs:emit_term_snapshot_copy`,
   macOS `waitUntilDone:YES` marshal) — the two-thread precedent this extends to three.
 
@@ -35,9 +37,12 @@ References:
 |---|---|---|
 | plan-98-C complete (software render + goldens) | `ls planning/completed/plan-98-C-*` → hit | NOT MET |
 | B's `Image`/`Font` RES backend closes + marks textures pending-free | plan-98-B Phase 4 acceptance met | NOT MET |
-| Full suite green at HEAD | `cargo test` → pass | UNVERIFIED |
+| Working tree builds | `cargo build` → pass | UNVERIFIED (run before starting) |
 
-> **Write the protocol on paper before code** (design "Open Items"). Phase 1's first
+> Per A's invariant 8: no "full suite green at HEAD" row, no byte-identity obligation;
+> the full suite runs once, at the end of the plan (G).
+
+> **Write the protocol on paper before code.** Phase 1's first
 > task is authoring the `.ai/` invariant doc; no threading code lands before it.
 
 ## 1. Goal
@@ -92,7 +97,7 @@ References:
 
 - **Two-thread precedent:** today app mode is worker + main, with consistency from
   UI-thread ownership of the snapshot + synchronous marshal
-  (`src/target/linux_gtk/term_draw.rs:emit_term_snapshot_copy`, macOS `waitUntilDone:YES`
+  (`src/target/linux_gtk/term_draw.rs:1067:emit_term_snapshot_copy`, macOS `waitUntilDone:YES`
   in `app/mod.rs:428-458`). There is **no** lock-free seqlock/generation ring today —
   D introduces it. The snapshot pattern is the lesson (reader owns its copy), the ring is
   the extension (three slots so neither producer nor consumer blocks).
@@ -111,9 +116,9 @@ References:
 
 | What | Count | Command |
 |---|---|---|
-| Threads after D | 3 (worker, main, graphics) | design "Threading Model" |
-| Scene ring slots | 3 (building/live/spare) | design "Scene handoff" |
-| Redraw triggers to wire | 5 (present, resize, OS damage, swapchain-stale, setBytes-in-scene) | design "Redraw Triggers" + plan-98-api.md |
+| Threads after D | 3 (worker, main, graphics) | this plan's §1 — a decision, not a measurement |
+| Scene ring slots | 3 (building/live/spare) | this plan's §1 (see the rejected double-buffer alternative) |
+| Redraw triggers to wire | 5 (present, resize, OS damage, swapchain-stale, setBytes-in-scene) | this plan's §1 + `planning/plan-98-api.md` (`setBytes` semantics) |
 | Distinct close/draw/drain races to test | UNMEASURED | enumerate in Phase 1's paper protocol |
 
 ### Verified properties
@@ -166,7 +171,7 @@ handoff is lossless), plus deterministic race tests. A golden diff after moving 
 ring is a bug in the handoff to root-cause, not a design falsification.
 
 **Rejected alternatives:**
-- *Double buffer (2 slots) instead of triple.* Rejected per design: with two slots
+- *Double buffer (2 slots) instead of triple.* Rejected: with two slots
   `present()` can block on the graphics thread (or vice versa); the third slot is what
   makes both lock-free.
 - *Free a closed texture on `live` swap.* Rejected (invariant 4): a frame recorded from
@@ -229,7 +234,7 @@ Commit: —
 Acceptance: the graphics thread renders C's golden scene off the worker thread; static
 scene = zero repaints; damage repaints without the worker; `setBytes` on an in-scene image
 shows updated pixels next frame and coalesces, off-scene image triggers no repaint. Golden
-still byte-exact.
+still exact-match.
 Commit: —
 
 ### Phase 3 — Triple-buffer scene ring + resize handshake
@@ -247,7 +252,7 @@ Commit: —
 
 Acceptance: the ring is lock-free (neither side blocks the other under injected stalls);
 scene skipping is correct; resize repaints correctly with zero worker activity; golden
-still byte-exact at each size.
+still exact-match at each size.
 Commit: —
 
 ### Phase 4 — Deferred texture free (closed-flag + frame-drain) (largest blast radius last)
@@ -265,10 +270,11 @@ Commit: —
       frame-completions; a stress test interleaving present/destroy/resize over many frames
       under a thread sanitizer if available.
 
-Acceptance: every enumerated race in `.ai/canvas-threading.md` is test-proven; the design's
+Acceptance: every enumerated race in `.ai/canvas-threading.md` is test-proven; this plan's
 publish→destroy→mid-record sequence never frees a texture a frame is still reading and frees
 it exactly once once `closed AND lastUsedFrame < lastCompletedFrame`; no use-after-free under
-the stress/sanitizer run. Full `cargo test` green; golden byte-exact.
+the stress/sanitizer run. Run only the new ring/race tests plus C's canvas golden tests
+(the pixel oracle must survive the ring); golden still exact-match.
 Commit: —
 
 ## Validation Plan
@@ -285,9 +291,10 @@ Commit: —
 - Doc sync: `.ai/canvas-threading.md` (Phase 1); `src/docs/spec/app/` canvas threading +
   redraw-triggers section; note the "resize repaints with zero program involvement"
   guarantee (strictly better than `term::`).
-- Acceptance: full `cargo test`; canvas software golden byte-exact through the ring; a
-  thread-sanitizer run of the stress test clean where available; non-canvas byte-identity
-  corpus unchanged; fmt.
+- Acceptance: the per-phase targeted tests above; canvas software golden exact-match
+  through the ring; a thread-sanitizer run of the stress test clean where available.
+  **No full-suite run and no codegen byte-identity check in this letter** (A's
+  invariant 8); fmt.
 
 ## Open Decisions
 
@@ -302,12 +309,21 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution — especially any race discovered while writing the paper doc
-that the design didn't name.>
+**2026-08-30 — pre-execution revision (no code written yet).** See plan-98-A's
+Corrections for the full account. Applied here: A's invariant 8 (this is new work, so
+no codegen byte-identity gate and no full-suite run until the end of the plan); the
+per-phase acceptance lines now name targeted tests; and the software rasteriser's
+reference images are called **exact-match** rather than "byte-exact goldens", so this
+plan's own new oracle is not confused with the repo's `tests/byte-identity/` codegen
+drift gate. No design decision changed. This letter's one concrete citation, `emit_term_snapshot_copy`, survived the
+2026-08-16/17 restructurings (now `src/target/linux_gtk/term_draw.rs:1067`).
+
+<Further corrections filled in during execution — especially any race discovered while
+writing the paper doc that the design didn't name.>
 
 ## Summary
 
-D is where the design's two named highest-risk areas land: the three-thread scene handoff
+D is where this feature's two highest-risk areas land: the three-thread scene handoff
 and the resize/swapchain handshake. The resource story is deliberately *not* a protocol —
 MFB owns `Image`/`Font` via the RES closed flag (B), and D's only cross-thread rule is to
 defer the OS texture free until `closed AND lastUsedFrame < lastCompletedFrame` (no
