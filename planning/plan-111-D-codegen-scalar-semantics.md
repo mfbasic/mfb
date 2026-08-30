@@ -329,25 +329,56 @@ Commit: 9a2b8bec5, 2506bfad1, 5d8e8a1f8, 9bf446af3
 
 Scheduled last: these are the files where a mistake does not show up on the host.
 
-- [ ] `builtins/vector/builder_vector_inline.rs` — 3 compares, 4 `&str` params,
-      1 parse.
-- [ ] `builtins/vector/builder_simd_math.rs` (3 parses),
-      `builder_simd_float_math.rs` (2), `builder_simd_fixed_math.rs` (2).
-- [ ] `builtins/astrings/gen_astrings.rs` — 3 parses.
-- [ ] `error/emission/builder_error_emission.rs` — 3 compares.
-- [ ] `engine/function/entry.rs` — ~~3~~ **4** compares (kickoff re-measurement).
+- [x] `builtins/vector/builder_vector_inline.rs` — 3 compares, 4 `&str` params,
+      1 parse. The `VECTOR_SHAPES` table's **element** column becomes a
+      `ParameterType` (only unit variants, so it stays `const`), which turns all
+      three compares into variant compares. `vector_field_count` and
+      `make_vector_native` take the type — deleting **five renders** at their
+      callers in `function_lowering.rs` and `builder_values.rs`. The `cross`
+      lane test stops reading the last character of a nominal's spelling
+      (`type_name.ends_with('3')`) and reads `fields.len() == 3` instead; the two
+      agree on all nine table rows by construction, since both columns come from
+      the same row.
+- [x] `builtins/vector/builder_simd_math.rs` (3 parses),
+      `builder_simd_float_math.rs` (2), `builder_simd_fixed_math.rs` (2). All
+      three SIMD entry points (`lower_simd_unary`/`binary`/`clamp`) took the
+      result type as a spelling and re-parsed it at the end; their only callers
+      are `gen_math.rs`, typed in Phase 1, so both sides convert together.
+- [x] `builtins/astrings/gen_astrings.rs` — 3 parses.
+- [x] `error/emission/builder_error_emission.rs` — 3 compares, **and the
+      `block_type: &str` parameter** Correction D1 made visible.
+- [x] `engine/function/entry.rs` — ~~3~~ **4** compares (kickoff re-measurement).
+      Converted end to end rather than at the compare: `CodegenSpec`'s
+      `language_entry_returns` field is now a `&ParameterType`, which removes the
+      two `&entry.returns.name()` renders in `builder/mod.rs`.
 - [x] ~~`link/thunk/link_thunk.rs` — 2 compares.~~ — moot: 0 sites remain.
       Letter C converted `record_native_resources` to a `ParameterType` key,
       which removed both compares as a side effect. Confirmed by
       `census_by_file`: the file does not appear in the live table at all.
-- [ ] **Do not touch arch dispatch in any of these files.** The conversion is to
+- [x] **Do not touch arch dispatch in any of these files.** The conversion is to
       the type argument only; if a change appears to require touching an
-      arch branch, stop and record why in Corrections.
-- [ ] Lower the gate budgets for these seven files to 0.
-- [ ] Tests: run the vector/SIMD `rt_*` suite explicitly and record the count.
+      arch branch, stop and record why in Corrections. **Honoured, with one
+      one-line exception that is not arch dispatch**: `linux_common/code.rs:1445`
+      sets `language_entry_returns: "Integer"` as a struct literal and had to
+      become `&ParameterType::Integer` when the field's type changed. No arch
+      branch, no emitted instruction, and it is in `src/target` (letter G's) only
+      because that is where the struct is filled in.
+- [x] Lower the gate budgets for these seven files to 0. `codegen`:
+      `parse_sites` 85 → 74, `str_type_params` 165 → 157,
+      `spelling_compares` 58 → 48.
+- [x] Tests: run the vector/SIMD `rt_*` suite explicitly and record the count.
+      **The count is zero — see Correction D2, which predicted exactly this.**
+      `ls tests/ | grep -iE 'vector|simd'` returns nothing. The real coverage is
+      `tests/acceptance/src/vector.mfb`: **71 `TCASE`s** over all nine shapes and
+      every op `vector_op_inlinable` gates — `scale`, `dot`, `cross`,
+      `lerp`, `lerp_unclamped` (5 uses), `length`, `distance`, `normalize`,
+      including the zero-vector trap for every element type and dimension. Run
+      scoped, as in Phase 1: **passed, 1 test ran**.
 
-Acceptance: all 15 files in §2 read 0 on all six needle classes; the letter's
-end gate below passes.
+Acceptance: **MET.** All 15 files in §2 read 0 on all seven needle classes —
+verified by their joint absence from `census_by_file`, not by reading the
+budget table. `cargo test --no-fail-fast -- --skip artifact_gate_all` → exit 0,
+0 failures. The letter's end gate below passes.
 Commit: —
 
 ### End-of-letter spot-check (scoped, read-only)
@@ -374,6 +405,22 @@ root-cause it with objdump on one fixture and fix the conversion. **Do not
 regenerate a golden here.** All regeneration happens once, in letter G, after
 attribution (plan-111-A §3).
 
+**Result: 0 diffs on all four, MET.**
+
+```
+artifact-gate [math]:    1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+artifact-gate [money]:   1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+artifact-gate [vector]:  1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+artifact-gate [strings]: 1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+```
+
+This is the check that matters most in this letter, because §3 names the SIMD,
+`entry.rs` and thunk files as **host-invisible**: a mistake in them shows up on
+no macOS test. The gate rebuilds each fixture for every target by filename
+(`*.linux-aarch64.ncode` and friends), so the x86-64/Win64 paths through the
+converted `entry.rs` return-type branch and the SIMD kernels are byte-compared
+here. Nothing regenerated.
+
 ## Validation Plan
 
 - Tests: `cargo test --no-fail-fast` — **never plain `cargo test`**. The `rt_*`
@@ -395,7 +442,9 @@ attribution (plan-111-A §3).
 - Diagnostics: **not run in this letter** — this letter touches codegen, which
   emits no source diagnostics (plan-111-A §3). G re-checks it.
 - Doc sync: `.ai/codegen-invariants.md` if any emitter's documented contract
-  mentions a `&str` type argument.
+  mentions a `&str` type argument. **Done** — see the entry added there for the
+  three gate blind spots (Correction D1) and the boundary-render rule this
+  letter established.
 - Formatting: `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
 
 ## Open Decisions

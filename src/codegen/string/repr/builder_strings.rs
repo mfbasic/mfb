@@ -699,10 +699,7 @@ impl CodeBuilder<'_> {
                     "replace_list_copy_new_string",
                 );
             }
-            other if self
-                .inline_collection_payload_size(&other.name())
-                .is_some() =>
-            {
+            other if self.inline_collection_payload_size(&other.name()).is_some() => {
                 self.emit(abi::load_u64(&scratch24, abi::stack_pointer(), new_slot));
                 self.emit_block_copy_advance(
                     &scratch25,
@@ -838,9 +835,7 @@ impl CodeBuilder<'_> {
             }),
             ParameterType::Boolean => self.lower_boolean_to_string(&value_register),
             ParameterType::Byte => self.emit_integer_to_string_value(&value_register, false),
-            type_ if type_.is_named("Scalar") => {
-                self.emit_scalar_to_string_value(&value_register)
-            }
+            type_ if type_.is_named("Scalar") => self.emit_scalar_to_string_value(&value_register),
             ParameterType::Integer => self.emit_integer_to_string_value(&value_register, true),
             ParameterType::ListOf(element) if **element == ParameterType::Byte => {
                 self.emit_byte_list_to_string_value(&value_register)

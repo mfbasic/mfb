@@ -789,7 +789,7 @@ impl CodeBuilder<'_> {
         &mut self,
         ptr_slot: usize,
     ) -> Result<(), String> {
-        self.emit_free_flat_block_from_slot("Error", ptr_slot)
+        self.emit_free_flat_block_from_slot(&error_type(), ptr_slot)
     }
 
     /// Free an owned flat block of `block_type` whose base is in `ptr_slot`: size
@@ -799,11 +799,14 @@ impl CodeBuilder<'_> {
     /// `ptr_slot` must hold a non-null arena block base.
     pub(crate) fn emit_free_flat_block_from_slot(
         &mut self,
-        block_type: &str,
+        block_type: &ParameterType,
         ptr_slot: usize,
     ) -> Result<(), String> {
         let size_slot = self.allocate_stack_object("flat_free_size", 8);
-        self.emit_inlined_block_size_from_ptr_slot(block_type, ptr_slot, size_slot)?;
+        // `emit_inlined_block_size_from_ptr_slot` still takes a spelling; it is
+        // the block-size helper letter F converts along with its ~12 callers in
+        // the memory/cleanup cluster. One render at that boundary, deleted then.
+        self.emit_inlined_block_size_from_ptr_slot(&block_type.name(), ptr_slot, size_slot)?;
         self.emit(abi::load_u64(
             abi::return_register(),
             abi::stack_pointer(),
@@ -913,7 +916,7 @@ impl CodeBuilder<'_> {
         // orphaned on every failure (a per-FAIL leak). The loose registers stay set
         // for the top-level exit printer and the OOM fallback.
         let error = self.lower_value_owned(error)?;
-        if error.type_.name() != "Error" {
+        if !error.type_.is_named("Error") {
             return Err(format!(
                 "cleanup error exit expects Error value, got `{}`",
                 error.type_
@@ -949,7 +952,7 @@ impl CodeBuilder<'_> {
         // so it keeps the legacy loose-register path and the catcher rebuilds a copy.
         let adopt = !Self::value_is_aliasing_source(error);
         let error = self.lower_value(error)?;
-        if error.type_.name() != "Error" {
+        if !error.type_.is_named("Error") {
             return Err(format!(
                 "native code fail expects Error value, got `{}`",
                 error.type_
@@ -989,7 +992,7 @@ impl CodeBuilder<'_> {
         error: &NirValue,
     ) -> Result<(), String> {
         let error = self.lower_value(error)?;
-        if error.type_.name() != "Error" {
+        if !error.type_.is_named("Error") {
             return Err(format!(
                 "trap routing expects Error value, got `{}`",
                 error.type_

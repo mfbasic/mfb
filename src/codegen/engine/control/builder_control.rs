@@ -550,7 +550,7 @@ impl CodeBuilder<'_> {
                                 let result = self.lower_value(value)?;
                                 if let Some(lanes) = self.vector_native_lanes(&result) {
                                     self.promoted_vector_locals
-                                        .insert(name.clone(), (type_.name().into_owned(), lanes));
+                                        .insert(name.clone(), (type_.clone(), lanes));
                                 } else {
                                     let block = self.vector_value_as_block(result)?;
                                     self.claim_pending_temp(&block);

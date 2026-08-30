@@ -214,3 +214,56 @@ Measured blow-ups: benchmark `liststr reshape` at base=1000/k=50 = 458 s; `strin
 Repro shape: `FOR r ... FOR i=0..N { g=graphemes(u); ...=toBytes(u); ...=normalizeNfc(u) }` — times per run climb 21→146→409→833→…→16818ms as cumulative allocations grow.
 
 Likely a residual path not covered by the earlier mixed-churn fix (arena-allocator-quadratic-mixed-churn) / large-block bins. The benchmark works around it by keeping those two rows at coverage-only counts. A real fix belongs in the arena free-list allocator (src/), not the benchmark.
+
+
+## A type argument is a `ParameterType`, and the ratchet gate has known edges
+
+Since plan-111 an emitter takes `&ParameterType`, never a rendered spelling, and
+`tests/no_type_strings.rs` enforces it with per-`(class, directory)` budgets that
+only ever shrink. Two things about that gate are worth knowing before trusting a
+zero:
+
+**1. It had three blind spots, fixed in plan-111-D; assume there are more.**
+The scanners are text heuristics, and each miss hid live sites for three whole
+letters:
+
+* `spelling_match_arms` required the arm to *begin* with a quoted spelling, so a
+  **tuple arm** — `("sin", "Float") => FloatKernel::Sin` — was invisible. It now
+  scans the whole arm pattern, stopping at ` if ` (a guard decides by
+  *comparing*, which is class 4's needle, not class 3's).
+* `spelling_compares` matched `== "Integer"` but not the **wrapped** form
+  `== Some("Integer")`.
+* `TYPE_PARAM_NAMES` was hand-seeded and missed ten `*type*: &str` parameter
+  names (`record_type`, `result_type`, `stride_type`, `block_type`, …).
+
+Those three fixes surfaced **59 sites** and a new `optimizer` bucket. If you add
+a needle class or a spelling, re-run the census rather than assuming the budget
+table is the population.
+
+**Measure with the gate, not with `rg`:**
+
+```
+cargo test --test no_type_strings census_by_file -- --ignored --nocapture
+MFB_CENSUS_DETAIL=<path-substring>   # adds every offending line
+```
+
+`rg` counts inline `#[cfg(test)]` modules and over-reports (one plan's census
+read 84 where the production population was 21). The gate's `test_free_lines`
+stripper does not.
+
+**2. Convert a producer and its consumers together.** A type that is *written*
+as a spelling and *read* as one is a single site, however far apart the two ends
+are. `target/shared/abi.rs`'s `move_immediate(type_: &str)` writes the NIR
+`mov_imm` operand-class attribute; `optimizer/opt2/{lvn,gvn,constant_folding}.rs`
+read it back with `instruction.get("type") == Some("Integer")`. Converting
+either end alone leaves the other matching a spelling that is no longer written
+the same way.
+
+**3. At a boundary with a not-yet-converted cluster, render ONCE and say so.**
+The codegen `&str`-type plane is one connected graph, and plan-111's letters cut
+across it. When a converted function calls a still-untyped helper
+(`list_entry_stride`, `emit_inlined_block_size_from_ptr_slot`,
+`inline_collection_payload_size` — all keyed by a spelling), put a single
+`type_.name()` at that call and name the letter that deletes it. What this rule
+forbids is the opposite move: typing a signature and pushing the render *out* to
+its callers, which multiplies renders while the gate count goes down.

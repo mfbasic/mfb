@@ -482,7 +482,7 @@ pub(crate) fn promotable_vector_locals(
 /// or an inlined vector op), so a binding of it starts life in lanes.
 fn is_vector_native_producing(value: &NirValue) -> bool {
     match value {
-        NirValue::Constructor { type_, .. } => vector_field_count(&type_.name()).is_some(),
+        NirValue::Constructor { type_, .. } => vector_field_count(type_).is_some(),
         NirValue::Call { target, args, .. } => vector_call_is_inlined(target, args),
         _ => false,
     }
@@ -496,9 +496,7 @@ fn collect_vector_native_bindings(ops: &[NirOp], out: &mut HashSet<String>) {
                 type_,
                 value: Some(value),
                 ..
-            } if vector_field_count(&type_.name()).is_some()
-                && is_vector_native_producing(value) =>
-            {
+            } if vector_field_count(type_).is_some() && is_vector_native_producing(value) => {
                 out.insert(name.clone());
             }
             NirOp::Bind { .. }

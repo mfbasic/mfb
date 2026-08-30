@@ -94,6 +94,10 @@ impl CodeBuilder<'_> {
         // expression and its `ErrorLoc` is built from the current source location.
         worker_error_source: bool,
     ) -> Result<ValueResult, String> {
+        // The single parse this function already performed for its result
+        // type, hoisted so the block-free above shares it (plan-111-D). Letter F
+        // types `success_type` itself and deletes it.
+        let success = ParameterType::parse(success_type);
         let tag_slot = self.allocate_stack_object("raw_result_tag", 8);
         let value_slot = self.allocate_stack_object("raw_result_value", 8);
         let message_slot = self.allocate_stack_object("raw_result_message", 8);
@@ -148,7 +152,7 @@ impl CodeBuilder<'_> {
         // intermediate block (`copy_value_to_current_arena` returns a register),
         // so there is nothing to free.
         if self.result_payload_is_block(success_type) {
-            self.emit_free_flat_block_from_slot(success_type, payload_slot)?;
+            self.emit_free_flat_block_from_slot(&success, payload_slot)?;
         }
         self.emit(abi::branch(&have_payload_label));
 
@@ -188,7 +192,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::result_of(ParameterType::parse(success_type)),
+            type_: ParameterType::result_of(success),
             location: Operand::from(register.render()),
             text,
         })

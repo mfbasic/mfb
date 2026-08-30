@@ -401,7 +401,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse("List OF Float"),
+            type_: ParameterType::ListOf(Box::new(ParameterType::Float)),
             location: Operand::from(result_base.render()),
             text,
         })
@@ -2106,7 +2106,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse("List OF Float"),
+            type_: ParameterType::ListOf(Box::new(ParameterType::Float)),
             location: Operand::from(result_base.render()),
             text,
         })

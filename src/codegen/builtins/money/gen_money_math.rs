@@ -155,7 +155,9 @@ impl CodeBuilder<'_> {
                 Ok(dst.render())
             }
             // Inexact floating scaling (plan-29-F §4.3).
-            ParameterType::Float => self.emit_money_scale_float(&money.location, scalar, dst, false),
+            ParameterType::Float => {
+                self.emit_money_scale_float(&money.location, scalar, dst, false)
+            }
             other => Err(format!(
                 "native code plan cannot scale Money by operand type '{other}'"
             )),

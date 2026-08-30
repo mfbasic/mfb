@@ -354,7 +354,7 @@ pub(crate) struct CodeBuilder<'a> {
     /// the lanes; the escape analysis (`promotable_vector_locals`) guarantees no
     /// use materializes, and `vector_value_as_block` is the correctness fallback if
     /// one ever does. Gated to non-address-taken, single-assignment bindings.
-    pub(crate) promoted_vector_locals: HashMap<String, (String, Vec<ValueResult>)>,
+    pub(crate) promoted_vector_locals: HashMap<String, (ParameterType, Vec<ValueResult>)>,
     /// Local names the escape analysis cleared for vector promotion (computed once
     /// per function, consulted at each `Bind`).
     pub(crate) promotable_vector_locals: HashSet<String>,
@@ -1198,7 +1198,7 @@ pub(crate) fn lower_module_for_platform(
                 &ProgramEntrySpec {
                     entry_symbol: MACAPP_PROGRAM_SYMBOL,
                     language_entry_symbol: &language_entry_symbol,
-                    language_entry_returns: &entry.returns.name(),
+                    language_entry_returns: &entry.returns,
                     language_entry_accepts_args: entry.accepts_args,
                     global_initializer_symbol: global_initializer_symbol.as_deref(),
                     link_init_symbol,
@@ -1236,7 +1236,7 @@ pub(crate) fn lower_module_for_platform(
                 &ProgramEntrySpec {
                     entry_symbol: "_main",
                     language_entry_symbol: &language_entry_symbol,
-                    language_entry_returns: &entry.returns.name(),
+                    language_entry_returns: &entry.returns,
                     language_entry_accepts_args: entry.accepts_args,
                     global_initializer_symbol: global_initializer_symbol.as_deref(),
                     link_init_symbol,

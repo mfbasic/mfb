@@ -6,12 +6,13 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_program_entry(
     entry_symbol: &str,
     language_entry_symbol: &str,
-    language_entry_returns: &str,
+    language_entry_returns: &ParameterType,
     language_entry_accepts_args: bool,
     global_initializer_symbol: Option<&str>,
     link_init_symbol: Option<&str>,
@@ -35,7 +36,9 @@ pub(crate) fn lower_program_entry(
     // would branch to an undefined label → link failure. `validate_entry_point`
     // already forces Integer/Nothing; enforce that invariant here as a loud
     // plan-level error rather than a silent broken branch.
-    if language_entry_returns != "Integer" && language_entry_returns != "Nothing" {
+    if *language_entry_returns != ParameterType::Integer
+        && *language_entry_returns != ParameterType::Nothing
+    {
         return Err(format!(
             "program entry return type must be 'Integer' or 'Nothing', got \
              '{language_entry_returns}'"
@@ -557,7 +560,7 @@ pub(crate) fn lower_program_entry(
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_ne(error_label),
     ]);
-    if language_entry_returns == "Nothing" {
+    if *language_entry_returns == ParameterType::Nothing {
         instructions.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
     } else {
         instructions.push(abi::move_register(
@@ -570,7 +573,7 @@ pub(crate) fn lower_program_entry(
         ]);
     }
     instructions.push(abi::branch(exit_label));
-    if language_entry_returns == "Integer" {
+    if *language_entry_returns == ParameterType::Integer {
         instructions.push(abi::label("entry_exit_range_error"));
         raise_error_into(
             entry_symbol,

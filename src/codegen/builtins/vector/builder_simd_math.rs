@@ -170,7 +170,7 @@ impl CodeBuilder<'_> {
         &mut self,
         kernel: SimdUnaryKernel,
         input: ValueResult,
-        result_type: &str,
+        result_type: &ParameterType,
         result_type_code: usize,
         text: String,
     ) -> Result<ValueResult, String> {
@@ -255,7 +255,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&result_type),
+            type_: result_type.clone(),
             location: Operand::from(result_base.render()),
             text,
         })
@@ -634,7 +634,7 @@ impl CodeBuilder<'_> {
         kernel: SimdBinaryKernel,
         left_slot: usize,
         right_slot: usize,
-        result_type: &str,
+        result_type: &ParameterType,
         result_type_code: usize,
         text: String,
     ) -> Result<ValueResult, String> {
@@ -710,7 +710,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&result_type),
+            type_: result_type.clone(),
             location: Operand::from(result_base.render()),
             text,
         })
@@ -829,7 +829,7 @@ impl CodeBuilder<'_> {
         in_slot: usize,
         low_slot: usize,
         high_slot: usize,
-        result_type: &str,
+        result_type: &ParameterType,
         result_type_code: usize,
         text: String,
     ) -> Result<ValueResult, String> {
@@ -925,7 +925,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&result_type),
+            type_: result_type.clone(),
             location: Operand::from(result_base.render()),
             text,
         })

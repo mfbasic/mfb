@@ -42,8 +42,14 @@ pub(crate) const VECTOR_NATIVE_MARKER: &str = "%%vecnative:";
 /// is element-type-agnostic — a lane is a scalar `Float`/`Fixed`/`Integer` value
 /// stored as 8 bytes — so every `<Elem>N` type is register-native. Only the *op
 /// inlining* is Float-only (Fixed/Integer ops keep their FUNC bodies).
-pub(crate) fn vector_field_count(type_name: &str) -> Option<usize> {
-    match type_name {
+pub(crate) fn vector_field_count(type_: &ParameterType) -> Option<usize> {
+    // The nine shapes are declared nominals (`Float3`, `Integer2`, …), so this
+    // is a nominal identification, not a re-parse of a grammar: a non-`Named`
+    // type is not a vector and answers `None` through the wildcard.
+    let ParameterType::Named(name) = type_ else {
+        return None;
+    };
+    match name.resolve() {
         "Float2" | "Fixed2" | "Integer2" => Some(2),
         "Float3" | "Fixed3" | "Integer3" => Some(3),
         "Float4" | "Fixed4" | "Integer4" => Some(4),
@@ -66,25 +72,51 @@ fn vector_field_index(member: &str) -> Option<usize> {
 /// its constructor type name, its field names, and its element type. plan-39 C1
 /// extends inlining from the Float shapes to the Fixed/Integer shapes for the
 /// pure-arithmetic ops (see `vector_op_inlinable`).
-const VECTOR_SHAPES: &[(&str, &str, &[&str], &str)] = &[
-    ("_float2", "Float2", &["x", "y"], "Float"),
-    ("_float3", "Float3", &["x", "y", "z"], "Float"),
-    ("_float4", "Float4", &["x", "y", "z", "w"], "Float"),
-    ("_fixed2", "Fixed2", &["x", "y"], "Fixed"),
-    ("_fixed3", "Fixed3", &["x", "y", "z"], "Fixed"),
-    ("_fixed4", "Fixed4", &["x", "y", "z", "w"], "Fixed"),
-    ("_integer2", "Integer2", &["x", "y"], "Integer"),
-    ("_integer3", "Integer3", &["x", "y", "z"], "Integer"),
-    ("_integer4", "Integer4", &["x", "y", "z", "w"], "Integer"),
+const VECTOR_SHAPES: &[(&str, &str, &[&str], ParameterType)] = &[
+    ("_float2", "Float2", &["x", "y"], ParameterType::Float),
+    ("_float3", "Float3", &["x", "y", "z"], ParameterType::Float),
+    (
+        "_float4",
+        "Float4",
+        &["x", "y", "z", "w"],
+        ParameterType::Float,
+    ),
+    ("_fixed2", "Fixed2", &["x", "y"], ParameterType::Fixed),
+    ("_fixed3", "Fixed3", &["x", "y", "z"], ParameterType::Fixed),
+    (
+        "_fixed4",
+        "Fixed4",
+        &["x", "y", "z", "w"],
+        ParameterType::Fixed,
+    ),
+    ("_integer2", "Integer2", &["x", "y"], ParameterType::Integer),
+    (
+        "_integer3",
+        "Integer3",
+        &["x", "y", "z"],
+        ParameterType::Integer,
+    ),
+    (
+        "_integer4",
+        "Integer4",
+        &["x", "y", "z", "w"],
+        ParameterType::Integer,
+    ),
 ];
 
 /// The `_<element><dim>` type suffix decoded to its constructor type name, field
 /// names, and element type.
-fn vector_op_shape(target: &str) -> Option<(&'static str, &'static [&'static str], &'static str)> {
+fn vector_op_shape(
+    target: &str,
+) -> Option<(
+    &'static str,
+    &'static [&'static str],
+    &'static ParameterType,
+)> {
     VECTOR_SHAPES
         .iter()
         .find(|(suffix, _, _, _)| target.ends_with(suffix))
-        .map(|(_, type_name, fields, element)| (*type_name, *fields, *element))
+        .map(|(_, type_name, fields, element)| (*type_name, *fields, element))
 }
 
 /// The bare op name for a `#vector_<op>_<element><dim>` target (suffix stripped).
@@ -105,10 +137,13 @@ fn vector_op_name(target: &str) -> Option<&str> {
 /// checks). `lerp`/`lerp_unclamped`/`length`/`distance` stay Float-only: they use
 /// `math::sqrt` or Float clamp constants, and the Fixed/Integer bodies differ
 /// (software isqrt etc.), so those keep their FUNC path.
-fn vector_op_inlinable(op: &str, argc: usize, type_name: &str, element: &str) -> bool {
+fn vector_op_inlinable(op: &str, argc: usize, fields: &[&str], element: &ParameterType) -> bool {
     match (op, argc) {
         ("scale", 2) | ("dot", 2) => true,
-        ("cross", 2) => type_name.ends_with('3'),
+        // `cross` is 3-lane only. Reading the lane count off `fields` says that
+        // directly; the old `type_name.ends_with('3')` inferred it from the last
+        // character of the nominal's spelling.
+        ("cross", 2) => fields.len() == 3,
         // plan-86 H2: length/distance inline for every numeric element — the sum of
         // squares is `bin(*/+)` (works for Integer/Fixed with their overflow checks),
         // and the sqrt is the same deterministic helper the FUNC body calls (Float/
@@ -117,15 +152,18 @@ fn vector_op_inlinable(op: &str, argc: usize, type_name: &str, element: &str) ->
         // is skipped. `lerp`/`lerp_unclamped` STAY Float-only: their Fixed/Integer
         // FUNC bodies do `toFixed`/`toFloat`/`round` conversions a pure arithmetic
         // tree would not reproduce.
-        ("lerp_unclamped", 3) | ("lerp", 3) => element == "Float",
-        ("length", 1) | ("distance", 2) => matches!(element, "Float" | "Fixed" | "Integer"),
+        ("lerp_unclamped", 3) | ("lerp", 3) => *element == ParameterType::Float,
+        ("length", 1) | ("distance", 2) => matches!(
+            element,
+            ParameterType::Float | ParameterType::Fixed | ParameterType::Integer
+        ),
         // plan-86 H1: normalize inlines for Float ONLY. The Float body is
         // `len = sqrt(Σf²); IF len=0 THEN FAIL error(77050002); RETURN N[f/len,…]`
         // — a guarded per-lane divide that `inline_vector_normalize` reproduces.
         // Fixed/Integer normalize use the rounding integer sqrt + `toFixed`/`round`
         // conversions (a pure divide tree would not reproduce them), so they keep
         // their FUNC path.
-        ("normalize", 1) => element == "Float",
+        ("normalize", 1) => *element == ParameterType::Float,
         _ => false,
     }
 }
@@ -135,7 +173,7 @@ fn vector_op_inlinable(op: &str, argc: usize, type_name: &str, element: &str) ->
 /// materialized). Single source of truth shared with the promotion escape
 /// analysis — must mirror the `try_inline_vector_op` gate exactly.
 pub(crate) fn vector_call_is_inlined(target: &str, args: &[NirValue]) -> bool {
-    let Some((type_name, _, element)) = vector_op_shape(target) else {
+    let Some((_, fields, element)) = vector_op_shape(target) else {
         return false;
     };
     let Some(op) = vector_op_name(target) else {
@@ -144,7 +182,7 @@ pub(crate) fn vector_call_is_inlined(target: &str, args: &[NirValue]) -> bool {
     if !args.iter().all(is_reevaluation_safe) {
         return false;
     }
-    vector_op_inlinable(op, args.len(), type_name, element)
+    vector_op_inlinable(op, args.len(), fields, element)
 }
 
 /// Whether `value` is cheap and side-effect-free to evaluate more than once (a
@@ -173,7 +211,7 @@ impl CodeBuilder<'_> {
     /// `ValueResult` carrying its marker location (no allocation).
     pub(crate) fn make_vector_native(
         &mut self,
-        type_: &str,
+        type_: &ParameterType,
         lanes: Vec<ValueResult>,
     ) -> ValueResult {
         let marker = format!("{VECTOR_NATIVE_MARKER}{}", self.next_vector_native);
@@ -181,7 +219,7 @@ impl CodeBuilder<'_> {
         self.vector_natives.insert(marker.clone(), lanes);
         ValueResult {
             origin: None,
-            type_: ParameterType::parse(&type_),
+            type_: type_.clone(),
             location: Operand::from(marker),
             text: format!("vecnative {type_}"),
         }
@@ -266,8 +304,8 @@ impl CodeBuilder<'_> {
     /// `emit_fixed_sqrt`); Integer uses the package's rounding integer sqrt
     /// `#vector_isqrtRound` — the exact helper the Integer FUNC body calls, so the
     /// inlined result is bit-identical.
-    fn vector_sqrt_of(element: &str, sum: NirValue, loc: NirSourceLoc) -> NirValue {
-        let target = if element == "Integer" {
+    fn vector_sqrt_of(element: &ParameterType, sum: NirValue, loc: NirSourceLoc) -> NirValue {
+        let target = if *element == ParameterType::Integer {
             "#vector_isqrtRound"
         } else {
             "math.sqrt"
@@ -291,7 +329,7 @@ impl CodeBuilder<'_> {
     fn inline_vector_normalize(
         &mut self,
         v: &NirValue,
-        type_name: &str,
+        type_: &ParameterType,
         fields: &[&str],
         loc: NirSourceLoc,
     ) -> Result<ValueResult, String> {
@@ -358,7 +396,7 @@ impl CodeBuilder<'_> {
             })
             .collect();
         let result = self.lower_value(&NirValue::Constructor {
-            type_: ParameterType::named(type_name),
+            type_: type_.clone(),
             args: lanes,
         });
         match previous {
@@ -391,7 +429,7 @@ impl CodeBuilder<'_> {
         if !args.iter().all(is_reevaluation_safe) {
             return Ok(None);
         }
-        if !vector_op_inlinable(op, args.len(), type_name, element) {
+        if !vector_op_inlinable(op, args.len(), fields, element) {
             return Ok(None);
         }
         // A binary `op x` node over two synthetic operands at the call's location.
@@ -530,7 +568,13 @@ impl CodeBuilder<'_> {
             // normalize (Float): len = sqrt(Σf²); IF len=0 THEN FAIL; N[f/len,…].
             // Needs a guarded compare + FAIL between computing `len` and the divides,
             // so it cannot be a pure expression tree — factored into a helper.
-            ("normalize", 1) => self.inline_vector_normalize(&args[0], type_name, fields, loc)?,
+            ("normalize", 1) => {
+                // `VECTOR_SHAPES` stores the constructor nominal as a `&'static
+                // str` because a `Named` carries a `Symbol` and is not
+                // const-constructible; the nominal is built once, here.
+                let type_ = ParameterType::named(type_name);
+                self.inline_vector_normalize(&args[0], &type_, fields, loc)?
+            }
             _ => return Ok(None),
         };
         // The synthetic node above registered a statement-scope pending temp for a

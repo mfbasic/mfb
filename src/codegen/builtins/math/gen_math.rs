@@ -124,7 +124,7 @@ impl CodeBuilder<'_> {
             ParameterType::Integer => self.lower_simd_unary(
                 SimdUnaryKernel::AbsInteger,
                 input,
-                "List OF Integer",
+                &ParameterType::ListOf(Box::new(ParameterType::Integer)),
                 COLLECTION_TYPE_INTEGER,
                 text,
             ),
@@ -133,14 +133,14 @@ impl CodeBuilder<'_> {
             ParameterType::Fixed => self.lower_simd_unary(
                 SimdUnaryKernel::AbsInteger,
                 input,
-                "List OF Fixed",
+                &ParameterType::ListOf(Box::new(ParameterType::Fixed)),
                 COLLECTION_TYPE_FIXED,
                 text,
             ),
             ParameterType::Float => self.lower_simd_unary(
                 SimdUnaryKernel::AbsFloat,
                 input,
-                "List OF Float",
+                &ParameterType::ListOf(Box::new(ParameterType::Float)),
                 COLLECTION_TYPE_FLOAT,
                 text,
             ),
@@ -161,7 +161,7 @@ impl CodeBuilder<'_> {
             ParameterType::Float => self.lower_simd_unary(
                 SimdUnaryKernel::SqrtFloat,
                 input,
-                "List OF Float",
+                &ParameterType::ListOf(Box::new(ParameterType::Float)),
                 COLLECTION_TYPE_FLOAT,
                 text,
             ),
@@ -446,7 +446,7 @@ impl CodeBuilder<'_> {
         self.lower_simd_unary(
             kernel,
             input,
-            "List OF Integer",
+            &ParameterType::ListOf(Box::new(ParameterType::Integer)),
             COLLECTION_TYPE_INTEGER,
             text,
         )
@@ -549,14 +549,7 @@ impl CodeBuilder<'_> {
             }
         };
         let text = format!("math.{function}({}, {})", left.text, right.text);
-        self.lower_simd_binary(
-            kernel,
-            left_slot,
-            right_slot,
-            &result_type.name(),
-            code,
-            text,
-        )
+        self.lower_simd_binary(kernel, left_slot, right_slot, &result_type, code, text)
     }
 
     /// `math.clamp(values AS T[], low AS T, high AS T) AS T[]` — vectorized clamp
@@ -607,7 +600,7 @@ impl CodeBuilder<'_> {
             in_slot,
             low_slot,
             high_slot,
-            &result_type.name(),
+            &result_type,
             code,
             text,
         )

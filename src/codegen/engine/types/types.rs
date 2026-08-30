@@ -1201,7 +1201,7 @@ pub(crate) struct AppEntrySpec {
 pub(crate) struct ProgramEntrySpec<'a> {
     pub(crate) entry_symbol: &'a str,
     pub(crate) language_entry_symbol: &'a str,
-    pub(crate) language_entry_returns: &'a str,
+    pub(crate) language_entry_returns: &'a crate::types::ParameterType,
     pub(crate) language_entry_accepts_args: bool,
     pub(crate) global_initializer_symbol: Option<&'a str>,
     pub(crate) link_init_symbol: Option<&'a str>,

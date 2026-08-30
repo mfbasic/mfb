@@ -724,9 +724,9 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     //     0 in letter C and its row is gone.
     // --- 7. a type-keyed map keyed by `String`. Reached 0 tree-wide in letter C;
     //     the class has no row at all, which is the shape every class ends in.
-    ("parse_sites", "codegen", 85),
+    ("parse_sites", "codegen", 74),
     ("str_type_params", "binary_repr", 5),
-    ("str_type_params", "codegen", 165),
+    ("str_type_params", "codegen", 157),
     ("str_type_params", "hir", 1),
     ("str_type_params", "numeric", 1),
     ("str_type_params", "target", 4),
@@ -734,7 +734,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     ("spelling_match_arms", "binary_repr", 19),
     ("spelling_match_arms", "codegen", 68),
     ("spelling_match_arms", "types", 9),
-    ("spelling_compares", "codegen", 58),
+    ("spelling_compares", "codegen", 48),
     ("spelling_compares", "optimizer", 3),
     ("spelling_compares", "target", 2),
     ("spelling_compares", "types", 2),
@@ -924,7 +924,8 @@ fn scanners_fire_on_their_own_needles() {
         "plan-111-D Correction D1: a TUPLE arm dispatches on a spelling too"
     );
     assert_eq!(
-        spelling_match_arms("        (\"min\", \"Integer\" | \"Fixed\") => Kernel::MinSigned,").len(),
+        spelling_match_arms("        (\"min\", \"Integer\" | \"Fixed\") => Kernel::MinSigned,")
+            .len(),
         1,
         "a tuple arm with an or-pattern is still one arm"
     );
@@ -1121,7 +1122,10 @@ fn census_by_file() {
         .collect();
     rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
-    println!("\nplan-111 live census by file ({} files with any hit)", rows.len());
+    println!(
+        "\nplan-111 live census by file ({} files with any hit)",
+        rows.len()
+    );
     println!(
         "{:<62} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>6}",
         "file", "parse", "param", "arm", "cmp", "gram", "fmt", "map", "total"

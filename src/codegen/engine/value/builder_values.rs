@@ -1147,7 +1147,7 @@ impl CodeBuilder<'_> {
                 // (`vector_value_as_block`). Each lane is finiteness-observed exactly
                 // as the record-field boundary would (plan-17), so behavior is
                 // bit-identical to the heap-record constructor.
-                if let Some(count) = vector_field_count(&type_.name()) {
+                if let Some(count) = vector_field_count(type_) {
                     if args.len() == count {
                         let mut lanes = Vec::with_capacity(count);
                         for arg in args {
@@ -1155,7 +1155,7 @@ impl CodeBuilder<'_> {
                             self.observe_float(arg, &value)?;
                             lanes.push(value);
                         }
-                        return Ok(self.make_vector_native(&type_.name(), lanes));
+                        return Ok(self.make_vector_native(type_, lanes));
                     }
                 }
                 // A fresh nested owned block passed as a field (e.g. the `ErrorLoc`

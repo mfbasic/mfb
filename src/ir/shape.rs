@@ -3006,7 +3006,9 @@ impl<'a> Walker<'a> {
         // dropping the `name()` render. (plan-111-D Correction D1 — a letter-B
         // site the arm scanner could not see until it learned to read a whole
         // pattern rather than only a leading spelling.)
-        if type_.is_named("AttributedString") || type_.is_named("Error") || type_.is_named("ErrorLoc")
+        if type_.is_named("AttributedString")
+            || type_.is_named("Error")
+            || type_.is_named("ErrorLoc")
         {
             return true;
         }

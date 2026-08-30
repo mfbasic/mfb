@@ -65,7 +65,7 @@ impl CodeBuilder<'_> {
             self.emit_build_inlined_record("AttributedString", &[text_slot, spans_slot])?;
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse("AttributedString"),
+            type_: ParameterType::named("AttributedString"),
             location: Operand::from(register.render()),
             text: format!("astrings::fromString({})", text.text),
         })
@@ -105,7 +105,7 @@ impl CodeBuilder<'_> {
         let copied = self.copy_value_to_current_arena("List OF AttrSpan", &spans_alias)?;
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse("List OF AttrSpan"),
+            type_: ParameterType::ListOf(Box::new(ParameterType::named("AttrSpan"))),
             location: Operand::from(copied.render()),
             text: format!("astrings::readSpans({})", value.text),
         })
@@ -199,7 +199,7 @@ impl CodeBuilder<'_> {
             self.emit_build_inlined_record("AttributedString", &[text_slot, spans_slot])?;
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse("AttributedString"),
+            type_: ParameterType::named("AttributedString"),
             location: Operand::from(register.render()),
             text: format!("astrings::writeSpans({}, {})", value.text, spans.text),
         })
