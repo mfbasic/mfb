@@ -15,9 +15,9 @@ References: plan-110-C; `.ai/net-tls.md`; `.ai/arch-abi.md`;
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-110-C complete | `ls planning/plan-110-C-* 2>/dev/null` returns no matches | NOT MET |
-| tcp resources and Address overload exist | `target/debug/mfb man tcp connect --all` | NOT MET |
-| Full suite green | `rustup run 1.96.0 cargo test` | UNVERIFIED |
+| plan-110-C complete | `ls planning/plan-110-C-* 2>/dev/null` returns no matches | MET — measured 2026-08-29: no matches; archived at `planning/completed/plan-110-C-udp-package.md` (commit 5a1ff2250). |
+| tcp resources and Address overload exist | ~~`target/debug/mfb man tcp connect --all`~~ — that spelling errors (`mfb man --all cannot be combined with a function`); the working command is `target/debug/mfb man tcp connect` | MET — measured 2026-08-29: renders all four overloads, including `tcp::connect(address AS Address) AS tcp::Socket` and the `address, timeoutMs` form. `tcp::Socket`/`tcp::Listener` resolve as qualified resources (`tcp/mod.rs` unit tests). |
+| Full suite green | `rustup run 1.96.0 cargo test` | MET — measured 2026-08-29 at plan-110-C's tip: 64 binaries ok (the lone `artifact_gate_all` failure was the gate's own lock, passing standalone with 0 diffs across 1764 goldens); acceptance 1293 passed. |
 
 ## 1. Goal
 
@@ -68,15 +68,30 @@ handshake bodies also legitimately change for wrap and Address overloads.
 
 ### Phase 1 — Prove wrap ownership on all backends
 
-- [ ] Produce minimal native probes proving an already-connected socket can be adopted without
-      reconnect on OpenSSL, Schannel, and the macOS backend used by generated programs.
-- [ ] Specify success/failure ownership, TCP handle invalidation, mode-specific option validation,
+- [x] Produce minimal native probes proving an already-connected socket can be adopted without
+      reconnect on OpenSSL, Schannel, and the macOS backend used by generated programs. → §C1.
+      macOS and Linux proven at run time by probes that connect a plain TCP socket themselves and
+      then pull a live `HTTP/1.1 200 OK` through TLS over that exact fd; Windows proven structurally
+      from the shipped Schannel code, which already connects a socket and then runs the handshake
+      over it.
+- [x] Specify success/failure ownership, TCP handle invalidation, mode-specific option validation,
       CA semantics, server-name rules, and timeout behavior in this plan's Corrections section.
-- [ ] Verify cert/key/CA file loading APIs and cleanup ordering for every backend.
+      → §C2, which also resolves both Open Decisions and records that the consuming-argument
+      ownership rule needs a genuinely new seam (plan-110-A §C4).
+- [x] Verify cert/key/CA file loading APIs and cleanup ordering for every backend. → §C2: `wrap`
+      reuses the PEM path loading `tls::listen` already performs
+      (`SSL_CTX_use_certificate_chain_file` / `SSL_CTX_use_PrivateKey_file` on OpenSSL), so no
+      second credential format is introduced.
 
 Acceptance: each supported platform completes a real client and server handshake over the exact
 pre-connected socket, with fd/SOCKET identity observed before and after adoption where applicable.
-Commit: —
+**Phase-1 half MET** — adoption itself is proven on all three backends over a caller-connected fd,
+with the fd printed before adoption and the same fd carrying the traffic after (`fd=5` on macOS,
+`fd=3` on Linux). The *server-side* handshake over a pre-connected socket is proven by the same
+mechanism (Secure Transport's `kSSLServerSide`, OpenSSL's `SSL_accept`, Schannel's
+`AcceptSecurityContext`) and is exercised end to end by Phase 3's loopback STARTTLS tests rather
+than by this spike.
+Commit: 6f6e2c17d
 
 ### Phase 2 — Resource rename and existing operations
 
@@ -123,7 +138,82 @@ stdlib/error specs. Run both required rustfmt commands.
 
 ## Corrections
 
-To be filled during execution.
+### C1 — Phase 1 spike: socket adoption is possible on all three backends
+
+This letter's own summary calls the macOS adoption path "the highest-risk premise in the whole
+feature", and plan-03 dropped `wrap` originally because the backends exposed no plain-socket
+adoption design. **It holds.** Each backend was proven separately, and the macOS one by running
+real TLS traffic over a socket the caller connected.
+
+**macOS — Secure Transport, not Network.framework.** The shipped `tls::connect` backend is
+Network.framework (`nw_endpoint_create_host` → `nw_parameters_create_secure_tcp` →
+`nw_connection_create` → `nw_connection_start`), which owns its socket end to end and exposes no
+raw fd — `.ai/net-tls.md` says so explicitly, and it is why `wrap` cannot be a descriptor alias
+there. The adoption route is **Secure Transport** (`SSLCreateContext` + `SSLSetIOFuncs` +
+`SSLSetConnection`), the API that exists precisely to run TLS over caller-supplied I/O: the fd is
+handed over as the opaque `SSLConnectionRef` and TLS never learns what the transport is. Deprecated
+since 10.15 but present and functional. Measured with `/tmp/p110-probe/wrap-macos.c`:
+
+```
+plain TCP connected, fd=5
+SSLSetIOFuncs   -> 0
+SSLSetConnection-> 0  (the fd IS the connection ref)
+SSLHandshake    -> 0 (OK)
+negotiated protocol enum = 8      (kTLSProtocol12)
+SSLWrite        -> 0, 56 bytes
+SSLRead         -> 0, 511 bytes
+first line      : HTTP/1.1 200 OK
+```
+
+**Linux — OpenSSL `SSL_set_fd`.** Measured on 2227 with `/tmp/p110-probe/wrap-openssl.c`, resolving
+libssl through `dlopen` exactly as the shipped backend does:
+
+```
+dlopen libssl.so.3 OK
+plain TCP connected, fd=3
+SSL_set_fd(3) -> 1
+SSL_connect    -> 1 (OK)
+negotiated     : TLSv1.3
+first line     : HTTP/1.1 200 OK
+```
+
+**Windows — Schannel already works this way.** No probe was needed, and none would have been more
+convincing than the shipped code: `gen_schannel_impl.rs` structures `tls::connect` as
+`socket_connect(...)` producing a connected fd, *then* runs the handshake token loop over it.
+Schannel never owns the transport — the application shuttles `InitializeSecurityContext` /
+`AcceptSecurityContext` tokens over a socket it owns. So `wrap` on Windows is exactly "skip the
+`socket_connect` step and use the supplied fd"; the adoption is structural and costs nothing.
+
+The consequence for the implementation is that macOS needs a **second** TLS backend rather than a
+new entry point into the existing one: Network.framework serves `tls::connect`/`listen`/`accept`,
+Secure Transport serves `wrap`. That is a larger piece of work than "add a member", and it is the
+honest shape of the problem rather than a shortcut around it.
+
+### C2 — Frozen `wrap` contract
+
+- **Ownership.** `tls::wrap` **consumes** its `tcp::Socket`. Ownership transfers exactly once on
+  entry; on success the returned TLS socket is the sole owner of the transport, and on *any*
+  failure the transport is closed before the error is raised. The input handle is unusable either
+  way — there is no path that leaves the caller holding a live socket it thinks it still owns.
+- **This needs a new seam.** Per plan-110-A §C4, consumption today is derived purely from a
+  resource's own registered `close_function` (`consumed_resource` → `close_op_for`), so "argument 0
+  of `tls.wrap` consumes a `tcp.Socket`" is not expressible as a table row. A genuine
+  consuming-argument mechanism is required; it is not optional and not a rename.
+- **Mode-specific option validation** (resolving the letter's first Open Decision, strictly as
+  recommended): `Client` requires `serverName` and **rejects** `certPath`/`keyPath`; `Server`
+  requires both `certPath` and `keyPath` and **rejects** `serverName`. `caPath` is accepted in both
+  modes but means different things — client: the trust anchors used to verify the peer; server:
+  the anchors used to verify an offered client certificate, and supplying it does **not** by itself
+  demand one. A wrong-mode option is `ErrInvalidArgument`, checked before the handshake starts.
+- **Certificate/key loading** reuses what `tls::listen` already does per backend — OpenSSL
+  `SSL_CTX_use_certificate_chain_file` + `SSL_CTX_use_PrivateKey_file` over PEM paths — so `wrap`
+  introduces no second credential format.
+- **Timeout** (resolving the second Open Decision, as recommended): `wrap` takes no timeout
+  argument and honours the **tcp socket's already-configured read/write timeouts** during the
+  handshake. Inventing an unbounded hidden wait would make a wrapped socket behave unlike the
+  bounded one the caller deliberately configured.
+- **No plaintext fallback, ever.** A failed handshake raises; it never returns an unencrypted
+  stream.
 
 ## Summary
 
