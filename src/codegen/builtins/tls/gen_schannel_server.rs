@@ -250,7 +250,7 @@ fn emit_container_name(symbol: &str, work_off: usize, ins: &mut Vec<CodeInstruct
 }
 
 // ---------------------------------------------------------------------------
-// tls.listen(host, port, certPath, keyPath, backlog) -> TlsListener
+// tls.listen(host, port, certPath, keyPath, backlog) -> Listener
 // ---------------------------------------------------------------------------
 pub(crate) fn lower_tls_listen(
     symbol: &str,
@@ -614,7 +614,7 @@ pub(crate) fn lower_tls_listen(
 }
 
 // ---------------------------------------------------------------------------
-// tls.accept(listener, timeoutMs) -> TlsSocket
+// tls.accept(listener, timeoutMs) -> Socket
 // ---------------------------------------------------------------------------
 pub(crate) fn lower_tls_accept(
     symbol: &str,
@@ -960,7 +960,7 @@ pub(crate) fn lower_tls_accept(
         abi::store_u32(&v9, &v10, st::MAXMSG),
     ]);
 
-    // Build the TlsSocket record: canonical header { tag, fd, closed=0, STATE=0 }
+    // Build the Socket record: canonical header { tag, fd, closed=0, STATE=0 }
     // then the tail { SSPI block ptr @TLS_SCHANNEL_OFFSET_BLOCK } (plan-80).
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),

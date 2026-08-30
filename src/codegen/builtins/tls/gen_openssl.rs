@@ -18,6 +18,7 @@ pub(crate) fn lower_tls_connect_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    address: bool,
 ) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -70,12 +71,17 @@ pub(crate) fn lower_tls_connect_openssl(
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
 
-    // x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName.
+    // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName.
+    // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName.
+    instructions.extend(super::gen_shared::connect_arg_prologue(
+        address,
+        &v9,
+        HOST_OFFSET,
+        PORT_OFFSET,
+        TIMEOUT_OFFSET,
+        SNAME_OFFSET,
+    ));
     instructions.extend([
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
-        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT_OFFSET),
-        abi::store_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::store_u64(abi::c_arg(3), abi::stack_pointer(), SNAME_OFFSET),
         // Sentinel-initialise the fd (-1) and the SSL/SSL_CTX slots (0) so the
         // alloc_fail exit can close/free exactly what has been acquired without
         // touching a garbage fd or object (bug-55).
@@ -697,7 +703,7 @@ pub(crate) fn lower_tls_connect_openssl(
         TIMEVAL_OFFSET,
     )?;
     instructions.push(abi::label(&hs_timeout_clear));
-    // Build the TlsSocket record: canonical header { tag, fd, closed=0, STATE=0 }
+    // Build the Socket record: canonical header { tag, fd, closed=0, STATE=0 }
     // then the TLS tail { ssl, ctx } (plan-80).
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
@@ -1378,7 +1384,7 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&ctx_fail),
     ]);
-    // Build the TlsListener record: canonical header { tag, fd, closed=0, STATE=0 }
+    // Build the Listener record: canonical header { tag, fd, closed=0, STATE=0 }
     // then the TLS tail { ctx } (plan-80).
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
@@ -1820,7 +1826,7 @@ pub(crate) fn lower_tls_accept_openssl(
         TIMEVAL_OFFSET,
     )?;
     instructions.push(abi::label(&hs_timeout_cleared));
-    // Build the TlsSocket record: canonical header { tag, fd, closed=0, STATE=0 }
+    // Build the Socket record: canonical header { tag, fd, closed=0, STATE=0 }
     // then the TLS tail { ssl, ctx = 0 } (plan-80) — the zero ctx slot marks a
     // non-owned (listener-owned) server context, which the close helper must not
     // free (plan-06-tls-server.md §6.4).
@@ -2864,7 +2870,7 @@ mod error_path_release_tests {
         mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
         let imports = HashMap::new();
         let (ins, rel, _s) =
-            lower_tls_connect_helper("c", &imports, &TestPlatform).expect("lower connect");
+            lower_tls_connect_helper("c", &imports, &TestPlatform, false).expect("lower connect");
         for label in [
             "c_af_skip_ssl",
             "c_af_skip_ctx",
@@ -2921,7 +2927,7 @@ mod error_path_release_tests {
         mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
         let imports = HashMap::new();
         let (ins, _r, _s) =
-            lower_tls_connect_helper("c", &imports, &TestPlatform).expect("lower connect");
+            lower_tls_connect_helper("c", &imports, &TestPlatform, false).expect("lower connect");
         for label in ["c_tf_skip_ssl", "c_tf_skip_ctx", "c_tls_fail_raw"] {
             assert!(
                 has_label(&ins, label),
@@ -2974,15 +2980,11 @@ mod error_path_release_tests {
             lower_tls_read_openssl("r", &imports, &TestPlatform, false).expect("lower read");
         let start = ins
             .iter()
-            .position(|i| {
-                i.op == CodeOp::Label && i.get("name").as_deref() == Some("r_entry_loop")
-            })
+            .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some("r_entry_loop"))
             .expect("byte read must emit the fill loop");
         let end = ins
             .iter()
-            .position(|i| {
-                i.op == CodeOp::Label && i.get("name").as_deref() == Some("r_entry_done")
-            })
+            .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some("r_entry_done"))
             .expect("byte read must emit the fill loop terminator");
         let body = &ins[start..end];
         if byte_list_entry_stride() == 0 {
@@ -2994,7 +2996,8 @@ mod error_path_release_tests {
             ] {
                 assert!(
                     !body.iter().any(|i| {
-                        i.op == CodeOp::StrU64 && i.get("offset").as_deref() == Some(&off.to_string())
+                        i.op == CodeOp::StrU64
+                            && i.get("offset").as_deref() == Some(&off.to_string())
                     }),
                     "packed byte list has no entry array, but the fill loop stores an \
                      entry descriptor field at offset {off}"

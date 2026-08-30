@@ -1,8 +1,8 @@
 //! `tls::poll` — descriptor entry (native OS-seam).
 //!
-//! `poll` is **return-type-overloaded on argument shape**: a scalar `TlsSocket`
-//! yields `Boolean` (a readiness query), a `List OF RES tls.TlsSocket` yields a
-//! borrowed `TlsSocket` (the readiness multiplex). That is two distinct
+//! `poll` is **return-type-overloaded on argument shape**: a scalar `Socket`
+//! yields `Boolean` (a readiness query), a `List OF RES tls.Socket` yields a
+//! borrowed `Socket` (the readiness multiplex). That is two distinct
 //! `Implementation`s — the datetime/net idiom — so the registry's generic
 //! overload/return resolution answers it with no custom resolver. The list
 //! overload declares the code-form alias `pollList`: `builder_values` rewrites a
@@ -16,7 +16,7 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 const INTRO: &str = r#"Test whether a TLS socket has application data ready to read, or wait for the first ready socket among many."#;
-const DESC: &str = r#"`tls::poll` reports whether a connected `TlsSocket` is readable — that is, whether
+const DESC: &str = r#"`tls::poll` reports whether a connected `Socket` is readable — that is, whether
 a following `tls::read` or `tls::read` can proceed without blocking. It returns
 `TRUE` when application bytes are available (or the connection has reached a
 terminal readable state — peer close or error — where a read returns promptly), and
@@ -26,7 +26,7 @@ in place for the next read.
 
 **Readiness includes bytes buffered inside the TLS layer, not just raw transport
 state.** A single TLS record can carry many application bytes: one decrypt drains a
-record and buffers the remainder, so a `TlsSocket` may hold decrypted bytes ready to
+record and buffers the remainder, so a `Socket` may hold decrypted bytes ready to
 read while the underlying transport is idle. `tls::poll` accounts for this — it is
 `TRUE` whenever the next read would return bytes, whether they are already buffered
 or still on the wire.
@@ -37,9 +37,9 @@ and then returns `TRUE` (omit = unbounded). `0` is a non-blocking check that ret
 immediately with the socket's current readiness. A positive value waits up to that
 long. A negative `timeoutMs` is rejected with `ErrInvalidArgument`.
 
-Given a `List OF RES tls::TlsSocket`, `tls::poll` becomes a **readiness multiplex**: it
+Given a `List OF RES tls::Socket`, `tls::poll` becomes a **readiness multiplex**: it
 blocks until at least one socket in the list is readable, then returns the first
-ready one (lowest list index). The returned `TlsSocket` is a **borrowed** pointer —
+ready one (lowest list index). The returned `Socket` is a **borrowed** pointer —
 an alias of a list element — so the list retains ownership and closes every socket
 exactly once on scope exit. An empty list is rejected with `ErrInvalidArgument`;
 because the multiplex yields a resource with no not-ready value, expiry raises
@@ -75,11 +75,11 @@ IMPORT collections
 FUNC main AS Integer
   RES a = tls::connect("example.com", 443)
   RES b = tls::connect("example.com", 443)
-  MUT socks AS List OF RES tls::TlsSocket = []
+  MUT socks AS List OF RES tls::Socket = []
   socks = collections::append(socks, a)
   socks = collections::append(socks, b)
   tls::write(b, "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
-  RES ready AS tls::TlsSocket = tls::poll(socks)
+  RES ready AS tls::Socket = tls::poll(socks)
   io::print(encoding::utf8Decode(tls::read(ready, 64)))
   RETURN 0
 END FUNC
@@ -123,12 +123,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        // Return-type-overloaded (Boolean vs TlsSocket): the per-position render
+        // Return-type-overloaded (Boolean vs Socket): the per-position render
         // yields None, so the union phrasing rides on this hand-authored hint.
-        expected_arguments: Some("TlsSocket, Integer or List OF RES TlsSocket, Integer"),
+        expected_arguments: Some("Socket, Integer or List OF RES Socket, Integer"),
         internal_only: false,
         implementations: vec![
-            // Scalar readiness query: `poll(TlsSocket[, timeoutMs]) AS Boolean`.
+            // Scalar readiness query: `poll(Socket[, timeoutMs]) AS Boolean`.
             Implementation {
                 params: vec![
                     Parameter {
@@ -146,8 +146,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 errors: vec![],
                 body: Body::abi_function(lower_poll),
             },
-            // Readiness multiplex: `poll(List OF RES tls.TlsSocket[, timeoutMs]) AS
-            // TlsSocket` (borrowed). Emits the `tls.pollList` code form.
+            // Readiness multiplex: `poll(List OF RES tls.Socket[, timeoutMs]) AS
+            // Socket` (borrowed). Emits the `tls.pollList` code form.
             Implementation {
                 params: vec![
                     Parameter {
@@ -156,7 +156,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                         aliases: &[],
                         // The element is the bare resource id: `ParameterType::parse`
                         // strips the `RES ` ownership marker off a list element, so the
-                        // concrete `List OF RES tls.TlsSocket` argument unifies as
+                        // concrete `List OF RES tls.Socket` argument unifies as
                         // `ListOf(Named("tls.Socket"))`. (The `RES` requirement itself
                         // is enforced separately by the resource/type checker.)
                         ty: ParameterType::ListOf(Box::new(ParameterType::named(

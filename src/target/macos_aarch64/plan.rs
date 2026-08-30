@@ -897,6 +897,12 @@ impl plan::NativePlanPlatform for Platform {
                 if call == "tls.listen" {
                     symbols.extend(["_open", "_read", "_lseek", "_close"]);
                 }
+                // plan-110-D: the endpoint queries render the peer/local sockaddr
+                // through the shared `net` Address builder, which formats the
+                // numeric host with inet_ntop.
+                if matches!(call, "tls.localAddress" | "tls.remoteAddress") {
+                    symbols.push("_inet_ntop");
+                }
                 symbols
                     .into_iter()
                     .map(|symbol| PlatformImport {

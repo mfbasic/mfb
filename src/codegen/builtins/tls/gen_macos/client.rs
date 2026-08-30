@@ -7,6 +7,7 @@ pub(crate) fn lower_tls_connect_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    address: bool,
 ) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -50,12 +51,13 @@ pub(crate) fn lower_tls_connect_macos(
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
-    ins.extend([
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST),
-        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT),
-        abi::store_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT),
-        abi::store_u64(abi::c_arg(3), abi::stack_pointer(), SNAME),
-    ]);
+    // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName.
+    // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName.
+    ins.extend(
+        crate::codegen::builtins::tls::gen_shared::connect_arg_prologue(
+            address, &v9, HOST, PORT, TIMEOUT, SNAME,
+        ),
+    );
     {
         // plan-73-D: reject a negative (non-sentinel) `timeoutMs` up front — before
         // any dlopen/alloc/connection, so the reject leaks nothing. The omitted
@@ -324,7 +326,7 @@ pub(crate) fn lower_tls_connect_macos(
     // nw_connection_create retains both the endpoint and the parameters, so
     // release our own references now; otherwise every successful connect leaks
     // one nw_endpoint and one nw_parameters (bug-55). The connection (CONN),
-    // queue, and ctx are handed to the TlsSocket record and released on close.
+    // queue, and ctx are handed to the Socket record and released on close.
     dlsym(
         &mut EmitCtx {
             symbol,
@@ -601,7 +603,7 @@ pub(crate) fn lower_tls_connect_macos(
         abi::branch(&conn_fail), // waiting/failed/cancelled
         abi::label(&ready),
     ]);
-    // Build the TlsSocket record: header { tag, conn, closed=0, STATE=0 } then
+    // Build the Socket record: header { tag, conn, closed=0, STATE=0 } then
     // the macOS tail { ctx, queue } (plan-80).
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", REC_SIZE),

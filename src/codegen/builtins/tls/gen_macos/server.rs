@@ -1161,7 +1161,7 @@ pub(crate) fn lower_tls_listen_macos(
         abi::branch(&wait_loop),      // invalid / waiting
         abi::label(&ready),
     ]);
-    // Build the TlsListener record: header { tag, listener, closed=0, STATE=0 }
+    // Build the Listener record: header { tag, listener, closed=0, STATE=0 }
     // then the macOS tail { lctx, queue } (plan-80).
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", REC_SIZE),
@@ -1605,7 +1605,7 @@ pub(crate) fn lower_tls_accept_macos(
         abi::branch(&conn_fail), // waiting/failed/cancelled
         abi::label(&ready),
     ]);
-    // Build the TlsSocket record { closed=0, conn, queue=0, cctx } — the queue
+    // Build the Socket record { closed=0, conn, queue=0, cctx } — the queue
     // slot is 0 (not the listener's shared serial queue) so the shared close
     // helper releases the connection and ctx semaphore this socket owns but not
     // the listener-owned queue, which closeListener releases (bug-55). read/

@@ -9,7 +9,7 @@ const INTRO: &str = r#"Bind a local port and load a server certificate to termin
 const DESC: &str = r#"`listen` binds a local TCP endpoint and loads a server TLS identity so a program
 can *terminate* TLS: accept encrypted inbound connections, present a server
 certificate that clients validate, and exchange application data. It returns a
-`TlsListener` resource that `tls::accept` draws connections from. It is the
+`Listener` resource that `tls::accept` draws connections from. It is the
 server-side counterpart to the client's `tls::connect`.
 
 The endpoint is resolved and bound exactly as `net::listenTcp` does. An empty
@@ -26,8 +26,8 @@ private key. The pair is loaded once, when the listener is created, into a
 cannot be read, does not parse, or does not match its partner raises
 `ErrTlsFailed` and the listening socket is closed before the error is returned.
 
-The server TLS context is owned by the `TlsListener` and *borrowed* by each
-accepted `TlsSocket`: closing an accepted socket never frees the shared context,
+The server TLS context is owned by the `Listener` and *borrowed* by each
+accepted `Socket`: closing an accepted socket never frees the shared context,
 which is released exactly once when the listener itself closes. The listener
 presents its certificate but does not request or verify a client certificate
 (no mutual TLS in this version)."#;

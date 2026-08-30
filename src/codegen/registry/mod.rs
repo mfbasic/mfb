@@ -1835,9 +1835,9 @@ fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool)
     }
     // A container CONCRETE against a RESOURCE leaf pattern matches only when their spelled
     // names are equal. A genuine resource nominal (`Named("tls.Socket")`) is NOT a
-    // container spelling, so it is correctly rejected against a `List OF RES TlsSocket`
+    // container spelling, so it is correctly rejected against a `List OF RES tls::Socket`
     // concrete — which lets a same-arity resource-nominal-vs-list overload pair
-    // (`tls::poll`: scalar `TlsSocket → Boolean` vs `List OF RES TlsSocket → TlsSocket`)
+    // (`tls::poll`: scalar `tls::Socket → Boolean` vs `List OF RES tls::Socket → tls::Socket`)
     // select by argument shape on the lenient dispatch / return-inference path.
     // Gated on the pattern being a RESOURCE (not any nominal): a NON-resource leaf keeps the
     // pre-existing coarse `true` below — a value nominal or a string-blob spelling like
@@ -2258,7 +2258,7 @@ pub(crate) fn rewrite_target(qualified: &str, arg_types: &[String]) -> Option<&'
     // Prefer STRICT selection: a call whose arguments precisely name one overload's
     // types picks that overload. This is required to disambiguate two overloads that
     // differ only by a resource-nominal parameter — `http::handleRequest`'s
-    // `net::Listener` vs `tls::TlsListener` forms, which each rewrite to a distinct
+    // `net::Listener` vs `tls::Listener` forms, which each rewrite to a distinct
     // transport body. Lenient `dispatch` treats unequal resource nominals as
     // interchangeable (kept coarse so a not-yet-resolved argument does not perturb
     // overload/return inference on valid programs) and would resolve both to the first
@@ -2656,11 +2656,40 @@ pub(crate) fn call_param_name_overloads(qualified: &str) -> Option<Vec<Vec<&'sta
 pub(crate) fn default_argument_padding(
     qualified: &str,
     provided: usize,
+    first_argument: Option<&ParameterType>,
 ) -> Vec<(ParameterType, &'static str)> {
     let Some(resolved) = registry().resolve_func(qualified) else {
         return Vec::new();
     };
-    let Some(implementation) = resolved.function.implementations.first() else {
+    let implementations = &resolved.function.implementations;
+    // Which overload the call matched decides how many trailing `Fill` params it
+    // is missing, and of what type. Taking `implementations.first()` is only
+    // right for a single-implementation member: on an overloaded one (plan-110-D
+    // gave `tls::connect` a `net::Address` form beside its host/port form) it
+    // pads an Address call up to the host form's arity, producing a call with
+    // one argument too many that fails type checking. Select by the first
+    // argument's type when the caller can supply it, and require the overload to
+    // actually have room for the arguments already provided.
+    //
+    // Selection is by SPELLED NAME, not `leaf_matches`: the lenient matcher
+    // answers `true` for a scalar pattern against a nominal concrete (that
+    // coarseness is load-bearing for container-arg overload dispatch), so it
+    // would accept the host form's `String` for an `Address` argument and pick
+    // the wrong padding. A name comparison is exactly the question being asked.
+    let implementation = implementations
+        .iter()
+        .filter(|implementation| implementation.params.len() >= provided)
+        .find(|implementation| match (first_argument, implementation.params.first()) {
+            (Some(argument), Some(param)) => param.ty.name() == argument.name(),
+            _ => false,
+        })
+        // No usable first-argument type: fall back to the historical choice, the
+        // first implementation. Preferring an overload the call fills exactly
+        // looks tempting but is wrong — `crypto::open`'s AEAD form has an
+        // exact-arity sibling at 5 arguments whose `aad` must still be padded
+        // (`aead_aad_default_padding`).
+        .or_else(|| implementations.first());
+    let Some(implementation) = implementation else {
         return Vec::new();
     };
     implementation

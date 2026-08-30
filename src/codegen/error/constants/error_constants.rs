@@ -687,7 +687,7 @@ pub(crate) const FS_MODE_REGULAR: &str = "32768";
 // the generic `STATE` payload (plan-74) has a slot free in *every* layout — not
 // just the File-layout ones. Before plan-80 the header diverged after offset 8
 // and `STATE` lived at 16, which the TLS/audio backends already used for
-// `SSL*`/dispatch-queue/`H_SAMPLE_RATE` — so union `STATE` over a `TlsSocket`
+// `SSL*`/dispatch-queue/`H_SAMPLE_RATE` — so union `STATE` over a `tls::Socket`
 // SIGSEGV'd (plan-76-D Corrections D4). The header is now:
 //   tag@0  handle@8  closed@16  STATE@24  |  type-specific@32+
 /// Resource type id (plan-80). `0x00` = uninitialized/invalid (never a live
@@ -760,7 +760,7 @@ pub(crate) const RESOURCE_OFFSET_CLOSED: usize = 16;
 
 /// Canonical byte offset of the generic `STATE` payload pointer (plan-74),
 /// **free in every backend layout** (plan-80). This is the plan-76-D D4 fix: a
-/// `STATE`-carrying union over *any* resource variant — including `TlsSocket`,
+/// `STATE`-carrying union over *any* resource variant — including `tls::Socket`,
 /// whose record used offset 16 for `SSL*` — writes STATE here without clobbering
 /// a live field. Each backend asserts its own STATE slot equals this.
 pub(crate) const RESOURCE_OFFSET_STATE: usize = 24;

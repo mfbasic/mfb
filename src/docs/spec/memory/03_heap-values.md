@@ -160,7 +160,7 @@ all-resource, never mixed — rule `TYPE_MIXED_RESOURCE_UNION`) is
 ## Resource Record
 
 Every resource value is a pointer to a **96-byte arena record**. The size is
-uniform across resource kinds — `File`, `Socket`, `Listener`, `TlsSocket`,
+uniform across resource kinds — `File`, `Socket`, `Listener`, `tls::Socket`,
 `AudioInput`, a native `LINK` resource — so the generic thread-transfer copy and
 the closed-default record stay one implementation. A kind that needs fewer words
 carries the rest inertly.
@@ -169,7 +169,7 @@ Offsets `0..32` are a **single canonical header** shared by every built-in and
 package resource (plan-80); the type-specific tail starts at `+32`. Before
 plan-80 the header diverged after offset 8 and `STATE` lived at 16, which the
 TLS/audio backends already used for `SSL*`/dispatch-queue/sample-rate fields — so
-a union `STATE` over a `TlsSocket` clobbered a live field. The unified header
+a union `STATE` over a `tls::Socket` clobbered a live field. The unified header
 gives the generic `STATE` payload (plan-74) a free slot in *every* layout.
 
 ```text
@@ -203,9 +203,9 @@ carries `RESOURCE_TAG_NATIVE`:
 | 2   | `RESOURCE_TAG_SOCKET`       | TCP `Socket`                        |
 | 3   | `RESOURCE_TAG_UDP_SOCKET`   | UDP socket                          |
 | 4   | `RESOURCE_TAG_LISTENER`     | TCP `Listener`                      |
-| 5   | `RESOURCE_TAG_TLS_OPENSSL`  | `TlsSocket` (OpenSSL backend)       |
-| 6   | `RESOURCE_TAG_TLS_MACOS`    | `TlsSocket` (Network.framework)     |
-| 7   | `RESOURCE_TAG_TLS_SCHANNEL` | `TlsSocket` (Windows SChannel)      |
+| 5   | `RESOURCE_TAG_TLS_OPENSSL`  | `tls::Socket` (OpenSSL backend)     |
+| 6   | `RESOURCE_TAG_TLS_MACOS`    | `tls::Socket` (Network.framework)   |
+| 7   | `RESOURCE_TAG_TLS_SCHANNEL` | `tls::Socket` (Windows SChannel)    |
 | 8   | `RESOURCE_TAG_TLS_LISTENER` | TLS listener                        |
 | 9   | `RESOURCE_TAG_AUDIO`        | audio input/output                  |
 | 10  | `RESOURCE_TAG_PROCESS`      | child `Process`                     |
@@ -237,7 +237,7 @@ The four TLS backends share the header but split into their own table below.
 
 [[src/codegen/builtins/audio/gen_shared.rs:H_SAMPLE_RATE]]
 
-The `TlsSocket` backend is platform-selected (OpenSSL on Linux, Network.framework
+The `tls::Socket` backend is platform-selected (OpenSSL on Linux, Network.framework
 on macOS, SSPI/SChannel on Windows); `TLSListener` is the OpenSSL server listener.
 Each still shares the `0..32` header:
 

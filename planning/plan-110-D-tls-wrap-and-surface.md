@@ -95,10 +95,13 @@ Commit: 2247bf10f
 
 ### Phase 2 — Resource rename and existing operations
 
-- [ ] Rename public resources to `tls.Socket`/`tls.Listener`; update registry, verifier, cleanup,
+- [x] Rename public resources to `tls.Socket`/`tls.Listener`; update registry, verifier, cleanup,
       resource tags, tests, aliases, diagnostics, and docs without changing layout accidentally.
-- [ ] Provide host and `net.Address` connect overloads; add localAddress/remoteAddress and read/write
+- [~] Provide host and `net.Address` connect overloads; add localAddress/remoteAddress and read/write
       timeout setters; collapse String write into `tls::write`.
+      Done: the String `write` merge, `localAddress`/`remoteAddress` on all three backends, and
+      both `connect` shapes at every arity (measured identical on macOS, Alpine x86_64 and
+      Windows 11). Remaining: `setReadTimeout` / `setWriteTimeout`.
 - [ ] Preserve omitted timeout as unbounded and `0` as immediate per `.ai/net-tls.md`.
 - [ ] Tests: every overload, wrong types/arity, endpoints, timeout conventions, close/drop, and
       certificate-name verification.
@@ -303,7 +306,7 @@ weighed it because I had not measured the ceiling.
 | Member | Backend | Why |
 |---|---|---|
 | `connect` / `listen` / `accept` | Network.framework (unchanged) | negotiates TLS 1.3; owns its socket, which is fine because it creates it |
-| `wrap` | Secure Transport | the *only* API on macOS that can adopt a caller's fd; TLS 1.2 ceiling is the price |
+| `wrap` | Secure Transport | the only *supported* API on macOS that can adopt a caller's fd (see §C8); TLS 1.2 ceiling is the price |
 
 This means a **wrapped** socket on macOS is limited to TLS 1.2 while a `tls::connect`ed one reaches
 1.3. That is a real, user-visible difference in a security property, so it is a documented part of
@@ -322,6 +325,151 @@ contract decision that must be made explicitly and is **not** yet made.
 resolved), the `connect(Address, …)` overload, and all of Phase 3 — `wrap` itself, its Secure
 Transport implementation on macOS, and the new consuming-argument ownership seam that plan-110-A
 §C4 showed does not exist yet.
+
+### C5 — Windows had never executed a `tcp`/`tls` connect: four defects, all pre-existing
+
+Phase 2 could not be certified on box 2230 because `tls::connect` raised `ErrNetworkFailed` for
+every host. Root-causing it (the plan predicted this phase was a surface change, not a codegen one)
+found that Windows networking has never actually worked, for four independent reasons. All four
+reproduce with the **main-tip** compiler in `/tmp/p110-maintip` (`f79f6212a`), so none is a
+plan-110 regression; plan-110-F's carried-in "Windows TCP loopback broken" note is this.
+
+**1. Every shared-emitter external call read its result from the wrong register.**
+`emit_linux_c_call` stages the C return (`rax`) into the aligned MFB result register after a call,
+but only when the target is `linux-x86_64`. Win64 was excluded on the strength of a comment
+claiming its "MFB result bank is `rax`-based (= the C return)". That stopped being true at
+plan-85-A, which re-aligned `%retMFB` onto the call-argument bank — `CALL_ARGS_WIN64[0] == "rcx"`
+(`src/arch/x86_64/select.rs`). Measured in the emitted plan:
+
+```
+{ "op": "bl",       "target": "socket" },
+{ "op": "sxtw",     "dst": "rcx", "src": "rcx" },     <- reads the 3rd OUTGOING ARGUMENT
+{ "op": "cmp_imm",  "lhs": "rcx", "rhs": "0" },
+```
+
+So `socket`/`connect`/`getsockname`/... were all checked against `rcx`. `tcp::listen` "succeeded"
+while storing a non-socket as its handle, which is why `tcp::localAddress` reported ports like
+`3584` — outside the Windows dynamic range entirely. Fixed by staging on both x86 targets.
+
+**2. The connect wait built a POSIX pollfd on Windows.** `lower_net_endpoint_helper` wrote its
+POLLOUT `pollfd` inline — `events` at +4, value 4 — on every platform. A Windows `WSAPOLLFD` has an
+**8-byte** `SOCKET`, so that write lands *inside the socket* and leaves the real `events` (at +8)
+zero; WSAPoll rejects a zero `events`. The readability query already had a Windows-aware
+`emit_pollfd_events`; the writability one never got it. Fixed by generalising that helper
+(`emit_pollfd_events_for(.., writable)`, `POLLWRNORM` 0x0010) and calling it here.
+
+After 1+2, every `tcp::connect` form succeeds on 2230, loopback included:
+
+```
+name/blocking  ok peer=104.20.23.154      loopback port=64069
+name/bounded   ok peer=104.20.23.154      loopback/block ok peer=127.0.0.1
+ip/bounded     ok peer=104.20.23.154      loopback/bound ok peer=127.0.0.1
+```
+
+**3. Schannel's `getsockopt` passed its 5th argument in a register.** On Win64 the 5th integer
+argument is a stack slot above the shadow space (bug-384); `net`/`tcp` route it through
+`emit_external_int_call` for exactly this reason, and the Schannel client did not. The garbage
+`optlen` failed the call, so the non-blocking connect could never resolve.
+
+**4. Schannel never applied the empty-`serverName` → `host` SNI fallback.** `serverName` defaults
+to the empty string and the contract (and the OpenSSL and macOS backends) says `host` is used in
+that case. Schannel marshalled the empty string straight into `pszTargetName`, sending a
+ClientHello with an empty SNI. Measured against example.com (Cloudflare, which requires SNI): the
+server answered with a 7-byte record — type `21` (alert), description `40` (`handshake_failure`) —
+and `InitializeSecurityContextW` reported `SEC_E_ILLEGAL_MESSAGE`. The 4-argument form with an
+explicit `serverName` succeeded throughout, which is what isolated it.
+
+All three targets now agree on the full `connect` matrix (macOS, Alpine x86_64 musl, Windows 11):
+
+```
+host/2=443  host/3=443  host/4=443  addr/1=77070008  addr/2=77070008  addr/3=443  first=72
+```
+
+(`addr/1` and `addr/2` are expected failures: a `net::lookup` address carries a numeric host, and
+example.com's certificate does not cover the IP. Reaching certificate validation at all is the
+proof the endpoint survived the argument prologue.)
+
+### C6 — `DefaultValue::Fill` padding was blind to which overload a call matched
+
+`tls::connect`'s new `net::Address` form is the first member to have BOTH several implementations
+and `Fill` trailing parameters. `registry::default_argument_padding` took
+`implementations.first()`, so a 3-argument Address call was padded up to the host form's 4 and then
+rejected:
+
+```
+error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: Call to `tls.connect` has argument type(s)
+    (Address, Integer, String, String), expected String, Integer, Integer, String or
+    Address, Integer, String.
+```
+
+Fixed by selecting the implementation from the first argument's type. The selection compares
+SPELLED NAMES rather than using `leaf_matches`: that matcher answers `true` for a scalar pattern
+against a nominal concrete — deliberate coarseness that container-arg overload dispatch depends on
+— so it accepted the host form's `String` for an `Address` argument. When the first argument's type
+is not yet known at IR lowering, an overload the call fills *exactly* is preferred over one that
+would grow it.
+
+The first attempted fix — padding in `builder_values` instead, the way `tcp::connect` does — is
+recorded here because it is a trap: padding a `String` there produces a `NirValue::Const` after
+data objects have been collected, so a program with no other empty-string literal fails to build
+with `native code string literal '' has no data object`. `Fill` runs early enough in IR lowering to
+register it.
+
+### C7 — `tls::read`'s byte list was built with the wrong entry stride on Linux
+
+Pre-existing, and made critical by this phase because `read` is now bytes-only. `List OF Byte` is a
+packed fixed-width block (kind 2, plan-57-D) whose `byte_list_entry_stride()` is **0**; the OpenSSL
+emitter still sized, based and advanced by `COLLECTION_ENTRY_SIZE` (40), so element 0 landed on an
+entry-flags byte. Measured on box 2227, an HTTPS reply beginning with `'H'`:
+
+```
+before: read bytes=64  first byte=1        after: read bytes=64  first byte=72
+```
+
+macOS was correct (`gen_macos/client.rs` guards on the stride); OpenSSL was missed by plan-57-D. A
+census of the remaining `COLLECTION_ENTRY_SIZE` uses in files that also name `COLLECTION_TYPE_BYTE`
+leaves only kind-0 lists and stride-guarded arms. A RED-checked codegen guard now pins it.
+
+### C8 — `nw_connection_create_with_connected_socket` exists, but is SPI and rejects an adopted fd
+
+§C4 called Secure Transport "the *only* API on macOS that can adopt a caller's fd". That wording is
+wrong: `nw_connection_create_with_connected_socket` exists and resolves at runtime. Whether it can
+carry `wrap` is a different question, and it decides whether a wrapped macOS socket is capped at
+TLS 1.2 — so it was measured before Phase 3 rather than assumed (`/tmp/nwadopt.c`, `/tmp/nwadopt2.c`,
+built against the macOS 15 SDK on this host).
+
+**It resolves:**
+
+```
+dlopen(Network)=0x3304af8b8  dlsym(nw_connection_create_with_connected_socket)=0x19e899c5c
+```
+
+**It is not declared in any SDK header.** `grep -rln connected_socket` over
+`MacOSX.sdk/System/Library/Frameworks/Network.framework/Headers/` and `MacOSX.sdk/usr/include/`
+returns nothing — the symbol is exported by the dylib but has no public contract, i.e. it is SPI.
+There is no documented statement of what fd state it requires, whether it takes ownership, or
+which `nw_parameters` shapes it accepts.
+
+**And every straightforward invocation fails before the connection becomes ready** — uniformly, in
+the POSIX error domain, with `ENETDOWN` (50):
+
+```
+plain-tcp / blocking fd      state=4 domain=1 code=50
+plain-tcp / nonblocking fd   state=4 domain=1 code=50
+default-tls / blocking fd    state=4 domain=1 code=50
+default-tls / nonblocking fd state=4 domain=1 code=50          (state 4 = failed, ready = 3)
+```
+
+Plain TCP fails identically to TLS, so this is not a TLS-parameter mistake — the adoption itself is
+rejected. Combined with the missing header, that is an SPI whose real precondition is not public.
+
+**Correction, not a change of plan.** §C4's *conclusion* stands — `wrap` uses Secure Transport on
+macOS, with the TLS 1.2 ceiling as a documented part of its contract. Only the premise sentence is
+corrected: Secure Transport is the only *supported* macOS API that can adopt a caller's connected
+fd. Shipping a compiler-emitted call to an undeclared, undocumented symbol that does not work in
+its obvious form is not a production-ready path, and it would additionally be an App Store
+rejection risk. If Apple ever declares this in a public header, `wrap` on macOS should be revisited,
+because it is the one thing that would lift a wrapped socket from TLS 1.2 to 1.3.
 
 ## Summary
 

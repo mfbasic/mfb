@@ -281,7 +281,7 @@ impl CodeBuilder<'_> {
                     crate::codegen::registry::native_bare_target(target),
                     Some("get" | "getOr")
                 ) || target == "net.poll"
-                    // `tls::poll(List OF RES TlsSocket)` returns a borrowed pointer to
+                    // `tls::poll(List OF RES tls::Socket)` returns a borrowed pointer to
                     // the first ready list element (the list keeps ownership), like
                     // `net::poll(List)` — the migrated tls package folds this into the
                     // call-name check here.
@@ -2100,7 +2100,7 @@ impl CodeBuilder<'_> {
                 })
             })
             // plan-76-C: `tls.poll` is likewise return-type-overloaded — the list
-            // form yields a borrowed `TlsSocket`, the scalar a `Boolean`.
+            // form yields a borrowed `tls::Socket`, the scalar a `Boolean`.
             .or_else(|| {
                 (target == "tls.poll").then(|| {
                     if self.net_poll_is_list_form(&helper_args) {
@@ -2264,6 +2264,22 @@ impl CodeBuilder<'_> {
                     "udp.send"
                 }
             }
+            // plan-110-D: the `net::Address` connect overload. Selected by the
+            // first argument's static type rather than by arity, because tls's
+            // optional `timeoutMs`/`serverName` are `DefaultValue::Fill` — every
+            // call reaches here already padded, so the two shapes differ only in
+            // whether the endpoint is one record or a host/port pair.
+            "tls.connect" => {
+                if args
+                    .first()
+                    .and_then(|arg| self.static_type_name(arg))
+                    .is_some_and(|type_| type_.is_named("Address"))
+                {
+                    "tls.connectAddr"
+                } else {
+                    "tls.connect"
+                }
+            }
             // plan-110-D: `tls::writeText` became a String overload of `tls::write`,
             // so the byte-vs-text lowering is selected here by the payload's type
             // rather than by the member name — the same move `tcp::write` made.
@@ -2289,9 +2305,9 @@ impl CodeBuilder<'_> {
                     "net.poll"
                 }
             }
-            // plan-76-C: `tls::poll(List OF RES TlsSocket)` lowers through the portable
+            // plan-76-C: `tls::poll(List OF RES tls::Socket)` lowers through the portable
             // `tls.pollList` driver (scans the list via the scalar readiness helper),
-            // vs the scalar `tls::poll(TlsSocket) → Boolean`.
+            // vs the scalar `tls::poll(tls::Socket) → Boolean`.
             "tls.poll" => {
                 if self.net_poll_is_list_form(args) {
                     "tls.pollList"

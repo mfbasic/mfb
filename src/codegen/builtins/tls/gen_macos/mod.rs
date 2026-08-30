@@ -195,6 +195,14 @@ const SYMBOLS: &[&str] = &[
     "_nw_content_context_default_message",
     "nw_tls_copy_sec_protocol_options",
     "sec_protocol_options_set_tls_server_name",
+    // plan-110-D: the endpoint queries behind `tls::localAddress` /
+    // `tls::remoteAddress`. Network.framework owns the socket and exposes no fd,
+    // so these are how macOS answers what Linux/Windows answer with
+    // getsockname/getpeername.
+    "nw_connection_copy_current_path",
+    "nw_path_copy_effective_local_endpoint",
+    "nw_path_copy_effective_remote_endpoint",
+    "nw_endpoint_get_address",
 ];
 
 /// The additional server-side entry points (`tls::listen`/`tls::accept`).
@@ -622,11 +630,13 @@ fn emit_dlopen_at(
     Ok(())
 }
 
+mod address;
 mod client;
 mod server;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use address::lower_tls_address_macos;
 pub(crate) use client::{
     lower_tls_close_macos, lower_tls_connect_macos, lower_tls_poll_macos, lower_tls_read_macos,
     lower_tls_write_macos,

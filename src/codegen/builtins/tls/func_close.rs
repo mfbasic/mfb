@@ -1,10 +1,10 @@
 //! `tls::close` — descriptor entry (native OS-seam).
 //!
-//! `close` spans both handle types: `tls::close(TlsSocket)` and
-//! `tls::close(TlsListener)` — two overloads over the resource union, both
+//! `close` spans both handle types: `tls::close(Socket)` and
+//! `tls::close(Listener)` — two overloads over the resource union, both
 //! returning `Nothing` (the datetime/net idiom, no custom resolver). The public
 //! name always lowers to `tls.close` for a socket; IR lowering rewrites a
-//! `TlsListener` operand (and a listener scope-drop) to the internal
+//! `Listener` operand (and a listener scope-drop) to the internal
 //! `tls.closeListener` body, which the listener overload declares as its code-form
 //! `os_alias` so the generic OS dispatch routes it to this member's lowering.
 //! `close` consumes the handle it is given.
@@ -15,7 +15,7 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 const INTRO: &str = r#"Close a TLS socket or listener and release its OS handle."#;
-const DESC: &str = r#"`close` shuts down a connected `TlsSocket` and releases the resources behind it.
+const DESC: &str = r#"`close` shuts down a connected `Socket` and releases the resources behind it.
 On Linux it performs an orderly TLS shutdown and frees the OpenSSL objects
 (`SSL_shutdown`, `SSL_free`, `SSL_CTX_free`) before closing the underlying socket
 file descriptor; on macOS it cancels the Network.framework connection. After a
@@ -23,22 +23,22 @@ successful return the socket is marked closed and must not be used again — any
 later `tls::` call that takes the same value raises an error rather than touching
 a stale handle.
 
-`close` consumes the `TlsSocket` it is given: the value is moved into the call and
+`close` consumes the `Socket` it is given: the value is moved into the call and
 cannot be referenced afterward. The call is idempotent with respect to a socket
 that is already closed — closing a socket whose closed flag is already set does
 nothing and returns successfully — so closing a socket and then letting it drop is
 safe. This differs from `net::close`, which treats an already-closed resource as
 an error.
 
-`close` also closes a `TlsListener` from `tls::listen`. The same name spans both
+`close` also closes a `Listener` from `tls::listen`. The same name spans both
 handle types: given a listener it closes the listening socket and frees the
-server TLS context the listener owns. Because every accepted `TlsSocket` only
+server TLS context the listener owns. Because every accepted `Socket` only
 *borrows* that shared context, closing the listener is safe while accepted
 sockets are still open — the context is freed exactly once, when the listener
 closes, and an accepted socket's own close never touches it. The listener close
 is likewise idempotent and consumes its handle.
 
-Closing is otherwise automatic. Every `TlsSocket` and `TlsListener` is closed by
+Closing is otherwise automatic. Every `Socket` and `Listener` is closed by
 lexical drop when the binding that holds it leaves scope. Call `tls::close` only
 when the handle must be torn down earlier than that."#;
 const EX: &str = r#"Close a TLS connection explicitly once the exchange is complete:
@@ -87,7 +87,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: Some("TlsSocket or TlsListener"),
+        expected_arguments: Some("Socket or Listener"),
         internal_only: false,
         implementations: vec![
             // Socket close — lowers to the public `tls.close` body.

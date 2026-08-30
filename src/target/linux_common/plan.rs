@@ -568,6 +568,16 @@ impl LinuxPlan<'_> {
                 ) {
                     imports.push(self.libc_import("close", required_by));
                 }
+                // plan-110-D: the endpoint queries reuse the `net` address emitter
+                // (the TLS record keeps the fd in the canonical handle slot), so
+                // they need its syscalls and the numeric-host formatter.
+                if matches!(call, "tls.localAddress" | "tls.remoteAddress") {
+                    imports.extend([
+                        self.libc_import("getsockname", required_by),
+                        self.libc_import("getpeername", required_by),
+                        self.libc_import("inet_ntop", required_by),
+                    ]);
+                }
                 if call == "tls.connect" {
                     // getaddrinfo..connect open the socket; fcntl/poll/getsockopt
                     // bound the TCP connect by timeoutMs (non-blocking connect +

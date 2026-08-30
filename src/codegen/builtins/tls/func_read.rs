@@ -6,7 +6,7 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 const INTRO: &str = r#"Read available bytes from a connected TLS socket."#;
-const DESC: &str = r#"`read` receives decrypted application data from a connected `TlsSocket` and
+const DESC: &str = r#"`read` receives decrypted application data from a connected `Socket` and
 returns it as a `List OF Byte`. A single call performs one underlying TLS read:
 it returns as soon as any plaintext is available rather than waiting to fill the
 requested size, so the returned list is frequently shorter than `maxBytes`. The
@@ -66,7 +66,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: Some("TlsSocket, Integer"),
+        expected_arguments: Some("Socket, Integer"),
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![

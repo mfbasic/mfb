@@ -26,6 +26,7 @@ use common::{assert_no_aligned_bank_result_reads, build_ncode, temp_project};
 // Exercises every `tls::*` entry point (connect/read/write/readText/writeText/
 // poll/close/listen/accept) so each `AbiFunction` body is emitted.
 const SOURCE: &str = "\
+IMPORT encoding\n\
 IMPORT io\n\
 IMPORT tls\n\
 FUNC main() AS Integer\n\

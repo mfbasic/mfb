@@ -6,10 +6,10 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 const INTRO: &str = r#"Accept one inbound connection and complete the server-side TLS handshake."#;
-const DESC: &str = r#"`accept` takes the next inbound TCP connection on a `TlsListener`, runs the
+const DESC: &str = r#"`accept` takes the next inbound TCP connection on a `Listener`, runs the
 **server side** of the TLS handshake using the listener's loaded certificate and
-key, and returns a connected `TlsSocket`. The returned socket is
-indistinguishable from a client `TlsSocket`: read and write it with `tls::read`,
+key, and returns a connected `Socket`. The returned socket is
+indistinguishable from a client `Socket`: read and write it with `tls::read`,
 `tls::read`, `tls::write`, and `tls::write`, and close it with
 `tls::close` or by lexical drop.
 
@@ -75,13 +75,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: Some("TlsListener, Integer"),
+        expected_arguments: Some("Listener, Integer"),
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
                 Parameter {
                     name: "listener",
-                    desc: "A listening `TlsListener` from `tls::listen`. Borrowed, not consumed: it remains open for further `accept` calls.",
+                    desc: "A listening `Listener` from `tls::listen`. Borrowed, not consumed: it remains open for further `accept` calls.",
                     aliases: &[],
                     ty: ParameterType::named(super::TLS_LISTENER_TYPE_ID),
                     default: DefaultValue::None,

@@ -652,6 +652,12 @@ impl NativePlanPlatform for Platform {
                 import("send", WS2_32, required_by),
                 import("recv", WS2_32, required_by),
                 import("closesocket", WS2_32, required_by),
+                // plan-110-D: tls.localAddress/tls.remoteAddress. Schannel layers
+                // over a plain SOCKET kept in the record's handle slot, so the
+                // endpoint queries reuse the `net` address emitter verbatim.
+                import("getsockname", WS2_32, required_by),
+                import("getpeername", WS2_32, required_by),
+                import("inet_ntop", WS2_32, required_by),
                 // The PEM cert/key files are read via the Win32 file API.
                 import("CreateFileW", KERNEL32, required_by),
                 import("ReadFile", KERNEL32, required_by),

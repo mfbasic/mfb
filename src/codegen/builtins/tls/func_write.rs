@@ -7,7 +7,7 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Send raw bytes over a connected TLS socket."#;
 const DESC: &str = r#"`write` sends the contents of `bytes` as application data over a connected
-`TlsSocket`, encrypting it through the negotiated TLS session. It writes the
+`Socket`, encrypting it through the negotiated TLS session. It writes the
 whole list: the call loops over the underlying TLS write until every byte has
 been accepted, so a successful return means all of `bytes` was handed to the TLS
 layer, not merely the first chunk. The socket must still be open.

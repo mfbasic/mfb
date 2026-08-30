@@ -320,8 +320,8 @@ resources have `native = false` and `closeMayFail = true`:[[src/audit/collect/so
 | `net.connectTcp`, `net.accept` | `Socket` | `net.close` |
 | `net.listenTcp` | `Listener` | `net.close` |
 | `net.bindUdp` | `UdpSocket` | `net.close` |
-| `tls.connect`, `tls.accept` | `TlsSocket` | `tls.close` |
-| `tls.listen`, `http.serverSSL` | `TlsListener` | `tls.close` |
+| `tls.connect`, `tls.accept` | `tls::Socket` | `tls.close` |
+| `tls.listen`, `http.serverSSL` | `tls::Listener` | `tls.close` |
 
 ### Project hash
 

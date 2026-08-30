@@ -1158,25 +1158,25 @@ mod tests {
         // AEAD `seal(cipher, key, nonce, data, [aad])` pads one trailing `aad` when
         // omitted (4 provided -> 1), none at 5.
         assert_eq!(
-            registry::default_argument_padding("crypto.seal", 4).len(),
+            registry::default_argument_padding("crypto.seal", 4, None).len(),
             1
         );
         assert_eq!(
-            registry::default_argument_padding("crypto.seal", 5).len(),
+            registry::default_argument_padding("crypto.seal", 5, None).len(),
             0
         );
         // `open(cipher, key, nonce, ciphertext, tag, [aad])` pads one trailing `aad`
         // when omitted (5 provided -> 1), none at 6.
         assert_eq!(
-            registry::default_argument_padding("crypto.open", 5).len(),
+            registry::default_argument_padding("crypto.open", 5, None).len(),
             1
         );
         assert_eq!(
-            registry::default_argument_padding("crypto.open", 6).len(),
+            registry::default_argument_padding("crypto.open", 6, None).len(),
             0
         );
         assert_eq!(
-            registry::default_argument_padding("crypto.hash", 2).len(),
+            registry::default_argument_padding("crypto.hash", 2, None).len(),
             0
         );
     }

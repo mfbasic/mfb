@@ -222,10 +222,13 @@ const RUNTIME_CALLS: &[&str] = &[
     "crypto.open",
     // TLS client + server over Schannel (plan-47-J).
     "tls.connect",
+    "tls.connectAddr",
     "tls.read",
     "tls.write",
     "tls.writeText",
     "tls.poll",
+    "tls.localAddress",
+    "tls.remoteAddress",
     "tls.pollList",
     "tls.close",
     "tls.listen",

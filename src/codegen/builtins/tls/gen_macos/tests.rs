@@ -390,7 +390,7 @@ fn connect_failure_exits_release_connection_and_queue() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
     let (ins, _r, _s) =
-        lower_tls_connect_macos("t_c", &imports, &TlsReadTestPlatform).expect("lower");
+        lower_tls_connect_macos("t_c", &imports, &TlsReadTestPlatform, false).expect("lower");
     for (exit, end) in [
         ("t_c_conn_fail", "t_c_conn_timeout"),
         ("t_c_conn_timeout", "t_c_net_fail"),
@@ -452,7 +452,7 @@ fn connect_releases_endpoint_and_params() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
     let (_ins, rel, _s) =
-        lower_tls_connect_macos("t_c", &imports, &TlsReadTestPlatform).expect("lower");
+        lower_tls_connect_macos("t_c", &imports, &TlsReadTestPlatform, false).expect("lower");
     assert!(
         rel.iter().any(|r| r.to.contains("nw_release")),
         "connect must resolve nw_release to free the endpoint and parameters"

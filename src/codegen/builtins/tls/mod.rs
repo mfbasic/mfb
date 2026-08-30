@@ -3,7 +3,7 @@
 //!
 //! `tls` opens outbound TLS client connections, terminates inbound TLS
 //! connections, and transfers encrypted application data over both. Its two
-//! resources — `TlsSocket` (a connected stream) and `TlsListener` (a bound server
+//! resources — `Socket` (a connected stream) and `Listener` (a bound server
 //! endpoint) — are opaque, owned, non-copyable handles released by lexical drop.
 //!
 //! Like `process`/`os`/`fs`, `tls` is a **native OS-seam** package migrated to the
@@ -18,8 +18,8 @@
 //! through `abi_function_lower`, distinguished off `AbiCtx::call`.
 //!
 //! Every call's return type is fixed per name except `poll`, which is
-//! return-type-overloaded on argument shape — a scalar `TlsSocket` yields
-//! `Boolean`, a `List OF RES tls.TlsSocket` yields a borrowed `TlsSocket`. That is
+//! return-type-overloaded on argument shape — a scalar `Socket` yields
+//! `Boolean`, a `List OF RES tls.Socket` yields a borrowed `Socket`. That is
 //! two distinct `RegistryFunction` overloads (the datetime/net idiom), so the
 //! registry's generic overload/return resolution answers everything with no custom
 //! resolver.
@@ -36,15 +36,17 @@ mod func_accept;
 mod func_close;
 mod func_connect;
 mod func_listen;
+mod func_local_address;
 mod func_poll;
 mod func_read;
+mod func_remote_address;
 mod func_write;
 
 /// The TLS socket handle's bare type name — its identity *within* the `tls`
 /// package (the `RegistryResource` name, the `type` half of the qualified id).
 /// Used only for registry-internal lookups (`resolve_type`/close-op).
 ///
-/// plan-110-D renamed these from `TlsSocket`/`TlsListener`: the package name
+/// plan-110-D renamed these from `Socket`/`Listener`: the package name
 /// already says TLS, exactly as `tcp::Socket` and `udp::Socket` do. The bare name
 /// now collides with tcp's and udp's, which is harmless — a resource has no
 /// injectable source declaration, so it never enters the shared top-level
@@ -63,9 +65,9 @@ pub(crate) const TLS_SOCKET_TYPE_ID: &str = "tls.Socket";
 pub(crate) const TLS_LISTENER_TYPE_ID: &str = "tls.Listener";
 
 /// Internal listener-shaped close body. `tls::close` stays the single user-facing
-/// name over both handle types; IR lowering routes a `TlsListener` operand here
+/// name over both handle types; IR lowering routes a `Listener` operand here
 /// because the two records differ in shape (plan-06-tls-server.md §4.1/§6.4). Not
-/// user-callable — it is the `TlsListener` resource's registered close op and a
+/// user-callable — it is the `Listener` resource's registered close op and a
 /// code-form alias of the `close` member's OS-seam lowering.
 pub(crate) const CLOSE_LISTENER: &str = "tls.closeListener";
 
@@ -89,9 +91,9 @@ listener.
 For plain unencrypted TCP and UDP, use `net`.
 
 
-The package defines two built-in types. `TlsSocket` is a connected TLS stream —
+The package defines two built-in types. `Socket` is a connected TLS stream —
 either an outbound client connection from `tls::connect` or an accepted server
-connection from `tls::accept`. `TlsListener` is a bound, listening server
+connection from `tls::accept`. `Listener` is a bound, listening server
 endpoint from `tls::listen` that owns the loaded server TLS context; `tls::accept`
 draws connections from it. Both are opaque, owned, non-copyable resource handles.
 Each is closed automatically by lexical drop when its binding leaves scope, so
@@ -101,8 +103,8 @@ rather than an error. Neither handle type is thread-sendable, and neither can be
 stored as a collection element or carried in a record.
 
 
-The server's TLS context is owned by the `TlsListener` and borrowed by every
-`TlsSocket` that `tls::accept` returns from it: closing an accepted socket never
+The server's TLS context is owned by the `Listener` and borrowed by every
+`Socket` that `tls::accept` returns from it: closing an accepted socket never
 frees the shared context, which is released exactly once when the listener
 closes. Accepted sockets may therefore be closed in any order, and the listener
 may be closed while accepted sockets are still live. The server presents its
@@ -127,13 +129,16 @@ the macOS backend drives Network.framework through a synchronous bridge."#;
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("tls", MODULE_INTRO, MODULE_DESC);
 
-    // The opaque `TlsSocket` / `TlsListener` handles are semantic-only resources
+    // plan-110-D: the endpoint queries return net's shared `Address` record.
+    pkg.add_imports(vec!["net"]);
+
+    // The opaque `Socket` / `Listener` handles are semantic-only resources
     // (no injectable source): they make `registry().qualified_builtin_type` and
     // `registry::resource_close_function` answer generically, replacing the deleted
-    // per-package `is_builtin_type`/`resource_close_function` seams. A `TlsSocket`'s
-    // close op is the public `tls.close`; a `TlsListener`'s is the internal
+    // per-package `is_builtin_type`/`resource_close_function` seams. A `Socket`'s
+    // close op is the public `tls.close`; a `Listener`'s is the internal
     // listener-shaped `tls.closeListener` scope-drop body (a user `tls::close` over a
-    // `TlsListener` is rewritten to it during IR lowering).
+    // `Listener` is rewritten to it during IR lowering).
     pkg.add_resource(RegistryResource {
         name: TLS_SOCKET_TYPE,
         export: true,
@@ -165,6 +170,8 @@ pub(crate) fn register(r: &mut Registry) {
     func_accept::register(&mut pkg);
     func_read::register(&mut pkg);
     func_write::register(&mut pkg);
+    func_local_address::register(&mut pkg);
+    func_remote_address::register(&mut pkg);
     func_poll::register(&mut pkg);
     func_close::register(&mut pkg);
 

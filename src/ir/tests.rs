@@ -2695,7 +2695,7 @@ END FUNC
 
     #[test]
     fn tls_close_on_listener_routes_to_listener_helper() {
-        // `tls::close` on a `TlsListener` operand routes to the listener-shaped
+        // `tls::close` on a `tls::Listener` operand routes to the listener-shaped
         // internal close helper (the tls.close listener branch).
         let src = "IMPORT tls\n\
              FUNC run() AS Integer\n\

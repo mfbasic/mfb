@@ -2995,8 +2995,16 @@ fn lower_expression_with_expected(
                 });
             }
             // The `Fill` trailing params of a migrated (clean-room registry) call.
-            let padding =
-                crate::codegen::registry::default_argument_padding(&canonical_callee, args.len());
+            // The first argument's type picks the overload on a member whose forms
+            // differ in shape (`tls::connect`'s host/port vs `net::Address`).
+            let first_argument_type = normalized_builtin
+                .first()
+                .and_then(|arg| expression_type(arg, locals, context));
+            let padding = crate::codegen::registry::default_argument_padding(
+                &canonical_callee,
+                args.len(),
+                first_argument_type.as_ref(),
+            );
             for (type_, value) in &padding {
                 // plan-106-A: the `Fill` type arrives typed, so the empty-collection
                 // vs scalar choice is a variant match, not a prefix test.
@@ -3053,7 +3061,7 @@ fn lower_expression_with_expected(
                 };
             let resolved_target = package_override
                 .or_else(|| {
-                    // `tls::close` spans two record shapes; a `TlsListener`
+                    // `tls::close` spans two record shapes; a `tls::Listener`
                     // operand routes to the listener-shaped internal close
                     // helper while `tls::close` stays the single user-facing
                     // name (plan-06-tls-server.md §4.1/§6.4). The target is a

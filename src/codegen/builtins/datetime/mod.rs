@@ -813,11 +813,11 @@ mod tests {
         // `time`'s trailing `second`/`nanos` are `Fill { Integer, "0" }`, so the
         // generic registry padder injects the right count; every other member (and
         // the arity constructors) pad nothing.
-        assert_eq!(registry::default_argument_padding(TIME, 2).len(), 2);
-        assert_eq!(registry::default_argument_padding(TIME, 3).len(), 1);
-        assert_eq!(registry::default_argument_padding(TIME, 4).len(), 0);
-        assert_eq!(registry::default_argument_padding(TIME, 5).len(), 0);
-        assert_eq!(registry::default_argument_padding(NOW, 0), Vec::new());
+        assert_eq!(registry::default_argument_padding(TIME, 2, None).len(), 2);
+        assert_eq!(registry::default_argument_padding(TIME, 3, None).len(), 1);
+        assert_eq!(registry::default_argument_padding(TIME, 4, None).len(), 0);
+        assert_eq!(registry::default_argument_padding(TIME, 5, None).len(), 0);
+        assert_eq!(registry::default_argument_padding(NOW, 0, None), Vec::new());
     }
 
     #[test]
