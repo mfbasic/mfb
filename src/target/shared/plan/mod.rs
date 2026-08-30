@@ -65,6 +65,37 @@ pub(crate) fn net_libc_symbols(call: &str) -> &'static [&'static str] {
         "net.bindUdp" => &["getaddrinfo", "freeaddrinfo", "socket", "bind", "close"],
         "net.receiveFrom" | "net.receiveTextFrom" => &["recvfrom", "inet_ntop"],
         "net.sendTo" | "net.sendTextTo" => &["getaddrinfo", "freeaddrinfo", "sendto"],
+        // plan-110-B: `tcp` lowers through the same emitters as the `net` originals
+        // it replaces, so each member needs the same libc symbols. The rows are
+        // spelled out rather than aliased to the `net.*` ones so that deleting
+        // net's transport surface in plan-110-E cannot silently empty them.
+        "tcp.connect" | "tcp.connectAddr" => &[
+            "getaddrinfo",
+            "freeaddrinfo",
+            "socket",
+            "connect",
+            "close",
+            "fcntl",
+            "poll",
+            "getsockopt",
+        ],
+        "tcp.listen" => &[
+            "getaddrinfo",
+            "freeaddrinfo",
+            "socket",
+            "setsockopt",
+            "bind",
+            "listen",
+            "close",
+        ],
+        "tcp.accept" => &["accept", "poll", "close", "fcntl"],
+        "tcp.poll" | "tcp.pollList" => &["poll"],
+        "tcp.read" => &["read"],
+        "tcp.write" | "tcp.writeText" => &["write"],
+        "tcp.close" => &["close"],
+        "tcp.localAddress" => &["getsockname", "inet_ntop"],
+        "tcp.remoteAddress" => &["getpeername", "inet_ntop"],
+        "tcp.setReadTimeout" | "tcp.setWriteTimeout" => &["setsockopt"],
         // plan-110-A. The receive call is deliberately absent: macOS uses `recvfrom`
         // and Linux `recvmsg` (only Linux can reach the reply TTL, and only through a
         // control message), so each backend appends its own via

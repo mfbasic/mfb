@@ -122,10 +122,12 @@ Build fixture programs, run them, and diff their behavior against goldens.
 
 ## Network / riscv validation helpers
 
-- **check-net-connect-timeout.sh** — Standalone runtime check for
-  `net::connectTcp`'s `timeoutMs`: starts a blackhole TCP server, then builds and
+- **check-tcp-connect-timeout.sh** — Standalone runtime check for
+  `tcp::connect`'s `timeoutMs`: starts a blackhole TCP server, then builds and
   runs a program that must fail with `ErrTimeout` well before the OS default
-  connect timeout. Usage: `check-net-connect-timeout.sh <mfb-exe>`.
+  connect timeout. Usage: `check-tcp-connect-timeout.sh <mfb-exe>`. (Was
+  `check-net-connect-timeout.sh` against `net::connectTcp` before plan-110-B moved
+  the transport into `tcp`.)
 - **net_blackhole_server.py** — Helper for the above: a TCP server that saturates
   a tiny accept backlog so new connects get no SYN-ACK and block until their
   deadline. Prints its port and sleeps; started in the background by the check.

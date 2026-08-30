@@ -1529,6 +1529,22 @@ pub(crate) fn lower_module_for_platform(
     {
         runtime_symbols.push("_mfb_rt_net_net_pingAddr".to_string());
     }
+    // plan-110-B: tcp's three synthesized code forms. The NIR names only the base
+    // member (`tcp.connect`/`tcp.poll`/`tcp.write`); `builder_values` picks the
+    // variant at emission, so each variant's body has to be forced into the symbol
+    // set whenever its base is present or the call site relocates against a symbol
+    // nothing defines.
+    for (base, synthesized) in [
+        ("_mfb_rt_tcp_tcp_connect", "_mfb_rt_tcp_tcp_connectAddr"),
+        ("_mfb_rt_tcp_tcp_poll", "_mfb_rt_tcp_tcp_pollList"),
+        ("_mfb_rt_tcp_tcp_write", "_mfb_rt_tcp_tcp_writeText"),
+    ] {
+        if runtime_symbols.iter().any(|symbol| symbol == base)
+            && !runtime_symbols.iter().any(|symbol| symbol == synthesized)
+        {
+            runtime_symbols.push(synthesized.to_string());
+        }
+    }
     // plan-90-A: the 4-arg `spawn(args, cwd, env, envReplace)` overload routes to
     // `process.spawnEnv`, a synthesized target the NIR never names (it carries only
     // `process.spawn`), so emit its helper body whenever `spawn` is present —

@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# Runtime validation for net::connectTcp's timeoutMs deadline.
+# Runtime validation for tcp::connect's timeoutMs deadline (plan-110-B; this was
+# check-net-connect-timeout.sh against net::connectTcp before the transport split).
 #
 # The acceptance golden suite cannot orchestrate an external peer, so this is a
 # standalone check: it starts a blackhole TCP server (saturated listen backlog,
 # see net_blackhole_server.py), then builds and runs a small program that calls
-# net::connectTcp with a short timeout against it. The connect must fail with
+# tcp::connect with a short timeout against it. The connect must fail with
 # ErrTimeout (77050008) well before the OS default connect timeout (~75s),
 # proving the non-blocking-connect + poll path enforces the deadline.
 #
-# Usage: check-net-connect-timeout.sh <mfb-exe>
+# Usage: check-tcp-connect-timeout.sh <mfb-exe>
 set -u
 
 if [ "$#" -lt 1 ]; then
-  echo "usage: check-net-connect-timeout.sh <mfb-exe>" >&2
+  echo "usage: check-tcp-connect-timeout.sh <mfb-exe>" >&2
   exit 2
 fi
 
@@ -47,18 +48,18 @@ fi
 
 mkdir -p "$work/src"
 cat >"$work/project.json" <<EOF
-{ "name": "net_connect_timeout_check", "version": "0.1.0", "mfb": "1.0",
+{ "name": "tcp_connect_timeout_check", "version": "0.1.0", "mfb": "1.0",
   "kind": "executable",
   "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
   "entry": "main", "targets": ["native"] }
 EOF
 cat >"$work/src/main.mfb" <<EOF
-IMPORT net
+IMPORT tcp
 IMPORT io
 
 FUNC tryConnect(port AS Integer) AS Integer
-  RES sock = net::connectTcp("127.0.0.1", port, $CONNECT_TIMEOUT_MS)
-  net::close(sock)
+  RES sock = tcp::connect("127.0.0.1", port, $CONNECT_TIMEOUT_MS)
+  tcp::close(sock)
   RETURN 0
 END FUNC
 
@@ -99,4 +100,4 @@ if [ "$elapsed" -gt 10 ]; then
   exit 1
 fi
 
-echo "PASS: net::connectTcp timed out with ErrTimeout in ${elapsed}s"
+echo "PASS: tcp::connect timed out with ErrTimeout in ${elapsed}s"

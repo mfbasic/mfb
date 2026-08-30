@@ -1,0 +1,22 @@
+' The `net` spellings `tcp` deliberately does NOT carry (plan-110-B).
+'
+' `readText`/`writeText` are gone: `write` takes a String as an overload, and
+' `read` returns bytes only, because a stream read stops wherever the network
+' divided the data and that need not be a character boundary. `connectTcp` and
+' `listenTcp` are gone too — the package name already says TCP.
+'
+' These are unknown-member errors, which the resolver reports before type
+' checking runs, so they get their own fixture; the arity and argument-type
+' diagnostics live in `func_tcp_invalid`.
+IMPORT tcp
+
+FUNC main AS Integer
+  RES client = tcp::connect("127.0.0.1", 9931)
+
+  LET goneReadText = tcp::readText(client, 16)
+  tcp::writeText(client, "x")
+  RES goneConnectTcp = tcp::connectTcp("127.0.0.1", 9931)
+  RES goneListenTcp = tcp::listenTcp("127.0.0.1", 0)
+
+  RETURN 0
+END FUNC

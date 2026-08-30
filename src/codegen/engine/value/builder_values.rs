@@ -2031,9 +2031,46 @@ impl CodeBuilder<'_> {
                 type_: ParameterType::Integer,
                 value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
+        } else if target == "tcp.connect" {
+            // plan-110-B: the same padding `net.connectTcp` takes. The Address form
+            // keeps its single record argument (2 total), the host/port form is 3;
+            // the only ever-missing argument is the trailing `timeoutMs`, and an
+            // omitted connect timeout BLOCKS per the convention.
+            let is_address = self.net_connect_is_address_form(args);
+            let target_args = if is_address { 2 } else { 3 };
+            while helper_args.len() < target_args {
+                helper_args.push(NirValue::Const {
+                    type_: ParameterType::Integer,
+                    value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
+                });
+            }
+        } else if target == "tcp.listen" && helper_args.len() == 2 {
+            helper_args.push(NirValue::Const {
+                type_: ParameterType::Integer,
+                value: "128".to_string(),
+            });
+        } else if matches!(target, "tcp.poll" | "tcp.accept") && helper_args.len() == 1 {
+            // An omitted readiness/accept timeout blocks, exactly as the `net`
+            // originals do.
+            helper_args.push(NirValue::Const {
+                type_: ParameterType::Integer,
+                value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
+            });
         }
         let result_type = self
             .thread_runtime_return_type(target, &helper_args)
+            // plan-110-B: `tcp.poll` is return-type-overloaded the same way
+            // `net.poll` is — a scalar socket answers `Boolean`, a list answers
+            // with the first ready `Socket`.
+            .or_else(|| {
+                (target == "tcp.poll").then(|| {
+                    if self.net_poll_is_list_form(&helper_args) {
+                        crate::codegen::builtins::tcp::SOCKET_TYPE.to_string()
+                    } else {
+                        "Boolean".to_string()
+                    }
+                })
+            })
             // plan-76-A: `net.poll` is return-type-overloaded (scalar `Socket →
             // Boolean` vs list `List OF RES Socket → Socket`), so the fixed
             // `call_return_type_name` yields `None`; select by argument shape here.
@@ -2159,6 +2196,36 @@ impl CodeBuilder<'_> {
                     "net.pingAddr"
                 } else {
                     "net.ping"
+                }
+            }
+            // plan-110-B: tcp's three overload-split code forms. `connect`/`poll`
+            // split exactly as their `net` originals do; `write` is new — `net` had
+            // separate `write`/`writeText` members, and collapsing them into one
+            // overloaded member means the *lowering* has to be selected here, by
+            // the payload's static type, instead of by the member name.
+            "tcp.connect" => {
+                if self.net_connect_is_address_form(args) {
+                    "tcp.connectAddr"
+                } else {
+                    "tcp.connect"
+                }
+            }
+            "tcp.poll" => {
+                if self.net_poll_is_list_form(args) {
+                    "tcp.pollList"
+                } else {
+                    "tcp.poll"
+                }
+            }
+            "tcp.write" => {
+                if args
+                    .get(1)
+                    .and_then(|arg| self.static_type_name(arg))
+                    .is_some_and(|type_| matches!(type_, ParameterType::String))
+                {
+                    "tcp.writeText"
+                } else {
+                    "tcp.write"
                 }
             }
             // plan-76-A: the readiness-multiplex overload `poll(List OF RES Socket)`

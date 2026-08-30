@@ -515,7 +515,13 @@ impl LinuxPlan<'_> {
                 imports.push(self.libc_import("environ", required_by));
                 imports
             }
-            call if crate::codegen::registry::registry().owning_package(call) == Some("net") => {
+            // plan-110-B: `tcp` lowers through net's emitters, so it needs the same
+            // libc symbols and the same errno accessor.
+            call if matches!(
+                crate::codegen::registry::registry().owning_package(call),
+                Some("net") | Some("tcp")
+            ) =>
+            {
                 // bug-300 E10: where `emit_write` is a raw syscall the net write
                 // helper derives errno from the negated raw return (bug-109), so
                 // the libc `write` PLT symbol is never referenced and importing

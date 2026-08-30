@@ -112,9 +112,9 @@ mod helper_percent_decode_impl;
 mod helper_slice;
 mod helper_url_to_string;
 
-mod gen_io;
+pub(crate) mod gen_io;
 mod gen_ping;
-mod gen_poll;
+pub(crate) mod gen_poll;
 pub(crate) mod gen_shared;
 
 /// The bare resource/record type names — the identity *within* the `net` package

@@ -76,6 +76,18 @@ Commit: —
       resource cleanup, TLS certificate rejection, and wrap on each backend.
 - [ ] Fix every defect found, adding a RED regression test before each fix as required by project
       policy; never leave a target-specific bug for another plan.
+- [ ] **Carried in from plan-110-B §C5 — Windows TCP loopback is broken and was broken before
+      plan-110.** Proven pre-existing: a `net` program built by a main-tip compiler (`f79f6212a`)
+      behaves identically to one built on this branch. Measured on box 2230 (Windows 11,
+      10.0.26100.9168):
+      (a) `net::listenTcp("127.0.0.1", 0)` binds but `localAddress` reports **`0.0.0.0`**, not
+      `127.0.0.1`; (b) connecting to that port then raises `ErrNetworkFailed` (7-707-0003);
+      (c) with a **variable** host rather than a literal, `listenTcp` itself raises.
+      Both symptoms point at the host string not reaching `getaddrinfo` intact on Windows — an
+      empty node plus `AI_PASSIVE` is precisely what binds `0.0.0.0`. macOS and Linux report
+      `127.0.0.1` and connect for all three shapes. Fix this before certifying `tcp`/`udp`/`tls`
+      on Windows, with a RED runtime fixture first; `tcp` inherits the defect and cannot be
+      execution-certified there until it is fixed.
 
 Acceptance: every supported native target passes the protocol matrix; any genuinely unavailable
 environment is reported as a blocker rather than represented by compile success.

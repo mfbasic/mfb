@@ -354,6 +354,22 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "net.receiveTextFrom",
             "net.sendTo",
             "net.sendTextTo",
+            // plan-110-B: `tcp` raises the same error set as the `net` transport
+            // members it replaces, so its calls arm the same message pool.
+            "tcp.connect",
+            "tcp.connectAddr",
+            "tcp.listen",
+            "tcp.accept",
+            "tcp.read",
+            "tcp.write",
+            "tcp.writeText",
+            "tcp.poll",
+            "tcp.pollList",
+            "tcp.close",
+            "tcp.localAddress",
+            "tcp.remoteAddress",
+            "tcp.setReadTimeout",
+            "tcp.setWriteTimeout",
         ],
     ) {
         for value in [

@@ -4,7 +4,7 @@
 '    120s bounded default).
 '  - connectTcp(host, port, -1) -> ErrInvalidArgument (rejected up front).
 ' The 0 = one-immediate-attempt -> ErrTimeout path against a black-holed peer is
-' covered by the standing check scripts/check-net-connect-timeout.sh (a refused
+' covered by the standing check scripts/check-tcp-connect-timeout.sh (a refused
 ' localhost port would instead give ErrNetworkFailed — see plan Corrections).
 IMPORT net
 IMPORT io

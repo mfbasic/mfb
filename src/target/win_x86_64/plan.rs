@@ -503,7 +503,9 @@ impl NativePlanPlatform for Platform {
                 import("QueryPerformanceCounter", KERNEL32, required_by),
                 import("QueryPerformanceFrequency", KERNEL32, required_by),
             ],
-            call if call.starts_with("net.") => vec![
+            // plan-110-B: `tcp` is the same Winsock2 surface under a new package
+            // name, so it takes the identical import set.
+            call if call.starts_with("net.") || call.starts_with("tcp.") => vec![
                 import("WSAStartup", WS2_32, required_by),
                 import("WSACleanup", WS2_32, required_by),
                 import("socket", WS2_32, required_by),

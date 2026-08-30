@@ -722,7 +722,13 @@ impl plan::NativePlanPlatform for Platform {
                 })
                 .collect()
             }
-            call if crate::codegen::registry::registry().owning_package(call) == Some("net") => {
+            // plan-110-B: `tcp` lowers through net's emitters, so it needs the same
+            // libSystem symbols and the same errno accessor.
+            call if matches!(
+                crate::codegen::registry::registry().owning_package(call),
+                Some("net") | Some("tcp")
+            ) =>
+            {
                 let mut imports = plan::net_libc_symbols(call)
                     .iter()
                     .map(|base| PlatformImport {

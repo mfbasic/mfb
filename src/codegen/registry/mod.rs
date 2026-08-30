@@ -1547,6 +1547,7 @@ fn build() -> Registry {
     crate::codegen::builtins::io::register(&mut r);
     crate::codegen::builtins::crypto::register(&mut r);
     crate::codegen::builtins::tls::register(&mut r);
+    crate::codegen::builtins::tcp::register(&mut r);
     crate::codegen::builtins::net::register(&mut r);
     crate::codegen::builtins::http::register(&mut r);
     crate::codegen::builtins::thread::register(&mut r);

@@ -1,0 +1,43 @@
+' Arity and argument-type rejection across the tcp surface (plan-110-B), plus the
+' rule that matters most while both packages exist: a `net::Socket` is NOT a
+' `tcp::Socket`. The runtime record is identical, so only the distinct qualified
+' identities stop one being passed where the other belongs.
+'
+' The removed `net` spellings (`readText`/`writeText`/`connectTcp`/`listenTcp`)
+' are unknown-member errors, which the resolver reports before type checking, so
+' they live in `func_tcp_removed_members_invalid` instead.
+IMPORT net
+IMPORT tcp
+
+FUNC main AS Integer
+  RES server = tcp::listen("127.0.0.1", 0)
+  RES client = tcp::connect("127.0.0.1", 9931)
+
+  ' connect: arity and both argument types, on both overload families.
+  RES missing = tcp::connect()
+  RES wrongHost = tcp::connect(1, 80)
+  RES wrongPort = tcp::connect("h", "p")
+  RES tooMany = tcp::connect("h", 80, 0, 0)
+  ' `timeoutMs` names the timeout, so it must never silently fill the port slot:
+  ' this omits `port` and is an arity error, not a connection to port 5000.
+  RES timeoutAsPort = tcp::connect(host := "h", timeoutMs := 5000)
+  RES unknownName = tcp::connect(host := "h", port := 80, deadline := 1)
+
+  ' listen / accept.
+  RES wrongBacklog = tcp::listen("h", 80, "many")
+  RES acceptOnSocket = tcp::accept(client)
+
+  ' read / write payload types.
+  LET badMax = tcp::read(client, "lots")
+  tcp::write(client, 42)
+
+  ' Cross-package identity: a net handle cannot be used through tcp.
+  RES legacy = net::connectTcp("127.0.0.1", 9931)
+  LET wrongPackage = tcp::read(legacy, 16)
+
+  ' A listener is not a stream, and has no single peer.
+  LET listenerRead = tcp::read(server, 16)
+  LET listenerPeer = tcp::remoteAddress(server)
+
+  RETURN 0
+END FUNC

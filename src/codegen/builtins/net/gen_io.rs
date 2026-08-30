@@ -269,6 +269,62 @@ pub(crate) fn lower_net_accept_helper(
         abi::branch_lt(&accept_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
     ]);
+    // The ACCEPTED socket must be blocking, whichever accept form produced it.
+    //
+    // The bounded path above put the LISTENER into non-blocking mode (bug-314 H2),
+    // and on macOS/BSD `accept` hands the new socket the listener's file-status
+    // flags — including O_NONBLOCK. Restoring the listener below does nothing for
+    // the socket that was already created, so without this every read on a socket
+    // from `accept(listener, timeoutMs)` returned EAGAIN, which the read helper
+    // reports as ErrTimeout.
+    //
+    // It stayed hidden because it is data-dependent: with nothing between the
+    // accept and the read, loopback bytes had usually already arrived, so the
+    // non-blocking read found them. Any intervening work lost that race.
+    //
+    // FLAGS_OFFSET still holds the listener's ORIGINAL (blocking) flags —
+    // `emit_set_nonblocking` reads that slot and ORs O_NONBLOCK into the register
+    // it passes to fcntl without writing the slot back — so it is exactly the mode
+    // the accepted socket should have. Guarded on RESTORE_FLAGS_OFFSET, which is
+    // only set on the bounded path, so the block-forever overload is untouched and
+    // stays byte-identical. Regression fixture:
+    // `tests/rt-behavior/net/net-bounded-accept-blocking-rt`.
+    {
+        let v12 = vregs.next();
+        let skip_accepted = format!("{symbol}_accepted_blocking_skip");
+        instructions.extend([
+            abi::load_u64(&v12, abi::stack_pointer(), RESTORE_FLAGS_OFFSET),
+            abi::compare_immediate(&v12, "0"),
+            abi::branch_eq(&skip_accepted),
+        ]);
+        if platform.family() == PlatformFamily::Windows {
+            // Winsock: ioctlsocket(accepted, FIONBIO, &0). MSDN documents the
+            // accepted socket as inheriting the listener's properties, so clear it
+            // there too rather than relying on it not being inherited.
+            platform.emit_restore_blocking(
+                FD_OFFSET,
+                FLAGS_OFFSET,
+                symbol,
+                platform_imports,
+                &mut instructions,
+                &mut relocations,
+            )?;
+        } else {
+            instructions.extend([
+                abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+                abi::move_immediate(abi::c_arg(1), "Integer", "4"), // F_SETFL
+                abi::load_u64(abi::c_arg(2), abi::stack_pointer(), FLAGS_OFFSET),
+            ]);
+            platform.emit_variadic_external_call(
+                net_symbol(platform, NetSymbol::Fcntl),
+                symbol,
+                platform_imports,
+                &mut instructions,
+                &mut relocations,
+            )?;
+        }
+        instructions.push(abi::label(&skip_accepted));
+    }
     // bug-314 H2: the accepted fd is safely in FD_OFFSET and no result register
     // is live yet -- restore before emit_make_handle establishes the result.
     emit_listener_flags_restore(
