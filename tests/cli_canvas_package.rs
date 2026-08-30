@@ -241,6 +241,65 @@ fn macos_repeated_and_changed_presents_are_sound() {
     let _ = fs::remove_dir_all(&project);
 }
 
+/// `presentLayers` installs the same scene in a different shape, and a scene is
+/// exactly one shape at a time. The interesting cases are the transitions: switching
+/// shapes must always publish (the scene really did change), and an empty layer list
+/// is a valid scene rather than a degenerate one.
+#[cfg(target_os = "macos")]
+const PRESENT_LAYERS_SOURCE: &str = "IMPORT app\n\
+     IMPORT canvas\n\
+     IMPORT errorCode\n\
+     FUNC layers(r AS Float) AS List OF DrawLayer\n\
+    \x20 LET sky AS Color = canvas::rgb(20, 30, 60)\n\
+    \x20 LET dot AS Color = canvas::rgb(255, 200, 0)\n\
+    \x20 LET backdrop AS DrawItem = Rectangle[x := 0.0, y := 0.0, w := 400.0, h := 300.0, paint := canvas::fill(sky)]\n\
+    \x20 LET marker AS DrawItem = Circle[x := 100.0, y := 150.0, radius := r, paint := canvas::fill(dot)]\n\
+    \x20 LET back AS DrawLayer = DrawLayer[items := [backdrop]]\n\
+    \x20 LET front AS DrawLayer = DrawLayer[items := [marker]]\n\
+    \x20 RETURN [back, front]\n\
+     END FUNC\n\
+     FUNC flat() AS List OF DrawItem\n\
+    \x20 LET dot AS Color = canvas::rgb(255, 200, 0)\n\
+    \x20 LET marker AS DrawItem = Circle[x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(dot)]\n\
+    \x20 RETURN [marker]\n\
+     END FUNC\n\
+     FUNC main AS Integer\n\
+    \x20 LET none AS List OF DrawLayer = []\n\
+    \x20 canvas::presentLayers(none) TRAP(err)\n\
+    \x20   IF err.code <> errorCode::ErrWrongMode THEN\n\
+    \x20     RETURN 60\n\
+    \x20   END IF\n\
+    \x20   app::setMode(Mode.Canvas)\n\
+    \x20   canvas::presentLayers(layers(12.0))\n\
+    \x20   canvas::presentLayers(layers(12.0))\n\
+    \x20   canvas::presentLayers(layers(20.0))\n\
+    \x20   canvas::present(flat())\n\
+    \x20   canvas::present(flat())\n\
+    \x20   canvas::presentLayers(layers(12.0))\n\
+    \x20   LET empty AS List OF DrawLayer = []\n\
+    \x20   canvas::presentLayers(empty)\n\
+    \x20   canvas::presentLayers(empty)\n\
+    \x20   canvas::presentLayers(layers(12.0))\n\
+    \x20   RETURN 0\n\
+    \x20 END TRAP\n\
+    \x20 RETURN 50\n\
+     END FUNC\n";
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_present_layers_and_shape_switching_are_sound() {
+    let (project, ok, log) = build("canvas_layers_rt", PRESENT_LAYERS_SOURCE, true);
+    assert!(ok, "build should succeed:\n{log}");
+    let exe = project.join("build/canvas_layers_rt.app/Contents/MacOS/canvas_layers_rt");
+    let (code, _) = run_headless(&exe);
+    assert_eq!(
+        code, 0,
+        "presentLayers must trap outside canvas mode (50 = did not, 60 = wrong \
+         code) and be sound across repeats, changes, shape switches and empty scenes"
+    );
+    let _ = fs::remove_dir_all(&project);
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn macos_paint_zero_values_are_no_ops() {

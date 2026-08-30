@@ -19,6 +19,7 @@ pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool 
         module,
         &[
             "canvas.present",
+            "canvas.presentLayers",
             "canvas.createImage",
             "canvas.imageRef",
             "canvas.getSize",

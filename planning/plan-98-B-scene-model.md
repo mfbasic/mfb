@@ -51,18 +51,21 @@ References:
   point arrays, text strings, `Paint` records, referenced `Image`/`Font` handles)
   into a runtime-owned scene arena; after `present()` returns, nothing in the
   published scene points at caller-owned memory.
-- Each item is content-hashed; a runtime-side geometry cache keyed on the hash is
-  probed (hit → reuse cached vertex range; miss → allocate an entry — geometry
-  *generation* itself is a stub returning empty vertices until C, but the cache
-  mechanics, hashing, and eviction are real).
-- **Zero-work frame skip:** if the incoming item-hash sequence is identical and
-  same-length to the live scene's, `present()` returns without publishing.
+- ~~Each item is content-hashed; a runtime-side geometry cache keyed on the hash…~~
+  **MOVED to plan-98-C Phase 1** (Correction 18): a cache over a stub generator has
+  nothing to cache and its own acceptance is unobservable.
+- **Zero-work frame skip:** if the incoming scene is byte-identical to the installed
+  one, `present()`/`presentLayers()` return without publishing. Exact rather than
+  hashed — both sides are shrink-to-fit copies, so equal content is equal bytes
+  (Correction 18).
 - `Image`/`Font` are a new **native RES backend** (the existing resource record
   `tag@0 / handle@8 / closed@16 / STATE@24`, `handle@8` = OS-side texture id), owned by
   MFB scope like a file — **no refcount, no generation table** (invariant 4).
-  `canvas::loadImage`/`createImage`/`loadFont` allocate a resource; `canvas::destroyImage`/
-  `destroyFont` (or scope-drop of the owner) set `closed@16` and mark the OS texture
-  pending-free. `present()` copies the resource **id** (an integer) into the scene; it
+  `canvas::createImage` allocates a resource and `canvas::destroyImage` (or scope-drop
+  of the owner) sets `closed@16`; there is no separate pending-free flag, because the
+  closed flag alone ends a resource's life (Correction 23). `loadImage`, and the whole
+  `Font` resource with `loadFont`/`destroyFont`, moved to plan-98-G (Corrections
+  20-21). `present()` copies the resource **id** (an integer) into the scene; it
   performs **no** refcount work. Using a closed resource is the existing
   `ERR_RESOURCE_CLOSED` no-op (the stale-id safety net). Actual OS free is D's job,
   gated on `closed AND lastUsedFrame < lastCompletedFrame` — a monotonic compare, not a
@@ -83,11 +86,12 @@ References:
   into a single runtime-owned "live scene" slot read only by tests in this sub-plan.
   The triple-buffer ring and the OS-side texture free (the `closed AND
   lastUsedFrame < lastCompletedFrame` gate) are D.
-- **No geometry generation.** Tessellation, stroke expansion, and text shaping are
-  stubbed (cache miss allocates a zero-length vertex range). C/G fill them. The cache
-  *contract* (probe/insert/evict, hash keying) is real and tested now.
+- **No geometry generation, and no geometry cache.** Tessellation, stroke expansion
+  and text shaping are C/G's. The cache moved with them (Correction 18) rather than
+  landing empty here.
 - **The `DrawItem` variant set is frozen here and is a breaking change to extend
-  later** (invariant 6): Image, Rectangle, Line, Polygon, Circle, Arc, Text, RoundedRect.
+  later** (invariant 6): **Picture** (renamed from `Image`, Correction 6), Rectangle,
+  Line, Polygon, Circle, Arc, Text, RoundedRect.
   No variant is added after this sub-plan without a deliberate breaking-change plan.
 - No change to `Mode` discriminants, the presentation slot, or non-canvas codegen.
 
@@ -484,6 +488,7 @@ Commit: 47034488f
       getBytes → imageRef → setBytes → getBytes → present-with-handle, plus the three
       error contracts, each with its own exit code. Cross-built for `linux-aarch64`,
       `linux-x86_64` and `windows-x86_64` so every backend's advertising is checked.
+      NOTE: `presentLayers` is covered by `cli_canvas_package.rs` — see Correction 27.
       **The double-close and use-after-close cases are NOT written from source**
       (Correction 22): the compiler rejects both statically as `TYPE_USE_AFTER_MOVE`,
       which is stronger than the runtime no-op. `ErrResourceClosed` is reached the way
@@ -504,7 +509,7 @@ backend advertises the surface.
 runtime contract and all three cross-target builds);
 `cargo test --bin mfb codegen::builtins::canvas` = 6 passed. Rendered: `mfb man canvas`
 lists all 12 members, `mfb man canvas types` lists `canvas::Image`.
-Commit: —
+Commit: 8c2ebb103
 
 ## Validation Plan
 
@@ -518,11 +523,20 @@ Commit: —
 - Runtime proof: a headless `--app` program builds a scene, `present()`s it, mutates
   one item, re-`present()`s — observable via the published `revision` and cache-hit
   counters exposed to the test harness.
-- Doc sync: `src/docs/spec/app/` new `canvas` section (scene model, deep-copy rule,
-  the 8-variant frozen set, image-content-vs-scene orthogonality, RES resource lifetime —
-  closed-flag, no refcount); man pages for `canvas::present`, `presentLayers`, `loadImage`,
-  `createImage`, `destroyImage`, `loadFont`, `destroyFont`, `getBytes`, `setBytes`,
-  `getSize`, `rgb`, `rgba`, `measureText` per the man templates.
+- Doc sync: **DONE.** `src/docs/spec/app/06_canvas.md` is the new spec topic (retained
+  vs immediate and what each consequence buys; the deep-copy rule and *why* it is
+  soundness rather than convenience; `Paint` as a value with the zero-is-no-op rule,
+  including the non-obvious all-zero-`Transform`-is-identity definition; the
+  coordinate/angle convention and why it is stated; images named rather than embedded,
+  and content-vs-scene orthogonality; the mode gate and its documented exemption),
+  listed in `spec.md`'s reading order and cross-linked both ways. Man pages ship from
+  the registry descriptors for all 12 members — and, per Correction 25, every one of
+  their examples is now compile-verified (13 members, including `presentLayers` —
+  Correction 27 caught it missing). `loadImage`/`loadFont`/`destroyFont`/`measureText`
+  are not documented here because they are not in this letter (Corrections 20–21).
+  Verified: `mfb spec app canvas`, `mfb man canvas`, `mfb man canvas types`,
+  `cargo test --bin mfb docs::` (26 passed — `spec_links_resolve` caught a wrong
+  cross-link on the first pass), `cargo test -p mfb --bins citations_resolve`.
 - Acceptance: the per-phase targeted tests above — **no full-suite run and no
   byte-identity check in this letter** (A's invariant 8); fmt.
 
@@ -895,6 +909,37 @@ false surface.
     property it was pinning. It now subtracts an explicit `ADDED_SINCE_MIGRATION` list
     (asserted present) from the total, so the legacy-row claim stays checkable and each
     later addition is a visible, justified line.
+
+27. **`canvas::presentLayers` was in this letter's Goal and very nearly shipped
+    missing.** It is named in §1, in the Compatibility list, and in Phase 1's task
+    ("`func_present.rs`, `func_present_layers.rs`, …"), but Phase 1 moved `present` to
+    Phase 2 and `presentLayers` silently fell out — no unticked box remained to catch
+    it, because the box that named it had been ticked for the members that *did* land.
+    Caught while writing the doc-sync line, by noticing a reference to a correction
+    number that did not exist yet.
+
+    Implemented, and the fix improved `present` rather than duplicating it. Both calls
+    now share `gen_present::emit_publish`, parameterised by a `SceneShape`; they differ
+    **only** in the element type copied and which pair of scene slots is written. Every
+    correctness property — the mode gate before the allocation, the transitive copy,
+    the exact frame-skip comparison, the revision-last store ordering — is one piece of
+    code, so the two cannot drift apart.
+
+    A scene is exactly one shape at a time: publishing clears the *other* shape's
+    pointer and count, so a reader decides with a single test (`layers != 0`) rather
+    than carrying a discriminant that could disagree with the pointers. Switching
+    shapes therefore always publishes, which is correct — the scene really did change.
+    The considered alternative — making a flat `present` wrap its list in a
+    one-element layer so there is only one published shape — was rejected: it puts an
+    allocation and a copy on the common path to simplify the rarer one.
+
+    The scene region grew two slots (`layers@32`, `layerCount@40`); offset 24 stays
+    held open for C's per-item hashes.
+
+    Tested by `macos_present_layers_and_shape_switching_are_sound`, covering exactly
+    the transitions the shared body cannot get right by construction: trap outside
+    canvas mode, first publish, identical re-publish, changed content, **layered →
+    flat → layered**, and an empty layer list both ways.
 
 <Further corrections filled in during execution — especially the RES record wiring and
 payload encoding.>

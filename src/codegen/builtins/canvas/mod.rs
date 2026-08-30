@@ -42,11 +42,13 @@ mod func_get_bytes;
 mod func_get_size;
 mod func_image_ref;
 mod func_present;
+mod func_present_layers;
 mod func_rgb;
 mod func_rgba;
 mod func_set_bytes;
 mod func_stroke;
 pub(crate) mod gen_image;
+mod gen_present;
 mod helper_clamp_byte;
 mod helper_paint_defaults;
 
@@ -703,6 +705,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_stroke::register(&mut pkg);
     func_fill_stroke::register(&mut pkg);
     func_present::register(&mut pkg);
+    func_present_layers::register(&mut pkg);
     func_create_image::register(&mut pkg);
     func_destroy_image::register(&mut pkg);
     func_image_ref::register(&mut pkg);

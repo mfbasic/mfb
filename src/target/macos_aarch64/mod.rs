@@ -38,6 +38,7 @@ impl NativeBackend for Backend {
                 // plan-98-B: the canvas:: scene surface (app builds only, and gated
                 // on Mode.Canvas at runtime).
                 "canvas.present",
+                "canvas.presentLayers",
                 "canvas.createImage",
                 "canvas.destroyImage",
                 "canvas.imageRef",

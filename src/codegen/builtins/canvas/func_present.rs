@@ -1,15 +1,13 @@
 //! `canvas::present` — install a scene as the canvas's current content.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::app::hook::app::{prepend_wrong_mode_gate, ModeRequirement};
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::Operand;
-use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::abi;
 use crate::types::ParameterType;
+
+use super::gen_present::{emit_publish, SceneShape};
 
 const INTRO: &str = r#"Install a list of `DrawItem`s as the canvas's current content."#;
 
@@ -60,182 +58,16 @@ SUB main()
 END SUB
 ```"#;
 
-/// The scene's element type, used to size and copy the incoming list.
-fn scene_type() -> ParameterType {
-    ParameterType::list_of(ParameterType::named("DrawItem"))
-}
-
-/// `canvas::present(items)` — deep-copy the scene into the arena's canvas region and
-/// publish it.
-///
-/// Why a copy at all: the renderer reads the installed scene at arbitrary times
-/// after `present` returns, with no further involvement from the program. A scene
-/// that pointed at caller storage would be read after that storage was reused.
-///
-/// Why **one** copy suffices: an MFBASIC collection is a self-contained flat block —
-/// strings, records and nested collections are inlined, not referenced — so
-/// `copy_flat_block` on the list is already the transitive deep copy this needs.
-/// That is the same property `copy_flat_block`'s own contract states ("because a
-/// flat block has no internal pointers, the byte copy **is** a deep copy"), and it
-/// is why the scene needs no per-variant walk.
-///
-/// The copy lands in the **arena**, not the caller's frame: the arena is a growing
-/// region owned by the execution context, so the block outlives this call, which a
-/// frame allocation would not.
+/// `canvas::present(items)` — the flat shape of the shared publish
+/// ([`emit_publish`]). The copy, the exact frame-skip comparison, the store
+/// ordering and the mode gate all live there, because `presentLayers` needs the
+/// identical guarantees and two copies of them would drift.
 pub(crate) fn lower_present(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let symbol = builder.current_symbol.clone();
-    let scene_offset = ctx.canvas_scene_offset.ok_or_else(|| {
-        format!("native code plan emits '{symbol}' without reserving the canvas scene region")
-    })?;
-    let items = args
-        .first()
-        .ok_or_else(|| format!("'{symbol}' expects the scene list argument"))?
-        .location
-        .clone();
-
-    // Hold the incoming list pointer across the copy's calls: `copy_flat_block`
-    // allocates, and an argument register does not survive a call.
-    let source_slot = builder.allocate_stack_object("canvas_present_source", 8);
-    builder.emit(abi::store_u64(&items, abi::stack_pointer(), source_slot));
-
-    let copy = builder.copy_flat_block(&scene_type(), &items)?;
-    let copy_slot = builder.allocate_stack_object("canvas_present_copy", 8);
-    builder.emit(abi::store_u64(&copy, abi::stack_pointer(), copy_slot));
-
-    // count = source.count. Read from the SOURCE rather than the copy only because
-    // the source pointer is already parked; both carry the same count (the copy is
-    // shrink-to-fit, which drops capacity, never entries).
-    let count = builder.temporary_vreg();
-    let source = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&source, abi::stack_pointer(), source_slot));
-    builder.emit(abi::load_u64(&count, &source, COLLECTION_OFFSET_COUNT));
-
-    // ---- Frame skip: an identical re-present publishes nothing ----------------
-    //
-    // Comparing the *tight copy* against the installed scene, rather than the
-    // caller's block, is what makes this exact: a working buffer carries capacity
-    // headroom and the installed scene does not, so the same content in the two
-    // shapes has different bytes. Both sides here are shrink-to-fit, so equal
-    // content is equal bytes — no hash, and therefore no collisions.
-    //
-    // The copy still happens on a skipped frame. That is the design (plan-98-A
-    // invariant 2 charges the deep copy to the caller's frame budget); what the skip
-    // buys is not re-publishing, which is what would make the renderer redraw.
-    let skip = builder.label("canvas_present_skip");
-    let publish = builder.label("canvas_present_publish");
-    let size_slot = builder.allocate_stack_object("canvas_present_size", 8);
-    let installed_size_slot = builder.allocate_stack_object("canvas_present_prev_size", 8);
-    let installed_slot = builder.allocate_stack_object("canvas_present_prev", 8);
-
-    let installed = builder.temporary_vreg();
-    builder.emit(abi::load_u64(
-        &installed,
-        ARENA_STATE_REGISTER,
-        scene_offset + CANVAS_SCENE_ITEMS_OFFSET,
-    ));
-    builder.emit(abi::store_u64(
-        &installed,
-        abi::stack_pointer(),
-        installed_slot,
-    ));
-    // Nothing installed yet — the first `present` always publishes.
-    builder.emit(abi::compare_immediate(&installed, "0"));
-    builder.emit(abi::branch_eq(&publish));
-
-    builder.emit_inlined_block_size_from_ptr_slot(&scene_type(), copy_slot, size_slot)?;
-    builder.emit_inlined_block_size_from_ptr_slot(
-        &scene_type(),
-        installed_slot,
-        installed_size_slot,
-    )?;
-    let new_size = builder.temporary_vreg();
-    let old_size = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&new_size, abi::stack_pointer(), size_slot));
-    builder.emit(abi::load_u64(
-        &old_size,
-        abi::stack_pointer(),
-        installed_size_slot,
-    ));
-    builder.emit(abi::compare_registers(&new_size, &old_size));
-    builder.emit(abi::branch_ne(&publish));
-
-    let left = builder.temporary_vreg();
-    let right = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&left, abi::stack_pointer(), copy_slot));
-    builder.emit(abi::load_u64(&right, abi::stack_pointer(), installed_slot));
-    builder.emit_compare_bytes_branch(
-        &left,
-        &right,
-        &new_size,
-        &skip,
-        &publish,
-        "canvas_present_same",
-    );
-
-    builder.emit(abi::label(&skip));
-    builder.emit(abi::move_immediate(
-        RESULT_TAG_REGISTER,
-        "Integer",
-        RESULT_OK_TAG,
-    ));
-    builder.emit(abi::return_());
-    builder.emit(abi::label(&publish));
-
-    // Publish: items pointer, then count, then bump the revision. The revision is
-    // written LAST and is what a reader gates on, so a reader can never observe a
-    // bumped revision alongside a half-written scene.
-    let published = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&published, abi::stack_pointer(), copy_slot));
-    builder.emit(abi::store_u64(
-        &published,
-        ARENA_STATE_REGISTER,
-        scene_offset + CANVAS_SCENE_ITEMS_OFFSET,
-    ));
-    builder.emit(abi::store_u64(
-        &count,
-        ARENA_STATE_REGISTER,
-        scene_offset + CANVAS_SCENE_COUNT_OFFSET,
-    ));
-    let revision = builder.temporary_vreg();
-    builder.emit(abi::load_u64(
-        &revision,
-        ARENA_STATE_REGISTER,
-        scene_offset + CANVAS_SCENE_REVISION_OFFSET,
-    ));
-    builder.emit(abi::add_immediate(&revision, &revision, 1));
-    builder.emit(abi::store_u64(
-        &revision,
-        ARENA_STATE_REGISTER,
-        scene_offset + CANVAS_SCENE_REVISION_OFFSET,
-    ));
-
-    builder.emit(abi::move_immediate(
-        RESULT_TAG_REGISTER,
-        "Integer",
-        RESULT_OK_TAG,
-    ));
-    builder.emit(abi::return_());
-
-    // The mode gate is spliced in at the very top, before the manual prologue, so a
-    // wrong-mode call returns before allocating anything at all.
-    prepend_wrong_mode_gate(
-        &mut builder.instructions,
-        &mut builder.relocations,
-        &symbol,
-        ctx.presentation_mode_offset,
-        ModeRequirement::Canvas,
-    );
-
-    Ok(ValueResult {
-        origin: None,
-        type_: ParameterType::Nothing,
-        location: Operand::from("void"),
-        text: "canvas.present".to_string(),
-    })
+    emit_publish(builder, args, ctx, SceneShape::Flat)
 }
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -27,6 +27,7 @@ const MEMBERS: &[&str] = &[
     "stroke",
     "fillStroke",
     "present",
+    "presentLayers",
     "createImage",
     "destroyImage",
     "imageRef",

@@ -40,7 +40,7 @@ References:
 |---|---|---|
 | plan-98-B complete (scene arena, deep copy, frame skip, RES resources) | `ls planning/completed/plan-98-B-*` → hit | NOT MET |
 | ~~Geometry cache miss reaches a generation hook~~ **N/A** — the cache moved into this letter's Phase 1 (B Correction 18), so there is no cross-letter hook to check | — | N/A |
-| The scene region reserves a slot for the per-item hashes | `rg -n "CANVAS_SCENE_HASHES_OFFSET" src/codegen/error/constants/error_constants.rs` → hit | MET (reserved by B Phase 2) |
+| The scene region holds offset 24 open for the per-item hashes | `rg -n "reserved for the pointer to the per-item content hashes" src/codegen/error/constants/error_constants.rs` → hit | MET (B Phase 2 reserved it; it is a comment, not a constant, because an unused constant is dead code — C declares the constant when it fills the slot) |
 | Working tree builds | `cargo build` → pass | UNVERIFIED (run before starting) |
 
 > Per A's invariant 8: no "full suite green at HEAD" row, no byte-identity obligation;
@@ -166,7 +166,8 @@ wrong gate; C writes the tolerance comparator they will use.
 
 - [ ] **Per-item content hashing** (moved from B Phase 3): hash each item's bytes
       within the published scene block and store into the scene region's reserved
-      `hashes` slot (`CANVAS_SCENE_HASHES_OFFSET`, already allocated by B). The block
+      `hashes` slot — offset **24** in the canvas scene region, held open by B. Declare
+      `CANVAS_SCENE_HASHES_OFFSET` here, where it is first used. The block
       is contiguous and pointer-free (B Correction 13), so the hash spans the copied
       bytes directly.
 - [ ] **Geometry cache** (moved from B Phase 3):

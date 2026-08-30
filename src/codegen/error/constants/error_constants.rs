@@ -349,10 +349,23 @@ pub(crate) const CANVAS_SCENE_COUNT_OFFSET: usize = 8;
 /// Byte offset of the pointer to the published items — a deep copy of the caller's
 /// `List OF DrawItem`, owned by the arena, pointing at nothing caller-owned.
 pub(crate) const CANVAS_SCENE_ITEMS_OFFSET: usize = 16;
-/// Byte offset of the pointer to the per-item content hashes (plan-98-B Phase 3).
-pub(crate) const CANVAS_SCENE_HASHES_OFFSET: usize = 24;
+// Offset 24 is reserved for the pointer to the per-item content hashes, which lands
+// with the geometry cache in plan-98-C Phase 1 — the hash exists to key that cache,
+// so it arrives when there is geometry to cache. Left as a comment rather than an
+// unused constant; the slot is held open because the layer offsets below start at 32.
+/// Byte offset of the pointer to the published **layers** — a deep copy of a
+/// `List OF DrawLayer` from `canvas::presentLayers`.
+///
+/// A scene is published in exactly one of two shapes, and the unused pair is zeroed
+/// so a reader can tell them apart by a single test: `layers != 0` means layered,
+/// otherwise `items` is the flat scene. The alternative — making a flat `present`
+/// wrap its list in a one-element layer so there is only one shape — would put an
+/// allocation and a copy on the common path to simplify the rarer one.
+pub(crate) const CANVAS_SCENE_LAYERS_OFFSET: usize = 32;
+/// Byte offset of the layer count.
+pub(crate) const CANVAS_SCENE_LAYER_COUNT_OFFSET: usize = 40;
 /// Total reserved slots for the canvas scene region.
-pub(crate) const CANVAS_SCENE_SLOTS: usize = (CANVAS_SCENE_HASHES_OFFSET + 8) / 8;
+pub(crate) const CANVAS_SCENE_SLOTS: usize = (CANVAS_SCENE_LAYER_COUNT_OFFSET + 8) / 8;
 
 // ===========================================================================
 // Arena state layout (ascending offset) & allocator
