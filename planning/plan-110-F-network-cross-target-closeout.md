@@ -123,7 +123,7 @@ injected wrong result. **Met**, measured 2026-08-30 on macOS aarch64:
 `scripts/check-tcp-connect-timeout.sh`, `check-udp-echo.sh`, `check-tls-loopback.sh` and
 `check-icmp-permission.sh` each PASS, and `check-net-harness-selftest.sh` reports
 "every networking harness passes as shipped and fails on an injected wrong result".
-Commit: —
+Commit: ae180fb7e (census + coverage), 730ca79d5 (harnesses + bug-459)
 
 ### Phase 2 — Native target matrix
 
