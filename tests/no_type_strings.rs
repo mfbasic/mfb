@@ -615,7 +615,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     ("str_type_params", "binary_repr", 4),
     ("str_type_params", "codegen", 141),
     ("str_type_params", "hir", 1),
-    ("str_type_params", "ir", 9),
+    ("str_type_params", "ir", 4),
     ("str_type_params", "monomorph", 3),
     ("str_type_params", "numeric", 1),
     ("str_type_params", "resolver", 3),
@@ -624,7 +624,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // --- 3. a `match` arm on a spelling — 186. Letters B, D, E, F, G.
     ("spelling_match_arms", "binary_repr", 19),
     ("spelling_match_arms", "codegen", 147),
-    ("spelling_match_arms", "ir", 4),
+    ("spelling_match_arms", "ir", 3),
     ("spelling_match_arms", "monomorph", 1),
     ("spelling_match_arms", "types", 9),
     // --- 4. `==` / `!=` against a spelling — 73. Letters B, D, E, F, G.
@@ -634,13 +634,16 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     ("spelling_compares", "resolver", 1),
     ("spelling_compares", "target", 2),
     ("spelling_compares", "types", 2),
-    // --- 5. a hand-rolled second grammar — 37. Letter A (types/codegen, the
-    //     `STATE` variant), then B, E, G.
+    // --- 5. a hand-rolled second grammar — 37, then 38. Letter A (types/codegen,
+    //     the `STATE` variant), then B, E, G. `types` went 24 -> 25 in
+    //     plan-111-B: `ParameterType::contains_state` needs one
+    //     `contains(" STATE ")` for the composite-base spelling `parse`
+    //     declines to split, which no structural match can see. It lives in the
+    //     one file that owns the grammar, and letter G retires it with the rest.
     ("hand_rolled_grammar", "binary_repr", 3),
     ("hand_rolled_grammar", "codegen", 7),
-    ("hand_rolled_grammar", "ir", 1),
     ("hand_rolled_grammar", "resolver", 1),
-    ("hand_rolled_grammar", "types", 24),
+    ("hand_rolled_grammar", "types", 25),
     // --- 6. a spelling built with `format!` — 12. Letters E, F, G.
     ("format_type_construction", "binary_repr", 5),
     ("format_type_construction", "codegen", 1),
@@ -649,7 +652,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     //     `TypeModel`), then B (ir/monomorph/resolver) and G (binary_repr).
     ("string_keyed_type_maps", "binary_repr", 1),
     ("string_keyed_type_maps", "codegen", 11),
-    ("string_keyed_type_maps", "ir", 17),
+    ("string_keyed_type_maps", "ir", 3),
     ("string_keyed_type_maps", "monomorph", 5),
     ("string_keyed_type_maps", "resolver", 1),
     ("string_keyed_type_maps", "target", 1),

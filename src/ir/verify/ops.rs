@@ -204,8 +204,9 @@ impl TypeEnv {
                                 | IrValue::Capture { .. }
                         )
                     );
-                    let base = resource_base_type(type_).name();
-                    let is_resource = self.is_resource_or_resource_union(&base);
+                    let base_type = resource_base_type(type_);
+                    let base = base_type.name();
+                    let is_resource = self.is_resource_or_resource_union(&base_type);
                     if !synthesized_bind && !name.starts_with('$') {
                         let is_res_declared = self.current_owners.borrow().contains(name.as_str());
                         if is_resource && !is_res_declared {
@@ -215,7 +216,9 @@ impl TypeEnv {
                                     "binding `{name}` holds resource `{base}`; bind it with `RES`, not `LET`/`MUT`."
                                 ),
                             );
-                        } else if is_res_declared && !is_resource && self.provably_data_type(&base)
+                        } else if is_res_declared
+                            && !is_resource
+                            && self.provably_data_type(&base_type)
                         {
                             // Only a POSITIVELY known data type rejects: an
                             // unknown name may be an external package's
@@ -400,7 +403,7 @@ impl TypeEnv {
                         // spelling, so it is read off the name.
                         let declared_state = t.state();
                         if declared_state.is_none()
-                            && self.is_resource_or_resource_union(&resource_base_type(t).name())
+                            && self.is_resource_or_resource_union(&resource_base_type(t))
                         {
                             self.emit(
                                 "TYPE_STATE_INVALID",

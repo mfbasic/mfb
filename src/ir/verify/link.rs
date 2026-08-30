@@ -813,10 +813,10 @@ impl TypeEnv {
     pub(super) fn contains_resource_or_thread(
         &self,
         type_: &ParameterType,
-        seen: &mut HashSet<String>,
+        seen: &mut HashSet<ParameterType>,
     ) -> bool {
         let t = resource_base_type(type_);
-        if is_thread_type(&t) || self.is_resource_or_resource_union(&t.name()) {
+        if is_thread_type(&t) || self.is_resource_or_resource_union(&t) {
             return true;
         }
         match &t {
@@ -827,12 +827,11 @@ impl TypeEnv {
             }
             _ => {}
         }
-        let t_name = t.name();
-        if !seen.insert(t_name.clone().into_owned()) {
+        if !seen.insert(t.clone()) {
             return false;
         }
-        let contained = self.any_field_of(&t_name, |ft| self.contains_resource_or_thread(ft, seen));
-        seen.remove(t_name.as_ref());
+        let contained = self.any_field_of(&t, |ft| self.contains_resource_or_thread(ft, seen));
+        seen.remove(&t);
         contained
     }
 
@@ -843,7 +842,7 @@ impl TypeEnv {
     pub(super) fn contains_thread(
         &self,
         type_: &ParameterType,
-        seen: &mut HashSet<String>,
+        seen: &mut HashSet<ParameterType>,
     ) -> bool {
         let t = resource_base_type(type_);
         if is_thread_type(&t) {
@@ -859,26 +858,29 @@ impl TypeEnv {
             ParameterType::Res(inner) => return self.contains_thread(inner, seen),
             _ => {}
         }
-        let t_name = t.name();
-        if !seen.insert(t_name.clone().into_owned()) {
+        if !seen.insert(t.clone()) {
             return false;
         }
-        let contained = self.any_field_of(&t_name, |ft| self.contains_thread(ft, seen));
-        seen.remove(t_name.as_ref());
+        let contained = self.any_field_of(&t, |ft| self.contains_thread(ft, seen));
+        seen.remove(&t);
         contained
     }
 
     /// `pred` over every field of record `name`, or over every variant's fields
     /// when `name` is a union (the former source checker's `type_infos` walk covers both
     /// kinds; the union arm is what a Map key of a thread-carrying union needs).
-    fn any_field_of(&self, name: &str, mut pred: impl FnMut(&ParameterType) -> bool) -> bool {
-        if let Some(fields) = self.record_field_lists.get(name) {
+    fn any_field_of(
+        &self,
+        type_: &ParameterType,
+        mut pred: impl FnMut(&ParameterType) -> bool,
+    ) -> bool {
+        if let Some(fields) = self.record_field_lists.get(type_) {
             return fields.iter().any(|(_, ft)| pred(ft));
         }
-        self.unions.get(name).is_some_and(|union| {
+        self.unions.get(type_).is_some_and(|union| {
             union.variant_order.iter().any(|variant| {
                 self.record_field_lists
-                    .get(variant)
+                    .get(&ParameterType::named(variant))
                     .is_some_and(|fields| fields.iter().any(|(_, ft)| pred(ft)))
             })
         })
@@ -888,42 +890,58 @@ impl TypeEnv {
     /// declared record/enum, a collection/FUNC type, or a union with no
     /// resource variants. Unknown names are NOT provably data (they may be an
     /// external package's resource type).
-    pub(super) fn provably_data_type(&self, base: &str) -> bool {
+    pub(super) fn provably_data_type(&self, base: &ParameterType) -> bool {
         // The `PRIMITIVE_TYPES` base plus the `Error`/`ErrorLoc` delta (both are
         // ordinary data values); this is `is_comparable_defaultable_primitive`
         // minus `Unknown`, since an unresolved name is NOT provably data
         // (bug-342 A9). Derived from the base so a new primitive flows here.
-        PRIMITIVE_TYPES.contains(&base)
-            || matches!(base, "Error" | "ErrorLoc" | "AttributedString")
-            || crate::codegen::engine::types::is_collection_type(base)
-            || base.starts_with("FUNC")
+        //
+        // plan-111-B: the two shape questions are variant matches now —
+        // `is_collection_type(&name)` parsed the spelling it was handed, and
+        // `base.starts_with("FUNC")` was a hand-rolled prefix test for `Func`.
+        // The `PRIMITIVE_TYPES` membership is a name-set lookup and still
+        // renders; that set is a `&'static str` table letter G retires.
+        PRIMITIVE_TYPES.contains(&base.name().as_ref())
+            || base.is_named("Error")
+            || base.is_named("ErrorLoc")
+            || base.is_named("AttributedString")
+            || crate::codegen::engine::types::typed_is_collection_type(base)
+            || matches!(base, ParameterType::Func(..))
             || (self.records.contains_key(base) && self.close_op_for(base).is_none())
             || self.enums.contains_key(base)
-            || self
-                .unions
-                .get(base)
-                .is_some_and(|u| u.variants.iter().all(|v| self.close_op_for(v).is_none()))
+            || self.unions.get(base).is_some_and(|u| {
+                u.variants
+                    .iter()
+                    .all(|v| self.close_op_for(&ParameterType::named(v)).is_none())
+            })
     }
 
     /// Whether `base` is a resource type or a resource union (a union any of
     /// whose variants is a resource — mixed unions are already rejected).
-    pub(super) fn is_resource_or_resource_union(&self, base: &str) -> bool {
+    pub(super) fn is_resource_or_resource_union(&self, base: &ParameterType) -> bool {
         if self.close_op_for(base).is_some() {
             return true;
         }
-        self.unions
-            .get(base)
-            .is_some_and(|u| u.variants.iter().any(|v| self.close_op_for(v).is_some()))
+        self.unions.get(base).is_some_and(|u| {
+            u.variants
+                .iter()
+                .any(|v| self.close_op_for(&ParameterType::named(v)).is_some())
+        })
     }
 
     /// The registered close op for a resource type: user-declared native
     /// resources first (`RESOURCE T CLOSE BY alias.func`), then the builtin
     /// close table.
-    pub(super) fn close_op_for(&self, base: &str) -> Option<&str> {
+    pub(super) fn close_op_for(&self, base: &ParameterType) -> Option<&str> {
         self.resource_closers
             .get(base)
             .map(String::as_str)
-            .or_else(|| crate::codegen::resource::builtin_resource_close_function(base))
+            .or_else(|| {
+                // plan-111-B: the builtin close table is registry surface that still
+                // speaks names; its `&str` signature dies in letter E, so the type
+                // renders only for that one lookup.
+                crate::codegen::resource::builtin_resource_close_function(&base.name())
+            })
     }
 
     /// The resource binding consumed by an op, if any: a call to the binding's
@@ -952,7 +970,7 @@ impl TypeEnv {
             };
             let type_ = locals.get(name)?;
             let base = resource_base_type(type_);
-            if self.close_op_for(&base.name()) == Some(target.as_str()) {
+            if self.close_op_for(&base) == Some(target.as_str()) {
                 Some(name.clone())
             } else {
                 None
@@ -969,10 +987,7 @@ impl TypeEnv {
                 ..
             } => {
                 let type_ = locals.get(name)?;
-                if self
-                    .close_op_for(&resource_base_type(type_).name())
-                    .is_some()
-                {
+                if self.close_op_for(&resource_base_type(type_)).is_some() {
                     Some(name.clone())
                 } else {
                     None

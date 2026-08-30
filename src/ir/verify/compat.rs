@@ -554,7 +554,7 @@ impl TypeEnv {
         }
         // A union accepts any of its variants. A variant may be spelled qualified
         // (a package-scoped resource, `fs.File`) or bare, so match either form.
-        if let Some(variants) = self.union_variants(&expected_name) {
+        if let Some(variants) = self.union_variants(expected) {
             if variants.contains(actual_name.as_ref()) || variants.contains(actual_bare) {
                 return true;
             }
@@ -769,12 +769,12 @@ impl TypeEnv {
             );
             return;
         }
-        if !self.records.contains_key(type_name) {
+        if !self.records.contains_key(type_) {
             // A constructor naming a declared non-record type is malformed; an
             // unknown name is left alone (could be a builtin record).
-            let kind = if self.unions.contains_key(type_name) {
+            let kind = if self.unions.contains_key(type_) {
                 Some("UNION")
-            } else if self.enums.contains_key(type_name) {
+            } else if self.enums.contains_key(type_) {
                 Some("ENUM")
             } else {
                 None
@@ -789,7 +789,7 @@ impl TypeEnv {
         }
         // A private type (or one with hidden fields) may only be constructed
         // from its declaring file (the former source checker's TYPE_MEMBER_NOT_VISIBLE arms).
-        if let Some((file, visibility)) = self.type_decl_info.get(type_name) {
+        if let Some((file, visibility)) = self.type_decl_info.get(type_) {
             if visibility == "private" && !file.is_empty() && *file != *self.current_file.borrow() {
                 self.emit(
                     "TYPE_MEMBER_NOT_VISIBLE",
@@ -798,10 +798,10 @@ impl TypeEnv {
                 return;
             }
         }
-        if let Some(private) = self.private_fields.get(type_name) {
+        if let Some(private) = self.private_fields.get(type_) {
             if self
                 .type_decl_info
-                .get(type_name)
+                .get(type_)
                 .is_some_and(|(file, _)| !file.is_empty() && *file != *self.current_file.borrow())
             {
                 for field in private {
@@ -814,7 +814,7 @@ impl TypeEnv {
                 }
             }
         }
-        let Some(fields) = self.record_field_lists.get(type_name) else {
+        let Some(fields) = self.record_field_lists.get(type_) else {
             return;
         };
         if args.len() != fields.len() {
@@ -872,7 +872,7 @@ impl TypeEnv {
         if member_type_name.is_empty() {
             return;
         }
-        if let Some(variants) = self.union_variants(&union_type_name) {
+        if let Some(variants) = self.union_variants(union_type) {
             if !variants.contains(member_type_name.as_ref()) {
                 self.emit(
                     VERIFY_TYPE,
@@ -915,12 +915,13 @@ impl TypeEnv {
         let Some(union_type) = self.infer_type(value, locals) else {
             return;
         };
-        let union_type = resource_base_type(&union_type).name();
+        let union_type = resource_base_type(&union_type);
+        let union_type_name = union_type.name();
         if let Some(variants) = self.union_variants(&union_type) {
             if !variants.contains(type_name.as_ref()) {
                 self.emit(
                     VERIFY_TYPE,
-                    format!("`{type_name}` is not a variant of union `{union_type}`"),
+                    format!("`{type_name}` is not a variant of union `{union_type_name}`"),
                 );
             }
         }

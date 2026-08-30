@@ -48,9 +48,9 @@ impl TypeEnv {
         // The complete member/variant set, and whether it is a union (for the
         // diagnostic wording). Any other *known* type is an open type: only an
         // unguarded CASE ELSE can make its MATCH exhaustive.
-        let (all, is_union) = if let Some(variants) = self.union_variants(&ty) {
+        let (all, is_union) = if let Some(variants) = self.union_variants(&base) {
             (variants, true)
-        } else if let Some(members) = self.enums.get(&ty) {
+        } else if let Some(members) = self.enums.get(&base) {
             (members.clone(), false)
         } else {
             if !cases.iter().any(|case| {
@@ -76,7 +76,7 @@ impl TypeEnv {
         let missing = if is_union {
             let mut ordered: Vec<String> = self
                 .unions
-                .get(&ty)
+                .get(&base)
                 .map(|info| {
                     info.variant_order
                         .iter()
@@ -136,7 +136,7 @@ impl TypeEnv {
         if scrutinee_name.is_empty() || matches!(scrutinee, ParameterType::Unknown) {
             return;
         }
-        let union_variants = self.union_variants(&scrutinee_name);
+        let union_variants = self.union_variants(&scrutinee);
         let check_pattern = |v: &IrValue| {
             // `Result` is internal: `CASE Ok`/`CASE Error` are never valid
             // match arms (the former source checker's TYPE_RESULT_NOT_MATCHABLE). Only fires
@@ -163,9 +163,12 @@ impl TypeEnv {
                 _ => None,
             }
             .filter(|n| {
-                self.records.contains_key(n.as_str())
-                    || self.unions.contains_key(n.as_str())
-                    || self.enums.contains_key(n.as_str())
+                // The pattern names a declared type; the tables are keyed by
+                // that nominal (plan-111-B).
+                let named = ParameterType::named(n);
+                self.records.contains_key(&named)
+                    || self.unions.contains_key(&named)
+                    || self.enums.contains_key(&named)
             });
             if let Some(type_name) = type_name {
                 match &union_variants {

@@ -622,6 +622,46 @@ impl ParameterType {
         self.split_state().0
     }
 
+    /// Whether a ` STATE T` clause appears ANYWHERE in this type's rendered
+    /// spelling — its own top-level one, or one riding a nested payload
+    /// (`MapEntry OF K TO File STATE Cursor`, a thread's resource plane, a user
+    /// generic's last argument).
+    ///
+    /// Exactly `self.name().contains(" STATE ")`, computed structurally;
+    /// `contains_state_agrees_with_the_rendered_name` pins that equality over
+    /// the round-trip corpus. [`split_state`](Self::split_state) answers a
+    /// different and narrower question — whether the clause is *this* type's own
+    /// — and a consumer that wants "is there a state anywhere in here" must ask
+    /// this one instead (plan-111-B; `ir::verify::resources`'s defaultability
+    /// rule is the caller that needs the broad form).
+    ///
+    /// The [`Named`](Self::Named) arm is not redundant. `parse` declines to
+    /// split a ` STATE ` whose base is a composite, so such a spelling survives
+    /// as one opaque nominal that still *reads* as stateful — and decoded
+    /// package IR is attacker-controlled and need not be well formed (PKG-02),
+    /// so the rule this serves must see it.
+    pub(crate) fn contains_state(&self) -> bool {
+        match self {
+            ParameterType::Stateful { .. } => true,
+            ParameterType::Named(sym) => sym.resolve().contains(" STATE "),
+            ParameterType::ListOf(inner)
+            | ParameterType::SetOf(inner)
+            | ParameterType::ResultOf(inner)
+            | ParameterType::Res(inner) => inner.contains_state(),
+            ParameterType::MapOf(key, value) | ParameterType::MapEntryOf(key, value) => {
+                key.contains_state() || value.contains_state()
+            }
+            ParameterType::UserOf(_, args) => args.iter().any(ParameterType::contains_state),
+            ParameterType::Func(params, ret, _) => {
+                params.iter().any(ParameterType::contains_state) || ret.contains_state()
+            }
+            ParameterType::ThreadHandle { msg, res, out, .. } => {
+                msg.contains_state() || res.contains_state() || out.contains_state()
+            }
+            _ => false,
+        }
+    }
+
     /// Whether this type is the nominal named `name`.
     ///
     /// A NOMINAL only: a scalar variant answers `false` even when its rendered
@@ -1796,6 +1836,59 @@ mod tests {
         ] {
             round_trip(spelling);
         }
+    }
+
+    /// plan-111-B: `contains_state` is defined as
+    /// `name().contains(" STATE ")` and computed structurally. Pin the equality
+    /// over every shape, including the ones where the clause is NESTED (which is
+    /// where a naive `matches!(t, Stateful { .. })` would silently disagree) and
+    /// the composite-base spelling `parse` declines to split.
+    #[test]
+    fn contains_state_agrees_with_the_rendered_name() {
+        let mut checked = 0usize;
+        for spelling in [
+            "File",
+            "Integer",
+            "Unknown",
+            "File STATE Cursor",
+            "fs.File STATE Cursor",
+            "File STATE List OF Integer",
+            "RES File STATE Cursor",
+            "List OF RES File STATE Cursor",
+            "Set OF RES File STATE Cursor",
+            "Map OF String TO RES File STATE Cursor",
+            "Map OF RES File STATE Cursor TO Integer",
+            "MapEntry OF String TO File STATE Cursor",
+            "List OF List OF RES File STATE Cursor",
+            "Result OF Stream STATE Pending",
+            "Thread OF RES fs.File STATE Cursor TO Integer",
+            "ThreadWorker OF RES File STATE Cursor TO Integer",
+            "Thread OF Integer RES fs.File STATE Cursor TO String",
+            "Pair OF Integer, String STATE Cursor",
+            "FUNC(Integer) AS File STATE Cursor",
+            "FUNC(File STATE Cursor) AS Integer",
+            // `parse` declines to split a composite base, so this stays one
+            // opaque `Named` — and must still read as stateful.
+            "A B STATE C",
+            "List OF A B STATE C",
+            // Negatives that merely look close.
+            "StateMachine",
+            "List OF StateMachine",
+            "Thread OF Integer TO String",
+        ] {
+            let type_ = ParameterType::parse(spelling);
+            assert_eq!(
+                type_.contains_state(),
+                type_.name().contains(" STATE "),
+                "contains_state disagrees with the rendered name for `{spelling}`"
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 25);
+        // Var and Arg are never produced by `parse`; neither can carry a clause.
+        assert!(!ParameterType::var("T").contains_state());
+        assert!(!ParameterType::Arg(0).contains_state());
+        assert!(!ParameterType::Unknown.contains_state());
     }
 
     #[test]

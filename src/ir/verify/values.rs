@@ -169,9 +169,7 @@ impl TypeEnv {
                 }
                 // Each WITH update must match its field's declared type —
                 // the former source checker's WITH arm of TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH.
-                let fields = self
-                    .field_types
-                    .get(resource_base_type(type_).name().as_ref());
+                let fields = self.field_types.get(&resource_base_type(type_));
                 let mut seen_fields: HashSet<&str> = HashSet::new();
                 for update in updates {
                     self.check_value_depth(&update.value, locals, depth + 1);
@@ -607,7 +605,8 @@ impl TypeEnv {
         if !self.source_path.get() || self.current_file.borrow().starts_with("builtins/") {
             return;
         }
-        let Some((owner_file, _)) = self.type_decl_info.get(enum_name) else {
+        let Some((owner_file, _)) = self.type_decl_info.get(&ParameterType::named(enum_name))
+        else {
             return;
         };
         let Some(import_name) = owner_file
@@ -638,7 +637,8 @@ impl TypeEnv {
         // members — the former source checker's TYPE_UNKNOWN_ENUM_MEMBER.
         if let IrValue::Local(name) = target {
             if !locals.contains_key(name) {
-                if let Some(members) = self.enums.get(name) {
+                // The target is a bare ENUM type name (no local shadows it).
+                if let Some(members) = self.enums.get(&ParameterType::named(name)) {
                     if !members.contains(member) {
                         self.emit(
                             "TYPE_UNKNOWN_ENUM_MEMBER",
@@ -654,8 +654,10 @@ impl TypeEnv {
         let Some(target_type) = self.infer_type(target, locals) else {
             return;
         };
-        // The declaration tables below (STATE clause, primitive set, record field
-        // sets) are keyed by type NAME; render once.
+        // plan-111-B: the record-field tables are keyed by the TYPE now; the
+        // rendered name is still needed for the primitive-set membership test
+        // and for diagnostic text.
+        let base_type = resource_base_type(&target_type);
         let type_name = target_type.name();
         // Reading `.state` off a resource that declares none. Diagnosed here so it
         // names STATE, matching the write path's `TYPE_STATE_INVALID` (plan-52-C
@@ -677,7 +679,7 @@ impl TypeEnv {
         if member == "state"
             && !self.checking_state_assign.get()
             && target_type.state().is_none()
-            && self.is_resource_or_resource_union(&resource_base_type(&target_type).name())
+            && self.is_resource_or_resource_union(&resource_base_type(&target_type))
         {
             let base = resource_base_type(&target_type).name();
             self.emit(
@@ -709,13 +711,13 @@ impl TypeEnv {
         // record whose complete field set is known, the member must be present;
         // otherwise (collections, unions, unresolved includes, unknown types)
         // the access is left unchecked.
-        if let Some(fields) = self.record_fields(&type_name) {
+        if let Some(fields) = self.record_fields(&base_type) {
             if !fields.contains(member) {
                 self.emit(
                     "TYPE_UNKNOWN_FIELD",
                     format!("record `{type_name}` has no member `{member}`."),
                 );
-            } else if self.hidden_from_here(&type_name, member) {
+            } else if self.hidden_from_here(&base_type, member) {
                 self.emit(
                     "TYPE_MEMBER_NOT_VISIBLE",
                     format!("Field `{type_name}::{member}` is not visible from this file."),
@@ -726,16 +728,16 @@ impl TypeEnv {
 
     /// Whether `member` of `type_name` is explicitly private and the current
     /// file is not the type's declaring file (the former source checker's `visible_from`).
-    pub(super) fn hidden_from_here(&self, type_name: &str, member: &str) -> bool {
+    pub(super) fn hidden_from_here(&self, type_: &ParameterType, member: &str) -> bool {
         if !self
             .private_fields
-            .get(type_name)
+            .get(type_)
             .is_some_and(|p| p.contains(member))
         {
             return false;
         }
         self.type_decl_info
-            .get(type_name)
+            .get(type_)
             .is_some_and(|(file, _)| !file.is_empty() && *file != *self.current_file.borrow())
     }
 
@@ -1011,7 +1013,7 @@ impl TypeEnv {
     pub(super) fn is_comparable_seen(
         &self,
         type_: &ParameterType,
-        seen: &mut HashSet<String>,
+        seen: &mut HashSet<ParameterType>,
     ) -> bool {
         let name = type_.name();
         if is_comparable_defaultable_primitive(&name) {
@@ -1031,10 +1033,10 @@ impl TypeEnv {
         if is_resource_name(&name) {
             return false;
         }
-        if self.unions.contains_key(name.as_ref()) {
+        if self.unions.contains_key(type_) {
             return false;
         }
-        if self.enums.contains_key(name.as_ref()) {
+        if self.enums.contains_key(type_) {
             return true;
         }
         // `AttributedString` wraps a list overlay (like `List`): not comparable
@@ -1043,14 +1045,14 @@ impl TypeEnv {
         if name == "AttributedString" {
             return false;
         }
-        if !seen.insert(name.clone().into_owned()) {
+        if !seen.insert(type_.clone()) {
             return false; // a cycle → not a base case
         }
-        if let Some(fields) = self.field_types.get(name.as_ref()) {
+        if let Some(fields) = self.field_types.get(type_) {
             let all = fields
                 .values()
                 .all(|ft| self.is_comparable_seen(&resource_base_type(ft), seen));
-            seen.remove(name.as_ref());
+            seen.remove(type_);
             return all;
         }
         // Unknown user type — permissive (no false rejection).
