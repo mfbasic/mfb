@@ -119,7 +119,10 @@ fn type_entry_names_rejects_cyclic_type() {
 fn decode_function_type_round_trips_via_type_entry_names() {
     let mut strings = StringPool::new();
     let mut types = TypeTable::new();
-    types.type_id(&mut strings, "ISOLATED FUNC(Integer, String) AS Boolean");
+    types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("ISOLATED FUNC(Integer, String) AS Boolean"),
+    );
     let names = type_entry_names(&types, &strings.values).expect("names");
     assert!(names
         .values()

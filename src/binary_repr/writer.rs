@@ -248,7 +248,7 @@ pub(super) fn lower_project_with_external_functions(
             };
             GlobalEntry {
                 name: strings.intern(&binding.name),
-                type_id: types.type_id(&mut strings, &binding.type_.name()),
+                type_id: types.type_id(&mut strings, &binding.type_),
                 flags,
             }
         })
@@ -261,14 +261,17 @@ pub(super) fn lower_project_with_external_functions(
         // The return type is interned even though the map that once held it was
         // never read (bug-100): the interning still fixes the string/type table
         // order, so the emitted bytes stay byte-identical.
-        let _ = types.type_id(&mut strings, &function.returns.name());
+        let _ = types.type_id(&mut strings, &function.returns);
     }
     for (name, id) in external_function_ids {
         function_ids.insert(name.clone(), *id);
     }
     for return_type_name in external_function_returns.values() {
         // Interning kept for table-order stability; the result is unused (bug-100).
-        let _ = types.type_id(&mut strings, return_type_name);
+        let _ = types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared(return_type_name),
+        );
     }
 
     let mut functions = Vec::new();
@@ -616,7 +619,7 @@ pub(super) fn lower_function(
 ) -> Result<Function, String> {
     let mut params = Vec::new();
     for param in &function.params {
-        let type_id = types.type_id(strings, &param.type_.name());
+        let type_id = types.type_id(strings, &param.type_);
         params.push(Param {
             name: strings.intern(&param.name),
             type_id,
@@ -654,7 +657,7 @@ pub(super) fn lower_function(
         name: strings.intern(&function.name),
         kind: FUNCTION_BINARY_REPR,
         flags,
-        return_type: types.type_id(strings, &function.returns.name()),
+        return_type: types.type_id(strings, &function.returns),
         params,
         registers: Vec::new(),
         cleanups: Vec::new(),
@@ -874,7 +877,7 @@ pub(super) fn source_type_payload(
                 put_u32(&mut payload, variant.fields.len() as u32);
                 for field in &variant.fields {
                     put_u32(&mut payload, strings.intern(&field.name));
-                    put_u32(&mut payload, types.type_id(strings, &field.type_.name()));
+                    put_u32(&mut payload, types.type_id(strings, &field.type_));
                 }
             }
         }
@@ -915,7 +918,7 @@ pub(super) fn put_field_payload(
     field: &crate::ir::IrField,
 ) {
     put_u32(payload, strings.intern(&field.name));
-    put_u32(payload, types.type_id(strings, &field.type_.name()));
+    put_u32(payload, types.type_id(strings, &field.type_));
     put_u32(
         payload,
         match field.visibility.as_deref() {

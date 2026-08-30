@@ -11,9 +11,18 @@ use crate::ir::{IrEnumMember, IrField, IrType, IrVariant};
 fn type_id_parses_thread_source_names() {
     let mut strings = StringPool::new();
     let mut types = TypeTable::new();
-    let data = types.type_id(&mut strings, "Thread OF Integer TO String");
-    let with_res = types.type_id(&mut strings, "Thread OF Integer RES File TO String");
-    let worker = types.type_id(&mut strings, "ThreadWorker OF Integer TO String");
+    let data = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("Thread OF Integer TO String"),
+    );
+    let with_res = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("Thread OF Integer RES File TO String"),
+    );
+    let worker = types.type_id(
+        &mut strings,
+        &crate::types::ParameterType::declared("ThreadWorker OF Integer TO String"),
+    );
     assert!(data >= FIRST_TABLE_TYPE_ID);
     assert_ne!(data, with_res);
     assert_ne!(worker, data);

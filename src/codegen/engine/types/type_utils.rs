@@ -269,7 +269,7 @@ pub(crate) fn static_primitive_text_with_constants(
             // Scientific notation goes through the same conversions, so `2.5e2`
             // still reads the same as the plain literal (plan-28-B).
             ParameterType::Float | ParameterType::Fixed => {
-                numeric::default_to_string_text(&type_.name(), value)
+                numeric::default_to_string_text(type_, value)
             }
             ParameterType::Integer | ParameterType::Byte | ParameterType::String => {
                 Some(value.clone())

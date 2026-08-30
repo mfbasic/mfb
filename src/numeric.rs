@@ -159,13 +159,16 @@ pub(crate) fn expand_scientific_notation(value: &str) -> String {
 /// when the literal does not convert (e.g. a `Fixed` exponent outside the
 /// 32.32 range) — the fold is then skipped and the runtime formatter handles
 /// the value.
-pub(crate) fn default_to_string_text(type_: &str, literal: &str) -> Option<String> {
+pub(crate) fn default_to_string_text(
+    type_: &crate::types::ParameterType,
+    literal: &str,
+) -> Option<String> {
     match type_ {
-        TYPE_FLOAT => {
+        crate::types::ParameterType::Float => {
             let value: f64 = literal.parse().ok()?;
             value.is_finite().then(|| format!("{value:.2}"))
         }
-        TYPE_FIXED => fixed_raw_from_decimal(literal)
+        crate::types::ParameterType::Fixed => fixed_raw_from_decimal(literal)
             .ok()
             .map(fixed_default_to_string_text),
         _ => None,
@@ -593,7 +596,7 @@ mod tests {
             ("-2.5", "-2.50"),
         ] {
             assert_eq!(
-                default_to_string_text(TYPE_FLOAT, literal).as_deref(),
+                default_to_string_text(&crate::types::ParameterType::Float, literal).as_deref(),
                 Some(expected),
                 "Float {literal}"
             );
@@ -611,14 +614,20 @@ mod tests {
             ("-2147483648.0", "-2147483648.00"),
         ] {
             assert_eq!(
-                default_to_string_text(TYPE_FIXED, literal).as_deref(),
+                default_to_string_text(&crate::types::ParameterType::Fixed, literal).as_deref(),
                 Some(expected),
                 "Fixed {literal}"
             );
         }
         // A literal the conversion rejects is not folded.
-        assert_eq!(default_to_string_text(TYPE_FIXED, "1e-1000000000"), None);
-        assert_eq!(default_to_string_text(TYPE_FLOAT, "not-a-number"), None);
+        assert_eq!(
+            default_to_string_text(&crate::types::ParameterType::Fixed, "1e-1000000000"),
+            None
+        );
+        assert_eq!(
+            default_to_string_text(&crate::types::ParameterType::Float, "not-a-number"),
+            None
+        );
     }
 
     #[test]

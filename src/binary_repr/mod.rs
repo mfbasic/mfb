@@ -798,9 +798,9 @@ fn enqueue_referenced_types(
 
 /// Push each maximal identifier substring of a rendered type string onto the
 /// resolution queue, tagged with the owner package to resolve it from.
-fn push_type_identifiers(type_str: &str, owner: &str, queue: &mut Vec<(String, String)>) {
+fn push_type_identifiers(rendered: &str, owner: &str, queue: &mut Vec<(String, String)>) {
     let mut current = String::new();
-    for ch in type_str.chars() {
+    for ch in rendered.chars() {
         if ch.is_ascii_alphanumeric() || ch == '_' {
             current.push(ch);
         } else if !current.is_empty() {

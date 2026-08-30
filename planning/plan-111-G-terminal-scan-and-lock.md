@@ -136,18 +136,18 @@ Where risk sits:
 
 ### Phase 1 — `src/target` residue (6 sites)
 
-- [ ] Read `validate_type_name` (`src/target/shared/validate/body.rs:870`) and
+- [x] Read `validate_type_name` (`src/target/shared/validate/body.rs:870`) and
       record its verdict — convert, or boundary-adjacent with the code that
       proves it. Do not leave it unclassified.
-- [ ] `src/target/shared/plan/lower.rs:169` → `type_.is_named("Scalar")`.
-- [ ] `src/target/shared/plan/lower.rs:210,222` — convert `is_user_type_name` to
+- [x] `src/target/shared/plan/lower.rs:169` → `type_.is_named("Scalar")`.
+- [x] `src/target/shared/plan/lower.rs:210,222` — convert `is_user_type_name` to
       `&ParameterType` and its `!= "Unknown"` to a variant check.
-- [ ] `src/target/shared/plan/symbols.rs:282` — convert `is_thread_type` to
+- [x] `src/target/shared/plan/symbols.rs:282` — convert `is_thread_type` to
       match `ParameterType::ThreadHandle { .. }`.
-- [ ] `src/target/shared/abi.rs:460` — convert `move_immediate`'s `type_` to
+- [x] `src/target/shared/abi.rs:460` — convert `move_immediate`'s `type_` to
       `&ParameterType`. This has many call sites; convert the signature and let
       the compiler enumerate them.
-- [ ] **Every `optimizer` CONSUMER of that same attribute**, added by
+- [x] **Every `optimizer` CONSUMER of that same attribute**, added by
       plan-111-D Correction D1: each is
       `instruction.get("type").as_deref() == Some("Integer")`, reading the NIR
       `mov_imm` operand-class attribute that `move_immediate` writes. They were
@@ -189,11 +189,14 @@ Where risk sits:
       phase's commit records, say so rather than assuming the extra ones are
       out of scope. Then verify with `MFB_OPT=3` — the only level at which a
       blinded lattice is observable.
-- [ ] Lower the `target` **and `optimizer`** gate budgets to 0.
+- [x] Lower the `target` **and `optimizer`** gate budgets to 0.
 
-Acceptance: `src/target` **and `src/optimizer`** read 0 on all six needle
-classes; `cargo test --no-fail-fast -- --skip artifact_gate_all` green.
-Commit: —
+Acceptance: **MET.** `src/target` and `src/optimizer` read 0 on every spelling
+class — their `str_type_params` and `spelling_compares` budget rows are
+**deleted, not lowered**. What remains in `src/target` is 8 `declared_sites`
+(class 1b, added in letter F). `cargo test --no-fail-fast -- --skip
+artifact_gate_all` → 3514 passed, 0 failed.
+Commit: ae9203930
 
 ### Phase 2 — the `.mfp` encoder takes a type, not a spelling
 

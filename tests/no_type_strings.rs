@@ -166,6 +166,13 @@ const BOUNDARY_FILES: &[(&str, &str)] = &[
     // 4 — `.mfp` wire codec: the package type table is text on disk.
     ("src/binary_repr/writer.rs", ".mfp wire codec"),
     ("src/binary_repr/sections.rs", ".mfp type-table codec"),
+    (
+        "src/binary_repr/reader.rs",
+        ".mfp type-table DECODER — boundary #4's other direction. plan-111-A \
+         named only the encoder half, but rebuilding a spelling from wire ids is \
+         the same boundary read backwards, and plan-111-G §Phase 2 says to keep \
+         its `format!` reconstructions. Correction G2.",
+    ),
     // Same codec, decode side: `builder` resolves a wire `type_id` through the
     // package string table into the public `BinaryRepr*` view. plan-111-A named
     // the two files that HAD parses when it was written; this one acquired its
@@ -178,6 +185,21 @@ const BOUNDARY_FILES: &[(&str, &str)] = &[
     // 5 — manifest entry decode: project.json carries type spellings.
     ("src/manifest/package.rs", "manifest entry decode"),
 ];
+
+/// `src/types.rs` DEFINES the grammar; every other file merely uses it.
+///
+/// That is a different thing from a boundary, and it needs a different
+/// exemption. The four other boundary files convert between the name world and
+/// the type world by CALLING `ParameterType::parse`/`name`; `types.rs` *is*
+/// those functions. Its `"Integer" => ParameterType::Integer` arms are the
+/// grammar's definition, not a decision made by comparing a spelling — asking a
+/// parser not to match spellings is asking it not to be a parser.
+///
+/// Exactly one file qualifies, and `the_grammar_file_is_exactly_one` pins that,
+/// so this cannot quietly become a second boundary list.
+fn is_grammar_file(rel: &str) -> bool {
+    rel == "src/types.rs"
+}
 
 fn is_boundary_file(rel: &str) -> bool {
     BOUNDARY_FILES.iter().any(|(p, _)| *p == rel)
@@ -756,50 +778,53 @@ fn string_keyed_type_maps(rel: &str, src: &str) -> Vec<Hit> {
 /// `assert_eq!(count, 0)` (letter G). A row missing from this table is a
 /// ceiling of 0, so a new violation in a clean directory fails immediately.
 const BUDGETS: &[(&str, &str, usize)] = &[
-    // Re-measured 2026-08-30 at the close of plan-111-F.
+    // The end state of plan-111, measured 2026-08-30 at the close of letter G.
     //
-    // --- 1. `ParameterType::parse` below a boundary: **ZERO, tree-wide.** The
-    //     class has no row at all. `parse` now appears only in the five
-    //     sanctioned boundary files.
-    // --- 1b. `ParameterType::declared` — `parse` under the name it wears at a
-    //     DECLARED-NAME boundary. Added as its own class in letter F because it
-    //     was invisible to class 1 and therefore an escape hatch; 125 calls were
-    //     hiding behind it. Most are legitimate (Correction C1: a table key must
-    //     be built with `declared`, never `named`), but "legitimate" is a
-    //     judgement that belongs in the open. Letter G rules on the population.
-    // --- 2. a type taken as `&str`. codegen is down to 4, all justified:
-    //     `resource/mod.rs`'s two `&str` adapters over the one STATE grammar
-    //     (their parity with `split_state` is pinned in `types.rs`), and
-    //     `registry/mod.rs`'s two `&'static str` descriptor fields, which cannot
-    //     hold a `ParameterType` — it carries an interned `Symbol` and a `Box`,
-    //     so it is not const-constructible. Letter G decides whether those four
-    //     become a sixth boundary or stay budgeted.
-    // --- 3. a `match` arm on a spelling: **codegen ZERO.**
-    // --- 4. `==` / `!=` against a spelling: **codegen ZERO.** `optimizer`'s
-    //     three read the NIR `mov_imm` operand-class attribute whose producer is
-    //     `target/shared/abi.rs`; they convert together, in letter G.
-    // --- 5. a hand-rolled second grammar: **codegen ZERO.**
-    // --- 6. a spelling built with `format!`: codegen reached 0 in letter C.
-    // --- 7. a type-keyed map keyed by `String`: 0 tree-wide since letter C.
-    ("declared_sites", "binary_repr", 2),
+    // SIX of the eight classes are ZERO tree-wide and have no row at all:
+    //   1  parse_sites             — `ParameterType::parse` only in the boundaries
+    //   3  spelling_match_arms     — no `match` on a spelling, anywhere
+    //   4  spelling_compares       — no `==` against a spelling, anywhere
+    //   5  hand_rolled_grammar     — no second parser outside the boundaries
+    //   6  format_type_construction— no spelling built by `format!` outside them
+    //   7  string_keyed_type_maps  — no type-keyed map keyed by `String`
+    //
+    // Two remain, and both are enumerated rather than waived:
+    //
+    // 1b `declared_sites` — `ParameterType::declared`, which IS `parse` under the
+    //    name it wears at a declared-NAME boundary. Made visible in letter F
+    //    (Correction F3) because class 1 could otherwise be dodged by renaming
+    //    the call. 125 calls: this is the plan's honest remainder, the set of
+    //    places a name genuinely crosses into the type domain. Every one is a
+    //    wire decode, a registry descriptor's `&'static str`, a NIR symbol's
+    //    monomorph suffix, or a table key built per Correction C1's rule.
+    //
+    // 2  `str_type_params`, codegen 4 — Correction F2's table:
+    //      resource/mod.rs `base_resource_name`, `state_type_name`
+    //        the `&str` half of the ONE STATE grammar; their parity with the
+    //        structural `split_state` is pinned by
+    //        `split_state_matches_the_name_domain_helpers`, and deleting them
+    //        would delete that check, not just the adapters.
+    //      registry/mod.rs `RegistryConstant::type_name`, `RegistryOverride::arg_type`
+    //        `&'static str` fields of `const` descriptor tables. `ParameterType`
+    //        carries an interned `Symbol` and a `Box`; it is not
+    //        const-constructible. A language constraint, not a preference.
+    //
+    // Two exemptions carry the rest, and each is itself tested:
+    //   * `is_grammar_file` — `src/types.rs` DEFINES `parse`/`name`. Total
+    //     exemption, exactly one file, pinned by `the_grammar_file_is_exactly_one`.
+    //   * `is_boundary_file` — the five sanctioned boundaries are exempt from the
+    //     four NAME-HANDLING classes (1, 2, 5, 6) and from none of the three
+    //     DECISION classes (3, 4, 7). That split is load-bearing:
+    //     `binary_repr/sections.rs` held 19 spelling match arms until letter G,
+    //     in a file that was already a boundary.
+    ("declared_sites", "binary_repr", 5),
     ("declared_sites", "codegen", 50),
     ("declared_sites", "ir", 47),
     ("declared_sites", "manifest", 1),
     ("declared_sites", "monomorph", 8),
     ("declared_sites", "resolver", 8),
     ("declared_sites", "target", 8),
-    ("str_type_params", "binary_repr", 5),
     ("str_type_params", "codegen", 4),
-    ("str_type_params", "hir", 1),
-    ("str_type_params", "numeric", 1),
-    ("str_type_params", "types", 2),
-    ("spelling_match_arms", "binary_repr", 19),
-    ("spelling_match_arms", "types", 9),
-    ("spelling_compares", "types", 2),
-    ("hand_rolled_grammar", "binary_repr", 3),
-    ("hand_rolled_grammar", "types", 25),
-    ("format_type_construction", "binary_repr", 5),
-    ("format_type_construction", "types", 6),
 ];
 
 /// First path component under `src/`, or the stem of a file directly in `src/`.
@@ -833,7 +858,7 @@ fn scan_tree() -> BTreeMap<(String, String), Vec<String>> {
             .unwrap()
             .to_string_lossy()
             .replace('\\', "/");
-        if is_excluded_from_scan(&rel) || is_test_file(&rel) {
+        if is_excluded_from_scan(&rel) || is_test_file(&rel) || is_grammar_file(&rel) {
             continue;
         }
         let src = std::fs::read_to_string(&path).expect("read source");
@@ -849,15 +874,26 @@ fn scan_tree() -> BTreeMap<(String, String), Vec<String>> {
             }
         };
 
+        // A boundary file's whole job is converting between the NAME world and
+        // the TYPE world, so the three name-HANDLING classes are exempt there:
+        // entering the grammar (1), taking a name as `&str` (2), and rebuilding
+        // a spelling (6). plan-111-G Correction G3.
+        //
+        // The three DECISION classes are NOT exempt, anywhere. A boundary may
+        // parse a spelling and it may render one; it may not decide anything by
+        // comparing one. That distinction is what keeps the exemption from
+        // becoming a junk drawer, and it is load-bearing: `binary_repr/sections.rs`
+        // held 19 spelling match arms until this phase, in a file that was
+        // already a boundary — the exemption would have hidden every one.
         if !is_boundary_file(&rel) {
             record("parse_sites", parse_sites(&src));
+            record("str_type_params", str_type_params(&src));
+            record("hand_rolled_grammar", hand_rolled_grammar(&src));
+            record("format_type_construction", format_type_construction(&src));
         }
         record("declared_sites", declared_sites(&src));
-        record("str_type_params", str_type_params(&src));
         record("spelling_match_arms", spelling_match_arms(&src));
         record("spelling_compares", spelling_compares(&src));
-        record("hand_rolled_grammar", hand_rolled_grammar(&src));
-        record("format_type_construction", format_type_construction(&src));
         record("string_keyed_type_maps", string_keyed_type_maps(&rel, &src));
     }
     out
@@ -1147,23 +1183,23 @@ fn census_by_file() {
             .unwrap()
             .to_string_lossy()
             .replace('\\', "/");
-        if is_excluded_from_scan(&rel) || is_test_file(&rel) {
+        if is_excluded_from_scan(&rel) || is_test_file(&rel) || is_grammar_file(&rel) {
             continue;
         }
         let src = std::fs::read_to_string(&path).expect("read source");
         let mut row: BTreeMap<&'static str, usize> = BTreeMap::new();
         if !is_boundary_file(&rel) {
             row.insert("parse_sites", parse_sites(&src).len());
+            row.insert("str_type_params", str_type_params(&src).len());
+            row.insert("hand_rolled_grammar", hand_rolled_grammar(&src).len());
+            row.insert(
+                "format_type_construction",
+                format_type_construction(&src).len(),
+            );
         }
         row.insert("declared_sites", declared_sites(&src).len());
-        row.insert("str_type_params", str_type_params(&src).len());
         row.insert("spelling_match_arms", spelling_match_arms(&src).len());
         row.insert("spelling_compares", spelling_compares(&src).len());
-        row.insert("hand_rolled_grammar", hand_rolled_grammar(&src).len());
-        row.insert(
-            "format_type_construction",
-            format_type_construction(&src).len(),
-        );
         row.insert(
             "string_keyed_type_maps",
             string_keyed_type_maps(&rel, &src).len(),
@@ -1178,17 +1214,17 @@ fn census_by_file() {
                 let mut all: Vec<(&str, Hit)> = Vec::new();
                 if !is_boundary_file(&rel) {
                     all.extend(parse_sites(&src).into_iter().map(|h| ("parse", h)));
+                    all.extend(str_type_params(&src).into_iter().map(|h| ("param", h)));
+                    all.extend(hand_rolled_grammar(&src).into_iter().map(|h| ("gram", h)));
+                    all.extend(
+                        format_type_construction(&src)
+                            .into_iter()
+                            .map(|h| ("fmt", h)),
+                    );
                 }
                 all.extend(declared_sites(&src).into_iter().map(|h| ("declrd", h)));
-                all.extend(str_type_params(&src).into_iter().map(|h| ("param", h)));
                 all.extend(spelling_match_arms(&src).into_iter().map(|h| ("arm", h)));
                 all.extend(spelling_compares(&src).into_iter().map(|h| ("cmp", h)));
-                all.extend(hand_rolled_grammar(&src).into_iter().map(|h| ("gram", h)));
-                all.extend(
-                    format_type_construction(&src)
-                        .into_iter()
-                        .map(|h| ("fmt", h)),
-                );
                 all.extend(
                     string_keyed_type_maps(&rel, &src)
                         .into_iter()
@@ -1384,6 +1420,42 @@ fn curated_type_keyed_tables_all_exist() {
          update the entry; if it was genuinely removed, delete the entry AND \
          lower the string_keyed_type_maps budget:\n{}",
         missing.join("\n")
+    );
+}
+
+/// The grammar-file exemption covers exactly one file, and it is the one that
+/// actually defines `parse` and `name`.
+///
+/// The exemption is total — every needle class — so it is the widest allowance
+/// in this gate, and the only thing keeping it honest is that it names one file
+/// for a reason that is true of no other. This asserts both halves.
+#[test]
+fn the_grammar_file_is_exactly_one() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let exempt: Vec<String> = rs_files(&[manifest.join("src")])
+        .into_iter()
+        .map(|p| {
+            p.strip_prefix(manifest)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .filter(|rel| is_grammar_file(rel))
+        .collect();
+    assert_eq!(
+        exempt,
+        vec!["src/types.rs".to_string()],
+        "the grammar-file exemption must cover exactly one file"
+    );
+    let src = std::fs::read_to_string(manifest.join("src/types.rs")).expect("read types.rs");
+    assert!(
+        src.contains("pub(crate) fn parse(name: &str) -> ParameterType"),
+        "src/types.rs must be the file that DEFINES `parse` — that is the whole \
+         justification for exempting it"
+    );
+    assert!(
+        src.contains("pub(crate) fn name(&self) -> Cow<'static, str>"),
+        "…and `name`"
     );
 }
 

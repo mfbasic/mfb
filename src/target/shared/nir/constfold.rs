@@ -115,7 +115,7 @@ pub(crate) fn native_primitive_text(
             // Float/Fixed constants fold to the runtime formatter's
             // default-precision rendering (2 places; bug-358, plan-28-B).
             ParameterType::Float | ParameterType::Fixed => {
-                crate::numeric::default_to_string_text(&type_.name(), value)
+                crate::numeric::default_to_string_text(type_, value)
             }
             ParameterType::Integer | ParameterType::Byte | ParameterType::String => {
                 Some(value.clone())
