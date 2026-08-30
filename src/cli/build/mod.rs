@@ -285,22 +285,25 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     ));
     let parse_start = std::time::Instant::now();
     let mut ast = ast::parse_project(project_name, &options.location, &manifest)?;
-    // plan-62-A §3.3: the `app::` package is importable ONLY in `--app` builds.
-    // `is_builtin_import` makes `IMPORT app` legal at the name gate (so the
-    // resolver does not reject it as an unknown package); the CLI is the sole
-    // place that sees the full `app_mode` decision (the additive `-app` flag over
-    // the manifest `"mode":"app"`), so the app-mode requirement is enforced here,
-    // before any lowering — the same shape as the `target_supports_app_mode`
-    // reject above. A console build that imports `app` is a compile error.
+    // plan-62-A §3.3 / plan-98-B: the `app::` and `canvas::` packages are importable
+    // ONLY in `--app` builds. `is_builtin_import` makes `IMPORT app` legal at the
+    // name gate (so the resolver does not reject it as an unknown package); the CLI
+    // is the sole place that sees the full `app_mode` decision (the additive `-app`
+    // flag over the manifest `"mode":"app"`), so the app-mode requirement is
+    // enforced here, before any lowering — the same shape as the
+    // `target_supports_app_mode` reject above. A console build that imports either
+    // is a compile error: `app` controls a window's presentation surface and
+    // `canvas` draws on one, and a console binary has neither.
     if !app_mode {
-        let imports_app = ast.files.iter().any(|file| {
+        let app_only = ast.files.iter().find_map(|file| {
             file.imports
                 .iter()
-                .any(|import| import.package_name() == "app")
+                .map(|import| import.package_name())
+                .find(|name| *name == "app" || *name == "canvas")
         });
-        if imports_app {
+        if let Some(package) = app_only {
             eprintln!(
-                "error: the `app` package requires app mode (build with -app or set \"mode\": \"app\" in project.json)"
+                "error: the `{package}` package requires app mode (build with -app or set \"mode\": \"app\" in project.json)"
             );
             return Err(());
         }

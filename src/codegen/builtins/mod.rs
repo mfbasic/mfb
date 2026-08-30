@@ -6,6 +6,7 @@ pub(crate) mod app;
 pub(crate) mod astrings;
 pub(crate) mod audio;
 pub(crate) mod bits;
+pub(crate) mod canvas;
 pub(crate) mod collections;
 pub(crate) mod crypto;
 pub(crate) mod csv;
@@ -51,6 +52,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
             | "astrings"
             | "audio"
             | "bits"
+            | "canvas"
             | "collections"
             | "crypto"
             | "csv"
@@ -923,6 +925,7 @@ mod tests {
         "astrings",
         "audio",
         "bits",
+        "canvas",
         "collections",
         "crypto",
         "csv",

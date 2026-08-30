@@ -1551,6 +1551,7 @@ fn build() -> Registry {
     crate::codegen::builtins::astrings::register(&mut r);
     crate::codegen::builtins::audio::register(&mut r);
     crate::codegen::builtins::bits::register(&mut r);
+    crate::codegen::builtins::canvas::register(&mut r);
     crate::codegen::builtins::csv::register(&mut r);
     crate::codegen::builtins::json::register(&mut r);
     crate::codegen::builtins::math::register(&mut r);

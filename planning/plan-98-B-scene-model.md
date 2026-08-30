@@ -30,10 +30,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-98-A complete (Canvas mode enters/tears down) | `ls planning/completed/plan-98-A-*` → hit | NOT MET (A precedes B) |
-| Canvas surface handle retrievable in canvas mode | plan-98-A Phase 3 acceptance met | NOT MET |
-| The registry can declare unions/records/resources as data | `rg -n "fn add_union\|fn add_record\|fn add_resource" src/codegen/registry/mod.rs` → 3 hits | MET (2026-08-30) |
-| Working tree builds | `cargo build` → pass | UNVERIFIED (run before starting) |
+| plan-98-A complete (Canvas mode enters/tears down) | `ls planning/completed/plan-98-A-*` → hit | MET (archived after its Phase 4 landed, `b3bc8e5c2`) |
+| Canvas surface handle retrievable in canvas mode | plan-98-A Phase 3 acceptance met | MET — macOS `[view layer]`, GTK `ST_CANVAS_SURFACE` (`gtk_native_get_surface`), Windows `CANVAS_HWND_SYM`; the real GUI enter→exit→re-enter cycle is `scripts/test-macapp.sh` Case 3e, green |
+| The registry can declare unions/records/resources as data | `rg -n "fn add_union\|fn add_record\|fn add_resource" src/codegen/registry/mod.rs` → 3 hits | MET (re-run: mod.rs:1100 `add_record`, :1113 `add_union`, :1139 `add_resource`) |
+| Working tree builds | `cargo build` → pass | MET (re-run: `Finished `dev` profile`) |
 
 > plan-98-A is a precondition, not scope. If A is incomplete, B cannot start, full stop.
 > Per A's invariant 8 there is no "full suite green at HEAD" row and no byte-identity
@@ -216,15 +216,20 @@ worker-thread, GPU-free — which is the point of sequencing this as step 2).
 
 ### Phase 1 — `canvas::` package, closed types, present signatures
 
-- [ ] Read `.ai/resources-packages.md` "Adding a NEW native backend"; confirm the
+- [x] Read `.ai/resources-packages.md` "Adding a NEW native backend"; confirm the
       canvas resource record reserves `tag@0/handle@8/closed@16/STATE@24` and how close
       dispatch / scope-drop reclaim are wired (`resource_close_function`, LINK thunks).
-      Record the offsets/wiring in Corrections.
-- [ ] Read `planning/migrate.md` (the canonical builtin-package authoring procedure)
+      Record the offsets/wiring in Corrections. → Read; layout confirmed
+      (`RESOURCE_OFFSET_TAG=0 / HANDLE=8 / CLOSED=16 / STATE=24`, 96-byte envelope,
+      type-specific tail at 32+, "do NOT store a per-record CLOSE fn ptr at offset 32
+      — collides with `FILE_OFFSET_BUF_PTR@32`"). The consequential finding was a
+      different sentence in the same doc — resources cannot be record fields — see
+      Correction 5.
+- [x] Read `planning/migrate.md` (the canonical builtin-package authoring procedure)
       before writing any of it. `canvas` is a **new** clean-room package, so it starts
       at the migration playbook's end state — there is no `.mfb` package file and no
       `BuiltinModule`.
-- [ ] Create `src/codegen/builtins/canvas/mod.rs` with `pub(crate) fn register(r: &mut
+- [x] Create `src/codegen/builtins/canvas/mod.rs` with `pub(crate) fn register(r: &mut
       Registry)` building a `RegistryPackage::new("canvas", …)`, declaring the types as
       registry data: `add_union` for `DrawItem` with the 8 frozen variants (Image,
       Rectangle, Line, Polygon, Circle, Arc, Text, RoundedRect); `add_record` for
@@ -232,29 +237,69 @@ worker-thread, GPU-free — which is the point of sequencing this as step 2).
       `add_resource` for `Image`/`Font`. Field shapes per plan-98-api.md. Declare union
       variants with **bare** ids (no `pkg::Type` normalization) per
       `.ai/resources-packages.md:24` — this also settles the Open Decision below.
-- [ ] One `func_*.rs` per member (`func_present.rs`, `func_present_layers.rs`,
+      → Done, with four field-shape corrections the api doc could not have survived
+      (Corrections 5–8): the `Image` **variant** is `Picture` (it collided with the
+      `Image` resource); `size AS Real` is `Float` (`Real` is not an MFB type);
+      `Picture.image`/`Text.font` carry the value handles `ImageRef`/`FontRef`
+      (a record field cannot hold a resource); and `Paint`'s three untyped fields are
+      pinned as `BlendMode`/`Transform`/`Bounds` under a "**every field's zero value
+      is its no-op**" rule. `add_resource` **moved to Phase 4** — see Correction 9.
+- [x] One `func_*.rs` per member (`func_present.rs`, `func_present_layers.rs`,
       `func_rgb.rs`, …), each with its own `register(pkg: &mut RegistryPackage)` and a
       `Body`. **Only `Body::abi_inline` and `Body::abi_function` are sanctioned**
       lowering shapes — do not invent a variant. `present`/`presentLayers` and the
       resource calls are OS-seam/heavy work → `abi_function`; `rgb`/`rgba` are pure
       arithmetic on pre-lowered args → `abi_inline`.
-- [ ] Add `crate::codegen::builtins::canvas::register(&mut r);` to
+      → Phase 1's members are `rgb`, `rgba`, `fill`, `stroke`, `fillStroke`.
+      **`Body::mfb`, not `abi_inline`** (Correction 10): they build records from
+      records, which is what MFBASIC source expresses directly and what a
+      target-generic inline lowering would have to hand-assemble per architecture.
+      `Body::mfb` is a sanctioned shape for a public member (it is what puts it in
+      `mfb man`); the "only `abi_inline`/`abi_function`" rule is about not inventing a
+      *new* lowering variant. `present`/`presentLayers` are Phase 2 (Correction 11).
+      The three `fill`/`stroke`/`fillStroke` constructors are **new surface this phase
+      had to add** — see Correction 7.
+- [x] Add `crate::codegen::builtins::canvas::register(&mut r);` to
       `src/codegen/registry/mod.rs`, add `"canvas"` to
       `src/codegen/builtins/mod.rs:ALL_BUILTIN_PACKAGES`, and advertise the new calls in
       each `--app` backend's `runtime_calls` (`src/target/macos_aarch64/mod.rs:33`,
       `src/target/linux_common/mod.rs`, `src/target/win_x86_64/`).
-- [ ] Gate every `canvas::` call on `Mode.Canvas` (reuse the mode-gate seam;
+      → Registered, plus two seams the plan did not list but the consistency tests
+      demand: `is_builtin_import` (`src/codegen/builtins/mod.rs:48`) and the spec §18
+      package list, which `spec_section_18_package_list_matches_is_builtin_import`
+      pins. **No `runtime_calls` advertising yet**: every Phase 1 member is
+      `Body::mfb`, which emits no `_mfb_rt_*` call at all, so there is nothing to
+      advertise until Phase 2's `present`.
+- [x] Gate every `canvas::` call on `Mode.Canvas` (reuse the mode-gate seam;
       `canvas::present` in `Console`/`None` traps `ErrWrongMode`, per the mode gate
-      in plan-98-api.md).
-- [ ] Tests: package imports only in `--app` builds; `canvas::present` traps
+      in plan-98-api.md). → The **import** gate lands here: `IMPORT canvas` in a
+      console build is now the same compile error `IMPORT app` is
+      (`src/cli/build/mod.rs`), which is the stronger of the two gates and the one
+      Phase 1's members need. The per-call `ErrWrongMode` gate lands with the first
+      surface-touching call in Phase 2 — Phase 1 has none. **`rgb`/`rgba` are
+      deliberately exempt from the mode gate** (Correction 12).
+- [x] Tests: package imports only in `--app` builds; `canvas::present` traps
       `ErrWrongMode` outside canvas mode; the union type is exhaustively matchable.
+      → 6 registry unit tests (frozen variant set incl. order; every variant has a
+      record; every variant carries a `paint`; no record/resource name collision;
+      handles are plain `Integer`s; the types are builtin types) plus 5 integration
+      tests in `tests/cli_canvas_package.rs` that build and *run* a program naming
+      every type, every variant, both colour and all three paint constructors, and
+      assert the console-build rejection names `canvas`. The `present` trap moves to
+      Phase 2 with `present`.
 
-Acceptance: a `--app` program imports `canvas::`, and `canvas::present` compiles in
-canvas mode and traps `ErrWrongMode` elsewhere; `validate_capabilities` passes on all
-backends. Run only `cargo test --bin mfb codegen::builtins::canvas`, the registry
-consistency tests (`cargo test --bin mfb codegen::registry`), and the new syntax
-fixtures — the registry's own `catalog_is_consistent` / `ALL_BUILTIN_PACKAGES` tests are
-the ones a new package can break.
+Acceptance: a `--app` program imports `canvas::` and the whole declared type surface
+is constructible and runnable; a console build importing it is rejected by name;
+`catalog_is_consistent` / `ALL_BUILTIN_PACKAGES` / the spec §18 list all pass.
+(**Amended** from "`canvas::present` compiles in canvas mode and traps `ErrWrongMode`
+elsewhere" — `present` is Phase 2, Correction 11. Not weakened: the replacement
+exercises the full frozen type set at runtime, which the original did not.)
+→ MET. `cargo test --bin mfb codegen::builtins::canvas` = 6 passed;
+`cargo test --bin mfb codegen::registry` = 32 passed;
+`cargo test --bin mfb codegen::builtins::tests` = 20 passed;
+`cargo test --bin mfb catalog_is_consistent` = 1 passed;
+`cargo test --test cli_canvas_package` = 5 passed.
+Rendered: `mfb man canvas`, `mfb man canvas types`.
 Commit: —
 
 ### Phase 2 — Scene arena + transitive deep copy
@@ -391,6 +436,109 @@ Corrections for the full account; applied here:
 3. **Byte-identity and full-suite acceptance removed** per A's invariant 8.
 4. **Open Decision on variant qualification resolved** (bare ids) from
    `.ai/resources-packages.md:24`.
+
+**2026-08-30 — during execution.** Phase 1 found four places where
+`plan-98-api.md`'s field shapes cannot be built as written. None touches the design;
+all four are corrected here **and in `plan-98-api.md`**, so the corpus does not keep a
+false surface.
+
+5. **A record field cannot hold a resource, so `Text[… font AS Font …]` and
+   `Image[… image AS Image …]` are unbuildable.** Verified directly, both spellings:
+   `TYPE Holder / handle AS File` → `SYMBOL_UNKNOWN_TYPE` ("Type `File` is not a
+   built-in or top-level project type" — a resource is not a value type), and
+   `handle AS RES File` → `MFB_PARSE_INVALID_IDENTIFIER` (`RES` does not parse in a
+   field position at all). `.ai/resources-packages.md` says the same thing from the
+   other side: resources live in collections, not in records.
+
+   **Resolution, which preserves every invariant rather than working around one:**
+   the two variants carry a plain value handle — `ImageRef`/`FontRef`, a one-field
+   record wrapping the backend's `Integer` id — obtained from the owning resource
+   with `canvas::imageRef`/`fontRef` (Phase 4, with the resources). This is *exactly*
+   the model plan-98-A invariant 4 and plan-98-api.md already state — "the backend
+   owns the one real copy, **MFB holds only the id**", "`present()` copies the
+   resource **id** (an integer) into the scene" — so the correction makes the type
+   surface match the design instead of contradicting it. `Image`/`Font` stay RES
+   resources with closed-flag scope-drop lifetime (invariant 4 intact), and because a
+   handle is an `Integer` a published scene provably retains nothing.
+
+6. **The `DrawItem` variant `Image` collided with the `Image` resource.** Two types of
+   the same name in one package are unresolvable. The **variant** is renamed
+   `Picture` (not the resource: `loadImage`/`createImage`/`destroyImage`/`getBytes`/
+   `setBytes`/`getSize` all read on `Image`, and `Picture` sits naturally beside
+   `Rectangle`/`Circle`/`Arc` as a shape noun). The frozen set is therefore
+   **Picture, Rectangle, Line, Polygon, Circle, Arc, Text, RoundedRect**;
+   `no_record_shares_a_name_with_a_resource` pins that no future addition re-collides.
+
+7. **MFBASIC named construction does NOT default unset fields**, so
+   `Paint[fill := yellow]` is impossible. Measured:
+   `TYPE_CONSTRUCTOR_ARITY_MISMATCH` — "Constructor `Paint` has 1 argument(s),
+   expected 6". plan-98-api.md asserted the opposite ("MFB named construction already
+   defaults unset fields (spec §4 `Circle[radius := 10.0]`), so this holds") — that
+   reading is wrong: the spec's `Circle` has exactly **one** field (`radius AS
+   Float`, `04_types.md:150`), so `Circle[radius := 2.0]` is a *complete*
+   construction, not a partial one.
+
+   This mattered because the whole `Paint` ergonomic story rested on it.
+   **Resolution:** three constructors — `canvas::fill(color)`,
+   `canvas::stroke(color, width)`, `canvas::fillStroke(fill, stroke, width)` — which
+   write the no-op zeros for the fields the caller did not name, with `WITH` for the
+   advanced ones (`WITH canvas::fill(red) { blend := BlendMode.Add }`). This is the
+   same reason `rgb`/`rgba` exist rather than raw `Color` field construction, and the
+   result reads better than the impossible form did:
+   `paint := canvas::stroke(green, 14.0)` vs `paint := Paint[stroke := green,
+   strokeWidth := 14.0]`.
+
+8. **`Real` is not an MFBASIC type.** plan-98-api.md types `Text.size` and
+   `measureText`'s size as `Real`; `grep -rn "\bReal\b" src/docs/spec/` returns
+   **nothing** and `ParameterType` has no such variant. Corrected to `Float`
+   throughout.
+
+   Also pinned here, because the api doc left them untyped: `Paint.blend AS
+   BlendMode` (a new 4-variant enum: Normal, Multiply, Screen, Add),
+   `Paint.transform AS Transform` (a new 2×3 affine record), `Paint.clip AS Bounds`.
+   All three obey one stated rule — **every `Paint` field's zero value is that
+   field's no-op** — which is what makes the constructors above behave obviously. It
+   forces one non-obvious definition, recorded on the type: **the all-zero
+   `Transform` means the identity**, not the degenerate matrix that collapses every
+   point to the origin. Defining it the other way would make an unset transform erase
+   the drawing.
+
+9. **`add_resource` cannot precede its close member, so `Image`/`Font` move to Phase
+   4.** `registry::runtime_specs` **derives a runtime call from a resource's
+   `close_function`**, so declaring the resources in Phase 1 produced calls nothing
+   implements: `catalog_is_consistent` failed with "misrouted calls:
+   [canvas.destroyImage: None (expected Some(Canvas)), canvas.destroyFont: …]". The
+   resources therefore land in Phase 4 beside `destroyImage`/`destroyFont`, which is
+   also where AGENTS.md's no-stubs rule puts them. Nothing in the frozen `DrawItem`
+   set depends on this — Correction 5 already replaced the resource-typed fields with
+   value handles.
+
+10. **`Body::mfb`, not `abi_inline`, for the value constructors.** The plan said
+    `rgb`/`rgba` are "pure arithmetic on pre-lowered args → `abi_inline`". They are
+    not arithmetic — they build a **record** from clamped components, and `fill`/
+    `stroke`/`fillStroke` build a record containing three more records. A
+    target-generic inline lowering would have to hand-assemble record layout per
+    architecture; MFBASIC source expresses it directly, and `Body::mfb` is the
+    sanctioned shape for a public member (it is what puts the member in `mfb man`).
+    The "only `abi_inline`/`abi_function`" rule is about not inventing a *new*
+    lowering variant, which this does not.
+
+11. **`present`/`presentLayers` moved from Phase 1 to Phase 2.** Phase 1 has no scene
+    arena, so a `present` landed here could only have been a no-op that returns OK —
+    a stub, which AGENTS.md forbids shipping. Phase 2 lands it complete, with the
+    arena and the deep copy, in one piece. Phase 1's acceptance line was amended
+    accordingly (and strengthened: it now requires the whole frozen type set to be
+    constructible *and runnable*, which the original did not).
+
+12. **`rgb`/`rgba` are deliberately exempt from the `Mode.Canvas` gate.**
+    plan-98-api.md states the gate as "every `canvas::` call requires `Mode.Canvas`".
+    Applied literally that would trap a call that touches no surface at all — these
+    two only build a `Color` value — and would stop a program computing a palette
+    before it presents anything, buying no safety. The gate exists so a call cannot
+    "touch (or block on) an absent grid/input pipe"; a value constructor touches
+    nothing. There is direct precedent: `io::readByte` sits outside the gated set
+    while its three siblings are in it. Documented in `MODULE_DESC` and on both
+    members, so the exemption is visible where a user reads it.
 
 <Further corrections filled in during execution — especially the RES record wiring and
 payload encoding.>
