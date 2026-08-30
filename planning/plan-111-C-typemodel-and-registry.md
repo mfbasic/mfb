@@ -406,6 +406,21 @@ root-cause it with objdump on one fixture and fix the conversion. **Do not
 regenerate a golden here.** All regeneration happens once, in letter G, after
 attribution (plan-111-A §3).
 
+**Result: 0 diffs on all four, MET.** Run against a release binary rebuilt at
+the letter's tip (the on-disk one predated the last commit — the stale-release
+trap):
+
+```
+artifact-gate [collections]: 1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+artifact-gate [math]:        1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+artifact-gate [strings]:     1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+artifact-gate [general]:     1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+```
+
+Nothing was regenerated. Cross-arch goldens are included in those 7 each, so the
+`TypeModel` re-keying and the registry API collapse are byte-neutral on every
+target this letter can see from a macOS host.
+
 ## Validation Plan
 
 - Tests: `cargo test --no-fail-fast -- --skip artifact_gate_all`.
@@ -428,9 +443,32 @@ attribution (plan-111-A §3).
   `test-accept.sh` and every golden regeneration run once, in letter G.
 - Diagnostics: **not run in this letter** — this letter touches codegen, which
   emits no source diagnostics (plan-111-A §3). G re-checks it.
-- Doc sync: `.ai/resources-packages.md` (registry query surface),
-  `.ai/collections.md` (layout table keys), and
-  `src/docs/spec/architecture/21_type-name-encoding.md`.
+- Doc sync: **done.**
+  * `.ai/resources-packages.md` — new "Registry query surface is typed" section:
+    the one-typed-query-per-question rule, the `#[cfg(test)]` shim and why a
+    production caller of it is what the ratchet gate catches,
+    `call_return_type_name`'s remaining render, the strict/lenient asymmetry,
+    and the `ParameterType::declared` shadowing rule (Correction C1).
+  * `.ai/collections.md` — new "Layout/model tables are keyed by
+    `ParameterType`" section: `declared` not `named`, STATE stripped before a
+    union lookup, the `other => named(&other.name())` re-wrap that destroyed
+    `Stateful` structure in BOTH `validate_package_type` and `is_comparable_seen`
+    (the second silently reported a stateful resource comparable), and
+    `refined_list_literal_type`'s structural build.
+  * `src/docs/spec/architecture/21_type-name-encoding.md` — the Round-trip
+    section said the grammar had to be added "in lockstep to **all** of
+    `parse_type_name`, `resolve_type_name`, `concrete_type_name` … there is no
+    shared parser to change in one place." That is the exact claim plan-111
+    inverts, and `concrete_type_name` no longer exists. Rewritten to state the
+    one-place rule *and* its replacement hazard (every consumer has a `_` arm,
+    so an unwired variant is silent, not a compile error). Also fixed **7
+    dangling citations** — `element_accepts_item`, `func_type_parts`,
+    `user_template_parts`, `split_top_level_commas`, `split_top_level_to`,
+    `concrete_type_name`, `resolve_type_name` — repointed to the surviving
+    symbols; all 20 citations in the file now resolve (`/tmp/check_cites.sh`,
+    a `fn|struct|enum|const|static|type <sym>` grep per `[[file:sym]]`). Four of
+    the seven predate this plan (plan-105-B retired the monomorph helpers), so
+    this was accumulated drift, not only C's.
 - Formatting: `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
 
 ## Open Decisions
@@ -555,6 +593,48 @@ That is the diagnostic-harness lesson in a new place: a sweep that classifies by
 grepping free text will misclassify, and the failure is silent in the
 *optimistic* direction just as easily — a filter this loose would also have
 matched nothing at all had the panic message been worded differently.
+
+**C3 — Phase 3's census is 84 call sites; the production population was 21.**
+The plan counts 37 `resolve_call`, 32 `call_return_type`, 8 `argument_types`,
+7 `builtins::resolve_call_return_type`. Re-measured with the gate's own
+`test_free_lines` stripper rather than `rg`:
+
+| Query | plan | production |
+|---|---|---|
+| `registry::resolve_call` | 37 | 1 |
+| `registry::call_return_type` | 32 | 1 |
+| `registry::argument_types` | 8 | **0** (deleted in letter B) |
+| `builtins::resolve_call_return_type` | 7 | 5 |
+| `constant_type_name` | — | 2 |
+| `general_override_target` | — | 5 |
+
+The difference is inline `#[cfg(test)]` modules — the same blind spot as
+plan-111-A Correction 3, and the third time in this plan an `rg`-based census
+has over-counted by counting test code. **The remedy is not another correction
+per letter**: letters D–F should re-measure their own populations with
+`test_free_lines` before budgeting, because the same over-count is baked into
+every one of their §2 tables.
+
+**C4 — one `#[cfg(test)]` spelling shim survives, and the `_typed` rename does
+not happen.** Phase 3 says to delete `resolve_call` outright and then rename the
+surviving `_typed` functions to the plain names. Both were reconsidered against
+what the code actually looks like afterwards.
+
+`registry::resolve_call`'s ~140 remaining call sites are per-package
+**registration** assertions — `resolve_call("audio.poll", &s(&["audio.AudioInput"]), true)
+== Some("Boolean".to_string())`. A spelling is the right thing for those to
+assert: a descriptor's job is to resolve to a particular type, and its name is
+how the test says which. Rewriting each as `.map(|t| t.name().into_owned())`
+makes 140 tests harder to read and proves nothing new. So the shim stays,
+`#[cfg(test)]`-gated with a doc comment saying exactly that — it cannot become a
+second production API, which is what §1 actually asks for.
+
+Given that, the rename is worse than the status quo: `resolve_call` is taken by
+the shim, so `resolve_call_typed` would have to become something else anyway,
+and a scheme where the production entry and a test-only shim differ by a suffix
+is confusing in exactly the direction that matters. The `_typed` suffix now
+reads as "the typed one, as opposed to the test spelling shim", which is the
+distinction a reader needs. Recorded rather than done.
 
 ## Summary
 

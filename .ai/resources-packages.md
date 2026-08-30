@@ -142,6 +142,40 @@ Injecting a `.mfb` source companion for a builtin (csv/net/vector/audio pattern:
 
 Constructible source **value records** follow the `vector::` pattern: list them in BOTH `is_builtin_type` AND `builtin_type_fields` (fields must match the source `EXPORT TYPE`) so they construct un/qualified. An arg-type-overloaded member (`play` `String` vs `List OF String`) dispatches via `source_implementation_name(name, arg_types)` in its own `.or_else` in `ir/lower.rs`, like native `implementation_name` — not the 1:1 json/csv/net chain. Internalized names appear in merged IR as `#audio_play`/`#mml_*` (`__x`→`#x`). A SUB companion is fine as a surface target; `RETURN` is forbidden in a SUB (use `EXIT SUB`); editing a `.mfb` needs a `cargo build` (it's `include_str!`d).
 
+## Registry query surface is typed (plan-111-C)
+
+The registry has ONE query per question and it speaks `ParameterType`, not
+spellings: `resolve_call_typed`, `call_return_type_typed`, `constant_type_name`
+(returns a `ParameterType` despite the name), `general_override_target`. The
+string halves (`resolve_call`, `call_return_type`, `argument_types`,
+`constant_type`) are deleted. Consequences when adding or debugging a package:
+
+- **`registry::resolve_call` still exists, `#[cfg(test)]`-gated.** It is a
+  spelling shim for the ~140 per-package registration assertions that read
+  `resolve_call("audio.poll", &s(&[..]), true) == Some("Boolean".to_string())`.
+  Do NOT call it from production — a new production caller is the thing the
+  ratchet gate (`tests/no_type_strings.rs`) exists to catch.
+- **`builtins::call_return_type_name` renders on the way out.** It is a NAME
+  oracle over the typed registry, kept for codegen callers that still take a
+  `&str`. Prefer `builtins::call_return_type` (typed) in anything new; the
+  render is a plan-111 D–F leftover, not a design.
+- **Strict vs lenient matching is asymmetric on purpose.** A **resource**
+  parameter demands exact base-resource identity, so a resource UNION does not
+  satisfy a concrete resource close-op parameter (`fs::close(<union>)` stays
+  rejected — a use-after-free class error). A **value** nominal parameter stays
+  coarse, so a variant still widens into its union (`json::stringify(JsonNull)`).
+  STATE and the `RES` marker are transparent on either side (bug-427); a scalar
+  never satisfies a nominal in strict mode (bug-443). Lenient mode (overload
+  dispatch, return inference) is coarse everywhere. Pinned by
+  `strict_matching_separates_resource_params_from_value_union_params`.
+- **A declared type may SHADOW a builtin spelling** — `TYPE Integer` compiles.
+  Any table keyed by a type must build its key with `ParameterType::declared`
+  (= `parse`), never `ParameterType::named`, or the record and the scalar land
+  in different buckets and the lookup misses. This is not hypothetical: it
+  silently dropped `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`. The
+  round-trip property (`parse(k).name() == k`) does NOT catch it — the real
+  question is whether the key you BUILD equals the key the LOOKUP passes.
+
 ## New builtin-package registration seams
 
 Adding a new builtin package (e.g. a resource package like `process`) touches far more than the descriptor. The obvious ones are documented; these are the ones a plan usually MISSES and the compiler/tests catch late:

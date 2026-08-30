@@ -59,11 +59,13 @@ one leading and one trailing space each:
 - `"RES "` — the leading resource-transfer prefix on a collection element/value
   or thread plane (see below).
 
-`OF`, `TO`, and `AS` are **infix keywords**: every downstream consumer recovers
-them by `strip_prefix`/`split_once` on the surrounding literal, not by tokenizing.
-The resolver, for example, dispatches purely on `strip_prefix("List OF ")`,
-`strip_prefix("Map OF ")`, `split_once(" TO ")`, `split_once(") AS ")`.
-[[src/resolver/resolution.rs:resolve_type_name]] [[src/monomorph/helpers.rs:func_type_parts]]
+`OF`, `TO`, and `AS` are **infix keywords**, recovered by
+`strip_prefix`/`split_once` on the surrounding literal rather than by tokenizing.
+That recovery happens in exactly one place: `ParameterType::parse`, which turns a
+name into the variant tree. Downstream stages do not re-derive it — the resolver,
+for example, is a plain `match` on `ListOf`/`MapOf`/`Func`/`ThreadHandle`, and a
+new shape reaches it as a new variant, not as a new prefix test (plan-111).
+[[src/types.rs:parse]] [[src/resolver/resolution.rs:resolve_type]]
 
 ## Base names and bare-id normalization
 
@@ -91,7 +93,7 @@ separator**. Two distinct surface syntaxes collapse onto it at parse time:
 - A member access `EnumType.Member` is already written with `.`, so an
   enum-member reference and a (non-built-in) package-qualified name share one
   flat spelling. The resolver routes any name containing `.` to
-  package-qualified resolution. [[src/resolver/resolution.rs:resolve_type_name]]
+  package-qualified resolution. [[src/resolver/resolution.rs:resolve_type]]
 
 A non-built-in user/dependency type therefore keeps its dotted qualifier in the
 flat string; only built-in package types are stripped to bare ids.
@@ -113,7 +115,7 @@ scope-ownership transfers across a function boundary.
 `Result` base does *not* consume `RES`, so `Result OF RES fs::File` is a parse error
 (`MFB_PARSE_INVALID_IDENTIFIER`), consistent with the table above. Consumers strip it with
 `strip_prefix("RES ").unwrap_or(...)` before resolving the underlying type.
-[[src/ast/expr.rs:parse_type_name]] [[src/resolver/resolution.rs:resolve_type_name]]
+[[src/ast/expr.rs:parse_type_name]] [[src/resolver/resolution.rs:resolve_type]]
 
 ### Trailing ` STATE T` on a `RES` collection element
 
@@ -150,8 +152,10 @@ then splitting the ` STATE T` suffix with `base_resource_name` / `state_type_nam
 `types::split_state_clause`, which is also what `parse` calls — the rule exists
 once. Element insertion (`append`/`insert`/`set`) compares the
 element and the item by their bare resource type, so an item passed with or
-without its STATE clause both resolve. [[src/codegen/resource/mod.rs:base_resource_name]]
-[[src/codegen/builtins/general/mod.rs:element_accepts_item]]
+without its STATE clause both resolve; that comparison is now the registry
+matcher's `resource_base_eq`, which every builtin overload goes through.
+[[src/codegen/resource/mod.rs:base_resource_name]]
+[[src/codegen/registry/mod.rs:resource_base_eq]]
 
 The thread resource plane is structurally distinct: it is an **infix** ` RES `
 clause between message and `" TO "`, not a leading prefix — see threads below.
@@ -185,45 +189,45 @@ naive `split_once`, and each segment is unwrapped of redundant grouping by
 
 ## User templates
 
-`user_template_parts` decodes the `Name OF A, B` form. It first **excludes**
-every built-in `OF`-bearing shape (`List OF`, `Set OF`, `Map OF`, `MapEntry OF`,
-`Result OF`, `Thread OF`, `ThreadWorker OF`, and the `FUNC(`/`ISOLATED FUNC(`
-prefixes); only a base that is none of these is treated as a user template. The
-remainder after `" OF "` is split on top-level `", "` into the argument list.
-[[src/monomorph/helpers.rs:user_template_parts]] [[src/monomorph/helpers.rs:split_top_level_commas]]
+`ParameterType::parse` decodes the `Name OF A, B` form into
+`UserOf(name, args)`. It first **excludes** every built-in `OF`-bearing shape
+(`List OF`, `Set OF`, `Map OF`, `MapEntry OF`, `Result OF`, `Thread OF`,
+`ThreadWorker OF`, and the `FUNC(`/`ISOLATED FUNC(` prefixes); only a base that
+is none of these is treated as a user template. The remainder after `" OF "` is
+split on top-level `", "` into the argument list. Monomorph's private
+`user_template_parts` was retired into this arm by plan-105-B, so the exclusion
+list exists once. [[src/types.rs:parse]]
+[[src/codegen/builtins/mod.rs:split_top_level_commas]]
 
-The resolver applies the same precedence: it checks the built-in prefixes first,
-then treats `base OF args` as a template only when `base` is a known type or an
-active template parameter, splitting `args` on `", "`. [[src/resolver/resolution.rs:resolve_type_name]]
+The resolver no longer applies this precedence itself — it receives the decoded
+`UserOf` and resolves the base and each argument. [[src/resolver/resolution.rs:resolve_type]]
 The template machinery itself is [language templates](./mfb spec language
 templates).
 
 ## Round-trip: rebuild by prefix-stripping
 
-The encoding's defining property is that it round-trips through pure string
-operations. `concrete_type_name` (the monomorphizer's substitution pass)
-reconstructs each form by the identical prefix tests the parser used to build it,
-recursing on the sub-strings and re-joining with the same separators:
-[[src/monomorph/lower.rs:concrete_type_name]]
-
-```
-strip_prefix("List OF ")        -> "List OF " + recurse(element)
-strip_prefix("Set OF ")         -> "Set OF " + recurse(element)
-strip_prefix("Result OF ")      -> "Result OF " + recurse(success)
-strip_prefix("Map OF ") + split_once(" TO ")   -> "Map OF " K " TO " V
-func_type_parts + ") AS "       -> prefix + params.join(", ") + ") AS " + R
-thread_parts_full               -> format_thread_type(kind, msg, res, out)
-user_template_parts             -> instantiate_type(name, args)
-```
+The encoding's defining property is that `ParameterType::parse(name).name()`
+returns `name` byte-for-byte, for every spelling this document describes. That
+round trip is load-bearing at the wire seams — the `.mfp` type section, the IR
+binary, and the manifest all store the *rendered* spelling and read it back —
+and it is asserted directly. [[src/types.rs:parse]] [[src/types.rs:name]]
 
 Map/MapEntry bodies are split with `split_top_level_to` (a `" TO "`
 `split_once`) and function/template argument lists with `split_top_level_commas`
-(a `", "` split). [[src/monomorph/helpers.rs:split_top_level_to]]
-[[src/monomorph/helpers.rs:func_type_parts]] Any new type shape must be added in lockstep
-to **all** of: `parse_type_name`, `resolve_type_name`, `concrete_type_name`
-(plus its sibling substitution passes), the source checker, and
-the IR semantic verifier — there is no shared parser to change in one
-place.
+(a `", "` split). Both live behind `parse`. [[src/types.rs:split_top_level_to]]
+[[src/codegen/builtins/mod.rs:split_top_level_commas]]
+
+**A new type shape is added in one place: a `ParameterType` variant, with its
+`parse` and `name` arms.** This is the inversion plan-111 performed. It used to
+be true that a shape had to be added in lockstep to `parse_type_name`,
+`resolve_type_name`, `concrete_type_name` and its sibling substitution passes,
+the source checker, and the IR semantic verifier, because each re-derived the
+grammar from the string; `concrete_type_name` and its siblings are deleted, and
+the rest match variants. The remaining obligation is the opposite one, and it is
+quieter: every consumer has a `_` arm, so an **unwired** variant is silently
+mis-handled rather than failing to compile. Adding a variant means auditing the
+matches that need it — the resolver, `ir::shape`, `ir::verify`, monomorph's
+`unify`/`normalize`, and the `TypeModel` builder — not just `types.rs`.
 
 ## See Also
 
