@@ -308,6 +308,9 @@ impl Resolver<'_> {
                     DocHeaderKind::Union => TypeDeclKind::Union,
                     _ => TypeDeclKind::Enum,
                 };
+                // plan-111-B: a union's members are types now, so their names
+                // are materialized once here for the borrowed `valid` set.
+                let variant_names: Vec<String>;
                 let resolved = match types.get(doc.header_name.as_str()) {
                     Some(type_decl) if type_decl.kind == want => {
                         let valid: HashSet<&str> = match want {
@@ -315,7 +318,12 @@ impl Resolver<'_> {
                                 type_decl.fields.iter().map(|f| f.name.as_str()).collect()
                             }
                             TypeDeclKind::Union => {
-                                type_decl.variants.iter().map(|v| v.name.as_str()).collect()
+                                variant_names = type_decl
+                                    .variants
+                                    .iter()
+                                    .map(|v| v.type_.name().into_owned())
+                                    .collect::<Vec<_>>();
+                                variant_names.iter().map(String::as_str).collect()
                             }
                             TypeDeclKind::Enum => {
                                 type_decl.members.iter().map(|m| m.name.as_str()).collect()
@@ -712,23 +720,25 @@ impl Resolver<'_> {
             }
             TypeDeclKind::Union => {
                 for include in &type_decl.includes {
-                    self.resolve_type_by_name(file, include, type_decl.line, imports);
+                    self.resolve_type(file, include, type_decl.line, imports);
                 }
 
                 let mut variants = HashMap::new();
                 for variant in &type_decl.variants {
-                    if let Some(previous) = variants.insert(variant.name.clone(), variant.line) {
+                    if let Some(previous) = variants.insert(variant.type_.clone(), variant.line) {
                         self.report(
                             "TYPE_DUPLICATE_VARIANT",
                             &format!(
                                 "Member type `{}` in UNION `{}` was already declared on line {}.",
-                                variant.name, type_decl.name, previous
+                                variant.type_.name(),
+                                type_decl.name,
+                                previous
                             ),
                             file,
                             variant.line,
                         );
                     }
-                    self.resolve_type_by_name(file, &variant.name, variant.line, imports);
+                    self.resolve_type(file, &variant.type_, variant.line, imports);
                 }
             }
             TypeDeclKind::Enum => {
@@ -1262,21 +1272,6 @@ impl Resolver<'_> {
 
     /// Resolve a type spelling that HIR still stores as a `String`.
     ///
-    /// Exactly three nodes reach this: a `UNION`'s `INCLUDES` list, a `UNION`
-    /// variant's name, and a `LINK` block's parameter/return types. HIR keeps all
-    /// three as the verbatim AST struct, so the source spelling enters the type
-    /// domain here — the one boundary, rather than a grammar the resolver used to
-    /// re-implement for every position (plan-106-D).
-    fn resolve_type_by_name(
-        &mut self,
-        file: &HirFile,
-        type_name: &str,
-        line: usize,
-        imports: &HashMap<String, String>,
-    ) {
-        self.resolve_type(file, &ParameterType::parse(type_name), line, imports);
-    }
-
     /// Resolve every nominal reachable from `type_`, structurally.
     ///
     /// This replaces `resolve_type_name(&str)`, which was 120 lines of grammar
@@ -1400,9 +1395,13 @@ impl Resolver<'_> {
             return;
         }
 
+        // plan-111-B: `Unknown` is a nominal here — the `ParameterType::Unknown`
+        // variant has its own arm above, so a spelling reaching this leaf tail
+        // is a decoded-IR `Named("Unknown")`. The template-parameter membership
+        // is a NAME set (the declaring scope's parameter list), so it renders.
         let name = type_.name();
         let name = name.as_ref();
-        if name == "Unknown" || self.active_template_params.contains(name) {
+        if type_.is_named("Unknown") || self.active_template_params.contains(name) {
             return;
         }
         if name.contains('.') {

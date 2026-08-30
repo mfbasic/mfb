@@ -651,13 +651,11 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // --- 1. `ParameterType::parse` below a boundary — 125. Letters B, D, E, F.
     ("parse_sites", "codegen", 94),
     ("parse_sites", "monomorph", 1),
-    ("parse_sites", "resolver", 1),
     // --- 2. a type taken as `&str` — 173. Letters B, D, E, F, G.
     ("str_type_params", "binary_repr", 4),
     ("str_type_params", "codegen", 141),
     ("str_type_params", "hir", 1),
     ("str_type_params", "numeric", 1),
-    ("str_type_params", "resolver", 1),
     ("str_type_params", "target", 4),
     ("str_type_params", "types", 2),
     // --- 3. a `match` arm on a spelling — 186. Letters B, D, E, F, G.
@@ -666,7 +664,6 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     ("spelling_match_arms", "types", 9),
     // --- 4. `==` / `!=` against a spelling — 73. Letters B, D, E, F, G.
     ("spelling_compares", "codegen", 57),
-    ("spelling_compares", "resolver", 1),
     ("spelling_compares", "target", 2),
     ("spelling_compares", "types", 2),
     // --- 5. a hand-rolled second grammar — 37, then 38. Letter A (types/codegen,

@@ -370,7 +370,13 @@ fn lower_type(type_decl: &HirTypeDecl, type_index: &TypeIndex, file: &str) -> Ir
         visibility: visibility_name(type_decl.visibility).to_string(),
         name: type_decl.name.clone(),
         fields: type_decl.fields.iter().map(lower_field).collect(),
-        includes: type_decl.includes.clone(),
+        // The IR/`.mfp` wire keeps `includes` as spellings; HIR carries them
+        // typed (plan-111-B), so they render here at the encode boundary.
+        includes: type_decl
+            .includes
+            .iter()
+            .map(|i| i.name().into_owned())
+            .collect(),
         variants: type_decl
             .variants
             .iter()
@@ -442,12 +448,12 @@ fn lower_field(field: &HirTypeField) -> IrField {
     }
 }
 
-fn lower_variant(variant: &UnionVariant, type_index: &TypeIndex) -> IrVariant {
+fn lower_variant(variant: &crate::hir::HirUnionVariant, type_index: &TypeIndex) -> IrVariant {
     IrVariant {
-        name: variant.name.clone(),
+        name: variant.type_.name().into_owned(),
         fields: type_index
             .records
-            .get(&ParameterType::named(&variant.name))
+            .get(&variant.type_)
             .cloned()
             .unwrap_or_default(),
         loc: IrSourceLoc {
@@ -3941,7 +3947,7 @@ impl TypeIndex {
                         for variant in
                             expanded_union_variants(type_decl, &union_decls, &mut HashSet::new())
                         {
-                            let variant_type = ParameterType::named(&variant.name);
+                            let variant_type = variant.type_.clone();
                             let union_type = ParameterType::named(&type_decl.name);
                             variants
                                 .entry(variant_type.clone())
@@ -4062,7 +4068,7 @@ fn expanded_union_variants<'a>(
     type_decl: &'a HirTypeDecl,
     union_decls: &HashMap<String, &'a HirTypeDecl>,
     visiting: &mut HashSet<String>,
-) -> Vec<&'a UnionVariant> {
+) -> Vec<&'a crate::hir::HirUnionVariant> {
     // Guard against an `INCLUDES` cycle (a self- or mutually-including union):
     // without this the recursion is unbounded and overflows the native stack with
     // no diagnostic (bug-194). Insert-before/remove-after tracks only the current
@@ -4073,11 +4079,12 @@ fn expanded_union_variants<'a>(
     }
     let mut variants = Vec::new();
     for include in &type_decl.includes {
-        if let Some(included) = union_decls.get(include) {
+        if let Some(included) = union_decls.get(include.name().as_ref()) {
             variants.extend(expanded_union_variants(included, union_decls, visiting));
         }
     }
     variants.extend(type_decl.variants.iter());
+
     visiting.remove(&type_decl.name);
     variants
 }

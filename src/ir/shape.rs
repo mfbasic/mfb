@@ -498,13 +498,17 @@ impl<'a> Walker<'a> {
             }
             let mut variants = Vec::new();
             for include in &type_decl.includes {
-                variants.extend(expanded_variants(include, union_decls, visiting));
+                variants.extend(expanded_variants(
+                    include.name().as_ref(),
+                    union_decls,
+                    visiting,
+                ));
             }
             variants.extend(
                 type_decl
                     .variants
                     .iter()
-                    .map(|variant| variant.name.clone()),
+                    .map(|variant| variant.type_.name().into_owned()),
             );
             visiting.remove(name);
             variants
@@ -535,7 +539,7 @@ impl<'a> Walker<'a> {
                             variant_types: type_decl
                                 .variants
                                 .iter()
-                                .map(|variant| ParameterType::named(&variant.name))
+                                .map(|variant| variant.type_.clone())
                                 .collect(),
                             members: type_decl
                                 .members

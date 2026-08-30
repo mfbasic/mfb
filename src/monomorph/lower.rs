@@ -540,11 +540,7 @@ impl<'a> Monomorphizer<'a> {
         type_decl.includes = type_decl
             .includes
             .iter()
-            .map(|include| {
-                self.concrete_type(&ParameterType::named(include), substitutions)
-                    .name()
-                    .into_owned()
-            })
+            .map(|include| self.concrete_type(include, substitutions))
             .collect();
         type_decl.fields = type_decl
             .fields
@@ -554,11 +550,8 @@ impl<'a> Monomorphizer<'a> {
         type_decl.variants = type_decl
             .variants
             .iter()
-            .map(|variant| UnionVariant {
-                name: self
-                    .concrete_type(&ParameterType::named(&variant.name), substitutions)
-                    .name()
-                    .into_owned(),
+            .map(|variant| crate::hir::HirUnionVariant {
+                type_: self.concrete_type(&variant.type_, substitutions),
                 line: variant.line,
             })
             .collect();

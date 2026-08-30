@@ -1,4 +1,4 @@
-use crate::ast::{TypeDeclKind, UnionVariant};
+use crate::ast::TypeDeclKind;
 use crate::hir::{
     HirCallArg, HirConstructorArg, HirExpression, HirFile, HirFunction, HirItem, HirMatchCase,
     HirMatchPattern, HirParam, HirProject, HirRecordUpdate, HirStatement, HirTopLevelBinding,
