@@ -757,7 +757,7 @@ impl TypeEnv {
                 .collect(),
             const_slots: function.consts.iter().map(|(s, _)| s.as_str()).collect(),
             param_names: function.params.iter().map(|(n, _)| n.as_str()).collect(),
-            return_type: &function.return_type.name(),
+            return_type: &function.return_type,
             abi_return_name: &function.abi_return_name,
             abi_return_ctype: &function.abi_return_ctype,
             result_slot: match &function.result {

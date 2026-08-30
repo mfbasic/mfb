@@ -559,13 +559,13 @@ impl<'a> Walker<'a> {
                     fields: imported
                         .fields
                         .iter()
-                        .map(|field| ParameterType::parse(&field.type_))
+                        .map(|field| field.type_.clone())
                         .collect(),
                     variant_types: imported
                         .variants
                         .iter()
                         .flat_map(|variant| variant.fields.iter())
-                        .map(|field| ParameterType::parse(&field.type_))
+                        .map(|field| field.type_.clone())
                         .collect(),
                     members: imported.members.clone(),
                     visibility: Visibility::Export,

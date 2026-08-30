@@ -465,7 +465,9 @@ pub(crate) fn imported_type_defs_from_files(packages: &[PathBuf]) -> Vec<ir::Imp
 fn imported_type_field(field: binary_repr::BinaryReprTypeField) -> ir::ImportedTypeField {
     ir::ImportedTypeField {
         name: field.name,
-        type_: field.type_,
+        // plan-111-B: boundary #5 — the `.mfp` package entry's type table is
+        // text on disk, and this is where it stops being one.
+        type_: crate::types::ParameterType::parse(&field.type_),
     }
 }
 
@@ -1762,7 +1764,7 @@ mod tests {
         assert!(matches!(def.kind, ir::ImportedTypeKind::Record));
         assert_eq!(def.fields.len(), 2);
         assert_eq!(def.fields[0].name, "x");
-        assert_eq!(def.fields[0].type_, "Integer");
+        assert_eq!(def.fields[0].type_.name(), "Integer");
         assert_eq!(def.fields[1].name, "y");
         assert!(def.variants.is_empty());
         assert!(def.members.is_empty());
@@ -1787,7 +1789,7 @@ mod tests {
         assert_eq!(def.variants[0].name, "Circle");
         assert_eq!(def.variants[0].fields.len(), 1);
         assert_eq!(def.variants[0].fields[0].name, "r");
-        assert_eq!(def.variants[0].fields[0].type_, "Float");
+        assert_eq!(def.variants[0].fields[0].type_.name(), "Float");
         assert!(def.variants[1].fields.is_empty());
     }
 

@@ -17,7 +17,7 @@
 //! hub through which the rest of the crate reaches the model.
 
 use crate::ast::{
-    EnumMember, ExitTarget, Expression, FunctionKind, LoopKind, Param, TypeDeclKind, UnionVariant,
+    EnumMember, ExitTarget, Expression, FunctionKind, LoopKind, TypeDeclKind, UnionVariant,
     Visibility,
 };
 use crate::codegen::builtins;

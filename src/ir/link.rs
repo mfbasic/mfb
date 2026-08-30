@@ -505,6 +505,12 @@ pub(crate) struct IrBuffer {
 /// `fs_specs.rs:90,103`.
 pub(crate) const BYTE_LIST_TYPE: &str = "List OF Byte";
 
+/// Whether `type_` is the `List OF Byte` a `CBuffer` slot surfaces —
+/// [`BYTE_LIST_TYPE`] as a structure rather than a spelling (plan-111-B).
+fn is_byte_list(type_: &ParameterType) -> bool {
+    matches!(type_, ParameterType::ListOf(element) if **element == ParameterType::Byte)
+}
+
 /// A native function's buffer-relevant surface, resolved for validation
 /// (plan-58-A §4.3).
 ///
@@ -525,8 +531,8 @@ pub(crate) struct BufferSlotsView<'a> {
     pub(crate) const_slots: Vec<&'a str>,
     /// Wrapper parameter names, which a `SIZE` expression may read.
     pub(crate) param_names: Vec<&'a str>,
-    /// The wrapper's MFBASIC return type (`"Nothing"` when it returns none).
-    pub(crate) return_type: &'a str,
+    /// The wrapper's MFBASIC return type (`Nothing` when it returns none).
+    pub(crate) return_type: &'a ParameterType,
     /// The ABI return's name and ctype (`AS <name> <ctype>`).
     pub(crate) abi_return_name: &'a str,
     pub(crate) abi_return_ctype: &'a str,
@@ -705,12 +711,15 @@ pub(crate) fn check_buffer_slots(view: &BufferSlotsView) -> Vec<CStructFault> {
 
     // Rule 7: RETURN names a CBuffer, so the wrapper must surface it as bytes.
     if let Some(slot) = view.result_slot {
-        if is_buffer_slot(slot) && view.return_type != BYTE_LIST_TYPE {
+        // plan-111-B: `!= BYTE_LIST_TYPE` compared a rendered name against the
+        // spelling `"List OF Byte"`. `List OF Byte` is `ListOf(Byte)`, so this is
+        // a variant question; the constant survives as the diagnostic's wording.
+        if is_buffer_slot(slot) && !is_byte_list(view.return_type) {
             faults.push(fault(
                 "NATIVE_BUFFER_INVALID",
                 format!(
                     "Native function `{name}` returns CBuffer slot `{slot}`, so its return type must be `{BYTE_LIST_TYPE}`, not `{}`.",
-                    view.return_type
+                    view.return_type.name()
                 ),
             ));
         }
@@ -777,7 +786,7 @@ pub(crate) fn check_buffer_slots(view: &BufferSlotsView) -> Vec<CStructFault> {
     // `emit_return_passthrough` has no List-building arm, so the caller
     // dereferenced a raw scalar as a collection block, with no diagnostic
     // (plan-58-A §2.3).
-    if view.return_type == BYTE_LIST_TYPE && !view.result_slot.is_some_and(is_buffer_slot) {
+    if is_byte_list(view.return_type) && !view.result_slot.is_some_and(is_buffer_slot) {
         faults.push(fault(
             "NATIVE_BUFFER_INVALID",
             format!(
@@ -1165,7 +1174,7 @@ mod tests {
             buffers: vec![("buf", vec![])],
             const_slots: vec!["buf"],
             param_names: vec![],
-            return_type: "Nothing",
+            return_type: &ParameterType::Nothing,
             abi_return_name: "status",
             abi_return_ctype: "CInt32",
             result_slot: None,
@@ -1191,7 +1200,7 @@ mod tests {
             buffers: vec![("buf", vec!["n"])],
             const_slots: vec![],
             param_names: vec![],
-            return_type: BYTE_LIST_TYPE,
+            return_type: &ParameterType::ListOf(Box::new(ParameterType::Byte)),
             abi_return_name: "status",
             abi_return_ctype: "CInt32",
             result_slot: Some("buf"),
