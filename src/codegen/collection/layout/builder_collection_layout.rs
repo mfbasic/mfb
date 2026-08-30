@@ -8,17 +8,29 @@ use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn inline_collection_payload_size(&self, type_: &str) -> Option<usize> {
-        if let Some(fields) = self.type_model.record_fields.get(type_) {
+        if let Some(fields) = self
+            .type_model
+            .record_fields
+            .get(&ParameterType::declared(type_))
+        {
             return Some(8 * fields.len());
         }
-        if let Some(union_name) = self.type_model.union_variants.get(type_) {
-            return self.inline_collection_payload_size(union_name);
+        if let Some(union_name) = self
+            .type_model
+            .union_variants
+            .get(&ParameterType::declared(type_))
+        {
+            return self.inline_collection_payload_size(&union_name.name());
         }
         // A transferred stateful union arrives spelled `Stream STATE Cursor`; the
         // union set is keyed on the bare name (plan-75 gap 3). The `{tag, ptr}`
         // layout is unchanged by the STATE suffix, so size it on the base name.
         let type_ = crate::codegen::resource::base_resource_name(type_);
-        if self.type_model.union_names.contains(type_) {
+        if self
+            .type_model
+            .union_names
+            .contains(&ParameterType::declared(type_))
+        {
             // A resource variant carries no record fields (validation.rs registers
             // none for `"resource"` variants) but its payload is a single resource
             // handle stored one word after the tag. Count it as one payload word so
@@ -27,9 +39,9 @@ impl CodeBuilder<'_> {
             // read out of block on `RETURN` (bug-141).
             let max_fields = self
                 .type_model
-                .variants_for_union(type_)
+                .variants_for_union(&ParameterType::declared(type_))
                 .map(|variant| {
-                    if crate::codegen::builtins::is_resource_type(variant) {
+                    if crate::codegen::builtins::is_resource_type(&variant.name()) {
                         1
                     } else {
                         self.type_model
@@ -58,7 +70,10 @@ impl CodeBuilder<'_> {
             return !self.type_is_flat(type_);
         }
         crate::codegen::builtins::is_resource_type(type_)
-            && !self.type_model.union_names.contains(type_)
+            && !self
+                .type_model
+                .union_names
+                .contains(&ParameterType::declared(type_))
     }
 
     /// Alignment, in bytes, that a packed collection payload of `type_` requires
@@ -637,7 +652,7 @@ impl CodeBuilder<'_> {
         }
         self.type_model
             .record_fields
-            .get(record_type)
+            .get(&ParameterType::declared(record_type))
             .cloned()
             .map(|fields| {
                 fields
@@ -666,7 +681,11 @@ impl CodeBuilder<'_> {
             self.emit(abi::add_immediate(&scratch9, &scratch9, 9));
             self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), out_slot));
             Ok(())
-        } else if self.type_model.record_fields.contains_key(field_type) {
+        } else if self
+            .type_model
+            .record_fields
+            .contains_key(&ParameterType::declared(field_type))
+        {
             self.emit_record_block_size_to_slot(field_type, ptr_slot, out_slot)
         } else if self.union_is_data(field_type)
             || crate::codegen::engine::types::is_result_type(field_type)
@@ -789,7 +808,7 @@ impl CodeBuilder<'_> {
         let fields = self
             .type_model
             .record_fields
-            .get(record_type)
+            .get(&ParameterType::declared(record_type))
             .cloned()
             .ok_or_else(|| format!("native record type '{record_type}' does not resolve"))?;
         let fixed = 8 * fields.len();
@@ -870,7 +889,7 @@ impl CodeBuilder<'_> {
         let fields = self
             .type_model
             .record_fields
-            .get(record_type)
+            .get(&ParameterType::declared(record_type))
             .cloned()
             .ok_or_else(|| format!("native record type '{record_type}' does not resolve"))?;
         if fields.len() != field_slots.len() {
@@ -2593,7 +2612,7 @@ pub(crate) fn is_pointer_string_record(type_: &str) -> bool {
 /// allocation (nested record/union/collection/`Result`/`Error`).
 pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &str) -> bool {
     is_collection_type(field_type)
-        || model.record_fields.contains_key(field_type)
+        || model.record_fields.contains_key(&ParameterType::declared(field_type))
         // A resource union is a pointer composite (its value is a pointer to a
         // `{tag, ptr}` block), never a flat block. A transferred stateful union
         // is spelled `Stream STATE Cursor`; base-strip so the STATE suffix does
@@ -2602,7 +2621,9 @@ pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &str) -> bo
         // variant record).
         || model
             .union_names
-            .contains(crate::codegen::resource::base_resource_name(field_type))
+            .contains(&ParameterType::declared(
+                crate::codegen::resource::base_resource_name(field_type),
+            ))
         || crate::codegen::engine::types::is_result_type(field_type)
         || field_type == "Error"
 }
@@ -2650,18 +2671,21 @@ fn type_is_flat_inner(
         collection_payload_types(type_)
             .into_iter()
             .all(|p| type_is_flat_inner(model, &p, visited))
-    } else if model.record_fields.contains_key(type_) {
+    } else if model
+        .record_fields
+        .contains_key(&ParameterType::declared(type_))
+    {
         !is_pointer_string_record(type_)
             && model
                 .record_fields
-                .get(type_)
+                .get(&ParameterType::declared(type_))
                 .cloned()
                 .unwrap_or_default()
                 .iter()
                 .all(|(_, ft)| type_is_flat_inner(model, &ft.name(), visited))
     } else if union_is_data(model, type_) {
         model
-            .variants_for_union(type_)
+            .variants_for_union(&ParameterType::declared(type_))
             .map(|variant| variant.to_string())
             .collect::<Vec<_>>()
             .iter()
@@ -2694,8 +2718,12 @@ pub(crate) fn record_field_is_inlined(
     if field_type == "String" {
         return true;
     }
-    let is_composite = model.record_fields.contains_key(field_type)
-        || model.union_names.contains(field_type)
+    let is_composite = model
+        .record_fields
+        .contains_key(&ParameterType::declared(field_type))
+        || model
+            .union_names
+            .contains(&ParameterType::declared(field_type))
         || is_collection_type(field_type)
         || crate::codegen::engine::types::is_result_type(field_type);
     is_composite && type_is_flat(model, field_type)
@@ -2709,13 +2737,13 @@ pub(crate) fn union_is_data(model: &TypeModel, type_: &str) -> bool {
     // is keyed on the bare name `Stream` (plan-75 gap 3). Strip the suffix so a
     // resource union with STATE still classifies as all-resource.
     let type_ = crate::codegen::resource::base_resource_name(type_);
-    if !model.union_names.contains(type_) {
+    if !model.union_names.contains(&ParameterType::declared(type_)) {
         return false;
     }
     let mut saw_variant = false;
-    for variant in model.variants_for_union(type_) {
+    for variant in model.variants_for_union(&ParameterType::declared(type_)) {
         saw_variant = true;
-        if crate::codegen::builtins::is_resource_type(variant) {
+        if crate::codegen::builtins::is_resource_type(&variant.name()) {
             return false;
         }
     }
@@ -2729,20 +2757,26 @@ pub(crate) fn union_is_data(model: &TypeModel, type_: &str) -> bool {
 /// (bug-391): a recursive value is a pointer-linked graph that inline copy
 /// codegen cannot reproduce without unbounded compile-time recursion.
 pub(crate) fn type_components(model: &TypeModel, type_: &str) -> Vec<String> {
-    if let Some(fields) = model.record_fields.get(type_) {
+    if let Some(fields) = model.record_fields.get(&ParameterType::declared(type_)) {
         return fields
             .iter()
             .map(|(_, ft)| ft.name().into_owned())
             .collect();
     }
-    if let Some(fields) = model.union_variant_fields.get(type_) {
+    if let Some(fields) = model
+        .union_variant_fields
+        .get(&ParameterType::declared(type_))
+    {
         return fields
             .iter()
             .map(|(_, ft)| ft.name().into_owned())
             .collect();
     }
-    if model.union_names.contains(type_) {
-        return model.variants_for_union(type_).cloned().collect();
+    if model.union_names.contains(&ParameterType::declared(type_)) {
+        return model
+            .variants_for_union(&ParameterType::declared(type_))
+            .map(|v| v.name().into_owned())
+            .collect();
     }
     if let Some(element) = list_element_type(type_) {
         return vec![element];
@@ -2780,11 +2814,13 @@ pub(crate) fn type_participates_in_cycle(model: &TypeModel, type_: &str) -> bool
 pub(crate) fn recursive_transfer_types(model: &TypeModel) -> std::collections::BTreeSet<String> {
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut result: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    // plan-111-C: the tables are type-keyed; this walk is a NAME set (its result
+    // feeds emitted symbol names), so the keys render here.
     let mut stack: Vec<String> = model
         .record_fields
         .keys()
-        .cloned()
-        .chain(model.union_names.iter().cloned())
+        .chain(model.union_names.iter())
+        .map(|type_| type_.name().into_owned())
         .collect();
     while let Some(current) = stack.pop() {
         if !seen.insert(current.clone()) {

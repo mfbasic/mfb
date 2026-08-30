@@ -73,12 +73,7 @@ impl CodeBuilder<'_> {
         {
             return Ok(false);
         }
-        let Some(fields) = self
-            .type_model
-            .record_fields
-            .get(type_.name().as_ref())
-            .cloned()
-        else {
+        let Some(fields) = self.type_model.record_fields.get(type_).cloned() else {
             return Ok(false);
         };
         // Every updated field must be a plain inline scalar. A `String`/collection/
@@ -179,7 +174,10 @@ impl CodeBuilder<'_> {
         record_type: &str,
         field: &str,
     ) -> Option<(usize, String)> {
-        let fields = self.type_model.record_fields.get(record_type)?;
+        let fields = self
+            .type_model
+            .record_fields
+            .get(&ParameterType::declared(record_type))?;
         let index = fields.iter().position(|(name, _)| name == field)?;
         let field_type = fields[index].1.clone();
         // Only a `List` (kind-0/1/2) grows in place here; a Map/Set is not an

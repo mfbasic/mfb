@@ -84,7 +84,10 @@ fn type_requires_empty_string_constant(
     if type_ == "String" {
         return true;
     }
-    let Some(fields) = type_model.record_fields.get(type_) else {
+    let Some(fields) = type_model
+        .record_fields
+        .get(&ParameterType::declared(type_))
+    else {
         return false;
     };
     if !seen.insert(type_.to_string()) {

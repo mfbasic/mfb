@@ -243,7 +243,7 @@ impl TypeModel {
         let mut record_fields = HashMap::new();
         let mut union_names = HashSet::new();
         let mut union_variants = HashMap::new();
-        let mut union_variant_unions = HashMap::<String, HashSet<String>>::new();
+        let mut union_variant_unions = HashMap::<ParameterType, HashSet<ParameterType>>::new();
         // bug-80: variant tags are assigned globally-canonically (keyed by variant
         // name, independent of position within any including union) by
         // recompute_canonical_variant_tags at the end, so a variant included at
@@ -257,7 +257,7 @@ impl TypeModel {
             match type_.kind.as_str() {
                 "type" | "record" => {
                     record_fields.insert(
-                        type_.name.clone(),
+                        ParameterType::declared(&type_.name),
                         type_
                             .fields
                             .iter()
@@ -267,21 +267,26 @@ impl TypeModel {
                 }
                 "enum" => {
                     for (index, member) in type_.members.iter().enumerate() {
-                        enum_members.insert((type_.name.clone(), member.name.clone()), index);
+                        enum_members.insert(
+                            (ParameterType::declared(&type_.name), member.name.clone()),
+                            index,
+                        );
                     }
                 }
                 "union" => {
-                    union_names.insert(type_.name.clone());
+                    let union_type = ParameterType::declared(&type_.name);
+                    union_names.insert(union_type.clone());
                     for variant in expanded_nir_union_variants(module, &type_.name).iter() {
+                        let variant_type = ParameterType::declared(&variant.name);
                         union_variants
-                            .entry(variant.name.clone())
-                            .or_insert_with(|| type_.name.clone());
+                            .entry(variant_type.clone())
+                            .or_insert_with(|| union_type.clone());
                         union_variant_unions
-                            .entry(variant.name.clone())
+                            .entry(variant_type.clone())
                             .or_default()
-                            .insert(type_.name.clone());
+                            .insert(union_type.clone());
                         union_variant_fields.insert(
-                            variant.name.clone(),
+                            variant_type,
                             variant
                                 .fields
                                 .iter()
@@ -291,7 +296,7 @@ impl TypeModel {
                     }
                 }
                 "resource" => {
-                    resource_names.insert(type_.name.clone());
+                    resource_names.insert(ParameterType::declared(&type_.name));
                 }
                 other => {
                     return Err(format!(
@@ -306,14 +311,14 @@ impl TypeModel {
         // derived from there as well as from the `"resource"` kind above.
         for function in &module.link_functions {
             if function.return_resource {
-                resource_names.insert(function.return_type.without_state().name().into_owned());
+                resource_names.insert(function.return_type.without_state());
             }
         }
         // `Error` and `ErrorLoc` are read-only compiler/runtime records laid out
         // as ordinary 3-field records so construction, field access, copying, and
         // cleanup reuse the generic record machinery.
         record_fields.insert(
-            "Error".to_string(),
+            ParameterType::named("Error"),
             vec![
                 ("code".to_string(), ParameterType::Integer),
                 ("message".to_string(), ParameterType::String),
@@ -321,7 +326,7 @@ impl TypeModel {
             ],
         );
         record_fields.insert(
-            "ErrorLoc".to_string(),
+            ParameterType::named("ErrorLoc"),
             vec![
                 ("filename".to_string(), ParameterType::String),
                 ("line".to_string(), ParameterType::Integer),
@@ -345,7 +350,7 @@ impl TypeModel {
         // companion declares a matching `AttrSpan` so the `.mfb` bridge can read and
         // build spans; the two must stay field-identical.
         record_fields.insert(
-            "AttrSpan".to_string(),
+            ParameterType::named("AttrSpan"),
             vec![
                 ("start".to_string(), ParameterType::Integer),
                 // `last` (not `end`): `end` is a reserved keyword and cannot follow
@@ -360,7 +365,7 @@ impl TypeModel {
             ],
         );
         record_fields.insert(
-            "AttributedString".to_string(),
+            ParameterType::named("AttributedString"),
             vec![
                 ("text".to_string(), ParameterType::String),
                 (
@@ -381,7 +386,12 @@ impl TypeModel {
         let resource_closers = module
             .native_resources
             .iter()
-            .map(|resource| (resource.name.clone(), resource.close_function.clone()))
+            .map(|resource| {
+                (
+                    ParameterType::declared(&resource.name),
+                    resource.close_function.clone(),
+                )
+            })
             .collect();
         let mut model = Self {
             enum_members,
@@ -425,9 +435,11 @@ impl TypeModel {
             // it is skipped as a *record* above, but codegen must recognize the
             // name to give it a closed-resource default on an inline `TRAP`'s
             // error path.
-            model
-                .resource_names
-                .extend(native_resources.iter().cloned());
+            model.resource_names.extend(
+                native_resources
+                    .iter()
+                    .map(|name| ParameterType::declared(name)),
+            );
             // bug-374: an imported binding's resource drops at scope exit in the
             // importing program too, but a decoded package carries no
             // `native_resources` (`ir/binary.rs` drops them by contract), so the
@@ -456,7 +468,7 @@ impl TypeModel {
                     continue;
                 };
                 model.resource_closers.insert(
-                    resource.type_name,
+                    ParameterType::declared(&resource.type_name),
                     format!("{identity}.{package_name}.{close_function}"),
                 );
             }
@@ -479,12 +491,20 @@ impl TypeModel {
     /// including union. `union_variant_fields` holds one entry per registered
     /// variant, so its keys are the complete variant set (bug-80).
     fn recompute_canonical_variant_tags(&mut self) {
-        let names: std::collections::BTreeSet<String> =
-            self.union_variant_fields.keys().cloned().collect();
+        // plan-111-C: the ORDER is load-bearing — a tag is an emitted constant,
+        // so the sort must stay by rendered NAME exactly as it was.
+        // `ParameterType` is deliberately not `Ord` (an ordering over a type
+        // tree would be arbitrary), so the sort key is the spelling and the map
+        // key is the type it denotes.
+        let names: std::collections::BTreeSet<String> = self
+            .union_variant_fields
+            .keys()
+            .map(|type_| type_.name().into_owned())
+            .collect();
         self.union_variant_tags = names
             .into_iter()
             .enumerate()
-            .map(|(tag, name)| (name, tag))
+            .map(|(tag, name)| (ParameterType::declared(&name), tag))
             .collect();
     }
 
@@ -495,7 +515,7 @@ impl TypeModel {
         match type_export.kind {
             binary_repr::BinaryReprExportKind::Type => {
                 self.record_fields.insert(
-                    type_export.name,
+                    ParameterType::declared(&type_export.name),
                     type_export
                         .fields
                         .into_iter()
@@ -506,24 +526,26 @@ impl TypeModel {
             binary_repr::BinaryReprExportKind::Enum => {
                 for (index, member) in type_export.members.into_iter().enumerate() {
                     self.enum_members
-                        .insert((type_export.name.clone(), member), index);
+                        .insert((ParameterType::declared(&type_export.name), member), index);
                 }
             }
             binary_repr::BinaryReprExportKind::Union => {
-                self.union_names.insert(type_export.name.clone());
+                let union_type = ParameterType::declared(&type_export.name);
+                self.union_names.insert(union_type.clone());
                 for variant in type_export.variants.into_iter() {
+                    let variant_type = ParameterType::declared(&variant.name);
                     self.union_variants
-                        .entry(variant.name.clone())
-                        .or_insert_with(|| type_export.name.clone());
+                        .entry(variant_type.clone())
+                        .or_insert_with(|| union_type.clone());
                     self.union_variant_unions
-                        .entry(variant.name.clone())
+                        .entry(variant_type.clone())
                         .or_default()
-                        .insert(type_export.name.clone());
+                        .insert(union_type.clone());
                     // Tags are assigned globally by recompute_canonical_variant_tags
                     // in from_module_and_packages once every module + package variant
                     // is registered (bug-80).
                     self.union_variant_fields.insert(
-                        variant.name,
+                        variant_type,
                         variant
                             .fields
                             .into_iter()
@@ -547,21 +569,25 @@ impl TypeModel {
     /// layout are untouched (only emitted instruction order was ever affected).
     pub(crate) fn variants_for_union<'a>(
         &'a self,
-        union: &'a str,
-    ) -> impl Iterator<Item = &'a String> + 'a {
-        let mut variants: Vec<&'a String> = self
+        union: &'a ParameterType,
+    ) -> impl Iterator<Item = &'a ParameterType> + 'a {
+        let mut variants: Vec<&'a ParameterType> = self
             .union_variant_unions
             .iter()
             .filter(move |(_, unions)| unions.contains(union))
             .map(|(variant, _)| variant)
             .collect();
+        // plan-111-C: the tiebreak is still the rendered NAME. `ParameterType`
+        // is not `Ord`, and more to the point an ordering over a type tree would
+        // be arbitrary where this one is observable — the emitted per-variant
+        // tag checks are in this order (bug-01).
         variants.sort_by_key(|variant| {
             (
                 self.union_variant_tags
                     .get(*variant)
                     .copied()
                     .unwrap_or(usize::MAX),
-                (*variant).clone(),
+                variant.name().into_owned(),
             )
         });
         variants.into_iter()
@@ -662,9 +688,20 @@ mod union_tag_tests {
             union("Wide", &["Shape"], &["Tri"]),
         ];
         let model = TypeModel::from_module(&module(types)).expect("must resolve");
-        assert_eq!(model.union_variant_tags.get("Sq"), Some(&0));
-        assert_eq!(model.union_variant_tags.get("Tri"), Some(&1));
-        assert_eq!(model.union_variant_tags.get("V1"), Some(&2));
+        assert_eq!(
+            model.union_variant_tags.get(&ParameterType::declared("Sq")),
+            Some(&0)
+        );
+        assert_eq!(
+            model
+                .union_variant_tags
+                .get(&ParameterType::declared("Tri")),
+            Some(&1)
+        );
+        assert_eq!(
+            model.union_variant_tags.get(&ParameterType::declared("V1")),
+            Some(&2)
+        );
     }
 
     /// A variant at *divergent* positions across two unions (`W1` follows `V1` in
@@ -681,7 +718,13 @@ mod union_tag_tests {
         ];
         let model =
             TypeModel::from_module(&module(types)).expect("divergent positions must now resolve");
-        assert_eq!(model.union_variant_tags.get("V1"), Some(&0));
-        assert_eq!(model.union_variant_tags.get("W1"), Some(&1));
+        assert_eq!(
+            model.union_variant_tags.get(&ParameterType::declared("V1")),
+            Some(&0)
+        );
+        assert_eq!(
+            model.union_variant_tags.get(&ParameterType::declared("W1")),
+            Some(&1)
+        );
     }
 }

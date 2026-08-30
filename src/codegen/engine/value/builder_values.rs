@@ -318,7 +318,10 @@ impl CodeBuilder<'_> {
             && (type_ == "String"
                 || is_collection_type(type_)
                 || crate::codegen::engine::types::is_result_type(type_)
-                || self.type_model.record_fields.contains_key(type_)
+                || self
+                    .type_model
+                    .record_fields
+                    .contains_key(&ParameterType::declared(type_))
                 || self.union_is_data(type_))
     }
 
@@ -378,7 +381,11 @@ impl CodeBuilder<'_> {
                 })
             }
             NirValue::Local(name) => {
-                if self.type_model.union_variants.contains_key(name) {
+                if self
+                    .type_model
+                    .union_variants
+                    .contains_key(&ParameterType::declared(name))
+                {
                     return Ok(ValueResult {
                         origin: None,
                         type_: ParameterType::parse("VariantTag"),
@@ -1176,11 +1183,7 @@ impl CodeBuilder<'_> {
                     arg_values.push(value);
                     arg_slots.push(slot);
                 }
-                if self
-                    .type_model
-                    .record_fields
-                    .contains_key(type_.name().as_ref())
-                {
+                if self.type_model.record_fields.contains_key(type_) {
                     // A record inlines its `String` fields into a trailing data
                     // region (the slot holds a block-relative offset); scalar and
                     // pointer fields stay inline at `8*index` (plan-02 §4.2).
@@ -1206,7 +1209,7 @@ impl CodeBuilder<'_> {
                 let tag = self
                     .type_model
                     .union_variant_tags
-                    .get(type_.name().as_ref())
+                    .get(type_)
                     .copied()
                     .ok_or_else(|| {
                         format!("native code union variant '{type_}' does not resolve")
@@ -1214,9 +1217,9 @@ impl CodeBuilder<'_> {
                 let union_name = self
                     .type_model
                     .union_variants
-                    .get(type_.name().as_ref())
+                    .get(type_)
                     .cloned()
-                    .unwrap_or_else(|| type_.name().into_owned());
+                    .unwrap_or_else(|| type_.clone());
                 // bug-175 C: size the union block the same way the `UnionWrap` path
                 // does — a resource variant occupies one word (its handle pointer)
                 // rather than being skipped, so a union mixing resource and data
@@ -1225,7 +1228,7 @@ impl CodeBuilder<'_> {
                     .type_model
                     .variants_for_union(&union_name)
                     .map(|variant| {
-                        if crate::codegen::builtins::is_resource_type(variant) {
+                        if crate::codegen::builtins::is_resource_type(&variant.name()) {
                             1
                         } else {
                             self.type_model
@@ -1278,7 +1281,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse(&union_name),
+                    type_: union_name.clone(),
                     location: Operand::from(register.render()),
                     text: format!("construct {type_}({})", join_texts(&arg_values)),
                 })
@@ -1305,7 +1308,7 @@ impl CodeBuilder<'_> {
                 } else {
                     self.type_model
                         .record_fields
-                        .get(member_type.name().as_ref())
+                        .get(member_type)
                         .cloned()
                         .ok_or_else(|| {
                             format!("native code union wrap member '{member_type}' is not a record")
@@ -1314,7 +1317,7 @@ impl CodeBuilder<'_> {
                 let tag = self
                     .type_model
                     .union_variant_tags
-                    .get(member_type.name().as_ref())
+                    .get(member_type)
                     .copied()
                     .ok_or_else(|| {
                         format!("native code union variant '{member_type}' does not resolve")
@@ -1339,9 +1342,9 @@ impl CodeBuilder<'_> {
                 // field count.
                 let max_payload = self
                     .type_model
-                    .variants_for_union(&union_type.name())
+                    .variants_for_union(union_type)
                     .map(|variant| {
-                        if crate::codegen::builtins::is_resource_type(variant) {
+                        if crate::codegen::builtins::is_resource_type(&variant.name()) {
                             1
                         } else {
                             self.type_model
@@ -1512,7 +1515,7 @@ impl CodeBuilder<'_> {
                     if let Some(ordinal) = self
                         .type_model
                         .enum_members
-                        .get(&(type_name.clone(), member.clone()))
+                        .get(&(ParameterType::declared(type_name), member.clone()))
                         .copied()
                     {
                         let register = self.allocate_register();

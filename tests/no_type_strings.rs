@@ -655,7 +655,7 @@ fn string_keyed_type_maps(rel: &str, src: &str) -> Vec<Hit> {
 /// ceiling of 0, so a new violation in a clean directory fails immediately.
 const BUDGETS: &[(&str, &str, usize)] = &[
     // --- 1. `ParameterType::parse` below a boundary — 125. Letters B, D, E, F.
-    ("parse_sites", "codegen", 94),
+    ("parse_sites", "codegen", 93),
     // --- 2. a type taken as `&str` — 173. Letters B, D, E, F, G.
     ("str_type_params", "binary_repr", 4),
     ("str_type_params", "codegen", 141),
@@ -687,7 +687,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // --- 7. a type-keyed map keyed by `String` — 24. Letter C (codegen's
     //     `TypeModel`), then B (ir/monomorph/resolver) and G (binary_repr).
     ("string_keyed_type_maps", "binary_repr", 1),
-    ("string_keyed_type_maps", "codegen", 11),
+    ("string_keyed_type_maps", "codegen", 2),
     ("string_keyed_type_maps", "target", 1),
 ];
 

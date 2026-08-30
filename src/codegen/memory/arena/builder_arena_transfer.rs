@@ -400,7 +400,9 @@ impl CodeBuilder<'_> {
                 if self
                     .type_model
                     .union_names
-                    .contains(crate::codegen::resource::base_resource_name(other)) =>
+                    .contains(&ParameterType::declared(
+                        crate::codegen::resource::base_resource_name(other),
+                    )) =>
             {
                 self.copy_union_to_current_arena(other, source)
             }
@@ -408,7 +410,12 @@ impl CodeBuilder<'_> {
             // nested non-flat record/collection). Deep-copy the block, then fix up
             // its pointer fields (bug-391). A flat record was handled by the flat
             // arm above; this arm exists for the non-flat case only.
-            other if self.type_model.record_fields.contains_key(other) => {
+            other
+                if self
+                    .type_model
+                    .record_fields
+                    .contains_key(&ParameterType::declared(other)) =>
+            {
                 self.copy_record_to_current_arena(other, source)
             }
             other => Err(format!(
@@ -716,7 +723,7 @@ impl CodeBuilder<'_> {
     fn record_needs_pointer_field_fix(&self, record_type: &str) -> bool {
         self.type_model
             .record_fields
-            .get(record_type)
+            .get(&ParameterType::declared(record_type))
             .map(|fields| {
                 fields
                     .iter()
@@ -908,14 +915,21 @@ impl CodeBuilder<'_> {
     }
 
     fn collection_payload_needs_transfer_fix(&self, type_: &str) -> bool {
-        if self.type_model.record_fields.contains_key(type_) {
+        if self
+            .type_model
+            .record_fields
+            .contains_key(&ParameterType::declared(type_))
+        {
             // A record payload was byte-copied whole (inlined fields came along);
             // it only needs the per-payload fix if it still has pointer fields to
             // deep-copy (plan-02 §4.2).
             return self.record_needs_pointer_field_fix(type_);
         }
         if is_collection_type(type_)
-            || self.type_model.union_names.contains(type_)
+            || self
+                .type_model
+                .union_names
+                .contains(&ParameterType::declared(type_))
             || crate::codegen::engine::types::is_result_type(type_)
         {
             // A flat nested collection / data union / `Result` was inlined and
@@ -1078,7 +1092,11 @@ impl CodeBuilder<'_> {
                 payload_copied_slot,
             ));
             self.emit(abi::store_u64(&scratch10, &scratch9, 0));
-        } else if self.type_model.record_fields.contains_key(payload_type) {
+        } else if self
+            .type_model
+            .record_fields
+            .contains_key(&ParameterType::declared(payload_type))
+        {
             self.emit(abi::load_u64(
                 &scratch9,
                 abi::stack_pointer(),
@@ -1090,7 +1108,11 @@ impl CodeBuilder<'_> {
                 dest_payload_slot,
             ));
             self.copy_record_fields_into_existing(payload_type, &scratch9, &scratch10)?;
-        } else if self.type_model.union_names.contains(payload_type) {
+        } else if self
+            .type_model
+            .union_names
+            .contains(&ParameterType::declared(payload_type))
+        {
             self.emit(abi::load_u64(
                 &scratch9,
                 abi::stack_pointer(),
@@ -1122,7 +1144,7 @@ impl CodeBuilder<'_> {
         let fields = self
             .type_model
             .record_fields
-            .get(type_)
+            .get(&ParameterType::declared(type_))
             .cloned()
             .ok_or_else(|| {
                 format!("native thread transfer record type '{type_}' does not resolve")
@@ -1175,7 +1197,7 @@ impl CodeBuilder<'_> {
         let union_state = crate::codegen::resource::state_type_name(type_);
         let mut variants = self
             .type_model
-            .variants_for_union(union_base)
+            .variants_for_union(&ParameterType::declared(union_base))
             .map(|variant| {
                 let tag = self
                     .type_model
@@ -1246,11 +1268,11 @@ impl CodeBuilder<'_> {
                     destination_slot,
                 ));
                 self.emit(abi::add_immediate(&scratch10, &scratch10, 16));
-                self.copy_record_fields_into_existing(variant, &scratch9, &scratch10)?;
+                self.copy_record_fields_into_existing(&variant.name(), &scratch9, &scratch10)?;
                 self.emit(abi::branch(&done_label));
                 continue;
             }
-            if crate::codegen::builtins::is_resource_type(variant) {
+            if crate::codegen::builtins::is_resource_type(&variant.name()) {
                 // Resource union `{tag@0, ptr@8}`: the whole-union memcpy copied the
                 // variant record pointer at +8 verbatim, so it still aliases the
                 // sender's arena (a bug-257-class UAF — true for a *stateless*
@@ -1258,9 +1280,15 @@ impl CodeBuilder<'_> {
                 // (with its uniform STATE payload, if any) into the current arena and
                 // repoint the copy's +8. `copy_resource_to_current_arena` sizes the
                 // record, deep-copies its STATE, and flags the source `moved|closed`.
+                // plan-111-C: `variant` is a type now, so the STATE clause is
+                // attached structurally instead of `format!`ed; the consumer
+                // below still takes a spelling (letter E retypes it).
                 let variant_type = match union_state {
-                    Some(state) => format!("{variant} STATE {state}"),
-                    None => variant.clone(),
+                    Some(state) => variant
+                        .with_state(&ParameterType::declared(state))
+                        .name()
+                        .into_owned(),
+                    None => variant.name().into_owned(),
                 };
                 self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
                 self.emit(abi::load_u64(&scratch10, &scratch9, 8));

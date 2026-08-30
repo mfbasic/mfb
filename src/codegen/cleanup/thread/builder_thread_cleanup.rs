@@ -199,10 +199,7 @@ impl CodeBuilder<'_> {
         let size_slot = self.allocate_stack_object("runtime_thread_send_copy_size", 8);
         let size_computable = self.type_is_flat(&msg_type.name())
             && (msg_type == ParameterType::String
-                || self
-                    .type_model
-                    .record_fields
-                    .contains_key(msg_type.name().as_ref())
+                || self.type_model.record_fields.contains_key(&msg_type)
                 || self.union_is_data(&msg_type.name())
                 || matches!(msg_type, ParameterType::ResultOf(_))
                 || is_collection_type(&msg_type.name()));

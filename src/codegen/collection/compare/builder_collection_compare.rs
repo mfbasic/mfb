@@ -2,6 +2,7 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn emit_compare_bytes_branch(
         &mut self,
@@ -171,11 +172,16 @@ impl CodeBuilder<'_> {
                 self.emit(abi::subtract_immediate(len, len, 1));
                 self.emit(abi::branch(&loop_label));
             }
-            other if self.type_model.record_fields.contains_key(other) => {
+            other
+                if self
+                    .type_model
+                    .record_fields
+                    .contains_key(&ParameterType::declared(other)) =>
+            {
                 let fields = self
                     .type_model
                     .record_fields
-                    .get(other)
+                    .get(&ParameterType::declared(other))
                     .cloned()
                     .ok_or_else(|| format!("native record type '{other}' does not resolve"))?;
                 if fields.is_empty() {
@@ -221,7 +227,7 @@ impl CodeBuilder<'_> {
                     .type_model
                     .enum_members
                     .keys()
-                    .any(|(enum_type, _)| enum_type == other) =>
+                    .any(|(enum_type, _)| enum_type.name() == other) =>
             {
                 self.emit(abi::load_u64(lval, abi::stack_pointer(), left_slot));
                 self.emit(abi::load_u64(rval, abi::stack_pointer(), right_slot));
@@ -312,7 +318,12 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            other if self.type_model.record_fields.contains_key(other) => {
+            other
+                if self
+                    .type_model
+                    .record_fields
+                    .contains_key(&ParameterType::declared(other)) =>
+            {
                 self.emit_comparable_values_match_branch(
                     other,
                     &data,
@@ -419,7 +430,12 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            other if self.type_model.record_fields.contains_key(other) => {
+            other
+                if self
+                    .type_model
+                    .record_fields
+                    .contains_key(&ParameterType::declared(other)) =>
+            {
                 self.emit_comparable_values_match_branch(
                     other,
                     cur,
@@ -537,7 +553,12 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            other if self.type_model.record_fields.contains_key(other) => {
+            other
+                if self
+                    .type_model
+                    .record_fields
+                    .contains_key(&ParameterType::declared(other)) =>
+            {
                 self.emit(abi::compare_registers(
                     left_length.clone(),
                     right_length.clone(),

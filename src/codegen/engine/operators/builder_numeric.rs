@@ -514,11 +514,7 @@ impl CodeBuilder<'_> {
             };
             return self.lower_numeric_comparison_binary(op, &left, &right);
         }
-        if self
-            .type_model
-            .record_fields
-            .contains_key(left.type_.name().as_ref())
-        {
+        if self.type_model.record_fields.contains_key(&left.type_) {
             if !matches!(op, "=" | "<>") {
                 return Err(format!(
                     "native code does not lower record comparison operator '{op}'"

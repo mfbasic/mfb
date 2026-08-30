@@ -27,6 +27,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 
 /// Four caller-reserved 8-byte frame slots the marshaller uses as scratch:
 /// the running block size, the allocated-block pointer, the data-region cursor,
@@ -65,7 +66,7 @@ pub(crate) fn emit_build_inlined_record(
 ) -> Result<(), String> {
     let fields = type_model
         .record_fields
-        .get(record_type)
+        .get(&ParameterType::declared(record_type))
         .cloned()
         .ok_or_else(|| format!("native record type '{record_type}' does not resolve"))?;
     if fields.len() != field_slots.len() {
@@ -227,7 +228,10 @@ fn emit_inlined_block_size(
             abi::store_u64("%v10", abi::stack_pointer(), out_slot),
         ]);
         Ok(())
-    } else if type_model.record_fields.contains_key(field_type) {
+    } else if type_model
+        .record_fields
+        .contains_key(&ParameterType::declared(field_type))
+    {
         Err(format!(
             "helper-tier record marshaller cannot inline a nested record field \
              '{field_type}' of '{record_type}'; build it at the call site instead"

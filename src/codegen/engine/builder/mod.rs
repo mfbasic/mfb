@@ -595,19 +595,26 @@ pub(crate) struct CollectionTypeLayout {
 
 #[derive(Clone)]
 pub(crate) struct TypeModel {
-    pub(crate) enum_members: HashMap<(String, String), usize>,
-    pub(crate) record_fields: HashMap<String, Vec<(String, ParameterType)>>,
-    pub(crate) union_names: HashSet<String>,
-    pub(crate) union_variants: HashMap<String, String>,
-    pub(crate) union_variant_unions: HashMap<String, HashSet<String>>,
-    pub(crate) union_variant_tags: HashMap<String, usize>,
-    pub(crate) union_variant_fields: HashMap<String, Vec<(String, ParameterType)>>,
+    /// plan-111-C: keyed by `(enum TYPE, member name)`. The member name is a
+    /// member, not a type, so it stays a `String`.
+    pub(crate) enum_members: HashMap<(ParameterType, String), usize>,
+    /// plan-111-C: keyed by the record TYPE. The `String` in the value is a
+    /// FIELD name.
+    pub(crate) record_fields: HashMap<ParameterType, Vec<(String, ParameterType)>>,
+    pub(crate) union_names: HashSet<ParameterType>,
+    /// A union VARIANT type -> the union type that declares it. Both halves
+    /// are types (`builder_value_semantics.rs` looks a variant up and then reads
+    /// the resulting union's tag).
+    pub(crate) union_variants: HashMap<ParameterType, ParameterType>,
+    pub(crate) union_variant_unions: HashMap<ParameterType, HashSet<ParameterType>>,
+    pub(crate) union_variant_tags: HashMap<ParameterType, usize>,
+    pub(crate) union_variant_fields: HashMap<ParameterType, Vec<(String, ParameterType)>>,
     /// Names of the module's user-declared `RESOURCE` types. Built-in resources
     /// are recognized by `builtins::is_resource_type`; a `RESOURCE Db CLOSE BY …`
     /// is not, so without this set codegen could not tell `Db` from an unknown
     /// type — and `RES x AS Db = <fallible> TRAP` failed to build for want of a
     /// default value on the error path (bug-372).
-    pub(crate) resource_names: HashSet<String>,
+    pub(crate) resource_names: HashSet<ParameterType>,
     /// User-declared resource name -> the call target of its registered
     /// `CLOSE BY` op, for scope-drop cleanup.
     ///
@@ -638,7 +645,10 @@ pub(crate) struct TypeModel {
     /// Collected here, at model construction, because this is the only layer
     /// that sees both the `RESOURCE` declarations — the module's own and every
     /// imported package's — and the code builder that needs them.
-    pub(crate) resource_closers: HashMap<String, String>,
+    /// plan-111-C: keyed by the resource TYPE. The VALUE stays a `String` — it
+    /// is a routing name resolved through `resolve_closer_symbol`, which is
+    /// where bug-374 and bug-377 live, not a type.
+    pub(crate) resource_closers: HashMap<ParameterType, String>,
 }
 
 /// plan-67-B: the single predicate gating all runtime perf-tracking injection.

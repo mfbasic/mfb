@@ -31,7 +31,9 @@ impl CodeBuilder<'_> {
             let close = self
                 .type_model
                 .resource_closers
-                .get(crate::codegen::resource::base_resource_name(type_))?;
+                .get(&ParameterType::declared(
+                    crate::codegen::resource::base_resource_name(type_),
+                ))?;
             return crate::codegen::engine::builder::resolve_closer_symbol(
                 close,
                 self.function_symbols,
@@ -58,10 +60,18 @@ impl CodeBuilder<'_> {
     /// binding would register no cleanup at all and leak its handle.
     pub(crate) fn resource_union_cleanup(&self, type_: &str) -> Option<Vec<(usize, String)>> {
         let type_ = crate::codegen::resource::base_resource_name(type_);
-        if !self.type_model.union_names.contains(type_) {
+        if !self
+            .type_model
+            .union_names
+            .contains(&ParameterType::declared(type_))
+        {
             return None;
         }
-        let variants: Vec<String> = self.type_model.variants_for_union(type_).cloned().collect();
+        let variants: Vec<String> = self
+            .type_model
+            .variants_for_union(&ParameterType::declared(type_))
+            .map(|v| v.name().into_owned())
+            .collect();
         if variants.is_empty() {
             return None;
         }
@@ -70,7 +80,10 @@ impl CodeBuilder<'_> {
             if !crate::codegen::builtins::is_resource_type(&variant) {
                 return None;
             }
-            let tag = *self.type_model.union_variant_tags.get(&variant)?;
+            let tag = *self
+                .type_model
+                .union_variant_tags
+                .get(&ParameterType::declared(&variant))?;
             let symbol = self.resource_cleanup_symbol(&variant)?;
             out.push((tag, symbol));
         }

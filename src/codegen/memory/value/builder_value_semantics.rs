@@ -242,7 +242,9 @@ impl CodeBuilder<'_> {
                 || self
                     .type_model
                     .resource_names
-                    .contains(crate::codegen::resource::base_resource_name(type_)) =>
+                    .contains(&ParameterType::declared(
+                        crate::codegen::resource::base_resource_name(type_),
+                    )) =>
             {
                 // A resource wraps an OS handle we cannot re-open, so it has no
                 // reconstructible default. The site that needs one is the
@@ -292,11 +294,11 @@ impl CodeBuilder<'_> {
                 }
                 let variant = self
                     .type_model
-                    .variants_for_union(type_)
+                    .variants_for_union(&ParameterType::declared(type_))
                     .find(|variant| {
                         let mut visited = defaulting_unions.clone();
                         visited.push(type_.to_string());
-                        self.default_record_materializable(variant, &mut visited)
+                        self.default_record_materializable(&variant.name(), &mut visited)
                     })
                     .cloned()
                     .ok_or_else(|| {
@@ -313,7 +315,7 @@ impl CodeBuilder<'_> {
                         format!("native code union variant '{variant}' does not resolve")
                     })?;
                 defaulting_unions.push(type_.to_string());
-                let record = self.lower_default_value_inner(&variant, defaulting_unions);
+                let record = self.lower_default_value_inner(&variant.name(), defaulting_unions);
                 defaulting_unions.pop();
                 let record = record?;
                 let record_slot = self.allocate_stack_object("default_union_record", 8);
@@ -322,7 +324,7 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     record_slot,
                 ));
-                let register = self.emit_wrap_record_in_union(&variant, tag, record_slot)?;
+                let register = self.emit_wrap_record_in_union(&variant.name(), tag, record_slot)?;
                 Ok(ValueResult {
                     origin: None,
                     type_: ParameterType::parse(&type_),
@@ -331,7 +333,12 @@ impl CodeBuilder<'_> {
                 })
             }
             _ => {
-                let Some(fields) = self.type_model.record_fields.get(type_).cloned() else {
+                let Some(fields) = self
+                    .type_model
+                    .record_fields
+                    .get(&ParameterType::declared(type_))
+                    .cloned()
+                else {
                     return Err(format!(
                         "native code cannot materialize default value for type '{type_}'"
                     ));
@@ -373,7 +380,9 @@ impl CodeBuilder<'_> {
                 || self
                     .type_model
                     .resource_names
-                    .contains(crate::codegen::resource::base_resource_name(type_)) =>
+                    .contains(&ParameterType::declared(
+                        crate::codegen::resource::base_resource_name(type_),
+                    )) =>
             {
                 true
             }
@@ -382,8 +391,11 @@ impl CodeBuilder<'_> {
                     return false;
                 }
                 visited.push(type_.to_string());
-                let variants: Vec<String> =
-                    self.type_model.variants_for_union(type_).cloned().collect();
+                let variants: Vec<String> = self
+                    .type_model
+                    .variants_for_union(&ParameterType::declared(type_))
+                    .map(|v| v.name().into_owned())
+                    .collect();
                 let ok = variants
                     .iter()
                     .any(|variant| self.default_record_materializable(variant, visited));
@@ -397,7 +409,11 @@ impl CodeBuilder<'_> {
     /// Record half of `default_value_materializable`: every field of the record
     /// (or union-variant record) must itself be defaultable.
     fn default_record_materializable(&self, type_: &str, visited: &mut Vec<String>) -> bool {
-        let Some(fields) = self.type_model.record_fields.get(type_) else {
+        let Some(fields) = self
+            .type_model
+            .record_fields
+            .get(&ParameterType::declared(type_))
+        else {
             return false;
         };
         fields
@@ -453,11 +469,7 @@ impl CodeBuilder<'_> {
                         ));
                     }
                 }
-            } else if let Some(fields) = self
-                .type_model
-                .record_fields
-                .get(target_value.type_.name().as_ref())
-            {
+            } else if let Some(fields) = self.type_model.record_fields.get(&target_value.type_) {
                 let Some((index, (_, field_type))) = fields
                     .iter()
                     .enumerate()
@@ -474,7 +486,7 @@ impl CodeBuilder<'_> {
             } else if let Some(fields) = self
                 .type_model
                 .union_variant_fields
-                .get(target_value.type_.name().as_ref())
+                .get(&target_value.type_)
             {
                 let Some((index, (_, field_type))) = fields
                     .iter()
@@ -487,11 +499,7 @@ impl CodeBuilder<'_> {
                     ));
                 };
                 (index, field_type.name().into_owned(), 8, false)
-            } else if self
-                .type_model
-                .union_names
-                .contains(target_value.type_.name().as_ref())
-            {
+            } else if self.type_model.union_names.contains(&target_value.type_) {
                 // bug-147: a field name shared by two variants must resolve to a
                 // deterministic offset. Walk the variants in the stable
                 // canonical order (`variants_for_union`) rather than iterating
@@ -499,7 +507,7 @@ impl CodeBuilder<'_> {
                 // build-nondeterministic offset for ambiguous field names.
                 let Some((index, field_type)) = self
                     .type_model
-                    .variants_for_union(&target_value.type_.name())
+                    .variants_for_union(&target_value.type_)
                     .filter_map(|variant| self.type_model.union_variant_fields.get(variant))
                     .find_map(|fields| {
                         fields
@@ -556,7 +564,7 @@ impl CodeBuilder<'_> {
         let fields = self
             .type_model
             .record_fields
-            .get(type_)
+            .get(&ParameterType::declared(type_))
             .cloned()
             .ok_or_else(|| format!("native code WITH target '{type_}' is not a record"))?;
         let base_reg = self.temporary_vreg();
@@ -1038,8 +1046,12 @@ impl CodeBuilder<'_> {
                 let field_type = self
                     .type_model
                     .record_fields
-                    .get(owner.as_ref())
-                    .or_else(|| self.type_model.union_variant_fields.get(owner.as_ref()))
+                    .get(&ParameterType::declared(owner.as_ref()))
+                    .or_else(|| {
+                        self.type_model
+                            .union_variant_fields
+                            .get(&ParameterType::declared(owner.as_ref()))
+                    })
                     .and_then(|fields| {
                         fields
                             .iter()
@@ -1151,7 +1163,7 @@ impl CodeBuilder<'_> {
                 let ordinal = self
                     .type_model
                     .enum_members
-                    .get(&(type_name.clone(), member.clone()))
+                    .get(&(ParameterType::declared(type_name), member.clone()))
                     .copied()
                     .ok_or_else(|| {
                         format!("native code enum member '{type_name}.{member}' does not resolve")
@@ -1162,11 +1174,16 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::branch_eq(label));
             }
-            NirValue::Local(variant) if self.type_model.union_variants.contains_key(variant) => {
+            NirValue::Local(variant)
+                if self
+                    .type_model
+                    .union_variants
+                    .contains_key(&ParameterType::declared(variant)) =>
+            {
                 let tag = self
                     .type_model
                     .union_variant_tags
-                    .get(variant)
+                    .get(&ParameterType::declared(variant))
                     .copied()
                     .ok_or_else(|| {
                         format!("native code union variant '{variant}' does not resolve")
@@ -1184,10 +1201,7 @@ impl CodeBuilder<'_> {
                 // every such CASE was dead (bug-140). Route content-typed scrutinees
                 // through the byte-comparison helper; scalars keep the register test.
                 if matched.type_ == ParameterType::String
-                    || self
-                        .type_model
-                        .record_fields
-                        .contains_key(matched.type_.name().as_ref())
+                    || self.type_model.record_fields.contains_key(&matched.type_)
                 {
                     let not_equal = self.label("match_compare_not_equal");
                     self.emit_comparable_values_match_branch(
@@ -1215,7 +1229,7 @@ impl CodeBuilder<'_> {
             || payload_type == "Error"
             || is_collection_type(payload_type)
             || crate::codegen::engine::types::is_result_type(payload_type)
-            || self.type_model.record_fields.contains_key(payload_type)
+            || self.type_model.record_fields.contains_key(&ParameterType::declared(payload_type))
             // A **data** union is inlined whole; a **resource** union is a scalar
             // pointer to its `{tag, ptr}` block, like a concrete resource, so it
             // occupies the 8-byte payload word — not an inlinable block (plan-75

@@ -219,7 +219,10 @@ struct ThunkContext {
 pub(crate) fn emit_link_support(
     link_functions: &[IrLinkFunction],
     link_cstructs: &[crate::ir::IrCStruct],
-    record_fields: &HashMap<String, Vec<(String, crate::types::ParameterType)>>,
+    record_fields: &HashMap<
+        crate::types::ParameterType,
+        Vec<(String, crate::types::ParameterType)>,
+    >,
     options: LinkCodegenOptions,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -532,7 +535,10 @@ fn lower_link_initializer(
 fn lower_link_thunk(
     function: &IrLinkFunction,
     link_cstructs: &[crate::ir::IrCStruct],
-    record_fields: &HashMap<String, Vec<(String, crate::types::ParameterType)>>,
+    record_fields: &HashMap<
+        crate::types::ParameterType,
+        Vec<(String, crate::types::ParameterType)>,
+    >,
     ctx: ThunkContext,
     record_native_resources: &HashSet<String>,
     is_close_op: bool,
@@ -2351,7 +2357,10 @@ fn marshal_struct_out(
     decl: &crate::ir::IrCStruct,
     layout: &crate::ir::CLayout,
     buf_off: usize,
-    record_fields: &HashMap<String, Vec<(String, crate::types::ParameterType)>>,
+    record_fields: &HashMap<
+        crate::types::ParameterType,
+        Vec<(String, crate::types::ParameterType)>,
+    >,
     symbol: &str,
     cstr_area: usize,
     cursor_off: usize,
@@ -2363,14 +2372,12 @@ fn marshal_struct_out(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    let record = record_fields
-        .get(decl.maps_to.name().as_ref())
-        .ok_or_else(|| {
-            format!(
-                "LINK function '{}.{}' returns CSTRUCT '{}', whose record '{}' has no field layout",
-                function.alias, function.name, decl.name, decl.maps_to
-            )
-        })?;
+    let record = record_fields.get(&decl.maps_to).ok_or_else(|| {
+        format!(
+            "LINK function '{}.{}' returns CSTRUCT '{}', whose record '{}' has no field layout",
+            function.alias, function.name, decl.name, decl.maps_to
+        )
+    })?;
 
     // A record slot is one word at `8*i`, but a `String` field's word is
     // NOT a pointer — it is the offset, relative to the record's own block, of an
@@ -2667,7 +2674,7 @@ mod tests {
         };
         let mut record_fields = HashMap::new();
         record_fields.insert(
-            "PairRec".to_string(),
+            crate::types::ParameterType::named("PairRec"),
             vec![
                 ("n".to_string(), crate::types::ParameterType::Integer),
                 ("x".to_string(), crate::types::ParameterType::Float),
