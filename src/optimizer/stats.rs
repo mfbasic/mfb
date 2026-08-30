@@ -78,6 +78,45 @@ pub(super) static UNREACHABLE_ELIMINATION: AtomicU64 = AtomicU64::new(0);
 /// "Dead-store elimination" (Opt2): sp-slot stores fully overwritten before
 /// any possible read.
 pub(super) static DEAD_STORE_ELIMINATION: AtomicU64 = AtomicU64::new(0);
+/// "Alignment optimization" (Plan1): padding bytes saved by ordering data
+/// objects so each lands already-aligned behind its predecessor.
+pub(super) static ALIGNMENT_BYTES_SAVED: AtomicU64 = AtomicU64::new(0);
+/// "CFG simplification (simplifycfg)" (Opt2): structural control-flow
+/// tidying — no-op conditional branches, jumps to returns, duplicate labels.
+pub(super) static CFG_SIMPLIFICATIONS: AtomicU64 = AtomicU64::new(0);
+/// "Known-bits simplification" (Opt2): operations whose result or whose
+/// no-op nature the bit lattice proves, rewritten to an immediate or a copy.
+pub(super) static KNOWN_BITS_SIMPLIFICATIONS: AtomicU64 = AtomicU64::new(0);
+/// "Narrowing / bit-width reduction" (Opt2): masks dropped because the value
+/// provably already fits.
+pub(super) static VALUES_NARROWED: AtomicU64 = AtomicU64::new(0);
+/// "Sign/zero extension elimination" (Opt2): extensions dropped because the
+/// high bits are provably already clear.
+pub(super) static EXTENSIONS_REMOVED: AtomicU64 = AtomicU64::new(0);
+/// "Dead global elimination" (Opt1): private globals nothing mentions,
+/// removed.
+pub(super) static GLOBALS_ELIMINATED: AtomicU64 = AtomicU64::new(0);
+/// "Global localization / constification" (Opt1): reads of never-written
+/// private globals replaced by their literal initializer.
+pub(super) static GLOBALS_LOCALIZED: AtomicU64 = AtomicU64::new(0);
+/// "Read-only memory inference" (Opt1): private globals proven never written
+/// after initialization.
+pub(super) static GLOBALS_READ_ONLY: AtomicU64 = AtomicU64::new(0);
+/// "Spill-code optimization" (regalloc): redundant reloads deleted because
+/// the value is already resident in the target register.
+pub(super) static SPILL_CODE_REMOVED: AtomicU64 = AtomicU64::new(0);
+/// "Register coalescing" (regalloc): copies deleted because coalescing gave
+/// their source and destination the same register.
+pub(super) static REGISTERS_COALESCED: AtomicU64 = AtomicU64::new(0);
+/// "Rematerialization" (regalloc): spilled values recomputed at each use
+/// instead of being stored and reloaded.
+pub(super) static VALUES_REMATERIALIZED: AtomicU64 = AtomicU64::new(0);
+/// "Stack slot coloring" (regalloc): spill slots shared by values whose live
+/// ranges do not overlap.
+pub(super) static SPILL_SLOTS_SHARED: AtomicU64 = AtomicU64::new(0);
+/// "Live-range splitting" (regalloc): values kept in registers across their
+/// whole life by splitting the range between two registers.
+pub(super) static LIVE_RANGES_SPLIT: AtomicU64 = AtomicU64::new(0);
 /// "Peephole optimization" (post-regalloc): stack reloads forwarded to a
 /// register move by `forward_stores_to_loads`.
 pub(super) static PEEPHOLE_FORWARDS: AtomicU64 = AtomicU64::new(0);
@@ -183,6 +222,58 @@ pub(crate) fn count_algebraic_simplifications(fired: u64) {
 
 pub(crate) fn count_strength_reductions(fired: u64) {
     add(&STRENGTH_REDUCTION, fired);
+}
+
+pub(crate) fn count_alignment_bytes_saved(fired: u64) {
+    add(&ALIGNMENT_BYTES_SAVED, fired);
+}
+
+pub(crate) fn count_cfg_simplifications(fired: u64) {
+    add(&CFG_SIMPLIFICATIONS, fired);
+}
+
+pub(crate) fn count_known_bits_simplifications(fired: u64) {
+    add(&KNOWN_BITS_SIMPLIFICATIONS, fired);
+}
+
+pub(crate) fn count_values_narrowed(fired: u64) {
+    add(&VALUES_NARROWED, fired);
+}
+
+pub(crate) fn count_extensions_removed(fired: u64) {
+    add(&EXTENSIONS_REMOVED, fired);
+}
+
+pub(crate) fn count_globals_eliminated(fired: u64) {
+    add(&GLOBALS_ELIMINATED, fired);
+}
+
+pub(crate) fn count_globals_localized(fired: u64) {
+    add(&GLOBALS_LOCALIZED, fired);
+}
+
+pub(crate) fn count_globals_read_only(fired: u64) {
+    add(&GLOBALS_READ_ONLY, fired);
+}
+
+pub(crate) fn count_spill_code_removed(fired: u64) {
+    add(&SPILL_CODE_REMOVED, fired);
+}
+
+pub(crate) fn count_registers_coalesced(fired: u64) {
+    add(&REGISTERS_COALESCED, fired);
+}
+
+pub(crate) fn count_values_rematerialized(fired: u64) {
+    add(&VALUES_REMATERIALIZED, fired);
+}
+
+pub(crate) fn count_spill_slots_shared(fired: u64) {
+    add(&SPILL_SLOTS_SHARED, fired);
+}
+
+pub(crate) fn count_live_ranges_split(fired: u64) {
+    add(&LIVE_RANGES_SPLIT, fired);
 }
 
 pub(crate) fn count_peephole_forwards(fired: u64) {

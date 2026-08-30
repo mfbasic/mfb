@@ -11,8 +11,11 @@
 //! phi placement, per-use value resolution, and copy-forwarding facts — that
 //! the propagation rows and precise DCE marking consume), and [`memory`]
 //! (stack-slot value availability, the fact base the store-to-load
-//! forwarding and redundant-load rows share).
+//! forwarding and redundant-load rows share), and [`bits`] (the known-bits
+//! lattice behind known-bits simplification, narrowing, and extension
+//! elimination).
 
+pub(crate) mod bits;
 pub(crate) mod mark;
 pub(crate) mod memory;
 pub(crate) mod postdom;

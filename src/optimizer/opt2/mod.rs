@@ -39,12 +39,14 @@ pub(crate) mod dce;
 pub(crate) mod dse;
 pub(crate) mod gvn;
 pub(crate) mod indvars;
+pub(crate) mod knownbits;
 pub(crate) mod lvn;
 pub(crate) mod merge;
 pub(crate) mod peephole;
 pub(crate) mod plans;
 pub(crate) mod rle;
 pub(crate) mod sccp;
+pub(crate) mod simplifycfg;
 pub(crate) mod stldfwd;
 pub(crate) mod tailduped;
 pub(crate) mod threading;
@@ -115,6 +117,9 @@ pub(crate) fn optimize_mir(
     // Tail duplication (L3) runs before the block-local rows below: removing a
     // merge is what lets them keep their facts through the duplicated tail.
     tailduped::duplicate(instructions);
+    // The known-bits rows (L2) run before value numbering: a mask or
+    // extension they turn into a copy is one fewer expression to number.
+    knownbits::simplify(instructions, model);
     lvn::eliminate(instructions, model);
     gvn::eliminate(instructions, model);
     copyprop::eliminate(instructions, model);
@@ -124,6 +129,10 @@ pub(crate) fn optimize_mir(
     dce::eliminate(instructions, model);
     adce::eliminate(instructions, model);
     uce::eliminate(instructions);
+    // CFG simplification (L2) tidies what the control-flow rows above leave —
+    // no-op conditionals, jumps to returns, duplicate labels — and runs just
+    // before merging so a label it removes can let a merge happen.
+    simplifycfg::simplify(instructions);
     merge::merge_blocks(instructions);
 }
 

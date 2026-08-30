@@ -42,7 +42,9 @@
 use std::collections::HashMap;
 
 use crate::arch::ops::CodeOp;
-use crate::codegen::engine::regalloc::analysis::{build_cfg, is_block_terminator};
+use crate::codegen::engine::regalloc::analysis::{
+    build_cfg, is_block_terminator, is_unconditional_terminator,
+};
 use crate::codegen::engine::types::CodeInstruction;
 
 /// Join bodies above this size are not worth copying into every predecessor.
@@ -114,8 +116,13 @@ pub(crate) fn duplicate(instructions: &mut Vec<CodeInstruction>) {
         if body.is_empty() || body.len() > BODY_CAP {
             continue;
         }
-        // Terminator-final and label-free: the copy is a complete tail.
-        if !is_block_terminator(body[body.len() - 1].op) {
+        // The tail must end in an UNCONDITIONAL terminator (`ret`/`b`). A
+        // conditional branch has a second, implicit successor — its
+        // fall-through — and inlining the body at a branch site silently
+        // re-points that edge at whatever follows the branch instead of what
+        // followed the original tail. (Accepting any terminator here made a
+        // Set dedupe wrongly at -O3: pointlen=3 for a 2-element set.)
+        if !is_unconditional_terminator(body[body.len() - 1].op) {
             continue;
         }
         if body[..body.len() - 1].iter().any(|instruction| {
@@ -315,6 +322,33 @@ mod tests {
         let mut stream = open();
         run(&mut stream, 3);
         assert_eq!(ops(&stream), ops(&open()));
+    }
+
+    /// A tail ending in a CONDITIONAL branch is never duplicated: its
+    /// fall-through is a second successor, and inlining the body at a branch
+    /// site would re-point that edge at whatever follows the branch. (This
+    /// miscompiled a Set dedupe at -O3 — pointlen=3 for a 2-element set —
+    /// until the check required an unconditional terminator.)
+    #[test]
+    fn conditionally_terminated_tails_are_never_duplicated() {
+        let stream = || {
+            vec![
+                ci("b", &[("target", "tail")]),
+                ci("b", &[("target", "tail")]),
+                ci("label", &[("name", "tail")]),
+                ci("cmp_imm", &[("lhs", "%v1"), ("rhs", "0")]),
+                ci("b.eq", &[("target", "elsewhere")]),
+                ci("label", &[("name", "elsewhere")]),
+                ci("ret", &[]),
+            ]
+        };
+        let mut off = stream();
+        run(&mut off, 3);
+        assert_eq!(
+            ops(&off),
+            ops(&stream()),
+            "the fall-through edge must not move"
+        );
     }
 
     /// A tail that branches back to itself is a loop, never a duplication

@@ -17,6 +17,7 @@ pub(crate) mod constant_folding;
 pub(crate) mod dce;
 pub(crate) mod fission;
 pub(crate) mod fuse;
+pub(crate) mod globals;
 pub(crate) mod licm;
 pub(crate) mod local_rewrites;
 pub(crate) mod peel;
@@ -63,6 +64,10 @@ pub(crate) fn optimize_nir(mut module: NirModule, level: OptLevel) -> NirModule 
     // (or in a dropped arm) is provably unused for tree-DCE (Level 2), which
     // sweeps it along with the bindings the rewrites stranded.
     branches::simplify(&mut module);
+    // The three global rows (Level 2) run on the whole module before the loop
+    // rows: constifying a never-written global turns its reads into literals,
+    // which the invariance and folding checks below can then see through.
+    globals::simplify(&mut module);
     licm::hoist(&mut module);
     unswitch::unswitch(&mut module);
     fuse::fuse(&mut module);

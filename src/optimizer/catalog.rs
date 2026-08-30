@@ -271,6 +271,119 @@ pub(crate) fn rows() -> &'static [Row] {
             counter: &stats::BLOCK_MERGING,
         },
         Row {
+            name: "Alignment optimization",
+            level: 2,
+            stage: "Plan1",
+            summary: "Orders constant and writable data so each object lands \
+                      already-aligned behind the previous one, removing the \
+                      padding a narrow-then-wide order wastes.",
+            counter: &stats::ALIGNMENT_BYTES_SAVED,
+        },
+        Row {
+            name: "CFG simplification (simplifycfg)",
+            level: 2,
+            stage: "MIR",
+            summary: "Structural control-flow tidying: a conditional branch \
+                      whose two edges land in the same place, a jump to a \
+                      block that only returns, and duplicate labels naming one \
+                      point.",
+            counter: &stats::CFG_SIMPLIFICATIONS,
+        },
+        Row {
+            name: "Known-bits simplification",
+            level: 2,
+            stage: "MIR",
+            summary: "Uses what is provably known about each bit of a value to \
+                      replace an operation with its constant result, or with a \
+                      copy when it cannot change its input.",
+            counter: &stats::KNOWN_BITS_SIMPLIFICATIONS,
+        },
+        Row {
+            name: "Narrowing / bit-width reduction",
+            level: 2,
+            stage: "MIR",
+            summary: "Drops a mask whose bits the value provably already \
+                      satisfies — the value was already narrow.",
+            counter: &stats::VALUES_NARROWED,
+        },
+        Row {
+            name: "Sign/zero extension elimination",
+            level: 2,
+            stage: "MIR",
+            summary: "Drops a widening whose high bits are provably already \
+                      clear, so the extension cannot change the value.",
+            counter: &stats::EXTENSIONS_REMOVED,
+        },
+        Row {
+            name: "Dead global elimination",
+            level: 2,
+            stage: "NIR",
+            summary: "Removes a private global nothing in the program ever \
+                      reads or writes.",
+            counter: &stats::GLOBALS_ELIMINATED,
+        },
+        Row {
+            name: "Global localization / constification",
+            level: 2,
+            stage: "NIR",
+            summary: "Replaces reads of a private global that is never written \
+                      with its constant initializer, turning a memory load into \
+                      an immediate the folding rows can see through.",
+            counter: &stats::GLOBALS_LOCALIZED,
+        },
+        Row {
+            name: "Read-only memory inference",
+            level: 2,
+            stage: "NIR",
+            summary: "Proves a private global is never written after \
+                      initialization and marks it immutable, so storage \
+                      planning may place it in read-only memory.",
+            counter: &stats::GLOBALS_READ_ONLY,
+        },
+        Row {
+            name: "Spill-code optimization",
+            level: 2,
+            stage: "regalloc",
+            summary: "Deletes a reload whose value is already sitting in the \
+                      target register — the redundancy that arises from \
+                      emitting a reload before every use independently.",
+            counter: &stats::SPILL_CODE_REMOVED,
+        },
+        Row {
+            name: "Register coalescing",
+            level: 2,
+            stage: "regalloc",
+            summary: "Gives a copy's source and destination the same register \
+                      when they never hold different values, so the copy \
+                      disappears entirely.",
+            counter: &stats::REGISTERS_COALESCED,
+        },
+        Row {
+            name: "Rematerialization",
+            level: 2,
+            stage: "regalloc",
+            summary: "Recomputes a spilled constant at each use instead of \
+                      storing it to the stack and loading it back.",
+            counter: &stats::VALUES_REMATERIALIZED,
+        },
+        Row {
+            name: "Stack slot coloring",
+            level: 2,
+            stage: "regalloc",
+            summary: "Shares one stack slot between spilled values whose \
+                      lifetimes do not overlap, shrinking the stack frame.",
+            counter: &stats::SPILL_SLOTS_SHARED,
+        },
+        Row {
+            name: "Live-range splitting",
+            level: 2,
+            stage: "regalloc",
+            summary: "Keeps a value in registers for its whole life by giving \
+                      it one register for the first part and another for the \
+                      rest, instead of spilling it to memory throughout.",
+            counter: &stats::LIVE_RANGES_SPLIT,
+        },
+        Row {
             name: "Peephole optimization (store-to-load forwarding)",
             level: 1,
             stage: "machine",

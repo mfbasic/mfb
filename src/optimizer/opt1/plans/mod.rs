@@ -7,5 +7,6 @@
 //! tree-level DCE and LICM's scope-safety check) and [`loops`] (invariance,
 //! loop-control capture, and the pure statement class the loop rows consume).
 
+pub(crate) mod globals;
 pub(crate) mod loops;
 pub(crate) mod reads;
