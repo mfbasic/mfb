@@ -141,6 +141,51 @@ pub(crate) fn rows() -> &'static [Row] {
             counter: &stats::LOOPS_ROTATED,
         },
         Row {
+            name: "Sparse conditional constant propagation (SCCP)",
+            level: 3,
+            stage: "MIR",
+            summary: "Propagates constants and reachability together: a branch \
+                      decided by constants makes its untaken path dead, and a \
+                      value merging only on live paths stays constant.",
+            counter: &stats::SCCP_REWRITES,
+        },
+        Row {
+            name: "Induction variable simplification",
+            level: 3,
+            stage: "MIR",
+            summary: "Merges duplicate loop counters — two variables starting \
+                      equal and stepping by the same amount in lockstep become \
+                      one.",
+            counter: &stats::INDUCTION_VARS_MERGED,
+        },
+        Row {
+            name: "Store-to-load forwarding",
+            level: 3,
+            stage: "MIR",
+            summary: "Reads a value from the register that stored it instead of \
+                      from the stack, when every path to the load leaves the \
+                      slot untouched.",
+            counter: &stats::STORES_FORWARDED,
+        },
+        Row {
+            name: "Redundant load elimination",
+            level: 3,
+            stage: "MIR",
+            summary: "Drops a reload of a stack slot an earlier load already \
+                      brought into a register, when nothing in between can have \
+                      written it.",
+            counter: &stats::REDUNDANT_LOADS_REMOVED,
+        },
+        Row {
+            name: "Tail duplication",
+            level: 3,
+            stage: "MIR",
+            summary: "Copies a small shared tail into each block that jumps to \
+                      it, so the passes that must forget their facts at a merge \
+                      see straight-line code instead.",
+            counter: &stats::TAILS_DUPLICATED,
+        },
+        Row {
             name: "Local value numbering",
             level: 3,
             stage: "MIR",
@@ -188,6 +233,174 @@ pub(crate) fn rows() -> &'static [Row] {
             counter: &stats::DEAD_CODE_ELIMINATION,
         },
         Row {
+            name: "Object / aggregate copy propagation",
+            level: 3,
+            stage: "NIR",
+            summary: "Removes a whole-block copy of a record, String or collection \
+                      when neither the copy nor its source is ever written, \
+                      address-taken, captured, or a resource owner — so one block \
+                      does the work of two and one cleanup frees it.",
+            counter: &stats::AGGREGATE_COPIES_FORWARDED,
+        },
+        Row {
+            name: "Recovery-region simplification",
+            level: 3,
+            stage: "NIR",
+            summary: "Removes a `TRAP` handler whose guarded region provably cannot \
+                      enter the error path — no call, no checked arithmetic, no \
+                      `FAIL`, no closing resource — so nothing can ever branch to it.",
+            counter: &stats::RECOVERY_REGIONS_SIMPLIFIED,
+        },
+        Row {
+            name: "String concat / rope fusion",
+            level: 3,
+            stage: "codegen",
+            summary: "Lowers a whole `a & b & c` chain into one pre-sized allocation \
+                      and one pass of writes. `&` is left-associative, so the \
+                      pairwise form allocates and fills an intermediate String per \
+                      operator and copies it again into the next one.",
+            counter: &stats::STRING_CONCATS_FUSED,
+        },
+        Row {
+            name: "Codepoint `len()` caching",
+            level: 3,
+            stage: "NIR",
+            summary: "Scans a String's codepoints once and reuses the count. A \
+                      String's byte length is an O(1) header read, but `len()` is \
+                      the codepoint count and lowers to a loop over every byte, so \
+                      two `len(s)` in one run scan the whole string twice.",
+            counter: &stats::LEN_CACHES,
+        },
+        Row {
+            name: "Store PRE / Load PRE",
+            level: 3,
+            stage: "MIR",
+            summary: "Completes a stack-slot read that is already in a register on \
+                      every path into a join but one, then rewrites the join's own \
+                      read as a copy - one load placed for one removed.",
+            counter: &stats::MEMORY_PRE,
+        },
+        Row {
+            name: "Partial dead-store elimination",
+            level: 3,
+            stage: "MIR",
+            summary: "Sinks a store that is dead on one branch and live on the other \
+                      into the branch that needs it, so the dead path stops writing. \
+                      Only where the receiving branch is reachable no other way.",
+            counter: &stats::PARTIAL_DEAD_STORES,
+        },
+        Row {
+            name: "Loop-nest invariant code motion",
+            level: 3,
+            stage: "MIR",
+            summary: "Hoists an invariant computation to the shallowest enclosing \
+                      loop it is still invariant at, over the loops the machine \
+                      actually has — the desugared and inlined ones the structured \
+                      NIR pass cannot see. Never a trapping operation.",
+            counter: &stats::LOOP_NEST_HOISTS,
+        },
+        Row {
+            name: "Partial redundancy elimination (PRE)",
+            level: 3,
+            stage: "MIR",
+            summary: "Completes an expression already computed on some paths into a \
+                      join by computing it on the one path that lacked it, then \
+                      deletes the join's own copy. Fires only when the insertion \
+                      and the deletion cancel, so the program never grows.",
+            counter: &stats::PARTIAL_REDUNDANCIES,
+        },
+        Row {
+            name: "Code sinking",
+            level: 3,
+            stage: "MIR",
+            summary: "Moves a computation down into the single branch that uses it, \
+                      so the other path stops paying for it. Only where that branch \
+                      is reachable no other way, which makes the move free of any \
+                      trip-count guess.",
+            counter: &stats::CODE_SINKS,
+        },
+        Row {
+            name: "Load/store hoisting and sinking",
+            level: 3,
+            stage: "MIR",
+            summary: "Moves a stack-slot access into the one branch that uses it, and \
+                      the mirror: an identical access leading both arms of a branch \
+                      moves up above it, so it is stored once instead of twice.",
+            counter: &stats::MEMORY_MOTIONS,
+        },
+        Row {
+            name: "Check fusion with existing comparisons",
+            level: 3,
+            stage: "MIR",
+            summary: "Deletes a comparison the condition flags already reflect, so a \
+                      guarded region's second test reuses the guard's own compare \
+                      instead of recomputing it. The branch is untouched.",
+            counter: &stats::CHECK_FUSIONS,
+        },
+        Row {
+            name: "Correlated value propagation",
+            level: 3,
+            stage: "MIR",
+            summary: "Refines a value from the branch conditions that dominate it, \
+                      then uses the refinement: a comparison the dominating \
+                      conditions already settle becomes unconditional flow, and a \
+                      value they pin to one number becomes that number.",
+            counter: &stats::CORRELATED_VALUE_PROPAGATION,
+        },
+        Row {
+            name: "Overflow-check elimination",
+            level: 3,
+            stage: "MIR",
+            summary: "Drops a checked add or subtract's overflow guard when the \
+                      operands' proven ranges cannot sum past the 64-bit range. A \
+                      guard without such a proof is left exactly where it is, so \
+                      every trap that can fire still fires as written.",
+            counter: &stats::OVERFLOW_CHECKS_ELIDED,
+        },
+        Row {
+            name: "Division / modulo-check elimination",
+            level: 3,
+            stage: "MIR",
+            summary: "Drops the divisor-is-zero and `MIN / -1` guards when the \
+                      divisor's proven range excludes those values.",
+            counter: &stats::DIVISION_CHECKS_ELIDED,
+        },
+        Row {
+            name: "Bounds-check elimination",
+            level: 3,
+            stage: "MIR",
+            summary: "Removes an index test whose failing edge raises \
+                      `ErrIndexOutOfRange` when a dominating condition already \
+                      proves the index in range.",
+            counter: &stats::BOUNDS_CHECKS_ELIDED,
+        },
+        Row {
+            name: "Range-check widening / narrowing",
+            level: 3,
+            stage: "MIR",
+            summary: "Carries one proven range through arithmetic to discharge the \
+                      checks on values derived from it — a single `i < n` also \
+                      settling `i + 1` and `i * 2` — without moving any trap.",
+            counter: &stats::RANGE_CHECKS_DERIVED,
+        },
+        Row {
+            name: "Redundant union-tag / error-tag check elimination",
+            level: 3,
+            stage: "MIR",
+            summary: "Removes a discriminant or fallible-result test that an \
+                      equivalent dominating test already settled.",
+            counter: &stats::TAG_CHECKS_ELIDED,
+        },
+        Row {
+            name: "Dead error-handler / fallible-branch elimination",
+            level: 3,
+            stage: "MIR",
+            summary: "When a guard is proven never to fail, its raise path and \
+                      handler are unreachable and the unreachable-code row sweeps \
+                      them.",
+            counter: &stats::DEAD_ERROR_HANDLERS_REMOVED,
+        },
+        Row {
             name: "Aggressive DCE (ADCE)",
             level: 3,
             stage: "MIR",
@@ -224,6 +437,119 @@ pub(crate) fn rows() -> &'static [Row] {
                       back into straight-line code: a branch to the very next \
                       block and a label nothing references both vanish.",
             counter: &stats::BLOCK_MERGING,
+        },
+        Row {
+            name: "Alignment optimization",
+            level: 2,
+            stage: "Plan1",
+            summary: "Orders constant and writable data so each object lands \
+                      already-aligned behind the previous one, removing the \
+                      padding a narrow-then-wide order wastes.",
+            counter: &stats::ALIGNMENT_BYTES_SAVED,
+        },
+        Row {
+            name: "CFG simplification (simplifycfg)",
+            level: 2,
+            stage: "MIR",
+            summary: "Structural control-flow tidying: a conditional branch \
+                      whose two edges land in the same place, a jump to a \
+                      block that only returns, and duplicate labels naming one \
+                      point.",
+            counter: &stats::CFG_SIMPLIFICATIONS,
+        },
+        Row {
+            name: "Known-bits simplification",
+            level: 2,
+            stage: "MIR",
+            summary: "Uses what is provably known about each bit of a value to \
+                      replace an operation with its constant result, or with a \
+                      copy when it cannot change its input.",
+            counter: &stats::KNOWN_BITS_SIMPLIFICATIONS,
+        },
+        Row {
+            name: "Narrowing / bit-width reduction",
+            level: 2,
+            stage: "MIR",
+            summary: "Drops a mask whose bits the value provably already \
+                      satisfies — the value was already narrow.",
+            counter: &stats::VALUES_NARROWED,
+        },
+        Row {
+            name: "Sign/zero extension elimination",
+            level: 2,
+            stage: "MIR",
+            summary: "Drops a widening whose high bits are provably already \
+                      clear, so the extension cannot change the value.",
+            counter: &stats::EXTENSIONS_REMOVED,
+        },
+        Row {
+            name: "Dead global elimination",
+            level: 2,
+            stage: "NIR",
+            summary: "Removes a private global nothing in the program ever \
+                      reads or writes.",
+            counter: &stats::GLOBALS_ELIMINATED,
+        },
+        Row {
+            name: "Global localization / constification",
+            level: 2,
+            stage: "NIR",
+            summary: "Replaces reads of a private global that is never written \
+                      with its constant initializer, turning a memory load into \
+                      an immediate the folding rows can see through.",
+            counter: &stats::GLOBALS_LOCALIZED,
+        },
+        Row {
+            name: "Read-only memory inference",
+            level: 2,
+            stage: "NIR",
+            summary: "Proves a private global is never written after \
+                      initialization and marks it immutable, so storage \
+                      planning may place it in read-only memory.",
+            counter: &stats::GLOBALS_READ_ONLY,
+        },
+        Row {
+            name: "Spill-code optimization",
+            level: 2,
+            stage: "regalloc",
+            summary: "Deletes a reload whose value is already sitting in the \
+                      target register — the redundancy that arises from \
+                      emitting a reload before every use independently.",
+            counter: &stats::SPILL_CODE_REMOVED,
+        },
+        Row {
+            name: "Register coalescing",
+            level: 2,
+            stage: "regalloc",
+            summary: "Gives a copy's source and destination the same register \
+                      when they never hold different values, so the copy \
+                      disappears entirely.",
+            counter: &stats::REGISTERS_COALESCED,
+        },
+        Row {
+            name: "Rematerialization",
+            level: 2,
+            stage: "regalloc",
+            summary: "Recomputes a spilled constant at each use instead of \
+                      storing it to the stack and loading it back.",
+            counter: &stats::VALUES_REMATERIALIZED,
+        },
+        Row {
+            name: "Stack slot coloring",
+            level: 2,
+            stage: "regalloc",
+            summary: "Shares one stack slot between spilled values whose \
+                      lifetimes do not overlap, shrinking the stack frame.",
+            counter: &stats::SPILL_SLOTS_SHARED,
+        },
+        Row {
+            name: "Live-range splitting",
+            level: 2,
+            stage: "regalloc",
+            summary: "Keeps a value in registers for its whole life by giving \
+                      it one register for the first part and another for the \
+                      rest, instead of spilling it to memory throughout.",
+            counter: &stats::LIVE_RANGES_SPLIT,
         },
         Row {
             name: "Peephole optimization (store-to-load forwarding)",

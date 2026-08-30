@@ -779,6 +779,120 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// String concat / rope fusion — a Level-3 catalog row
+    /// (`planning/optimizations.md`): lower a whole `a & b & c & …` chain into
+    /// **one** pre-sized allocation and one pass of writes, instead of an
+    /// intermediate String per operator.
+    ///
+    /// `&` is left-associative, so `a & b & c` parses as `(a & b) & c` and the
+    /// pairwise lowering allocates and fills a whole intermediate for `a & b`
+    /// that is then copied again into the final result and abandoned. For a
+    /// chain of `n` operands that is `n - 1` allocations and quadratic copying;
+    /// this is `1` allocation and one copy of each byte.
+    ///
+    /// **What is preserved.** Operands are lowered left to right, exactly as
+    /// the nested form evaluates them, so a failing operand fails at the same
+    /// point with the same earlier operands already evaluated. The only
+    /// difference is that the intermediate allocations never happen — and an
+    /// arena block nothing can observe is not observable. The pairwise
+    /// [`Self::lower_string_concat`] still handles the two-operand case
+    /// verbatim, so nothing about ordinary `a & b` changes.
+    pub(crate) fn lower_string_concat_chain(
+        &mut self,
+        parts: &[&NirValue],
+    ) -> Result<ValueResult, String> {
+        // 1. Every operand, left to right, parked in its own slot. Parking is
+        //    what lets the length pass and the copy pass both revisit them
+        //    without holding n registers live across the allocation call.
+        let mut slots = Vec::with_capacity(parts.len());
+        let mut texts = Vec::with_capacity(parts.len());
+        for part in parts {
+            let value = self.lower_value(part)?;
+            if value.type_ != ParameterType::String {
+                return Err(format!(
+                    "native string concat operand must be String, got {}",
+                    value.type_
+                ));
+            }
+            let slot = self.allocate_stack_object("concat_part", 8);
+            self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
+            slots.push(slot);
+            texts.push(value.text);
+        }
+
+        let total_slot = self.allocate_stack_object("concat_total", 8);
+        let total_len_v = self.temporary_vreg();
+        let part_ptr_v = self.temporary_vreg();
+        let part_len_v = self.temporary_vreg();
+        let write_cur_v = self.temporary_vreg();
+        let read_cur_v = self.temporary_vreg();
+        let remaining_v = self.temporary_vreg();
+        let byte_v = self.temporary_vreg();
+        let total_len = &total_len_v;
+        let part_ptr = &part_ptr_v;
+        let part_len = &part_len_v;
+        let write_cur = &write_cur_v;
+        let read_cur = &read_cur_v;
+        let remaining = &remaining_v;
+        let byte = &byte_v;
+
+        // 2. Sum the byte lengths. Every String's length is its header word, so
+        //    this is one load per operand — no scanning.
+        self.emit(abi::move_immediate(total_len, "Integer", "0"));
+        for slot in &slots {
+            self.emit(abi::load_u64(part_ptr, abi::stack_pointer(), *slot));
+            self.emit(abi::load_u64(part_len, part_ptr, 0));
+            self.emit(abi::add_registers(total_len, total_len, part_len));
+        }
+        self.emit(abi::store_u64(total_len, abi::stack_pointer(), total_slot));
+
+        // 3. One allocation for the whole chain (8-byte header + bytes + NUL).
+        let alloc_ok = self.label("string_concat_chain_alloc_ok");
+        self.emit(abi::add_immediate(abi::c_arg(0), total_len, 9));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit_arena_alloc_call();
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.raise_error_bare("ErrOutOfMemory")?;
+        self.emit(abi::label(&alloc_ok));
+        // Carry the result out of the physical return register immediately: the
+        // copy loops' back edges break the result-vs-argument dataflow on ISAs
+        // whose result and argument registers differ (the same reason the
+        // pairwise lowering does this).
+        let result_ptr = self.allocate_register();
+        self.emit(abi::move_register(&result_ptr, abi::mfb_return(1)));
+        self.emit(abi::load_u64(total_len, abi::stack_pointer(), total_slot));
+        self.emit(abi::store_u64(total_len, &result_ptr, 0));
+        self.emit(abi::add_immediate(write_cur, &result_ptr, 8));
+
+        // 4. Copy each operand's bytes in order into the single buffer.
+        for slot in &slots {
+            let loop_label = self.label("string_concat_chain_loop");
+            let done_label = self.label("string_concat_chain_done");
+            self.emit(abi::load_u64(read_cur, abi::stack_pointer(), *slot));
+            self.emit(abi::load_u64(remaining, read_cur, 0));
+            self.emit(abi::add_immediate(read_cur, read_cur, 8));
+            self.emit(abi::label(&loop_label));
+            self.emit(abi::compare_immediate(remaining, "0"));
+            self.emit(abi::branch_eq(&done_label));
+            self.emit(abi::load_u8(byte, read_cur, 0));
+            self.emit(abi::store_u8(byte, write_cur, 0));
+            self.emit(abi::add_immediate(read_cur, read_cur, 1));
+            self.emit(abi::add_immediate(write_cur, write_cur, 1));
+            self.emit(abi::subtract_immediate(remaining, remaining, 1));
+            self.emit(abi::branch(&loop_label));
+            self.emit(abi::label(&done_label));
+        }
+        self.emit(abi::move_immediate(byte, "Integer", "0"));
+        self.emit(abi::store_u8(byte, write_cur, 0));
+
+        Ok(ValueResult {
+            origin: None,
+            type_: ParameterType::String,
+            location: Operand::from(result_ptr.render()),
+            text: format!("({})", texts.join(" & ")),
+        })
+    }
+
     pub(crate) fn global_value(&self, name: &str) -> Result<GlobalValue, String> {
         self.globals
             .get(name)

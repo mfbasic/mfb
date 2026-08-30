@@ -77,8 +77,8 @@ pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>, model: &dyn Reg
                     }
                 }
             }
-            ValueDef::Phi(args) => {
-                for &arg in args {
+            ValueDef::Phi { args, .. } => {
+                for &(_, arg) in args {
                     dependents[arg].push(vid);
                 }
             }
@@ -100,10 +100,10 @@ pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>, model: &dyn Reg
                     Step::KillDst | Step::Barrier => None,
                 }
             }
-            ValueDef::Phi(args) => {
+            ValueDef::Phi { args, .. } => {
                 let mut first: Option<u64> = None;
                 let all_agree = !args.is_empty()
-                    && args.iter().all(|&arg| match const_of[arg] {
+                    && args.iter().all(|&(_, arg)| match const_of[arg] {
                         Some(c) => {
                             if first.is_none() {
                                 first = Some(c);

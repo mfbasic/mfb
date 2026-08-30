@@ -60,8 +60,13 @@ pub(crate) type ValueId = usize;
 pub(crate) enum ValueDef {
     /// Defined by the instruction at this stream index.
     Inst(usize),
-    /// A join: one value per (reachable) predecessor edge of the phi's block.
-    Phi(Vec<ValueId>),
+    /// A join in `block`: one `(predecessor block, value)` pair per incoming
+    /// CFG edge. The predecessor is recorded because SCCP evaluates the meet
+    /// over *reachable* edges only (`opt2::sccp`).
+    Phi {
+        block: usize,
+        args: Vec<(usize, ValueId)>,
+    },
     /// Live-in at function entry, or no definition on the dominator path —
     /// an unknown the consumers must treat as opaque.
     Entry,
@@ -71,12 +76,19 @@ pub(crate) enum ValueDef {
 pub(crate) struct Ssa {
     /// Every SSA value, indexed by [`ValueId`].
     pub(crate) values: Vec<ValueDef>,
-    /// `(instruction index, variable)` → the value that use reads. Absent for
-    /// instructions in unreachable blocks.
-    use_value: HashMap<(usize, Var), ValueId>,
+    /// Per instruction, the `(variable, value)` its *uses* read. Indexed by
+    /// instruction, scanned linearly: an instruction has at most a handful of
+    /// register operands, so this beats a hashed `(inst, var)` key — the
+    /// overlay is rebuilt by every consuming row, and the hashing dominated
+    /// `-O3` builds of the giant generated functions.
+    use_value: Vec<Vec<(Var, ValueId)>>,
     /// `(instruction index, variable)` → the copy-chain source operand this
     /// use may be rewritten to (copy propagation), valid at that point.
     copy_forward: HashMap<(usize, Var), Operand>,
+    /// Per instruction, the `(variable, value)` its *definitions* create. The
+    /// memory rows need the value a load's destination register holds, which
+    /// is a def, not a use. Same dense shape as `use_value`.
+    def_value: Vec<Vec<(Var, ValueId)>>,
     /// Dominator-tree preorder interval per block (`usize::MAX` = unreachable):
     /// block `a` dominates block `b` iff `a`'s interval encloses `b`'s. Read by
     /// [`Ssa::dominates`] (the GVN row's availability test).
@@ -87,13 +99,26 @@ pub(crate) struct Ssa {
 impl Ssa {
     /// The SSA value the use of `var` at `inst` resolves to, when known.
     pub(crate) fn value_of_use(&self, inst: usize, var: Var) -> Option<ValueId> {
-        self.use_value.get(&(inst, var)).copied()
+        self.use_value
+            .get(inst)?
+            .iter()
+            .find(|(other, _)| *other == var)
+            .map(|(_, value)| *value)
     }
 
     /// The operand the use of `var` at `inst` may be rewritten to under copy
     /// propagation, when a forward is valid there.
     pub(crate) fn forwarded_source(&self, inst: usize, var: Var) -> Option<&Operand> {
         self.copy_forward.get(&(inst, var))
+    }
+
+    /// The SSA value `inst`'s definition of `var` creates, when it has one.
+    pub(crate) fn value_defined_at(&self, inst: usize, var: Var) -> Option<ValueId> {
+        self.def_value
+            .get(inst)?
+            .iter()
+            .find(|(other, _)| *other == var)
+            .map(|(_, value)| *value)
     }
 
     /// Whether block `a` dominates block `b` (reflexive: a block dominates
@@ -142,8 +167,9 @@ pub(crate) fn build(
 ) -> Ssa {
     let empty = Ssa {
         values: Vec::new(),
-        use_value: HashMap::new(),
+        use_value: Vec::new(),
         copy_forward: HashMap::new(),
+        def_value: Vec::new(),
         dom_enter: Vec::new(),
         dom_exit: Vec::new(),
     };
@@ -314,7 +340,13 @@ pub(crate) fn build(
     // scans are quadratic on huge functions with many cross-block variables).
     let mut placed_stamp: Vec<usize> = vec![0; nb];
     let mut queued_stamp: Vec<usize> = vec![0; nb];
-    for (epoch, (&var, def_blocks)) in needs_phis.iter().enumerate() {
+    // Sorted, so value ids are assigned deterministically: `needs_phis` is a
+    // HashMap, and iterating it directly made phi numbering vary run to run —
+    // which consumers that pick "the first" of several equal candidates
+    // (`opt2::indvars`) would turn into nondeterministic codegen.
+    let mut phi_vars: Vec<(&Var, &Vec<usize>)> = needs_phis.iter().collect();
+    phi_vars.sort_by_key(|(var, _)| **var);
+    for (epoch, (&var, def_blocks)) in phi_vars.into_iter().enumerate() {
         let epoch = epoch + 1; // 0 = never stamped
         let mut worklist: Vec<usize> = Vec::with_capacity(def_blocks.len());
         for &b in def_blocks {
@@ -330,7 +362,10 @@ pub(crate) fn build(
                 }
                 placed_stamp[f] = epoch;
                 let vid = values.len();
-                values.push(ValueDef::Phi(Vec::new()));
+                values.push(ValueDef::Phi {
+                    block: f,
+                    args: Vec::new(),
+                });
                 phis[f].insert(var, vid);
                 if queued_stamp[f] != epoch {
                     queued_stamp[f] = epoch;
@@ -341,7 +376,8 @@ pub(crate) fn build(
     }
 
     // Renaming: iterative dominator-tree preorder walk.
-    let mut use_value: HashMap<(usize, Var), ValueId> = HashMap::new();
+    let mut use_value: Vec<Vec<(Var, ValueId)>> = vec![Vec::new(); n];
+    let mut def_value: Vec<Vec<(Var, ValueId)>> = vec![Vec::new(); n];
     let mut copy_forward: HashMap<(usize, Var), Operand> = HashMap::new();
     let mut stacks: HashMap<Var, Vec<ValueId>> = HashMap::new();
     let mut entry_values: HashMap<Var, ValueId> = HashMap::new();
@@ -392,7 +428,7 @@ pub(crate) fn build(
                                 values.len() - 1
                             }),
                         };
-                        use_value.insert((i, var), v);
+                        use_value[i].push((var, v));
                         // Copy forwarding: valid only while the source still
                         // holds the same value here.
                         if let Some((src, at_copy, spelling)) = copy_source.get(&v) {
@@ -406,13 +442,16 @@ pub(crate) fn build(
                     for &var in &inst_defs[i] {
                         let vid = values.len();
                         values.push(ValueDef::Inst(i));
+                        def_value[i].push((var, vid));
                         stacks.entry(var).or_default().push(vid);
                         pushed.push(var);
                         if let Some((dst, src, spelling)) = &copy {
                             if *dst == var {
                                 // The value the copy captured (resolved above,
                                 // before this def pushed).
-                                if let Some(&w) = use_value.get(&(i, *src)) {
+                                if let Some(&(_, w)) =
+                                    use_value[i].iter().find(|(other, _)| other == src)
+                                {
                                     // Chain collapse: a copy of a still-valid
                                     // copy forwards to the original source.
                                     let record = match copy_source.get(&w) {
@@ -441,8 +480,8 @@ pub(crate) fn build(
                                 values.len() - 1
                             }),
                         };
-                        if let ValueDef::Phi(args) = &mut values[phi_vid] {
-                            args.push(arg);
+                        if let ValueDef::Phi { args, .. } = &mut values[phi_vid] {
+                            args.push((b, arg));
                         }
                     }
                 }
@@ -459,6 +498,7 @@ pub(crate) fn build(
         values,
         use_value,
         copy_forward,
+        def_value,
         dom_enter,
         dom_exit,
     }
@@ -538,13 +578,13 @@ mod tests {
         ];
         let ssa = overlay(&stream);
         let at_join = ssa.value_of_use(6, v(1)).expect("use after join");
-        let ValueDef::Phi(args) = &ssa.values[at_join] else {
+        let ValueDef::Phi { args, .. } = &ssa.values[at_join] else {
             panic!("join use must resolve to a phi");
         };
         assert_eq!(args.len(), 2);
         let mut sources: Vec<usize> = args
             .iter()
-            .map(|&a| match ssa.values[a] {
+            .map(|&(_, a)| match ssa.values[a] {
                 ValueDef::Inst(i) => i,
                 _ => panic!("phi args must be the two arm defs"),
             })
