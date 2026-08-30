@@ -76,7 +76,7 @@ fn op_cannot_raise(op: &NirOp) -> bool {
         // A binding whose type closes on scope exit has a cleanup that can
         // record a failure.
         NirOp::Bind { type_, .. }
-            if crate::codegen::builtins::resource_close_function(&type_.name()).is_some() =>
+            if crate::codegen::builtins::resource_close_function(type_).is_some() =>
         {
             false
         }

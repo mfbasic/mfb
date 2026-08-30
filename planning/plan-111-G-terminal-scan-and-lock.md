@@ -41,7 +41,7 @@ See plan-111-A §Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-111-F complete | `rg` for all six needle classes over `src/codegen/` → 0 hits; every `codegen` budget 0 | NOT MET until F lands |
+| plan-111-F complete | `rg` for all six needle classes over `src/codegen/` → 0 hits; every `codegen` budget 0 | **MET** (2026-08-30, `119b8b099`), with Correction F2's amendment: six of the seven classes read 0 for codegen and `parse_sites` is 0 **tree-wide**; four `str_type_params` remain, each enumerated with the reason it cannot convert (two `&str` adapters over the one STATE grammar whose parity is a pinned test, two `&'static str` fields of `const` descriptor tables). This phase rules on those four. |
 | A pre-plan-111 worktree exists for attribution | `git worktree add --detach ../mfb-pre111 <commit before letter A>` | UNMEASURED — create in Phase 4 |
 | Pre-plan-111 `N ran` baseline | `scripts/test-accept.sh <target> /tmp/accept-pre111` in the attribution worktree | UNMEASURED — Phase 4 |
 

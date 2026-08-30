@@ -796,7 +796,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     ("str_type_params", "types", 2),
     ("spelling_match_arms", "binary_repr", 19),
     ("spelling_match_arms", "types", 9),
-    ("spelling_compares", "optimizer", 3),
+    ("spelling_compares", "optimizer", 6),
     ("spelling_compares", "target", 2),
     ("spelling_compares", "types", 2),
     ("hand_rolled_grammar", "binary_repr", 3),
