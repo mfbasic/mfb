@@ -5,9 +5,16 @@ Effort: medium (1h–3h)
 Severity: HIGH
 Class: Miscompile (error handling silently defeated; no diagnostic)
 
-Status: FIXED (daa6c8d35)
-Regression Test: `tests/rt_inline_trap_nested_call.rs` (17 cases; 14 measured RED
-before the fix), plus the two behavioural fixtures below.
+Status: FIXED (daa6c8d35, 7a6e5c77f)
+Regression Test: `tests/rt_inline_trap_nested_call.rs` (19 cases), plus the two
+behavioural fixtures below. Of the 19: **14 measured RED before the fix** (13 in
+the first run against this tree, plus the overload case rebuilt with the
+merge-base compiler); **1 measured RED against the intermediate state** the
+second commit repaired (`a_nested_conversion_whose_handler_reads_the_error` —
+green on the merge-base, since there the root conversion's own failure was
+caught); and **4 controls** green throughout (outermost call, call-free scrutinee
+still rejected, success path, and the conversion whose handler ignores the
+error).
 
 An inline `TRAP` catches a fallible call only when that call is the **outermost**
 node of the trapped expression. A fallible call nested inside another call
@@ -144,7 +151,7 @@ outermost node, telling the author to bind the inner call first. That converts a
 silent miscompile into a compile error. It must not ship as the final answer —
 `f(g())` is reasonable code and §8.8 says it should work.
 
-## STATUS: FIXED (daa6c8d35)
+## STATUS: FIXED (daa6c8d35, 7a6e5c77f)
 
 Reproduced first, exactly as documented: `outer(inner(-1)) TRAP(e)` let
 `9-000-0001` past the handler and exited 255 on macOS aarch64, with the
@@ -242,6 +249,43 @@ desugar sketch now state that an inline `TRAP` covers every fallible call in the
 trapped expression, name the short-circuit exception, and show the nested
 desugar. `2-203-0137` is registered in `src/rules/table.rs` and the
 `diagnostics rule-codes` table.
+
+**A regression the first commit caused, fixed in `7a6e5c77f`.** The desugar's new
+shape broke a codegen analysis that was silently coupled to the old one.
+`function_lowering.rs:trap_discard_error_results` (plan-64-I) decides whether an
+inline-*conversion* `CallResult`'s `Error` is ever observed, so
+`emit_error_register_return` may emit only the result tag and skip building the
+ErrorLoc + flat `Error` block. It located the paired error local by matching one
+op shape — `Bind err = ResultError(result)`. The check chain reports through a
+shared slot and emits `Assign $trap_errN = ResultError(result)` instead, which
+was invisible to it: every chained `to*` conversion was classified
+error-discardable, codegen emitted the tag with no `Error` block, and the
+`Assign` then read one that did not exist. The process died on a signal — no exit
+code, no stdout, no stderr.
+
+Three things about how it was caught are worth keeping:
+
+* **Only `scripts/test-accept.sh` saw it.** The full `cargo test` was green (the
+  acceptance harness is not in it) and `artifact-gate all` reported only the two
+  expected `.ir` diffs — it is execution-free and skips `tests/acceptance`
+  outright for want of a `golden/` dir. Both documented blind spots
+  (`.ai/testing-gates.md`), hit at once.
+* **A signal death prints nothing**, so `tests/acceptance` simply stopped mid-run
+  with no `[F]` marker. The last line printed names the group, not the failure.
+* **Only the `to*` conversions are plan-64-I candidates**
+  (`is_trap_discard_conversion`), which is why all 17 user-`FUNC` tests passed
+  while the 732-case acceptance app died.
+
+Fixed by matching both op shapes. RED-verified in both directions: with only the
+`Assign` arm removed, `a_nested_conversion_whose_handler_reads_the_error` dies
+`exit None` (killed by a signal, no output) while
+`a_nested_conversion_whose_handler_ignores_the_error` stays green — so the fix
+did not simply switch the optimisation off. `mfb test tests/acceptance` is back
+to 732/732, matching the merge-base.
+
+The transferable lesson is recorded in auto-memory: an elision analysis that
+pattern-matches a desugar's emitted op shape is silently coupled to that
+desugar, and a miss is a **miscompile**, not a lost optimisation.
 
 **One thing deliberately NOT fixed here — filed as bug-469.** An *operator* that
 raises inside the trapped expression (`two(1 / z, 2) TRAP(e)`) is the same class
