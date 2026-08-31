@@ -48,7 +48,7 @@ FUNC main AS Integer
   RES client = tcp::connect("127.0.0.1", bound.port)
   RES conn = tcp::accept(server)
   tcp::write(client, "hello")
-  io::print(encoding::toUtf8Text(tcp::read(conn, 16)))
+  io::print(encoding::utf8Decode(tcp::read(conn, 16)))
   RETURN 0
 END FUNC
 ```
