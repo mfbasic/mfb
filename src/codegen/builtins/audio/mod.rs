@@ -395,6 +395,13 @@ pub(crate) fn register(r: &mut Registry) {
         // A capture stream is driven from its owning thread (blocking read / OS
         // callback ring); not thread-sendable in v1 (plan-33-A §4).
         sendable: false,
+        // Audio records DO carry live tail state (backend handles at 32/40/48),
+        // but bug-464 deliberately left these unaudited and out of scope: an
+        // audio handle's backend callbacks are bound to a device thread, which
+        // is a separate question from whether the record copies. Declaring the
+        // slots here would imply an audit that has not happened -- opting one in
+        // means doing that audit and filling this list, not flipping the bit.
+        live_slots: &[],
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });
@@ -407,6 +414,9 @@ pub(crate) fn register(r: &mut Registry) {
         // A playback stream blocks on write from its owning thread; not
         // thread-sendable in v1 (plan-33-A §4).
         sendable: false,
+        // As the capture stream above: live tail state, deliberately unaudited
+        // and out of bug-464's scope.
+        live_slots: &[],
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });

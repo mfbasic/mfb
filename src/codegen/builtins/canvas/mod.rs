@@ -714,6 +714,10 @@ pub(crate) fn register(r: &mut Registry) {
         // An image belongs to the drawing surface's thread; it does not cross a
         // thread boundary in v1.
         sendable: false,
+        // Not audited for transfer (bug-464 left canvas out of scope). Empty
+        // here is only consistent with `sendable: false`; opting an image in
+        // means auditing its record tail first, not just flipping the bit.
+        live_slots: &[],
         // `destroyImage` sets the closed flag and returns; the backend frees the real
         // object later, on its own schedule, so there is nothing here that can fail.
         close_may_fail: false,

@@ -219,6 +219,30 @@ pub(super) fn lower_project_with_external_functions(
         if used.contains("tcp.Listener") {
             resources.add_standard_listener(&mut types, &mut strings);
         }
+        // Every OTHER built-in resource (bug-464 fallout). The three branches
+        // above were the WHOLE table: a package exporting a `udp::Socket`, a
+        // `tls::Socket`/`Listener`, a `process::Process`, an audio handle or a
+        // `canvas::Image` got no entry and failed to build with an opaque
+        // `truncated binary representation`. Reproduced on clean main
+        // (fc5c8a6db) with `EXPORT FUNC useSock(RES s AS udp::Socket)`, so this
+        // predates bug-464 -- the TLS work only made it unavoidable.
+        //
+        // Sorted so the table order is deterministic: `used` is a HashSet, and an
+        // iteration-order-dependent table would make `.mfp` bytes vary run to
+        // run.
+        let mut others: Vec<&String> = used
+            .iter()
+            .filter(|name| {
+                !matches!(name.as_str(), "fs.File" | "tcp.Socket" | "tcp.Listener")
+                    && crate::codegen::resource::is_builtin_resource_type(
+                        &crate::types::ParameterType::declared(name),
+                    )
+            })
+            .collect();
+        others.sort();
+        for name in others {
+            resources.add_standard_other(&mut types, &mut strings, name);
+        }
     }
     // Native LINK resources (plan-link-update.md §10): each becomes an opaque
     // type (exported when the declaration is `EXPORT`) plus a RESOURCE_TABLE
@@ -994,11 +1018,17 @@ pub(super) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
 /// The `RESOURCE_TABLE` flags for a standard built-in resource, including the
 /// "sendable to thread" bit (bit 2) when the registry marks the type sendable.
 pub(super) fn standard_resource_flags(type_name: &str) -> u32 {
-    let mut flags = RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD | RESOURCE_FLAG_CLOSE_MAY_FAIL;
-    if crate::codegen::resource::is_builtin_sendable_resource_type(
-        &crate::types::ParameterType::declared(type_name),
-    ) {
+    let type_ = crate::types::ParameterType::declared(type_name);
+    let mut flags = RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD;
+    if crate::codegen::resource::is_builtin_sendable_resource_type(&type_) {
         flags |= RESOURCE_FLAG_SENDABLE;
+    }
+    // Registry-driven since bug-464's fallout fix, because the table is no
+    // longer restricted to three types that all happen to share `true`. It stays
+    // `true` for `fs::File`/`tcp::Socket`/`tcp::Listener`, so their bytes do not
+    // move; `process::Process` is the one built-in that sets it `false`.
+    if crate::codegen::resource::builtin_resource_close_may_fail(&type_) {
+        flags |= RESOURCE_FLAG_CLOSE_MAY_FAIL;
     }
     flags
 }

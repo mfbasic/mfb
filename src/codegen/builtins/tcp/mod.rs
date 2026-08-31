@@ -168,6 +168,9 @@ pub(crate) fn register(r: &mut Registry) {
                       closed automatically when its binding goes out of scope.",
         close_function: "tcp.close",
         sendable: true,
+        // Header-only: the connected fd @8 and the closed flag @16. Deadlines
+        // are kernel-side (`SO_RCVTIMEO`/`SO_SNDTIMEO`) and ride the fd.
+        live_slots: &[],
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });
@@ -184,6 +187,9 @@ pub(crate) fn register(r: &mut Registry) {
         // accepts on its owning thread"), which ruled out the ordinary server
         // shape of binding on one thread and serving on another.
         sendable: true,
+        // Header-only, exactly like the `Socket` above -- which is why this
+        // needed no change to the transfer copy.
+        live_slots: &[],
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });

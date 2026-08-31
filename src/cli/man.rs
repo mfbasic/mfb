@@ -840,6 +840,7 @@ mod tests {
             description: "An opaque demo handle.",
             close_function: "demo.close",
             sendable: true,
+            live_slots: &[],
             close_may_fail: true,
             kind: ResourceKind::Builtin,
         });

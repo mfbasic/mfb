@@ -99,17 +99,24 @@ const REC_TAG: usize = RESOURCE_OFFSET_TAG;
 const REC_CONN: usize = RESOURCE_OFFSET_HANDLE;
 const REC_CLOSED: usize = RESOURCE_OFFSET_CLOSED;
 const REC_STATE: usize = RESOURCE_OFFSET_STATE;
-const REC_CTX: usize = 32;
-const REC_QUEUE: usize = 40;
+pub(crate) const REC_CTX: usize = 32;
+pub(crate) const REC_QUEUE: usize = 40;
 /// Listener-only tail slot (bug-465): the NUL-terminated host the listener was
 /// bound to. `tls::localAddress(listener)` needs a host and a port, and macOS can
 /// supply only the port — a `Listener`'s handle slot holds an `nw_listener`, not a
 /// descriptor, and Network.framework exposes `nw_listener_get_port` but nothing
 /// that answers the bound address. So `tls::listen` parks the C string it already
 /// built for `nw_endpoint_create_host` here. It is either an arena copy of the
-/// caller's host or the static `_mfb_tls_anyhost` (`"0.0.0.0"`), both valid for
-/// the life of the process, so the record borrows it with nothing to release.
-const REC_LHOST: usize = 48;
+/// caller's host or the static `_mfb_tls_anyhost` (`"0.0.0.0"`), so the record
+/// borrows it with nothing to release.
+///
+/// The arena copy is process-lifetime only for a handle that never leaves its
+/// thread. Since bug-464 a TLS handle can be *transferred*, and an arena is
+/// per-thread: a verbatim move would leave the receiver's
+/// `tls::localAddress` reading a string the sender's teardown released. The
+/// registry therefore declares this slot `SlotTransfer::ArenaCString` so the
+/// transfer copy duplicates the string into the receiver's arena.
+pub(crate) const REC_LHOST: usize = 48;
 const REC_SIZE: &str = RESOURCE_RECORD_SIZE;
 
 const _: () = assert!(REC_CLOSED == RESOURCE_OFFSET_CLOSED);

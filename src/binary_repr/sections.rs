@@ -251,7 +251,38 @@ impl TypeTable {
                     // qualified `pkg.Type` reference reaches this arm.)
                     self.foreign_type(strings, bare, &fref)
                 } else {
-                    self.add_entry(strings, "", name, Self::opaque_entry_kind(name), Vec::new())
+                    let kind = Self::opaque_entry_kind(name);
+                    // bug-464 fallout: a kind-1 (record) entry's payload MUST
+                    // begin with a u32 field count. An empty payload made the
+                    // very first `checked_u32_at` on read-back overrun, which is
+                    // the `truncated binary representation` that bug-390 and
+                    // bug-436 each hit and each fixed only for their own case by
+                    // routing around this arm.
+                    //
+                    // Everything still reaching it is opaque and genuinely
+                    // field-less -- every BUILT-IN RESOURCE except the three
+                    // `fs.File`/`tcp.Socket`/`tcp.Listener` spellings the match
+                    // above names, so `udp::Socket`, `tls::Socket`,
+                    // `tls::Listener`, `process::Process`, the audio handles and
+                    // `canvas::Image` all landed here. A package exporting any of
+                    // them failed to build, on clean main (fc5c8a6db), with that
+                    // opaque error and no mention of the type.
+                    //
+                    // Zero-field record is exactly how `add_native` already
+                    // encodes an opaque LINK resource ("so the type table
+                    // round-trips"; its resource-ness comes from the
+                    // RESOURCE_TABLE, not the type kind). This makes the two
+                    // agree. No package that builds today changes bytes: the
+                    // only entries affected are ones that could not be read back
+                    // at all.
+                    let payload = if kind == 1 {
+                        let mut payload = Vec::new();
+                        put_u32(&mut payload, 0);
+                        payload
+                    } else {
+                        Vec::new()
+                    };
+                    self.add_entry(strings, "", name, kind, payload)
                 }
             }
         }
@@ -715,6 +746,28 @@ impl ResourceTable {
             type_id,
             close_function_id: BUILTIN_STREAM_CLOSE_FUNCTION_ID,
             flags: standard_resource_flags(crate::codegen::builtins::tcp::LISTENER_TYPE),
+        });
+    }
+
+    /// Add the `RESOURCE_TABLE` entry for any OTHER built-in resource — the ones
+    /// the three `add_standard_*` helpers above do not name (bug-464 fallout:
+    /// `udp::Socket`, `tls::Socket`, `tls::Listener`, `process::Process`, the
+    /// audio handles, `canvas::Image`). Its close op resolves from the registry
+    /// by type name at decode, via [`BUILTIN_RESOURCE_CLOSE_BY_TYPE`].
+    ///
+    /// The three legacy types keep their own helpers and their own sentinels so
+    /// their encoded bytes do not move.
+    pub(super) fn add_standard_other(
+        &mut self,
+        types: &mut TypeTable,
+        strings: &mut StringPool,
+        type_name: &str,
+    ) {
+        let type_id = types.type_id(strings, &ParameterType::named(type_name));
+        self.entries.push(ResourceEntry {
+            type_id,
+            close_function_id: BUILTIN_RESOURCE_CLOSE_BY_TYPE,
+            flags: standard_resource_flags(type_name),
         });
     }
 

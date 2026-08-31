@@ -111,6 +111,32 @@ pub(crate) fn is_builtin_sendable_resource_type(type_: &ParameterType) -> bool {
     }
 }
 
+/// Whether `type_`'s built-in close op can fail. Mirrors the registry row; used
+/// by the `.mfp` `RESOURCE_TABLE` writer, which hardcoded `true` while its table
+/// only ever held three types that all shared it (bug-464 fallout).
+pub(crate) fn builtin_resource_close_may_fail(type_: &ParameterType) -> bool {
+    match registry().resolve_type(&type_.without_state().name()) {
+        Some(ResolvedType::Resource(r)) => r.close_may_fail,
+        _ => false,
+    }
+}
+
+/// The live words in `type_`'s record past the canonical header, which the
+/// thread-transfer copy must carry (bug-464). Empty for a resource whose record
+/// is the header alone, and for anything that is not a built-in resource.
+///
+/// Note this is deliberately independent of [`is_builtin_sendable_resource_type`]:
+/// a non-sendable resource still declares its slots, so that opting it in later
+/// is a one-line change that cannot silently truncate its record.
+pub(crate) fn builtin_resource_live_slots(
+    type_: &ParameterType,
+) -> &'static [crate::codegen::registry::ResourceLiveSlot] {
+    match registry().resolve_type(&type_.without_state().name()) {
+        Some(ResolvedType::Resource(r)) => r.live_slots,
+        _ => &[],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

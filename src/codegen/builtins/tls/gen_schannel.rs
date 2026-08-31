@@ -88,6 +88,12 @@ mod st {
     pub const SIZE: usize = 320 + super::RECV_CAP + super::RECV_CAP;
 }
 
+/// The size of the arena block a `tls::Socket`'s `TLS_SCHANNEL_OFFSET_BLOCK`
+/// points at, re-exported for the registry's live-slot descriptor (bug-464):
+/// the block is arena-allocated, so a thread transfer must copy it into the
+/// receiver's arena rather than alias the sender's.
+pub(crate) const SOCKET_BLOCK_SIZE: usize = st::SIZE;
+
 /// Emit `compare(status, SEC_E_INCOMPLETE_MESSAGE); branch_eq(target)`. The status
 /// constant is `0x80090318` (negative as i32); the encoder rejects the negative
 /// literal, so it is built in `%v14` by shift+add and sign-extended to match the
