@@ -11,10 +11,15 @@ const DESC: &str = r#"`toInt` converts a value to an `Integer`. It is written as
 `IMPORT` and no package prefix.
 
 From a **`String`** it parses. Base 10 unless you pass `base`, which lets you
-read hexadecimal (`toInt("ff", 16)` is `255`), octal, or binary. Text that is not
-a number in that base — including the empty string — raises
-`ErrInvalidFormat`. If you would rather test than trap, `isNumeric` answers
-first.
+read hexadecimal (`toInt("ff", 16)` is `255`), octal, or binary. `base` must be
+from 2 through 36; outside that range raises `ErrInvalidFormat`, as does text
+that is not a whole number in the base given — including the empty string.
+
+**`isNumeric` is not a safe guard for `toInt`.** It accepts decimal text, so
+`isNumeric("1.5")` is `TRUE` while `toInt("1.5")` raises `ErrInvalidFormat`:
+`toInt` parses whole numbers only, and does not round or truncate text. Either
+`TRAP` the conversion, or go through `toFloat` and then `toInt` if a decimal
+should be accepted and truncated.
 
 From a **`Float`** or a `Fixed` it **truncates toward zero**: `toInt(1.9)` is
 `1` and `toInt(-1.9)` is `-1`. It does not round. When you want the nearest
@@ -85,7 +90,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "base",
                 &[],
                 ParameterType::Integer,
-                "The base to parse text in. Defaults to 10; pass 16 for hexadecimal, 8 for octal, 2 for binary.",
+                "The base to parse text in, from 2 through 36. Defaults to 10; pass 16 for hexadecimal, 8 for octal, 2 for binary. Outside 2 through 36 raises `ErrInvalidFormat`.",
             ),
         ],
     ));

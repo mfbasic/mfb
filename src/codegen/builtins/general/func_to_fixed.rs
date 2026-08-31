@@ -45,7 +45,7 @@ prints:
 1.50
 ```
 
-Out-of-range text raises rather than saturating:
+Text that is not a number raises rather than converting to a value:
 
 ```
 IMPORT io

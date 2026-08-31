@@ -11,10 +11,9 @@ const DESC: &str = r#"`isEven` answers whether `value` divides by two exactly. I
 name, with no `IMPORT` and no package prefix.
 
 It reads better than the arithmetic it replaces — `IF isEven(row) THEN` rather
-than `IF row MOD 2 = 0 THEN` — and it gets negative numbers right, which the
-hand-written form does not always: `isEven(-3)` is `FALSE` and `isEven(-4)` is
-`TRUE`, following the sign-independent meaning of even rather than whatever
-`MOD` returns for a negative operand.
+than `IF row MOD 2 = 0 THEN` — and that is the only difference: both handle
+negative numbers correctly, so `isEven(-4)` and `-4 MOD 2 = 0` are both `TRUE`.
+Evenness is sign-independent.
 
 Zero is even.
 

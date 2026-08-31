@@ -16,8 +16,10 @@ codepoints are `0` through `1114111` excluding the surrogate range `55296`
 through `57343`, which is not a scalar value; anything else raises
 `ErrInvalidArgument`.
 
-From a **one-scalar `String`** it takes that scalar: `toScalar("A")` is the same
-`A`.
+From a **`String`** it takes that string's single scalar: `toScalar("A")` is the
+same `A`. The string must hold **exactly one** — both `toScalar("ab")` and
+`toScalar("")` raise `ErrInvalidArgument`. To take one scalar out of longer
+text, use `strings::mid` or `strings::toScalars` first.
 
 A `Scalar` renders through `toString` as the character it is, not as its number.
 When you want the number, keep the `Integer` you started from, or reach for
@@ -75,7 +77,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         vec![req(
             "value",
             ParameterType::Integer,
-            "A codepoint (0 through 1114111, excluding the surrogate range) or a one-scalar `String`.",
+            "A codepoint (0 through 1114111, excluding the surrogate range) or a `String` holding exactly one scalar. Anything else raises `ErrInvalidArgument`.",
         )],
     ));
 }
