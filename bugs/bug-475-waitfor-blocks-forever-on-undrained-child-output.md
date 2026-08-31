@@ -29,6 +29,42 @@ $ echo $?
 macOS). The child fills the pipe, blocks in `write`, and never exits; `waitFor`
 blocks in `waitpid` for a child that can never finish. Neither side can move.
 
+## Constraint the fix must respect — do NOT drain-and-discard
+
+Added 2026-08-31 by the coordinator session, before dispatch, because the
+obvious fix is wrong.
+
+The tempting fix is "make `waitFor` read the child's stdout so the child can
+finish". If that read **discards** what it reads, it silently destroys data the
+package is contracted to deliver: `process::receive` / `process::receiveBytes`
+exist precisely to hand the caller that output, and
+`src/codegen/builtins/process/func_receive.rs` DESC promises "successive calls
+return successive lines" and an end-of-stream drain that returns the final
+partial line. A `waitFor` that consumed the pipe would make every one of those
+calls raise `ErrResourceClosed` against an empty stream — turning a hang into a
+silent wrong answer, which is the worse failure class.
+
+So the fix has to pick a semantics and state it, not just unblock the child.
+The candidate shapes, none free:
+
+* **Close the read end** instead of reading it, so the child gets `EPIPE` and
+  dies. Unblocks, and matches the man page's original (false) claim that output
+  "is discarded when the pipe buffer fills" — but it destroys output the caller
+  may still intend to `receive`, and changes the child's exit status to a signal
+  death. Only defensible if `waitFor` is defined as "I am done with this child".
+* **Drain into a buffer** that `receive` then serves from. Preserves the
+  `receive` contract and unblocks the child, at the cost of unbounded memory for
+  a chatty child — needs a cap and a stated behavior at the cap.
+* **Raise instead of hanging** when `waitFor` would block on a child with an
+  undrained pipe. Honest and cheap, but it makes a currently-"working" (if
+  fragile) program start raising.
+
+Whoever takes this must also fix the man page, which still documents the
+behavior that does not happen. Pair the regression test with one that pins
+`receive` still returning the child's output after a `waitFor`, so the
+drain-and-discard fix cannot go green — the same both-directions gate bug-467's
+test used.
+
 ## Mechanism
 
 `lower_process_waitfor_helper_posix` (`func_wait_for.rs`) calls `waitpid` and

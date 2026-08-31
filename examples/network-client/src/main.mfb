@@ -1,0 +1,311 @@
+' network-client — the client half of examples/network-server.
+'
+' It tries all three transports against the same host and port, in order —
+' TCP, then UDP, then TLS — and runs each attempt to completion before starting
+' the next, so one server being up never hides what the other two would have
+' done:
+'
+'   $ network-client                      ' 127.0.0.1:7000
+'   $ network-client --host 10.0.0.4 --port 8443
+'
+' Every attempt prints a bracketed banner and then the protocol as it happens:
+'
+'   Client <pid>              once, at startup
+'   [tcp 127.0.0.1:7000]      which attempt is starting
+'   Connected <pid>           the server answered
+'   Data <pid> <line>         one line the server sent
+'   Disconnected <pid>        this attempt is over
+'   Failed <pid> <reason>     the connection never came up
+'   Lost <pid> <reason>       it came up and then broke mid-session
+'
+' The client leaves after the fifth Update line: it sends "BYE" so the server
+' retires the connection at once instead of waiting to notice the close, then
+' closes the socket.
+'
+' Note on the TLS attempt: tls::connect always verifies the server certificate
+' against the system trust store, and there is no way to turn that off
+' (bug-477). Against network-server's shipped self-signed certificate the
+' handshake is therefore *expected* to fail, and the printed reason is the point
+' of the exercise. To see it succeed, serve a certificate your machine already
+' trusts and pass --server-name with the name that certificate carries.
+
+IMPORT collections
+IMPORT encoding
+IMPORT io
+IMPORT net
+IMPORT os
+IMPORT strings
+IMPORT tcp
+IMPORT tls
+IMPORT udp
+
+' ---------------------------------------------------------------- constants --
+
+' How long a connection attempt (TCP handshake, or TLS handshake on top of it)
+' may take before it is called a failure.
+FUNC connectTimeoutMs() AS Integer
+  RETURN 3000
+END FUNC
+
+' How long to wait for the next line once connected. The server ticks every
+' 500 ms, so anything near this means it stopped talking.
+FUNC readTimeoutMs() AS Integer
+  RETURN 5000
+END FUNC
+
+' The client leaves after this many Update lines.
+FUNC wantedUpdates() AS Integer
+  RETURN 5
+END FUNC
+
+' ------------------------------------------------------------------ helpers --
+
+' The index of the first newline (0x0A) in bytes, or -1 when there is no
+' complete line yet. collections::find raises rather than returning a sentinel.
+FUNC newlineAt(bytes AS List OF Byte) AS Integer
+  LET at AS Integer = collections::find(bytes, toByte(10)) TRAP(e)
+    RECOVER -1
+  END TRAP
+  RETURN at
+END FUNC
+
+' Decode one complete line. A stream read stops wherever the network divided it,
+' so decoding only ever happens here, on a whole line, never on a raw chunk.
+FUNC decodeLine(bytes AS List OF Byte) AS String
+  LET text AS String = encoding::utf8Decode(bytes) TRAP(e)
+    RECOVER "<" & toString(len(bytes)) & " undecodable bytes>"
+  END TRAP
+  RETURN strings::trimEnd(text)
+END FUNC
+
+' The argument at position i, or "" when the command line ended before it.
+FUNC argAt(args AS List OF String, i AS Integer) AS String
+  RETURN collections::getOr(args, i, "")
+END FUNC
+
+SUB usage()
+  io::print("network-client — try TCP, UDP, and TLS against examples/network-server.")
+  io::print("")
+  io::print("USAGE")
+  io::print("  network-client [--host HOST] [--port PORT] [--server-name NAME]")
+  io::print("")
+  io::print("OPTIONS")
+  io::print("  --host HOST        Server address. Default 127.0.0.1.")
+  io::print("  --port PORT        Server port. Default 7000.")
+  io::print("  --server-name NAME Name the TLS certificate must match, sent as SNI.")
+  io::print("                     Defaults to HOST.")
+  io::print("  --help             Show this text and exit.")
+  io::print("")
+  io::print("Every transport is attempted in turn — TCP, UDP, TLS — and each attempt")
+  io::print("runs to completion before the next one starts. The client leaves after")
+  io::print("the fifth Update line.")
+END SUB
+
+' ---------------------------------------------------------------------- TCP --
+
+SUB runTcp(host AS String, port AS Integer, pid AS String)
+  io::print("[tcp " & host & ":" & toString(port) & "]")
+  RES sock AS tcp::Socket = tcp::connect(host, port, connectTimeoutMs()) TRAP(e)
+    io::print("Failed " & pid & " " & e.message)
+    EXIT SUB
+  END TRAP
+  io::print("Connected " & pid)
+
+  MUT buf AS List OF Byte = []
+  MUT updates AS Integer = 0
+  DO WHILE updates < wantedUpdates()
+    IF NOT tcp::poll(sock, readTimeoutMs()) THEN
+      io::print("Lost " & pid & " silent for " & toString(readTimeoutMs()) & "ms")
+      EXIT DO
+    END IF
+    LET chunk AS List OF Byte = tcp::read(sock, 4096) TRAP(e)
+      io::print("Lost " & pid & " " & e.message)
+      EXIT DO
+    END TRAP
+    buf = collections::append(buf, chunk)
+    MUT nl AS Integer = newlineAt(buf)
+    DO WHILE nl >= 0
+      LET line AS String = decodeLine(collections::take(buf, nl))
+      buf = collections::drop(buf, nl + 1)
+      io::print("Data " & pid & " " & line)
+      IF strings::startsWith(line, "Update ") THEN
+        updates = updates + 1
+      END IF
+      nl = newlineAt(buf)
+    LOOP
+  LOOP
+
+  tcp::write(sock, "BYE\n") TRAP(e)
+    RECOVER
+  END TRAP
+  tcp::close(sock) TRAP(e)
+    RECOVER
+  END TRAP
+  io::print("Disconnected " & pid)
+END SUB
+
+' ---------------------------------------------------------------------- TLS --
+
+SUB runTls(host AS String, port AS Integer, serverName AS String, pid AS String)
+  io::print("[tls " & host & ":" & toString(port) & "]")
+  RES sock AS tls::Socket = tls::connect(host, port, connectTimeoutMs(), serverName) TRAP(e)
+    io::print("Failed " & pid & " " & e.message)
+    EXIT SUB
+  END TRAP
+  io::print("Connected " & pid)
+
+  MUT buf AS List OF Byte = []
+  MUT updates AS Integer = 0
+  DO WHILE updates < wantedUpdates()
+    IF NOT tls::poll(sock, readTimeoutMs()) THEN
+      io::print("Lost " & pid & " silent for " & toString(readTimeoutMs()) & "ms")
+      EXIT DO
+    END IF
+    LET chunk AS List OF Byte = tls::read(sock, 4096) TRAP(e)
+      io::print("Lost " & pid & " " & e.message)
+      EXIT DO
+    END TRAP
+    buf = collections::append(buf, chunk)
+    MUT nl AS Integer = newlineAt(buf)
+    DO WHILE nl >= 0
+      LET line AS String = decodeLine(collections::take(buf, nl))
+      buf = collections::drop(buf, nl + 1)
+      io::print("Data " & pid & " " & line)
+      IF strings::startsWith(line, "Update ") THEN
+        updates = updates + 1
+      END IF
+      nl = newlineAt(buf)
+    LOOP
+  LOOP
+
+  tls::write(sock, "BYE\n") TRAP(e)
+    RECOVER
+  END TRAP
+  tls::close(sock) TRAP(e)
+    RECOVER
+  END TRAP
+  io::print("Disconnected " & pid)
+END SUB
+
+' ---------------------------------------------------------------------- UDP --
+
+SUB runUdp(host AS String, port AS Integer, pid AS String)
+  io::print("[udp " & host & ":" & toString(port) & "]")
+
+  ' UDP has no handshake, so "connecting" is announcing ourselves and seeing
+  ' whether anything answers. A silent socket is indistinguishable from a
+  ' missing server, which is exactly what the failure line reports.
+  LET resolved AS List OF net::Address = net::lookup(host, port) TRAP(e)
+    io::print("Failed " & pid & " " & e.message)
+    EXIT SUB
+  END TRAP
+  IF len(resolved) = 0 THEN
+    io::print("Failed " & pid & " " & host & " has no IPv4 address")
+    EXIT SUB
+  END IF
+  LET peer AS net::Address = collections::get(resolved, 0)
+
+  RES sock AS udp::Socket = udp::bind("0.0.0.0", 0) TRAP(e)
+    io::print("Failed " & pid & " " & e.message)
+    EXIT SUB
+  END TRAP
+  udp::send(sock, peer, "HELLO\n") TRAP(e)
+    io::print("Failed " & pid & " " & e.message)
+    EXIT SUB
+  END TRAP
+
+  MUT greeted AS Boolean = FALSE
+  MUT updates AS Integer = 0
+  DO WHILE updates < wantedUpdates()
+    IF NOT udp::poll(sock, connectTimeoutMs()) THEN
+      IF greeted THEN
+        io::print("Lost " & pid & " silent for " & toString(connectTimeoutMs()) & "ms")
+      ELSE
+        io::print("Failed " & pid & " no reply from " & peer.host & ":" & toString(peer.port))
+      END IF
+      EXIT DO
+    END IF
+    LET datagram AS udp::Datagram = udp::receive(sock, 65535) TRAP(e)
+      IF greeted THEN
+        io::print("Lost " & pid & " " & e.message)
+      ELSE
+        io::print("Failed " & pid & " " & e.message)
+      END IF
+      EXIT DO
+    END TRAP
+    IF NOT greeted THEN
+      greeted = TRUE
+      io::print("Connected " & pid)
+    END IF
+    ' One datagram is one whole message — never split, never merged — so a
+    ' datagram is already the line the stream transports have to reassemble.
+    LET line AS String = decodeLine(datagram.bytes)
+    io::print("Data " & pid & " " & line)
+    IF strings::startsWith(line, "Update ") THEN
+      updates = updates + 1
+    END IF
+  LOOP
+
+  IF greeted THEN
+    udp::send(sock, peer, "BYE\n") TRAP(e)
+      RECOVER
+    END TRAP
+    udp::close(sock) TRAP(e)
+      RECOVER
+    END TRAP
+    io::print("Disconnected " & pid)
+  END IF
+END SUB
+
+' --------------------------------------------------------------------- main --
+
+SUB main()
+  LET args AS List OF String = os::args()
+  MUT host AS String = "127.0.0.1"
+  MUT port AS Integer = 7000
+  MUT serverName AS String = ""
+  MUT i AS Integer = 0
+
+  DO WHILE i < len(args)
+    LET arg AS String = collections::get(args, i)
+    IF arg = "--help" OR arg = "-h" THEN
+      usage()
+      EXIT SUB
+    ELSEIF arg = "--host" THEN
+      host = argAt(args, i + 1)
+      IF host = "" THEN
+        io::printError("--host needs an address")
+        EXIT PROGRAM 2
+      END IF
+      i = i + 2
+    ELSEIF arg = "--port" THEN
+      port = toInt(argAt(args, i + 1)) TRAP(e)
+        io::printError("--port needs a number, not " & argAt(args, i + 1))
+        EXIT PROGRAM 2
+      END TRAP
+      i = i + 2
+    ELSEIF arg = "--server-name" THEN
+      serverName = argAt(args, i + 1)
+      IF serverName = "" THEN
+        io::printError("--server-name needs a name")
+        EXIT PROGRAM 2
+      END IF
+      i = i + 2
+    ELSE
+      io::printError("Unknown argument: " & arg)
+      io::printError("Run network-client --help for usage.")
+      EXIT PROGRAM 2
+    END IF
+  LOOP
+
+  IF serverName = "" THEN
+    serverName = host
+  END IF
+
+  LET pid AS String = toString(os::pid())
+  io::print("Client " & pid)
+
+  runTcp(host, port, pid)
+  runUdp(host, port, pid)
+  runTls(host, port, serverName, pid)
+END SUB

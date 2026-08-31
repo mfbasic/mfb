@@ -511,11 +511,24 @@ impl CodeBuilder<'_> {
                             && value
                                 .as_ref()
                                 .is_some_and(|v| matches!(v, NirValue::Closure { .. }));
+                        // A `Thread` binding registers a `thread.drop` cleanup below
+                        // (the first branch of the chain, taken unconditionally on the
+                        // type), so its slot carries the identical hazard: a
+                        // `thread::start` that raises on a bad queue limit -- or any
+                        // error routed to the function `TRAP` handler past a bind that
+                        // never ran -- leaves the slot unwritten, and `thread.drop`
+                        // dereferences the handle's outbound-queue pointer (bug-469).
+                        // Mirrors the cleanup-registration condition exactly.
+                        let owns_thread_slot = Self::is_thread_type(&type_);
                         // Zero the slot before a (possibly fallible) initializer
                         // runs. If the initializer traps before storing, the slot
                         // stays null and the scope-drop free/close skips it instead of
                         // touching an uninitialized pointer.
-                        if owns_freeable_value || owns_resource_slot || is_non_escaping_closure {
+                        if owns_freeable_value
+                            || owns_resource_slot
+                            || owns_thread_slot
+                            || is_non_escaping_closure
+                        {
                             self.emit(abi::move_immediate(&zero_slot, "Integer", "0"));
                             self.emit(abi::store_u64(
                                 &zero_slot,
@@ -527,8 +540,9 @@ impl CodeBuilder<'_> {
                         // error can jump to the function `TRAP` handler past a bind
                         // that never ran, and the handler's null-guarded close must
                         // see 0 rather than stack garbage (bug-246). `owned_value_slots`
-                        // is consumed only as the entry-zeroing list.
-                        if owns_resource_slot {
+                        // is consumed only as the entry-zeroing list. A `Thread` slot
+                        // rides the same list for the same reason (bug-469).
+                        if owns_resource_slot || owns_thread_slot {
                             self.owned_value_slots.push(stack_offset);
                         }
                         if let Some(value) = value {

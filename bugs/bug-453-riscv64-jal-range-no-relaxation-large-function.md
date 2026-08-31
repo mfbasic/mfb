@@ -29,6 +29,47 @@ References:
 - Found during the optimizer worktree's examples verification (all-targets
   sweep after merging main, 2026-08-24).
 
+## The fix is NOT a port of bug-445's pass — read this first (2026-08-31, coordinator)
+
+This document frames the work as "the AArch64 twin that riscv64 never got".
+Structurally the hook is the same (a pass over `NativeCodePlan` before `encode`,
+mirroring `relax_conditional_branches` at
+`src/arch/aarch64/encode/relax.rs:68`, wired in `encode/mod.rs`). **The content
+is not the same, and copying bug-445's pass fixes only half the failure.**
+
+**On AArch64 the tight instruction is the conditional branch** (imm19). **On
+riscv64 conditional branches are already handled** — `emit_rv_br`
+(`src/arch/riscv64/encode/emitter.rs:749`) never emits a bare B-type (imm12,
+±4 KiB). Its doc comment says so:
+
+> `rv.br` — the flagless compare-and-branch, always emitted in the 8-byte long
+> form so its size is deterministic and **it reaches ±1 MiB: an inverted
+> conditional branch over an unconditional `jal` to the target.**
+
+That is why the ±4 KiB B-type range never appears in this bug: it is structurally
+avoided. But note *how* it is avoided — **the long form's escape hatch is itself
+a `jal`.** So `rv.br` reaches ±1 MiB *because* it emits a `jal`, and `jal` at
+±1 MiB is precisely what overflows here (`emitter.rs:875`).
+
+**Consequence: two call sites overflow at the same threshold, not one.**
+
+1. the standalone `jal` to the shared trap stub — the failure this doc reports;
+2. the `jal` **inside** every `rv.br` long form whose target is >1 MiB away —
+   same instruction, same limit, different emitter path.
+
+A fix that relaxes only (1) will make the documented reproduction pass while
+leaving (2) rejecting functions of essentially the same size. The bug would read
+as fixed and would not be. Any relaxation (`auipc`+`jalr`, or a near
+trampoline) must be applied at **both** sites, and the fixpoint must account for
+`rv.br` growing from 8 bytes to whatever the relaxed form costs — which shifts
+every later displacement and can push a previously in-range `jal` out of range.
+
+**Acceptance must therefore cover a conditional branch across the boundary**, not
+only a trap-stub call. `examples/ai_chat` and `examples/browser/app` (the doc's
+repros) demonstrate (1); neither is evidence for (2). Add a fixture whose
+`rv.br` target sits beyond ±1 MiB, or verify (2) explicitly on the built
+artifact.
+
 ## Failing Reproduction
 
 ```
