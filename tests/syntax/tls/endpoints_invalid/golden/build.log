@@ -16,7 +16,7 @@ tests/syntax/tls/endpoints_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_
    8 |   LET wrongLocal = tls::localAddress(1)
      | ^
 tests/syntax/tls/endpoints_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tls.localAddress` has argument type(s) (Integer), expected Socket.
+               Call to `tls.localAddress` has argument type(s) (Integer), expected Socket or Listener.
    6 |   ' The endpoint queries take exactly one TLS socket.
    7 |   LET missingLocal = tls::localAddress()
    8 |   LET wrongLocal = tls::localAddress(1)
