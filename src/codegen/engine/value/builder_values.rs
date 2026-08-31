@@ -1923,7 +1923,7 @@ impl CodeBuilder<'_> {
             1 => true,
             2 => args
                 .first()
-                .and_then(|arg| self.static_type_name(arg))
+                .and_then(|arg| self.overload_arg_type(arg))
                 .is_some_and(|type_| type_.is_named("Address")),
             _ => false,
         }
@@ -1935,7 +1935,7 @@ impl CodeBuilder<'_> {
     /// helper by the receiver's static type.
     fn net_poll_is_list_form(&self, args: &[NirValue]) -> bool {
         args.first()
-            .and_then(|arg| self.static_type_name(arg))
+            .and_then(|arg| self.overload_arg_type(arg))
             .is_some_and(|ty| matches!(ty, crate::types::ParameterType::ListOf(_)))
     }
 
@@ -1954,7 +1954,7 @@ impl CodeBuilder<'_> {
         if matches!(target, "io.print" | "io.write") {
             if let Some(arg) = helper_args.first() {
                 if self
-                    .static_type_name(arg)
+                    .overload_arg_type(arg)
                     .is_some_and(|type_| type_.is_named("AttributedString"))
                 {
                     let inner = helper_args[0].clone();
@@ -2219,7 +2219,7 @@ impl CodeBuilder<'_> {
             "net.ping" => {
                 if args
                     .first()
-                    .and_then(|arg| self.static_type_name(arg))
+                    .and_then(|arg| self.overload_arg_type(arg))
                     .is_some_and(|type_| type_.is_named("Address"))
                 {
                     "net.pingAddr"
@@ -2249,7 +2249,7 @@ impl CodeBuilder<'_> {
             "tcp.write" => {
                 if args
                     .get(1)
-                    .and_then(|arg| self.static_type_name(arg))
+                    .and_then(|arg| self.overload_arg_type(arg))
                     .is_some_and(|type_| matches!(type_, ParameterType::String))
                 {
                     "tcp.writeText"
@@ -2269,7 +2269,7 @@ impl CodeBuilder<'_> {
             "udp.send" => {
                 if args
                     .get(2)
-                    .and_then(|arg| self.static_type_name(arg))
+                    .and_then(|arg| self.overload_arg_type(arg))
                     .is_some_and(|type_| matches!(type_, ParameterType::String))
                 {
                     "udp.sendText"
@@ -2285,7 +2285,7 @@ impl CodeBuilder<'_> {
             "tls.connect" => {
                 if args
                     .first()
-                    .and_then(|arg| self.static_type_name(arg))
+                    .and_then(|arg| self.overload_arg_type(arg))
                     .is_some_and(|type_| type_.is_named("Address"))
                 {
                     "tls.connectAddr"
@@ -2299,7 +2299,7 @@ impl CodeBuilder<'_> {
             "tls.write" => {
                 if args
                     .get(1)
-                    .and_then(|arg| self.static_type_name(arg))
+                    .and_then(|arg| self.overload_arg_type(arg))
                     .is_some_and(|type_| matches!(type_, ParameterType::String))
                 {
                     "tls.writeText"
@@ -2315,7 +2315,7 @@ impl CodeBuilder<'_> {
             "tls.localAddress" => {
                 if args
                     .first()
-                    .and_then(|arg| self.static_type_name(arg))
+                    .and_then(|arg| self.overload_arg_type(arg))
                     .is_some_and(|type_| {
                         type_.is_named(crate::codegen::builtins::tls::TLS_LISTENER_TYPE_ID)
                     })
