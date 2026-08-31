@@ -2,7 +2,8 @@
 
 Last updated: 2026-08-30
 Effort: large (3h–1d)
-Depends on: plan-98-B (scene model, arena, hashing, geometry cache stub)
+Depends on: plan-98-B (scene model, arena, deep copy, frame skip, `Image` resource).
+The per-item hashing and the geometry cache moved INTO this letter — see Phase 1.
 
 This sub-plan makes the geometry cache's generation real for a software backend and
 adds the golden-image test harness. After it lands, `canvas::present(items)` in
@@ -38,10 +39,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-98-B complete (scene arena, deep copy, frame skip, RES resources) | `ls planning/completed/plan-98-B-*` → hit | NOT MET |
+| plan-98-B complete (scene arena, deep copy, frame skip, RES resources) | `ls planning/completed/plan-98-B-*` → hit | MET (archived after `48d5d544d`; its four phases landed as `d3cd3a0f6`, `118837f5a`, `47034488f`, `8c2ebb103`) |
 | ~~Geometry cache miss reaches a generation hook~~ **N/A** — the cache moved into this letter's Phase 1 (B Correction 18), so there is no cross-letter hook to check | — | N/A |
 | The scene region holds offset 24 open for the per-item hashes | `rg -n "reserved for the pointer to the per-item content hashes" src/codegen/error/constants/error_constants.rs` → hit | MET (B Phase 2 reserved it; it is a comment, not a constant, because an unused constant is dead code — C declares the constant when it fills the slot) |
-| Working tree builds | `cargo build` → pass | UNVERIFIED (run before starting) |
+| Working tree builds | `cargo build` → pass | MET (re-run: `Finished `dev` profile`) |
 
 > Per A's invariant 8: no "full suite green at HEAD" row, no byte-identity obligation;
 > the full suite runs once, at the end of the plan (G).
