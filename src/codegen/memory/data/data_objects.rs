@@ -223,6 +223,7 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "canvas.useMetal",
             "canvas.metalAvailable",
             "canvas.vulkanAvailable",
+            "canvas.vulkanReady",
             "canvas.metalReady",
             "canvas.metalDrawScene",
             "canvas.startGraphics",

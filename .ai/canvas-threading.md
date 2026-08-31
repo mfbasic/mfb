@@ -276,6 +276,13 @@ Three consequences for anything added here later:
   pops its own. This is not a leak-avoidance nicety: an unpooled autorelease on this
   thread aborts it in libmalloc at thread exit, with none of your frames in the trace.
 
+The Vulkan backend (plan-98-F) sits behind the same branch with its own pair,
+`canvas::vulkanAvailable` / `canvas::vulkanReady`, and the same offscreen shape: it
+renders into an image and reads it back so the frame leaves through
+`canvas::blitSurface` like every other. It needs no `VkSurfaceKHR` and no swapchain,
+which is what lets it be tested on a box with no display server — and no reachable
+Linux box has one.
+
 ## 11. Test affordances
 
 Three environment variables, all off by default and none on the production path:
@@ -293,9 +300,29 @@ Three environment variables, all off by default and none on the production path:
 A fourth selects the renderer rather than observing it:
 
 * `MFB_CANVAS_METAL` — ask for the Metal backend (§10). The stats line reports all
-  three of the branch's discriminants (`metal=`, `metalSelected=`, `metalReady=`),
-  which is how a test tells "the GPU agreed with the oracle" from "there was no GPU
-  and both runs were the oracle".
+  of the branch's discriminants — `metal=`, `metalSelected=`, `metalReady=` and, on
+  Linux, `vulkan=` and `vulkanReady=` — which is how a test tells "the GPU agreed
+  with the oracle" from "there was no GPU and both runs were the oracle". The
+  Vulkan pair distinguishes a third case the Metal pair cannot: a machine with a
+  *loader* but no ICD reports `vulkan=FALSE`, which is a real configuration (box
+  2227) and not a failure.
+
+And a fifth is not about the renderer at all, but is what makes any of this
+observable on Linux:
+
+* `MFB_GTKAPP_HEADLESS` — run the app without GTK. The twin of
+  `MFB_MACAPP_HEADLESS` / `MFB_WINAPP_HEADLESS`, and structurally different from
+  both: macOS builds its window and merely skips showing it, keeping the AppKit run
+  loop, whereas `gtk_init` fails outright with "Failed to open display", so
+  `activate` never fires and the worker — spawned from `activate` — never starts.
+  The Linux gate therefore skips GTK entirely, spawns the worker from the
+  bootstrap, and parks.
+
+  Nothing downstream needs a flag to notice: the finish helper already exits when
+  `ST_TEXT_BUFFER` is null, and the canvas blit gates on `ST_CANVAS_AREA`. Both are
+  states headless naturally leaves behind rather than a mode to be told about.
+  `MFB_CANVAS_DUMP` still sees every frame — the dump is written by
+  `__canvas_presentSurface`, before and independently of the blit.
 
 ## See also
 

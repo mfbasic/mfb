@@ -937,10 +937,9 @@ pub(crate) fn app_mode_imports(
         // the redundant original descriptor so stdin EOF works (bug-59).
         (libc, "close"),
         (libc, "setenv"),
-        // plan-98-F: the headless gate reads its env name and then parks the main
-        // thread; the worker owns termination from there.
+        // plan-98-F: the headless gate reads its env name. (`pause`, which parks the
+        // main thread afterwards, is already declared below for the existing park.)
         (libc, "getenv"),
-        (libc, "pause"),
         (libc, "write"),
         // The activate handler sets the pipe write end O_NONBLOCK so a full pipe
         // makes the key handler's write() return EAGAIN instead of blocking the
@@ -1250,9 +1249,16 @@ mod import_tests {
             .into_iter()
             .map(|import| import.symbol)
             .collect();
+        // bug-59 removed `getenv` as a dead import and pinned its absence here.
+        // plan-98-F made it live again: `emit_main_bootstrap` reads
+        // `MFB_GTKAPP_HEADLESS` with it. The assertion is inverted rather than
+        // deleted, because the property bug-59 cared about — no import without a
+        // caller — is still the one worth holding, and the companion test
+        // (`every_emitted_external_call_is_a_declared_import`) is what pins the
+        // caller's existence.
         assert!(
-            !symbols.iter().any(|s| s == "getenv"),
-            "getenv is dead in the GTK backend and must not be imported (bug-59)"
+            symbols.iter().any(|s| s == "getenv"),
+            "the headless gate reads MFB_GTKAPP_HEADLESS, so `getenv` must be imported"
         );
         assert!(
             symbols.iter().any(|s| s == "close"),
@@ -1292,6 +1298,8 @@ mod import_tests {
             "memset",
             "memmove",
             "pause",
+            // plan-98-F: the MFB_GTKAPP_HEADLESS gate.
+            "getenv",
             "_exit",
             "__libc_start_main",
             "pthread_create",
@@ -1309,7 +1317,12 @@ mod import_tests {
                  relocation binding would fail the build"
             );
         }
-        assert!(!declared.contains("getenv"), "getenv is dead (bug-59)");
+        // Was `!declared.contains("getenv")` (bug-59, when nothing called it). The
+        // headless gate does now, and it is in the emitted-call list above.
+        assert!(
+            declared.contains("getenv"),
+            "the headless gate emits a getenv call, so it must be declared"
+        );
     }
 }
 

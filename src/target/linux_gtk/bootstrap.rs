@@ -999,7 +999,15 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // exit code
 
     // Headless (no transcript): terminate the process with the exit code.
-    asm.load_state("x9", ST_TEXT_BUFFER);
+    // Both spellings must be the SAME one. `%scratch0` realizes to `x9`, so a load
+    // into raw `"x9"` and a compare of `abi::SCRATCH[0]` are one register on
+    // AArch64 — but the x86-64 app wrap renames each *distinct token string* to its
+    // own vreg, so there the load and the compare were two different registers and
+    // this branch tested an uninitialized one. Headless then took the GUI arm,
+    // formatted the exit code into a chunk it had not allocated, and faulted on the
+    // byte store. Invisible until the entry's call-parity bug (fixed alongside this)
+    // stopped killing every Linux x86-64 app program before it could get here.
+    asm.load_state(abi::SCRATCH[0], ST_TEXT_BUFFER);
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_ne("fin_gui"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));

@@ -18,6 +18,48 @@ Rule: when a shared-codegen site consumes the result of an external/C call, name
 
 Blast-radius note: a fixture that `IMPORT`s `tls`/`audio` transitively embeds those backends' `_mfb_rt_*` bodies (e.g. `http` imports `tls` via `http::serverSSL`), so a tls/audio codegen change drifts that fixture's linux-x86_64/win64 `.ncodesum` too — the byte-identity gate catches it; regenerate the importer's golden as well.
 
+### The program entry needs the +8 call parity when it is CALLED (app mode)
+
+`finalize_frame` adds `frame_call_padding()` (8 on x86-64, 0 on AArch64/RISC-V) to
+any frame whose function makes calls, so that a callee entered at `rsp % 16 == 8`
+reaches its own call sites at `rsp % 16 == 0`. **The program entry never passes
+through `finalize_frame`** — `entry.rs` builds its own frame — so it never got that
+bias.
+
+For an ordinary program that is correct: the kernel enters `_start` at
+`rsp % 16 == 0` with **no return address pushed**, so a 16-multiple frame is right.
+In **app mode** the entry is a called function — the worker shim calls it under
+`MACAPP_PROGRAM_SYMBOL` — so it arrives at `rsp % 16 == 8`, and without the bias
+every call beneath it, for the whole program, is misaligned. Gate on
+`entry_called_as_function`.
+
+**The symptom is not where the bug is.** A misaligned stack only faults when a
+callee uses an aligned SSE access, so it surfaces as a crash deep inside libc:
+`__libc_calloc` under `g_idle_add`, on the first `app::setMode`, in **Console** mode
+as much as Canvas. That reads as heap corruption and is not. The faulting
+instruction was `movaps %xmm0,(%rsp)` — an *aligned* store. **Disassemble the
+faulting instruction before believing a malloc frame**; `objdump -d
+--start-address=…` on the libc offset from the core is enough, and it is the
+difference between "something scribbled on the heap" and "rsp is 8 off".
+
+Walking it the rest of the way needs the core: `coredumpctl dump`, then gdb's
+`find /g $rsp, $rsp+N, <return-address>` to locate each frame's pushed return
+address, which gives that frame's `rsp` at its own `call`. Comparing that against
+the function's `sub rsp,imm` says whether the frame is wrong or its caller is.
+
+Windows x86-64 has the same `frame_call_padding()`, so the fix moves its app-mode
+`.ncodesum` goldens too; macOS AArch64's is 0 and does not move.
+
+### Never mix a raw `xN` with its role token in one x86 app body
+
+`finalize_x86_app_function` (`src/target/linux_gtk/mod.rs`) renames each **distinct
+token string** to its own vreg. `%scratch0` realizes to `x9`, so a body that loads
+into raw `"x9"` and compares `abi::SCRATCH[0]` uses one register on AArch64 and
+**two** on x86-64 — the compare then tests an uninitialized register. The GTK finish
+helper did exactly this on its "is there a transcript" test, so a headless run took
+the GUI arm and formatted into a chunk it had not allocated. Pick one spelling per
+value.
+
 ### remap_x86_abi: linear vs CFG
 
 `remap_x86_abi` (`src/arch/x86_64/select.rs`) resolves residual `x0`–`x8` operands to SysV homes by ABI role. Its incoming-parameter test used flags advanced in **emitted order** (`boundary_since_entry` / `defined_since_entry`), so any block *branched into from before* a call inherited that call's state because the call was emitted first. `fs::setBuffered` is exactly that shape: its enable arm reads the `File*` parameter but sits below the disable arm's `bl _mfb_rt_fs_file_drain`, so the parameter was colored by its next boundary (`ret`) into `rax` instead of `rdi` → store through garbage → SIGSEGV on every x86-64 program that enabled per-file buffering. Fixed via a forward MUST dataflow: `entry_clean` + `entry_undef`, meeting by intersection.

@@ -71,7 +71,7 @@ END FUNC
 FUNC __canvas_writeStats() AS Nothing
   LET path AS String = os::getEnvOr("MFB_CANVAS_STATS", "")
   IF len(path) > 0 THEN
-    LET line AS String = "generations=" & toString(__CANVAS_GEO_GENERATIONS) & " entries=" & toString(len(__CANVAS_GEO_HASHES)) & " floats=" & toString(len(__CANVAS_GEO_DATA)) & " metal=" & toString(canvas::metalAvailable()) & " metalSelected=" & toString(canvas::useMetal()) & " metalReady=" & toString(canvas::metalReady()) & " vulkan=" & toString(canvas::vulkanAvailable()) & "\n"
+    LET line AS String = "generations=" & toString(__CANVAS_GEO_GENERATIONS) & " entries=" & toString(len(__CANVAS_GEO_HASHES)) & " floats=" & toString(len(__CANVAS_GEO_DATA)) & " metal=" & toString(canvas::metalAvailable()) & " metalSelected=" & toString(canvas::useMetal()) & " metalReady=" & toString(canvas::metalReady()) & " vulkan=" & toString(canvas::vulkanAvailable()) & " vulkanReady=" & toString(canvas::vulkanReady()) & "\n"
     fs::appendText(path, line) TRAP(err)
       RETURN
     END TRAP

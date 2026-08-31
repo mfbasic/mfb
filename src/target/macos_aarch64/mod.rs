@@ -51,6 +51,7 @@ impl NativeBackend for Backend {
                 "canvas.useMetal",
                 "canvas.metalAvailable",
                 "canvas.vulkanAvailable",
+                "canvas.vulkanReady",
                 "canvas.metalReady",
                 "canvas.metalDrawScene",
                 "canvas.startGraphics",

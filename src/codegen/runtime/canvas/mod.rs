@@ -162,8 +162,24 @@ pub(crate) const GRAPHICS_OFFSET_MTL_PIPELINE: usize = 392;
 pub(crate) const GRAPHICS_OFFSET_MTL_TEXTURE: usize = 400;
 pub(crate) const GRAPHICS_OFFSET_MTL_TEX_WIDTH: usize = 408;
 pub(crate) const GRAPHICS_OFFSET_MTL_TEX_HEIGHT: usize = 416;
+/// The Vulkan renderer's device layer (plan-98-F).
+///
+/// Same reasoning as the Metal slots above: the graphics thread creates these, uses
+/// them, and is the only thread that may — and the arena is per-thread, so a
+/// process-global word is the only place they survive.
+///
+/// `VULKAN_READY` is tri-state (0 untried, 1 built, 2 failed) rather than "is the
+/// device non-zero", so a machine with no ICD pays the `dlopen` and the enumeration
+/// once instead of per frame.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_READY: usize = 424;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_LIB: usize = 432;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_INSTANCE: usize = 440;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_PHYSICAL: usize = 448;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_DEVICE: usize = 456;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_QUEUE: usize = 464;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY: usize = 472;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 424;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 480;
 
 /// The trampoline `pthread_create` starts: establishes the MFB context, then loops.
 pub(crate) const GRAPHICS_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_canvas_graphics_entry";

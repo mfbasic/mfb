@@ -66,6 +66,7 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "canvas.useMetal",
     "canvas.metalAvailable",
     "canvas.vulkanAvailable",
+    "canvas.vulkanReady",
     "canvas.metalReady",
     "canvas.metalDrawScene",
     "canvas.startGraphics",

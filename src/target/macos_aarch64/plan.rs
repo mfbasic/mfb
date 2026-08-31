@@ -681,6 +681,7 @@ impl plan::NativePlanPlatform for Platform {
             | "canvas.setMetalMode"
             | "canvas.metalAvailable"
             | "canvas.vulkanAvailable"
+            | "canvas.vulkanReady"
             | "canvas.metalReady"
             | "canvas.metalDrawScene"
             | "canvas.useMetal"

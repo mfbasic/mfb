@@ -457,6 +457,7 @@ impl LinuxPlan<'_> {
             | "canvas.setMetalMode"
             | "canvas.metalAvailable"
             | "canvas.vulkanAvailable"
+            | "canvas.vulkanReady"
             | "canvas.metalReady"
             | "canvas.metalDrawScene"
             | "canvas.useMetal"

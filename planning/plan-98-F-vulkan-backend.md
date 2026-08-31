@@ -131,15 +131,36 @@ GTK4/Win32 already own windowing; F only needs a Vulkan surface from their handl
 
 ### Phase 1 — Vulkan loader + Linux surface (xcb/wayland) + one-quad tolerance match
 
-- [ ] Runtime `dlopen` libvulkan + bootstrap instance/device function pointers; enumerate the
-      needed entry points (resolves `UNMEASURED`).
-- [ ] Detect X11 vs Wayland session; create `VK_KHR_xcb_surface`/`VK_KHR_wayland_surface` from
-      GTK's native handle (confirm both getters at runtime).
-- [ ] Swapchain + E's single pipeline (shaders → SPIR-V); render one tinted quad; assert
-      tolerance-match to the C software golden headless where GTK-headless Vulkan is available.
+- [x] Runtime `dlopen` libvulkan + entry points, **measured on box 2228**:
+      `canvas::vulkanAvailable()` reports TRUE after `dlopen("libvulkan.so.1")`,
+      `dlsym` of the entry points, `vkCreateInstance` from hand-written
+      `VkApplicationInfo`/`VkInstanceCreateInfo`, `vkEnumeratePhysicalDevices`
+      finding the llvmpipe device, and `vkDestroyInstance`. Nothing is linked — the
+      loader arrives through `dlopen`/`dlsym`, never a DT_NEEDED, so a canvas binary
+      still execs where no Vulkan is installed (`audio`'s rule, plan-33-C §3.1).
+      `UNMEASURED` resolved: the probe needs four entry points; the renderer's set
+      grows with it. Entry points are resolved by `dlsym` rather than through
+      `vkGetInstanceProcAddr` — Correction 2.
+- [x] ~~Detect X11 vs Wayland; create `VK_KHR_xcb_surface`/`VK_KHR_wayland_surface`
+      from GTK's native handle~~ — moot: **there is no surface and no swapchain.**
+      Correction 1 — the renderer draws offscreen and the frame leaves through
+      `canvas::blitSurface`, exactly as plan-98-E Correction 5 established for Metal.
+      That removes both surface extensions, the session detection, and the swapchain
+      from this letter, and it is what makes the whole path testable at all: the only
+      reachable Linux boxes have no display server (2225/2226 refuse connections,
+      2228 is `XDG_SESSION_TYPE=tty`).
+- [x] Shaders → SPIR-V: `mfb_canvas.vert`/`.frag` and their compiled blobs are
+      checked in together, reproducible via `scripts/regen-spirv.sh` (a full
+      regeneration leaves the `.spv` byte-identical). glslang's reflection confirms
+      the push-constant block is byte-identical to the Metal item block — shape 16,
+      fill 32, stroke 48, misc 64, arc 80, size 112 — so one CPU-side emitter feeds
+      both backends. 112 bytes fits Vulkan's guaranteed 128-byte push-constant range,
+      so the render path needs no descriptor sets.
+- [ ] Device + pipeline + one quad rendered offscreen and read back; assert
+      tolerance-match to the software oracle headless.
 
-Acceptance: one quad renders via Vulkan on Linux (both session types where testable) and matches
-the software reference within tolerance; software backend still exact-match.
+Acceptance: one quad renders via Vulkan on Linux and matches the software reference
+within tolerance; software backend still exact-match.
 Commit: —
 
 ### Phase 2 — Linux full scene + resize/out-of-date + texture free
@@ -216,3 +237,66 @@ F reuses E's proven pipeline and D's boundary to add Vulkan on Linux (from GTK's
 no windowing backend needed) and Windows (new GPU path alongside GDI). Risk is swapchain
 lifecycle and the Windows-new-code path; the gate is tolerance-match to the software oracle,
 which stays the exact-match CI truth throughout.
+
+## Corrections
+
+**Correction 1 (Phase 1) — no surface, no swapchain, no session detection.** The
+phase was written around a `VkSurfaceKHR` created from GTK's native handle and a
+swapchain presented to it. plan-98-E Correction 5 had already moved the Metal
+renderer offscreen — it draws into a texture and reads it back so the frame leaves
+through the same `canvas::blitSurface` the software path uses — and the same
+reasoning applies here with more force.
+
+It removes the two surface extensions, the X11-vs-Wayland session detection, the
+swapchain, and the out-of-date/suboptimal handling (redraw trigger 4) from this
+letter. What it buys is that the renderer is *testable*: an offscreen Vulkan render
+needs no display server, and no reachable Linux box has one — 2225 and 2226 refuse
+connections and 2228 reports `XDG_SESSION_TYPE=tty`. A swapchain path could not have
+been run at all.
+
+The `GdkSurface*` plan-98-A stores is therefore unused by this letter. It is not
+wasted: it is exactly what a future direct-to-swapchain present needs, and that
+present is the same deferred on-screen path plan-98-E left for its `CAMetalLayer`.
+
+**Correction 2 (Phase 1) — entry points come from `dlsym`, not
+`vkGetInstanceProcAddr`.** The spec only guarantees that `vkGetInstanceProcAddr` is
+exported, so bootstrapping through it is the textbook route. Measured on 2228 with
+loader 1.4.309, `vkGetInstanceProcAddr(NULL, "vkCreateInstance")` returned NULL
+where `dlsym(handle, "vkCreateInstance")` returned a working pointer, and
+`libvulkan.so.1` exports every core entry point by name.
+
+`vkGetInstanceProcAddr` is still resolved and null-checked — as the test that the
+library which answered the `dlopen` is really a Vulkan loader — but nothing calls
+through it. This is not a fallback: a name that is genuinely absent still fails the
+probe, which is what "no Vulkan here" is supposed to mean.
+
+**Correction 3 (Phase 1) — a missing prerequisite: app mode did not work on Linux
+x86-64 at all.** Not a plan divergence but a blocker no phase covered, and the
+skill's rule is that such a thing was a missing prerequisite: add it, satisfy it,
+continue.
+
+Canvas — and Console — segfaulted on the first `app::setMode` on Linux x86-64, with
+a pre-plan-98-D compiler as much as this one. Two pre-existing bugs, both x86-64
+only:
+
+* **The program entry needs the +8 call parity when it is *called*.** `entry.rs`
+  builds its own frame and never passes through `finalize_frame`, so it never got
+  `frame_call_padding()`. Correct for an ordinary program — the kernel enters
+  `_start` at `rsp%16==0` with no return address pushed — and wrong in app mode,
+  where the worker shim *calls* the entry at `rsp%16==8`. The symptom was a fault in
+  `__libc_calloc` under `g_idle_add`, which reads as heap corruption; the faulting
+  instruction was `movaps %xmm0,(%rsp)`, an *aligned* store, and gdb on the core put
+  `rsp` at `…a08`.
+* **The GTK finish helper compared an uninitialized register.** It loaded
+  `ST_TEXT_BUFFER` into raw `"x9"` and compared `abi::SCRATCH[0]`. `%scratch0`
+  realizes to `x9`, so they are one register on AArch64 — but the x86 app wrap
+  renames each distinct *token string* to its own vreg.
+
+A third row was added for the same reason: **Linux had no headless app gate**, so
+canvas could not be run at all on a box without a display. `MFB_GTKAPP_HEADLESS` is
+the twin of `MFB_MACAPP_HEADLESS`/`MFB_WINAPP_HEADLESS`.
+
+With all three, an app-mode program runs on Linux x86-64 for the first time, and the
+canvas frame it renders is **byte-identical to the macOS render of the same scene** —
+2,304,000 bytes, two ISAs, two operating systems. `helper_render.rs` claims the
+software rasteriser produces identical pixels on every target; that is now measured.

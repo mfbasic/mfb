@@ -985,7 +985,7 @@ pub(crate) fn lower_module_for_platform(
     if native_plan
         .runtime_symbols
         .iter()
-        .any(|symbol| symbol.contains("canvas_vulkanAvailable"))
+        .any(|symbol| symbol.contains("canvas_vulkan"))
     {
         data_objects.extend(crate::codegen::runtime::canvas::vulkan::data_objects());
     }
