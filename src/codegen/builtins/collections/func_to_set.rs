@@ -20,13 +20,7 @@ duplicates yields a set with the same elements; converting the empty list yields
 the empty set.
 
 `toSet` raises no user-trappable error of its own. While building the result it needs memory, but running out of memory is not a trappable domain error, and the `add` it
-is built on is classified infallible for exactly that reason.
-
-`toSet` is a generic implemented in MFBASIC source; a call is rewritten to the
-internal `__collections_toSet` generic and instantiated for the element type like
-any other generic function.
-
-The argument must be a `List OF T` whose element type `T` is comparable (every
+is built on is classified infallible for exactly that reason.The argument must be a `List OF T` whose element type `T` is comparable (every
 `Set OF T` requires it). A call on a non-list argument, or on a list whose element
 type is not comparable, does not resolve and is rejected at compile time."#;
 

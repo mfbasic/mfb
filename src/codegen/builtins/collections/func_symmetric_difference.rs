@@ -21,13 +21,7 @@ then the surviving elements of `b`. The symmetric difference of two equal sets i
 the empty set, and of a set with the empty set is a copy of that set.
 
 `symmetricDifference` raises no user-trappable error of its own. Running out of memory is not a trappable domain error, and the `add` it is built on is
-classified infallible.
-
-`symmetricDifference` is a generic implemented in MFBASIC source; a call is
-rewritten to the internal `__collections_symmetricDifference` generic and
-instantiated for the element type like any other generic function.
-
-Both arguments must be the same `Set OF T`. `T` is inferred from the element type
+classified infallible.Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
 arguments are not both sets of the same element type does not resolve and is
 rejected at compile time."#;

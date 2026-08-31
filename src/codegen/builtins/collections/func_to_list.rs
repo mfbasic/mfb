@@ -17,8 +17,7 @@ built list. Because a set already holds each element at most once, the resulting
 list has no duplicates and its length equals `len(value)`. An empty set yields an
 empty list.
 
-`toList` is **infallible**: no path in its lowering raises a trappable domain
-error, so an inline `TRAP` written on a `toList` call has a dead handler."#;
+`toList` is **infallible**: nothing it does raises a trappable domain error, so an inline `TRAP` written on a `toList` call has a dead handler."#;
 
 const EX: &str = r#"List the elements of a set:
 

@@ -563,11 +563,7 @@ const INTRO: &str = r#"Return a new list ordered ascending by a key computed fro
 
 const DESC: &str = r#"`collections::sortBy` returns a new list containing every element of `value`,
 arranged in ascending order of the key `keyFn(element)`. The elements themselves
-are never compared; only the keys are. It is a generic function written in
-MFBASIC source, rewritten to the internal `__collections_sortBy` generic and
-instantiated for the element type `T` and key type `U` during monomorphization.
-
-`keyFn` is applied to the whole list up front, in one pass, via
+are never compared; only the keys are.`keyFn` is applied to the whole list up front, in one pass, via
 `collections::transform`, producing a parallel list of keys. Each element's key
 is therefore computed **exactly once**, no matter how many comparisons that
 element takes part in. `keyFn` must be a function value — for example a named
@@ -598,7 +594,7 @@ accepts — `Integer`, `Byte`, `Float`, `Fixed`, `Money`, `String`, or `Scalar`.
 `T` carries no ordering requirement. A list of records, of nested lists, or of
 any other unordered element type sorts fine as long as `keyFn` projects it to an
 orderable `U`. A `U` the `<` operator does not accept is a compile-time
-`TYPE_BINARY_OPERATOR_MISMATCH` error, reported after monomorphization against
+`TYPE_BINARY_OPERATOR_MISMATCH` error, reported once the element type is known, against
 the key comparison inside the merge."#;
 
 const EX: &str = r#"Sort descending by negating an integer key:

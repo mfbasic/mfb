@@ -20,7 +20,7 @@ instantiating an MFBASIC generic.
 There are exactly **three** overloads — `List OF Integer`, `List OF Float`, and
 `List OF Fixed` — and the return type always matches the element type. There is
 no `List OF Byte`, no `List OF Money`, and no general "any numeric list" form:
-any other element type fails to resolve at compile time, and the lowering
+any other element type fails to resolve at compile time, and the call
 rejects it a second time.
 
 The accumulator is initialized to zero of the element type and the elements are

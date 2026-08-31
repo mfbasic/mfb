@@ -17,13 +17,7 @@ with no such element, it returns `TRUE`.
 set is a subset of every set, so `isSubset(Set OF T { }, b)` is always `TRUE`. A
 set is a subset of itself, and equal sets are subsets of each other.
 
-`isSubset` raises no user-trappable error of its own.
-
-`isSubset` is a generic implemented in MFBASIC source; a call is rewritten to the
-internal `__collections_isSubset` generic and instantiated for the element type
-like any other generic function.
-
-Both arguments must be the same `Set OF T`. `T` is inferred from the element type
+`isSubset` raises no user-trappable error of its own.Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
 arguments are not both sets of the same element type does not resolve and is
 rejected at compile time."#;

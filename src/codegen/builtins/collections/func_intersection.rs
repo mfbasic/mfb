@@ -19,13 +19,7 @@ disjoint sets is the empty set, and the intersection of a set with itself is a
 set equal to it.
 
 `intersection` raises no user-trappable error of its own. Running out of memory is not a trappable domain error, and the `add` it is built on is classified
-infallible.
-
-`intersection` is a generic implemented in MFBASIC source; a call is rewritten to
-the internal `__collections_intersection` generic and instantiated for the
-element type like any other generic function.
-
-Both arguments must be the same `Set OF T`. `T` is inferred from the element type
+infallible.Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
 arguments are not both sets of the same element type does not resolve and is
 rejected at compile time."#;

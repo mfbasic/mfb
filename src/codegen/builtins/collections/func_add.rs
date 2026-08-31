@@ -25,7 +25,7 @@ same local being reassigned — the `set = collections::add(set, x)`
 shape — it may update the live buffer in place; this is an optimization only, and
 the observable semantics are identical either way.
 
-`add` is **infallible**: no path in its lowering raises a trappable domain error,
+`add` is **infallible**: nothing it does raises a trappable domain error,
 so an inline `TRAP` written on an `add` call has a dead handler. Running out of
 memory is not something a `TRAP` can catch."#;
 

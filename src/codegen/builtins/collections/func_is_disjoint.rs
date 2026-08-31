@@ -18,13 +18,7 @@ exactly when their intersection is empty.
 empty set is disjoint from every set, so a call with an empty argument is always
 `TRUE`. The relation is symmetric: `isDisjoint(a, b)` equals `isDisjoint(b, a)`.
 
-`isDisjoint` raises no user-trappable error of its own.
-
-`isDisjoint` is a generic implemented in MFBASIC source; a call is rewritten to
-the internal `__collections_isDisjoint` generic and instantiated for the element
-type like any other generic function.
-
-Both arguments must be the same `Set OF T`. `T` is inferred from the element type
+`isDisjoint` raises no user-trappable error of its own.Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
 arguments are not both sets of the same element type does not resolve and is
 rejected at compile time."#;

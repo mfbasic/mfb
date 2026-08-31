@@ -17,6 +17,9 @@
 #                                       banned memory vocabulary, with the
 #                                       datetime arithmetic-borrow carve-out
 #                                       classified separately
+#   man-census.sh --scope [pkg...]      rendered hits for the compiler-internals
+#                                       vocabulary the standard forbids (bug/plan
+#                                       numbers, mangled symbols, codegen terms)
 #   man-census.sh --banned-list         print the canonical banned-word list
 #
 # With no package arguments every registry package is censused, in sorted order.
@@ -56,6 +59,20 @@ BANNED_CORE='borrow|borrows|borrowed|borrowing|pointer|pointers|ownership|owns|o
 # spelled out as "not a letter" on each side.
 banned_regex() {
 	printf '(^|[^A-Za-z])(%s)([^A-Za-z]|$)' "$BANNED_CORE"
+}
+
+# ---------------------------------------------------------------------------
+# The compiler-internals vocabulary `.ai/man-content.md` §3 forbids: a man page
+# is developer documentation, so registry/lowering/codegen machinery, mangled
+# symbols, Rust items, old_man citation markers, and — the one this was added
+# for — plan and bug NUMBERS have no business rendering.
+#
+# Kept separate from BANNED_CORE because the two answer different questions and
+# every letter drives them to 0 independently. `--scope` reports this one.
+SCOPE_CORE='bug-[0-9]+|plan-[0-9]+|audit-[0-9]+|abi_inline|abi_function|Body::|monomorph|NIR|\.ncode|__[a-z]+_[A-Za-z]|#[a-z]+_[A-Za-z]|\[\[[A-Za-z_][A-Za-z_/.]*:|RegistryFunction|RegistryPackage|rewrite_target|resolve_call|lowering|desugar|regalloc|vreg|codegen'
+
+scope_regex() {
+	printf '%s' "$SCOPE_CORE"
 }
 
 usage() {
@@ -322,12 +339,47 @@ mode_memory_scope() {
 }
 
 # ---------------------------------------------------------------------------
+# Rendered hits for the compiler-internals vocabulary `.ai/man-content.md` §3
+# forbids (SCOPE_CORE). This is what plan-108-F certifies at 0 alongside
+# --memory-scope; the two are separate because a page can be clean of memory
+# words while still naming a bug number or a mangled symbol.
+mode_scope() {
+	local pkgs=("$@")
+	local pkg fn hits=0
+
+	scope_page() { # $1 = label, $2 = rendered text
+		local label=$1 text=$2 line
+		while IFS= read -r line; do
+			local n=${line%%:*}
+			local body=${line#*:}
+			hits=$((hits + 1))
+			printf 'HIT      %-28s %5s  %s\n' "$label" "$n" "$body"
+		done < <(printf '%s\n' "$text" | grep -nE "$(scope_regex)")
+	}
+
+	for pkg in "${pkgs[@]}"; do
+		scope_page "$pkg (overview)" "$("$MFB" man "$pkg" 2>/dev/null)"
+		if has_types_page "$pkg"; then
+			scope_page "$pkg (types)" "$("$MFB" man "$pkg" types 2>/dev/null)"
+		fi
+		for fn in $(functions_of "$pkg"); do
+			scope_page "$pkg::$fn" "$("$MFB" man "$pkg" "$fn" 2>/dev/null)"
+		done
+	done
+
+	printf '\n'
+	printf 'internals-vocabulary hits: %d\n' "$hits"
+	[ "$hits" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
 main() {
 	local mode=fill
 	case "${1:-}" in
 	--fill) mode=fill; shift ;;
 	--functions) mode=functions; shift ;;
 	--memory-scope) mode=memory-scope; shift ;;
+	--scope) mode=scope; shift ;;
 	--banned-list) printf '%s\n' "$BANNED_CORE"; return 0 ;;
 	-h | --help) usage; return 0 ;;
 	esac
@@ -349,6 +401,7 @@ main() {
 	fill) mode_fill "${pkgs[@]}" ;;
 	functions) mode_functions "${pkgs[@]}" ;;
 	memory-scope) mode_memory_scope "${pkgs[@]}" ;;
+	scope) mode_scope "${pkgs[@]}" ;;
 	esac
 }
 

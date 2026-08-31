@@ -22,7 +22,7 @@ position and is accepted, producing the same result as
 greater than the length, raises `ErrIndexOutOfRange`.
 
 Only the single-element form exists. `item` must have exactly the element type
-`T`; passing another `List OF T` resolves no overload, and the lowering rejects a
+`T`; passing another `List OF T` resolves no overload, and the call rejects a
 list-typed item explicitly with "insert expects a single item, not a list".
 Internally the element is wrapped as a one-element list and spliced into `value`
 at `index`, which is the same splice that backs `append` (index `= len`) and

@@ -18,7 +18,7 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 const INTO_GET: &str = "Read a list item by index or a map value by key.";
 const DESC_GET: &str = r#"`collections::get` reads one element out of a collection. The collection itself
-is neither copied nor mutated: the lowering stores only a handle to it, walks
+is neither copied nor mutated: the call reads it in place, walks
 its lookup table, and materializes just the selected payload.
 
 The value returned is yours to keep and independent of the collection. Scalars come back directly and

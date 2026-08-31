@@ -15,7 +15,7 @@ neither is optional and neither is variadic.
 Unlike `collections::append`, `prepend` has **only** the single-element form.
 There is no list-into-list overload: the second argument must have exactly the
 element type `T`, and passing another `List OF T` resolves no overload and is a
-compile-time error. The lowering rejects a list-typed item explicitly as well.
+compile-time error. A list-typed item is rejected explicitly as well.
 To place a whole list in front of another, use `collections::append` with the
 operands reversed — `collections::append(front, back)`.
 
@@ -33,8 +33,7 @@ are identical either way. Note that prepending must shift every existing lookup
 entry right by one, so a repeated prepend stays O(n) per call even on the
 in-place path, unlike `append`.
 
-`prepend` is **infallible**: no path in its lowering raises a trappable domain
-error. It has no index to range-check and no lookup to miss, so it is classified
+`prepend` is **infallible**: nothing it does raises a trappable domain error. It has no index to range-check and no lookup to miss, so it is classified
 as infallible alongside `append` and `replace`, and an inline `TRAP` written on a
 `prepend` call has a dead handler (the front end reports
 `TYPE_INLINE_TRAP_DEAD_HANDLER`). Running out of memory is not a trappable domain

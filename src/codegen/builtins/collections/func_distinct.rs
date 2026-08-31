@@ -48,13 +48,7 @@ first-occurrence order.
 
 `distinct` raises no user-trappable error of its own. Building the result needs
 memory, but running out of it is not a trappable domain error, and
-the `append` it uses is classified infallible for exactly that reason.
-
-`distinct` is a generic implemented in MFBASIC source; a call is rewritten to
-the internal `__collections_distinct` generic and instantiated for the element
-type like any other generic function.
-
-`T` is inferred from the element type of `value` and **must be comparable**,
+the `append` it uses is classified infallible for exactly that reason.`T` is inferred from the element type of `value` and **must be comparable**,
 because `distinct` is implemented in terms of `collections::contains`. A call
 whose element type is not comparable is rejected at compile time with
 `TYPE_REQUIRES_COMPARABLE`, reported against the internal `collections.contains`

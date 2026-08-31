@@ -9,14 +9,9 @@
 const INTRO: &str = r#"Return a new list with the first `count` elements removed"#;
 
 const DESC: &str = r#"`collections::drop` returns a new list containing everything in `value` except
-its leading `count` elements, in their original order. It is a generic function
-written in MFBASIC source: the call is rewritten to the internal
-`__collections_drop` generic and instantiated for the element type `T` during
-monomorphization.
-
-`drop(value, count)` is defined as the half-open range `[count, len(value))` of
+its leading `count` elements, in their original order.`drop(value, count)` is defined as the half-open range `[count, len(value))` of
 `value`, delegated to the internal slice helper. That helper is lowered natively
-as a bulk range copy, and the native lowering is what defines the boundary
+as a bulk range copy, and that is what defines the boundary
 behavior: the range start is clamped into `[0, len]` and the range stop into
 `[start, len]`.
 

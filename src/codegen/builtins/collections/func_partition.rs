@@ -257,13 +257,7 @@ passed here may not capture an outer `MUT` binding; the callback position proven
 non-escaping is `collections::forEach`, not `partition`.
 
 `partition` does not mutate `value`; it builds two new lists. Doing so needs memory, but running out of memory is not a trappable domain error, and the
-`append` it uses is classified infallible for exactly that reason.
-
-`partition` is a generic implemented in MFBASIC source; a call is rewritten to
-the internal `__collections_partition` generic and instantiated for the element
-type like any other generic function.
-
-`T` is inferred from the element type of `value` and may be any type;
+`append` it uses is classified infallible for exactly that reason.`T` is inferred from the element type of `value` and may be any type;
 `partition` imposes no comparability or orderability constraint on `T`, because
 elements are never compared to one another — they are only passed to
 `predicate`. The second argument must be a function value taking exactly one `T`

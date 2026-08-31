@@ -24,8 +24,7 @@ element type is itself a `List` — a second argument of that element type is re
 as an element search. Any other second-argument type fails to resolve at compile
 time.
 
-`start` is optional. When it is omitted the search begins at index 0; the
-lowering supplies that default itself, so an omitted `start` and an explicit `0`
+`start` is optional. When it is omitted the search begins at index 0; the call supplies that default itself, so an omitted `start` and an explicit `0`
 behave identically.
 
 `start` is validated before anything is compared. A negative `start`, or a

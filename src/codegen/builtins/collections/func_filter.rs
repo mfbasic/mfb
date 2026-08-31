@@ -25,8 +25,7 @@ the length of `value`.
 `value` is neither modified nor closed; the result is a new list.
 
 `predicate` must accept exactly one argument of the element type `T` and return
-`Boolean`. This is enforced both when the call is resolved and again in the
-lowering.
+`Boolean`. This is enforced both when the call is resolved and again in the.
 
 The single-argument `general` predicates — `isEven`, `isOdd`, `isPositive`,
 `isNegative`, `isZero`, `isEmpty`, and `isNotEmpty` — are ordinary

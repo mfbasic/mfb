@@ -19,8 +19,7 @@ a `List` as its first argument; the `String` slice of the same name lives in
 All three arguments are required — there is no two-argument "to the end" form —
 and `start` and `count` must both be exactly `Integer`.
 
-The range is **validated, not clamped**. Before any element is copied the
-lowering checks, in order, that `start` is not negative, that `count` is not
+The range is **validated, not clamped**. Before any element is copied the call checks, in order, that `start` is not negative, that `count` is not
 negative, that `start` is not greater than the length of `value`, that
 `start + count` does not wrap around, and that `start + count` is not greater
 than the length of `value`. Any of those failing raises `ErrIndexOutOfRange`.

@@ -33,8 +33,7 @@ it does with that return value. There is no in-place fast path for `replace` —
 the compiler's in-place assignment recognizers cover `append`, bulk `append`,
 `prepend`, `set`, and string concatenation, not `replace`.
 
-`replace` is **infallible**: no path in its lowering raises a trappable domain
-error. It has no index to range-check, and a `new` that never matches is a
+`replace` is **infallible**: nothing it does raises a trappable domain error. It has no index to range-check, and a `new` that never matches is a
 success producing an unchanged copy, not a failure — so it is classified as
 infallible alongside `append` and `prepend`, and an inline `TRAP` written on a
 `replace` call has a dead handler (the front end reports

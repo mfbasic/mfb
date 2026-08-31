@@ -33,8 +33,7 @@ shape, on a non-`by_ref` local that is not the live iterable of an enclosing
 capacity, making a repeated append amortized O(1) rather than a full copy. This
 is an optimization only: the observable semantics are identical either way.
 
-`append` is **infallible**: no path in its lowering raises a trappable domain
-error. It has no index to range-check and no lookup to miss, so it is classified
+`append` is **infallible**: nothing it does raises a trappable domain error. It has no index to range-check and no lookup to miss, so it is classified
 as infallible alongside `prepend` and `replace`, and an inline `TRAP` written on
 an `append` call has a dead handler (the front end reports
 `TYPE_INLINE_TRAP_DEAD_HANDLER`). Running out of memory is not a trappable domain

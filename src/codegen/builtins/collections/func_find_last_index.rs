@@ -249,12 +249,7 @@ handle both codes.
 inside `predicate` propagates out of the `collections::findLastIndex` call to
 the caller rather than being reported as a non-match. Note that a lambda passed
 here may not capture an outer `MUT` binding; the callback position proven
-non-escaping is `collections::forEach`, not `findLastIndex`.
-
-`findLastIndex` is a generic implemented in MFBASIC source; a call is rewritten
-to the internal `__collections_findLastIndex` generic and instantiated for the
-element type like any other generic function.
-It does not mutate `value`.
+non-escaping is `collections::forEach`, not `findLastIndex`.It does not mutate `value`.
 
 `T` is inferred from the element type of `value` and may be any type;
 `findLastIndex` imposes no comparability or orderability constraint on `T`,
