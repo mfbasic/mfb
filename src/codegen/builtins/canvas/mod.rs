@@ -761,6 +761,10 @@ pub(crate) fn register(r: &mut Registry) {
         // A font belongs to the drawing surface's thread, like an image; it does not
         // cross a thread boundary in v1.
         sendable: false,
+        // Not audited for transfer, exactly as `Image` is not. Empty here is only
+        // consistent with `sendable: false`; opting a font in means auditing its
+        // record tail — which holds the whole file — rather than flipping the bit.
+        live_slots: &[],
         // `destroyFont` sets the closed flag and returns. The font's bytes are
         // arena-owned, so unlike a file there is no OS handle to hand back and nothing
         // here that can fail.
