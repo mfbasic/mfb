@@ -93,21 +93,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to work on. Not modified — you get a new list back.",
                     aliases: &["list"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "old",
-                    desc: "",
+                    desc: "The element to look for. Every element equal to it is replaced, not just the first.",
                     aliases: &["needle"],
                     ty: ParameterType::var("T"),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "new",
-                    desc: "",
+                    desc: "What to put in its place.",
                     aliases: &["replacement"],
                     ty: ParameterType::var("T"),
                     default: DefaultValue::None,

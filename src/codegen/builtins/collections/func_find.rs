@@ -111,21 +111,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list to search. Not modified.",
                         aliases: &["list"],
                         ty: ParameterType::list_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "item",
-                        desc: "",
+                        desc: "The element to look for, when using the value form rather than a predicate. Compared with `=`.",
                         aliases: &["needle"],
                         ty: ParameterType::var("T"),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "start",
-                        desc: "",
+                        desc: "Where to begin searching, as a zero-based index. Omit it to search from the beginning.",
                         aliases: &[],
                         ty: ParameterType::Integer,
                         default: DefaultValue::Optional,
@@ -139,21 +139,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list to search. Not modified.",
                         aliases: &["list"],
                         ty: ParameterType::list_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "item",
-                        desc: "",
+                        desc: "The element to look for, when using the value form rather than a predicate. Compared with `=`.",
                         aliases: &["needle"],
                         ty: ParameterType::list_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "start",
-                        desc: "",
+                        desc: "Where to begin searching, as a zero-based index. Omit it to search from the beginning.",
                         aliases: &[],
                         ty: ParameterType::Integer,
                         default: DefaultValue::Optional,

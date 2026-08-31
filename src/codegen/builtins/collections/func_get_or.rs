@@ -95,21 +95,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list or map to read from. Not modified.",
                         aliases: &["collection"],
                         ty: ParameterType::list_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "index",
-                        desc: "",
+                        desc: "The list index, zero-based. Unlike `collections::get`, out of range is not an error.",
                         aliases: &["key"],
                         ty: ParameterType::Integer,
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "default",
-                        desc: "",
+                        desc: "What to return when the index or key is absent. An ordinary argument, so it is evaluated whether or not it ends up being used.",
                         aliases: &["fallback"],
                         ty: ParameterType::var("T"),
                         default: DefaultValue::None,
@@ -123,21 +123,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list or map to read from. Not modified.",
                         aliases: &["collection"],
                         ty: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("V")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "index",
-                        desc: "",
+                        desc: "The list index, zero-based. Unlike `collections::get`, out of range is not an error.",
                         aliases: &["key"],
                         ty: ParameterType::var("K"),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "default",
-                        desc: "",
+                        desc: "What to return when the index or key is absent. An ordinary argument, so it is evaluated whether or not it ends up being used.",
                         aliases: &["fallback"],
                         ty: ParameterType::var("V"),
                         default: DefaultValue::None,

@@ -93,14 +93,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to prepend to. Not modified — you get a new list back.",
                     aliases: &["list"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "item",
-                    desc: "",
+                    desc: "The element to add at the front. Everything already there shifts one place later.",
                     aliases: &[],
                     ty: ParameterType::var("T"),
                     default: DefaultValue::None,

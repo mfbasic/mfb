@@ -115,14 +115,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list to search. Not modified.",
                         aliases: &["collection"],
                         ty: ParameterType::list_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "item",
-                        desc: "",
+                        desc: "The element to look for. Compared with `=`, so it must be comparable with the element type.",
                         aliases: &[],
                         ty: ParameterType::var("T"),
                         default: DefaultValue::None,
@@ -136,14 +136,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list to search. Not modified.",
                         aliases: &["collection"],
                         ty: ParameterType::set_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "item",
-                        desc: "",
+                        desc: "The element to look for. Compared with `=`, so it must be comparable with the element type.",
                         aliases: &[],
                         ty: ParameterType::var("T"),
                         default: DefaultValue::None,

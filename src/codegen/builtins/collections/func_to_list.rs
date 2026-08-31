@@ -58,7 +58,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",
-                desc: "",
+                desc: "The set whose elements to collect into a list. Not modified.",
                 aliases: &["set"],
                 ty: ParameterType::set_of(ParameterType::var("T")),
                 default: DefaultValue::None,

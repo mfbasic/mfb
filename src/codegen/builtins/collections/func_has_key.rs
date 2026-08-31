@@ -91,14 +91,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The map to look in. Not modified.",
                     aliases: &["map"],
                     ty: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("V")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "key",
-                    desc: "",
+                    desc: "The key to test for. Compared with `=`.",
                     aliases: &[],
                     ty: ParameterType::var("K"),
                     default: DefaultValue::None,

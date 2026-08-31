@@ -186,7 +186,7 @@ IMPORT io
 IMPORT collections
 
 FUNC main AS Integer
-  LET deep AS List OF List OF List OF Integer = [[[1, 2], [3]],]
+  LET deep AS List OF List OF List OF Integer = [[[1, 2], [3]]]
   LET once AS List OF List OF Integer = collections::flatten(deep)
   LET twice AS List OF Integer = collections::flatten(once)
   io::print(toString(len(once)) & " " & toString(len(twice)))

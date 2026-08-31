@@ -100,7 +100,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![Parameter {
                     name: "value",
-                    desc: "",
+                    desc:
+                        "The list of numbers to add up. Not modified. An empty list sums to zero.",
                     aliases: &["collection"],
                     ty: ParameterType::list_of(ParameterType::Integer),
                     default: DefaultValue::None,
@@ -112,7 +113,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![Parameter {
                     name: "value",
-                    desc: "",
+                    desc:
+                        "The list of numbers to add up. Not modified. An empty list sums to zero.",
                     aliases: &["collection"],
                     ty: ParameterType::list_of(ParameterType::Float),
                     default: DefaultValue::None,
@@ -124,7 +126,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![Parameter {
                     name: "value",
-                    desc: "",
+                    desc:
+                        "The list of numbers to add up. Not modified. An empty list sums to zero.",
                     aliases: &["collection"],
                     ty: ParameterType::list_of(ParameterType::Fixed),
                     default: DefaultValue::None,

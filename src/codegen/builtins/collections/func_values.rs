@@ -86,7 +86,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",
-                desc: "",
+                desc: "The map whose values to collect. Not modified. The order matches `collections::keys` for the same unchanged map.",
                 aliases: &["map"],
                 ty: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("V")),
                 default: DefaultValue::None,

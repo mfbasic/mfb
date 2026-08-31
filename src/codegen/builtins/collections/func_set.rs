@@ -104,21 +104,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list or map to update. Not modified — you get a new collection back.",
                         aliases: &["collection"],
                         ty: ParameterType::list_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "index",
-                        desc: "",
+                        desc: "The list index to overwrite, zero-based. It must already exist; `set` does not extend a list.",
                         aliases: &["key"],
                         ty: ParameterType::Integer,
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "item",
-                        desc: "",
+                        desc: "The value to store at that index or key.",
                         aliases: &[],
                         ty: ParameterType::var("T"),
                         default: DefaultValue::None,
@@ -132,21 +132,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list or map to update. Not modified — you get a new collection back.",
                         aliases: &["collection"],
                         ty: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("V")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "index",
-                        desc: "",
+                        desc: "The list index to overwrite, zero-based. It must already exist; `set` does not extend a list.",
                         aliases: &["key"],
                         ty: ParameterType::var("K"),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "item",
-                        desc: "",
+                        desc: "The value to store at that index or key.",
                         aliases: &[],
                         ty: ParameterType::var("V"),
                         default: DefaultValue::None,

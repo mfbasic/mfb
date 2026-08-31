@@ -101,21 +101,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to take a run from. Not modified — you get a new list back.",
                     aliases: &["list"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "start",
-                    desc: "",
+                    desc: "The zero-based index of the first element to take.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "count",
-                    desc: "",
+                    desc: "How many elements to take. `start + count` must not exceed the length — this raises rather than clamping.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

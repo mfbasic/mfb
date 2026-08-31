@@ -89,21 +89,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to insert into. Not modified — you get a new list back.",
                     aliases: &["list"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "index",
-                    desc: "",
+                    desc: "Where to put the new element, zero-based. May equal the length, which appends; anything outside 0 through the length raises.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "item",
-                    desc: "",
+                    desc: "The element to insert. Everything from `index` onward shifts one place later.",
                     aliases: &[],
                     ty: ParameterType::var("T"),
                     default: DefaultValue::None,

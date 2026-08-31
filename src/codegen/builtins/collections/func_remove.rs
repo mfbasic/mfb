@@ -67,14 +67,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The set to remove from. Not modified — you get a new set back.",
                     aliases: &["set"],
                     ty: ParameterType::set_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "item",
-                    desc: "",
+                    desc: "The element to take out. Removing one that is not there gives back an equal set rather than failing.",
                     aliases: &["element"],
                     ty: ParameterType::var("T"),
                     default: DefaultValue::None,

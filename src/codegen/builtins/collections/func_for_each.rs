@@ -95,14 +95,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to walk. Not modified.",
                     aliases: &["collection"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "action",
-                    desc: "",
+                    desc: "Called once per element, in order. Its result is discarded; an error it raises propagates and stops the walk.",
                     aliases: &[],
                     ty: ParameterType::func(vec![ParameterType::var("T")], ParameterType::Nothing),
                     default: DefaultValue::None,

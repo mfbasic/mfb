@@ -108,14 +108,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to map over. Not modified — you get a new list back.",
                     aliases: &["collection"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "f",
-                    desc: "",
+                    desc: "Called once per element, in order; what it returns becomes the corresponding element of the result.",
                     aliases: &["transform"],
                     ty: ParameterType::func(vec![ParameterType::var("T")], ParameterType::var("U")),
                     default: DefaultValue::None,

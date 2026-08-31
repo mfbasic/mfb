@@ -96,14 +96,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to filter. Not modified — you get a new list back.",
                     aliases: &["collection"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "predicate",
-                    desc: "",
+                    desc: "Called once per element, in order. Elements it answers `TRUE` for are kept. An error it raises propagates and abandons the result.",
                     aliases: &[],
                     ty: ParameterType::func(vec![ParameterType::var("T")], ParameterType::Boolean),
                     default: DefaultValue::None,

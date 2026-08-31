@@ -87,14 +87,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to remove from. Not modified — you get a new list back.",
                     aliases: &["list"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "index",
-                    desc: "",
+                    desc: "Which element to drop, zero-based. Outside 0 through the length minus one raises.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

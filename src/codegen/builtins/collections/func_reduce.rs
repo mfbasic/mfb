@@ -106,21 +106,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to fold. Not modified.",
                     aliases: &["collection"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "initial",
-                    desc: "",
+                    desc: "The starting accumulator, and the result when the list is empty. Its type decides the result type.",
                     aliases: &["seed"],
                     ty: ParameterType::var("U"),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "f",
-                    desc: "",
+                    desc: "Called once per element as `(accumulator, item)`, left to right; what it returns becomes the next accumulator.",
                     aliases: &["combine"],
                     ty: ParameterType::func(
                         vec![ParameterType::var("U"), ParameterType::var("T")],

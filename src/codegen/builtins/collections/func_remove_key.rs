@@ -90,14 +90,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The map to remove from. Not modified — you get a new map back.",
                     aliases: &["map"],
                     ty: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("V")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "key",
-                    desc: "",
+                    desc: "The key to drop. A key that is not present is not an error; you get back a copy with the same contents.",
                     aliases: &[],
                     ty: ParameterType::var("K"),
                     default: DefaultValue::None,
