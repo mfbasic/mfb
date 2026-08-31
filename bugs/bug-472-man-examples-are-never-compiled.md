@@ -130,6 +130,46 @@ could be switched on. "Generalise an existing test" *and* "it already passes" is
 a materially easier proposition than either alone — which is worth putting to the
 user alongside the decision quoted at the top.
 
+## Update, 2026-08-31 — the whole surface has now been compiled AND run
+
+plan-108 finished. The number this bug was written to establish is now measured
+end to end, `scripts/man-run-examples.sh <pkg> --run` over every package:
+
+**938 examples across 31 packages — 938 built, 914 run, 24 not run.** All 24 are
+classified per function in plan-108-F: 11 `term` (no controlling terminal, which
+`term::terminalSize`'s own page documents as raising), 5 `tls` (need a
+certificate on disk and then block on `accept` for a client), and 8 `http` (all
+of them bug-476, below). `app` and `canvas` run under `--app` headless.
+
+Three things this adds to the decision the user still owns:
+
+1. **The premise really was false, and is now true.** "Examples are verified by
+   compiling/running them at authoring time" had never happened; it has now, for
+   every example on every page.
+2. **Running, not just compiling, is where the value was.** Compiling found the
+   eight classes above. *Running* found: 16 `fs` examples that build but fail for
+   any reader (they wrote under a `target/` they never created), an `os::sleep`
+   example with no entry point, two `json` examples that were bare helper
+   functions, a `crypto::pbkdf2` example at 600000 iterations, an `audio::play`
+   example that outlasts any sane timeout — and **bug-476**, a HIGH-severity
+   defect in which `http::handleRequest` accepts a request and writes no
+   response at all. A compile-only gate would have missed every one.
+3. **The harness a gate would reuse is now considerably more honest**, and each
+   correction was itself a case of the gate agreeing with the docs instead of
+   testing them: it ran examples with the *repository* as cwd (so `target/…`
+   resolved to cargo's own directory and 16 broken examples passed), it had no
+   per-example timeout (one `http` example stalled a run for ~3 hours looking
+   like progress), its timeout implementation held the command-substitution pipe
+   so every example took the full timeout, its `STDIN_FILE` plumbing was inert
+   because a background job gets `/dev/null` on stdin, and it counted a
+   documented non-zero exit as a failure. All fixed; see plan-108-D §Corrections
+   and plan-108-F §Corrections.
+
+So the "generalise an existing test *and* it already passes" argument at the top
+is now stronger than when this was written — with the caveat that a gate would
+need the 24 classified skips expressed as such, and would stay red until bug-476
+is fixed.
+
 ## Blast radius
 
 Every `mfb man` page with an example, across every built-in package. The user-

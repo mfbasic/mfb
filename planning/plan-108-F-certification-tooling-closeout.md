@@ -343,7 +343,7 @@ failure was root-caused rather than classified.
   negative, rather than only pointing at the spec.
 
 Acceptance: all sweeps recorded in this file with 0 unclassified hits.
-Commit: —
+Commit: bc93ab44d, 91fb5f8f0, 2448ddb29, 07819645a
 
 ### Phase 2 — tooling + guidance retirement
 
@@ -403,7 +403,7 @@ Commit: —
       workspace has no changes this plan touched.
 
 Acceptance: no live doc/script directs authors at the retired tree.
-Commit: —
+Commit: bc93ab44d
 
 ## Validation Plan
 
