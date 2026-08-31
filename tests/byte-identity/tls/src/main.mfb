@@ -1,6 +1,7 @@
 ' Byte-identity coverage for a backend that carried NO generated-code golden.\n' plan-57 rewrites the collection builders these helpers all construct their\n' List OF Byte / List OF String results through, and its acceptance is\n' artifact byte-identity — so each of these needs a .ncode golden or the gate is\n' blind to it. Goldens exist per target because several of these backends are\n' platform-specific (audio/alsa and tls/openssl are Linux-only).\n' Compile-only by design: these open devices and sockets that do not exist in a\n' test run, so there is no .run golden and the harness never executes them.\n
 IMPORT io
 IMPORT encoding
+IMPORT net
 IMPORT tls
 
 FUNC main() AS Integer
@@ -25,6 +26,12 @@ FUNC main() AS Integer
   LET ready2 = tls::poll(sock2, 1000)
   io::print(toString(ready1) & toString(ready2))
 
+  ' localAddress: the tls::Socket overload (the Listener one is below, after a
+  ' listener exists). bug-465 added the second overload as a separate emitted
+  ' body — `tls.localAddressListener` — so both need a sentinel here or the gate
+  ' is blind to the very code that bug introduced.
+  io::print(tls::localAddress(sock3).host)
+
   ' close: tls::Socket overload
   tls::close(sock)
   tls::close(sock2)
@@ -33,6 +40,10 @@ FUNC main() AS Integer
   ' listen: both overloads
   RES server AS tls::Listener = tls::listen("", 8443, "cert.pem", "key.pem")
   RES server2 AS tls::Listener = tls::listen("", 8444, "cert.pem", "key.pem", 16)
+
+  ' localAddress: the tls::Listener overload (bug-465). Distinct emitted body —
+  ' on macOS a listener holds an nw_listener, which getsockname cannot see.
+  io::print(tls::localAddress(server).host)
 
   ' accept: both overloads
   RES client AS tls::Socket = tls::accept(server)
