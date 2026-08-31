@@ -325,16 +325,26 @@ is moved by **two** in-flight changes for unrelated reasons:
 - plan-98, because it grew the `ErrWrongMode` message, which shifts embedded
   `ErrorLoc` lines in every importer.
 
-plan-98 lands first. **Whoever merges second must regenerate that golden on the
-merged tree** — not `--ours`, not `--theirs`, not hand-picked. Each side's hash
-is correct only for a tree containing that side's change alone; the merged tree's
-true hash is a third value neither side has computed, so resolving the conflict
-by choosing either one produces a golden that matches no build and reds the gate
-for the next person. Resolution here: take the conflict, re-run
-`scripts/regen-ncodesum.sh`, re-gate before pushing.
+plan-98 landed first, and the merge produced exactly one conflict — this file.
+**Resolved by regenerating on the merged tree**, not `--ours`, not `--theirs`.
+The three hashes show why that was the only correct move rather than a
+formality:
 
-The other five regenerated rows (`tls`, all targets) do not collide as far as
-plan-98's author knows; confirm before merging rather than assuming.
+| tree | hash |
+| --- | --- |
+| bug-465's branch alone | `a666582e0740dc8fc82bad8e82c05f78136a3a306e56062dea81e92583c20e9a` |
+| main alone (plan-98) | `5108c0588d572543a7a80cb7d52f8213a782c4dff4b04a95e7c335cef64620c7` |
+| **the merged tree** | `320f85d2b3e07c836f37f83e4f4c8c1d1998e070ebe4abf2bd5b51fb18c99341` |
+
+A third value. Either side's committed hash would have matched no build and
+redded the gate for the next person to touch it.
+
+Scope came out better than feared: re-running `regen-ncodesum.sh` over all 127
+goldens on the merged tree moved **only this one row**, so bug-465's five `tls`
+rows and plan-98's `http`/`fs`/`thread` rows were each already correct after the
+merge. The two changes are genuinely disjoint apart from this file. The other
+seven conflicting source files auto-merged (both sides append rows to shared
+tables). Merge commit `b10fb4bde`, regeneration `bd672c693`.
 
 ## Accepted tradeoff
 
