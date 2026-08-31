@@ -173,7 +173,7 @@ GTK4/Win32 already own windowing; F only needs a Vulkan surface from their handl
 
 Acceptance: MET, and exceeded — the full primitive set (less `Polygon`) matches the
 software oracle within tolerance on two libcs, and the software backend is untouched.
-Commit: —
+Commit: 6b82f873949299e19e8734c8f386bc63bea00315
 
 ### Phase 2 — Linux full scene + resize/out-of-date + texture free
 
