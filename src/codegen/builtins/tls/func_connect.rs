@@ -38,6 +38,12 @@ the attempt and raises `ErrTimeout` when it elapses. A negative `timeoutMs` rais
 `ErrInvalidArgument`. **Host resolution is not bounded** — the resolver call
 happens before the deadline starts, so a slow DNS lookup can exceed `timeoutMs`.
 
+The overloads do not share a positional layout: `timeoutMs` and `serverName` are
+parameters 2 and 3 of the host/port form but 1 and 2 of the `Address` form, since
+one endpoint value replaces two. Named arguments therefore bind per-overload,
+against whichever overload the argument types select — the same caveat
+`tcp::connect` carries.
+
 TLS is implemented on Linux by driving the system OpenSSL library (`libssl.so.3`,
 falling back to `libssl.so.1.1`) so a single binary spans OpenSSL 1.1.1 and 3.x;
 the macOS backend drives Network.framework through a synchronous bridge. If the

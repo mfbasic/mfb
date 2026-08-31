@@ -136,21 +136,56 @@ stb raster proves machine-variant) and within tolerance on GPU. Damage-rect pres
 - **Unchanged:** the frozen `DrawItem` set, the scene model, thread/ring/retirement, the GPU
   backends' pipeline, and visible output under damage-rect present (efficiency only).
 
+> **Carried in from a 2026-08-30 review (plan-98-D Phase 2).** `ImageRef` and
+> `FontRef` are exported records with a public `id: Integer`, so a program can write
+> `ImageRef[id := 7]` and fabricate a handle naming an image that does not exist —
+> the runtime then draws nothing, silently. The *indirection* is forced (the spec's
+> `TYPE_RESOURCE_FIELD_FORBIDDEN` rule says a resource never appears inside a data
+> type, and a scene holding an image would also make `canvas::destroyImage` a lie),
+> but the public field is not. The fix is to make both types opaque — no public
+> fields, no user constructor, obtainable only from `canvas::imageRef` /
+> `canvas::fontRef`. Deferred deliberately by the author on 2026-08-30 ("leave it as
+> is for now"); G is where it lands because G is the letter that introduces `Font`
+> and `canvas::loadImage` and touches both types anyway.
+
 ## Phases
 
 ### Phase 1 — Resolve the dependency policy; stb text render + measureText
 
+> **Three tasks moved here** (plan-98-B Corrections 20–21), all blocked on the
+> vendoring decision this phase's first task settles. Nothing is deferred out of the
+> plan; they land in the phase that owns their mechanism.
+
 - [ ] Resolve the vendored-single-header policy (Prerequisite/Open Decision) and record it.
+      It now gates **images as well as fonts**: `canvas::loadImage` needs the same
+      answer, so the decision is one decision, not two.
+- [ ] **The `Font` RES resource itself** (moved from plan-98-B Phase 4): the record on
+      the canonical header (`tag@0`/`handle@8`/`closed@16`/`STATE@24`; tag `12` is
+      already reserved in `error_constants.rs`), `canvas::destroyFont`, and
+      `canvas::fontRef` — the `FontRef` value handle a `Text` item carries, mirroring
+      `canvas::imageRef`. B could not land these: without `loadFont` there is no way
+      to *construct* a `Font`, so declaring the type would have shipped surface no
+      program could reach.
+- [ ] **`canvas::loadImage`** (moved from plan-98-B Phase 4): decode an image file to
+      RGBA8 and hand it to the existing `canvas::createImage` path, which already owns
+      the resource record, the CPU shadow and the pixel-count contract. It lands here
+      because decoding needs inflate, which does not exist —
+      `grep -rn "inflate\|deflate" src/codegen/builtins/` returns nothing, and it is
+      plan-93-A's scope — so `loadImage` rides the same vendored single-header
+      decision as the font path (`stb_image` beside `stb_truetype`).
 - [ ] Integrate the chosen font rasteriser (stb path); implement Text rendering: shape
       (positioning) + per-`(font,size,codepoint)` glyph raster into the atlas + tinted quads.
-- [ ] Implement `canvas::loadFont` (Font RES resource via B's backend) and `canvas::measureText`
-      → `TextMetrics` (reserved API).
+- [ ] Implement `canvas::loadFont` (the `Font` resource declared above) and
+      `canvas::measureText` → `TextMetrics` (reserved API).
 - [ ] Tests: a text scene renders exact-match on the software oracle (or documented text
       tolerance); `measureText` returns expected metrics; Text renders within tolerance on
       Metal + Vulkan.
 
 Acceptance: Text `DrawItem`s render on all backends (software exact-match/documented-tolerance, GPU
-within tolerance); `measureText` works and its API is shaper-independent.
+within tolerance); `measureText` works and its API is shaper-independent; a `Font`
+loads, is named by a `FontRef` in a `Text` item, and is released by
+`canvas::destroyFont` and by scope-drop; `canvas::loadImage` decodes a real file to
+the same `Image` resource `canvas::createImage` produces.
 Commit: —
 
 ### Phase 2 — Glyph atlas LRU eviction

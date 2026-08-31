@@ -35,9 +35,11 @@ bounds the wait (clamped to `2147483647`). A negative value raises
 `ErrInvalidArgument`. A signal that interrupts the wait re-issues it against the
 remaining time rather than returning early.
 
-Readability includes the peer having closed: a closed peer makes `read` return
-an empty list immediately, which is "would not block". So a `TRUE` here does not
-promise that bytes are available, only that `read` will not wait."#;
+Readability includes the peer having closed: a closed peer makes the following
+`tcp::read` raise `ErrConnectionClosed` immediately, which is "would not block".
+So a `TRUE` here does not promise that bytes are available, only that `read` will
+not wait — and a drain loop still needs the `TRAP` that `tcp::read` documents,
+because polling cannot tell "data arrived" from "the stream ended"."#;
 
 const EX: &str = r#"Wait up to a second for data on one socket:
 

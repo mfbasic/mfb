@@ -15,7 +15,8 @@
     "name": "Mode",
     "members": [
     { "name": "Console" },
-    { "name": "None" }
+    { "name": "None" },
+    { "name": "Canvas" }
     ]
   }
   ],

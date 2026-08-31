@@ -446,6 +446,35 @@ impl LinuxPlan<'_> {
                 );
                 imports
             }
+            // plan-98-D Phase 2: the graphics thread. A smaller set than `thread::`'s
+            // — the render loop has no message queue, no timed wait and no detach.
+            "canvas.startGraphics"
+            | "canvas.signalRedraw"
+            | "canvas.waitForRedraw"
+            | "canvas.frameDone"
+            | "canvas.syncFrame"
+            | "canvas.setSyncMode"
+            | "canvas.surfaceWidth"
+            | "canvas.surfaceHeight" => [
+                "pthread_create",
+                "pthread_attr_init",
+                "pthread_attr_setstacksize",
+                "pthread_join",
+                "pthread_mutex_init",
+                "pthread_mutex_lock",
+                "pthread_mutex_unlock",
+                "pthread_cond_init",
+                "pthread_cond_wait",
+                "pthread_cond_signal",
+                "pthread_cond_broadcast",
+            ]
+            .into_iter()
+            .map(|symbol| PlatformImport {
+                library: self.libpthread().to_string(),
+                symbol: symbol.to_string(),
+                required_by: required_by.to_string(),
+            })
+            .collect(),
             "thread.start"
             | "thread.isRunning"
             | "thread.waitFor"
@@ -551,8 +580,11 @@ impl LinuxPlan<'_> {
                     self.libc_import("dlsym", required_by),
                 ]
             }
+            // `resolve_func` sees only surface member names, so every `os_alias`
+            // code form has to be named here explicitly.
             call if crate::codegen::registry::registry().owning_package(call) == Some("tls")
-                || call == "tls.closeListener" =>
+                || call == "tls.closeListener"
+                || call == "tls.localAddressListener" =>
             {
                 // The TLS backend resolves OpenSSL at load time via dlopen/dlsym;
                 // tls.connect/listen also open the TCP socket themselves, and
@@ -571,7 +603,10 @@ impl LinuxPlan<'_> {
                 // plan-110-D: the endpoint queries reuse the `net` address emitter
                 // (the TLS record keeps the fd in the canonical handle slot), so
                 // they need its syscalls and the numeric-host formatter.
-                if matches!(call, "tls.localAddress" | "tls.remoteAddress") {
+                if matches!(
+                    call,
+                    "tls.localAddress" | "tls.localAddressListener" | "tls.remoteAddress"
+                ) {
                     imports.extend([
                         self.libc_import("getsockname", required_by),
                         self.libc_import("getpeername", required_by),

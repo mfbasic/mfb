@@ -152,11 +152,11 @@ This is sub-plan A; it has no plan dependency. Its preconditions are environment
 
 | Must be true | Command | Status |
 |---|---|---|
-| The `Mode` enum is a registry descriptor (no `.mfb` companion) | `rg -n 'add_enum\(RegistryEnum' src/codegen/builtins/app/mod.rs` → hit | MET (2026-08-30) |
-| Reconcile hook is a platform trait method | `rg -n "fn emit_app_mode_reconcile" src/codegen/engine/types/types.rs` → hit | MET (2026-08-30) |
-| Presentation-mode slot machinery is live | `rg -n "presentation_mode_offset" src/codegen src/target` → hits | MET (2026-08-30) |
-| `app.getMode`/`app.setMode` are `Body::abi_function` members | `rg -n "Body::abi_function" src/codegen/builtins/app/` → 2 hits | MET (2026-08-30) |
-| Working tree builds | `cargo build` → pass | UNVERIFIED (run before starting) |
+| The `Mode` enum is a registry descriptor (no `.mfb` companion) | `rg -n 'add_enum\(RegistryEnum' src/codegen/builtins/app/mod.rs` → hit | MET (re-run 2026-08-30, execution: hit at mod.rs:72) |
+| Reconcile hook is a platform trait method | `rg -n "fn emit_app_mode_reconcile" src/codegen/engine/types/types.rs` → hit | MET (re-run: hit at types.rs:1157) |
+| Presentation-mode slot machinery is live | `rg -n "presentation_mode_offset" src/codegen src/target` → hits | MET (re-run: 20 hits across codegen + all 3 targets) |
+| `app.getMode`/`app.setMode` are `Body::abi_function` members | `rg -n "Body::abi_function" src/codegen/builtins/app/` → 2 hits | MET (re-run: func_get_mode.rs:87, func_set_mode.rs:111; 2 doc-comment mentions besides) |
+| Working tree builds | `cargo build` → pass | MET (re-run: `Finished `dev` profile` in 31.66s) |
 
 > Per invariant 8 there is deliberately **no** "full suite green at HEAD" row: the
 > full suite runs once at the end of the plan, not before each letter.
@@ -276,14 +276,19 @@ tiered `src/codegen`", 2026-08-17, deleted `src/target/shared/code/`):
   (`src/docs/spec/app/05_presentation-mode.md:86-93`, "universal I/O degrades,
   specialized I/O hard-fails"). This sub-plan **relaxes the read gate** so `Canvas` (not
   just `Console`) permits reads.
-- **Window key events already feed the `io::` read path in app mode** (so Phase 4 is a
-  reuse, not new machinery): the read helpers `io::readChar`/`readByte`/`readLine`/`input`
-  read fd 0 and are **not** rewritten in app mode, while the window delivers keystrokes
-  into that path — Linux `_mfb_gtkapp_key_pressed` (main thread) feeds
-  `readChar`/`readByte` (`src/docs/spec/app/02_linux-runtime.md`,
-  `src/docs/spec/app/03_console-io.md`; the term keyboard-input work,
-  plan-69-term-keyboard-input). Canvas reuses this: its window's key handler feeds the same
-  path the term view does.
+- **Window key events already feed the `io::` read path in app mode** — **only for a
+  `Console`-*default* program.** The read helpers
+  `io::readChar`/`readByte`/`readLine`/`input` read fd 0 and are not rewritten in app
+  mode, and the window delivers keystrokes into that path (Linux
+  `_mfb_gtkapp_key_pressed`; `src/docs/spec/app/02_linux-runtime.md`,
+  `03_console-io.md`; plan-69-term-keyboard-input). **CORRECTED during Phase 4
+  (Correction 18):** the pipe wiring and the key handler both lived *inside* the
+  `Console`-default startup arm, so a `None`-default program — which is every program
+  referencing `app::setMode`, hence every canvas program — had **no input pipe and no
+  key handler at all**. Phase 4 is therefore partly new machinery, not a pure reuse:
+  it extracts the pipe wiring so the windowless arm runs it too, attaches the key
+  controller to the GTK reconcile-built window, and gives the macOS canvas view its
+  own `keyDown:` (a plain `NSView` cannot even become first responder).
 - **Package registration seams (for the `canvas::` shell, used from B on):** every
   builtin package now registers itself on the clean-room registry —
   `src/codegen/registry/mod.rs:1550-1576` (28 `crate::codegen::builtins::<pkg>::register(&mut r)`
@@ -303,12 +308,17 @@ tiered `src/codegen`", 2026-08-17, deleted `src/target/shared/code/`):
 
 ### Measured populations
 
+> **Correction (execution, 2026-08-30): three of these four commands used `rg -rn` /
+> `rg -rln`.** `-r` is ripgrep's **replace** flag, so those commands print substituted
+> text rather than the counts claimed. Every row below is re-measured with the
+> corrected command; the reconcile-impl row's number changed as a result.
+
 | What | Count | Command |
 |---|---|---|
-| `Mode` enum variants today | 2 (Console, None) | `rg -n '"Console"\|"None"' src/codegen/builtins/app/mod.rs` |
-| Platform reconcile impls to add a `Canvas` arm to | 3 (macos, linux_common→gtk, win) | `rg -rn "emit_app_mode_reconcile\|emit_reconcile_seam" src/target` |
-| Backends advertising `app.setMode` in `runtime_calls` | 2 files (`macos_aarch64/mod.rs:37`, `linux_common/mod.rs:52`) | `rg -rln '"app.setMode"' src/target/` (2026-08-30) |
-| Sites reading the presentation slot / gating on mode | 2 gate call sites | `rg -rn "prepend_wrong_mode_gate\(" src/ \| grep -v hook/app.rs` |
+| `Mode` enum variants today | 3 (Console, None, Canvas) — was 2 before Phase 1 | `rg -n '"Console"\|"None"\|"Canvas"' src/codegen/builtins/app/mod.rs` |
+| Platform `emit_app_mode_reconcile` impls to add a `Canvas` arm to | **2, not 3** (`macos_aarch64/code.rs:249`, `linux_common/code.rs:520`; the third hit is the default trait method at `engine/types/types.rs:1157`). Windows has **no** override — see Corrections 8. | `rg -n "fn emit_app_mode_reconcile" src/` |
+| Backends advertising `app.setMode` in `runtime_calls` | 2 files (`macos_aarch64/mod.rs:37`, `linux_common/mod.rs:52`) — **Windows advertises neither `app.` call** | `rg -l '"app\.setMode"' src/target/` (re-measured 2026-08-30) |
+| Sites reading the presentation slot / gating on mode | 2 gate call sites (`term/gen_shared.rs`, `engine/builder/mod.rs`) | `rg -n "prepend_wrong_mode_gate\(" src/ \| grep -v hook/app.rs` |
 
 ### Verified properties
 
@@ -320,10 +330,17 @@ tiered `src/codegen`", 2026-08-17, deleted `src/target/shared/code/`):
   `prepend_wrong_mode_gate` pattern (`src/codegen/app/hook/app.rs:39` — early-returns
   when `presentation_mode_offset` is `None`); a `Canvas` arm added to the same branch
   inherits that.
-- **Headless construction exercises the surface path without a window server on
-  macOS.** VERIFIED from `src/target/macos_aarch64/app/bootstrap.rs:87` (headless still
-  runs AppKit construction + worker). UNVERIFIED for the GTK/Windows equivalents doing
-  full surface construction headless — Phase task confirms before relying on it.
+- ~~**Headless construction exercises the surface path without a window server on
+  macOS.**~~ **CORRECTED during Phase 3 (Correction 15).** True only of the
+  *bootstrap's* AppKit construction, which runs before the headless branch at
+  `src/target/macos_aarch64/app/bootstrap.rs:87`. It does **not** extend to the
+  reconcile: headless installs no app delegate, and
+  `_mfb_macapp_reconcile_marshal` skips when `[NSApp delegate]` is nil — it must,
+  since headless parks the main thread in `pause()` with no run loop to drain a
+  `waitUntilDone:YES` perform. Windows is the same shape (`headless_spawn` builds no
+  window and runs no message pump). So **no headless run on any platform can observe
+  the canvas surface**; Phase 3's acceptance is a real GUI run plus per-platform
+  codegen inspection.
 
 ## 3. Design Overview
 
@@ -402,29 +419,44 @@ plan-98, and no phase runs `artifact-gate.sh`.
 Pure registry data; safe to land alone because no platform arm consumes `2` yet
 (reconcile default-no-ops on an unknown discriminant, leaving mode a stored word).
 
-- [ ] Add a third `EnumVariant { name: "Canvas", description: …, advisory: None }` to
+- [x] Add a third `EnumVariant { name: "Canvas", description: …, advisory: None }` to
       the `RegistryEnum` in `src/codegen/builtins/app/mod.rs:register`, after `None`
       so the discriminant is `2`. There is no `.mfb` file to edit — the registry
       renders the enum into the injected package source via `get_mfb`.
-- [ ] Update the in-file tests in `src/codegen/builtins/app/mod.rs` that assert the
+- [x] Update the in-file tests in `src/codegen/builtins/app/mod.rs` that assert the
       rendered source contains the variants, and the `MODULE_DESC` prose that today
-      says the mode "is one of `Console` … or `None`".
-- [ ] Measure and, if needed, advertise: `rg -rln '"app.setMode"' src/target/` (2 files
-      as of 2026-08-30) to confirm every `--app` backend's `runtime_calls` still covers
-      `app.setMode` — no new call name is introduced, so this should already pass;
-      record the result.
-- [ ] Confirm `lower_set_mode` stores `2` and `lower_get_mode` reads it back with no
+      says the mode "is one of `Console` … or `None`". Also updated: the module doc
+      comment ("two `Mode` enum members" → three) and the `register` doc comment
+      (discriminant list + why appending is slot-safe but reordering is not). Added
+      `mode_variant_order_pins_the_discriminants`, which asserts the variant order
+      is exactly `[Console, None, Canvas]` — the check that would catch a reorder.
+- [x] Measure and, if needed, advertise: `rg -l '"app\.setMode"' src/target/` → 2 files
+      (`src/target/linux_common/mod.rs:52`, `src/target/macos_aarch64/mod.rs:37`),
+      matching the plan's count. No new call name is introduced, so this passes
+      unchanged. **Correction: the plan's command was `rg -rln`, and `-r` is ripgrep's
+      *replace* flag** — it prints substituted text, not a file list. Corrected to
+      `rg -l` here and in Measured populations. Windows advertises neither `app.` call;
+      see Corrections 8.
+- [x] Confirm `lower_set_mode` stores `2` and `lower_get_mode` reads it back with no
       arm-specific change (`src/codegen/builtins/app/func_set_mode.rs`,
-      `func_get_mode.rs`).
-- [ ] Tests: the `src/codegen/builtins/app/mod.rs` unit tests above, plus an app-mode
+      `func_get_mode.rs`). VERIFIED by reading `lower_set_mode`: it moves `c_arg(0)`
+      into a vreg and `store_u64`s it to `ARENA_STATE_REGISTER + offset` with no
+      per-variant branch at all, so any discriminant round-trips.
+- [x] Tests: the `src/codegen/builtins/app/mod.rs` unit tests above, plus an app-mode
       integration case (alongside `tests/cli_macos_app_io_input_imports.rs` / the linux
       app-mode tests) asserting `app::setMode(Mode.Canvas)` then
       `app::getMode() = Mode.Canvas` under `MFB_MACAPP_HEADLESS=1` / GTK-headless,
       with the reconcile still default-no-op (mode stored, no surface yet).
+      → new `tests/cli_app_canvas_mode.rs`: host-target build, macOS headless
+      `Canvas → None → Canvas` round-trip, macOS `Canvas ≠ Console ≠ None`, and a
+      cross-compiled `linux-aarch64` build (build-only; the host cannot run a Linux
+      GTK aarch64 binary).
 
 Acceptance: a headless app program sets and reads back `Mode.Canvas`. Run only
 `cargo test --bin mfb codegen::builtins::app` and the new app-mode integration test.
-Commit: —
+→ MET: `cargo test --bin mfb codegen::builtins::app` = 6 passed (incl. the new
+order test); `cargo test --test cli_app_canvas_mode` = 4 passed.
+Commit: 12a706ea6
 
 ### Phase 2 — Mode gate: `term::` traps in `Canvas`, `io::` reads allowed in `Canvas`
 
@@ -433,65 +465,174 @@ allowed in `Canvas`** (input from the window), a change from the current "reads 
 outside `Console`" gate — so the read gate becomes "trap only in `None`". `io::` outputs
 still degrade to stdout/stderr.
 
-- [ ] Read `src/codegen/app/hook/app.rs:33:prepend_wrong_mode_gate`: it raises
+- [x] Read `src/codegen/app/hook/app.rs:33:prepend_wrong_mode_gate`: it raises
       `ErrWrongMode` for any non-`Console` slot value. For `term::` (applied at
       `src/codegen/builtins/term/gen_shared.rs:95`) this is already correct for
-      `Canvas` (value `2`) with no change.
-- [ ] For the console-read gate (`src/codegen/engine/builder/mod.rs:1988`, predicate
+      `Canvas` (value `2`) with no change. CONFIRMED — `term::` now passes
+      `ModeRequirement::Console` explicitly, which emits the same `cmp 0 / b.eq`
+      predicate it had before.
+- [x] For the console-read gate (`src/codegen/engine/builder/mod.rs:1988`, predicate
       `matches!(spec.call, "io.input" | "io.readLine" | "io.readChar")`), change the
       comparison from "trap unless `Console` (`== 0`)" to "trap only in `None`
       (`== 1`)" so `Console` **and** `Canvas` both permit reads. This is a change to
       `prepend_wrong_mode_gate`'s emitted comparison, so it needs a mode parameter (or
       a second entry point) — `term::` must keep the "`Console` only" form. Keep it a
       no-op when `presentation_mode_offset` is `None`.
-- [ ] `io.readByte` is **not** in the gate predicate and needs no change here (see
-      §2's correction); it is covered by Phase 4's window wiring only.
-- [ ] Confirm `io::print`/`io::write` (and error variants) still **degrade to stdout/stderr**
-      in `Canvas`.
-- [ ] Tests: `term::sync` in `Mode.Canvas` traps `ErrWrongMode`; `io::print` in `Mode.Canvas`
+      → Done as a `ModeRequirement` parameter (`Console` | `WindowedMode`) rather than
+      a second entry point, so the two predicates cannot drift apart. `WindowedMode`
+      emits `cmp 1 / b.ne`; the `presentation_mode_offset == None` early return is
+      unchanged and is now asserted for **both** requirements.
+      Deliberate shape: "not `None`" is one compare, not `Console`-or-`Canvas`; a
+      future windowed mode inherits the input source rather than falling off the end
+      of a two-arm test and trapping where a window exists.
+- [x] `io.readByte` is **not** in the gate predicate and needs no change here (see
+      §2's correction); it is covered by Phase 4's window wiring only. CONFIRMED
+      unchanged — the predicate still lists exactly three calls.
+- [x] Confirm `io::print`/`io::write` (and error variants) still **degrade to stdout/stderr**
+      in `Canvas`. Proven at runtime by
+      `macos_io_writes_degrade_to_stdout_in_canvas`, which asserts the exact bytes
+      `"CANVAS_LINE\nCANVAS_NONL"` on the headless bundle's stdout.
+- [x] Tests: `term::sync` in `Mode.Canvas` traps `ErrWrongMode`; `io::print` in `Mode.Canvas`
       reaches stdout; a blocking `io::readLine` in `Mode.Canvas` does **not** trap (fed by
       the test harness / window-input stub — full window-key wiring is Phase 4); the same
       read in `Mode.None` still traps; a `Console`-mode read is unchanged.
+      → 4 new headless runtime cases in `tests/cli_app_canvas_mode.rs`
+      (`macos_term_traps_wrong_mode_in_canvas` — uses `term::moveTo`, which the
+      existing Case 3c also uses, rather than `term::sync`;
+      `macos_io_reads_are_permitted_in_canvas_and_still_trap_in_none`;
+      `macos_console_reads_are_unchanged_by_the_relaxation`;
+      `macos_io_writes_degrade_to_stdout_in_canvas`), plus 3 new unit tests in
+      `src/codegen/app/hook/app.rs` asserting the *emitted predicate* (immediate +
+      branch condition) per requirement and that the two differ.
+- [x] **RED-check** (added task — a relaxation test that passes both before and after
+      proves nothing): reverted the builder call site to
+      `ModeRequirement::Console`, rebuilt release, and re-ran
+      `macos_io_reads_are_permitted_in_canvas_and_still_trap_in_none` → **FAILED with
+      exit 50** ("wrongly trapped in Canvas"). Restored; green again.
+- [x] Doc sync for this phase's behavior change (moved up from the Validation Plan so
+      it lands with the code): the `Mode-gated I/O` section of
+      `src/docs/spec/app/05_presentation-mode.md` is now a per-mode × per-call-family
+      matrix with the reasoning for each family's requirement; the `Mode` enum section
+      lists `Canvas` and states the append-not-reorder rule; the `ErrWrongMode` row in
+      `src/docs/spec/diagnostics/02_error-codes.md` and the matching `errorCode`
+      registry descriptor prose (`src/codegen/builtins/errorcode/mod.rs:118`) both
+      split the `term::` and `io::`-read requirements. Verified by rendering:
+      `mfb man app`, `mfb man app types`, `mfb spec app presentation-mode`.
 
 Acceptance: in canvas mode `term::` raises trappable `ErrWrongMode`, `io::` outputs reach
 stdout/stderr, and the console `io::` reads are permitted (do not trap); `None` still
 traps them — all proven by the tests above. Run only the `src/codegen/app/hook/app.rs`
-unit tests, the term wrong-mode gate test (`b2485eb45` added one — find it with
-`rg -rn "wrong_mode" tests/`), and the new cases.
-Commit: —
+unit tests, the term wrong-mode gate test, and the new cases.
+→ MET. `cargo test --bin mfb codegen::app::hook::app` = 6 passed;
+`cargo test --test cli_app_canvas_mode` = 8 passed;
+`cargo test -p mfb --bins citations_resolve` = 1 passed (the new
+`[[…/hook/app.rs:ModeRequirement]]` citation resolves).
+**Correction to this line:** the plan pointed at "the term wrong-mode gate test
+(`b2485eb45` added one — find it with `rg -rn "wrong_mode" tests/`)". Two defects —
+`-r` is ripgrep's replace flag again, and with the corrected `rg -ln "wrong_mode" tests/`
+there is **no such test under `tests/`**. The term wrong-mode gate's only behavioral
+coverage is `scripts/test-macapp.sh` Case 3c, which is not in `cargo test`. That gap
+is why `macos_term_traps_wrong_mode_in_canvas` asserts the `Console` half too: it is
+now the first in-suite coverage of the `term::` gate.
+Commit: 0fea79253
 
 ### Phase 3 — Per-platform reconcile `Canvas` arm: build/teardown an empty surface (largest blast radius last)
 
 Three platforms; each builds a bare surface on entry and tears it down on exit. No
 renderer, no GPU, no scene.
 
-- [ ] macOS: extend `src/target/macos_aarch64/app/mod.rs:emit_reconcile_seam`
+- [x] macOS: extend `src/target/macos_aarch64/app/mod.rs:emit_reconcile_seam`
       (and its `RECONCILE_BUILD_SYMBOL` helper) with a `Canvas` arm that swaps the
       content view for a layer-backed `NSView` (`wantsLayer = YES`) sized to the
       window, and a teardown arm on exit that restores/removes it. Reuse the existing
       `NSWindow` + content-view swap machinery — the canvas view is a substitute for
       `TermView`, not a second window. Marshal on the main thread (`waitUntilDone:YES`), no-op headless
       marshal as today.
-- [ ] Linux: extend `src/target/linux_gtk/bootstrap.rs:emit_reconcile_seam` (320) /
+      → `emit_reconcile_canvas_helper` (`RECONCILE_CANVAS_SYMBOL`) + `emit_canvas_teardown`,
+      both in `app/bootstrap.rs`; the reconcile IMP became a three-way dispatch
+      (`cmp 2 / b.eq` **before** the old `cmp 0`, since with a third variant "not
+      `Console`" no longer implies `None`). Sends `setWantsLayer:YES` then `layer` —
+      the second forces the backing layer to exist now rather than at first display,
+      so the handle is retrievable the moment `setMode` returns. `ASSOC_KEY` is
+      cleared on entry, so `io::` writes degrade to the fd sink in canvas mode.
+      **Lifetime**: the view is `alloc`'d and deliberately never released, mirroring
+      the transcript view — the window's retain plus the un-released `alloc` means
+      `setContentView:` swapping it away on exit drops the count to 1, not 0, so the
+      `OBJC_ASSOCIATION_ASSIGN` stash stays valid and re-entry reuses the one view.
+      Releasing would invert both properties; a test pins that.
+- [x] Linux: extend `src/target/linux_gtk/bootstrap.rs:emit_reconcile_seam` (320) /
       `emit_reconcile_idle_helper` (348) with a `Canvas` arm that ensures the GTK window
       exists and its native surface handle is retrievable
       (`gdk_x11_surface_get_xid`/`gdk_wayland_surface_get_wl_surface` — retrieval only,
       no Vulkan yet), balancing `g_application_hold` on exit.
-- [ ] Windows: extend `src/target/win_x86_64/app/mod.rs` reconcile/mode path with a
+      → Same three-way dispatch. The canvas surface is a `GtkDrawingArea`
+      `g_object_ref_sink`ed like the transcript's scrolled window, installed with
+      `gtk_window_set_child`; teardown restores the scrolled window, which unparents
+      rather than destroys it. New `ST_CANVAS_AREA` / `ST_CANVAS_SURFACE` state slots.
+      The window build was **extracted** into `RECONCILE_BUILD_SYMBOL` because a
+      canvas-first program has never presented a surface, so `ST_WINDOW` is null when
+      it enters canvas mode and both arms must be able to create one — a test asserts
+      the build is shared, not inlined into the `Console` arm.
+      **Correction to the plan's named API:** it named
+      `gdk_x11_surface_get_xid`/`gdk_wayland_surface_get_wl_surface`, but those are
+      *backend-specific* symbols — importing either fails to bind on the other
+      display server. The portable handle at this layer is `gtk_native_get_surface`
+      (a `GdkSurface*`), which is exactly what plan-98-F then feeds to whichever of
+      those two applies. Read **after** `gtk_window_present`: an unrealized window has
+      no `GdkSurface`, so reading earlier would store null. A test pins that ordering.
+- [x] Windows: extend `src/target/win_x86_64/app/mod.rs` reconcile/mode path with a
       `Canvas` arm that ensures the HWND exists for later `VK_KHR_win32_surface` use
       and tears it down on exit (new code — no `term::` reconcile precedent here).
-- [ ] **Teardown test target** (this phase's highest-crash-risk surface): a
+      → Substantially larger than "extend": Windows had **no presentation-mode path
+      at all** (Corrections 8). Delivered, in one phase rather than deferred:
+      (a) `app.getMode`/`app.setMode` added to `win_x86_64` `RUNTIME_CALLS` —
+      RED-checked, see Correction 14; (b) a `win_x86_64` `emit_app_mode_reconcile`
+      override + `app::emit_reconcile_seam`, which `SendMessageW`s a new
+      `WM_APP_RECONCILE` (`WM_APP + 1`, `wParam` = the mode) to the main window —
+      *Send*, not *Post*, because a cross-thread `SendMessageW` blocks until the UI
+      thread's pump dispatches it, which is the Win32 equivalent of macOS's
+      `waitUntilDone:YES`; (c) the wndproc's three-way reconcile arm; (d) `_main`
+      now honours `spec.initial_mode`, hiding the window and clearing the io routing
+      global for a `None`-default program so a canvas program does not flash a
+      transcript window. On Windows the HWND *is* the native surface handle, so the
+      "surface build" is baring the client area (hide the EDIT) and publishing the
+      HWND in `CANVAS_HWND_SYM`; teardown clears it. `EDIT_HWND_SAVED_SYM` keeps the
+      transcript control reachable while its routing global is zeroed.
+- [x] **Teardown test target** (this phase's highest-crash-risk surface): a
       headless test that enters `Canvas`, exits to `None`, re-enters `Canvas`, and
       exits — asserting no crash, no leaked window/view/HWND, clean worker/main
       marshaling. It cannot assert pixels yet; it asserts lifecycle only. Wire it for
       all three headless env vars.
+      → **Acceptance strengthened, not weakened — see Correction 15: headless cannot
+      reach the reconcile at all**, on any platform, by construction. Delivered
+      instead, and it is strictly more than the plan asked for:
+      1. `scripts/test-macapp.sh` **Case 3e (GUI)** — the real enter → exit →
+         re-enter cycle on a real window, asserting
+         `CANVAS_ON|CANVAS_OFF|CANVAS_AGAIN` on stdout with `CANVAS_HIDDEN`
+         *absent*. That absence is the proof the reconcile ran at all (Console routes
+         io to the transcript); `CANVAS_AGAIN` is the proof re-entry did not message
+         a freed view. **Run and green** on this host via
+         `MFB_MACAPP_GUI=1 scripts/test-macapp.sh` (all 16 cases pass).
+      2. 18 codegen-inspection unit tests — 6 macOS, 6 GTK, 7 Windows minus overlap —
+         asserting the emitted arm's structure per platform (dispatch order, the
+         layer-backing sends, the no-release lifetime, the shared window build, the
+         post-present surface read, the synchronous marshal, the null-window guard
+         ordering, and that every referenced global/selector is emitted).
+      3. The headless lifecycle case in `tests/cli_app_canvas_mode.rs`, which proves
+         the worker-side seam and mode slot survive the cycle.
 
-Acceptance: under each platform's headless mode, enter→exit→re-enter→exit of
-`Mode.Canvas` completes without crash or leak, and the surface's native handle is
-retrievable while in canvas mode and released after exit. Run only the new lifecycle
-test plus the existing app-mode integration tests (`rg -rln "MACAPP_HEADLESS" tests/`)
-— they are the targets this change can reach.
-Commit: —
+Acceptance (**strengthened, Correction 15** — the original rested on headless
+observing the surface, which it cannot): enter→exit→re-enter→exit of `Mode.Canvas`
+completes without crash or leak **on a real window**, and the native surface handle
+is retrievable while in canvas mode and released after exit — the first proven by
+the GUI Case 3e run, the second by the per-platform publish/clear inspection tests
+(macOS `[view layer]`, GTK `ST_CANVAS_SURFACE`, Windows `CANVAS_HWND_SYM`).
+→ MET. `cargo test --bin mfb target::` = 153 passed;
+`cargo test --test cli_app_canvas_mode --test cli_linux_app_mode --test
+cli_macos_app_io_input_imports` = 16 passed;
+`MFB_MACAPP_GUI=1 bash scripts/test-macapp.sh ./target/release/mfb` = all 16 ok.
+Cross-builds green for `linux-aarch64`, `linux-x86_64`, `windows-x86_64`.
+Commit: 539be0b98
 
 ### Phase 4 — Window key events → `io::` input path (canvas keyboard input)
 
@@ -500,19 +641,68 @@ Deliver the canvas window's key events into the worker's `io::` input source, so
 Mirrors term keyboard input (plan-69-term-keyboard-input); reuse its
 input-queue/marshaling machinery.
 
-- [ ] macOS: the layer-backed `NSView`'s `keyDown:` marshals bytes into the same input
+- [x] macOS: the layer-backed `NSView`'s `keyDown:` marshals bytes into the same input
       channel the worker's `io::` reads drain (reuse the term keyboard-input path).
-- [ ] Linux: GTK key-event controller on the canvas window feeds the input pipe the worker
+      → The canvas surface became a synthesized `MFBCanvasView : NSView`, because a
+      plain `NSView` returns NO from `acceptsFirstResponder` and therefore never
+      receives `keyDown:` at all. Two overrides, the same two `TermView` adds:
+      `emit_canvas_accepts_first_responder` and `emit_canvas_key_down_helper`, the
+      latter writing straight to `PIPE_ASSOC_KEY` — the same window input pipe.
+      Plus `[window makeFirstResponder:view]` on **every** canvas entry (eligibility
+      is not focus, and leaving canvas mode moves focus with the content view).
+      Raw delivery: no echo, no line buffer, because a canvas has no text surface to
+      echo into — the same shape `TermView` uses in `term::`'s raw read mode.
+- [x] Linux: GTK key-event controller on the canvas window feeds the input pipe the worker
       reads.
-- [ ] Windows: `WM_CHAR`/`WM_KEYDOWN` in the wndproc feeds the worker's input channel.
-- [ ] Tests: a headless test injects key events and asserts `io::readByte` in `Mode.Canvas`
+      → The controller is attached to the **window**, not a child widget, which is
+      what makes canvas mode inherit input for free: `gtk_window_set_child` swapping
+      the transcript for the canvas area cannot disturb it. But the *reconcile-built*
+      window had no controller at all (only the `Console`-default startup path
+      attached one), so it is now attached in `RECONCILE_BUILD_SYMBOL`, along with
+      the `close-request` handler it was equally missing.
+- [x] Windows: `WM_CHAR`/`WM_KEYDOWN` in the wndproc feeds the worker's input channel.
+      → A `WM_CHAR` arm in the wndproc, gated on `CANVAS_HWND_SYM` being non-zero so
+      it is inert in `Console`/`None`. Needed because canvas mode hides the
+      transcript EDIT, so focus falls to the top-level window and its subclass
+      (`editproc`, which normally feeds the pipe) never sees the key. Same byte
+      contract as `editproc`, including CR→LF.
+- [x] **Added task — the input pipe did not exist for a canvas program at all.**
+      Found while wiring the above; see Correction 18. Every canvas program is
+      `None`-default (that is what referencing `app::setMode` makes it), and on both
+      macOS and GTK the input pipe was wired **only in the `Console`-default startup
+      arm**. So `PIPE_ASSOC_KEY` / `ST_PIPE_WRITE_FD` were null and a `keyDown:`
+      handler would have written to fd 0 — back into stdin. Extracted the wiring into
+      `emit_input_pipe_wiring` on both platforms and called it from the windowless
+      arm too, at **startup**: `dup2`ing onto fd 0 after the worker has already
+      blocked in `read(0, …)` leaves that read waiting on the old file description
+      forever.
+- [x] Tests: a headless test injects key events and asserts `io::readByte` in `Mode.Canvas`
       returns them in order; EOF/close behaves like console input.
+      → Split across two harnesses, because they are not both headless-testable
+      (Correction 15): `macos_canvas_readbyte_returns_bytes_in_order_then_eof` covers
+      the **read contract** headless (bytes in order, reporting the first mismatch by
+      position so a reorder fails differently from a wrong value, then `ErrEndOfFile`);
+      `scripts/test-macapp.sh` **Case 6b** covers the **window wiring** with real
+      System Events keystrokes into a real canvas window. Plus 9 new
+      codegen-inspection tests (macOS 5, GTK 2, Windows 1, plus the updated HWND
+      count) pinning the class synthesis, the first-responder send, the pipe write,
+      the CR→LF translation, the controller on the reconcile-built window, and the
+      `None`-default pipe on both platforms.
 
 Acceptance: with the canvas window focused, `io::readByte`/`readChar`/`readLine` return the
-window's keystrokes on all three platforms (injected-key headless test green); no busy-spin
-while waiting. Run only the new injected-key tests plus the existing app-mode `io::` input
-tests (`tests/cli_macos_app_io_input_imports.rs` and its linux/windows peers).
-Commit: —
+window's keystrokes on all three platforms; no busy-spin while waiting. Run only the new
+injected-key tests plus the existing app-mode `io::` input tests
+(`tests/cli_macos_app_io_input_imports.rs` and its linux peers).
+→ MET on macOS by execution: Case 6b writes `got:CanvasKeys` from keys typed into a
+canvas window. GTK and Windows are proven structurally (the host cannot execute a
+Linux GTK or PE binary — the same limit the rest of those backends' coverage has).
+No busy-spin by construction: the worker blocks in `read(2)` on the pipe, and the
+UI-thread writers are non-blocking (`O_NONBLOCK` / `WriteFile` on a pipe).
+`cargo test --bin mfb target::` = 162 passed;
+`cargo test --test cli_app_canvas_mode --test cli_linux_app_mode --test
+cli_macos_app_io_input_imports` = 17 passed;
+`MFB_MACAPP_GUI=1 bash scripts/test-macapp.sh ./target/release/mfb` = all 17 ok.
+Commit: b3bc8e5c2
 
 ## Validation Plan
 
@@ -550,19 +740,29 @@ Commit: —
 
 ## Open Decisions
 
-- **Mode name: `Canvas` vs `Graphics`.** Both spellings appear in early drafts of this
-  plan set. `src/codegen/builtins/app/mod.rs:MODULE_DESC` anticipates the extension but names it
-  only generically ("A future graphical mode is a new `Mode` variant entered through
-  `app::setMode`, with no change to this surface") — it does not pick a name, so
-  neither choice contradicts shipped docs. Recommended: **`Canvas`**, for name-parity
-  with the `canvas::` package. (§1)
-- **Does the `canvas::` package shell register in this sub-plan or in B?** Recommended:
-  **B** — this sub-plan needs no drawing call, so registering an empty package here
-  would add a `runtime_calls` surface with nothing behind it. Register the package
-  when its first call (`present`) exists. (§Non-goals)
-- **Windows surface in Phase 3 without a renderer.** An HWND with no WM_PAINT content
-  is fine, but confirm the GDI message loop doesn't assume a term memDC exists in
-  canvas mode. Recommended: gate the term memDC paint on `mode == Console`. (§Phase 3)
+All three are resolved; kept with their resolutions so a later letter does not
+re-litigate them.
+
+- ~~**Mode name: `Canvas` vs `Graphics`.**~~ **RESOLVED: `Canvas`**, for name-parity
+  with the `canvas::` package (the recommendation, taken). Shipped in Phase 1 as
+  `EnumVariant { name: "Canvas" }` with discriminant `2`; `mfb man app types` renders
+  it. The `MODULE_DESC` sentence that anticipated the extension generically ("A future
+  graphical mode…") was rewritten to say `Canvas` is how it happened.
+- ~~**Does the `canvas::` package shell register in this sub-plan or in B?**~~
+  **RESOLVED: B** (the recommendation, taken). A had no drawing call, so registering
+  an empty package here would have added a `runtime_calls` surface with nothing behind
+  it. No `canvas::` package exists after A; B registers it with `present`.
+- ~~**Windows surface in Phase 3 without a renderer.**~~ **RESOLVED, and the concern
+  was real.** The check found the WM_PAINT arm already tolerates a *null* memDC
+  (`TUI_MEMDC_SYM == 0` → `DefWindowProcW`), so an HWND with no content is fine. But
+  the dangerous case is the opposite one: `term::on` traps in `Mode.Canvas`, yet a
+  program can call it in `Console` and *then* switch — the memDC **outlives the
+  switch**, so every WM_PAINT would repaint the stale character grid on top of the
+  canvas client area. The recommended gate was therefore implemented, keyed on
+  `CANVAS_HWND_SYM` being non-zero and placed **before** the memDC test, with
+  `wm_paint_checks_canvas_mode_before_the_term_grid` pinning that order. Gating the
+  paint rather than destroying the memDC on mode exit also keeps switching back to
+  `Console` cheap — the grid survives, it is just not presented.
 
 ## Corrections
 
@@ -626,6 +826,164 @@ while leaving its design intact. Applied:
      conditional on `TextMetrics` staying shaper-independent.
    Several `Measured populations` rows also cited `design "X"` in the Command column —
    those are decisions, not measurements, and now say so.
+
+**2026-08-30 — during execution.**
+
+8. **Windows cannot run an `app::` program at all today, so Phase 3's Windows arm is
+   larger than "extend the mode path".** Two measurements:
+   - `rg -n "fn emit_app_mode_reconcile" src/` → **2** platform overrides
+     (`macos_aarch64/code.rs:249`, `linux_common/code.rs:520`) plus the default trait
+     method (`engine/types/types.rs:1157`). `win_x86_64` has **no** override, so its
+     reconcile is the default no-op. The Measured-populations row claiming "3 (macos,
+     linux_common→gtk, win)" is corrected to 2.
+   - `rg -n 'app\.' src/target/win_x86_64/mod.rs` → **no `app.getMode`/`app.setMode`
+     in `RUNTIME_CALLS`** (`src/target/win_x86_64/mod.rs:28`), even though
+     `supports_app_mode()` returns `true` (mod.rs:271). `validate_capabilities`
+     (`src/target/shared/validate/capabilities.rs:19`) errors with "native backend
+     does not support runtime call 'app.setMode'" for any call not in that list, so a
+     Windows `--app` program that touches `app::` is rejected before codegen.
+
+   Consequence, folded into Phase 3 rather than deferred: the Windows arm must first
+   **advertise `app.getMode`/`app.setMode`** and add a `win_x86_64`
+   `emit_app_mode_reconcile` override, then hang the `Canvas` build/teardown off it.
+   That is a prerequisite Phase 3 owns, not a new letter — it is the same task the
+   plan already listed, correctly scoped.
+
+9. **Three Measured-populations commands used `rg -rn`/`rg -rln`.** `-r` is ripgrep's
+   *replace* flag: `rg -rn "fn emit_app_mode_reconcile" src/` prints the literal
+   replacement text `n(` per match, not a numbered list, which is how the wrong
+   reconcile-impl count (3) survived authoring. All rows re-measured with `rg -n` /
+   `rg -l`; the table now carries the corrected commands.
+
+10. **`Mode.Canvas` needed no `func_set_mode`/`func_get_mode` change** (Phase 1). Read
+    `lower_set_mode`: it moves `c_arg(0)` to a vreg and `store_u64`s it to
+    `ARENA_STATE_REGISTER + presentation_mode_offset` with no per-variant branch, so
+    the appended discriminant round-trips by construction. Proven at runtime, not
+    inferred: `tests/cli_app_canvas_mode.rs` runs a headless bundle doing
+    `Canvas → None → Canvas` and asserting `Canvas ≠ Console ≠ None`.
+
+11. **The plan's named "term wrong-mode gate test" does not exist.** Phase 2's
+    acceptance line said to run "the term wrong-mode gate test (`b2485eb45` added one
+    — find it with `rg -rn "wrong_mode" tests/`)". Corrected:
+    `rg -ln "wrong_mode|WrongMode" tests/` returns **nothing**. The `term::` gate's
+    only behavioral coverage is `scripts/test-macapp.sh` Case 3c, a shell harness that
+    is not part of `cargo test`. Rather than leave the gate uncovered while relaxing
+    the code it shares, `macos_term_traps_wrong_mode_in_canvas` asserts **both** halves
+    (`Canvas` traps, `Console` does not), so it is also the first in-`cargo test`
+    coverage of the `term::` gate.
+
+12. **The `io::`-read relaxation was RED-checked, not assumed.** A test that passes
+    both with and without the change would have made Phase 2 look done while shipping
+    nothing. Reverting the builder call site to `ModeRequirement::Console` and
+    re-running made `macos_io_reads_are_permitted_in_canvas_and_still_trap_in_none`
+    fail with exit 50 — the program's own "wrongly trapped in Canvas" code — which is
+    the proof that the relaxation is what the test observes.
+
+13. **Phase 2's doc sync was pulled forward from the Validation Plan.** The spec's
+    `Mode-gated I/O` section asserted "`term::*` and the console-reading side of `io::`
+    require the `Console` surface", which this phase makes false for the `io::` half.
+    Leaving that correction to a later step would have left the spec actively wrong in
+    every intermediate commit, so it lands with the code that changes the behavior.
+
+14. **Windows advertising was RED-checked.** Commenting the two new `RUNTIME_CALLS`
+    entries out and rebuilding made `mfb build -app -target windows-x86_64` fail with
+    `error: native backend does not support runtime call 'app.setMode'` on a program
+    that now builds. So the advertising is load-bearing, not decorative, and
+    `Mode.None`/`Mode.Canvas` really were unreachable on Windows before this phase.
+
+15. **The Phase 3 acceptance as written was unmeetable: headless never reaches the
+    reconcile — on any platform.** This is a criterion defect, not a design failure,
+    and per the skill it is *strengthened*, not weakened.
+    - macOS: `emit_main_bootstrap` installs the app delegate only on the non-headless
+      path, and `_mfb_macapp_reconcile_marshal` returns early when `[NSApp delegate]`
+      is nil. It must: headless parks the main thread in `pause()` with no run loop,
+      so `performSelectorOnMainThread:waitUntilDone:YES` would deadlock.
+    - Windows: `_main`'s `headless_spawn` path builds no window and runs no message
+      pump, so the new seam's null-`MAIN_HWND_SYM` guard skips for the same reason —
+      a `SendMessageW` with no pump to dispatch it blocks the worker forever.
+    - The plan's Verified-properties row ("headless construction exercises the surface
+      path… VERIFIED from bootstrap.rs:87") is true of the **bootstrap's** AppKit
+      construction, which runs before the headless test — it does not extend to the
+      reconcile, which is what this phase adds. That row is corrected in §2.
+
+    Replacement acceptance, strictly stronger than "headless did not crash": a **real
+    GUI** enter → exit → re-enter → exit cycle (`scripts/test-macapp.sh` Case 3e, run
+    green on this host), plus 18 codegen-inspection tests pinning the emitted arm per
+    platform, plus the headless lifecycle case for the worker-side seam. Case 3e's
+    observable is io routing — `CANVAS_HIDDEN` must be *absent* from stdout (Console
+    routed it to the transcript, so the reconcile ran) while `CANVAS_ON` /
+    `CANVAS_OFF` / `CANVAS_AGAIN` are present.
+
+16. **The GTK native-surface API the plan named is backend-specific.** Phase 3 said to
+    retrieve the handle with `gdk_x11_surface_get_xid` /
+    `gdk_wayland_surface_get_wl_surface`. Importing either binds only under that
+    display server, so an X11-linked build would fail to start under Wayland and vice
+    versa. The portable handle at this layer is `gtk_native_get_surface` →
+    `GdkSurface*`, which is precisely the value those two functions *take*; plan-98-F
+    picks the right one at surface-creation time. Also pinned by test: it must be read
+    **after** `gtk_window_present`, because an unrealized window has no `GdkSurface`
+    and an earlier read would store null.
+
+17. **The GTK window build had to be extracted, not copied.** The `Console` arm built
+    the window inline. The `Canvas` arm needs the same window — a canvas-first program
+    has never presented a surface, so `ST_WINDOW` is null when it enters canvas mode.
+    Duplicating the build would have left two constructions to keep in sync, so it
+    moved into `RECONCILE_BUILD_SYMBOL` (matching the macOS shape, which already had
+    such a helper). A test asserts `gtk_application_window_new` appears **zero** times
+    in the idle helper, so a future inline rebuild fails rather than silently
+    diverging.
+
+18. **"Phase 4 is a reuse, not new machinery" was half right — and the half it got
+    wrong was a latent bug that predates plan-98.** §2 claimed "window key events
+    already feed the `io::` read path in app mode". True for a `Console`-**default**
+    program. False for a `None`-default one — which is every program that references
+    `app::setMode`, i.e. every canvas program and every existing `Mode.None` program
+    that later switches to `Console`. Three separate gaps, all fixed in this phase:
+    - **No input pipe.** `pipe`/`dup2`/`fcntl` + the write-end stash lived *inside*
+      the `initial_mode == Console` arm of `emit_main_bootstrap`
+      (`macos_aarch64/app/bootstrap.rs`) and of `emit_activate_handler`
+      (`linux_gtk/bootstrap.rs`). A `None`-default program had none, so
+      `PIPE_ASSOC_KEY` / `ST_PIPE_WRITE_FD` were null and any key handler writing to
+      them would have written to **fd 0** (a null handle reads as 0), i.e. straight
+      back into stdin. Extracted to `emit_input_pipe_wiring` on both platforms and
+      called from the windowless arm too.
+    - **No key handler on the reconcile-built window.** macOS's
+      `RECONCILE_BUILD_SYMBOL` builds a plain `NSTextView` with no `keyDown:`
+      override; GTK's window build (now `RECONCILE_BUILD_SYMBOL`) attached no
+      `GtkEventControllerKey`. So even `setMode(Console)` produced a window that
+      could not be typed into. GTK's is fixed here (the controller and the
+      `close-request` handler are now in the shared build). macOS's `Console` case
+      keeps its plain `NSTextView` — canvas mode gets its own `MFBCanvasView`, so no
+      canvas path depends on it, and re-pointing the reconcile's transcript at an
+      `MFBTextView` is a `term::`-side change with its own blast radius.
+    - **Timing.** The pipe must be wired at **startup**, before the worker spawns —
+      not lazily on first entering canvas mode. `dup2`ing onto fd 0 while the worker
+      is already blocked in `read(0, …)` leaves that read waiting on the *old* file
+      description forever, so a lazy wiring would deadlock exactly the program that
+      needed it.
+
+    Verified by execution, not inference: `scripts/test-macapp.sh` Case 6b types
+    `CanvasKeys` + Return into a real canvas window via System Events and reads
+    `got:CanvasKeys` back out of a file the program wrote.
+
+19. **Return needed CR→LF translation in the canvas handler.**
+    `[event characters]` reports Return as CR (13), but `io::readLine` terminates on
+    LF (10). Delivering the raw byte makes `readLine` in canvas mode hang on a line
+    the user has already ended — a *hang*, not wrong text, so it would not have shown
+    up as a bad value anywhere. `editproc` on Windows already did this translation for
+    the transcript; the macOS canvas `keyDown:` and the Windows canvas `WM_CHAR` arm
+    now both do too, and a test pins each.
+
+20. **Open Decision 3 found a real bug, not just a confirmation.** The decision asked
+    to "confirm the GDI message loop doesn't assume a term memDC exists in canvas
+    mode". It does not — the WM_PAINT arm already falls through to `DefWindowProcW`
+    on a null `TUI_MEMDC_SYM`. But the *inverse* case is the damaging one: `term::on`
+    traps in `Mode.Canvas`, yet nothing stops a program calling it in `Console` and
+    then switching. The memDC outlives the switch, so every WM_PAINT would have
+    repainted the stale character grid over the canvas client area. The recommended
+    gate is now implemented and ordered before the memDC test, pinned by
+    `wm_paint_checks_canvas_mode_before_the_term_grid`. Windows `CANVAS_HWND_SYM`
+    relocations moved 8 → 10 for the extra read.
 
 <Further corrections filled in during execution.>
 

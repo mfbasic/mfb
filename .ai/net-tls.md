@@ -42,6 +42,19 @@ The convention says a deadline raises `ErrTimeout` (77050008). Left alone, each 
 
 If you add a bounded operation to any backend, classify the expiry explicitly — the natural error path will otherwise swallow it as a transport failure and a caller cannot tell a slow peer from a broken session.
 
+## A macOS TLS `Listener` has no descriptor, and its whole address surface is one port
+
+The pattern above repeats for endpoint queries, but harder. `tls::localAddress`/`remoteAddress` over a **`Socket`** reuse `net`'s `getsockname`/`getpeername` emitter on Linux and Windows, and macOS substitutes `nw_connection_copy_current_path` → `nw_path_copy_effective_{local,remote}_endpoint` → `nw_endpoint_get_address`, which still yields a `sockaddr` and so still feeds the shared `Address` builder.
+
+A **`Listener`** has no such escape. Its handle slot holds an `nw_listener`, and Network.framework's entire listener API (checked against `Network.framework/Headers/listener.h`) exposes exactly one address accessor: `nw_listener_get_port` — a `uint16_t` in **host** byte order, and no address at all. There is no `nw_listener_copy_parameters` and no `nw_listener_copy_endpoint`, so the bound address cannot be recovered from the listener after the fact.
+
+So `tls::listen` parks the host C string it already built for `nw_endpoint_create_host` in a listener-record tail slot (`REC_LHOST` = 48), and `tls::localAddress(listener)` pairs it with `nw_listener_get_port`. Consequences to know before touching this:
+
+- **The stored pointer is borrowed, never freed.** It is either an arena copy of the caller's host or the static `_mfb_tls_anyhost` (`"0.0.0.0"`), both valid for the life of the process. Do not add a release for it, and do not switch it to a retained `nw_endpoint` — that would need a matching `nw_release` in the listener close path for no gain.
+- **macOS reports the host as *bound*, not as *resolved*.** `tls::listen("localhost", 0, …)` reports `localhost` where a `getsockname` read-back reports `127.0.0.1`. Numeric hosts — the port-0 case that matters — agree everywhere. This is documented on the member; there is no API that would close it.
+- **`nw_listener_get_port` is listed with the CLIENT symbols on purpose.** The `localAddress` overload split resolves at emission, so the code layer force-emits the listener body wherever `tls.localAddress` appears — including in a client-only module, which would otherwise relocate against a name the server-gated symbol table never wrote. Gating the *synthesis* does not close it either: a module can take a `Listener` parameter without ever calling `listen`.
+- **The port needs a 16-bit store.** `nw_listener_get_port` returns `uint16_t`; the C return's upper bits are undefined, so it goes into a zeroed slot via `store_u16`. Unlike the `sockaddr` path, no byte-swap: it is already host order.
+
 ## There is no `tls::wrap`, and the reason is macOS-specific
 
 Upgrading an established `tcp::Socket` in place needs to adopt its fd. On macOS nothing supported can: Network.framework fixes TLS in `nw_parameters` at creation and cannot graft it onto a live connection; `nw_connection_create_with_connected_socket` is exported but declared in no SDK header and fails `ENETDOWN` for every parameter shape; Secure Transport can adopt an fd but is deprecated and rejects `kTLSProtocol13` (`errSSLIllegalParam`), capping at TLS 1.2. The system LibreSSL (`/usr/lib/libssl.48.dylib`) *can* do it at TLS 1.3 — measured — but ships no headers and the unversioned path deliberately aborts, so it is unsupported. Shipping `wrap` on Linux and Windows alone would let a program compile for five targets and fail at runtime on one, so the member exists nowhere (plan-110-D §C9). Do not reintroduce it on two platforms.

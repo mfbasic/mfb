@@ -3328,6 +3328,33 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         app::emit_app_term_helper(call, symbol, term_state_offset, instructions, relocations)
     }
 
+    fn emit_app_mode_reconcile(
+        &self,
+        symbol: &str,
+        presentation_mode_offset: usize,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // plan-98-A Phase 3: `app::setMode` reconciles the window surface. The
+        // worker reloads the just-stored mode and `SendMessageW`s it to the main
+        // window, so the UI thread (which owns the window) applies it synchronously
+        // — a no-op headless, where there is no window and no message pump.
+        app::emit_reconcile_seam(symbol, presentation_mode_offset, instructions, relocations);
+        Some(Ok(()))
+    }
+
+    fn emit_canvas_blit(
+        &self,
+        symbol: &str,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // plan-98-C Phase 3: copy the frame out of the caller's block and post it to
+        // the window, which paints it from WM_PAINT with SetDIBitsToDevice.
+        app::emit_canvas_blit_seam(symbol, instructions, relocations);
+        Some(Ok(()))
+    }
+
     fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {
         app::app_mode_data_objects(project_name)
     }

@@ -2307,6 +2307,24 @@ impl CodeBuilder<'_> {
                     "tls.write"
                 }
             }
+            // bug-465: `tls::localAddress` spans both handle types, as
+            // `tcp::localAddress` always has. The two cannot share one body —
+            // macOS reads a `Socket`'s address off its connection path and a
+            // `Listener`'s port off `nw_listener_get_port` — so the `Listener`
+            // form routes to its own `tls.localAddressListener` code form.
+            "tls.localAddress" => {
+                if args
+                    .first()
+                    .and_then(|arg| self.static_type_name(arg))
+                    .is_some_and(|type_| {
+                        type_.is_named(crate::codegen::builtins::tls::TLS_LISTENER_TYPE_ID)
+                    })
+                {
+                    crate::codegen::builtins::tls::LOCAL_ADDRESS_LISTENER
+                } else {
+                    "tls.localAddress"
+                }
+            }
             // plan-76-C: `tls::poll(List OF RES tls::Socket)` lowers through the portable
             // `tls.pollList` driver (scans the list via the scalar readiness helper),
             // vs the scalar `tls::poll(tls::Socket) → Boolean`.

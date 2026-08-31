@@ -73,6 +73,15 @@ pub(crate) const TLS_LISTENER_TYPE_ID: &str = "tls.Listener";
 /// code-form alias of the `close` member's OS-seam lowering.
 pub(crate) const CLOSE_LISTENER: &str = "tls.closeListener";
 
+/// The `Listener` overload of `tls::localAddress` (bug-465). A code-form alias,
+/// not a member: `tls::localAddress` stays the single user-facing name over both
+/// handle types and `builder_values` selects this form off the argument's static
+/// type. The overload needs its own body because macOS answers the two handle
+/// types through different Network.framework calls — a `Socket` has a path whose
+/// effective endpoints carry a `sockaddr`, an `nw_listener` has only
+/// `nw_listener_get_port`.
+pub(crate) const LOCAL_ADDRESS_LISTENER: &str = "tls.localAddressListener";
+
 /// The unbounded-timeout sentinel a `Fill`ed trailing `timeoutMs`/`serverName`
 /// injects when omitted (the timeout convention's omit=unbounded rule), shared by
 /// the func-file descriptors.

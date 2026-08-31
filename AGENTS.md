@@ -84,6 +84,10 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
     native lowering, HOF-rewrite tradeoffs).
   * `.ai/resources-packages.md` — the RES resource system, the package/import
     subsystem, and builtin-package authoring seams.
+  * `.ai/canvas-threading.md` — the `Mode.Canvas` three-thread model: arena state is
+    PER-THREAD (so a graphics thread cannot see the worker's published scene), the
+    scene ring, the resize handshake, and the closed-flag texture-free rule. Read it
+    before touching the graphics thread, the ring, or a texture free.
   * `.ai/net-tls.md` — networking, TLS readiness/timeout, repository-client transport security.
   * `.ai/testing-gates.md` — artifact-gate, byte-identity, acceptance golden harness,
     perf-golden and concurrency hazards, citation sweeps.

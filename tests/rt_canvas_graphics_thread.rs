@@ -1,0 +1,217 @@
+//! The canvas render loop runs on its own thread (plan-98-D Phase 2).
+//!
+//! The claims here are about *when and how often* a frame happens, which is
+//! invisible in the pixels — an identical picture results whether it was drawn once
+//! or a hundred times, on the worker or on a graphics thread. `MFB_CANVAS_STATS`
+//! appends one line per rendered frame, so the frame count is observable; and
+//! `MFB_CANVAS_SYNC` makes `present` wait for the frame it asked for, so a test can
+//! assert per-present behaviour without racing the scheduler.
+//!
+//! `.ai/canvas-threading.md` is the protocol these check.
+
+mod common;
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+/// Build a `--app` program and run it headless, returning `(stdout, frame lines)`.
+///
+/// `sync` selects whether `present` waits for its frame. Both modes are exercised:
+/// the deterministic one for per-present claims, the default one for the claim that
+/// a program does not *need* to wait.
+fn run(name: &str, source: &str, sync: bool) -> (String, Vec<String>) {
+    let project = common::temp_project(name, source);
+    let build = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg("-app")
+        .arg(&project)
+        .output()
+        .expect("run mfb build -app");
+    assert!(
+        build.status.success(),
+        "mfb build -app failed:\n{}",
+        String::from_utf8_lossy(&build.stderr),
+    );
+
+    let stats = project.join("stats.txt");
+    let binary = app_binary(&project, name);
+    let mut command = Command::new(&binary);
+    command
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_STATS", &stats);
+    if sync {
+        command.env("MFB_CANVAS_SYNC", "1");
+    }
+    let run = command
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        run.status.success(),
+        "program exited {:?}:\n{}\n{}",
+        run.status.code(),
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr),
+    );
+
+    let lines = std::fs::read_to_string(&stats)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let out = String::from_utf8_lossy(&run.stdout).to_string();
+    let _ = std::fs::remove_dir_all(&project);
+    (out, lines)
+}
+
+fn app_binary(project: &Path, name: &str) -> PathBuf {
+    let bundle = project
+        .join("build")
+        .join(format!("{name}.app"))
+        .join("Contents")
+        .join("MacOS")
+        .join(name);
+    if bundle.exists() {
+        return bundle;
+    }
+    let plain = project.join("build").join(name);
+    if plain.exists() {
+        return plain;
+    }
+    project
+        .join("build")
+        .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
+}
+
+/// A program body, wrapped in the canvas-mode boilerplate.
+fn program(body: &str) -> String {
+    format!(
+        "IMPORT app\nIMPORT canvas\nIMPORT io\n\nSUB main()\n  \
+         app::setMode(Mode.Canvas)\n{body}END SUB\n"
+    )
+}
+
+const ONE_BOX: &str = "  LET box AS DrawItem = Rectangle[x := 10.0, y := 10.0, w := 50.0, \
+                       h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n";
+
+/// A program that presents and returns immediately still gets its frame drawn.
+///
+/// This is the one that matters most, and the one that was broken: the render is
+/// asynchronous now, so `main` returning starts the shutdown while the graphics
+/// thread may not have woken yet. Shutdown must **drain** the pending frame rather
+/// than cancel it — the first version checked "stopping" before "pending" and dropped
+/// the frame, nondeterministically. Run from a shell it drew; run under `cargo test`
+/// it did not.
+///
+/// Deliberately **not** in sync mode: waiting for the frame is exactly what a program
+/// must not have to do.
+#[test]
+fn a_present_then_immediate_return_still_renders() {
+    let (stdout, frames) = run(
+        "canvas_gfx_drain",
+        &program(&format!(
+            "{ONE_BOX}  canvas::present([box])\n  io::print(\"done\")\n"
+        )),
+        false,
+    );
+    assert!(
+        stdout.contains("done"),
+        "the program must run to completion"
+    );
+    assert_eq!(
+        frames.len(),
+        1,
+        "the pending frame must be drained by shutdown, not cancelled: {frames:?}",
+    );
+}
+
+/// A program that never presents starts no graphics thread and draws nothing.
+///
+/// The thread is spawned lazily by the first `present`, so entering canvas mode and
+/// doing nothing costs neither a thread nor a frame. It also proves the shutdown join
+/// is a no-op when nothing was started — otherwise this would hang.
+#[test]
+fn canvas_mode_without_a_present_renders_nothing() {
+    let (stdout, frames) = run(
+        "canvas_gfx_idle",
+        &program("  io::print(\"idle\")\n"),
+        false,
+    );
+    assert!(stdout.contains("idle"));
+    assert!(
+        frames.is_empty(),
+        "no present means no frame and no graphics thread: {frames:?}",
+    );
+}
+
+/// A static scene costs exactly one frame, however long the program lives.
+///
+/// Time is deliberately not a redraw trigger (`.ai/canvas-threading.md` §4), so the
+/// render loop must be a real condition wait rather than a poll. A spinning loop
+/// would show many frames here — and would also burn a core.
+#[test]
+fn a_static_scene_renders_once_and_does_not_spin() {
+    let source = program(&format!(
+        "{ONE_BOX}  canvas::present([box])\n  \
+         LET deadline AS Integer = datetime::monotonicNanos() + 1000000000\n  \
+         MUT spins AS Integer = 0\n  \
+         WHILE datetime::monotonicNanos() < deadline\n    spins = spins + 1\n  END WHILE\n  \
+         io::print(\"waited\")\n"
+    ))
+    .replace("IMPORT io\n", "IMPORT io\nIMPORT datetime\n");
+    let (stdout, frames) = run("canvas_gfx_static", &source, false);
+    assert!(stdout.contains("waited"));
+    assert_eq!(
+        frames.len(),
+        1,
+        "a scene that never changes must not be redrawn while the program idles: \
+         {frames:?}",
+    );
+}
+
+/// An identical re-present publishes nothing, so it draws nothing.
+///
+/// The frame skip is plan-98-B's, and it has to survive the move to a graphics
+/// thread: `present` only signals when `publishScene` reports it actually published.
+#[test]
+fn an_identical_re_present_draws_no_second_frame() {
+    let (_, frames) = run(
+        "canvas_gfx_skip",
+        &program(&format!(
+            "{ONE_BOX}  canvas::present([box])\n  canvas::present([box])\n  \
+             canvas::present([box])\n  io::print(\"done\")\n"
+        )),
+        true,
+    );
+    assert_eq!(
+        frames.len(),
+        1,
+        "three presents of identical content must publish — and draw — once: \
+         {frames:?}",
+    );
+}
+
+/// In sync mode every present gets its own frame, which is what makes the
+/// per-present assertions elsewhere deterministic.
+///
+/// Without it the frame count is a scheduling detail: presents that arrive between
+/// two frames coalesce by design, and the same three-present program was observed
+/// producing one, two and three frames across runs.
+#[test]
+fn sync_mode_gives_one_frame_per_changed_present() {
+    let body = format!(
+        "{ONE_BOX}  canvas::present([box])\n  \
+         LET two AS DrawItem = Rectangle[x := 80.0, y := 10.0, w := 50.0, h := 50.0, \
+         paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+         canvas::present([box, two])\n  \
+         LET three AS DrawItem = Rectangle[x := 150.0, y := 10.0, w := 50.0, h := 50.0, \
+         paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
+         canvas::present([box, two, three])\n  io::print(\"done\")\n"
+    );
+    let (_, frames) = run("canvas_gfx_sync", &program(&body), true);
+    assert_eq!(
+        frames.len(),
+        3,
+        "sync mode must give each changed present its own frame: {frames:?}",
+    );
+}

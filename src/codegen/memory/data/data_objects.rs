@@ -200,6 +200,62 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     if module.build_mode.is_app() && module_uses_any_call(module, &["app.getMode", "app.setMode"]) {
         push_string_value(&mut values, err_msg("ErrWrongMode"));
     }
+    // plan-98-B: the `canvas::` surface members carry the same `ErrWrongMode` gate
+    // (they require `Mode.Canvas`), and `canvas::present` deep-copies the scene into
+    // the arena, so it can raise `ErrOutOfMemory`. A canvas program need not
+    // reference `app::` by name to reach either — it always does in practice, since
+    // it must `setMode` to get into canvas mode, but keying on the canvas calls
+    // themselves makes the gate's relocation resolve from its own cause.
+    if module_uses_any_call(
+        module,
+        &[
+            "canvas.present",
+            "canvas.presentLayers",
+            "canvas.publishScene",
+            "canvas.publishLayers",
+            "canvas.blitSurface",
+            "canvas.frameDone",
+            "canvas.syncFrame",
+            "canvas.setSyncMode",
+            "canvas.surfaceWidth",
+            "canvas.surfaceHeight",
+            "canvas.startGraphics",
+            "canvas.signalRedraw",
+            "canvas.waitForRedraw",
+            "canvas.newSurface",
+            "canvas.installedItems",
+            "canvas.installedLayers",
+            "canvas.publishHashes",
+            "canvas.installedHashes",
+        ],
+    ) {
+        for value in [err_msg("ErrWrongMode"), err_msg("ErrOutOfMemory")] {
+            push_string_value(&mut values, value);
+        }
+    }
+    // The image members allocate (so they can raise `ErrOutOfMemory`), guard the
+    // resource's closed flag, and validate the RGBA8 pixel count. Keyed on the
+    // members themselves rather than on `canvas.present` so a program that only
+    // manipulates image contents — which needs no scene at all — still gets them.
+    if module_uses_any_call(
+        module,
+        &[
+            "canvas.createImage",
+            "canvas.imageRef",
+            "canvas.getSize",
+            "canvas.getBytes",
+            "canvas.setBytes",
+        ],
+    ) {
+        for value in [
+            err_msg("ErrOutOfMemory"),
+            err_msg("ErrResourceClosed"),
+            err_msg("ErrBadPixelCount"),
+            err_msg("ErrWrongMode"),
+        ] {
+            push_string_value(&mut values, value);
+        }
+    }
     if module_uses_any_call(
         module,
         &[
@@ -405,6 +461,14 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "tls.pollList",
             "tls.close",
             "tls.closeListener",
+            // The endpoint queries raise ErrResourceClosed/ErrNetworkFailed too.
+            // Neither can fire this gate on its own — a handle to ask about only
+            // comes from `connect`/`listen`/`accept`, all listed above — but the
+            // rule this list encodes is "every helper that can raise one of these
+            // is named", and bug-249 is what listing by inference costs.
+            "tls.localAddress",
+            "tls.localAddressListener",
+            "tls.remoteAddress",
         ],
     ) {
         for value in [

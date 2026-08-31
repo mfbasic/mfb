@@ -101,12 +101,22 @@ const REC_CLOSED: usize = RESOURCE_OFFSET_CLOSED;
 const REC_STATE: usize = RESOURCE_OFFSET_STATE;
 const REC_CTX: usize = 32;
 const REC_QUEUE: usize = 40;
+/// Listener-only tail slot (bug-465): the NUL-terminated host the listener was
+/// bound to. `tls::localAddress(listener)` needs a host and a port, and macOS can
+/// supply only the port — a `Listener`'s handle slot holds an `nw_listener`, not a
+/// descriptor, and Network.framework exposes `nw_listener_get_port` but nothing
+/// that answers the bound address. So `tls::listen` parks the C string it already
+/// built for `nw_endpoint_create_host` here. It is either an arena copy of the
+/// caller's host or the static `_mfb_tls_anyhost` (`"0.0.0.0"`), both valid for
+/// the life of the process, so the record borrows it with nothing to release.
+const REC_LHOST: usize = 48;
 const REC_SIZE: &str = RESOURCE_RECORD_SIZE;
 
 const _: () = assert!(REC_CLOSED == RESOURCE_OFFSET_CLOSED);
 const _: () = assert!(REC_STATE == RESOURCE_OFFSET_STATE);
 const _: () = assert!(REC_CONN == RESOURCE_OFFSET_HANDLE);
 const _: () = assert!(REC_QUEUE + 8 <= RESOURCE_RECORD_SIZE_BYTES);
+const _: () = assert!(REC_LHOST + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 
 // The shared block context (arena): semaphore, the captured signal fn, and
 // the slots each block writes before signaling.
@@ -216,6 +226,20 @@ const SYMBOLS: &[&str] = &[
     "nw_path_copy_effective_local_endpoint",
     "nw_path_copy_effective_remote_endpoint",
     "nw_endpoint_get_address",
+    // bug-465: the whole address surface an `nw_listener` exposes — it has no
+    // descriptor for `getsockname`, so `tls::localAddress(listener)` reads the
+    // port from here and the host from `REC_LHOST`.
+    //
+    // Listed with the CLIENT symbols even though only the server path can hold a
+    // listener. The `localAddress` overload split is resolved at emission from
+    // the argument's type, so the code layer force-emits the listener body
+    // whenever `tls.localAddress` is present — including in a client-only module,
+    // which would then relocate against a name the server-gated table had not
+    // written. Gating the *synthesis* instead does not close it: a module can
+    // take a `Listener` as a parameter without ever calling `listen`/`accept`.
+    // One extra C string is the honest price; it is the only server-side symbol
+    // the listener-address body touches.
+    "nw_listener_get_port",
 ];
 
 /// The additional server-side entry points (`tls::listen`/`tls::accept`).
@@ -715,7 +739,7 @@ mod server;
 mod tests;
 mod timeout;
 
-pub(crate) use address::lower_tls_address_macos;
+pub(crate) use address::{lower_tls_address_macos, lower_tls_listener_address_macos};
 pub(crate) use client::{
     lower_tls_close_macos, lower_tls_connect_macos, lower_tls_poll_macos, lower_tls_read_macos,
     lower_tls_write_macos,

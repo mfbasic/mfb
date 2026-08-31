@@ -24,6 +24,11 @@ assigned, rather than guessing one and racing another process for it.
 queues; it defaults to `128`. Connections beyond the backlog are refused or
 dropped by the OS, not queued in the program.
 
+**`tls::listen`'s backlog defaults differently** — to `0`, meaning the host
+default — so a plaintext and a TLS listener written the same way do not get the
+same queue depth. Pass an explicit `backlog` when the depth matters and the code
+must behave identically on both transports (bug-465).
+
 The address is bound with address reuse enabled, so a listener can rebind a port
 whose previous connections are still winding down in the OS rather than failing
 for the couple of minutes that would otherwise take.

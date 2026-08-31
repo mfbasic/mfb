@@ -401,6 +401,255 @@ else
   fi
 fi
 
+# Case 3e (plan-98-A Phase 3, GUI): the Mode.Canvas reconcile arm builds and tears
+# down the canvas surface across a full enter -> exit -> re-enter cycle.
+#
+# This case MUST be GUI: the reconcile IMP is unreachable headless. Headless
+# installs no app delegate, and _mfb_macapp_reconcile_marshal no-ops on a nil
+# delegate (waitUntilDone:YES with no run loop to drain the perform would
+# deadlock), so a headless run observes the mode slot but never the surface.
+#
+# io routing is the observable. Console points the io ASSOC_KEY at the transcript
+# view, so a Console print does NOT reach stdout; entering Canvas installs the
+# layer-backed canvas view and clears that key, so a Canvas print DOES. Hence:
+#
+#   CANVAS_HIDDEN  Console  -> transcript, absent from stdout (the reconcile ran)
+#   CANVAS_ON      Canvas   -> stdout      (the canvas arm ran and cleared the key)
+#   CANVAS_OFF     None     -> stdout      (teardown restored the transcript view)
+#   CANVAS_AGAIN   Canvas   -> stdout      (re-entry reused the stashed view, no crash)
+#
+# CANVAS_AGAIN is the part that would catch a teardown that released the canvas
+# view: re-entry would then message a freed object rather than print.
+proj="$work/canvasmode"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "canvasmode", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT io
+SUB main()
+  app::setMode(Mode.Console)
+  io::print("CANVAS_HIDDEN")
+  io::flush()
+  app::setMode(Mode.Canvas)
+  io::print("CANVAS_ON")
+  io::flush()
+  app::setMode(Mode.None)
+  io::print("CANVAS_OFF")
+  io::flush()
+  app::setMode(Mode.Canvas)
+  io::print("CANVAS_AGAIN")
+  io::flush()
+  WHILE TRUE
+  END WHILE
+END SUB
+MFB
+if ! gui_enabled; then
+  echo "skip: Mode.Canvas reconcile GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app canvasmode"
+else
+  out=$(perl -e '
+    my $pid = open(my $fh, "-|");
+    if ($pid == 0) { exec($ARGV[0]) or exit 127; }
+    local $SIG{ALRM} = sub { kill "KILL", $pid; };
+    alarm 10;
+    my @l; while (my $x = <$fh>) { chomp $x; push @l, $x; last if @l >= 4; }
+    kill "KILL", $pid; waitpid($pid, 0);
+    print join("|", @l);
+  ' "$(bundle "$proj" canvasmode)/Contents/MacOS/canvasmode")
+  if [ "$out" = "CANVAS_ON|CANVAS_OFF|CANVAS_AGAIN" ]; then
+    pass "Mode.Canvas builds, tears down and rebuilds the canvas surface ($out)"
+  else
+    fail "expected CANVAS_ON|CANVAS_OFF|CANVAS_AGAIN, got '$out'"
+  fi
+fi
+
+# Case 3f (plan-98-C Phase 3, GUI): the rendered frame actually reaches the window.
+#
+# This case MUST be GUI *and* must capture the screen: every other check in this
+# plan can be satisfied by a renderer whose output never leaves memory. The
+# headless MFB_CANVAS_DUMP path proves the rasteriser; only a screenshot proves
+# the blit — the CGImage, the main-thread marshal, and the layer contents.
+#
+# The program draws two flat colour bars with no antialiased edge between them and
+# then blocks, so the check is a coordinate lookup rather than an image diff: a
+# capture is scaled by the display's backing factor and composited with the
+# window's own chrome, neither of which the software golden knows about. Solid
+# regions survive both.
+#
+# Requires Screen Recording permission (System Settings > Privacy & Security), the
+# same requirement snap-macos.py documents. Without it macOS silently returns
+# wallpaper, so the script fails loudly rather than passing on a blank image.
+proj="$work/canvasblit"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "canvasblit", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT canvas
+IMPORT io
+SUB main()
+  app::setMode(Mode.Canvas)
+  LET size AS Size = canvas::getSize()
+  LET w AS Float = toFloat(size.width)
+  LET h AS Float = toFloat(size.height)
+  LET left AS DrawItem = Rectangle[x := 0.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(canvas::rgb(255, 0, 0))]
+  LET right AS DrawItem = Rectangle[x := w / 2.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(canvas::rgb(0, 0, 255))]
+  canvas::present([left, right])
+  io::print("BLIT_PRESENTED")
+  io::flush()
+  WHILE TRUE
+  END WHILE
+END SUB
+MFB
+if ! gui_enabled; then
+  echo "skip: canvas blit screenshot GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app canvasblit"
+else
+  shot="$work/canvasblit.png"
+  if ! python3 "$ROOT/scripts/snap-macos.py" \
+       "$(bundle "$proj" canvasblit)" "${shot%.png}" >/dev/null 2>&1; then
+    fail "canvas blit screenshot (grant Screen Recording permission)"
+  else
+    verdict=$(python3 - "$shot" <<'PY'
+import sys
+
+from PIL import Image
+
+image = Image.open(sys.argv[1]).convert("RGB")
+w, h = image.size
+# Sample well inside each half, and below any title bar, so neither window chrome
+# nor the seam between the bars can be mistaken for the fill.
+left = image.getpixel((w // 4, h * 3 // 4))
+right = image.getpixel((w * 3 // 4, h * 3 // 4))
+
+
+def near(got, want, slack=24):
+    return all(abs(a - b) <= slack for a, b in zip(got, want))
+
+
+if near(left, (255, 0, 0)) and near(right, (0, 0, 255)):
+    print("ok")
+else:
+    print(f"left={left} right={right}")
+PY
+)
+    if [ "$verdict" = "ok" ]; then
+      pass "the rendered frame is blitted to the canvas layer (red|blue captured)"
+    else
+      fail "captured window is not the presented frame: $verdict"
+    fi
+  fi
+fi
+
+# Case 3g (plan-98-D Phase 3, GUI): a window resize re-renders at the new size,
+# with zero program involvement.
+#
+# The distinguishing measurement is a **fixed-size** rectangle. The program draws a
+# 100x100 red square at the origin and then blocks forever — it never presents again.
+# The window is resized from 900x640 to 1200x800 by System Events:
+#
+#   * if the surface really resized, the square is still 100 px and now covers a
+#     SMALLER fraction of the window (100/1200 instead of 100/900);
+#   * if the old frame were merely stretched to fill the larger layer — which is what
+#     `CALayer`'s default `contentsGravity` does, and is exactly the failure this must
+#     rule out — the square would cover the SAME fraction.
+#
+# So the check is on the square's right edge as a fraction of the window width, and
+# the two hypotheses are 8.3% versus 11.1% apart. It also proves "repaints with the
+# program blocked", since the program is parked in io::pollInput throughout.
+proj="$work/canvasresize"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "canvasresize", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT canvas
+IMPORT io
+SUB main()
+  app::setMode(Mode.Canvas)
+  LET mark AS DrawItem = Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
+  canvas::present([mark])
+  io::print("RESIZE_READY")
+  io::flush()
+  LET ready AS Boolean = io::pollInput()
+END SUB
+MFB
+if ! gui_enabled; then
+  echo "skip: canvas resize GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app canvasresize"
+else
+  bundle_path=$(bundle "$proj" canvasresize)
+  "$bundle_path/Contents/MacOS/canvasresize" >/dev/null 2>&1 &
+  app_pid=$!
+  sleep 3
+  osascript -e 'tell application "System Events" to tell (first process whose unix id is '"$app_pid"') to set size of front window to {1200, 800}' >/dev/null 2>&1
+  sleep 3
+  shot="$work/canvasresize"
+  if ! python3 "$ROOT/scripts/snap-macos.py" "$bundle_path" "$shot" >/dev/null 2>&1; then
+    kill "$app_pid" 2>/dev/null
+    fail "canvas resize screenshot (grant Screen Recording permission)"
+  else
+    kill "$app_pid" 2>/dev/null
+    verdict=$(python3 - "$shot.png" <<'PY'
+import sys
+
+from PIL import Image
+
+image = Image.open(sys.argv[1]).convert("RGB")
+w, h = image.size
+# Find the red square's bounding box rather than guessing a row: the square is at the
+# canvas origin, which sits below a title bar whose height is not ours to predict.
+right = 0
+found = False
+for y in range(h):
+    for x in range(w):
+        r, g, b = image.getpixel((x, y))
+        if r > 180 and g < 80 and b < 80:
+            found = True
+            right = max(right, x)
+    if found and right > 0 and y > 0:
+        # Once past the square there is no more red; stop as soon as a row after the
+        # first red row has none.
+        row_has_red = any(
+            image.getpixel((x, y))[0] > 180
+            and image.getpixel((x, y))[1] < 80
+            and image.getpixel((x, y))[2] < 80
+            for x in range(0, min(w, right + 40))
+        )
+        if not row_has_red:
+            break
+fraction = (right + 1) / w
+# 100/1200 = 0.083 if the surface resized; 100/900 = 0.111 if the frame was
+# stretched to fill the bigger layer. Midpoint 0.097 separates them.
+if not found:
+    print("no red found anywhere in the capture")
+elif fraction < 0.097:
+    print("ok")
+else:
+    print(f"square covers {fraction:.3f} of the width — the old frame was stretched")
+PY
+)
+    if [ "$verdict" = "ok" ]; then
+      pass "a window resize re-renders at the new surface size"
+    else
+      fail "canvas resize: $verdict"
+    fi
+  fi
+fi
+
 # Case 4 (GUI): keep window open after completion (plan §5.7). Launched WITHOUT
 # the headless gate so the real window + event loop run; a program whose main
 # returns immediately must leave the process alive (window open) rather than
@@ -539,6 +788,54 @@ else
   got=$(cat "$proj/got.txt" 2>/dev/null || true)
   if [ "$got" = "got:WindowKeys" ]; then
     pass "window keypresses delivered to io::readLine"
+  else
+    echo "skip: window keystroke injection unavailable (need Accessibility); got '$got'"
+  fi
+fi
+
+# Case 6b (plan-98-A Phase 4, GUI): the same keystroke round-trip, but in
+# Mode.Canvas. The canvas surface is a synthesized MFBCanvasView whose keyDown:
+# writes straight to the window input pipe — no echo, no line buffering, since a
+# canvas has no text surface to echo into. Two things this proves that Case 6
+# cannot: that the canvas view is made first responder at all (a plain NSView
+# returns NO from acceptsFirstResponder and would receive nothing), and that a
+# None-default program gets an input pipe (before Phase 4 the pipe was wired only
+# in the Console-default startup arm, so PIPE_ASSOC_KEY was nil here).
+#
+# Return arrives as CR from [event characters] but io::readLine terminates on LF,
+# so a missing CR->LF translation shows up as a hang, not as wrong text.
+proj="$work/canvaskeys"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "canvaskeys", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<MFB
+IMPORT app
+IMPORT io
+IMPORT fs
+SUB main()
+  app::setMode(Mode.Canvas)
+  LET name AS String = io::readLine()
+  fs::writeText("$proj/got.txt", "got:" & name)
+END SUB
+MFB
+if ! gui_enabled; then
+  echo "skip: Mode.Canvas keystroke GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app canvaskeys"
+else
+  rm -f "$proj/got.txt"
+  open "$(bundle "$proj" canvaskeys)"
+  sleep 2
+  osascript -e 'tell application "System Events" to keystroke "CanvasKeys"' >/dev/null 2>&1
+  osascript -e 'tell application "System Events" to key code 36' >/dev/null 2>&1
+  sleep 1
+  pkill -KILL canvaskeys >/dev/null 2>&1
+  got=$(cat "$proj/got.txt" 2>/dev/null || true)
+  if [ "$got" = "got:CanvasKeys" ]; then
+    pass "canvas-window keypresses delivered to io::readLine"
   else
     echo "skip: window keystroke injection unavailable (need Accessibility); got '$got'"
   fi

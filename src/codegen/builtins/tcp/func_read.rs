@@ -14,8 +14,14 @@ const INTRO: &str = r#"Read up to a number of bytes from a connected TCP socket.
 const DESC: &str = r#"`tcp::read` reads from a connected `Socket` and returns what arrived as a
 `List OF Byte`. It is a **short read**: it returns as soon as any data is
 available, so the result may be shorter than `maxBytes` and a caller that needs a
-whole message loops until it has assembled one. An empty list means the peer
-closed its end of the connection — the normal end of a stream, not an error.
+whole message loops until it has assembled one. A successful read always returns
+at least one byte.
+
+**The end of the stream is a raise, not an empty list.** When the peer closes its
+end, `tcp::read` raises `ErrConnectionClosed`; there is no return value that
+means "nothing more is coming". So a drain loop ends in a `TRAP`, not on a
+zero-length chunk — see the second example. `tls::read` ends a stream the same
+way, so a protocol written against one transport reads the same on the other.
 
 `maxBytes` bounds the read and must be positive; `0` or negative raises
 `ErrInvalidArgument`.
@@ -50,10 +56,12 @@ FUNC main AS Integer
 END FUNC
 ```
 
-Read until the peer closes. A closed peer **raises** rather than returning an
-empty list, so the end of the stream is caught, not tested for:
+Read until the peer closes. The `TRAP` is what ends the loop — `tcp::read` never
+returns an empty list, so a `len(chunk) = 0` test would loop forever. Checking
+the code keeps a genuine read failure from being counted as a clean end:
 
 ```
+IMPORT errorCode
 IMPORT tcp
 IMPORT net
 IMPORT io
@@ -66,7 +74,10 @@ FUNC drain(RES sock AS tcp::Socket) AS Integer
   END WHILE
   RETURN total
 TRAP(err)
-  RETURN total
+  IF err.code = errorCode::ErrConnectionClosed THEN
+    RETURN total
+  END IF
+  RETURN -1
 END TRAP
 END FUNC
 
@@ -121,7 +132,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ),
                 super::req(
                     "maxBytes",
-                    "The maximum number of bytes to read. Must be positive; the result may be shorter, and is empty when the peer has closed.",
+                    "The maximum number of bytes to read. Must be positive; the result may be shorter, but is never empty — a closed peer raises `ErrConnectionClosed`.",
                     &[],
                     ParameterType::Integer,
                 ),
