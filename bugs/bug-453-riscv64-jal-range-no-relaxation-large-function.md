@@ -70,6 +70,56 @@ repros) demonstrate (1); neither is evidence for (2). Add a fixture whose
 `rv.br` target sits beyond ±1 MiB, or verify (2) explicitly on the built
 artifact.
 
+## Design: relax with a CHAIN of `jal zero` hops, not `auipc`+`jalr`
+
+Worked out 2026-08-31 (coordinator) because the obvious mechanism runs straight
+into a wall this project already hit once, and the way around it is not obvious.
+
+**The wall.** Unlike AArch64, riscv64 has no wider unconditional branch to relax
+*into*: `jal`'s ±1 MiB **is** the widest single-instruction jump. Reaching
+further needs `auipc rd, %pcrel_hi(t)` + `jalr zero, %pcrel_lo(t)(rd)` — and
+`auipc` needs a destination **register**. There is no free one:
+
+* `t0`–`t2` are reserved *lowering* scratch (`select.rs:38-42`) — immediate
+  materialization, overflow detection, the float-compare boolean. A `jal` that
+  needs relaxing can sit **inside** such an expansion (see below), so they are
+  not safely dead at the rewrite site.
+* `gp` (x3) is the plan-99 flag register, holding a compare's left operand across
+  the compare→branch span (`select.rs:49-55`).
+* bug-381 already searched and found nothing else: *"rv64 has no free one
+  (`tp`/x4 faults a dynamically-linked binary via TLS, and shrinking the
+  allocatable pool to free a temporary destabilizes the allocator)"*. Do not
+  re-litigate that; it cost a bug to establish.
+
+**The way around it.** `jal zero, offset` writes **no** link register, so a jump
+is register-free — only its *reach* is limited. Relax by chaining hops instead of
+widening the instruction:
+
+```text
+    jal zero, far            jal zero, L1      ; ≤1 MiB
+                    ==>    L1:
+                             jal zero, far     ; ≤1 MiB from L1
+```
+
+Each hop must land within ±1 MiB of the previous, so place trampolines at ~1 MiB
+intervals and route through as many as the distance needs. A function would have
+to exceed ~2 MiB before a second hop is required, and the reported failure is
+only 1107060 bytes (≈1.06 MiB) past the limit — one intermediate hop covers it.
+This needs **no scratch register, no ABI reasoning, and no TLS hazard**, which is
+what makes it preferable to `auipc`+`jalr` here even though the latter is what a
+linker would emit.
+
+Structure it like the AArch64 twin regardless: a pass over `NativeCodePlan`
+before `encode`, run to a fixpoint (inserting hops shifts later displacements and
+can push a previously in-range `jal` out), and a strict no-op when everything
+already fits, so every existing fixture stays byte-identical.
+
+**Both sites still need it** — see the section above: the standalone `jal` to the
+trap stub *and* the `jal` inside every `rv.br` long form. The second is the one
+that makes the scratch-register route dangerous, since that `jal` is emitted
+mid-expansion where `t0`–`t2` liveness is not obvious; the chained-hop route is
+immune to that question entirely, because it clobbers nothing.
+
 ## Failing Reproduction
 
 ```
