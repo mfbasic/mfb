@@ -20,9 +20,9 @@ and does not close the socket.
 
 `write` returns `Nothing`; there is no short-write result to inspect, because a
 partial write that cannot be completed is reported as an error rather than a
-count. Use `tls::write` to send a `String` as UTF-8 without first converting
-it to a `List OF Byte`, and `tls::read` or `tls::read` to receive the peer's
-reply."#;
+count. Pass a `String` to send its UTF-8 bytes without first converting it to a
+`List OF Byte` — that is the second overload of this same call — and use
+`tls::read` to receive the peer's reply."#;
 const EX: &str = r#"Send a raw request over a connected TLS socket:
 
 ```

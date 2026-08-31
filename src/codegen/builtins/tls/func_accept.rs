@@ -9,9 +9,8 @@ const INTRO: &str = r#"Accept one inbound connection and complete the server-sid
 const DESC: &str = r#"`accept` takes the next inbound TCP connection on a `Listener`, runs the
 **server side** of the TLS handshake using the listener's loaded certificate and
 key, and returns a connected `Socket`. The returned socket is
-indistinguishable from a client `Socket`: read and write it with `tls::read`,
-`tls::read`, `tls::write`, and `tls::write`, and close it with
-`tls::close` or by lexical drop.
+indistinguishable from a client `Socket`: read and write it with `tls::read` and
+`tls::write`, and close it with `tls::close` or by lexical drop.
 
 The `listener` is **borrowed**, not consumed: it stays open for the next
 `accept`, so a server loops on one listener to serve many connections. The
