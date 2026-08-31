@@ -473,14 +473,95 @@ enums, enum members. Functions, constants and resource types already comply.
 
 - [ ] Key `TypeIndex` by `(package, name)` (`src/ir/lower.rs:4486`) and stop injecting builtin package sources into one flat top-level namespace.
 - [ ] Reject a bare imported record/union/enum name from outside its package, with a located diagnostic that prints the qualified spelling — the shape `SYMBOL_UNKNOWN_TYPE` already produces for bare `Socket`.
-- [ ] Decide explicitly, and record here: the requirement applies to type **annotations** as well as expressions. It has to — `AS Response` is exactly as ambiguous as `CASE JsonBool`, and leaving annotations bare keeps the collision that breaks bug-481.
-- [ ] Migrate the corpus: 1139 `.mfb` refs across 128 files, 339 man-example refs across 174 blocks, plus the hand-swept man prose.
-- [ ] Revert plan-108-C's `net::PingStatus` → `PingStatus` edit in `src/codegen/builtins/net/func_ping.rs`.
+- [x] Decide explicitly, and record here: the requirement applies to type **annotations** as well as expressions. It has to — `AS Response` is exactly as ambiguous as `CASE JsonBool`, and leaving annotations bare keeps the collision that breaks bug-481.
+- [x] Migrate the corpus: 1139 `.mfb` refs across 128 files, 339 man-example refs across 174 blocks, plus the hand-swept man prose.
+- [x] Revert plan-108-C's `net::PingStatus` → `PingStatus` edit in `src/codegen/builtins/net/func_ping.rs`.
 - [ ] Close bug-481: `IMPORT http` + `IMPORT process` builds. Re-report a builtin-source name collision against the developer's `IMPORT` lines, never against a line in `builtins/<pkg>.mfb`.
 - [ ] Sync the spec: `13_modules-and-packages.md` must state the two-line rule.
 
+**4a (the corpus migration) is DONE and landed.** It was split out because it is
+golden-neutral for every compiled artifact and therefore safe to land before the
+breaking half: the parser normalizes a package-qualified builtin type back to the
+declared id, so both spellings converge on the same AST. Measured byte-identical
+`.ast`/`.ir`/`.ncode` on `rt-behavior/net/func_net_ping_valid` and on the
+`byte-identity/crypto` `codegen_cover` fixture. 1751 lines across 244 files:
+`examples/` 41, `tests/` 864, man examples 299, man prose 584 (+ 4 hand-qualified
+`Stream` sites). Commits `c42dd2e04`, `c4b3e96c2`.
+
+The one `build.log` exception: a diagnostic ECHOES the offending source line, so
+the ~20 `tests/syntax` fixtures whose errors quote a swept line shift by exactly
+that line — error code, message and line number unchanged.
+
+**4b (the breaking flip) was PROTOTYPED, MEASURED, and DELIBERATELY NOT LANDED.**
+It works, and the design is cheaper than this plan assumed — but its completion
+cost is dominated by a surface this plan does not mention, and landing it half
+done would miscompile silently.
+
+*The design that works* — a deviation from the `(package, name)` bullet above.
+Do not re-key `TypeIndex`. Instead make a value type's DECLARED identity
+package-qualified (`net.PingStatus`), exactly as a resource has been since
+plan-97. The package dimension then lives in the NAME, so no table needs a new
+key: `TypeIndex`, `ir::verify`'s tables and symbol mangling all work untouched,
+because `ParameterType::declared("process.Process")` has been an ordinary value
+in this tree for a whole migration already. Four small changes did it:
+
+1. the parser learns which builtin package an injected file belongs to (from the
+   `<builtin-net>` label; a gated HELPER chunk is labelled by the helper, so it
+   needs the owner passed explicitly);
+2. inside that file a BARE name the package declares is qualified — declaration
+   name, union variant list, and `DOC` header alike — so the companion keeps
+   writing its own types unprefixed, which is what the rule says a local name is;
+3. `qualified_builtin_type` returns the qualified id instead of the bare leaf;
+4. the resolver treats `<pkg>::X` inside `builtins/<pkg>.mfb` as self-reference —
+   the file IS the package, so it neither needs nor can have an `IMPORT` for
+   itself.
+
+With those four, **bug-481's reproduction builds and runs** (`process::Stream`
+and `http::Response` coexist), and **a bare imported type is refused**:
+`AS PingStatus` from a consumer gets a located `SYMBOL_UNKNOWN_TYPE`. The
+prototype is at `/tmp/b480-phase4b.patch` for this session only; it is 281 added
+lines across 8 files and is quick to redo from the list above.
+
+*Why it was not landed.* The remaining cost is **665 hardcoded type-name string
+literals** in `src/codegen`, `src/target` and `src/ir` — measured, not estimated:
+
+| package | sites | | package | sites |
+|---|---|---|---|---|
+| `canvas::Point` | 72 | | `process::Stream` | 31 |
+| `canvas::Color` | 69 | | `http::Stream` | 31 |
+| `datetime::Instant` | 52 | | `json::Json` | 25 |
+| `vector::Float3` | 48 | | `crypto::Hash` | 18 |
+
+None of them is visible to the Rust compiler: they are string comparisons and
+`ParameterType::named("…")` constructions inside codegen bodies, e.g.
+`gen_astrings.rs:189` `if spans.type_.name() != "List OF AttrSpan"`. A missed
+site does not fail to build — it MISCOMPILES or raises at run time. And each one
+needs individual judgement, because many are legitimately internal ids that must
+NOT be renamed: `AttrSpan` is a codegen-internal overlay record constructed
+directly in `gen_astrings.rs`, never reachable from source.
+
+A registry-wide pass covers the descriptor half cleanly (~400
+`ParameterType::named` sites, rewritten in ONE place after the registry is
+assembled, because only the type FIELDS need it — `name` is `&'static str` and
+stays the bare member id `resolve_type` matches). It cannot reach the 665.
+
+Breadth probe of the prototype, compiling every `rt-behavior` and
+`byte-identity` fixture: **482 built, 67 failed**, every failure tracing to a
+bare type name in one of those hardcoded sites.
+
+That is the work this plan's own title predicted, and it is genuinely separate:
+it needs a per-site classification of internal-id vs source-name, a tree-wide
+golden regeneration on top, and a full acceptance run to catch what the compiler
+cannot.
+
+**Open decision the plan already flagged, now needing an answer.** bug-481 is
+broken *today*. The two options remain as written: take the interim rename of
+`process::Stream` (to `StdStream`/`Fd`), which unblocks it in an afternoon but is
+itself a breaking surface change, or wait for the full 4b. This is a
+user-facing-surface decision, so it is recorded here rather than taken.
+
 Acceptance: the compliance table is all ✅; bug-481's repro builds; full suite green.
-Commit: —
+Commit: 4a — `c42dd2e04`, `c4b3e96c2`; 4b — not landed.
 
 ### Phase 5 — validation
 
