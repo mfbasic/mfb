@@ -532,3 +532,60 @@ fn a_fallible_user_override_of_an_infallible_builtin_is_still_covered() {
     let stdout = run(&exe);
     assert_eq!(stdout, "caught override code=90000003\nn=0\n");
 }
+
+/// A nested **conversion** whose handler reads the error, which is the shape
+/// that first broke: `toInt`/`toFloat`/`toFixed`/`toByte`/`toMoney`/`toScalar`
+/// are the plan-64-I "error provably unused" candidates
+/// (`function_lowering.rs:is_trap_discard_conversion`). That analysis found the
+/// paired error local by matching `Bind err = ResultError(result)` only, so the
+/// check chain's `Assign $trap_err = ResultError(result)` was invisible to it:
+/// every chained conversion was mis-classified as error-discardable, codegen
+/// emitted the error tag with NO `Error` block, and the `Assign` then read one
+/// that did not exist -- killing the process. Caught by `tests/acceptance`
+/// (`expectTrap(toInt(toFloat("1e20")), …)`), which `cargo test` does not run
+/// and the execution-free artifact-gate cannot see.
+#[test]
+fn a_nested_conversion_whose_handler_reads_the_error() {
+    let root = unique_root("conversion");
+    let exe = build(
+        &root,
+        concat!(
+            "FUNC main() AS Integer\n",
+            "  LET n = toInt(toFloat(\"1e20\")) TRAP(e)\n",
+            "    io::print(\"caught conversion code=\" & toString(e.code))\n",
+            "    RECOVER 0\n",
+            "  END TRAP\n",
+            "  io::print(\"n=\" & toString(n))\n",
+            "  RETURN 0\n",
+            "END FUNC\n",
+        ),
+    );
+    let stdout = run(&exe);
+    assert_eq!(
+        stdout, "caught conversion code=77050010\nn=0\n",
+        "the overflow must reach the handler with a real Error attached"
+    );
+}
+
+/// The same chain with a handler that does NOT read the error: the plan-64-I
+/// elision is still correct here (nothing observes the `Error`), so this pins
+/// that the fix above did not simply disable the optimisation.
+#[test]
+fn a_nested_conversion_whose_handler_ignores_the_error() {
+    let root = unique_root("conversion_noerr");
+    let exe = build(
+        &root,
+        concat!(
+            "FUNC main() AS Integer\n",
+            "  LET n = toInt(toFloat(\"1e20\")) TRAP(e)\n",
+            "    io::print(\"handled\")\n",
+            "    RECOVER 0\n",
+            "  END TRAP\n",
+            "  io::print(\"n=\" & toString(n))\n",
+            "  RETURN 0\n",
+            "END FUNC\n",
+        ),
+    );
+    let stdout = run(&exe);
+    assert_eq!(stdout, "handled\nn=0\n");
+}

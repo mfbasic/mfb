@@ -5,9 +5,9 @@ Effort: medium (1h–3h)
 Severity: HIGH
 Class: Miscompile (error handling silently defeated; no diagnostic)
 
-Status: Open
-Regression Test: — (a Phase 1 fixture must pin `LET b = outer(inner()) TRAP(e) … END TRAP`
-catching `inner`'s error; today it escapes the handler entirely)
+Status: FIXED (daa6c8d35)
+Regression Test: `tests/rt_inline_trap_nested_call.rs` (17 cases; 14 measured RED
+before the fix), plus the two behavioural fixtures below.
 
 An inline `TRAP` catches a fallible call only when that call is the **outermost**
 node of the trapped expression. A fallible call nested inside another call
@@ -143,6 +143,119 @@ reject an inline `TRAP` whose expression contains a fallible call that is not th
 outermost node, telling the author to bind the inner call first. That converts a
 silent miscompile into a compile error. It must not ship as the final answer —
 `f(g())` is reasonable code and §8.8 says it should work.
+
+## STATUS: FIXED (daa6c8d35)
+
+Reproduced first, exactly as documented: `outer(inner(-1)) TRAP(e)` let
+`9-000-0001` past the handler and exited 255 on macOS aarch64, with the
+mechanism confirmed at `src/ir/lower.rs:lower_inline_trap` (`other => other` left
+a nested `Call` un-checked).
+
+**The fix.** `lower_inline_trap` now lifts every *unconditionally evaluated*
+fallible call in the scrutinee into its own `CallResult` + `If ResultIsOk` check
+ahead of the residual expression, nested in evaluation order so a failure skips
+the rest of the expression. Two deviations from the shape this doc sketched, both
+deliberate:
+
+* **The handler is emitted once**, behind a shared `$trap_failed` flag, instead of
+  cloned into every check's `else` as the sketch showed. Cloning duplicates the
+  handler's own `ir::verify` diagnostics (a type error in the handler would be
+  reported N+1 times) and its lowered temps. The flag reproduces `RECOVER`'s
+  fall-through — recovery assigns the slot and continues to the delivery below —
+  with a single copy.
+* **Calls are lifted up to and including the LAST fallible one, not only the
+  fallible ones.** The lifted binds all run before the residual expression, so a
+  side-effecting infallible call left behind would move *after* a fallible call it
+  used to precede. `hoisting_preserves_left_to_right_argument_order` pins this,
+  and `user-function-default-args-result-valid` — three effectful `mark(…)`
+  arguments including two defaults — proves it end to end: its runtime output is
+  byte-identical while its IR is not.
+
+A scrutinee with nothing to lift lowers byte-for-byte as before, so the common
+single-call shape (and the `ir::verify` shape that reports
+TYPE_INLINE_TRAP_REQUIRES_FALLIBLE / _DEAD_HANDLER on it) is untouched. Two
+related shapes now work that previously did not, and are pinned: an expression
+whose *outermost* node is not a call but which contains one (`inner(x) + 1`), and
+a nested fallible call under a provably-infallible root (`toString(inner(x))`),
+where the handler used to be wrongly flagged dead.
+
+**The fallibility oracle** the doc asked for is `src/ir/fallible.rs`, shared by
+lowering and the shape pass. A call is fallible unless PROVEN otherwise: an
+inline built-in on `builtins::inline_builtin_is_infallible`'s census, or a
+project function a fixpoint proves cannot let an error escape. Everything else is
+fallible — over-approximating only adds a check whose error branch is dead, while
+under-approximating drops the error on the floor. It is deliberately NOT
+`audit/collect/source.rs:fallible_functions`, whose hand-curated per-package
+census is tuned against over-*reporting* to a human; a noisy report is not a
+miscompile.
+
+**The one shape that cannot be desugared** is a fallible call in a
+short-circuited `AND`/`OR` operand: lifting it ahead of the expression would call
+it unconditionally (`AND`/`OR` short-circuiting was verified at runtime, not
+assumed), and keeping it in place while a `RECOVER` must skip the remainder needs
+the whole continuation duplicated per operand. That is now the error
+`2-203-0137 TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`, emitted from `ir::shape`
+(lowering erases the operand structure). This is the doc's sanctioned interim
+behaviour applied to the residual corner only — the general `f(g())` case is
+fixed, not diagnosed.
+
+**Blast radius, measured.** A census of inline `TRAP` scrutinees with a nested
+call across `tests/`, `examples/` and `src/` found 10 sites. The compiler fix
+covers all of them with no source change, including the two the doc named:
+
+* `examples/browser/fetch/src/lib.mfb:141` — now lowers to a three-link check
+  chain (`resolveLocation` → `net::toUrl` → `http::startRead`), so a failed
+  `resolveLocation` runs `CONTINUE FOR` as written. The doc left this "not fixed"
+  pending a behavioural decision about the example; the compiler fix answers it
+  without touching the example.
+* `tests/rt-behavior/tls/tls-poll-rt` — already worked around; unaffected.
+
+**A third instance the doc did not know about**, found by that census:
+`tests/rt-behavior/tcp/tcp-bounded-accept-blocking-rt`, whose committed golden
+RECORDED THE BUG. Its source ends
+
+```basic
+LET quiet = encoding::utf8Decode(tcp::read(conn, 16)) TRAP(e)
+  io::print("explicit read timeout still fires")
+  RETURN 0
+END TRAP
+```
+
+yet `golden/build.log` ended `Error: 7-705-0008 / Operation did not complete
+before its deadline. / [exit 255]` — the timeout escaping its own inline `TRAP`
+and killing the process. Regenerated to `explicit read timeout still fires` /
+`[exit 0]`. The four-question gate (AGENTS.md): written by `008d745c2`
+("plan-110-B: the tcp package, and a pre-existing accept bug it uncovered") to
+prove a bounded-accepted socket still honours an explicit read timeout; nothing
+else reads it; and the proof it was wrong is the golden itself contradicting
+`mfb spec language error-model` §8.8, reproduced independently.
+
+**Attribution.** `scripts/test-accept.sh` driven by a release compiler built from
+the merge-base (`52d60054d`) reproduces BOTH changed goldens with 0 mismatches,
+so both diffs are caused by this change and neither is pre-existing drift. The
+overload case was measured the same way: `outer(len(r))` with a failing user
+`FUNC len(r AS Ring)` exits 255 with an uncaught `9-000-0003` under the
+merge-base compiler.
+
+**Spec.** `src/docs/spec/language/08_error-model.md` §8.4, rule 11 and the §8.8
+desugar sketch now state that an inline `TRAP` covers every fallible call in the
+trapped expression, name the short-circuit exception, and show the nested
+desugar. `2-203-0137` is registered in `src/rules/table.rs` and the
+`diagnostics rule-codes` table.
+
+**One thing deliberately NOT fixed here — filed as bug-469.** An *operator* that
+raises inside the trapped expression (`two(1 / z, 2) TRAP(e)`) is the same class
+of escape but is not a call, so it is outside this doc's scope ("every fallible
+call in the trapped expression") and outside the fix. Reproduced with the fixed
+compiler: it still exits 255 with an uncaught `7-705-0002`, while the same
+division caught at the *root* (`divz(1, 0) TRAP(e)`) works — so the error is
+trappable and the escape is positional. It is not a widening of this fix:
+codegen's `raw_result_capture` is a per-VALUE redirect, and this desugar lifts
+nested calls into separate `Bind` ops that sit outside any capture, so covering
+operators needs a trap-*region* notion the jump-free IR does not have. See
+`bugs/bug-469-inline-trap-misses-raising-operator.md`, which also records that
+bug-467 (SIGPIPE) must be fixed first or the region work will look like it
+failed on socket writes when it had not.
 
 ## Blast radius
 
