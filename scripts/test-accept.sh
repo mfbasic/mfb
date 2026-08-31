@@ -15,62 +15,18 @@ FILTERS=("$@")
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TEST_ROOT="$ROOT/tests"
 
-# Refuse to run concurrently with another test-accept — concurrent runs thrash
-# disk/CPU and clobber each other's actual output, yielding phantom "missing
-# actual" failures on unrelated fixtures.
-#
-# `pgrep -f 'test-accept\.sh'` matches every process whose command line contains
-# this script's path, which includes our OWN transient children: bash keeps the
-# parent `bash scripts/test-accept.sh …` command line on the subshells and
-# pipeline members it fork()s to evaluate a `$(...)`, in the window before they
-# exec(). Excluding only `$$` (the main shell) missed those, so the guard would
-# report a phantom "pid N is running" with no real concurrent run — a false CI
-# abort (deterministic under bash 5.2). Instead, skip every candidate that shares
-# our process group: an invocation's children/subshells inherit its PGID at
-# fork() (so they are excluded even mid-race), while a genuinely separate run is
-# launched into its own session/group. A candidate that has already exited (empty
-# PGID) is not a live run either. The `.sh` anchor still keeps this from matching
-# test-accept-selftest.sh (a distinct, lightweight harness).
-mypgid=$(ps -o pgid= -p "$$" | tr -d ' ')
-other=""
-for pid in $(pgrep -f 'test-accept\.sh'); do
-  [ "$pid" = "$$" ] && continue
-  cpgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
-  [ -z "$cpgid" ] && continue
-  [ "$cpgid" = "$mypgid" ] && continue
-  # bug-455: a candidate only counts if it is EXECUTING the script, not merely
-  # mentioning it. Another session's wrapper shell
-  # (`zsh -c "... scripts/test-accept.sh ..."`) carries the path inside its `-c`
-  # string and matches `pgrep -f` while holding no lock at all -- observed
-  # blocking a run whose rival was still in its `cargo build` stage, and causing
-  # mutual-wait deadlocks between sessions politely queueing on each other's
-  # text. A real invocation has the script as argv[0] (`./scripts/test-accept.sh`) or
-  # argv[1] (`bash scripts/test-accept.sh`); a wrapper has `-c` there instead.
-  cargs=$(ps -o args= -p "$pid" 2>/dev/null)
-  ca0=${cargs%% *}
-  carest=${cargs#* }
-  ca1=${carest%% *}
-  case "$ca0" in
-    */test-accept.sh|test-accept.sh) ;;
-    *)
-      case "$ca1" in
-        */test-accept.sh|test-accept.sh) ;;
-        *) continue ;;
-      esac
-      ;;
-  esac
-  other=$pid
-  break
-done
-if [ -n "$other" ]; then
-  echo "Another test-accept (pid $other) is running." >&2
-# Exit 98, not 1: a refusal is NOT a gate result. Sharing 1 with "found diffs"
-# means a lock collision reads as a golden regression, and the reader spends
-# their time on the wrong question (observed: `cargo test` and a manual
-# `test-accept.sh` refusing each other, and `tests/golden.rs` reporting it
-# as a failed gate in 0.16s).
-  exit 98
-fi
+# bug-470: refuse to run concurrently with EITHER gate script IN THIS TREE.
+# Concurrent runs clobber each other's actual output, yielding phantom "missing
+# actual" failures on unrelated fixtures — and `artifact-gate.sh` rewrites the
+# same dumps, which the old name-keyed guard never noticed. A run in a DIFFERENT
+# worktree owns a different `tests/` and is deliberately NOT refused. The
+# acquire is atomic (`mkdir`), replacing a check-then-act `pgrep` that two
+# simultaneous runs could both pass.
+GATE_LOCK_HOLDER="test-accept.sh"
+GATE_LOCK_TREE="$ROOT"
+# shellcheck source=gate-lock.sh
+. "$(dirname "$0")/gate-lock.sh"
+gate_lock_acquire || exit $?
 
 # Shared codegen-dump artifact table (also sourced by scripts/artifact-gate.sh),
 # so the two drivers cannot drift about which build dumps exist. It defines the
