@@ -33,7 +33,9 @@ References:
 | A retrieves the GTK native surface handle + Windows HWND | plan-98-A Phase 3 acceptance met | MET. Linux: `rg -n gtk_native_get_surface src/target/linux_gtk/` → the `GdkSurface*` is read after `gtk_window_present` and stored at `ST_CANVAS_SURFACE` (`mod.rs:186,193`). Windows: `CANVAS_HWND_SYM` (`win_x86_64/app/mod.rs:150`). A's Correction 16 records why the portable `gtk_native_get_surface` replaced the two backend-specific getters the plan named — **and see Correction 1 below: with the offscreen renderer neither handle is needed.** |
 | Working tree builds | `cargo build` → pass | MET (`Finished \`dev\` profile`) |
 | A SPIR-V compiler is reachable (added — F cannot start without one) | `ssh -p 2228 test@127.0.0.1 'apt-get download glslang-tools && dpkg -x … && ./glslangValidator --version'` | MET. Not installed on the macOS host and not installable without root on the test boxes, but `apt-get download` + `dpkg -x` into a scratch dir works as a plain user — the same trick `.ai/remote_systems.md` documents for qemu-user. `scripts/regen-spirv.sh` automates it. |
-| **A Windows `--app` program runs at all (added — Phase 3 only)** | `mfb build --app --target windows-x86_64 <empty main>`, then run it on box 2230 | **NOT MET.** It faults with `0xC0000005` before `main`'s first statement, on the worker thread, inside `BCryptGenRandom` — **bug-478**, filed with a minidump. Four Windows defects were found and fixed on the way to it (Correction 15); this is the fifth and it is a Windows-platform bug, not a canvas one. Phase 3's acceptance is a *tolerance match against the Windows software render*, so it cannot be measured until an app-mode program runs. Phases 1 and 2 (Linux) are unaffected. |
+| **A Windows `--app` program runs at all (added — Phase 3 only)** | `scripts/test-winapp.sh target/release/mfb` | **MET** (2026-08-31). It used to fault with `0xC0000005` before `main`'s first statement — **bug-478**, now fixed: two Win64 stack defects (a seam calling out with no shadow space, and a thread-entry frame that misaligned the whole program body). The script is new and is the thing whose absence let five Windows defects ship; it reports `rc=0`, `worker reached main`, `readback:written by the worker`. |
+| **A Windows canvas program renders (added — Phase 3 only)** | `mfb build --app --target windows-x86_64 <setMode(Canvas); present([])>`, then run it on box 2230 with `MFB_WINAPP_HEADLESS=1 MFB_CANVAS_SYNC=1` | **NOT MET.** `0xC0000005` on the **graphics** thread, in a UTF-8→UTF-16 marshal dereferencing a pointer of `2` — **bug-479**, filed with the minidump, the faulting instruction and a leading hypothesis. `setMode(Mode.Canvas)` alone is fine; the first `present` dies. Phase 3's acceptance is a tolerance match against the Windows *software* render, so it cannot be measured until this renders. |
+| **The Windows box has a Vulkan ICD (added — Phase 3 only)** | `ssh -p 2230 test@127.0.0.1 'reg query HKLM\SOFTWARE\Khronos\Vulkan\Drivers'` | **NOT MET.** The loader is present (`C:\Windows\System32\vulkan-1.dll`) and no driver is registered, so `vulkanReady` can only ever answer FALSE there. The Linux boxes solved this with `--icd auto`, which downloads Mesa's `lavapipe`; the Windows equivalent means installing a third-party driver binary on the box, which is the repository owner's call rather than this plan's. **Even a complete, correct backend could not be verified until this is answered.** |
 | Vulkan is loadable on the proof surface (added) | `ssh -p 2228 … vulkaninfo --summary` | MET. Ubuntu x86_64 glibc (2228): loader 1.4.309, device `llvmpipe` (`PHYSICAL_DEVICE_TYPE_CPU`). Alpine x86_64 musl (2227): `/usr/lib/libvulkan.so.1` present. Win11 (2230): `vulkan-1.dll` present. The aarch64 GTK boxes (2225, 2226) refuse connections right now, so the Linux proof surface is x86_64. |
 
 > Per A's invariant 8: no "full suite green at HEAD" row and no byte-identity
@@ -292,6 +294,29 @@ Acceptance: canvas renders via Vulkan on Windows matching the software reference
 tolerance; resize + retirement correct; the D race matrix green on the Windows Vulkan path.
 Run only the new Vulkan tolerance-golden tests plus C's software goldens (the reference
 they are compared against).
+
+**BLOCKED on two Prerequisites rows, and the second cannot be satisfied without a
+decision that is not this plan's to make.**
+
+*The software reference does not render.* bug-478 is **fixed** — Windows `--app`
+programs now run, and `scripts/test-winapp.sh` proves it on box 2230 (worker reaches
+`main`, a file written by the worker reads back). But `Mode.Canvas` still faults on the
+graphics thread, filed as **bug-479** with a minidump, the faulting instruction and a
+leading hypothesis whose obvious fix is measured to regress app mode. Phase 3's
+acceptance is a comparison against the Windows software render, so it cannot begin
+until that renders.
+
+*The box has no Vulkan driver.* Box 2230 has the loader
+(`C:\Windows\System32\vulkan-1.dll`) but no ICD — `reg query
+HKLM\SOFTWARE\Khronos\Vulkan\Drivers` returns "unable to find the specified registry
+key". So even a complete and correct Windows Vulkan backend could not be *verified*
+there. The Linux boxes solved the same problem with `--icd auto`, which downloads Mesa's
+`lavapipe` from the Alpine mirror; the Windows equivalent means fetching a third-party
+driver binary onto the box, and that is an install decision for the repository's owner
+rather than something to do unasked. **Recorded here, with its check command, rather
+than waived.**
+
+The original blocking note follows, for the history.
 
 **BLOCKED on the Prerequisites row added above (bug-478).** The acceptance is a
 comparison against the Windows *software* render, and no `--app` program reaches its
