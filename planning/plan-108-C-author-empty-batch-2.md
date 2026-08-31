@@ -277,8 +277,23 @@ here lands `general`, the tree-wide desc+example count is complete.
       "pages with neither Description nor Examples: 42" tree-wide at A's
       kickoff, and those 42 are exactly general 18 + testing 12 + thread
       12, all of which are owned by a phase. There is no residue.
-- [ ] Verify: census shows **0 pages without desc+example tree-wide**
-      across all 29 censusable packages.
+- [x] Verify: census shows **0 pages without desc+example tree-wide**
+      across all 29 censusable packages. — **MET**, `./scripts/man-census.sh`:
+
+      ```
+      TOTAL            489    489    489      489     616/807
+      pages with neither Description nor Examples: 0
+      ```
+
+      **Every one of the 489 function pages now carries an intro, a
+      description and an example.** That is plan-108's authoring half
+      complete: A authored `thread`, B authored `testing`, C authored
+      `general`, and nothing else was ever empty.
+
+      What remains tree-wide is **191 missing parameter descriptions**
+      (807 − 616), concentrated in `datetime` 73, `collections` 52,
+      `vector` 38 and `math` 28 — all in D's and this letter's package
+      lists, and all now named as phase tasks.
 
 Acceptance: census-wide authoring complete — every function page carries
 desc+example (denominator per A's Phase 1 census, which covers tcp/udp;

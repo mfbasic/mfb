@@ -166,6 +166,15 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("two vectors of the same type"),
         internal_only: false,
-        implementations: super::implementations("distance", super::Shape::BinaryScalar, &[], body),
+        implementations: super::implementations(
+            "distance",
+            super::Shape::BinaryScalar,
+            &[],
+            body,
+            &[
+                "The first point.",
+                "The second point. Distance is symmetric, so the order does not matter.",
+            ],
+        ),
     });
 }

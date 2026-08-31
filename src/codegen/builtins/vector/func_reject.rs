@@ -150,6 +150,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             super::Shape::BinaryVector,
             &["ErrInvalidArgument"],
             body,
+            &[
+                "The vector to take the rejection of.",
+                "The vector to reject from. Must not be zero-length, for the same reason as `project`.",
+            ],
         ),
     });
 }

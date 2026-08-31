@@ -180,6 +180,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("two vectors of the same type"),
         internal_only: false,
-        implementations: super::implementations("reflect", super::Shape::BinaryVector, &[], body),
+        implementations: super::implementations("reflect", super::Shape::BinaryVector, &[], body, &[
+            "The incoming vector to reflect.",
+            "The surface normal to reflect across. Give it unit length — `reflect` does not normalize it for you, and a longer normal scales the result.",
+        ]),
     });
 }

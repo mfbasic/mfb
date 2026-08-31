@@ -189,6 +189,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("one T2, two T3, or three T4 vectors of the same type"),
         internal_only: false,
-        implementations: super::implementations("cross", super::Shape::Cross, &[], body),
+        implementations: super::implementations("cross", super::Shape::Cross, &[], body, &[
+            "The first vector. In 2D this is the only argument and the result is the perpendicular; in 3D and 4D it is the left operand.",
+            "The second vector (3D and 4D only).",
+            "The third vector (4D only).",
+        ]),
     });
 }

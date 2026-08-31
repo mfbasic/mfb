@@ -216,6 +216,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             super::Shape::BinaryVector,
             &["ErrInvalidArgument"],
             body,
+            &[
+                "The vector to project.",
+                "The vector to project onto. Must not be zero-length: there is no direction to project onto.",
+            ],
         ),
     });
 }

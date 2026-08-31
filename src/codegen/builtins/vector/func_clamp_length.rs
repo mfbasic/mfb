@@ -250,6 +250,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             super::Shape::ClampLength,
             &["ErrInvalidArgument"],
             body,
+            &[
+                "The vector to limit.",
+                "The greatest length to allow, in the vector type's element units. A vector already at or under it comes back unchanged.",
+            ],
         ),
     });
 }

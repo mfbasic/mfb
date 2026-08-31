@@ -109,6 +109,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             super::Shape::Perpendicular,
             &[],
             body,
+            &["The 2D vector to rotate a quarter turn counter-clockwise."],
         ),
     });
 }

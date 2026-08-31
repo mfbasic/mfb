@@ -183,6 +183,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             super::Shape::BinaryScalar,
             &["ErrInvalidArgument"],
             body,
+            &[
+                "The first vector. Must not be zero-length — a zero vector has no direction to measure from.",
+                "The second vector. Must not be zero-length either.",
+            ],
         ),
     });
 }

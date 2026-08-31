@@ -139,6 +139,15 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("two vectors of the same type"),
         internal_only: false,
-        implementations: super::implementations("dot", super::Shape::BinaryScalar, &[], body),
+        implementations: super::implementations(
+            "dot",
+            super::Shape::BinaryScalar,
+            &[],
+            body,
+            &[
+                "The first vector.",
+                "The second vector. `dot` is symmetric, so the order does not matter.",
+            ],
+        ),
     });
 }

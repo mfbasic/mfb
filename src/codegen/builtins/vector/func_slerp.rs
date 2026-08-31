@@ -253,6 +253,11 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             super::Shape::Lerp,
             &["ErrInvalidArgument"],
             body,
+            &[
+                "The start vector. Must not be zero-length — the interpolation is over directions.",
+                "The end vector. Must not be zero-length either.",
+                "How far along the arc to travel, 0 through 1.",
+            ],
         ),
     });
 }

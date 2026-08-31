@@ -159,6 +159,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("two vectors of the same type"),
         internal_only: false,
-        implementations: super::implementations("scale", super::Shape::BinaryVector, &[], body),
+        implementations: super::implementations("scale", super::Shape::BinaryVector, &[], body, &[
+            "The vector to scale.",
+            "The per-component scale factors, as a vector of the same type. Multiplication is component-wise, not a dot product.",
+        ]),
     });
 }

@@ -153,6 +153,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("two vectors of the same type"),
         internal_only: false,
-        implementations: super::implementations("min", super::Shape::BinaryVector, &[], body),
+        implementations: super::implementations("min", super::Shape::BinaryVector, &[], body, &[
+            "The first vector.",
+            "The second vector. The result takes the smaller of each component pair independently, so it need not equal either input.",
+        ]),
     });
 }

@@ -11,8 +11,8 @@ const DESC: &str = r#"`vector::abs` returns a new vector of the same type whose 
 absolute value of the corresponding component of `v`. Each component is computed
 by the scalar `math::abs` of that component, evaluated in declared field order
 (`x`, then `y`, then `z`, then `w`), and the results are assembled into a fresh
-record. `v` is not modified — like every `vector` type these records copy by
-value.
+record. `v` is not modified — like every `vector` type, these records are
+ordinary values and assigning or passing one copies it.
 
 This is a purely component-wise operation with no cross-component interaction:
 `abs` reflects the vector into the all-positive orthant, so it is not a
@@ -157,6 +157,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("a vector (Float2/3/4, Fixed2/3/4, Integer2/3/4)"),
         internal_only: false,
-        implementations: super::implementations("abs", super::Shape::UnaryVector, &[], body),
+        implementations: super::implementations("abs", super::Shape::UnaryVector, &[], body, &[
+            "The vector to take component-wise. Each component is replaced by its magnitude; the result is a new vector.",
+        ]),
     });
 }

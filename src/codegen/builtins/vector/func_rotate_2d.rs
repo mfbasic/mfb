@@ -126,6 +126,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("a 2D vector and a Float angle"),
         internal_only: false,
-        implementations: super::implementations("rotate_2d", super::Shape::Rotate2d, &[], body),
+        implementations: super::implementations("rotate_2d", super::Shape::Rotate2d, &[], body, &[
+            "The 2D vector to rotate.",
+            "How far to rotate, in radians, counter-clockwise. Negative values rotate clockwise.",
+        ]),
     });
 }

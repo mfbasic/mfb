@@ -140,6 +140,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("a vector (Float2/3/4, Fixed2/3/4, Integer2/3/4)"),
         internal_only: false,
-        implementations: super::implementations("length", super::Shape::UnaryScalar, &[], body),
+        implementations: super::implementations(
+            "length",
+            super::Shape::UnaryScalar,
+            &[],
+            body,
+            &["The vector to measure. The zero vector has length zero."],
+        ),
     });
 }

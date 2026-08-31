@@ -213,6 +213,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             super::Shape::UnaryVector,
             &["ErrInvalidArgument"],
             body,
+            &[
+                "The vector to scale to unit length. A zero-length vector has no direction, so it is the one input this rejects.",
+            ],
         ),
     });
 }
