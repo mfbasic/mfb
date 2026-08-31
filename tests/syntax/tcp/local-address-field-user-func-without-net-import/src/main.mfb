@@ -1,0 +1,16 @@
+' bug-466 Reproduction 2: the same unreadable field passed to a USER `FUNC`,
+' whose declared `Integer` parameter accepted it. The unlocated codegen error
+' this replaces blamed `io.print`, three calls away from the mistake.
+IMPORT tcp
+IMPORT io
+
+FUNC take(n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  RES s = tcp::listen("127.0.0.1", 0)
+  LET b = tcp::localAddress(s)
+  io::print(toString(take(b.port)))
+  RETURN 0
+END FUNC

@@ -4417,4 +4417,136 @@ mod tests {
             ]
         );
     }
+    // --- bug-466: field access on a record whose owning package is not imported ---
+    //
+    // `tcp::localAddress` returns a `net::Address`. Imports are not transitive
+    // and a builtin package cannot re-export another's types, so `Address`'s
+    // FIELDS are readable only where the file itself imports `net` (the rule
+    // `mfb man tcp localAddress` states). The checker caught the resulting
+    // `Unknown` at a BINDING and at an operator, but not when it was passed as a
+    // call argument: there it survived to native lowering, which failed with the
+    // bare, unlocated `native plan has no storage class for type 'Unknown'`.
+    //
+    // The gate below is a pre-lowering rule on the field access itself, so the
+    // verdict no longer depends on where the `Unknown` happened to land — nor,
+    // as `unrelated_import_does_not_make_a_foreign_record_field_readable` pins,
+    // on which UNRELATED package the file also imported.
+
+    /// The rule/line pairs for `src`, for the location assertions.
+    fn shape_reports(src: &str) -> Vec<(String, usize)> {
+        collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(src),
+            &[],
+            &HashMap::new(),
+            &[],
+        )
+        .into_iter()
+        .map(|d| (d.rule, d.line))
+        .collect()
+    }
+
+    /// bug-466 Reproduction 1: the `Unknown` field read as an argument to an
+    /// OVERLOADED BUILTIN (`tcp::connect`), which unified it against a candidate
+    /// rather than rejecting it.
+    #[test]
+    fn foreign_record_field_as_builtin_argument_is_rejected() {
+        let src = "IMPORT tcp\n\
+                   FUNC main AS Integer\n\
+                   \x20 RES s = tcp::listen(\"127.0.0.1\", 0)\n\
+                   \x20 LET b = tcp::localAddress(s)\n\
+                   \x20 RES c = tcp::connect(\"127.0.0.1\", b.port)\n\
+                   \x20 RETURN 0\n\
+                   END FUNC\n";
+        assert_eq!(
+            shape_reports(src),
+            [("TYPE_UNKNOWN_VALUE".to_string(), 5)],
+            "the field read must be refused AT ITS OWN LINE, not absorbed by lowering"
+        );
+    }
+
+    /// bug-466 Reproduction 2: the same `Unknown` as an argument to a USER
+    /// `FUNC`, whose declared `Integer` parameter accepted it. The unlocated
+    /// codegen error this replaces blamed `io.print`, three calls away.
+    #[test]
+    fn foreign_record_field_as_user_func_argument_is_rejected() {
+        let src = "IMPORT tcp\n\
+                   IMPORT io\n\
+                   FUNC take(n AS Integer) AS Integer\n\
+                   \x20 RETURN n\n\
+                   END FUNC\n\
+                   FUNC main AS Integer\n\
+                   \x20 RES s = tcp::listen(\"127.0.0.1\", 0)\n\
+                   \x20 LET b = tcp::localAddress(s)\n\
+                   \x20 io::print(toString(take(b.port)))\n\
+                   \x20 RETURN 0\n\
+                   END FUNC\n";
+        assert_eq!(
+            shape_reports(src),
+            [("TYPE_UNKNOWN_VALUE".to_string(), 9)],
+            "the field read must be refused at its own line, not at `io::print`"
+        );
+    }
+
+    /// bug-466 Reproduction 4: `IMPORT udp` (never referenced) used to make the
+    /// identical `tcp` program compile, because `udp` declares a record whose
+    /// field is a `net::Address` and that dragged `Address`'s definition into the
+    /// project-wide type table. Whether a program compiled therefore depended on
+    /// which UNRELATED packages it imported. The gate keys on the file's own
+    /// imports, so the verdict is now the same either way.
+    #[test]
+    fn unrelated_import_does_not_make_a_foreign_record_field_readable() {
+        let src = "IMPORT tcp\n\
+                   IMPORT udp\n\
+                   FUNC main AS Integer\n\
+                   \x20 RES s = tcp::listen(\"127.0.0.1\", 0)\n\
+                   \x20 LET b = tcp::localAddress(s)\n\
+                   \x20 RES c = tcp::connect(\"127.0.0.1\", b.port)\n\
+                   \x20 RETURN 0\n\
+                   END FUNC\n";
+        assert_eq!(
+            shape_reports(src),
+            [("TYPE_UNKNOWN_VALUE".to_string(), 6)],
+            "an unrelated import must not change the verdict"
+        );
+    }
+
+    /// The rule this bug is about ENFORCING, not tightening: with `IMPORT net`
+    /// the field read is exactly as legal as it always was.
+    #[test]
+    fn foreign_record_field_with_the_owning_import_is_accepted() {
+        let src = "IMPORT tcp\n\
+                   IMPORT net\n\
+                   IMPORT io\n\
+                   FUNC main AS Integer\n\
+                   \x20 RES s = tcp::listen(\"127.0.0.1\", 0)\n\
+                   \x20 LET b = tcp::localAddress(s)\n\
+                   \x20 io::print(b.host & \":\" & toString(b.port))\n\
+                   \x20 RES c = tcp::connect(\"127.0.0.1\", b.port)\n\
+                   \x20 RETURN 0\n\
+                   END FUNC\n";
+        assert!(accepts(src), "got {:?}", shape_codes(src));
+    }
+
+    /// bug-466 Reproduction 3, characterization: the position the checker
+    /// ALREADY caught — the annotated binding — keeps reporting, now preceded by
+    /// the field access's own report.
+    #[test]
+    fn foreign_record_field_in_a_binding_still_reports() {
+        let src = "IMPORT tcp\n\
+                   FUNC main AS Integer\n\
+                   \x20 RES s = tcp::listen(\"127.0.0.1\", 0)\n\
+                   \x20 LET b = tcp::localAddress(s)\n\
+                   \x20 LET p AS Integer = b.port\n\
+                   \x20 RETURN 0\n\
+                   END FUNC\n";
+        assert_eq!(
+            shape_reports(src),
+            [
+                ("TYPE_UNKNOWN_VALUE".to_string(), 5),
+                ("TYPE_UNKNOWN_VALUE".to_string(), 5),
+            ],
+            "the binding cascade must survive alongside the new field-access gate"
+        );
+    }
 }
