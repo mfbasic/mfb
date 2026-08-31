@@ -139,6 +139,55 @@ acquire (an `O_EXCL` lock file or `flock` on a shared path, released on EXIT as
 Whoever takes this should decide which of the two they are buying; the doc's
 "Effort: small" line refers to the `pgrep` widening only.
 
+### Second defect, 2026-08-31: the guard is also too BROAD — it serializes across worktrees
+
+Found while deciding the above. This document describes the guard as too narrow
+(it misses the sibling script). It is **also too broad**, and the two are the
+same missing dimension: the guard keys on the script's *name*, never on *which
+tree it belongs to*.
+
+```
+$ sed -n '/case "$ca0" in/,/esac/p' scripts/test-accept.sh
+  case "$ca0" in
+    */test-accept.sh|test-accept.sh) ;;
+```
+
+`*/test-accept.sh` matches **any** path. A run in
+`.claude/worktrees/467/scripts/test-accept.sh` therefore blocks a run in
+`.claude/worktrees/474/` — two trees that own entirely separate `tests/`
+directories and cannot corrupt one another. This document already says so in
+"The two guards each match only their own script": *"Cross-session this is
+harmless: each worktree owns its own `tests/`. The unguarded case is one session
+running both in one tree."* The guard enforces the opposite of that analysis.
+
+**Consequence, and why it matters for the fix's shape.** Nine worktrees were
+live during the session that recorded this (four `/fix-bug` agents, three peer
+sessions, main). Every cross-worktree pair is a spurious refusal (`exit 98`) or a
+wait — pure lost throughput, on the exact workload the harness exists to serve.
+
+This also **rules out a machine-wide lock** as the fix. An `flock` on a fixed
+global path would make the false serialization *worse* and permanent: correct
+against corruption, but it would serialize nine independent trees that were never
+in conflict.
+
+**So the acquire must be per-tree.** Put the lock inside the tree the run
+mutates — e.g. `"$REPO_ROOT/tests/.gate.lock"`, with `REPO_ROOT` derived from
+the script's own location (`git rev-parse --show-toplevel`, or `cd "$(dirname
+"$0")/.."`), not from `$PWD`. Then:
+
+* two runs **in one tree** (either script, either order) → one refuses; the filed
+  bug is fixed;
+* two runs **in different trees** → both proceed, which is correct and is what
+  happens by accident today only because the `pgrep` race lets them through.
+
+A guard test should assert **both** directions: same-tree cross-script refusal,
+and cross-tree non-interference. The second is the one that would have caught
+this, and neither exists today.
+
+Status of this evidence: a code reading, like the rest of this document — the
+`case` arm above is conclusive on its own, but nobody has timed the lost
+throughput.
+
 ### Decision, 2026-08-31 (coordinator session mfb-59): buy the atomic lock
 
 The doc leaves this open. Deciding it here with evidence gathered while running
