@@ -296,6 +296,23 @@ Every item below was measured, not recalled; the command or probe is named.
    (`Socket or Listener` vs `Socket`); rows 4 and 5 differ as described. No row
    needed revision.
 
+## Accepted tradeoff
+
+On Linux and Windows the two `tls::localAddress` overloads emit **two
+byte-identical 144-instruction bodies** (`_mfb_rt_tls_tls_localAddress` and
+`_mfb_rt_tls_tls_localAddressListener`), verified by dumping `-ncode` for both
+targets: both call `getsockname` + `inet_ntop` + the arena allocator, because a
+TLS `Listener` there keeps its descriptor in the same canonical handle slot a
+`Socket` does. Only macOS genuinely needs two bodies.
+
+`tcp::localAddress` avoids the duplication by sharing one code form across its
+two overloads — it can, because its two handle types answer identically on every
+platform. `tls` cannot: the code form is selected in `builder_values` and the
+force-emit pairing in `codegen/engine/builder/mod.rs` is platform-independent, so
+making the split conditional on the target would make the NIR and the plan differ
+per target in a way nothing else in the overload-split machinery does. Duplicating
+144 instructions in programs that use a TLS listener is the cheaper mistake.
+
 ## Open Decisions
 
 - **`close` on an already-closed handle (matrix row 4).** `tcp` errors, `tls` succeeds. Recommended: **align on `tls`'s idempotent-success**, because closing-then-dropping is the common shape and both packages already auto-close by lexical drop; erroring makes the safe idiom hazardous. But this is a behavior change with an existing `TYPE_USE_AFTER_MOVE`/`ErrResourceClosed` contract and existing goldens — it needs its own bug, not this one. Alternative: keep both and document each as deliberate.
