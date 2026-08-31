@@ -25,7 +25,7 @@ accepted but does not affect sockets already returned by `tcp::accept`: each of
 those is an independent resource, closed on its own.
 
 Closing is otherwise automatic. Every `tcp` handle is closed when
-its binding leaves scope, so `tcp::close` is needed only to release earlier — to
+its binding goes out of scope, so `tcp::close` is needed only to release earlier — to
 free a listening port for reuse, to let a peer see the end of the stream promptly,
 or to bound how many descriptors a long-running program holds open. Closing and
 then letting the binding drop is safe: the drop sees the closed flag and does

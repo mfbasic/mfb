@@ -23,7 +23,7 @@ shutdown handshake and no way for a sender to learn the socket is gone. Datagram
 addressed to a closed port are simply discarded by the OS.
 
 Closing is otherwise automatic: every `udp` socket is closed when
-its binding leaves scope, so `udp::close` is needed only to release earlier.
+its binding goes out of scope, so `udp::close` is needed only to release earlier.
 Closing and then letting the binding drop is safe — the drop sees the closed flag
 and does nothing.
 

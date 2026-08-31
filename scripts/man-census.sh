@@ -77,7 +77,7 @@ banned_regex() {
 # into an arena-backed String", "the per-execution-context field held in the
 # arena state". 42 such lines survived every earlier sweep.
 SCOPE_CORE='bug-[0-9]+|plan-[0-9]+|audit-[0-9]+|abi_inline|abi_function|Body::|monomorph|NIR|\.ncode|__[a-z]+_[A-Za-z]|#[a-z]+_[A-Za-z]|\[\[[A-Za-z_][A-Za-z_/.]*:|RegistryFunction|RegistryPackage|rewrite_target|resolve_call|lowering|desugar|regalloc|vreg|codegen'
-SCOPE_CORE=$SCOPE_CORE'|Internally|under the hood|arena|EINTR|EIO|EAGAIN|EWOULDBLOCK|errno|file descriptor|the descriptor|isatty|per-execution-context|scratch buffer|[^A-Z]EEXIST|[^A-Z]ENOENT|[^A-Z]ENOTDIR|the compiler emits|IR lowering'
+SCOPE_CORE=$SCOPE_CORE'|Internally|under the hood|arena|EINTR|EIO|EAGAIN|EWOULDBLOCK|errno|file descriptor|the descriptor|isatty|per-execution-context|scratch buffer|[^A-Z]EEXIST|[^A-Z]ENOENT|[^A-Z]ENOTDIR|the compiler emits|IR lowering|lowered inline|lowered to a|is lowered|discriminant|runtime helper|state region'
 
 scope_regex() {
 	printf '%s' "$SCOPE_CORE"

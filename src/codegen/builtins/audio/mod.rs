@@ -140,7 +140,7 @@ opening one stream of each direction and driving both from a single loop with
 
 Both stream types are move-only, non-sendable resource handles: neither can
 cross a thread boundary. Each closes itself when its
-binding leaves scope, or explicitly with `audio::close`. `AudioDevice` is a
+binding goes out of scope, or explicitly with `audio::close`. `AudioDevice` is a
 plain read-only record obtained only from `audio::devices()`. The `render` and
 `play` members are pure synthesis: `render` turns one `AudioNote` into `s16le`
 PCM, and `play` parses MML music text and writes it to an open `AudioOutput`.

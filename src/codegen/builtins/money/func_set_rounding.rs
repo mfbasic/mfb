@@ -15,10 +15,8 @@ half **away from zero**, the default) or `Rounding.Banker` (round half to
 **even**, which removes the small upward bias of always rounding ties away). The
 call returns nothing.
 
-The call is lowered inline to a mask and a single store into the
-rounding mode for this thread. The stored
-value is the enum discriminant masked to its low bit, so exactly `0` or `1` is ever
-written and a later `money::getRounding` reads back the same member.
+Setting the mode is as cheap as writing a local variable, and a later
+`money::getRounding` reads back exactly the member you set.
 
 The mode is per-thread. A worker thread inherits the spawning
 thread's mode at spawn and then changes independently, so setting the mode on one
@@ -29,8 +27,7 @@ back.
 
 The mode applies to every `Money` **arithmetic** rounding site — `money::round`,
 dividing a `Money` by a scalar, scaling a `Money` by a `Float` or `Fixed`, and the
-`toMoney` / `toFixed` conversions — all of which route through the one shared
-rounding helper. It has no bearing on `Fixed`/`Float` rounding, and it does not
+`toMoney` / `toFixed` conversions — all of which settle a half the same way. It has no bearing on `Fixed`/`Float` rounding, and it does not
 change how `toString(Money)` renders a value (presentation rounding is a fixed
 half-away-from-zero rule, deliberately independent of the mode).
 

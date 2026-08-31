@@ -42,7 +42,8 @@ bits `0600` (octal), so the call always yields a freshly created, empty file
 readable and writable only by the current user. Exclusive creation means the
 call fails rather than reusing or truncating any pre-existing file, which
 together with the random name closes the classic temporary-file race and
-symlink-redirection attacks. The descriptor is also opened close-on-exec.
+symlink-redirection attacks. The file is also opened so that a child process started later does not inherit
+it.
 
 Without an argument the file is created inside the host temporary directory, the
 same location returned by `fs::tempDirectory`; that directory path is supplied

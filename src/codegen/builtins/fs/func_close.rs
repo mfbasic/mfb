@@ -34,26 +34,25 @@ then returns nothing. Before it closes, it drains any output held in
 the handle's per-handle buffer (see `fs::setBuffered`) so buffered on-disk data is
 never stranded; the drain is a no-op on an unbuffered handle, which is the default.
 
-The `File` is marked closed regardless of the outcome of the underlying `close`. On
-some platforms a failing `close` (on some platforms) has still released
-the file, so leaving the handle usable would let a later call drain and close
-the same descriptor number — which by then may name an unrelated open file. Setting
-the closed flag first means any later `fs::` call that takes the same `File` is
-refused rather than touching a stale or reused descriptor, and a re-close raises an
-error instead of repeating the release.
+**The `File` is marked closed even when the close itself fails.** That is
+deliberate: on some hosts a failed close has still let the file go, and a handle
+left usable could send a later write to whatever the host has since opened in
+its place. So any later `fs::` call on the same `File` is refused, and a second
+`fs::close` raises rather than closing something else.
 
 Closing is otherwise automatic. Every `File` returned by `fs::open`, `fs::openFile`,
 `fs::openFileNoFollow`, `fs::openWithin`, or `fs::createTempFile` is closed by
-lexical drop when the `RES` binding that holds it leaves scope, and that drop drains
+itself when the `RES` binding that holds it goes out of scope, and that drains
 the buffer the same way. Call `fs::close` only when the file must be closed
-earlier than scope exit — for example to reopen the same path, to let another process
-observe writes, or to bound how many descriptors a long-running program holds open at
-once. Closing a `File` and then letting it drop is safe: the drop sees the closed
-flag and does nothing.
+earlier than that — to reopen the same path, to let another process see the
+writes, or to keep a long-running program from holding too many files open at
+once. Closing a `File` and then letting its binding go out of scope is safe: the
+second close does nothing.
 
 Beyond the pre-close flush, `fs::close` reads and writes no file contents of its own.
 It is an error to close a `File` that is already closed, including one closed by a
-previous `fs::close` on the same value or by a prior scope-drop. It is likewise an
+previous `fs::close` on the same value, or by its binding having gone out of
+scope. It is likewise an
 error to close a handle that `thread::transfer` has moved to another thread: such a
 handle is not closed but no longer belongs to this thread, so the call reports that
 distinctly."#;

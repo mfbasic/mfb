@@ -38,7 +38,7 @@ sockets are still open — they are released exactly once, when the listener clo
 is likewise idempotent and closes its handle.
 
 Closing is otherwise automatic. Every `Socket` and `Listener` is closed by
-lexical drop when the binding that holds it leaves scope. Call `tls::close` only
+itself when the binding that holds it goes out of scope. Call `tls::close` only
 when the handle must be torn down earlier than that."#;
 const EX: &str = r#"Close a TLS connection explicitly once the exchange is complete:
 

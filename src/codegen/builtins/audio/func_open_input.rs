@@ -43,7 +43,7 @@ stream delivers raw interleaved `s16le` PCM (one frame is `channels * 2` bytes).
 `sampleRate` must be in `8000..=192000`, `channels` must be `1` or `2`, and
 `bufferFrames` must be in `64..=8192`; any value outside these bounds raises
 `ErrInvalidArgument`. The returned `AudioInput` is a move-only, non-sendable
-resource closed by lexical drop or `audio::close`; read from it with `audio::read`,
+resource closed when its binding goes out of scope, or by `audio::close`; read from it with `audio::read`,
 which is defined only over `AudioInput`."#;
 const EX: &str = r#"Capture 100 ms of mono audio at 48 kHz from the default input:
 

@@ -25,7 +25,7 @@ written before `startRead` returns; `state.sentAll` is `TRUE`.
 
 The returned handle is a `RES http::Stream STATE PendingState`: a resource
 whose STATE accumulates the response across pumps. It stays bound and open — the
-socket is closed exactly once when the handle leaves scope — so a program reads
+socket is closed exactly once when the handle goes out of scope — so a program reads
 `state` through the handle while driving it. `http::read`/`http::write` are thin
 blocking wrappers over this same core.
 

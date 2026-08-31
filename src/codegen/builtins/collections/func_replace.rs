@@ -35,9 +35,7 @@ no cheap in-place shape for `replace`: every call copies the list.
 `replace` is **infallible**: nothing it does raises a trappable error. It has no
 index to range-check, and a `new` that never matches is a success producing an
 unchanged copy, not a failure — so an inline `TRAP` written on a
-`replace` call has a dead handler (the front end reports
-`TYPE_INLINE_TRAP_DEAD_HANDLER`). Running out of memory is not a trappable domain
-error in this language."#;
+`replace` call has a handler that can never run, and the compiler reports it."#;
 
 const EX_REPLACE: &str = r#"Replace every matching element:
 

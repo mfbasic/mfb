@@ -45,7 +45,7 @@ of the host/port forms but parameter 1 of the `Address` forms. Named arguments
 therefore bind per-overload, against whichever overload the argument types select.
 
 The returned `Socket` is a handle closed when its binding goes out of scope
-when its binding leaves scope or earlier with `tcp::close`."#;
+when its binding goes out of scope, or earlier with `tcp::close`."#;
 
 const EX: &str = r#"Connect to a local listener by host and port:
 

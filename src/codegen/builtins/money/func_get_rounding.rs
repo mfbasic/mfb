@@ -11,12 +11,9 @@ const INTRO: &str = r#"Read the rounding mode currently in effect for Money arit
 const DESC: &str = r#"`money::getRounding` returns the `Money` arithmetic rounding mode currently in
 effect, as a `Rounding` value. It takes no arguments and always succeeds.
 
-The mode is not a call into a runtime helper — it is lowered inline to a single
-read of the rounding mode this thread is currently using
-region, so reading it is as cheap as reading a local. The stored value is exactly
-the enum discriminant: `0` for `Rounding.Commercial`, `1` for `Rounding.Banker`,
-and only those two values are ever stored, because `money::setRounding` masks its
-argument to the low bit before writing.
+Reading the mode is as cheap as reading a local variable, so there is no reason
+to cache it. The answer is always one of the two `Rounding` members — never an
+unset or out-of-range value.
 
 The mode is per-thread, so `getRounding` reports the mode of the
 thread that calls it: the value most recently written by `money::setRounding` on

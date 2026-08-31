@@ -13,9 +13,7 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 const INTO_SUM: &str = "Add up the elements of an Integer, Float, or Fixed list";
 const DESC_SUM: &str = r#"`collections::sum` walks `value` from the first element to the last and adds
-each element into a running total, returning that total. It is a **native**
-member: the compiler emits the accumulation loop directly rather than
-
+each element into a running total, returning that total.
 
 There are exactly **three** overloads — `List OF Integer`, `List OF Float`, and
 `List OF Fixed` — and the return type always matches the element type. There is

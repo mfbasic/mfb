@@ -39,7 +39,7 @@ so a later `fs::flush` can retry them rather than losing them.
 Use `fs::flush` at a checkpoint where buffered data must reach the file before the
 program continues — for example before another process reads the file, or before a
 long pause. Closing the handle with `fs::close`, or letting its `RES` binding
-leave scope, also drains the buffer, so an explicit flush is only needed
+go out of scope, also drains the buffer, so an explicit flush is only needed
 mid-stream; the final bytes are never lost to a clean close.
 
 Buffering and flushing are per handle: `fs::flush(file)` drains only `file`'s

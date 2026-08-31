@@ -41,7 +41,7 @@ to another process.
 
 Because `detach` marks the handle closed, it ends the handle for all practical
 purposes: every later `process::` call on it — including a second `detach` — raises
-`ErrResourceClosed`, and the eventual scope-drop is a no-op rather than a kill."#;
+`ErrResourceClosed`, and the eventual end of the binding is a no-op rather than a kill."#;
 const EX: &str = r#"Start a background job and let it outlive the program:
 
 ```

@@ -41,9 +41,9 @@ Element equality is decided on the stored payload. `String` elements compare by
 length and then byte for byte; `Integer`, `Float`, `Fixed`, and `Money` elements
 compare as their stored 64-bit pattern, so `Float` matching is bit-exact and a
 `NaN` never matches itself; `Boolean`, `Byte`, and `Scalar` compare as their
-narrower stored value; record elements compare field by field. A nested
-collection that is stored as a handle rather than inlined compares by identity,
-not by contents.
+narrower stored value; record elements compare field by field. An element type that cannot be compared — a nested
+`List`, `Map` or `Set` — is rejected at compile time
+(`TYPE_REQUIRES_COMPARABLE`) rather than matching by identity.
 
 `value` is neither modified nor closed, and no new collection is built."#;
 

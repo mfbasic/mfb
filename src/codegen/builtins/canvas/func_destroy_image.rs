@@ -10,11 +10,11 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Release an image before it leaves scope."#;
+const INTRO: &str = r#"Close an image before its binding goes out of scope."#;
 
 const DESC: &str = r#"`destroyImage` closes the image, exactly as `fs::close` closes a file: the handle
 is closed now rather than when the binding goes out of scope. Letting an `Image`
-leave scope does the same thing, so this is for the case where an image is large
+go out of scope does the same thing, so this is for the case where an image is large
 and the scope is long.
 
 **It is safe at any time, including while a presented scene still names the

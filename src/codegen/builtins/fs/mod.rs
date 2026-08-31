@@ -130,7 +130,8 @@ Each `File` handle can independently opt in to output buffering. It is off by
 default, so `fs::writeAll`/`fs::writeAllBytes` reach the OS immediately;
 `fs::setBuffered(file, TRUE)` instead holds incremental writes in a per-handle
 buffer that is drained on `fs::flush(file)`, when it fills, and — mandatorily — on
-close (`fs::close` or scope drop), so buffered on-disk data is never stranded.
+close — `fs::close`, or the binding going out of scope — so buffered on-disk
+data is never stranded.
 `fs::setBuffered(file, FALSE)` drains and disables it, and `fs::isBuffered(file)`
 reports the current mode. Only incremental handle writes are buffered; whole-file
 and atomic writes already issue one write and ignore the setting. A hard crash may
