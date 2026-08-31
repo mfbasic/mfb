@@ -25,7 +25,9 @@ instead.
 The queue has a size limit, fixed when the thread was started (64 by default).
 If it is full, `send` waits up to `timeoutMs` milliseconds for room. That wait
 is the point: it makes a fast producer slow down to its consumer's pace rather
-than letting the queue grow without limit.
+than letting the queue grow without limit. If the queue is still full when the
+time runs out, `send` raises `ErrTimeout`; a negative `timeoutMs` raises
+`ErrInvalidArgument`.
 
 `send` does not wait for the message to be *read* — only for room to put it. It
 also does nothing to the handle, which stays open."#;

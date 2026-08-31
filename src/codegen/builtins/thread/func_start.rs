@@ -32,7 +32,9 @@ neither side can reach the other's copy.
 
 `inboundLimit` and `outboundLimit` bound the two message queues, defaulting to
 64 each. They are what makes a slow reader push back on a fast writer instead of
-letting a queue grow without limit.
+letting a queue grow without limit. **Each must be at least 1** — `0` or a
+negative value raises `ErrInvalidArgument`, so a limit computed at run time is
+worth checking before it gets here.
 
 Collect the thread with `thread::waitFor`, which waits for it to finish, gives
 you its result, and closes the handle."#;
@@ -108,13 +110,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     "inboundLimit",
                     &[],
                     ParameterType::Integer,
-                    "How many messages may queue up toward the worker before a `thread::send` has to wait. Defaults to 64.",
+                    "How many messages may queue up toward the worker before a `thread::send` has to wait. Defaults to 64; must be at least 1.",
                 ),
                 opt(
                     "outboundLimit",
                     &[],
                     ParameterType::Integer,
-                    "How many messages may queue up back toward the parent before the worker's `thread::send` has to wait. Defaults to 64.",
+                    "How many messages may queue up back toward the parent before the worker's `thread::send` has to wait. Defaults to 64; must be at least 1.",
                 ),
             ],
             th(false, worker_msg, worker_res, out()),

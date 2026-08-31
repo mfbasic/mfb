@@ -11,9 +11,10 @@ const DESC: &str = r#"`accept` takes the next open handle off the thread's resou
 the other side put there with `thread::transfer` — waiting up to `timeoutMs`
 milliseconds for one to arrive.
 
-What you get back is the same open file or socket, not a copy, and from here on
-it is yours: you use it and you close it, or let it close when your scope ends.
-The side that transferred it can no longer touch it.
+What you get back is the same open file or socket, not a copy. Use it, and close
+it when you are finished — or let it close when the scope holding it ends. The
+binding the other side transferred it from is closed, so only this end can reach
+it now.
 
 It works from both ends, decided by the handle you pass: the worker's own
 `ThreadWorker` handle takes what the parent transferred in, and your `Thread`
@@ -27,6 +28,9 @@ without a resource channel has nothing to accept.
 If the resource carries `STATE`, the channel names that too
 (`Thread OF RES fs::File STATE Cursor TO Out`), because both sides have to agree
 on it in advance.
+
+If no resource arrives before `timeoutMs` runs out, `accept` raises
+`ErrTimeout`. A negative `timeoutMs` raises `ErrInvalidArgument`.
 
 `accept` waits for a resource specifically. `thread::poll` reports on the
 message channel and says nothing about this one."#;

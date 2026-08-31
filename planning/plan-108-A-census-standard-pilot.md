@@ -664,9 +664,72 @@ broken form.
       All 13 parent-side examples build and run; the four worker-side
       snippets are compiled as a package (a thread entry point cannot be a
       `main`).
-- [ ] Cross-model review (Codex, one `codex exec` run per package) + apply
+- [x] Cross-model review (Codex, one `codex exec` run per package) + apply
       findings; record the findings ledger (confirmed/rejected + evidence)
-      here.
+      here. — **16 findings, 16 confirmed, 0 rejected.** Ledger below.
+
+#### Cross-model review ledger
+
+Reviewer: `codex exec -C <worktree> -s workspace-write - < prompt.txt`.
+Banner for both runs: **OpenAI Codex v0.150.0, model `gpt-5.6-terra`,
+provider openai, reasoning effort medium, sandbox workspace-write**. One run
+per package. `git status` was clean of reviewer edits after each — Codex
+worked only under `/tmp`, as instructed. Its self-reported effort: bits
+"checked 19 pages, ran 2 programs"; thread "checked 13 pages, ran 11
+programs".
+
+**`bits` — 8 findings, all confirmed, all fixed (commit `7b92671a8`).**
+
+The review paid for itself on its first run by catching a false claim **I
+had introduced in the scope pass of the same phase**:
+
+| # | Page | Category | Finding | Disposition |
+|---|---|---|---|---|
+| 1 | overview | LEAKAGE | "costs a native instruction or two … no function call at run time" is still compilation mechanics | CONFIRMED — replaced with "primitive operations … no side effects, same answer on every platform" |
+| 2 | overview | INACCURACY | that cost claim is *false* for the validated shifts | CONFIRMED |
+| 3–5 | `sl`, `sr`, `sra` | INACCURACY | "costs a single native instruction" is untrue: each validates `count` first | CONFIRMED — **verified independently**: `func_sl.rs:103-111` emits two compares, two branches, two labels and an error raise before the shift |
+| 6 | `sra` | LEAKAGE | "the rotates … let the hardware reduce it" states the mechanism, not the guarantee | CONFIRMED — now "accept every `count` and reduce it modulo their width" |
+| 7 | `band` (and 12 siblings) | LEAKAGE | same instruction-count sentence | CONFIRMED — removed from all 17 pages |
+| 8 | `ctz` | LEAKAGE | "a cheaper test than a modulo" is an unqualified performance claim | CONFIRMED — now "how to test alignment without a modulo"; the RISC-V guidance kept but stated as relative cost, not instruction counts |
+
+The lesson for B–E, and the reason this step is not optional: **the scope
+pass can introduce an accuracy defect while removing a leak.** Rewriting
+"lowers inline rather than calling a runtime helper" into a plausible-sounding
+cost claim put a false sentence on three pages. Nothing in the plan's own
+verification would have caught it — the census only counts fill, and the
+examples still ran.
+
+**`thread` — 8 findings, all confirmed, all fixed.**
+
+| # | Page | Category | Finding | Disposition |
+|---|---|---|---|---|
+| 1 | overview | INACCURACY | "Only some resource types may cross: `fs::File`, `tcp::Socket`, `udp::Socket`" wrongly excludes a project's own resource declared `THREAD_SENDABLE` (`src/ir/verify/resources.rs:307`, `src/ast/items.rs:576`) | CONFIRMED — overview now says so |
+| 2 | `transfer` | LEAKAGE | "afterwards it belongs to the other side" / "the handle is still yours" teaches an ownership model without using a banned word | CONFIRMED — restated as which *binding* is closed and which is still open, keeping the contract |
+| 3 | `accept` | LEAKAGE | "from here on it is yours: you use it and you close it" — same | CONFIRMED — same treatment |
+| 4 | `start` | MISSING | each queue limit must be ≥ 1; `0` or negative raises `ErrInvalidArgument` | CONFIRMED — **re-verified**, and see the bug below |
+| 5 | `receive` | MISSING | a timed-out `receive` **raises** `ErrTimeout`; a negative timeout raises `ErrInvalidArgument` | CONFIRMED — **re-verified**: `thread::receive(t, 0)` against a worker that never sends gives code `77050008` |
+| 6 | `accept` | MISSING | same timeout contract | CONFIRMED |
+| 7 | `send` | MISSING | same timeout contract on a full queue | CONFIRMED |
+| 8 | `transfer` | MISSING | same timeout contract on a full resource queue | CONFIRMED |
+
+Findings 4–8 are the most valuable of the sixteen, and they are the category
+a same-model reviewer is least likely to raise: **the pages said "waits up to
+`timeoutMs`" and never said what happens when the time runs out.** A reader
+would reasonably assume an empty or default value comes back. It raises. That
+omission was in prose I had just written from verified behavior — I had
+tested the success paths and never the expiry.
+
+**A second bug fell out of confirming finding 4 — filed as bug-469 (HIGH).**
+Checking that `thread::start(workers::double, 2, 0, 1)` really raises showed
+it raises correctly, the program's `TRAP` handler runs, and then the process
+dies with **SIGSEGV (exit 139)** during scope cleanup — deterministically,
+three runs out of three. The control with a valid limit and the identical
+`TRAP` exits `0`. A `Thread` binding is registered for `thread.drop` cleanup
+before `thread::start` has produced a handle, so the error path drops an
+uninitialized local
+(`src/codegen/resource/cleanup/builder_resource_cleanup.rs:536-548`). Filed
+rather than fixed here: it is a codegen fix with a runtime fixture, outside
+this plan's prose-only scope.
 - [x] Memory-scope pass on both. **Both at 0**
       (`./scripts/man-census.sh --memory-scope bits` and `… thread`).
       `bits` entered at 2 and `thread` at 0, as predicted. The rewrite table
@@ -704,8 +767,38 @@ broken form.
 
 Acceptance: both pilot packages 100% filled/verified/reviewed with 0
 memory-scope hits; workflow §3 amended with anything the pilot taught
-(reviewer prompt fixes, triage rules, rewrite-table rows).
-Commit: —
+(reviewer prompt fixes, triage rules, rewrite-table rows). — **MET.**
+`bits` 17/17 and `thread` 12/12 on every census column, both at 0
+memory-scope hits, 37/37 and 13/13 examples building and running, both
+reviewed with every finding applied.
+
+What the pilot taught, now folded into the workflow for B–E:
+
+1. **The scope pass can introduce an accuracy bug.** `bits` findings 2–5.
+   Never rewrite a mechanism sentence into a *claim about cost or
+   behaviour* — cut it instead. Only the cross-model reviewer caught it.
+2. **"Waits up to `timeoutMs`" is an unfinished sentence.** Any call with a
+   timeout must say what happens when it expires, and whether that is a
+   raise or a return value. `thread` findings 5–8 were all this one
+   omission, on four different pages, in freshly-written prose.
+3. **The ban needs a prose-level reading, not just a grep.** `thread`
+   findings 2–3 use no banned word — "it belongs to the other side", "the
+   handle is still yours" — and still teach an ownership model. Keep the
+   reviewer prompt's "flag any SENTENCE that would teach a
+   borrow/ownership mental model even without a banned word" clause
+   verbatim; it is what found them.
+4. **Examples must be compiled in the shape they render.** `thread`'s first
+   draft had four worker snippets with line-broken parameter lists, which
+   MFBASIC does not accept. Compile the block as written, not a tidied
+   version of it.
+5. **A prepared project may be needed.** `man-run-examples.sh` grew a
+   `PROJECT` override because a thread entry point cannot live in a scratch
+   `main.mfb`; the reviewer prompt has to point at that project too.
+6. Reviewer mechanics: prompt on **stdin**, one run per package, and tell
+   it the syntax traps (`&` not `+` for concatenation, `Type[f := v]`
+   constructors, `WITH` updates) — the `bits` run wasted a build on `+`.
+
+Commit: (hash recorded in the following commit)
 
 ## Validation Plan
 

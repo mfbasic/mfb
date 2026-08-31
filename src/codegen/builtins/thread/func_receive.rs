@@ -21,8 +21,14 @@ threads reading the same channel do not both get a copy.
 
 The value arrives as its own copy, so nothing is shared with the sender.
 
+If no message arrives before `timeoutMs` runs out, `receive` **raises**
+`ErrTimeout` — it does not return an empty or default value, so a timeout is
+something to trap rather than test for. A negative `timeoutMs` raises
+`ErrInvalidArgument`.
+
 To look before committing to a wait, call `thread::poll` first: it reports
-whether a message is ready without taking it.
+whether a message is ready without taking it, and answers `FALSE` instead of
+raising when there is nothing there.
 
 `receive` does not close the handle; the thread is still collected with
 `thread::waitFor`."#;

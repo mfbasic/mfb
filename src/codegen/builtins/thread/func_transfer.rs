@@ -12,11 +12,11 @@ const DESC: &str = r#"`transfer` hands the open handle `res` to the thread's oth
 from the message channel, so a thread can be passing data and resources at the
 same time.
 
-**The call takes the handle.** Unlike everything else here, `res` is not copied
-— there is one open file or socket and afterwards it belongs to the other side.
-Your binding cannot be used again after a successful transfer. If the transfer
-fails, the handle is still yours and still open, so a `TRAP` handler can close
-it or try again.
+**The call takes the handle.** Unlike everything else here, `res` is not copied:
+there is one open file or socket, and after a successful transfer the sending
+binding is closed and cannot be used again — `thread::accept` produces the same
+open handle at the other end. If the transfer fails, the sending binding is
+still open, so a `TRAP` handler can close it or try again.
 
 It works from both ends, decided by the handle you pass: your `Thread` handle
 sends the resource *to* the worker, the worker's own `ThreadWorker` handle sends
@@ -32,7 +32,9 @@ allowed on the message channel, so this is the only way one moves between
 threads.
 
 Like the message queue, the resource queue is bounded, and `transfer` waits up
-to `timeoutMs` milliseconds for room in it."#;
+to `timeoutMs` milliseconds for room in it. If the queue is still full when that
+time runs out, `transfer` raises `ErrTimeout` and the handle is still open. A
+negative `timeoutMs` raises `ErrInvalidArgument`."#;
 
 const EX: &str = r#"Open a file and hand it to a worker to write:
 
