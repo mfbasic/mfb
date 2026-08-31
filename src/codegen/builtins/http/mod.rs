@@ -173,7 +173,7 @@ pub(crate) fn header_map() -> ParameterType {
 const MODULE_INTRO: &str =
     r#"A blocking and non-blocking HTTP/1.1 client and a small HTTP/1.1 server"#;
 const MODULE_DESC: &str = r#"The `http` package is a blocking and non-blocking HTTP/1.1 client and a small
-HTTP/1.1 server, built entirely on the native `net` and `tls` packages.
+HTTP/1.1 server, built entirely on the native `tcp`, `tls`, and `net` packages.
 `http::read` and `http::write` perform a complete blocking request/response
 exchange and return a `Response`; the five-call non-blocking client
 (`startRead`/`ready`/`pump`/`done`/`finish`) drives an exchange without blocking

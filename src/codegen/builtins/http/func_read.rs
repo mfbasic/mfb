@@ -8,7 +8,7 @@ const INTRO: &str = r#"Perform one blocking, body-less HTTP/1.1 request and retu
 
 const DESC: &str = r#"`read` performs exactly one blocking HTTP/1.1 request that carries **no body**
 and returns the reply as an `http::Response` value. It opens a fresh connection
-to `url.host` on `url.port` — plaintext through the `net` package for an `http://`
+to `url.host` on `url.port` — plaintext through the `tcp` package for an `http://`
 URL, TLS through the `tls` package for an `https://` URL — writes the request,
 reads the response to end of stream, closes the connection, and returns. The
 connection is never reused; every call sends `Connection: close`.

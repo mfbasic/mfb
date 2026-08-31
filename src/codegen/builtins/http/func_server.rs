@@ -8,7 +8,7 @@ const INTRO: &str = r#"Bind a plaintext HTTP/1.1 listening socket and return the
 const DESC: &str = r#"`server` binds a listening TCP socket for a plaintext HTTP/1.1 server and returns
 the `tcp::Listener` **directly** — the `http` package adds no wrapper resource of
 its own. The call is a pass-through to `tcp::listen(host, port, backlog)`, so
-the listener behaves in every respect like one opened by `net` itself.
+the listener behaves in every respect like one opened by `tcp` itself.
 
 `host` defaults to `"0.0.0.0"` and `backlog` defaults to `128`; both defaults are
 injected at IR lowering, so the one- and two-argument forms are exactly the
