@@ -70,6 +70,13 @@ pub(crate) fn lower_process_drop_helper(
     }
 }
 
+/// The pthread start routine `process::detach` hands each detached child to
+/// (`gen_unix::lower_process_reaper_helper`, bug-474). Not a descriptor member and
+/// not a runtime call — `func_detach.rs` takes its address and `builder/mod.rs`
+/// emits it whenever `process.detach` is present, so the two sites share the name
+/// from here.
+pub(crate) const PROCESS_REAPER_SYMBOL: &str = "_mfb_rt_process_reaper";
+
 // --- Process record tail (offsets from the record base) ----------------------
 pub(crate) const PROC_STDIN_W: usize = 32;
 pub(crate) const PROC_STDOUT_R: usize = 40;

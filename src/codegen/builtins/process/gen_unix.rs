@@ -885,3 +885,64 @@ pub(crate) fn emit_poll_wait(
     ]);
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// `_mfb_rt_process_reaper` (bug-474) — the pthread start routine `process::detach`
+// spawns to reap exactly ONE detached child.
+// ---------------------------------------------------------------------------
+
+/// `void *_mfb_rt_process_reaper(void *pid)` — `waitpid(pid, NULL, 0); return NULL;`.
+///
+/// `detach` used to arrange the child's cleanup by flipping the **process-wide**
+/// `SIGCHLD` disposition to `SIG_IGN`, which tells the kernel to auto-reap *every*
+/// child of the program. Any later `waitpid` then failed with `ECHILD`, and
+/// `process::waitFor` reads `ECHILD` as "already reaped" and returns the handle's
+/// cached exit code — `0` for a child nobody had waited on. One `detach` therefore
+/// silently zeroed the exit status of every other child (bug-474). Reaping on a
+/// per-pid thread keeps the disposition untouched, so `waitFor` on a handle that was
+/// never detached still reports the child's real status.
+///
+/// The child pid arrives **by value** in the C first-argument register, never a
+/// pointer to the `Process` record: the record's arena block may be reclaimed at the
+/// detaching scope's exit while this thread is still blocked in `waitpid`.
+///
+/// The thread needs no arena and no MFB context — it makes exactly one libc call —
+/// so it takes pthread's default stack and never writes `ARENA_STATE_REGISTER`
+/// (reserved from allocation), which is what a start routine must not clobber.
+pub(crate) fn lower_process_reaper_helper(
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<CodeFunction, String> {
+    let symbol = PROCESS_REAPER_SYMBOL;
+    let mut v = Vregs::new();
+    let pid = v.next();
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&pid, abi::c_arg(0)),
+        // waitpid(pid, NULL, 0) — block until this one child exits, then reap it.
+        // The status is discarded: nothing can observe a detached child's exit
+        // (its handle is closed), so there is nowhere to cache it.
+        abi::move_register(abi::c_arg(0), &pid),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+    ];
+    let mut relocations = Vec::new();
+    platform.emit_external_call(
+        "waitpid",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::move_immediate(abi::c_return(0), "Integer", "0"),
+        abi::return_(),
+    ]);
+    Ok(finalize_vreg_helper(
+        "process.reaper",
+        symbol,
+        "Integer",
+        instructions,
+        relocations,
+    ))
+}

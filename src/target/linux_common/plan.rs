@@ -542,6 +542,18 @@ impl LinuxPlan<'_> {
                 imports.push(self.libc_import("__errno_location", required_by));
                 // `environ` (a data global) is read by spawnEnv's envReplace clear.
                 imports.push(self.libc_import("environ", required_by));
+                // bug-474: `detach` alone spawns the per-child reaper thread
+                // (`_mfb_rt_process_reaper`), so only it pulls pthread — the rest of
+                // the package stays libc-only. On musl these resolve out of libc.
+                if call == "process.detach" {
+                    imports.extend(["pthread_create", "pthread_detach"].into_iter().map(
+                        |symbol| PlatformImport {
+                            library: self.libpthread().to_string(),
+                            symbol: symbol.to_string(),
+                            required_by: required_by.to_string(),
+                        },
+                    ));
+                }
                 imports
             }
             // plan-110-B: `tcp` lowers through net's emitters, so it needs the same

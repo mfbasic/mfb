@@ -14,6 +14,7 @@ use crate::codegen::error::constants::*;
 use std::collections::HashMap;
 
 use crate::codegen::error::emission::emit_fail;
+use crate::codegen::memory::data::push_symbol_address;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -22,17 +23,15 @@ use crate::types::ParameterType;
 
 use super::gen_shared::*;
 const INTRO: &str = r#"Let a child keep running after the program exits."#;
-const DESC: &str = r#"**On Unix, `detach` changes exit reporting for the whole program.** The way it
-arranges for the child to be cleaned up applies to every child, not just this
-one, so after any `detach` a `process::waitFor` on a *different* handle returns
-`0` rather than that child's real exit code. Detach only once you no longer need
-accurate exit statuses from your other children.
-
-`process::detach` lets a child keep running **without** killing it. It
-closes the parent-side pipe ends, arranges for the operating system to auto-reap the
-child when it eventually exits (on Unix, by setting `SIGCHLD` to be ignored so the
-kernel reaps it and no zombie is left), and marks the handle closed. The child keeps
+const DESC: &str = r#"`process::detach` lets a child keep running **without** killing it. It
+closes the parent-side pipe ends, arranges for the operating system to clean the
+child up when it eventually exits (on Unix a dedicated thread waits for that one
+child, so no zombie is left behind), and marks the handle closed. The child keeps
 running on its own and survives the parent's exit.
+
+Detaching one child affects only that child. Every other `process::Process` keeps
+its own behavior — in particular `process::waitFor` on a handle you did not detach
+still reports that child's real exit code.
 
 This is the counterpart to the default drop behavior. Normally letting a `Process`
 go out of scope force-kills and reaps the child; `detach` is the deliberate opt-out
@@ -110,16 +109,15 @@ pub(crate) fn lower_process_detach_helper_posix(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<ProcBodyParts, String> {
-    let sigchld = if platform.family() == PlatformFamily::MacOS {
-        "20"
-    } else {
-        "17"
-    };
+    // The `pthread_t` `pthread_create` fills in, in this body's sp-relative locals.
+    const TID_SLOT: usize = 0;
     let mut v = Vregs::new();
     let file = v.next();
     let fd = v.next();
     let one = v.next();
+    let pid = v.next();
     let closed_l = format!("{symbol}_closed");
+    let no_reaper = format!("{symbol}_no_reaper");
     let done = format!("{symbol}_done");
     let mut instructions = vec![
         abi::move_register(&file, abi::return_register()),
@@ -145,18 +143,55 @@ pub(crate) fn lower_process_detach_helper_posix(
         )?;
         instructions.push(abi::label(&skip));
     }
-    // signal(SIGCHLD, SIG_IGN=1) -> kernel auto-reaps, no zombie.
+    // Reap this ONE child on a dedicated thread (bug-474):
+    //   pthread_create(&tid, NULL, _mfb_rt_process_reaper, (void *)pid);
+    //   if (rc == 0) pthread_detach(tid);
+    //
+    // This replaced `signal(SIGCHLD, SIG_IGN)`, which asked the kernel to auto-reap
+    // EVERY child of the program, not just this one: after any `detach`, a `waitpid`
+    // on an unrelated child failed with `ECHILD` and `process::waitFor` reported the
+    // never-written cached exit code `0` instead of the child's real status. The
+    // process-wide disposition is now left exactly as the program found it.
+    //
+    // The pid is passed BY VALUE — the reaper must not hold the `Process` record,
+    // whose arena block is reclaimed when the detaching scope exits while the thread
+    // is still blocked in `waitpid`. `tid` is pre-zeroed and `pthread_create`'s
+    // return checked, so a failed create never hands garbage to `pthread_detach`
+    // (the child is then left for the program's exit to reparent, never killed).
     instructions.extend([
-        abi::move_immediate(abi::c_arg(0), "Integer", sigchld),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+        abi::load_u64(&pid, &file, RESOURCE_OFFSET_HANDLE),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), TID_SLOT),
+        abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), TID_SLOT),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
+    push_symbol_address(
+        symbol,
+        PROCESS_REAPER_SYMBOL,
+        abi::c_arg(2),
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::move_register(abi::c_arg(3), &pid));
     platform.emit_external_call(
-        "signal",
+        "pthread_create",
         symbol,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
+    instructions.extend([
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_ne(&no_reaper),
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), TID_SLOT),
+    ]);
+    platform.emit_external_call(
+        "pthread_detach",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.push(abi::label(&no_reaper));
     instructions.extend([
         abi::move_immediate(&one, "Integer", "1"),
         abi::store_u64(&one, &file, RESOURCE_OFFSET_CLOSED),
@@ -172,7 +207,7 @@ pub(crate) fn lower_process_detach_helper_posix(
         &done,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    Ok((instructions, relocations, 0))
+    Ok((instructions, relocations, 16))
 }
 
 pub(crate) fn lower_process_detach_helper_win(

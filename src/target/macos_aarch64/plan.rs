@@ -736,7 +736,7 @@ impl plan::NativePlanPlatform for Platform {
                 // plan-90: fork/exec/pipe/wait + the errno accessor. Over-importing
                 // is harmless (the merged table dedups; unused imports are inert),
                 // so every process helper pulls the shared set.
-                [
+                let mut imports = [
                     "_pipe",
                     "_fork",
                     "_dup2",
@@ -762,7 +762,20 @@ impl plan::NativePlanPlatform for Platform {
                     symbol: symbol.to_string(),
                     required_by: required_by.clone(),
                 })
-                .collect()
+                .collect::<Vec<_>>();
+                // bug-474: `detach` alone spawns the per-child reaper thread
+                // (`_mfb_rt_process_reaper`), so only it pulls pthread — the rest of
+                // the package stays libc-only.
+                if call == "process.detach" {
+                    imports.extend(["_pthread_create", "_pthread_detach"].into_iter().map(
+                        |symbol| PlatformImport {
+                            library: "libSystem".to_string(),
+                            symbol: symbol.to_string(),
+                            required_by: required_by.clone(),
+                        },
+                    ));
+                }
+                imports
             }
             // plan-110-B: `tcp` lowers through net's emitters, so it needs the same
             // libSystem symbols and the same errno accessor.

@@ -60,6 +60,14 @@ uses):
 - `datetime` now/monotonic helpers require `clock_gettime`.
 - `thread::start` requires `pthread_create` plus the pthread mutex/cond
   primitives.
+- `process::` calls require the fork/exec/pipe surface (`fork`, `execvp`, `pipe`,
+  `dup2`, `close`, `waitpid`, `kill`, `read`, `write`, `poll`, `fcntl`) and error
+  access. `process::detach` additionally requires `pthread_create` and
+  `pthread_detach`: it reaps the one child it detached on a dedicated thread
+  (`_mfb_rt_process_reaper`) rather than by changing the process-wide `SIGCHLD`
+  disposition, which would auto-reap *every* child and break `process::waitFor`
+  on the others (bug-474). No other `process::` call pulls pthread.
+  [[src/codegen/builtins/process/func_detach.rs:lower_process_detach_helper_posix]]
 - `math::` calls require **no** platform symbol — `math::rand`/`math::seed` pull
   only `getentropy` (libc) for the startup seed; the transcendentals, `pow`,
   `atan2`, `tan`, and `Float MOD` are in-tree kernels.
