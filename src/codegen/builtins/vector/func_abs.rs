@@ -21,15 +21,12 @@ way as `v`. The magnitude is preserved, however, because negating individual
 components does not change the sum of their squares — `vector::length(vector::abs(v))`
 always equals `vector::length(v)`.
 
-The three element types differ only in how the scalar absolute value is taken.
-The `Float` overloads clear the sign bit with the hardware floating-point
-absolute value, which cannot overflow and performs no rounding or domain check,
-so the `Float` overloads never fail. The `Fixed` and `Integer` overloads operate
-on the underlying signed 64-bit representation, whose negative range extends one
-step further than its positive range; negating the minimum representable value
-has no positive counterpart and is reported as `ErrOverflow` rather than
-silently wrapping. This is exactly the scalar `math::abs` behavior, inherited
-per component.
+The three element types differ only in whether the operation can fail. `Float`
+absolute value never rounds and never overflows, so the `Float` overloads never
+fail. `Fixed` and `Integer` reach one step further below zero than above it, so
+the most negative representable component has no positive counterpart: taking
+its absolute value raises `ErrOverflow` rather than wrapping silently. This is
+exactly the scalar `math::abs` behavior, applied per component.
 
 `vector::abs` is generic over the nine built-in vector record types. The overload
 is selected at compile time from the exact record type of the single argument;

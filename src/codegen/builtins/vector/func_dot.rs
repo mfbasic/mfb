@@ -23,7 +23,7 @@ functions in this package — `project`, `reject`, `angle`, and the `Integer`
 `normalize` — use it to test for a zero-length vector without paying for a square
 root.
 
-The implementation is multiplication and addition only: no division, no square
+`dot` is multiplication and addition only: no division, no square
 root, and no trigonometry. It therefore performs **no rounding** on any element
 type. The `Integer` overloads are exact checked integer arithmetic, so
 `vector::dot` is one of the few members of this package (with `cross` and `scale`)

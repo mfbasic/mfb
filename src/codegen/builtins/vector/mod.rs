@@ -88,8 +88,7 @@ Each function is overloaded by the exact argument record type: a member takes a
 vector of one of the nine types and returns either that type or its scalar element
 type. Algebraic operations are correctly rounded on `Float`, use Q32.32 fixed-point
 on `Fixed`, and round half away from zero on `Integer`. `vector` is a built-in
-package written in MFBASIC over the intrinsic `math` package, so `IMPORT vector`
-needs no manifest dependency."#;
+built-in package: `IMPORT vector` needs no manifest dependency."#;
 
 // The nine value-record type names, grouped by dimension. VEC_TYPES fixes the
 // registration order (2D then 3D then 4D per element, matching the companion).

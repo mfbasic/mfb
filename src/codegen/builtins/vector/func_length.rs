@@ -24,7 +24,7 @@ The `Float` overloads sum in IEEE doubles and take the root with `math::sqrt`.
 The `Fixed` overloads work entirely in deterministic Q32.32 arithmetic. The
 `Integer` overloads square and sum in exact checked integer arithmetic and then
 apply the package's rounding integer square root: it first derives a seed from
-the hardware `Float` square root of the sum, then corrects that seed to the exact
+an approximate square root of the sum, then corrects it to the exact
 `floor` of the true root using only integer comparisons and divisions, and finally
 rounds up when the remainder exceeds the floor. The floating-point seed is only a
 starting point — the integer correction loops guarantee the exact floor

@@ -24,7 +24,7 @@ responsible for passing a unit normal — typically the output of
 it has no division and therefore no zero-vector guard, so a zero `n` is accepted
 and simply returns `v` unchanged.
 
-Because the implementation is multiplication and subtraction only — no division,
+Because `reflect` is multiplication and subtraction only — no division,
 no square root, no trigonometry — it performs **no rounding** on any element type.
 The `Integer` overloads are exact checked integer arithmetic and the `Fixed`
 overloads are exact within the Q32.32 grid. This puts `reflect` in the small group

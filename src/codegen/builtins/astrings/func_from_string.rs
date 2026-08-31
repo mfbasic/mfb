@@ -15,9 +15,8 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Construct an `AttributedString` from plain text with no attributes."#;
 
 const DESC: &str = r#"`fromString` builds an `AttributedString` whose visible text is its own copy of
-`text` and whose attribute overlay is empty. The result is an ordinary value:
-changing `text` afterwards cannot affect it, and it goes away with the scope
-that holds it.
+`text` and whose attribute overlay is empty. The result is an ordinary value —
+changing `text` afterwards cannot affect it.
 
 Recover the visible text with `toString(a)`; `io::print`/`io::write` emit it. The
 constructed value has no attributes until `astrings::addAttribute` (and the other

@@ -24,7 +24,7 @@ The operation is a comparison and a select on every element type — it does no
 arithmetic at all, so it cannot overflow, performs no rounding, and never fails.
 This makes `vector::max` one of only two functions in this package (with
 `vector::min`) that raise no errors whatsoever, on any overload. `Float`
-comparisons use the hardware maximum instruction; `Fixed`, `Integer`, and `Money`
+comparisons take the larger of the two directly; `Fixed`, `Integer`, and `Money`
 comparisons are a signed 64-bit compare and select over the underlying
 representation.
 

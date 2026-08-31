@@ -16,7 +16,13 @@ const DESC: &str = r#"`getAttributes` returns the attributes in effect at scalar
 covering span, the covering span with the **highest start** wins (ties break to the later insertion).
 The result carries at most one `Attribute` per member — flags are present when any covering span
 carries them; font/font-size take the winning span's value. Attributes are never merged on write, so
-this read-time resolution is where overlaps are decided."#;
+this read-time resolution is where overlaps are decided.
+
+**An invalid index raises.** `index` must identify a scalar that exists: a
+negative index, or one at or past the end of the visible text, raises
+`ErrIndexOutOfRange` (`attribute index out of bounds`). On empty text every
+index is out of range, so `getAttributes` on it raises rather than returning an
+empty list."#;
 
 const EX: &str = r#"```
 IMPORT astrings

@@ -26,7 +26,7 @@ follow the weighted blend rather than tracking a sphere. For a clean directional
 interpolation, normalize both inputs first.
 
 The formula divides by `sin(omega)`, which approaches zero as the inputs become
-parallel or antiparallel. To stay stable there, the implementation tests
+parallel or antiparallel. To stay stable there, `slerp` tests
 `abs(s) < 0.000001` — the literal threshold, in the `Float` overloads, and its
 `toFixed` equivalent in the others — and when it is met **returns
 `vector::lerp_unclamped(a, b, t)` instead**, taking the straight-line result. This

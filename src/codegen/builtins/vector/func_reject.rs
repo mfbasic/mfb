@@ -9,7 +9,7 @@ const INTRO: &str = r#"Component of one vector orthogonal to another"#;
 
 const DESC: &str = r#"`vector::reject` returns the part of `a` that is perpendicular to `b` — the vector
 rejection, the complement of the vector projection. It is implemented directly as
-`a - vector::project(a, b)`: the implementation calls the matching `project`
+`a - vector::project(a, b)`: it takes the same `project`
 helper for the same type and then subtracts its components from `a`'s, in declared
 field order.
 

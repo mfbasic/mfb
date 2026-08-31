@@ -16,7 +16,7 @@ standard "speed limit" operation: it is a no-op inside the ball of radius `max`
 and a projection onto its surface outside it.
 
 The zero vector is a special case. It has no direction, so it cannot be rescaled,
-but it also never exceeds a non-negative `max`. The implementation checks
+but it also never exceeds a non-negative `max`. `clamp_length` checks
 `len <= max OR len = 0` and returns `v` untouched in either case, so a zero
 vector is passed through rather than raising an error — unlike
 `vector::normalize`, which rejects it. Note that the length test is inclusive:
@@ -24,7 +24,7 @@ a vector already exactly at length `max` is returned unchanged with no division
 performed.
 
 `max` must not be negative. A negative cap is meaningless, since no magnitude can
-be below zero, and the implementation rejects it up front — before computing any
+be below zero, and it is rejected up front — before computing any
 length — with `ErrInvalidArgument` and the message
 `vector::clamp_length with negative max`. A `max` of exactly zero is accepted and
 is not an error: the length test `len <= 0` matches only the zero vector, and any
