@@ -1,0 +1,12 @@
+IMPORT io
+IMPORT source_pkg_tiny
+
+' bug-480 Defect A. A source-directory dependency's exported functions must
+' acquire their signatures, exactly as the `.mfp` form does. Before the fix every
+' call into the package evaluated to `Unknown` and the build failed at the
+' CALLER with a `TYPE_CALL_ARGUMENT_MISMATCH` naming `toString`.
+FUNC main AS Integer
+  io::print(toString(source_pkg_tiny::answer()))
+  io::print(source_pkg_tiny::greet("world"))
+  RETURN 0
+END FUNC

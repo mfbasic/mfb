@@ -1,0 +1,42 @@
+' bug-480 Defect B1. The prefixed spelling of an imported enum MEMBER is the one
+' the governing rule requires, and before the fix it escaped the front end and
+' died in NIR with `error: NIR local reference 'net.PingStatus' does not resolve`
+' -- no file, no line, no error code.
+'
+' Every expression position the bug report measured is exercised here: a `CASE`
+' pattern (which escaped entirely), a `LET` initialiser (which reported
+' TYPE_UNKNOWN_VALUE naming neither the enum nor the qualifier), a comparison,
+' and a call argument. `net::ping` is deliberately NOT called -- ICMP needs OS
+' permission this fixture does not want to depend on; the enum is a value in its
+' own right.
+IMPORT net
+IMPORT io
+
+FUNC statusName(s AS net::PingStatus) AS String
+  MATCH s
+    CASE net::PingStatus.Ok
+      RETURN "Ok"
+    CASE net::PingStatus.Timeout
+      RETURN "Timeout"
+    CASE net::PingStatus.Unreachable
+      RETURN "Unreachable"
+    CASE net::PingStatus.TtlExceeded
+      RETURN "TtlExceeded"
+  END MATCH
+END FUNC
+
+FUNC main AS Integer
+  ' LET initialiser.
+  LET ok = net::PingStatus.Ok
+  ' Call argument.
+  io::print("arg=" & statusName(net::PingStatus.Timeout))
+  ' Through a binding.
+  io::print("let=" & statusName(ok))
+  ' Comparison.
+  io::print("eq=" & toString(ok = net::PingStatus.Ok))
+  io::print("ne=" & toString(ok = net::PingStatus.Unreachable))
+  ' Annotated binding, the position that already worked.
+  LET t AS net::PingStatus = net::PingStatus.TtlExceeded
+  io::print("annotated=" & statusName(t))
+  RETURN 0
+END FUNC

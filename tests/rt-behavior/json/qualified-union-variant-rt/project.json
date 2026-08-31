@@ -1,0 +1,10 @@
+{
+  "name": "qualified_union_variant_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-480 Defect B1: an imported union's VARIANT written with its import prefix (`json::JsonBool`) must resolve as a `CASE` pattern and as a constructor, not escape to `NIR local reference ... does not resolve`.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

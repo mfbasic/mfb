@@ -1,0 +1,7 @@
+EXPORT FUNC answer() AS Integer
+  RETURN 42
+END FUNC
+
+EXPORT FUNC greet(who AS String) AS String
+  RETURN "hello, " & who
+END FUNC
