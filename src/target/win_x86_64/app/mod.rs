@@ -391,7 +391,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     call_external(from, "GetModuleHandleW", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         HINSTANCE,
     ));
@@ -407,7 +407,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
         &mut ins,
         &mut rel,
     );
-    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
     ins.push(abi::branch_ne("headless_spawn"));
 
     // ---- GUI path: build + show the window (byte-equivalent to spike.rs) ----
@@ -495,11 +495,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     ));
     load_addr(abi::mfb_arg(2), TITLE_SYM, from, &mut ins, &mut rel);
     call_external(from, "CreateWindowExW", USER32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        HWND,
-    ));
+    ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), HWND));
     // Stash the main HWND so the worker's finish helper can signal the UI thread.
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HWND));
     load_addr(abi::mfb_arg(1), MAIN_HWND_SYM, from, &mut ins, &mut rel);
@@ -535,7 +531,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     // Store the EDIT HWND into its writable global (load_addr writes ARG[1], not
     // the return register, so the fresh handle survives the address computation).
     load_addr(abi::mfb_arg(1), EDIT_HWND_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::mfb_arg(1), 0));
+    ins.push(abi::store_u64(abi::c_return(0), abi::mfb_arg(1), 0));
     // plan-98-A Phase 3: the surviving copy. The reconcile zeroes EDIT_HWND_SYM
     // outside `Console` so `io::` writes degrade to the fd sink; without this second
     // global the control's handle would be lost on the first mode switch and
@@ -602,7 +598,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     load_addr(abi::mfb_arg(2), EDITPROC_SYMBOL, from, &mut ins, &mut rel); // &editproc
     call_external(from, "SetWindowLongPtrW", USER32, &mut ins, &mut rel);
     load_addr(abi::mfb_arg(1), EDIT_OLDPROC_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::mfb_arg(1), 0)); // oldproc
+    ins.push(abi::store_u64(abi::c_return(0), abi::mfb_arg(1), 0)); // oldproc
 
     // CreateThread(NULL, 0, &worker, hwnd, 0, NULL)
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
@@ -613,7 +609,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28)); // lpThreadId
     call_external(from, "CreateThread", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         WORKERH,
     ));
@@ -696,7 +692,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
         &mut ins,
         &mut rel,
     );
-    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
     ins.push(abi::branch_eq("inject_done")); // MFB_WINAPP_INPUT unset → no injection at all
     load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
@@ -717,7 +713,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0"));
     ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "0"));
     call_external(from, "GetMessageW", USER32, &mut ins, &mut rel);
-    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
     ins.push(abi::branch_le("main_done")); // 0 = WM_QUIT, -1 = error
                                            // The worker's finish posts WM_APP_QUIT (msg.message @ MSG+8); catch it and exit
                                            // the loop so the UI thread does teardown (a worker ExitProcess faults in GDI).
@@ -762,7 +758,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28));
     call_external(from, "CreateThread", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         WORKERH,
     ));
@@ -803,7 +799,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
         &mut ins,
         &mut rel,
     );
-    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
     ins.push(abi::branch_eq("main_exit"));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x60));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "13")); // WM_GETTEXT
@@ -818,13 +814,13 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     call_external(from, "SendMessageW", USER32, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "65535"));
     ins.push(abi::and_registers(
-        abi::return_register(),
-        abi::return_register(),
+        abi::c_return(0),
+        abi::c_return(0),
         abi::mfb_arg(1),
     ));
     ins.push(abi::shift_left_immediate(
         abi::mfb_arg(0),
-        abi::return_register(),
+        abi::c_return(0),
         1,
     ));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x68)); // nbytes
@@ -835,11 +831,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
         FILE_FLAG_STDOUT_FD,
     ));
     call_external(from, "GetStdHandle", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        0x70,
-    ));
+    ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), 0x70));
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x78));
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x70));
@@ -946,11 +938,7 @@ fn emit_wndproc() -> CodeFunction {
         PS,
     ));
     call_external(from, "BeginPaint", USER32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        HDC,
-    ));
+    ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), HDC));
     // BitBlt(hdc, 0, 0, W, H, memDC, 0, 0, SRCCOPY) — args 5..9 on the stack.
     ins.push(abi::move_immediate(
         abi::mfb_arg(2),
@@ -982,7 +970,12 @@ fn emit_wndproc() -> CodeFunction {
         PS,
     ));
     call_external(from, "EndPaint", USER32, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    // A WNDPROC is a **C callback**: Windows reads its `LRESULT` from `rax`
+    // (`%retC`), not from the aligned MFB bank. The `DefWindowProcW` tail below
+    // gets this right by accident — it leaves `rax` untouched — but every handled
+    // arm was writing 0 into `rcx` and returning whatever the arm's last Win32
+    // call had left in `rax`.
+    ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     // ---- plan-98-C Phase 3: WM_PAINT while a canvas surface is presented ----
@@ -1011,11 +1004,7 @@ fn emit_wndproc() -> CodeFunction {
         PS,
     ));
     call_external(from, "BeginPaint", USER32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        HDC,
-    ));
+    ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), HDC));
     // Build the BITMAPINFOHEADER: 40-byte size, the frame's width, a NEGATIVE
     // height (top-down rows — the rasteriser's row 0 is the top, and a DIB's
     // default bottom-up order would render the picture upside down), one plane,
@@ -1091,7 +1080,7 @@ fn emit_wndproc() -> CodeFunction {
         PS,
     ));
     call_external(from, "EndPaint", USER32, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
 
@@ -1100,7 +1089,7 @@ fn emit_wndproc() -> CodeFunction {
     ins.push(abi::branch_ne("wnd_check_char"));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     call_external(from, "PostQuitMessage", USER32, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
 
@@ -1164,7 +1153,7 @@ fn emit_wndproc() -> CodeFunction {
         PS,
     ));
     call_external(from, "WriteFile", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
 
@@ -1199,7 +1188,7 @@ fn emit_wndproc() -> CodeFunction {
     ins.push(abi::branch_eq("wnd_blit_no_previous"));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), BLOCK));
     call_external(from, "GetProcessHeap", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::move_register(abi::mfb_arg(0), abi::return_register()));
+    ins.push(abi::move_register(abi::mfb_arg(0), abi::c_return(0)));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0")); // flags
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), BLOCK));
     call_external(from, "HeapFree", KERNEL32, &mut ins, &mut rel);
@@ -1211,7 +1200,7 @@ fn emit_wndproc() -> CodeFunction {
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0")); // whole client
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0")); // bErase FALSE
     call_external(from, "InvalidateRect", USER32, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
 
@@ -1313,7 +1302,7 @@ fn emit_wndproc() -> CodeFunction {
     call_external(from, "ShowWindow", USER32, &mut ins, &mut rel);
 
     ins.push(abi::label("wnd_reconcile_done"));
-    ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     // default: DefWindowProcW(hwnd, msg, wParam, lParam) — reload the saved args.
@@ -1445,10 +1434,16 @@ fn emit_finish() -> CodeFunction {
     ins.push(abi::subtract_stack(0x28));
     load_addr(abi::mfb_arg(0), MAIN_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    // Headless has no window, and `PostMessageW(NULL, ...)` does not no-op: it posts
+    // to the *calling* thread's queue, creating one on a worker that is about to
+    // exit. Skip it — there is nothing to ask to quit.
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_eq("finish_no_window"));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", WM_APP_QUIT));
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0"));
     ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "0"));
     call_external(from, "PostMessageW", USER32, &mut ins, &mut rel);
+    ins.push(abi::label("finish_no_window"));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     call_external(from, "ExitThread", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::branch_self());
@@ -1645,7 +1640,7 @@ pub(super) fn emit_app_io_write(
     ));
     call_external(symbol, "GetStdHandle", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         HANDLE,
     ));
@@ -2907,7 +2902,7 @@ fn emit_term_on(
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     call_external(from, "GetDC", USER32, &mut ins, &mut rel);
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         HDC_SCREEN,
     ));
@@ -2915,7 +2910,7 @@ fn emit_term_on(
     ins.push(abi::move_register(abi::mfb_arg(0), abi::return_register()));
     call_external(from, "CreateCompatibleDC", GDI32, &mut ins, &mut rel);
     load_addr(abi::mfb_arg(1), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::mfb_arg(1), 0));
+    ins.push(abi::store_u64(abi::c_return(0), abi::mfb_arg(1), 0));
     // bmp = CreateCompatibleBitmap(hdcScreen, W, H)
     ins.push(abi::load_u64(
         abi::mfb_arg(0),
@@ -2934,7 +2929,7 @@ fn emit_term_on(
     ));
     call_external(from, "CreateCompatibleBitmap", GDI32, &mut ins, &mut rel);
     // SelectObject(memDC, bmp) — stage bmp (rax) into ARG[1] before loading memDC.
-    ins.push(abi::move_register(abi::mfb_arg(1), abi::return_register()));
+    ins.push(abi::move_register(abi::mfb_arg(1), abi::c_return(0)));
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     call_external(from, "SelectObject", GDI32, &mut ins, &mut rel);
@@ -2976,8 +2971,8 @@ fn emit_term_on(
     call_external(from, "CreateFontW", GDI32, &mut ins, &mut rel);
     // cache the HFONT, then SelectObject(memDC, font).
     load_addr(abi::mfb_arg(1), TUI_FONT_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::mfb_arg(1), 0));
-    ins.push(abi::move_register(abi::mfb_arg(1), abi::return_register()));
+    ins.push(abi::store_u64(abi::c_return(0), abi::mfb_arg(1), 0));
+    ins.push(abi::move_register(abi::mfb_arg(1), abi::c_return(0)));
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     call_external(from, "SelectObject", GDI32, &mut ins, &mut rel);
@@ -3331,12 +3326,12 @@ pub(super) fn emit_canvas_blit_helper() -> CodeFunction {
 
     // block = HeapAlloc(GetProcessHeap(), 0, bytes + 16)
     call_external(from, "GetProcessHeap", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::move_register(abi::mfb_arg(0), abi::return_register()));
+    ins.push(abi::move_register(abi::mfb_arg(0), abi::c_return(0)));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), BYTES));
     ins.push(abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 16));
     call_external(from, "HeapAlloc", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
     // Out of memory drops the frame rather than failing the call: a renderer that
     // killed the program because one frame could not be shown would be worse than
     // one that skips it, and the next frame re-renders the same scene.
@@ -3404,7 +3399,7 @@ pub(super) fn emit_canvas_blit_helper() -> CodeFunction {
     // frame buffer per present would be megabytes a second.
     ins.push(abi::label("blit_orphan"));
     call_external(from, "GetProcessHeap", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::move_register(abi::mfb_arg(0), abi::return_register()));
+    ins.push(abi::move_register(abi::mfb_arg(0), abi::c_return(0)));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), BLOCK));
     call_external(from, "HeapFree", KERNEL32, &mut ins, &mut rel);

@@ -2057,7 +2057,23 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::move_immediate(abi::mfb_arg(3), "Integer", "0"), // lpSecurityAttributes = NULL
         ]);
         call_external(from, "CreateFileW", KERNEL32, instructions, relocations);
-        instructions.push(abi::add_stack(FRAME));
+        instructions.extend([
+            // plan-85: `CreateFileW` hands the HANDLE back as a **C** result (`rax` =
+            // `%retC`), and this seam's contract above promises it in the *aligned MFB*
+            // return register (`rcx` on Win64). Without this move the caller read
+            // whatever `rcx` happened to hold — the `lpFileName` pointer, which is
+            // positive, so the `< 0` open-failed check passed and the bogus value was
+            // handed to `WriteFile` as its handle.
+            //
+            // The symptom was `fs::writeText` raising `ErrWriteFailed` while leaving a
+            // **0-byte file behind**: the open genuinely worked, so the file was created
+            // and truncated, and only the write failed. Every `fs` write on Windows was
+            // affected. `emit_heap_alloc`, `emit_lib_open` and `emit_lib_get_sym` do
+            // this move; this one was missed when plan-85 split `%retC` from the
+            // aligned bank.
+            abi::move_register(abi::return_register(), abi::c_return(0)),
+            abi::add_stack(FRAME),
+        ]);
         Ok(())
     }
 
@@ -3357,6 +3373,82 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
 
     fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {
         app::app_mode_data_objects(project_name)
+    }
+}
+
+#[cfg(test)]
+mod c_result_tests {
+    use super::*;
+    use crate::arch::ops::CodeOp;
+    use crate::codegen::engine::types::types::CodegenPlatform;
+    use std::collections::HashMap;
+
+    /// Emit one seam and report whether it ends by moving the C result into the
+    /// aligned MFB return register.
+    fn returns_the_c_result(
+        emit: impl Fn(
+            &Platform,
+            &str,
+            &HashMap<String, String>,
+            &mut Vec<CodeInstruction>,
+            &mut Vec<CodeRelocation>,
+        ) -> Result<(), String>,
+    ) -> bool {
+        let mut instructions = Vec::new();
+        let mut relocations = Vec::new();
+        let imports = HashMap::new();
+        emit(
+            &Platform,
+            "t",
+            &imports,
+            &mut instructions,
+            &mut relocations,
+        )
+        .expect("seam emits");
+        instructions.iter().any(|ins| {
+            ins.op == CodeOp::Mov
+                && ins.get("dst").as_deref() == Some(abi::return_register().render().as_str())
+                && ins.get("src").as_deref() == Some(abi::c_return(0).render().as_str())
+        })
+    }
+
+    /// A Win32 seam that promises a value "in the return register" must actually
+    /// put it there.
+    ///
+    /// plan-85 split `%retC` (`rax`) from the aligned MFB bank (`rcx` on Win64), so
+    /// a seam that ends at `call_external` and returns leaves its result in `rax`
+    /// while every caller reads `abi::return_register()`. There is no type error and
+    /// no crash — the caller reads whatever that register happened to hold, which
+    /// for `emit_open_file` was `CreateFileW`'s own `lpFileName` argument: positive,
+    /// so the `handle < 0` open-failed check passed, and the pointer was handed to
+    /// `WriteFile` as a file handle.
+    ///
+    /// The symptom was `fs::writeText` raising `ErrWriteFailed` while leaving a
+    /// **0-byte file** behind — the open really had worked. Every `fs` write on
+    /// Windows was broken, and nothing caught it: the host is macOS, the acceptance
+    /// harness cannot run a PE, and no test opens a file through this seam.
+    ///
+    /// `emit_heap_alloc` is in the list as a control: it already did the move, so a
+    /// test that could only ever pass would not prove anything about its own reach.
+    #[test]
+    fn value_returning_win32_seams_move_the_c_result_into_the_return_register() {
+        for (name, ok) in [
+            (
+                "emit_open_file",
+                returns_the_c_result(Platform::emit_open_file),
+            ),
+            (
+                "emit_heap_alloc",
+                returns_the_c_result(Platform::emit_heap_alloc),
+            ),
+        ] {
+            assert!(
+                ok,
+                "{name} promises its result in abi::return_register() but never moves \
+                 abi::c_return(0) there — the caller will read whatever the aligned \
+                 bank happened to hold (plan-85 split the two)"
+            );
+        }
     }
 }
 

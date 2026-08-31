@@ -33,6 +33,7 @@ References:
 | A retrieves the GTK native surface handle + Windows HWND | plan-98-A Phase 3 acceptance met | MET. Linux: `rg -n gtk_native_get_surface src/target/linux_gtk/` → the `GdkSurface*` is read after `gtk_window_present` and stored at `ST_CANVAS_SURFACE` (`mod.rs:186,193`). Windows: `CANVAS_HWND_SYM` (`win_x86_64/app/mod.rs:150`). A's Correction 16 records why the portable `gtk_native_get_surface` replaced the two backend-specific getters the plan named — **and see Correction 1 below: with the offscreen renderer neither handle is needed.** |
 | Working tree builds | `cargo build` → pass | MET (`Finished \`dev\` profile`) |
 | A SPIR-V compiler is reachable (added — F cannot start without one) | `ssh -p 2228 test@127.0.0.1 'apt-get download glslang-tools && dpkg -x … && ./glslangValidator --version'` | MET. Not installed on the macOS host and not installable without root on the test boxes, but `apt-get download` + `dpkg -x` into a scratch dir works as a plain user — the same trick `.ai/remote_systems.md` documents for qemu-user. `scripts/regen-spirv.sh` automates it. |
+| **A Windows `--app` program runs at all (added — Phase 3 only)** | `mfb build --app --target windows-x86_64 <empty main>`, then run it on box 2230 | **NOT MET.** It faults with `0xC0000005` before `main`'s first statement, on the worker thread, inside `BCryptGenRandom` — **bug-477**, filed with a minidump. Four Windows defects were found and fixed on the way to it (Correction 15); this is the fifth and it is a Windows-platform bug, not a canvas one. Phase 3's acceptance is a *tolerance match against the Windows software render*, so it cannot be measured until an app-mode program runs. Phases 1 and 2 (Linux) are unaffected. |
 | Vulkan is loadable on the proof surface (added) | `ssh -p 2228 … vulkaninfo --summary` | MET. Ubuntu x86_64 glibc (2228): loader 1.4.309, device `llvmpipe` (`PHYSICAL_DEVICE_TYPE_CPU`). Alpine x86_64 musl (2227): `/usr/lib/libvulkan.so.1` present. Win11 (2230): `vulkan-1.dll` present. The aarch64 GTK boxes (2225, 2226) refuse connections right now, so the Linux proof surface is x86_64. |
 
 > Per A's invariant 8: no "full suite green at HEAD" row and no byte-identity
@@ -291,6 +292,16 @@ Acceptance: canvas renders via Vulkan on Windows matching the software reference
 tolerance; resize + retirement correct; the D race matrix green on the Windows Vulkan path.
 Run only the new Vulkan tolerance-golden tests plus C's software goldens (the reference
 they are compared against).
+
+**BLOCKED on the Prerequisites row added above (bug-477).** The acceptance is a
+comparison against the Windows *software* render, and no `--app` program reaches its
+first statement on Windows: an empty `SUB main() END SUB` faults with `0xC0000005` on
+the worker thread. plan-98-A Correction 8 already recorded "Windows cannot run an
+`app::` program at all today" and plan-98-C shipped the Windows blit as
+cross-build-plus-codegen-inspection only, so **no Windows binary this repo produces has
+ever been executed by a test.** Implementing the Vulkan half against an unmeasurable
+oracle would produce exactly the "reports success, renders nothing" result both
+`*Renderable` predicates exist to prevent. See Correction 15.
 Commit: —
 
 ## Validation Plan
@@ -597,3 +608,53 @@ One measured detail worth keeping: the first attempt resized nothing, because wi
 finish helper `_exit`s the process — the scripted resize lost the race every time. The
 proof scene now ends with `os::sleep(3000)`, which is also what makes the run a genuine
 **R8**: the worker is blocked for the whole of the second frame.
+
+**Correction 15 (Phase 3) — Windows app mode had never been run, and four defects
+were waiting in it.** Phase 3 assumed a working Windows canvas to compare a Vulkan
+render against. There is none: `scripts/` has `test-appimage.sh` and
+`test-macapp.sh` and nothing for `windows-x86_64`, plan-98-C shipped the Windows blit
+as "cross-build + codegen-inspection tests", and plan-98-A Correction 8 had already
+written down that a Windows `app::` program could not run. Executing one for the first
+time found, in order:
+
+1. **`emit_open_file` never moved `CreateFileW`'s handle out of `rax`.** The seam's own
+   doc comment promises the HANDLE "in the return register", and plan-85 had split
+   `%retC` (`rax`) from the aligned MFB bank (`rcx` on Win64). The caller read `rcx` —
+   which still held `lpFileName`, a positive value, so the `handle < 0` open-failed
+   check passed and the *pointer* went to `WriteFile` as a file handle. **Every `fs`
+   write on Windows failed**, leaving a 0-byte file behind, because the open really had
+   worked. Fixed, with `value_returning_win32_seams_move_the_c_result_into_the_return_register`
+   as the guard (RED-checked).
+
+2. **~20 more sites in `win_x86_64/app/mod.rs` read a Win32 result the same wrong way.**
+   `code.rs` had been audited for plan-85 — its comments cite it — and `app/mod.rs` had
+   not. The one that mattered was `CreateThread`: `_main` stored `rcx` as the worker
+   handle, so `WaitForSingleObject` failed instantly and the process exited *before its
+   worker ran anything*. That is why app mode looked like "the program never starts".
+
+3. **The `WNDPROC` return value went to `rcx`.** A window procedure is a C callback and
+   Windows reads its `LRESULT` from `rax`. The `DefWindowProcW` tail was right by
+   accident (it leaves `rax` alone); every handled arm returned whatever its last Win32
+   call had left there.
+
+4. **`GetEnvironmentVariableW`'s result was read from `rcx` in three places**, and `rcx`
+   held the *name* pointer — always non-zero. So the `MFB_WINAPP_HEADLESS` test always
+   took the headless branch: the GUI path was unreachable, and `MFB_WINAPP_DUMP` and the
+   keystroke-injection affordance could never fire either.
+
+With those four fixed, a Windows app program runs its worker and executes MFBASIC —
+the GUI path builds a window and pumps messages, and an infinite-loop `main` stays
+alive. It then dies at **bug-477**: the worker faults inside `BCryptGenRandom`, reading
+`0xFFFFFFFFFFFFFFFF`, in ntdll's activation-context path. Localized from a `LocalDumps`
+minidump parsed for the exception record, the faulting thread's stack and the module
+list; the bug report carries the frames and the parsing offsets.
+
+Two hypotheses were tested and **rejected**, and are recorded so they are not retried:
+an explicit 8 MiB `STACK_SIZE_PARAM_IS_A_RESERVATION` worker stack (no change), and
+warming CNG up with a throwaway `BCryptGenRandom` on the main thread before spawning
+the worker (no change — so it is not first-use initialization). A Win64
+callee-saved-register bracket around the worker's call was also written and then
+reverted: the finish helper `ExitThread`s from *inside* the program body, so the
+restore is unreachable and the change would have been dead code.
+
+Phases 1 and 2 are Linux and are unaffected by any of this.
