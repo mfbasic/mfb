@@ -144,6 +144,9 @@ Options:
   -q, --quiet         Print only the artifact line and any diagnostics
   -v, --verbose       Also print a per-phase timing line for each build stage
                       and a per-pass fire count for each optimizer row
+  -vv                 Also print the compile profiler: a nested span tree of
+                      where the build spent its time, the slowest functions and
+                      builtins, and input-size counters (also -v -v)
 
 Debug/Inspection (Emits intermediate output):
   --ast               Outputs Abstract Syntax Tree
@@ -170,7 +173,10 @@ Options:
   -O <level>          Optimization level: 0 off, 1 default, 2-3 enable more
                       passes (also -O0..-O3, --optimize <level>)
   -v, --verbose       Also print the build summary, a per-phase timing line for
-                      each build stage, and a per-pass optimizer fire count";
+                      each build stage, and a per-pass optimizer fire count
+  -vv                 Also print the compile profiler: a nested span tree of
+                      where the build spent its time, the slowest functions and
+                      builtins, and input-size counters (also -v -v)";
 
 pub(crate) const FMT_HELP: &str = "\
 Usage: mfb fmt [options] [path]
