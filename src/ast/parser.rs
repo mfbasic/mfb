@@ -14,6 +14,42 @@ pub(super) struct ParsedFile {
 /// `TRAP(e)`; the user simply has no name for it.
 pub const SYNTHETIC_TRAP_BINDING: &str = "#err";
 
+/// Collect `binding -> package` for every `IMPORT` in a token stream (bug-480).
+///
+/// A pre-scan rather than a fold over the parsed `Import`s: the qualifier on a
+/// package-qualified name is normalized while the *body* is parsed, and the
+/// grammar does not require every `IMPORT` to precede the first item, so the
+/// bindings have to be known before parsing starts. `IMPORT p` binds `p` to
+/// itself; `IMPORT p AS b` binds `b`. A malformed import contributes nothing —
+/// the parser proper reports it.
+fn scan_import_bindings(tokens: &[Token]) -> HashMap<String, String> {
+    let mut bindings = HashMap::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        if !matches!(tokens[i].kind, TokenKind::Keyword(Keyword::Import)) {
+            i += 1;
+            continue;
+        }
+        let Some(TokenKind::Identifier(package)) = tokens.get(i + 1).map(|t| &t.kind) else {
+            i += 1;
+            continue;
+        };
+        let package = package.clone();
+        let binding = match (
+            tokens.get(i + 2).map(|t| &t.kind),
+            tokens.get(i + 3).map(|t| &t.kind),
+        ) {
+            (Some(TokenKind::Keyword(Keyword::As)), Some(TokenKind::Identifier(alias))) => {
+                alias.clone()
+            }
+            _ => package.clone(),
+        };
+        bindings.insert(binding, package);
+        i += 2;
+    }
+    bindings
+}
+
 pub(super) struct FileParser<'a> {
     pub(super) path: &'a Path,
     pub(super) tokens: Vec<Token>,
@@ -42,6 +78,17 @@ pub(super) struct FileParser<'a> {
     /// nested block unwinds through its ~256 enclosing `consume_end_block` calls
     /// emitting exactly one `MFB_PARSE_BLOCK_TOO_DEEP` instead of a cascade.
     pub(super) depth_exceeded: bool,
+    /// This file's import BINDINGS — `binding -> package` for every `IMPORT p`
+    /// (binding == package) and `IMPORT p AS b` (binding `b`).
+    ///
+    /// bug-480: the qualifier a package-qualified name carries is the import
+    /// binding, not the package name (`IMPORT io AS console` makes it
+    /// `console::flush()`), so the parse-time type normalization has to resolve
+    /// the binding before it can ask the registry anything. Collected by a
+    /// pre-scan of the token stream rather than as the `IMPORT` statements are
+    /// parsed, because the grammar permits an `IMPORT` after the first item and
+    /// a name may be written before the line that binds it.
+    pub(super) import_bindings: HashMap<String, String>,
 }
 
 #[derive(Clone, Copy)]
@@ -67,6 +114,7 @@ impl<'a> FileParser<'a> {
             matches!(tokens.last().map(|token| &token.kind), Some(TokenKind::Eof)),
             "FileParser requires an Eof-terminated token stream"
         );
+        let import_bindings = scan_import_bindings(&tokens);
         Self {
             path,
             tokens,
@@ -76,6 +124,7 @@ impl<'a> FileParser<'a> {
             stmt_depth: 0,
             type_depth: 0,
             depth_exceeded: false,
+            import_bindings,
         }
     }
 

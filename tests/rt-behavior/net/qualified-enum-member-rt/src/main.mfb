@@ -9,7 +9,12 @@
 ' and a call argument. `net::ping` is deliberately NOT called -- ICMP needs OS
 ' permission this fixture does not want to depend on; the enum is a value in its
 ' own right.
+'
+' The second import pins the other half of the rule: the qualifier is the import
+' BINDING, not the package name, so `alias::PingStatus.Ok` names the same enum
+' member as `net::PingStatus.Ok`.
 IMPORT net
+IMPORT net AS alias
 IMPORT io
 
 FUNC statusName(s AS net::PingStatus) AS String
@@ -22,6 +27,17 @@ FUNC statusName(s AS net::PingStatus) AS String
       RETURN "Unreachable"
     CASE net::PingStatus.TtlExceeded
       RETURN "TtlExceeded"
+  END MATCH
+END FUNC
+
+' The same enum reached entirely through the alias binding -- parameter
+' annotation, CASE pattern and member alike.
+FUNC aliasName(s AS alias::PingStatus) AS String
+  MATCH s
+    CASE alias::PingStatus.Ok
+      RETURN "alias:Ok"
+    CASE ELSE
+      RETURN "alias:other"
   END MATCH
 END FUNC
 
@@ -38,5 +54,10 @@ FUNC main AS Integer
   ' Annotated binding, the position that already worked.
   LET t AS net::PingStatus = net::PingStatus.TtlExceeded
   io::print("annotated=" & statusName(t))
+  ' The alias binding names the same enum, so a value built through one spelling
+  ' is matched by the other.
+  io::print(aliasName(alias::PingStatus.Ok))
+  io::print(aliasName(ok))
+  io::print("alias eq=" & toString(alias::PingStatus.Timeout = net::PingStatus.Timeout))
   RETURN 0
 END FUNC
