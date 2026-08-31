@@ -520,6 +520,21 @@ pub(crate) const BUILTIN_FS_CLOSE_FUNCTION_ID: u32 = 0xffff_ff00;
 // must not change -- existing `.mfp` files reference it -- but the resource it
 // names moved from `net` to `tcp` when net's stream surface was removed.
 pub(crate) const BUILTIN_STREAM_CLOSE_FUNCTION_ID: u32 = 0xffff_feff;
+/// "Resolve this built-in resource's close op from the registry, by the entry's
+/// own type name" (bug-464 fallout).
+///
+/// The two sentinels above name ONE resource each, and the writer's table was a
+/// hardcoded three-name allowlist to match — `fs.File`, `tcp.Socket`,
+/// `tcp.Listener`. Every other built-in resource (`udp::Socket`, the `tls` pair,
+/// `process::Process`, the audio handles, `canvas::Image`) therefore got no
+/// `RESOURCE_TABLE` entry at all, and a package exporting one failed to build
+/// with an opaque `truncated binary representation`. A resource entry already
+/// carries its `type_id`, so the close op is derivable rather than needing a new
+/// sentinel per type; this id says "do that".
+///
+/// The two legacy sentinels are still WRITTEN for their three types so existing
+/// `.mfp` bytes are unchanged, and still decoded so older packages keep loading.
+pub(crate) const BUILTIN_RESOURCE_CLOSE_BY_TYPE: u32 = 0xffff_fefe;
 
 pub fn read_package_exports(path: &Path) -> Result<Vec<BinaryReprExport>, String> {
     let package = read_package_binary_repr(path)?;

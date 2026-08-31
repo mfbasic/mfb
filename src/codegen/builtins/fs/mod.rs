@@ -163,6 +163,15 @@ pub(crate) fn register(r: &mut Registry) {
                       when its binding goes out of scope.",
         close_function: CLOSE,
         sendable: true,
+        // Deliberately empty even though `File` is the one resource that *does*
+        // use its record tail: the plan-14-B write buffer (32/40/48) and the
+        // plan-14-C read cache (56/64/72/80) are a buffer and a cache that a
+        // move intentionally RESETS -- a moved handle starts unbuffered with an
+        // empty cache at the fd's current position. Declaring them live would
+        // carry a block that lives in the sender's arena. See the zeroing in
+        // `copy_resource_to_current_arena`, which is what an undeclared slot
+        // gets.
+        live_slots: &[],
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });

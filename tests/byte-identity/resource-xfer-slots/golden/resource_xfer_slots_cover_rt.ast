@@ -1,0 +1,31 @@
+{
+  "project": "resource_xfer_slots_cover_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "tls", "line": 20 },
+    { "module": "thread", "line": 21 },
+    { "module": "xfer_tls_worker", "line": 22 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 24,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF RES tls.Socket TO Boolean", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "xfer_tls_worker.talkOnTransferredSocket" }, { "kind": "string", "value": "dns.google" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "conn", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "8.8.8.8" }, { "kind": "number", "value": "443" }, { "kind": "number", "value": "30000" }, { "kind": "string", "value": "dns.google" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "conn" }] }, "line": 29 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 30 }
+      ]
+    }
+    ]
+  }
+  ]
+}

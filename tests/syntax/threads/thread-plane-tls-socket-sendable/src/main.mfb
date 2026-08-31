@@ -1,0 +1,51 @@
+' bug-464: every socket and listener resource is thread-sendable, so a server can
+' accept on one thread and hand each connection to a worker.
+'
+' Before the fix, all three declarations below were refused outright with
+' `2-203-0063 TYPE_THREAD_NOT_SENDABLE` -- on the *type declaration*, before any
+' `thread::transfer` call is reached (there is none in this file). `tcp::Socket`
+' and `udp::Socket` were the only sendable handles.
+'
+' The `sendable: false` bit was doing double duty: a v1 scope deferral
+' (plan-03-net.md §4.4, plan-06-tls-server.md §1) *and* a guard over
+' `copy_resource_to_current_arena`, which carried only the canonical header and
+' ZEROED the type-specific record tail at 32.. -- so a naively-flipped
+' `tls::Socket` reached its receiver with a NULL `SSL*`. The copy now carries each
+' resource's declared live slots, which is what makes these opt-ins sound.
+'
+' The `tcp::Socket` form at the bottom already compiled and must keep doing so:
+' it is the regression guard that the change did not disturb the resources that
+' were always sendable.
+IMPORT tls
+IMPORT tcp
+IMPORT udp
+IMPORT fs
+
+FUNC useTlsSocket(t AS Thread OF RES tls::Socket TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC useTlsListener(t AS Thread OF RES tls::Listener TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC useTcpListener(t AS Thread OF RES tcp::Listener TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+' Already sendable before bug-464 -- unchanged.
+FUNC useTcpSocket(t AS Thread OF RES tcp::Socket TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC useUdpSocket(t AS Thread OF RES udp::Socket TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC useFile(t AS Thread OF RES fs::File TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

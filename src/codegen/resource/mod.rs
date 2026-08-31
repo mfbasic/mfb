@@ -111,6 +111,32 @@ pub(crate) fn is_builtin_sendable_resource_type(type_: &ParameterType) -> bool {
     }
 }
 
+/// Whether `type_`'s built-in close op can fail. Mirrors the registry row; used
+/// by the `.mfp` `RESOURCE_TABLE` writer, which hardcoded `true` while its table
+/// only ever held three types that all shared it (bug-464 fallout).
+pub(crate) fn builtin_resource_close_may_fail(type_: &ParameterType) -> bool {
+    match registry().resolve_type(&type_.without_state().name()) {
+        Some(ResolvedType::Resource(r)) => r.close_may_fail,
+        _ => false,
+    }
+}
+
+/// The live words in `type_`'s record past the canonical header, which the
+/// thread-transfer copy must carry (bug-464). Empty for a resource whose record
+/// is the header alone, and for anything that is not a built-in resource.
+///
+/// Note this is deliberately independent of [`is_builtin_sendable_resource_type`]:
+/// a non-sendable resource still declares its slots, so that opting it in later
+/// is a one-line change that cannot silently truncate its record.
+pub(crate) fn builtin_resource_live_slots(
+    type_: &ParameterType,
+) -> &'static [crate::codegen::registry::ResourceLiveSlot] {
+    match registry().resolve_type(&type_.without_state().name()) {
+        Some(ResolvedType::Resource(r)) => r.live_slots,
+        _ => &[],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,16 +178,27 @@ mod tests {
             builtin_resource_close_function(&crate::types::ParameterType::declared("tcp.Listener")),
             Some("tcp.close")
         );
-        // File and Socket move across threads; a Listener stays put.
-        assert!(is_builtin_sendable_resource_type(
-            &crate::types::ParameterType::declared("fs.File")
-        ));
-        assert!(is_builtin_sendable_resource_type(
-            &crate::types::ParameterType::declared("tcp.Socket")
-        ));
-        assert!(!is_builtin_sendable_resource_type(
-            &crate::types::ParameterType::declared("tcp.Listener")
-        ));
+        // bug-464: every transport and file handle moves across threads. The
+        // Listener asserted `!sendable` here until then, on plan-03-net.md
+        // §4.4's v1 policy deferral rather than any property of its record.
+        for sendable in ["fs.File", "tcp.Socket", "tcp.Listener", "udp.Socket"] {
+            assert!(
+                is_builtin_sendable_resource_type(&crate::types::ParameterType::declared(sendable)),
+                "{sendable} must be thread-sendable"
+            );
+        }
+        // Still deliberately not sendable, so this keeps proving the bit is read
+        // from the registry rather than always true. bug-464 left both out of
+        // scope: a child process's waitpid semantics are per-thread on some
+        // platforms, and an audio handle's callbacks are bound to a device thread.
+        for unsendable in ["process.Process", "audio.AudioInput"] {
+            assert!(
+                !is_builtin_sendable_resource_type(&crate::types::ParameterType::declared(
+                    unsendable
+                )),
+                "{unsendable} must not be thread-sendable"
+            );
+        }
         // close-may-fail holds for every standard resource (the descriptor
         // states it; drop-time cleanup derives the same fact from the close
         // wrapper's `SUCCESS ON`).
@@ -226,8 +263,14 @@ mod tests {
         assert!(is_builtin_sendable_resource_type(
             &crate::types::ParameterType::declared("tcp.Socket")
         ));
-        assert!(!is_builtin_sendable_resource_type(
+        // bug-464: the Listener is sendable too, so `process.Process` is the
+        // negative exemplar here now (see the note in
+        // `builtins_carry_close_op_and_sendability`).
+        assert!(is_builtin_sendable_resource_type(
             &crate::types::ParameterType::declared("tcp.Listener")
+        ));
+        assert!(!is_builtin_sendable_resource_type(
+            &crate::types::ParameterType::declared("process.Process")
         ));
     }
 }

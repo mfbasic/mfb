@@ -1,18 +1,39 @@
 use super::*;
+use crate::types::ParameterType;
 
 #[test]
 fn standard_flags_set_sendable_bit_for_movable_resources() {
-    let file = standard_resource_flags(crate::codegen::builtins::fs::FILE_TYPE_ID);
-    let socket = standard_resource_flags(crate::codegen::builtins::tcp::SOCKET_TYPE_ID);
-    let listener = standard_resource_flags(crate::codegen::builtins::tcp::LISTENER_TYPE_ID);
+    let file = standard_resource_flags(&ParameterType::named(
+        crate::codegen::builtins::fs::FILE_TYPE_ID,
+    ));
+    let socket = standard_resource_flags(&ParameterType::named(
+        crate::codegen::builtins::tcp::SOCKET_TYPE_ID,
+    ));
+    let listener = standard_resource_flags(&ParameterType::named(
+        crate::codegen::builtins::tcp::LISTENER_TYPE_ID,
+    ));
     assert!(file & RESOURCE_FLAG_SENDABLE != 0, "File must be sendable");
     assert!(
         socket & RESOURCE_FLAG_SENDABLE != 0,
         "Socket must be sendable"
     );
+    // bug-464: the Listener is sendable too. It was this test's negative
+    // exemplar until then, on plan-03-net.md §4.4's v1 policy deferral rather
+    // than any property of its record (which is the canonical header alone).
     assert!(
-        listener & RESOURCE_FLAG_SENDABLE == 0,
-        "Listener must not be sendable"
+        listener & RESOURCE_FLAG_SENDABLE != 0,
+        "Listener must be sendable"
+    );
+    // A resource that is still deliberately not sendable, so this test keeps
+    // proving the bit can be clear and not merely that it is always set.
+    // `process::Process` drives waitpid from its owning thread (plan-90-A);
+    // bug-464 explicitly left it, and the audio handles, out of scope.
+    let process = standard_resource_flags(&ParameterType::named(
+        crate::codegen::builtins::process::PROCESS_TYPE_ID,
+    ));
+    assert!(
+        process & RESOURCE_FLAG_SENDABLE == 0,
+        "Process must not be sendable"
     );
     // The other standard flags remain set.
     for flags in [file, socket, listener] {
@@ -29,12 +50,21 @@ fn resource_table_round_trips_flags() {
             ResourceEntry {
                 type_id: 10,
                 close_function_id: BUILTIN_FS_CLOSE_FUNCTION_ID,
-                flags: standard_resource_flags(crate::codegen::builtins::fs::FILE_TYPE_ID),
+                flags: standard_resource_flags(&ParameterType::named(
+                    crate::codegen::builtins::fs::FILE_TYPE_ID,
+                )),
             },
+            // A genuinely NOT-sendable resource, so the `== 0` assertion below
+            // proves the bit round-trips clear. This used to name the bare
+            // `tcp::LISTENER_TYPE` ("Listener"), which passed only because an
+            // unqualified name does not resolve in the registry at all -- the
+            // same bare-vs-qualified confusion bug-464 fixed in the writer.
             ResourceEntry {
                 type_id: 11,
                 close_function_id: BUILTIN_STREAM_CLOSE_FUNCTION_ID,
-                flags: standard_resource_flags(crate::codegen::builtins::tcp::LISTENER_TYPE),
+                flags: standard_resource_flags(&ParameterType::named(
+                    crate::codegen::builtins::process::PROCESS_TYPE_ID,
+                )),
             },
         ],
     };

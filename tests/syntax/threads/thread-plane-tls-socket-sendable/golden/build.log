@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/threads/thread-plane-tls-socket-sendable
+Wrote AST to tests/syntax/threads/thread-plane-tls-socket-sendable/thread_plane_tls_socket_sendable.ast
+Wrote IR to tests/syntax/threads/thread-plane-tls-socket-sendable/thread_plane_tls_socket_sendable.ir
+[exit 0]
