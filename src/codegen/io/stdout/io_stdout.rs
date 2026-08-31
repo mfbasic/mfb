@@ -175,9 +175,9 @@ pub(crate) fn stdout_epipe_label<'a>(
     // honest, exactly as `errno_accessor_available` does for the EINTR retry —
     // a helper reached without them emits its pre-bug-467 body rather than a
     // reference the merged import table cannot resolve.
-    let signal_available =
-        platform_imports.contains_key("signal") && platform_imports.contains_key("raise")
-            || platform_imports.contains_key("_signal") && platform_imports.contains_key("_raise");
+    let signal_available = platform_imports.contains_key("signal")
+        && platform_imports.contains_key("raise")
+        || platform_imports.contains_key("_signal") && platform_imports.contains_key("_raise");
     let classifiable =
         write_uses_raw_syscall(platform) || errno_accessor_available(platform_imports);
     (signal_available && classifiable).then_some(label)

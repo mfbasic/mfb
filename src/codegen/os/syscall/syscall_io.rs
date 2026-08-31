@@ -66,11 +66,8 @@ pub(crate) fn emit_sigpipe_restore_and_raise(ctx: &mut EmitCtx, label: &str) -> 
         ctx.instructions,
         ctx.relocations,
     )?;
-    ctx.instructions.push(abi::move_immediate(
-        abi::c_arg(0),
-        "Integer",
-        SIGPIPE_SIGNO,
-    ));
+    ctx.instructions
+        .push(abi::move_immediate(abi::c_arg(0), "Integer", SIGPIPE_SIGNO));
     platform.emit_external_call(
         "raise",
         symbol,
@@ -86,13 +83,14 @@ pub(crate) fn emit_sigpipe_restore_and_raise(ctx: &mut EmitCtx, label: &str) -> 
 /// `fs::openFile`, which pulls the accessor in) and the `io::` read helpers
 /// (`readByte`/`readChar`/`readLine`/`input` — their `plan.rs` arms co-import the
 /// accessor, bug-62) link it, so their read/write/seek loops always read `errno`
-/// and retry `EINTR`. The only path that links no accessor is a program whose sole
-/// syscall use is an `io::` output drain (`io.print`/`io.write`/`io.flush`, never a
-/// read and never `fs`): there the libc-write negative return cannot be classified
-/// and is a hard error — acceptable, since a drain-only `EINTR` is degenerate and
-/// `linux-x86_64`'s raw-`svc` write still retries via its `-errno` return. Checking
-/// the merged import table keeps that boundary honest: the libc `EINTR` retry is
-/// emitted exactly when `errno` is actually readable at runtime.
+/// and retry `EINTR`. Since bug-467 the `io::` OUTPUT helpers link it too — they
+/// have to classify `EPIPE` now that SIGPIPE is ignored process-wide — which
+/// also closes the gap this comment used to describe, where an output-drain-only
+/// program (`io.print`/`io.write`/`io.flush`, never a read and never `fs`) could
+/// not classify a negative libc-write return and hard-errored instead of
+/// retrying `EINTR`. Checking the merged import table keeps the boundary honest
+/// either way: the libc `EINTR` retry is emitted exactly when `errno` is actually
+/// readable at runtime.
 pub(crate) fn errno_accessor_available(platform_imports: &HashMap<String, String>) -> bool {
     platform_imports.contains_key("___error") || platform_imports.contains_key("__errno_location")
 }
@@ -123,10 +121,9 @@ pub(crate) fn write_uses_raw_syscall(platform: &dyn CodegenPlatform) -> bool {
 ///   the accessor.
 /// * otherwise (every libc `read`/`write`/`lseek`): re-read `errno` through the
 ///   platform accessor (`___error` / `__errno_location`, left in `x9`). `fs::` and
-///   the `io::` read helpers import the accessor, so they retry `EINTR`. Only an
-///   output-drain-only program (`io.print`/`io.write`/`io.flush` with no read and
-///   no `fs`) omits it; there the negative return cannot be classified, so it is a
-///   hard error.
+///   both the read AND write `io::` helpers import the accessor (the latter since
+///   bug-467), so they retry `EINTR`. A site that reaches this with no accessor
+///   linked cannot classify its negative return and hard-errors.
 ///
 /// `emit_errno` issues a `bl` to the accessor, which the register allocator treats
 /// like any other call (all caller-saved integer registers clobbered); the

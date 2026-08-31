@@ -603,7 +603,13 @@ pub(crate) fn emit_spawn_tail(
         abi::move_immediate(abi::c_arg(0), "Integer", SIGPIPE_SIGNO),
         abi::move_immediate(abi::c_arg(1), "Integer", SIG_DFL),
     ]);
-    platform.emit_external_call("signal", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_external_call(
+        "signal",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.extend([
         abi::load_u64(abi::c_arg(0), argv, 0),
         abi::move_register(abi::c_arg(1), argv),
