@@ -1,4 +1,9 @@
+// Only the hand-rolled temp projects use these, and every test that builds one
+// is Unix-only (the `close()`-interposer trio and the macOS short-write case);
+// the rest go through `common::temp_project`.
+#[cfg(unix)]
 use std::fs;
+#[cfg(unix)]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod common;
