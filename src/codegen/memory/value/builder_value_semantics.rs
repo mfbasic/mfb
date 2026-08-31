@@ -1116,6 +1116,8 @@ impl CodeBuilder<'_> {
                 other => Some(other),
             },
             NirValue::ResultError { .. } => Some(error_type()),
+            // bug-471: the success type, matching the `CallResult` arm below.
+            NirValue::Checked { type_, .. } => Some(type_.clone()),
             NirValue::Call { target, args, .. }
             | NirValue::CallResult { target, args, .. }
             | NirValue::RuntimeCall { target, args, .. } => match target.as_str() {

@@ -1169,7 +1169,8 @@ fn collect_string_values_from_value(
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => {
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => {
             collect_string_values_from_value(value, values, constants, types, fields)
         }
         NirValue::WithUpdate {
@@ -1288,6 +1289,9 @@ pub(crate) fn static_type_name_with_types(
         | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
         NirValue::UnionWrap { union_type, .. } => Some(union_type.clone()),
         NirValue::UnionExtract { type_, .. } => Some(type_.clone()),
+        // `Checked` reports its success type, as `CallResult` below reports the
+        // callee's return type rather than the `Result OF` wrapper (bug-471).
+        NirValue::Checked { type_, .. } => Some(type_.clone()),
         NirValue::Call { target, .. }
         | NirValue::CallResult { target, .. }
         | NirValue::RuntimeCall { target, .. } => match target.as_str() {

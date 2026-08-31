@@ -483,7 +483,8 @@ fn value_may_emit_float_arithmetic_error(
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => {
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => {
             value_may_emit_float_arithmetic_error(value, locals, fields)
         }
         NirValue::WithUpdate {
@@ -589,7 +590,8 @@ fn value_uses_call(value: &NirValue, target: &str) -> bool {
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => value_uses_call(value, target),
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => value_uses_call(value, target),
         NirValue::WithUpdate {
             target: updated,
             updates,
@@ -724,7 +726,8 @@ fn value_uses_type_name(value: &NirValue) -> bool {
             }
             NirValue::ResultIsOk { value }
             | NirValue::ResultValue { value }
-            | NirValue::ResultError { value } => value_uses_type_name(value),
+            | NirValue::ResultError { value }
+            | NirValue::Checked { value, .. } => value_uses_type_name(value),
             NirValue::WithUpdate {
                 target, updates, ..
             } => {
@@ -1009,7 +1012,8 @@ fn value_uses_unicode_runtime_tables(
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => {
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => {
             value_uses_unicode_runtime_tables(value, constants, types, fields)
         }
         NirValue::WithUpdate {
@@ -1090,7 +1094,8 @@ pub(crate) fn value_may_return_invalid_format(
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => {
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => {
             value_may_return_invalid_format(value, constants, types, fields)
         }
         NirValue::WithUpdate {

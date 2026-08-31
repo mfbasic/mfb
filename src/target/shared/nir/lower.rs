@@ -487,6 +487,10 @@ fn lower_value(value: &IrValue) -> NirValue {
             type_: type_.clone(),
             value: Box::new(lower_value(value)),
         },
+        IrValue::Checked { type_, value } => NirValue::Checked {
+            type_: type_.clone(),
+            value: Box::new(lower_value(value)),
+        },
         IrValue::ResultIsOk { value } => NirValue::ResultIsOk {
             value: Box::new(lower_value(value)),
         },

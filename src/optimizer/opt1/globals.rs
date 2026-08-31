@@ -226,7 +226,8 @@ fn substitute_value(
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => substitute_value(value, constants, substituted),
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => substitute_value(value, constants, substituted),
         NirValue::WithUpdate {
             target, updates, ..
         } => {

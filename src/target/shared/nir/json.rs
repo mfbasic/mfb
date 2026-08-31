@@ -949,6 +949,11 @@ impl ToNirJson for NirValue {
                 "{{ \"kind\": \"resultError\", \"value\": {} }}",
                 value.to_json(0)
             ),
+            NirValue::Checked { type_, value } => format!(
+                "{{ \"kind\": \"checked\", \"type\": {}, \"value\": {} }}",
+                json_string(&type_.name()),
+                value.to_json(0)
+            ),
             NirValue::WithUpdate {
                 type_,
                 target,

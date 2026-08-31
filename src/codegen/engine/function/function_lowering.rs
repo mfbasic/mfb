@@ -605,6 +605,7 @@ fn mark_vector_escaping_value(value: &NirValue, out: &mut HashSet<String>) {
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
         | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. }
         | NirValue::Unary { operand: value, .. } => mark_vector_escaping_value(value, out),
         NirValue::Binary { left, right, .. } => {
             mark_vector_escaping_value(left, out);
