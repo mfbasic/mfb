@@ -2158,7 +2158,10 @@ mod tests {
         for (input, prefix) in [
             ("List OF RES fs.File TO Integer", "List OF RES fs.File"),
             ("Set OF Integer TO Integer", "Set OF Integer"),
-            ("FUNC(Integer) AS String TO Integer", "FUNC(Integer) AS String"),
+            (
+                "FUNC(Integer) AS String TO Integer",
+                "FUNC(Integer) AS String",
+            ),
             (
                 "Pair OF Integer, String TO Integer",
                 "Pair OF Integer, String",
@@ -2221,10 +2224,7 @@ mod tests {
             ParameterType::parse("Thread OF Pair OF Integer, String TO Integer"),
             ParameterType::thread_handle(
                 false,
-                ParameterType::user_of(
-                    "Pair",
-                    vec![ParameterType::Integer, ParameterType::String],
-                ),
+                ParameterType::user_of("Pair", vec![ParameterType::Integer, ParameterType::String]),
                 ParameterType::Nothing,
                 ParameterType::Integer,
             ),
