@@ -125,6 +125,14 @@ impl NativePlanPlatform for Platform {
             import("CallWindowProcW", USER32, "_main"),
             import("RegisterClassExW", USER32, "_main"),
             import("CreateWindowExW", USER32, "_main"),
+            // plan-98-C Phase 3: the canvas frame blit. The worker allocates and
+            // swizzles the frame into a process-heap block and posts it; WM_PAINT
+            // draws it with SetDIBitsToDevice and the message arm frees the block it
+            // replaces.
+            import("GetProcessHeap", KERNEL32, "_main"),
+            import("HeapAlloc", KERNEL32, "_main"),
+            import("HeapFree", KERNEL32, "_main"),
+            import("SetDIBitsToDevice", GDI32, "_main"),
             import("GetMessageW", USER32, "_main"),
             import("TranslateMessage", USER32, "_main"),
             import("DispatchMessageW", USER32, "_main"),
@@ -438,6 +446,28 @@ impl NativePlanPlatform for Platform {
             // CONDITION_VARIABLE. Every thread.* helper may pull in any of the
             // sync primitives (they share the queue/broadcast machinery), so the
             // whole kernel32 set is declared; the merged import table dedups.
+            // plan-98-D Phase 2: the graphics thread. `emit_thread_external_call`
+            // translates each POSIX primitive it uses to these — SRWLOCK and
+            // CONDITION_VARIABLE are pointer-sized and valid when zeroed, so they fit
+            // the pthread-sized slots the shared code zeroes.
+            "canvas.startGraphics"
+            | "canvas.signalRedraw"
+            | "canvas.waitForRedraw"
+            | "canvas.frameDone"
+            | "canvas.syncFrame"
+            | "canvas.setSyncMode"
+            | "canvas.surfaceWidth"
+            | "canvas.surfaceHeight" => vec![
+                import("CreateThread", KERNEL32, required_by),
+                import("WaitForSingleObject", KERNEL32, required_by),
+                import("InitializeSRWLock", KERNEL32, required_by),
+                import("AcquireSRWLockExclusive", KERNEL32, required_by),
+                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
+                import("InitializeConditionVariable", KERNEL32, required_by),
+                import("WakeConditionVariable", KERNEL32, required_by),
+                import("WakeAllConditionVariable", KERNEL32, required_by),
+                import("SleepConditionVariableSRW", KERNEL32, required_by),
+            ],
             call if call.starts_with("thread.") => {
                 vec![
                     import("CreateThread", KERNEL32, required_by),

@@ -241,9 +241,40 @@ pub(super) fn collect_runtime_calls_from_value(
                 collect_runtime_calls_from_value(arg, calls, constants);
             }
         }
-        NirValue::Call { args, .. }
-        | NirValue::CallResult { args, .. }
-        | NirValue::Constructor { args, .. } => {
+        // A **trapped** fallible runtime call is a `CallResult`, not a
+        // `RuntimeCall`: `canvas::present(x) TRAP(e)` desugars to
+        // `bind $trap_res0 = callResult{target: "canvas.present"}`. Walking only the
+        // args therefore let every trapped call skip capability validation
+        // entirely — the same call built fine wrapped in a TRAP and was correctly
+        // rejected without one. Since a program almost always traps a fallible
+        // call, that is the common case, not the rare one.
+        //
+        // `helper_for_call` is the predicate the sibling pass
+        // (`runtime::usage::push_value_helpers`) already uses to tell a runtime
+        // target from a user function, so the two agree by construction; a user
+        // `FUNC` returning a `Result` does not name a helper family and is not
+        // collected. `Constructor` is split out because its target is a type name,
+        // which could never be a runtime call.
+        NirValue::CallResult { target, args, .. } => {
+            // Only a **package-qualified** target can be capability-gated: every
+            // entry in a backend's `runtime_calls` is `pkg.member`. The bare-named
+            // `general` family (`toString`, `toInteger`, …) also answers to
+            // `helper_for_call`, but it is unconditionally available and appears in
+            // no `runtime_calls` list — collecting it made every program that traps
+            // a conversion fail validation. `NirValue::Call` needs no arm at all:
+            // an untrapped runtime call arrives as `RuntimeCall`, so a `Call` is
+            // either a user function or a bare general builtin.
+            if target.contains('.')
+                && crate::target::shared::runtime::helper_for_call(target).is_some()
+                && !calls.contains(target)
+            {
+                calls.push(target.clone());
+            }
+            for arg in args {
+                collect_runtime_calls_from_value(arg, calls, constants);
+            }
+        }
+        NirValue::Call { args, .. } | NirValue::Constructor { args, .. } => {
             for arg in args {
                 collect_runtime_calls_from_value(arg, calls, constants);
             }

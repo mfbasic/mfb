@@ -64,6 +64,10 @@ pub(crate) struct AbiCtx<'a> {
     /// bodies (presentation-mode load/store + the app-mode `ErrWrongMode` gate);
     /// carries the `ArenaLayout` value byte-for-byte. Most abi bodies ignore it.
     pub(crate) presentation_mode_offset: Option<usize>,
+    /// The arena offset of the `canvas::` retained-scene region, or `None` when the
+    /// program uses no `canvas::`. Read by the `canvas` `abi_function` bodies
+    /// (`present`/`presentLayers`); carries the `ArenaLayout` value byte-for-byte.
+    /// Every other abi body ignores it.
     /// The count of writable global slots (program globals + `LINK`/`FREE` pointer
     /// slots + `term::` state) the program uses — from `ArenaLayout::global_slots`.
     /// `thread.start` alone consumes it to size a spawned worker's arena block so its
@@ -1551,6 +1555,7 @@ fn build() -> Registry {
     crate::codegen::builtins::astrings::register(&mut r);
     crate::codegen::builtins::audio::register(&mut r);
     crate::codegen::builtins::bits::register(&mut r);
+    crate::codegen::builtins::canvas::register(&mut r);
     crate::codegen::builtins::csv::register(&mut r);
     crate::codegen::builtins::json::register(&mut r);
     crate::codegen::builtins::math::register(&mut r);

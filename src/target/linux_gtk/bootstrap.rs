@@ -118,6 +118,53 @@ pub(super) fn emit_main_bootstrap() -> Result<CodeFunction, String> {
 /// window (transcript + input field), wire input/close signals, present it, create
 /// the window-input pipe (dup'd onto fd 0 for the reused console readers), and
 /// spawn the language worker thread.
+/// Wire the window input pipe: `pipe(fds@sp+16)`; the read end is `dup2`'d onto fd 0
+/// so the reused console readers consume committed input, and the write end is
+/// stashed in `ST_PIPE_WRITE_FD` for the key handler (plan-05 §6.6).
+///
+/// Extracted in plan-98-A Phase 4 so the **windowless (`None`-default) startup path
+/// runs it too** — see the call site there for why it must happen at startup rather
+/// than lazily on the first `setMode`.
+///
+/// Both call sites use the same stack slots (`sp+16` read, `sp+20` write), which the
+/// activate handler's frame reserves.
+fn emit_input_pipe_wiring(asm: &mut Asm) {
+    asm.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 16));
+    asm.call_external("pipe");
+    asm.push(abi::load_u32(abi::SCRATCH[2], abi::stack_pointer(), 20)); // write fd
+    asm.store_state("x11", ST_PIPE_WRITE_FD);
+
+    // Make the pipe write end non-blocking (bug-114): if the worker stops
+    // draining stdin the 64 KiB pipe fills, and a blocking write() in the key
+    // handler would hang the GTK main thread forever. fcntl(write, F_SETFL,
+    // O_NONBLOCK); on Linux/AArch64 the variadic third arg is passed in x2.
+    asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), 20)); // write fd
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "4")); // F_SETFL
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "2048")); // O_NONBLOCK (0o4000)
+    asm.call_external("fcntl");
+
+    // dup2(read, 0): fd 0 becomes a copy of the pipe read end. The read fd stays
+    // on the stack (sp+16) rather than in a register — a caller-saved register
+    // would not survive the `bl dup2` (Native Codegen Register Lifetimes).
+    asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), 16)); // read fd
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
+    asm.call_external("dup2");
+
+    // close(read): fd 0 now holds the read end, so the original read descriptor
+    // is redundant. pipe(2) never returns fd 0 here (fds 0/1/2 are already open
+    // at process start), so `read` is a distinct descriptor from the fd-0 copy;
+    // closing it leaves exactly ONE read end, so closing the write end signals
+    // stdin EOF/hangup to the console readers (bug-59). Reload the read fd from
+    // the stack — `bl dup2` clobbered the caller-saved registers.
+    asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), 16)); // read fd
+    asm.call_external("close");
+
+    // Record the surviving read end (fd 0) in the runtime state. Use x10 for the
+    // value because store_state materializes the state base into x9.
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    asm.store_state("x10", ST_PIPE_READ_FD);
+}
+
 pub(super) fn emit_activate_handler(
     initial_mode: PresentationMode,
 ) -> Result<CodeFunction, String> {
@@ -245,44 +292,7 @@ pub(super) fn emit_activate_handler(
         asm.load_state(abi::c_arg(0), ST_WINDOW);
         asm.call_external("gtk_window_present");
 
-        // pipe(fds@sp+16); read end -> fd 0 so the reused console readers consume
-        // committed input; the write end is stashed in the runtime state (plan-05
-        // §6.6). The key handler writes committed input to the write end; the read
-        // end is collapsed onto fd 0 below.
-        asm.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 16));
-        asm.call_external("pipe");
-        asm.push(abi::load_u32(abi::SCRATCH[2], abi::stack_pointer(), 20)); // write fd
-        asm.store_state("x11", ST_PIPE_WRITE_FD);
-
-        // Make the pipe write end non-blocking (bug-114): if the worker stops
-        // draining stdin the 64 KiB pipe fills, and a blocking write() in the key
-        // handler would hang the GTK main thread forever. fcntl(write, F_SETFL,
-        // O_NONBLOCK); on Linux/AArch64 the variadic third arg is passed in x2.
-        asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), 20)); // write fd
-        asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "4")); // F_SETFL
-        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "2048")); // O_NONBLOCK (0o4000)
-        asm.call_external("fcntl");
-
-        // dup2(read, 0): fd 0 becomes a copy of the pipe read end. The read fd stays
-        // on the stack (sp+16) rather than in a register — a caller-saved register
-        // would not survive the `bl dup2` (Native Codegen Register Lifetimes).
-        asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), 16)); // read fd
-        asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
-        asm.call_external("dup2");
-
-        // close(read): fd 0 now holds the read end, so the original read descriptor
-        // is redundant. pipe(2) never returns fd 0 here (fds 0/1/2 are already open
-        // at process start), so `read` is a distinct descriptor from the fd-0 copy;
-        // closing it leaves exactly ONE read end, so closing the write end signals
-        // stdin EOF/hangup to the console readers (bug-59). Reload the read fd from
-        // the stack — `bl dup2` clobbered the caller-saved registers.
-        asm.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), 16)); // read fd
-        asm.call_external("close");
-
-        // Record the surviving read end (fd 0) in the runtime state. Use x10 for the
-        // value because store_state materializes the state base into x9.
-        asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
-        asm.store_state("x10", ST_PIPE_READ_FD);
+        emit_input_pipe_wiring(&mut asm);
     } else {
         // plan-62-D: `None`-default — no window. Hold the application so it stays
         // alive with zero windows; the worker (spawned below) runs the program, and
@@ -292,6 +302,14 @@ pub(super) fn emit_activate_handler(
         // Record that a hold is active so the reconcile balances it (Open Decision 1).
         asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "1"));
         asm.store_state("x10", ST_HELD);
+        // plan-98-A Phase 4: wire the input pipe here too. A `None`-default program
+        // is exactly one that references `app::setMode`, so it is the only kind that
+        // can reach `Console` or `Canvas` through the reconcile — and in both the
+        // window is the input source. Without this the reconcile-built surface had
+        // no pipe to deliver keys into. It must happen at startup, before the worker
+        // spawns: `dup2`ing onto fd 0 after the worker has blocked in `read(0, …)`
+        // leaves that read waiting on the old file description forever.
+        emit_input_pipe_wiring(&mut asm);
     }
 
     // pthread_create(&thread@sp+8, NULL, _mfb_gtkapp_worker, NULL); detach.
@@ -337,24 +355,20 @@ pub(crate) fn emit_reconcile_seam(
     relocations.extend(asm.rel);
 }
 
-/// plan-62-D Phase 2 (GTK main loop): the `g_idle_add` callback that reconciles the
-/// window to the presentation mode. `x0` = the new mode (the user-data). `Console`
-/// builds the transcript window on the first switch (or re-shows it), re-points the
-/// io-routing text buffer, and releases the windowless hold; `None` hides the
-/// window, clears the buffer (io → stdout fd), and re-takes the hold. Exactly one
-/// aliveness source is kept via `ST_HELD`. Returns `G_SOURCE_REMOVE` (0) so the
-/// idle fires once. The state lives in `STATE_SYMBOL` globals (not the arena), so
-/// this main-thread callback needs no arena register.
-pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
-    let mut asm = Asm::new(RECONCILE_IDLE_SYMBOL);
-    let frame = 16; // lr@0, x19(mode)@8
-    let none = format!("{RECONCILE_IDLE_SYMBOL}_none");
-    let show = format!("{RECONCILE_IDLE_SYMBOL}_show");
-    let after_console = format!("{RECONCILE_IDLE_SYMBOL}_after_console");
-    let release_skip = format!("{RECONCILE_IDLE_SYMBOL}_release_skip");
-    let hide_skip = format!("{RECONCILE_IDLE_SYMBOL}_hide_skip");
-    let hold_skip = format!("{RECONCILE_IDLE_SYMBOL}_hold_skip");
-    let done = format!("{RECONCILE_IDLE_SYMBOL}_done");
+/// plan-98-A Phase 3 (GTK main loop): build the transcript window — window +
+/// scrolled container + non-editable monospace text view + its buffer — and install
+/// the scrolled window as the window's child. Factored out of the reconcile's
+/// `Console` arm so the `Canvas` arm can reuse it: a canvas-first program has never
+/// presented a surface, so `ST_WINDOW` is null when it enters canvas mode, and both
+/// arms must be able to create the window. Building the transcript even for a canvas
+/// program is deliberate — it is what the canvas teardown restores the window's
+/// child *to* on mode exit.
+///
+/// The scrolled window is `g_object_ref_sink`ed so it survives `gtk_window_set_child`
+/// swapping it out for the canvas area and back.
+pub(super) fn emit_reconcile_build_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(RECONCILE_BUILD_SYMBOL);
+    let frame = 16; // lr@0, x19 (the key controller, across g_signal_connect_data)@8
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(
@@ -363,15 +377,7 @@ pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
         0,
     ));
     asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
-    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // mode
-    asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
-    asm.push(abi::branch_ne(&none)); // mode != Console → None path
-
-    // --- Console: build (first time) or re-show the transcript window ---
-    asm.load_state(abi::c_arg(0), ST_WINDOW);
-    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
-    asm.push(abi::branch_ne(&show)); // window already built → present it
-                                     // window = gtk_application_window_new(app); title; default size.
+    // window = gtk_application_window_new(app); title; default size.
     asm.load_state(abi::c_arg(0), ST_APPLICATION);
     asm.call_external("gtk_application_window_new");
     asm.store_state(abi::c_return(0), ST_WINDOW);
@@ -405,6 +411,127 @@ pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
     asm.load_state(abi::c_arg(0), ST_WINDOW);
     asm.load_state(abi::c_arg(1), ST_SCROLLED);
     asm.call_external("gtk_window_set_child");
+
+    // plan-98-A Phase 4: the terminal-style key controller, on the WINDOW rather
+    // than any child widget — the same placement the `Console`-default startup path
+    // uses, and the reason canvas mode inherits keyboard input for free: swapping
+    // the window's child does not disturb a controller attached to the window.
+    // Without this the reconcile-built window had no key handler at all, so a
+    // `None`-default program's `io::` reads found nothing to read even after
+    // switching to `Console`.
+    asm.call_external("gtk_event_controller_key_new");
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_return(0))); // controller
+    asm.local_address(abi::c_arg(1), STR_KEY_PRESSED.0);
+    asm.local_address(abi::c_arg(2), KEY_PRESSED_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("g_signal_connect_data");
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[0]));
+    asm.call_external("gtk_widget_add_controller"); // takes ownership
+
+    // close-request: closing a reconcile-built window must end the program exactly
+    // as closing a startup-built one does, rather than leaving a held-alive app with
+    // no window.
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.local_address(abi::c_arg(1), STR_CLOSE_REQUEST.0);
+    asm.local_address(abi::c_arg(2), WINDOW_CLOSED_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
+    asm.call_external("g_signal_connect_data");
+
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    asm.finish(RECONCILE_BUILD_SYMBOL, "Nothing")
+}
+
+/// plan-98-A Phase 3 (GTK main loop): tear the canvas surface down on the way *out*
+/// of `Mode.Canvas` — restore the transcript's scrolled window as the window's
+/// child and clear `ST_CANVAS_SURFACE`, so the native handle is genuinely
+/// unavailable outside canvas mode rather than left dangling at its last value.
+///
+/// A no-op when no canvas area was ever built, so both non-canvas arms can call it
+/// unconditionally: the mode being *left* is recorded nowhere, so a conditional
+/// would have to invent that state.
+fn emit_canvas_teardown(asm: &mut Asm, label: &str) {
+    let done = format!("{label}_no_canvas");
+    asm.load_state(abi::c_arg(0), ST_CANVAS_AREA);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&done));
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&done));
+    asm.load_state(abi::c_arg(1), ST_SCROLLED);
+    asm.push(abi::compare_immediate(abi::c_arg(1), "0"));
+    asm.push(abi::branch_eq(&done));
+    // gtk_window_set_child(window, scrolled) — unparents the canvas area, which
+    // survives on its ref_sink reference for the next entry.
+    asm.call_external("gtk_window_set_child");
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    asm.store_state("x10", ST_CANVAS_SURFACE);
+    asm.push(abi::label(&done));
+}
+
+/// plan-62-D Phase 2 / plan-98-A Phase 3 (GTK main loop): the `g_idle_add` callback
+/// that reconciles the window to the presentation mode. `x0` = the new mode (the
+/// user-data).
+///
+/// - `Console` builds the transcript window on the first switch (or re-shows it),
+///   re-points the io-routing text buffer, and releases the windowless hold.
+/// - `None` hides the window, clears the buffer (io → stdout fd), and re-takes the
+///   hold.
+/// - `Canvas` ensures the window exists, installs the `GtkDrawingArea` canvas
+///   surface as its child, clears the io buffer (io → stdout fd, as canvas mode has
+///   no transcript to append to), presents, reads the native `GdkSurface*` into
+///   `ST_CANVAS_SURFACE`, and releases the hold — a presented window owns aliveness.
+///
+/// Both non-canvas arms run the canvas teardown first, so leaving canvas by either
+/// route restores the transcript child. The dispatch is an explicit three-way test
+/// rather than the old "`0` or not-`0`": with a third variant "not `Console`" no
+/// longer implies `None`, and treating `Canvas` as `None` would hide the window the
+/// instant a program entered canvas mode.
+///
+/// Exactly one aliveness source is kept via `ST_HELD`. Returns `G_SOURCE_REMOVE`
+/// (0) so the idle fires once. The state lives in `STATE_SYMBOL` globals (not the
+/// arena), so this main-thread callback needs no arena register.
+pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(RECONCILE_IDLE_SYMBOL);
+    let frame = 16; // lr@0, x19(mode)@8
+    let none = format!("{RECONCILE_IDLE_SYMBOL}_none");
+    let canvas = format!("{RECONCILE_IDLE_SYMBOL}_canvas");
+    let show = format!("{RECONCILE_IDLE_SYMBOL}_show");
+    let after_console = format!("{RECONCILE_IDLE_SYMBOL}_after_console");
+    let release_skip = format!("{RECONCILE_IDLE_SYMBOL}_release_skip");
+    let hide_skip = format!("{RECONCILE_IDLE_SYMBOL}_hide_skip");
+    let hold_skip = format!("{RECONCILE_IDLE_SYMBOL}_hold_skip");
+    let done = format!("{RECONCILE_IDLE_SYMBOL}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // mode
+                                                                // Three-way dispatch: Console(0) falls through, Canvas(2) and None(1) branch.
+    asm.push(abi::compare_immediate(abi::LOCAL[0], "2"));
+    asm.push(abi::branch_eq(&canvas));
+    asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+    asm.push(abi::branch_ne(&none)); // mode != Console → None path
+
+    // --- Console: build (first time) or re-show the transcript window ---
+    // Leaving canvas (if we were in it) restores the transcript child first.
+    emit_canvas_teardown(&mut asm, &format!("{RECONCILE_IDLE_SYMBOL}_console_td"));
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_ne(&show)); // window already built → present it
+    asm.call_internal(RECONCILE_BUILD_SYMBOL);
     asm.push(abi::branch(&after_console));
     // Re-show an existing window: re-point the io-routing buffer (a prior None
     // cleared it) at the surviving text view, then present.
@@ -426,8 +553,75 @@ pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
     asm.push(abi::label(&release_skip));
     asm.push(abi::branch(&done));
 
+    // --- Canvas (plan-98-A Phase 3): the layer/renderer-ready drawing surface ---
+    asm.push(abi::label(&canvas));
+    let canvas_have_window = format!("{RECONCILE_IDLE_SYMBOL}_canvas_have_window");
+    let canvas_have_area = format!("{RECONCILE_IDLE_SYMBOL}_canvas_have_area");
+    let canvas_release_skip = format!("{RECONCILE_IDLE_SYMBOL}_canvas_release_skip");
+    // Ensure a window exists (a canvas-first program never took the Console path).
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_ne(&canvas_have_window));
+    asm.call_internal(RECONCILE_BUILD_SYMBOL);
+    asm.push(abi::label(&canvas_have_window));
+    // Ensure the canvas drawing area exists. ref_sink so `gtk_window_set_child`
+    // swapping it away on mode exit unparents rather than destroys it — enter →
+    // exit → re-enter reuses this one widget.
+    asm.load_state(abi::c_arg(0), ST_CANVAS_AREA);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_ne(&canvas_have_area));
+    asm.call_external("gtk_drawing_area_new");
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+    asm.call_external("g_object_ref_sink");
+    asm.store_state(abi::c_return(0), ST_CANVAS_AREA);
+    // plan-98-C Phase 3: install the paint callback once, with the area. A drawing
+    // area with no draw func renders nothing at all, so this has to happen here
+    // rather than at first present — the area is built on entering canvas mode and
+    // may be redrawn (resize, expose) before any frame arrives.
+    //
+    // Gated on the program *drawing*, not on its being able to change mode: the draw
+    // callback is emitted for a program that uses `canvas::`, and installing it
+    // unconditionally left this naming a function that was never emitted.
+    if uses_canvas {
+        asm.load_state(abi::c_arg(0), ST_CANVAS_AREA);
+        asm.local_address(abi::c_arg(1), CANVAS_DRAW_SYMBOL);
+        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // user data
+        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // destroy notify
+        asm.call_external("gtk_drawing_area_set_draw_func");
+    }
+    asm.push(abi::label(&canvas_have_area));
+    // gtk_window_set_child(window, canvasArea) — the canvas replaces the transcript.
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.load_state(abi::c_arg(1), ST_CANVAS_AREA);
+    asm.call_external("gtk_window_set_child");
+    // Clear the io-routing buffer: canvas mode has no transcript, so `io::` writes
+    // degrade to the fd sink (stdout), matching the mode's I/O contract.
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    asm.store_state("x10", ST_TEXT_BUFFER);
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.call_external("gtk_window_present");
+    // Read the native surface handle. Must come *after* `gtk_window_present`: an
+    // unrealized window has no `GdkSurface`, so reading it earlier would store null
+    // and plan-98-F would have nothing to build a `VkSurfaceKHR` from.
+    asm.load_state(abi::c_arg(0), ST_WINDOW);
+    asm.call_external("gtk_native_get_surface");
+    asm.store_state(abi::c_return(0), ST_CANVAS_SURFACE);
+    // A presented window owns aliveness — drop the windowless hold if one is active.
+    asm.load_state(abi::c_arg(0), ST_HELD);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&canvas_release_skip));
+    asm.load_state(abi::c_arg(0), ST_APPLICATION);
+    asm.call_external("g_application_release");
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    asm.store_state("x10", ST_HELD);
+    asm.push(abi::label(&canvas_release_skip));
+    asm.push(abi::branch(&done));
+
     // --- None: hide the window, route io to the fd, keep the app alive ---
     asm.push(abi::label(&none));
+    // Leaving canvas (if we were in it) restores the transcript child, so the canvas
+    // area is not left installed on a hidden window.
+    emit_canvas_teardown(&mut asm, &format!("{RECONCILE_IDLE_SYMBOL}_none_td"));
     asm.load_state(abi::c_arg(0), ST_WINDOW);
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
     asm.push(abi::branch_eq(&hide_skip));
@@ -1068,6 +1262,229 @@ pub(super) fn emit_append_idle_helper() -> Result<CodeFunction, String> {
     asm.push(abi::add_stack(16));
     asm.push(abi::return_());
     asm.finish(APPEND_IDLE_SYMBOL, "Boolean")
+}
+
+/// plan-98-C Phase 3 (worker side): `_mfb_gtkapp_canvas_blit`.
+///
+/// `x0` = the frame's first pixel, `x1` = width, `x2` = height. Packs the frame into
+/// a `malloc` block — width at +0, height at +8, pixels from +16 — and hands
+/// ownership to the GTK main loop with `g_idle_add`.
+///
+/// **Why the dimensions travel inside the block.** One pointer then carries a whole
+/// frame, so the handoff needs no lock: the worker builds a block nobody else can
+/// see, and every read *and* write of `ST_CANVAS_PIXELS` happens on the main loop.
+/// Publishing width separately would let a frame be drawn with the previous frame's
+/// dimensions — and reading four bytes past a buffer is a crash, not a glitch.
+/// Same shape as the io transcript's `APPEND_IDLE` chunk, for the same reason.
+///
+/// **Why the copy swizzles.** Cairo's `RGB24` is a native-endian 32-bit word with
+/// the top byte unused, so on a little-endian host its memory order is B, G, R, X
+/// while the rasteriser produces R, G, B, A. The reorder rides along on a copy that
+/// has to happen anyway (the caller's block belongs to the next frame the moment
+/// this returns), so it costs no extra pass.
+pub(super) fn emit_canvas_blit_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(CANVAS_BLIT_SYMBOL);
+    let loop_top = format!("{CANVAS_BLIT_SYMBOL}_loop");
+    let loop_done = format!("{CANVAS_BLIT_SYMBOL}_done");
+    let no_memory = format!("{CANVAS_BLIT_SYMBOL}_no_memory");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(64));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 32));
+    asm.push(abi::store_u64(abi::LOCAL[4], abi::stack_pointer(), 40));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::mfb_arg(0))); // pixels
+    asm.push(abi::move_register(abi::LOCAL[1], abi::mfb_arg(1))); // width
+    asm.push(abi::move_register(abi::LOCAL[2], abi::mfb_arg(2))); // height
+
+    // bytes = width * height * 4; block = malloc(bytes + 16)
+    asm.push(abi::multiply_registers(
+        abi::LOCAL[3],
+        abi::LOCAL[1],
+        abi::LOCAL[2],
+    ));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "4"));
+    asm.push(abi::multiply_registers(
+        abi::LOCAL[3],
+        abi::LOCAL[3],
+        abi::SCRATCH[0],
+    ));
+    asm.push(abi::add_immediate(abi::c_arg(0), abi::LOCAL[3], 16));
+    asm.call_external("malloc");
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(&no_memory));
+    asm.push(abi::move_register(abi::LOCAL[4], abi::c_return(0))); // block
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::LOCAL[4], 0)); // width
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::LOCAL[4], 8)); // height
+
+    // Swizzle-copy: dst[i+0]=src[i+2] (B), dst[i+1]=src[i+1] (G),
+    //               dst[i+2]=src[i+0] (R), dst[i+3]=255 (X, unused by RGB24).
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0")); // byte cursor
+    asm.push(abi::label(&loop_top));
+    asm.push(abi::compare_registers(abi::SCRATCH[1], abi::LOCAL[3]));
+    asm.push(abi::branch_ge(&loop_done));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[2],
+        abi::LOCAL[0],
+        abi::SCRATCH[1],
+    )); // &src[i]
+    asm.push(abi::add_registers(
+        abi::SCRATCH[3],
+        abi::LOCAL[4],
+        abi::SCRATCH[1],
+    ));
+    asm.push(abi::add_immediate(abi::SCRATCH[3], abi::SCRATCH[3], 16)); // &dst[i]
+    asm.push(abi::load_u8(abi::SCRATCH[4], abi::SCRATCH[2], 2)); // B
+    asm.push(abi::store_u8(abi::SCRATCH[4], abi::SCRATCH[3], 0));
+    asm.push(abi::load_u8(abi::SCRATCH[4], abi::SCRATCH[2], 1)); // G
+    asm.push(abi::store_u8(abi::SCRATCH[4], abi::SCRATCH[3], 1));
+    asm.push(abi::load_u8(abi::SCRATCH[4], abi::SCRATCH[2], 0)); // R
+    asm.push(abi::store_u8(abi::SCRATCH[4], abi::SCRATCH[3], 2));
+    asm.push(abi::move_immediate(abi::SCRATCH[4], "Integer", "255"));
+    asm.push(abi::store_u8(abi::SCRATCH[4], abi::SCRATCH[3], 3));
+    asm.push(abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 4));
+    asm.push(abi::branch(&loop_top));
+    asm.push(abi::label(&loop_done));
+
+    // g_idle_add(CANVAS_COMMIT, block) — the main loop takes ownership from here.
+    asm.local_address(abi::c_arg(0), CANVAS_COMMIT_SYMBOL);
+    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[4]));
+    asm.call_external("g_idle_add");
+
+    // Out of memory drops the frame rather than failing the call. A renderer that
+    // killed the program because one frame could not be shown would be worse than
+    // one that skips it, and the next frame re-renders the same scene.
+    asm.push(abi::label(&no_memory));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::load_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::load_u64(abi::LOCAL[3], abi::stack_pointer(), 32));
+    asm.push(abi::load_u64(abi::LOCAL[4], abi::stack_pointer(), 40));
+    asm.push(abi::add_stack(64));
+    asm.push(abi::return_());
+    asm.finish(CANVAS_BLIT_SYMBOL, "Nothing")
+}
+
+/// plan-98-C Phase 3 (GTK main loop): `_mfb_gtkapp_canvas_commit`, the `g_idle_add`
+/// callback that takes ownership of a blitted frame.
+///
+/// Frees the previous block, publishes the new one, and queues a redraw. Both the
+/// free and the store happen here, on the main loop, which is the whole reason
+/// `ST_CANVAS_PIXELS` needs no lock — the draw callback that reads it runs on this
+/// same loop and cannot interleave.
+pub(super) fn emit_canvas_commit_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(CANVAS_COMMIT_SYMBOL);
+    let no_previous = format!("{CANVAS_COMMIT_SYMBOL}_no_previous");
+    let no_area = format!("{CANVAS_COMMIT_SYMBOL}_no_area");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(32));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // new block
+
+    asm.load_state(abi::c_arg(0), ST_CANVAS_PIXELS);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&no_previous));
+    asm.call_external("free");
+    asm.push(abi::label(&no_previous));
+    asm.store_state(abi::LOCAL[1], ST_CANVAS_PIXELS);
+
+    asm.load_state(abi::c_arg(0), ST_CANVAS_AREA);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&no_area));
+    asm.call_external("gtk_widget_queue_draw");
+    asm.push(abi::label(&no_area));
+
+    asm.push(abi::move_immediate(abi::c_return(0), "Boolean", FALSE)); // G_SOURCE_REMOVE
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
+    asm.push(abi::add_stack(32));
+    asm.push(abi::return_());
+    asm.finish(CANVAS_COMMIT_SYMBOL, "Boolean")
+}
+
+/// plan-98-C Phase 3 (GTK main loop): the `GtkDrawingAreaDrawFunc`.
+///
+/// `x0` = the area, `x1` = the `cairo_t`, `x2`/`x3` = the area's width and height,
+/// `x4` = user data. Paints the committed frame at its own dimensions, which is why
+/// the block carries them: the area's size and the frame's can disagree for one
+/// redraw after a resize, and drawing `w * h` bytes from a smaller block would read
+/// past its end.
+///
+/// No committed frame is not an error — the area is realized before the first
+/// `present` — so an unpainted area is simply left to GTK's own background.
+pub(super) fn emit_canvas_draw_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(CANVAS_DRAW_SYMBOL);
+    let done = format!("{CANVAS_DRAW_SYMBOL}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(48));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(1))); // cairo_t
+
+    asm.load_state(abi::LOCAL[1], ST_CANVAS_PIXELS);
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_eq(&done));
+
+    // surface = cairo_image_surface_create_for_data(block+16, CAIRO_FORMAT_RGB24,
+    //                                               w, h, w*4)
+    asm.push(abi::add_immediate(abi::c_arg(0), abi::LOCAL[1], 16));
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "1")); // CAIRO_FORMAT_RGB24
+    asm.push(abi::load_u64(abi::c_arg(2), abi::LOCAL[1], 0)); // width
+    asm.push(abi::load_u64(abi::c_arg(3), abi::LOCAL[1], 8)); // height
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::LOCAL[1], 0));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "4"));
+    asm.push(abi::multiply_registers(
+        abi::c_arg(4),
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    )); // stride
+    asm.call_external("cairo_image_surface_create_for_data");
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_return(0)));
+
+    // cairo_set_source_surface(cr, surface, 0.0, 0.0); cairo_paint(cr)
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[2]));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[0],
+        abi::SCRATCH[0],
+    ));
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[1],
+        abi::SCRATCH[0],
+    ));
+    asm.call_external("cairo_set_source_surface");
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("cairo_paint");
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.call_external("cairo_surface_destroy");
+
+    asm.push(abi::label(&done));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::load_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::add_stack(48));
+    asm.push(abi::return_());
+    asm.finish(CANVAS_DRAW_SYMBOL, "Nothing")
 }
 
 // --- term:: TUI surface (plan-01-term.md §6.3) -----------------------------

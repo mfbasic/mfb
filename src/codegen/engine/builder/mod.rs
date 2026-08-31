@@ -792,6 +792,24 @@ pub(crate) fn lower_module_for_platform(
     // dual-path v128 lowering (plan-32-C) branches on. Emitted only for a
     // `linux-riscv64` entry module — the exact gate under which the auxv scan is
     // injected into the program entry — so every other target stays byte-identical.
+    // plan-98-D Phase 2: the canvas scene region. A writable process-global block
+    // rather than part of the arena state, because arena state is per-thread and the
+    // graphics thread must see what the worker published — see the constant's own
+    // documentation and `.ai/canvas-threading.md` §2. Emitted only for a module that
+    // uses `canvas::`, so every other program keeps its exact data-object set.
+    if module_uses_canvas(module) {
+        data_objects.push(crate::codegen::runtime::canvas::graphics_state_data_object());
+        data_objects.push(CodeDataObject {
+            symbol: CANVAS_SCENE_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            layout: "mfb.runtime.canvas_scene.v1 { u64 revision, count, items, hashes, \
+                     layers, layerCount }"
+                .to_string(),
+            align: 8,
+            size: CANVAS_SCENE_SLOTS * 8,
+            value: "00".repeat(CANVAS_SCENE_SLOTS * 8),
+        });
+    }
     if module.entry.is_some() && module.target == "linux-riscv64" {
         data_objects.push(CodeDataObject {
             symbol: HAS_RVV_GLOBAL_SYMBOL.to_string(),
@@ -1103,6 +1121,12 @@ pub(crate) fn lower_module_for_platform(
         None
     };
     let presentation_mode_slots = if uses_app { PRESENTATION_MODE_SLOTS } else { 0 };
+    // plan-98-D Phase 2: the `canvas::` retained scene is NOT in arena state. It was
+    // (plan-98-B put it one region past the presentation-mode word), but arena state is
+    // per-thread and the graphics thread has to see what the worker published, so it
+    // moved to the process-global `CANVAS_SCENE_SYMBOL` block — see that constant and
+    // `.ai/canvas-threading.md` §2. Nothing is reserved here any more, so a canvas
+    // program's entry frame is the same size as any other app program's.
     // plan-62-B §3.3: the static initial presentation mode. A program that
     // references `app::setMode` anywhere starts windowless (`None`); one that
     // never does keeps the default terminal-in-a-window surface (`Console`). Keyed
@@ -1205,6 +1229,8 @@ pub(crate) fn lower_module_for_platform(
                 language_entry_accepts_args: entry.accepts_args,
                 uses_term,
                 initial_mode,
+                uses_canvas: module_uses_canvas(module)
+                    || module_uses_call(module, "canvas.blitSurface"),
             };
             let app_entry = platform
                 .emit_app_program_entry(&app_spec, &platform_imports)
@@ -1246,10 +1272,20 @@ pub(crate) fn lower_module_for_platform(
             )?);
             code_functions.extend(app_entry);
             data_objects.extend(platform.app_mode_data_objects(&module.project));
-            // plan-62-C Phase 2: the reconcile's selector/key data objects only for a
-            // program that can change mode (static default `None`), matching where its
-            // reconcile helpers are emitted — a Console-default program is unchanged.
-            if initial_mode == PresentationMode::None {
+            // plan-62-C Phase 2: the reconcile's selector/key data objects, for a
+            // program that can change mode (static default `None`) — matching where
+            // its reconcile helpers are emitted, so a Console-default program that
+            // never draws is unchanged.
+            //
+            // plan-98-C Phase 3 added the second half of the condition. The frame-blit
+            // helpers reference this same selector set and are emitted for any program
+            // that *draws*, which is not the same population: `IMPORT canvas` injects
+            // the package's always-helpers — `__canvas_presentSurface` among them —
+            // so even a program that only calls `canvas::rgb` emits a call to
+            // `canvas::blitSurface`. Without this the data objects the emitted helpers
+            // name would be missing ("data relocation target
+            // '_mfb_macapp_sel_delegate' is not a data object").
+            if initial_mode == PresentationMode::None || app_spec.uses_canvas {
                 data_objects.extend(platform.app_mode_reconcile_data_objects());
             }
         } else {
@@ -1473,7 +1509,10 @@ pub(crate) fn lower_module_for_platform(
             uses_term,
             skip_entry_arena_destroy,
             uses_stdout_buffer,
-        ));
+            module_uses_call(module, "canvas.startGraphics"),
+            &platform_imports,
+            platform,
+        )?);
     }
     if register_signal_handlers {
         code_functions.push(lower_signal_handler(platform)?);
@@ -1723,6 +1762,9 @@ pub(crate) fn lower_module_for_platform(
                     &type_model,
                     &platform_imports,
                     platform,
+                    // plan-98-C: the real string table, not an empty one — an
+                    // `abi_function` body with a string literal needs its data object.
+                    &string_symbols,
                 )
             },
         )?);
@@ -1823,6 +1865,18 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(platform.emit_thread_trampoline(
             &platform_imports,
             uses_stdin,
+            ArenaInitSymbols {
+                link_init: link_init_symbol,
+                global_init: global_initializer_symbol.as_deref(),
+            },
+        )?);
+    }
+    // plan-98-D Phase 2: the graphics thread's trampoline. Emitted for a program that
+    // draws, alongside the shared-state block `canvas::startGraphics` spawns it from.
+    if module_uses_call(module, "canvas.startGraphics") {
+        code_functions.push(crate::codegen::runtime::canvas::emit_graphics_trampoline(
+            &platform_imports,
+            platform,
             ArenaInitSymbols {
                 link_init: link_init_symbol,
                 global_init: global_initializer_symbol.as_deref(),
@@ -1967,6 +2021,7 @@ pub(crate) fn lower_module_mir_for_platform(
     Ok(mir::build_mir_plan(&plan, captured))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_runtime_helper(
     symbol: &str,
     build_mode: crate::target::NativeBuildMode,
@@ -1976,6 +2031,7 @@ pub(crate) fn lower_runtime_helper(
     type_model: &TypeModel,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    string_symbols: &HashMap<String, String>,
 ) -> Result<CodeFunction, String> {
     let Some(spec) = runtime::spec_for_symbol(symbol) else {
         return Err(format!(
@@ -2001,6 +2057,7 @@ pub(crate) fn lower_runtime_helper(
                 type_model,
                 platform_imports,
                 platform,
+                string_symbols,
                 arena_layout.term_state_offset,
                 arena_layout.presentation_mode_offset,
                 arena_layout.global_slots,
@@ -2071,19 +2128,25 @@ pub(crate) fn lower_runtime_helper(
                 }
             }
         };
-    // plan-62-E: the console-reading `io::` helpers (`input`/`readLine`/`readChar`)
-    // are gated on the `Console` presentation mode in an app build that uses `app::`
-    // — outside `Console` the window input pipe has no producer, so an ungated read
-    // would block forever; instead they raise the trappable `ErrWrongMode`. The
-    // writing side (`io::print`/`io::write`) is never gated — it degrades to the fd
-    // sink. No-op when the program cannot leave `Console` (`presentation_mode_offset`
-    // is `None`). `term::` is gated separately at its own dispatch above.
+    // plan-62-E / plan-98-A: the console-reading `io::` helpers
+    // (`input`/`readLine`/`readChar`) are gated in an app build that uses `app::` —
+    // in a mode whose window input pipe has no producer, an ungated read would block
+    // forever, so they raise the trappable `ErrWrongMode` instead. The requirement is
+    // `WindowedMode`, not `Console`: `Canvas` has a window whose key events feed the
+    // very same fd-0 pipe, so only `None` — which has no window at all — has nowhere
+    // for input to come from. The writing side (`io::print`/`io::write`) is never
+    // gated: it degrades to the fd sink in every mode. `io::readByte` is not in this
+    // list and never has been, so it is ungated in all modes (plan-98-A §2).
+    // No-op when the program cannot leave `Console` (`presentation_mode_offset` is
+    // `None`). `term::` is gated separately at its own dispatch above, and keeps the
+    // `Console`-only requirement — it needs the character grid, not just input.
     if matches!(spec.call, "io.input" | "io.readLine" | "io.readChar") {
         app::prepend_wrong_mode_gate(
             &mut instructions,
             &mut relocations,
             symbol,
             arena_layout.presentation_mode_offset,
+            app::ModeRequirement::WindowedMode,
         );
     }
     Ok(CodeFunction {

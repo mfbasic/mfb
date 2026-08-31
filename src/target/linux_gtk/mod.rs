@@ -68,6 +68,23 @@ pub(crate) const FINISH_SYMBOL: &str = "_mfb_gtkapp_finish";
 /// schedules (via `g_idle_add`) to build or tear down the transcript window to
 /// match the new presentation mode.
 const RECONCILE_IDLE_SYMBOL: &str = "_mfb_gtkapp_reconcile_idle";
+/// plan-98-A Phase 3: builds the transcript window (window + scrolled + text view +
+/// buffer) and installs the scrolled window as its child. Factored out of the
+/// reconcile's `Console` arm because the `Canvas` arm needs the same window: a
+/// canvas-first program has never presented a surface, so `ST_WINDOW` is still null
+/// when it enters canvas mode, and both arms must be able to create one. Also gives
+/// the canvas teardown something to restore the window's child *to*.
+const RECONCILE_BUILD_SYMBOL: &str = "_mfb_gtkapp_reconcile_build";
+/// plan-98-C Phase 3: the worker-side frame blit. Packs the rendered frame into a
+/// `malloc` block (swizzling RGBA to the BGRX byte order Cairo's `RGB24` wants on
+/// a little-endian host) and hands ownership to the main loop via `g_idle_add`.
+const CANVAS_BLIT_SYMBOL: &str = "_mfb_gtkapp_canvas_blit";
+/// The `g_idle_add` callback that takes ownership of a blitted frame: frees the
+/// previous block, publishes the new one, and queues a redraw. Runs on the GTK main
+/// loop, which is what makes `ST_CANVAS_PIXELS` single-threaded.
+const CANVAS_COMMIT_SYMBOL: &str = "_mfb_gtkapp_canvas_commit";
+/// The `GtkDrawingAreaDrawFunc` that paints the committed frame.
+const CANVAS_DRAW_SYMBOL: &str = "_mfb_gtkapp_canvas_draw";
 
 /// Writable runtime-state global. One pointer/handle per slot; the GTK widgets
 /// and the window-input pipe fds live here so every helper can reach them without
@@ -160,7 +177,31 @@ const ST_TERM_SNAP_POOL: usize = ST_TERM_POOL + TERM_MAX_COLS * TERM_MAX_ROWS * 
 /// exactly one aliveness source by toggling this: hold+set on entering `None`,
 /// release+clear on entering `Console` (Open Decision 1).
 const ST_HELD: usize = ST_TERM_SNAP_POOL + TERM_MAX_COLS * TERM_MAX_ROWS * GTK_POOL_BYTES;
-const STATE_SIZE: usize = ST_HELD + 8;
+/// plan-98-A Phase 3: the `Mode.Canvas` surface — a `GtkDrawingArea` swapped in as
+/// the window's child in place of the transcript's scrolled window. `g_object_ref_sink`ed
+/// on creation, exactly like [`ST_SCROLLED`], so `gtk_window_set_child` swapping it
+/// away on mode exit unparents it without destroying it: enter → exit → re-enter
+/// reuses the one widget rather than leaking a new one per cycle.
+const ST_CANVAS_AREA: usize = ST_HELD + 8;
+/// plan-98-A Phase 3: the window's `GdkSurface*`, read via `gtk_native_get_surface`
+/// once canvas mode has presented the window. This is the display-server-agnostic
+/// native handle plan-98-F turns into a `VkSurfaceKHR` (through
+/// `gdk_x11_surface_get_xid` / `gdk_wayland_surface_get_wl_surface`, which are
+/// backend-specific and so are *not* called here — retrieval only, no Vulkan).
+/// Non-zero only while in canvas mode; cleared on exit, which is what makes
+/// "released after exit" observable.
+const ST_CANVAS_SURFACE: usize = ST_CANVAS_AREA + 8;
+/// plan-98-C Phase 3: the committed frame, as one `malloc` block holding its own
+/// width at +0, height at +8 and BGRX pixels from +16.
+///
+/// Width and height travel *inside* the block rather than in their own state slots
+/// so that one pointer carries a whole frame. That is what makes the handoff
+/// race-free without a lock: the worker builds a block nobody else can see, hands
+/// the pointer to `g_idle_add`, and every read *and* write of this slot happens on
+/// the GTK main loop. A separate width slot would have to be published separately,
+/// and a frame could then be drawn with the previous frame's dimensions.
+const ST_CANVAS_PIXELS: usize = ST_CANVAS_SURFACE + 8;
+const STATE_SIZE: usize = ST_CANVAS_PIXELS + 8;
 
 // fg/bg cell encoding: low 24 bits = packed RGB (r|g<<8|b<<16, the console
 // convention so the arena getters agree); bit 24 marks an explicit color (so 0 =
@@ -501,9 +542,36 @@ pub(crate) fn emit_app_program_entry(
     // program that can change mode (static default `None`) — a `Console`-default
     // program never reconciles and keeps its exact function set.
     if spec.initial_mode == PresentationMode::None {
-        functions.push(emit_reconcile_idle_helper()?);
+        functions.push(emit_reconcile_build_helper()?);
+        functions.push(emit_reconcile_idle_helper(spec.uses_canvas)?);
+    }
+    // plan-98-C Phase 3: the frame blit's worker side, its main-loop commit, and the
+    // drawing area's paint callback. Gated on the program *drawing* rather than on
+    // its start mode — see the macOS twin for why the two are not the same question.
+    if spec.uses_canvas {
+        functions.push(emit_canvas_blit_helper()?);
+        functions.push(emit_canvas_commit_helper()?);
+        functions.push(emit_canvas_draw_helper()?);
     }
     Ok(functions)
+}
+
+/// plan-98-C Phase 3: the worker-side `canvas::blitSurface` seam.
+///
+/// The caller has already staged the frame pointer, width and height in the MFB
+/// argument registers, which is what [`bootstrap::emit_canvas_blit_helper`] expects,
+/// so this is a plain call. Unlike the mode reconcile it does *not* go straight to
+/// `g_idle_add`: the frame has to be copied out of the caller's block before the
+/// worker returns, and only the blit helper can do that.
+pub(crate) fn emit_canvas_blit_seam(
+    from_symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let mut asm = Asm::new(from_symbol);
+    asm.call_internal(CANVAS_BLIT_SYMBOL);
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// The x86-64 flavor of [`emit_app_program_entry`]: the ELF-entry trampoline is
@@ -537,7 +605,16 @@ pub(crate) fn emit_app_program_entry_x86(
     ];
     // plan-62-D Phase 2: the reconcile idle callback (None-default programs only).
     if spec.initial_mode == PresentationMode::None {
-        functions.push(emit_reconcile_idle_helper()?);
+        functions.push(emit_reconcile_build_helper()?);
+        functions.push(emit_reconcile_idle_helper(spec.uses_canvas)?);
+    }
+    // plan-98-C Phase 3: the frame blit's worker side, its main-loop commit, and the
+    // drawing area's paint callback. Gated on the program *drawing* rather than on
+    // its start mode — see the macOS twin for why the two are not the same question.
+    if spec.uses_canvas {
+        functions.push(emit_canvas_blit_helper()?);
+        functions.push(emit_canvas_commit_helper()?);
+        functions.push(emit_canvas_draw_helper()?);
     }
     for function in &mut functions {
         finalize_x86_app_function(&mut function.instructions);
@@ -800,6 +877,21 @@ pub(crate) fn app_mode_imports(
         (GTK, "gtk_drawing_area_new"),
         (GTK, "gtk_drawing_area_set_draw_func"),
         (GTK, "gtk_widget_queue_draw"),
+        // plan-98-A Phase 3: read the presented window's native `GdkSurface*` when
+        // entering `Mode.Canvas`. Backend-agnostic on purpose — the X11/Wayland
+        // getters that turn this into an XID / wl_surface are backend-specific
+        // symbols plan-98-F imports, and naming either here would fail to bind on
+        // the other display server.
+        (GTK, "gtk_native_get_surface"),
+        // plan-98-C Phase 3: the CPU-buffer blit. Cairo rather than a `GdkTexture`
+        // because the surface plan-98-A built is a `GtkDrawingArea`, whose draw
+        // callback hands out a `cairo_t` — displaying a texture through it would
+        // mean downloading the texture back to CPU memory it just came from.
+        (GTK, "gtk_drawing_area_set_draw_func"),
+        (GTK, "gtk_widget_queue_draw"),
+        (CAIRO, "cairo_image_surface_create_for_data"),
+        (CAIRO, "cairo_set_source_surface"),
+        (CAIRO, "cairo_surface_destroy"),
         (GOBJECT, "g_object_ref_sink"),
         (CAIRO, "cairo_set_source_rgb"),
         (CAIRO, "cairo_paint"),
@@ -1207,5 +1299,332 @@ mod import_tests {
             );
         }
         assert!(!declared.contains("getenv"), "getenv is dead (bug-59)");
+    }
+}
+
+#[cfg(test)]
+/// plan-98-A Phase 3: the `Mode.Canvas` arm of the GTK reconcile.
+///
+/// Structural, not behavioral: the dev/CI host is macOS and cannot execute a
+/// Linux + GTK binary, so — exactly as the rest of this file's coverage does —
+/// these inspect the emitted code rather than running it.
+mod canvas_reconcile_tests {
+    use super::*;
+
+    fn externals(func: &CodeFunction, name: &str) -> usize {
+        func.relocations
+            .iter()
+            .filter(|r| r.to.as_str() == name)
+            .count()
+    }
+
+    /// The compare immediates the reconcile dispatch tests, in emitted order.
+    fn compare_immediates(func: &CodeFunction) -> Vec<String> {
+        func.instructions
+            .iter()
+            .filter(|i| i.op == crate::arch::ops::CodeOp::CmpImm)
+            .filter_map(|i| {
+                i.fields
+                    .iter()
+                    .find(|(name, _)| *name == "rhs")
+                    .map(|(_, value)| value.to_string())
+            })
+            .collect()
+    }
+
+    /// `Canvas` (2) must be dispatched before the `Console`-or-not test. With a
+    /// third variant "not Console" no longer implies `None`, so the old two-way
+    /// shape would take the None arm for Canvas and hide the window the instant a
+    /// program entered canvas mode.
+    #[test]
+    fn reconcile_dispatches_canvas_before_the_console_test() {
+        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        let immediates = compare_immediates(&func);
+        let canvas = immediates
+            .iter()
+            .position(|value| value == "2")
+            .expect("reconcile must test for the Canvas discriminant");
+        let console = immediates
+            .iter()
+            .position(|value| value == "0")
+            .expect("reconcile must test for the Console discriminant");
+        assert!(
+            canvas < console,
+            "Canvas (2) must be dispatched before the Console/not-Console test, \
+             else Canvas falls into the None arm; got {immediates:?}"
+        );
+    }
+
+    /// The canvas surface is a `GtkDrawingArea` `g_object_ref_sink`ed like the
+    /// transcript's scrolled window, so `gtk_window_set_child` swapping it away on
+    /// mode exit unparents rather than destroys it — enter → exit → re-enter reuses
+    /// the one widget instead of leaking a new one per cycle.
+    #[test]
+    fn canvas_area_is_created_and_ref_sunk() {
+        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        assert_eq!(
+            externals(&func, "gtk_drawing_area_new"),
+            1,
+            "the Canvas arm must create the drawing area that is its surface"
+        );
+        assert!(
+            externals(&func, "g_object_ref_sink") >= 1,
+            "the canvas area must be ref_sunk or set_child would destroy it on exit"
+        );
+    }
+
+    /// The drawing area must get its paint callback when it is created.
+    ///
+    /// A `GtkDrawingArea` with no draw func renders nothing at all, and the area is
+    /// built on entering canvas mode — before any frame exists — so installing the
+    /// callback at first present would leave the first exposes blank.
+    #[test]
+    fn canvas_area_gets_its_draw_func_when_created() {
+        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        let order: Vec<&str> = func
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|name| {
+                *name == "gtk_drawing_area_new" || *name == "gtk_drawing_area_set_draw_func"
+            })
+            .collect();
+        let created = order
+            .iter()
+            .position(|name| *name == "gtk_drawing_area_new")
+            .expect("the Canvas arm must create the drawing area");
+        let installed = order
+            .iter()
+            .position(|name| *name == "gtk_drawing_area_set_draw_func")
+            .expect("the drawing area must be given a draw func or it paints nothing");
+        assert!(
+            created < installed,
+            "the draw func must be installed on the area just created; got {order:?}"
+        );
+    }
+
+    /// The blit copies the frame before handing it over.
+    ///
+    /// The caller's block belongs to the next frame the moment `canvas::blitSurface`
+    /// returns, so a pointer handed to the main loop without a copy would be drawn
+    /// after it had been overwritten. `malloc` before `g_idle_add` is what proves the
+    /// copy happens on the worker's side of the handoff.
+    #[test]
+    fn blit_copies_the_frame_before_scheduling_it() {
+        let func = bootstrap::emit_canvas_blit_helper().expect("canvas blit");
+        let order: Vec<&str> = func
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|name| *name == "malloc" || *name == "g_idle_add")
+            .collect();
+        assert_eq!(
+            order,
+            vec!["malloc", "g_idle_add"],
+            "the frame must be copied into its own block before the main loop is \
+             given the pointer; got {order:?}"
+        );
+    }
+
+    /// Ownership of a frame block passes to the main loop, and only the main loop
+    /// frees it.
+    ///
+    /// This is what makes `ST_CANVAS_PIXELS` safe without a lock. If the *worker*
+    /// freed the previous block, it would race the draw callback reading it.
+    #[test]
+    fn only_the_commit_callback_frees_a_frame() {
+        let blit = bootstrap::emit_canvas_blit_helper().expect("canvas blit");
+        assert_eq!(
+            externals(&blit, "free"),
+            0,
+            "the worker must not free a frame block — the main loop owns it once \
+             g_idle_add has the pointer"
+        );
+        let commit = bootstrap::emit_canvas_commit_helper().expect("canvas commit");
+        assert_eq!(
+            externals(&commit, "free"),
+            1,
+            "the commit callback must free exactly the block it replaces"
+        );
+        assert_eq!(
+            externals(&commit, "gtk_widget_queue_draw"),
+            1,
+            "committing a frame must queue the redraw that paints it"
+        );
+    }
+
+    /// The draw callback paints through a Cairo image surface and destroys it.
+    ///
+    /// Leaking one `cairo_surface_t` per expose would be unbounded — a window
+    /// redraws on every resize step and every occlusion change.
+    #[test]
+    fn canvas_draw_paints_and_releases_its_surface() {
+        let func = bootstrap::emit_canvas_draw_helper().expect("canvas draw");
+        let order: Vec<&str> = func
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|name| name.starts_with("cairo_"))
+            .collect();
+        assert_eq!(
+            order,
+            vec![
+                "cairo_image_surface_create_for_data",
+                "cairo_set_source_surface",
+                "cairo_paint",
+                "cairo_surface_destroy",
+            ],
+            "the draw func must create, source, paint and then destroy its surface; \
+             got {order:?}"
+        );
+    }
+
+    /// The native `GdkSurface*` must be read AFTER `gtk_window_present`: an
+    /// unrealized window has no surface, so reading it earlier stores null and
+    /// plan-98-F would have nothing to build a VkSurfaceKHR from.
+    #[test]
+    fn native_surface_is_read_after_present() {
+        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        let order: Vec<&str> = func
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|name| *name == "gtk_window_present" || *name == "gtk_native_get_surface")
+            .collect();
+        let surface = order
+            .iter()
+            .position(|name| *name == "gtk_native_get_surface")
+            .expect("the Canvas arm must read the native surface handle");
+        let present = order
+            .iter()
+            .position(|name| *name == "gtk_window_present")
+            .expect("the reconcile must present the window");
+        assert!(
+            present < surface,
+            "gtk_native_get_surface must follow gtk_window_present; got {order:?}"
+        );
+    }
+
+    /// The window build must be a shared helper both arms call, not code inlined
+    /// into the `Console` arm: a canvas-first program has never presented a
+    /// surface, so `ST_WINDOW` is null when it enters canvas mode.
+    #[test]
+    fn window_build_is_shared_by_the_console_and_canvas_arms() {
+        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        assert_eq!(
+            externals(&func, RECONCILE_BUILD_SYMBOL),
+            2,
+            "Console and Canvas must each be able to build the window — a \
+             canvas-first program has never presented a surface"
+        );
+        assert_eq!(
+            externals(&func, "gtk_application_window_new"),
+            0,
+            "the window build must live in the shared helper, not be inlined into \
+             an arm where the other arm cannot reach it"
+        );
+    }
+
+    /// Both non-canvas arms must run the canvas teardown, so leaving canvas by
+    /// either route restores the transcript child rather than leaving the canvas
+    /// area installed on a re-shown transcript window or a hidden one.
+    ///
+    /// Counted through `gtk_window_set_child`, the teardown's observable call: the
+    /// idle helper's three are the Canvas arm installing the canvas area plus one
+    /// per teardown. (The build helper's own `set_child` is in a different
+    /// function.) A missing teardown drops this to 2.
+    #[test]
+    fn both_non_canvas_arms_tear_the_canvas_area_down() {
+        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
+        assert_eq!(
+            externals(&func, "gtk_window_set_child"),
+            3,
+            "expected 1 Canvas install + 2 teardowns (Console and None arms)"
+        );
+    }
+
+    /// Every symbol the arm emits must be declared, or relocation binding fails
+    /// the build.
+    #[test]
+    fn canvas_symbols_are_declared_imports() {
+        let declared: Vec<String> = app_mode_imports(AppLibcNames {
+            libc: "libc.so.6",
+            libpthread: "libpthread.so.0",
+        })
+        .into_iter()
+        .map(|import| import.symbol)
+        .collect();
+        for symbol in [
+            "gtk_native_get_surface",
+            "gtk_drawing_area_new",
+            "g_object_ref_sink",
+        ] {
+            assert!(
+                declared.iter().any(|s| s == symbol),
+                "{symbol} is emitted by the Canvas arm but not declared"
+            );
+        }
+    }
+
+    // --- plan-98-A Phase 4: canvas keyboard input ---
+
+    /// The key controller goes on the **window**, not on any child widget. That
+    /// placement is what makes canvas mode inherit keyboard input for free —
+    /// `gtk_window_set_child` swapping the transcript for the canvas area does not
+    /// disturb a controller attached to the window itself. The reconcile-built
+    /// window had none at all before this phase, so a `None`-default program's
+    /// `io::` reads found nothing to read even after switching to `Console`.
+    #[test]
+    fn the_reconcile_built_window_gets_the_key_controller() {
+        let build = bootstrap::emit_reconcile_build_helper().expect("reconcile build");
+        assert_eq!(
+            externals(&build, "gtk_event_controller_key_new"),
+            1,
+            "the reconcile-built window must get a key controller"
+        );
+        // The two callback addresses are taken with `local_address`, an adrp/add
+        // page pair = 2 relocations each; the external calls above are 1 each.
+        assert_eq!(
+            externals(&build, KEY_PRESSED_SYMBOL),
+            2,
+            "the controller must be connected to the shared key handler"
+        );
+        assert_eq!(
+            externals(&build, "gtk_widget_add_controller"),
+            1,
+            "the controller must be attached to the window"
+        );
+        assert_eq!(
+            externals(&build, WINDOW_CLOSED_SYMBOL),
+            2,
+            "closing a reconcile-built window must end the program, as closing a \
+             startup-built one does"
+        );
+    }
+
+    /// The window input pipe must be wired for a `None`-default program too. A
+    /// `None` default means the program references `app::setMode`, so it is the only
+    /// kind that can ever reach `Console` or `Canvas` — and in both the window is
+    /// the input source. It must happen at startup, before the worker spawns:
+    /// `dup2`ing onto fd 0 after the worker has blocked in `read(0, …)` leaves that
+    /// read waiting on the old file description forever.
+    #[test]
+    fn the_input_pipe_is_wired_for_a_none_default_program() {
+        let none = bootstrap::emit_activate_handler(PresentationMode::None).expect("activate");
+        assert_eq!(
+            externals(&none, "pipe"),
+            1,
+            "a None-default activate must wire the window input pipe"
+        );
+        assert_eq!(
+            externals(&none, "dup2"),
+            1,
+            "the pipe read end must become fd 0 before the worker spawns"
+        );
+        // The Console-default path keeps exactly one — the extraction must not have
+        // duplicated it into the branch it came from.
+        let console =
+            bootstrap::emit_activate_handler(PresentationMode::Console).expect("activate");
+        assert_eq!(externals(&console, "pipe"), 1);
     }
 }

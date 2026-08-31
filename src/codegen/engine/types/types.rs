@@ -1190,6 +1190,34 @@ pub(crate) trait CodegenPlatform {
     ) -> Option<Result<(), String>> {
         None
     }
+
+    /// plan-98-C Phase 3 seam: hand a finished RGBA8 frame to the platform's canvas
+    /// surface.
+    ///
+    /// The rasteriser runs on the worker thread — `canvas::present` is an ordinary
+    /// call from program code — and every one of the three surfaces may only be
+    /// touched from the UI thread. Each backend therefore marshals, using the same
+    /// mechanism its reconcile already uses: `performSelectorOnMainThread:` on
+    /// macOS, `g_idle_add` on GTK, `PostMessageW` on Win32.
+    ///
+    /// The caller stages the arguments in the MFB argument registers before this
+    /// runs: `mfb_arg(0)` is a pointer to the frame's first byte (a `List OF Byte`
+    /// is entry-free, so its payload is already contiguous — see
+    /// `lower_blit_surface`), `mfb_arg(1)` is the width and `mfb_arg(2)` the height.
+    /// The backend must **copy** the pixels before the UI thread sees them, because
+    /// the caller's block belongs to the next frame the moment this returns.
+    ///
+    /// `None` means the target has no canvas surface, which is not an error: a
+    /// headless or console-only build still renders (the `MFB_CANVAS_DUMP` path is
+    /// what the golden harness reads) and simply has nowhere to put the frame.
+    fn emit_canvas_blit(
+        &self,
+        _symbol: &str,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        None
+    }
 }
 
 /// Inputs the app-mode `_main` bootstrap needs about the program it hosts
@@ -1230,10 +1258,12 @@ pub(crate) struct ArenaLayout {
     /// Byte offset of the `app::` presentation-mode word (plan-62-B), when this is
     /// an app build. Reserved just past the `term::` state region.
     pub(crate) presentation_mode_offset: Option<usize>,
+    /// Byte offset of the `canvas::` retained-scene region (plan-98-B), when the
+    /// program uses `canvas::`. Reserved just past the presentation-mode word.
     /// Total slots in the region: program globals + `LINK`/`FREE` pointer slots +
-    /// `term::` state + the app presentation-mode slot. `thread::start` sizes a
-    /// worker's arena block from this so the worker's region matches the entry
-    /// frame's (bug-369).
+    /// `term::` state + the app presentation-mode slot + the canvas scene region.
+    /// `thread::start` sizes a worker's arena block from this so the worker's region
+    /// matches the entry frame's (bug-369).
     pub(crate) global_slots: usize,
 }
 
@@ -1262,6 +1292,16 @@ pub(crate) struct AppEntrySpec {
     /// window surface at startup — `Console` builds the transcript window, `None`
     /// starts windowless while still running the toolkit event loop.
     pub(crate) initial_mode: PresentationMode,
+    /// Whether the program draws (`canvas::`), so the backend emits the frame-blit
+    /// helpers `canvas::blitSurface` calls.
+    ///
+    /// A separate question from `initial_mode`: a program can reach `Mode.Canvas`
+    /// only by calling `app::setMode`, which forces a `None` start — but the
+    /// *converse does not hold*, and gating the blit on `None` left a `Console`-start
+    /// program that merely mentions `canvas::` referencing a helper that was never
+    /// emitted ("internal relocation target '_mfb_macapp_canvas_blit' is not
+    /// defined").
+    pub(crate) uses_canvas: bool,
 }
 
 /// Everything the per-backend program-entry emitter needs (plan-00-G). Program

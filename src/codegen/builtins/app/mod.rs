@@ -2,8 +2,9 @@
 //!
 //! `app` makes an `--app` program's **presentation mode** — what its window
 //! surface currently *is* — a first-class, explicit choice: `app::getMode` reads
-//! it and `app::setMode` writes it, choosing from the two `Mode` enum members
-//! (`Console` = 0, the default; `None` = 1, windowless). The mode is
+//! it and `app::setMode` writes it, choosing from the three `Mode` enum members
+//! (`Console` = 0, the default; `None` = 1, windowless; `Canvas` = 2, a 2D
+//! graphics surface). The mode is
 //! per-execution-context state held in a reserved arena-state slot; the two
 //! members lower to a load / store of that slot, exactly like
 //! `money::getRounding` / `money::setRounding`.
@@ -42,8 +43,11 @@ mode with the `-app` build flag or `"mode": "app"` in `project.json`.
 
 The mode is one of the `Mode` enum members: `Console` — the terminal-in-a-window
 surface (a transcript view, optionally a full-screen `term::` grid), the default —
-or `None` — windowless, where no surface is presented and `io::print` degrades to
-standard output. A program's **initial** mode is decided statically: `Console`
+`None` — windowless, where no surface is presented and `io::print` degrades to
+standard output — or `Canvas` — a 2D graphics surface drawn by the `canvas`
+package, where `term::` is unavailable but `io::` still works (output degrades to
+standard output, input comes from the window's key events).
+A program's **initial** mode is decided statically: `Console`
 unless the program references `app::setMode` anywhere, in which case it starts in
 `None`. This lets a program that intends to manage its own surface start windowless
 and bring a window up deliberately, while a program that never touches the mode
@@ -51,9 +55,9 @@ keeps the terminal-in-a-window behavior unchanged.
 
 `app::getMode` and `app::setMode` raise no errors from the mode machinery itself:
 the argument to `setMode` is a `Mode` the type checker has already constrained, and
-reading the current mode cannot fail. The mode model is designed to grow: a future
-graphical mode is a new `Mode` variant entered through `app::setMode`, with no
-change to this surface.
+reading the current mode cannot fail. The mode model is designed to grow: a new
+presentation surface is a new `Mode` variant entered through `app::setMode`, with
+no change to this surface — which is exactly how `Canvas` was added.
 
 The `Mode` enum is referenced bare, like every other builtin type: write
 `Mode.None`, not `app::Mode.None`."#;
@@ -63,9 +67,10 @@ The `Mode` enum is referenced bare, like every other builtin type: write
 /// The `Mode` enum is modeled on the registry (`get_mfb` renders it into the
 /// injected source in place of the former hand-written `EXPORT ENUM Mode` in
 /// `app_package.mfb`, exactly as `money`/`datetime` do). Its variants' declaration
-/// order fixes the discriminants (`Console` = 0, `None` = 1), which are the values
-/// `setMode`/`getMode` store and load. Each of the two members registers itself
-/// from its `func_*.rs`.
+/// order fixes the discriminants (`Console` = 0, `None` = 1, `Canvas` = 2), which
+/// are the values `setMode`/`getMode` store and load — so appending a variant is
+/// slot-safe (no existing discriminant moves) but reordering one is not. Each of
+/// the two members registers itself from its `func_*.rs`.
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("app", MODULE_INTRO, MODULE_DESC);
 
@@ -81,6 +86,11 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "None",
                 description: "Windowless — no surface is presented.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Canvas",
+                description: "A 2D graphics surface drawn by the `canvas` package.",
                 advisory: None,
             },
         ],
@@ -111,6 +121,23 @@ mod tests {
         assert!(source.contains("EXPORT ENUM Mode"));
         assert!(source.contains("Console"));
         assert!(source.contains("None"));
+        assert!(source.contains("Canvas"));
+    }
+
+    /// Variant declaration order fixes the discriminants, and those are the values
+    /// `setMode`/`getMode` store into and load from the presentation slot. `Canvas`
+    /// must therefore stay appended LAST: reordering would silently repoint every
+    /// already-stored slot word (plan-98-A Phase 1).
+    #[test]
+    fn mode_variant_order_pins_the_discriminants() {
+        let pkg = registry().resolve_package("app").expect("app package");
+        let mode = pkg
+            .enums()
+            .iter()
+            .find(|e| e.name == "Mode")
+            .expect("Mode enum");
+        let names: Vec<&str> = mode.variants.iter().map(|v| v.name).collect();
+        assert_eq!(names, vec!["Console", "None", "Canvas"]);
     }
 
     #[test]
