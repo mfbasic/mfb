@@ -537,12 +537,41 @@ impl CodeBuilder<'_> {
         &mut self,
         cleanup: &ThreadCleanup,
     ) -> Result<(), String> {
+        // Skip the drop entirely when the slot is null: a `LET t AS Thread =
+        // thread::start(...)` whose initializer raised (an `inboundLimit` /
+        // `outboundLimit` below 1 raises `ErrInvalidArgument` before any thread
+        // exists), or a bind an error path jumped past on its way to the function
+        // `TRAP` handler, leaves the slot at its zero-init 0. `thread.drop` opens
+        // with an unconditional `load handle + THREAD_OFFSET_OUTBOUND_QUEUE` fed
+        // straight into `pthread_mutex_lock`, so a null read SIGSEGVs *after* the
+        // handler has already run and returned (bug-469). The same guard the
+        // resource path carries for the identical hazard (bug-246); the bind site
+        // zeroes the slot and lists it for prologue zero-init so it reads 0 rather
+        // than stack garbage.
+        let done = match self
+            .locals
+            .get(&cleanup.name)
+            .map(|local| local.stack_offset)
+        {
+            Some(offset) => {
+                let done = self.label("thread_cleanup_done");
+                let handle = self.allocate_register();
+                self.emit(abi::load_u64(&handle, abi::stack_pointer(), offset));
+                self.emit(abi::compare_immediate(&handle, "0"));
+                self.emit(abi::branch_eq(&done));
+                Some(done)
+            }
+            None => None,
+        };
         let arg = NirValue::Local(cleanup.name.clone());
         self.emit_raw_call(
             &cleanup.symbol,
             std::slice::from_ref(&arg),
             "thread_drop_arg",
         )?;
+        if let Some(done) = done {
+            self.emit(abi::label(&done));
+        }
         Ok(())
     }
 
