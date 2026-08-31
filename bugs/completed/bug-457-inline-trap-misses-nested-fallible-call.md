@@ -287,7 +287,7 @@ The transferable lesson is recorded in auto-memory: an elision analysis that
 pattern-matches a desugar's emitted op shape is silently coupled to that
 desugar, and a miss is a **miscompile**, not a lost optimisation.
 
-**One thing deliberately NOT fixed here — filed as bug-469.** An *operator* that
+**One thing deliberately NOT fixed here — filed as bug-471.** An *operator* that
 raises inside the trapped expression (`two(1 / z, 2) TRAP(e)`) is the same class
 of escape but is not a call, so it is outside this doc's scope ("every fallible
 call in the trapped expression") and outside the fix. Reproduced with the fixed
@@ -297,7 +297,7 @@ trappable and the escape is positional. It is not a widening of this fix:
 codegen's `raw_result_capture` is a per-VALUE redirect, and this desugar lifts
 nested calls into separate `Bind` ops that sit outside any capture, so covering
 operators needs a trap-*region* notion the jump-free IR does not have. See
-`bugs/bug-469-inline-trap-misses-raising-operator.md`, which also records that
+`bugs/bug-471-inline-trap-misses-raising-operator.md`, which also records that
 bug-467 (SIGPIPE) must be fixed first or the region work will look like it
 failed on socket writes when it had not.
 

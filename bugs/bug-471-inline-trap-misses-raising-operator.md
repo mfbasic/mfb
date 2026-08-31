@@ -1,4 +1,4 @@
-# bug-469: an inline `TRAP` does not cover a raising **operator** inside the trapped expression
+# bug-471: an inline `TRAP` does not cover a raising **operator** inside the trapped expression
 
 Last updated: 2026-08-30
 Effort: large (a codegen capability, not a lowering tweak)
