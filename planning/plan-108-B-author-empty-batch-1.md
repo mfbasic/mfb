@@ -155,46 +155,118 @@ in the same commit only if a pinned summary is itself corrected.
 
 ### Phase 1 — strings (verify)
 
-- [ ] Verify 39 pages + overview (accuracy + scope passes); every example
+- [x] Verify 39 pages + overview (accuracy + scope passes); every example
       compiled and run. **No types page** — strings exports no types, so
       `mfb man strings types` renders nothing and the census reads `-`.
-- [ ] Drive the 28 memory-vocabulary hits to 0. They are one systematic
+      **84 examples build and run** (`./scripts/man-run-examples.sh strings
+      --run`). Every documented sharp edge probed: `left`/`right` clamp
+      where `mid` raises `77050001`, `len` counts scalars where `byteLen`
+      counts bytes and `graphemesCount` counts clusters, `trim` returns a
+      new `String` on the unchanged path, `split` never overlaps, `repeat`
+      by 0 gives the empty string, `padLeft` never truncates.
+- [x] Drive the 28 memory-vocabulary hits to 0. They are one systematic
       phrase — "the result is a new **owned** String" — plus `allocate`
       variants. Keep the fact (the argument is not changed, you get a new
-      value back); drop the vocabulary.
-- [ ] Cross-model review (Codex) + apply; ledger recorded here.
-- [ ] Verify: `mfb man strings --all` reads clean; census 100% for
-      strings; `--memory-scope strings` at 0.
+      value back); drop the vocabulary. — **0**.
+- [x] Cross-model review (Codex) + apply; ledger recorded here.
+      **14 findings, 14 confirmed, 0 rejected.**
+- [x] Verify: `mfb man strings --all` reads clean; census 100% for
+      strings; `--memory-scope strings` at 0. — 39/39/39, 64/64 params, 0.
 
 Acceptance: strings fully verified and reviewed, 0 memory-scope hits.
-Commit: —
+— **MET**.
+Commit: ce95ab5c5 (verify + scope), plus the review fixes in the same
 
 ### Phase 2 — term (verify)
 
-- [ ] Verify 24 pages + overview + types page; per-function run vs
-      compile-only verification noted in the ledger (term needs a tty, so
-      expect most of these to be compile-only).
-- [ ] Author the **5 missing types-page entries** — `TermColor.r/g/b` and
-      `TermSize.columns/rows` render with empty Description cells (13/18).
-- [ ] Drive term's 18 memory-vocabulary hits to 0.
-- [ ] Cross-model review + apply; ledger.
-- [ ] Verify: rendering + census as Phase 1, types page at 18/18.
+- [x] Verify 24 pages + overview + types page; per-function run vs
+      compile-only verification noted in the ledger.
+      **43 examples compile; 32 also run headless.** The 11 that do not are
+      recorded by name in the ledger below — they are not a blanket skip.
+- [x] Author the **5 missing types-page entries** — `TermColor.r/g/b` and
+      `TermSize.columns/rows`. — types page now **18/18**.
+- [x] Drive term's 18 memory-vocabulary hits to 0. — **0**.
+- [x] Cross-model review + apply; ledger.
+      **8 findings, 8 confirmed, 0 rejected**, plus 11 further pages swept.
+- [x] Verify: rendering + census as Phase 1, types page at 18/18.
+      — 24/24/24, 34/34 params, 18/18 types, 0 memory-scope.
 
 Acceptance: term fully verified and reviewed, types page complete, 0
-memory-scope hits.
-Commit: —
+memory-scope hits. — **MET**.
+Commit: 7c9fc359a
 
 ### Phase 3 — testing (author)
 
-- [ ] Author 12 pages + overview; describe `expect` semantics in developer
+- [x] Author 12 pages + overview; describe `expect` semantics in developer
       terms (what a failed expectation reports; never the desugar story).
-      This is the only package in the letter still empty: 12 pages with 0
-      desc and 0 example.
-- [ ] Cross-model review + apply; ledger.
-- [ ] Verify: rendering + census as Phase 1.
+      — done, and the **overview's own desugar story was removed**: it said
+      the assertions are "compiler-lowered — recognized in the front end and
+      desugared to comparison statements — so there is no runtime helper",
+      which is exactly what this phase forbids. Split into one `func_*.rs`
+      per assertion, matching every other package.
+- [x] Cross-model review + apply; ledger. **4 findings, 4 confirmed.**
+- [x] Verify: rendering + census as Phase 1. — 12/12/12, 23/23 params, 0
+      memory-scope, and all 14 examples checked with `mfb test`.
 
-Acceptance: testing fully authored and reviewed.
-Commit: —
+Acceptance: testing fully authored and reviewed. — **MET**.
+Commit: ce95ab5c5 (author), plus the review fixes
+
+## Cross-model review ledger
+
+Reviewer for all three: `codex exec -C <worktree> -s workspace-write - <
+prompt.txt`, banner **OpenAI Codex v0.150.0, model `gpt-5.6-terra`**, one run
+per package. `git status` clean of reviewer edits after each — Codex worked
+only under `/tmp`. **26 findings across the three packages; 26 confirmed, 0
+rejected.**
+
+### strings — 14 findings (40 pages checked, 86 programs run)
+
+| Category | Finding | Disposition |
+|---|---|---|
+| INACCURACY | `find` and `contains` both advise "guard `find` with `contains`". **That guard is unsound for the three-argument form**: `contains` searches the whole string, so it can answer `TRUE` for a match that lies *before* `start`, and `find` raises anyway | CONFIRMED — **re-verified**: `contains("abcabc","a")` is `TRUE` while `find("abcabc","a",5)` raises `77050004`. Both pages now scope the advice to the two-argument form and say what to do instead |
+| LEAKAGE ×12 | implementation detail on a dozen pages: `byteLen`'s "read directly from the string's stored byte count", `graphemesCount`'s "linear scan, not a stored field", `toBytes`'s "folded at build time", `displayWidth`'s "vendored utf8proc `charwidth` table", and "table embedded in the runtime/compiler" on `caseFold`, `lower`, `upper`, `graphemes`, `isDigit`, `isLetter`, `isLower`, `isUpper` | CONFIRMED — each replaced by the Unicode rule it implements ("Unicode full case folding", "follows the Unicode general categories"), which is what a developer can actually rely on. `byteLen` keeps the useful half — the answer is immediate however long the string is |
+
+### term — 8 findings (26 pages checked, 4 programs run)
+
+| Category | Finding | Disposition |
+|---|---|---|
+| INACCURACY | the overview's "every other `term::` call except `term::isOn` is a no-op while TUI mode is off" — `term::terminalSize` **raises `ErrUnsupported`** instead | CONFIRMED — **re-verified**: with TUI off, `clear`/`moveTo`/`setBold` return quietly and `terminalSize()` raises `77050007`. The overview now names both exceptions |
+| INACCURACY | `drawGlyph`'s "the cell is **clamped to the surface**: if `(x, y)` is off the grid the call draws nothing" — those are opposite behaviours | CONFIRMED — it is bounds-checked, not clamped. The page says so, and adds the consequence: an off-by-one loses the glyph silently rather than drawing it at an edge |
+| LEAKAGE ×6 | `sync`'s front/back-buffer diffing and batched writes, `terminalSize`'s `TIOCGWINSZ`, `didResize`'s `setFrameSize:`/GTK resize-signal hooks, `drawText`'s "maximal runs", `clear`'s "zero-fill", and `~ICANON`/`~ECHO` | CONFIRMED — each replaced by its developer-visible consequence |
+
+Sweeping those six turned up the same vocabulary on **eleven further pages**
+Codex had not cited (`back buffer`, `shadow cursor`, `shadow grid`,
+`zero-fill`, `grid header`), all rewritten. **`alternate screen` is kept
+deliberately** — it is a real terminal concept a developer recognises, not an
+implementation detail.
+
+**term's run-vs-compile ledger.** 43 examples; 32 run headless, and these 11
+need a tty: `drawBox#2`, `drawGlyph#1`, `drawHLine#1`, `drawText#1`,
+`drawVLine#1`, `fillRect#2`, `moveTo#2`, `setBackground#2`, `sync#2`,
+`terminalSize#1`, `terminalSize#2`. All 11 fail with the `ErrUnsupported`
+their own pages document, so the failure is itself a check rather than a gap.
+
+### testing — 4 findings (14 pages checked, 6 programs run)
+
+| Category | Finding | Disposition |
+|---|---|---|
+| INACCURACY | `expectFixed`'s "writing `expectFixed(x, 0.1)` compares against whatever `0.1` rounds to" — a bare decimal is a `Float`, so the call does not compare at all, it is rejected. The page **contradicted itself** two sentences later | CONFIRMED — rewritten so the rounding point is made about an annotated `Fixed` value, and the bare-literal case is named as the `TESTING_EXPECT_TYPE_MISMATCH` it is |
+| MISSING ×3 | the printable-operand list on the overview, `expectEqual` and `expectNEqual` omitted **`Boolean`** and **`Scalar`** | CONFIRMED — **re-verified**: `expectEqual(TRUE, TRUE)` and `expectNEqual(toScalar("A"), toScalar("B"))` both pass. List corrected in all three places |
+
+### What this letter adds to the pilot's lessons
+
+7. **The scope pass introduced a defect again** — `term::terminalSize` gained
+   "it can still fail when memory is exhausted, since it builds a record to
+   return" while a leak was being removed from the same sentence. That is two
+   letters running (A's `bits` findings 2–5). Treat any *new* sentence written
+   during a scope pass as unverified prose that the reviewer must see.
+8. **A reviewer finding is usually a class, not an instance.** Codex cited six
+   leaking term pages; the same vocabulary was on eleven more. Always grep the
+   package for the pattern behind a finding rather than fixing only what was
+   quoted.
+9. **Sibling pages disagree in pairs.** `find`/`contains` gave the same unsound
+   advice from both ends, and `expectFixed` contradicted itself within one
+   page. When a finding lands, check the page that points at it.
 
 ## Validation Plan
 

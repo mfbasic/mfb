@@ -15,13 +15,15 @@ the same bits everywhere, and a test that passes on one machine passes on all of
 them.
 
 Remember that `Fixed` is binary fixed-point, not decimal: most decimal fractions
-are rounded to the nearest representable value on the way in. Writing
-`expectFixed(x, 0.1)` compares against whatever `0.1` rounds to, not against
-exact one-tenth. For exact decimal arithmetic use `Money` instead.
+are rounded to the nearest representable value on the way in. So once you have
+written `LET want AS Fixed = 0.1`, `want` holds the nearest `Fixed` to
+one-tenth rather than exact one-tenth, and that is what the comparison uses. For
+exact decimal arithmetic use `Money` instead.
 
-There is no `Fixed` literal suffix. Give the expected value a `Fixed` annotation
-(`LET want AS Fixed = 1.5`) or convert with `toFixed`, then pass that — a bare
-decimal literal in the call is a `Float` and will not type-check here.
+There is no `Fixed` literal suffix, so you have to write that annotation (or
+convert with `toFixed`) and pass the result. A bare decimal in the call is a
+`Float`, and the assertion is rejected at compile time with
+`TESTING_EXPECT_TYPE_MISMATCH` rather than being compared as a `Fixed`.
 
 Written as a bare name, valid only inside a `TCASE` body. For the inequality
 form, see `expectNFixed`."#;

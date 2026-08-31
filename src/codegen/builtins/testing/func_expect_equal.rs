@@ -16,7 +16,7 @@ with it, and `Integer` and `Float` compare numerically — `expectEqual(1, 1.0)`
 passes. When that is not what you want, use `expectInteger` or `expectFloat`,
 which also require the operand to be exactly that type.
 
-Both operands must be printable — a number, `String`, `Byte`, or `List OF Byte`
+Both operands must be printable — a number, `Boolean`, `String`, `Byte`, `Scalar`, or `List OF Byte`
 — because a failure has to show them. Comparing something unprintable is a
 compile error, not a failing test.
 

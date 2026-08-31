@@ -81,7 +81,7 @@ Which assertion to reach for:
 
 - **`expectEqual`/`expectNEqual`** are the general pair. They compare with the
   language's own `=` and `<>`, so the operands must be comparable and printable
-  (a number, `String`, `Byte`, or `List OF Byte`) — printable because the failure
+  (a number, `Boolean`, `String`, `Byte`, `Scalar`, or `List OF Byte`) — printable because the failure
   message has to show them.
 - **The typed forms** — `expectInteger`, `expectFloat`, `expectFixed`,
   `expectString` and their `expectN…` twins — additionally require both operands
