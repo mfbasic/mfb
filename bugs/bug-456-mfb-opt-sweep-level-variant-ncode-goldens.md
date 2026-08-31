@@ -34,10 +34,20 @@ syntax/lexical/parser-hello-world/…macos-aarch64.ncode
 syntax/match/control-flow-match/…macos-aarch64.ncode
 ```
 
-References:
+**Re-derived 2026-08-31 (during bug-471): the count is 9, not 7.** `.mir` is
+also a per-target backend dump (`ARTIFACT_NATIVE_KINDS`), so it is level-variant
+by exactly the same argument, and two of the fixtures above carry one:
 
-- `scripts/test-accept.sh:148-162` — the `MFB_OPT` switch (plan-100) and its
-  deliberate non-echo into build.log.
+```
+rt-behavior/control-flow/control-flow-if/…macos-aarch64.mir
+syntax/lexical/parser-hello-world/…macos-aarch64.mir
+```
+
+Measured, not reasoned: a release compiler built from main's tip (`744c7c175`)
+via `git archive` reports the same 9 as the bug-471 worktree, name for name, at
+`MFB_OPT=3` over 1320 fixtures. That is what "re-derive, never read the list"
+above is for — a fix must exclude the level-variant KINDS, not this enumeration
+of paths.
 - Memory note `optimizer-rows-need-giant-function-stress.md` — records
   `MFB_OPT=3 test-accept` as the mandatory behavior sweep for new rows.
 - Found while landing the six Level-3 loop rows (2026-08-25): the sweep's

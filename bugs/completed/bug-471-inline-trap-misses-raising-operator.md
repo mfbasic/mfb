@@ -306,10 +306,27 @@ counter-example to this fix.
 
 ### Verification
 
-* `tests/rt_inline_trap_raising_operator.rs` — 18/18 (12 measured RED first).
-* `tests/rt_inline_trap_nested_call.rs` — 20/20, bug-457's suite unchanged.
-* `artifact-gate all` — 1299 tests, 1456 builds, 1786 goldens, 0 diffs.
-* The `.mfp` round trip, by hand: a `kind: "package"` project whose exported
+All on the merged tree (main at `744c7c175`, i.e. with bug-464 and bug-468),
+macOS aarch64 — the only environment in this doc's matrix, and the one the
+reproduction was measured on:
+
+* **Full `cargo test --release --no-fail-fast`** — 81 targets, 4246 passed,
+  0 failed.
+* **`artifact-gate all`** — 1304 tests, 1466 builds, 1799 goldens, **0 diffs**.
+  Byte-identical: the fix regenerates no golden.
+* **`scripts/test-accept.sh`** (the acceptance harness, which `cargo test` does
+  NOT run, and which is what caught the fallibility-oracle defect) — 1320 tests
+  ran, **all passed**. `mfb test tests/acceptance` is 732/732.
+* **`MFB_OPT=3 scripts/test-accept.sh`** — 9 mismatches, **all pre-existing**.
+  A release compiler built from main's tip (`744c7c175`) via `git archive`
+  reports the same 9, name for name. They are bug-456's level-variant
+  `.ncode`/`.mir` goldens; bug-456's own list said 7, and the two `.mir` entries
+  it omitted are now recorded there.
+* `tests/rt_inline_trap_raising_operator.rs` — 20/20.
+  `tests/rt_inline_trap_nested_call.rs` — 20/20, bug-457's suite unchanged.
+* **The `.mfp` round trip, by hand**: a `kind: "package"` project whose exported
   `safeDiv` carries a `Checked` node builds, and an executable importing it
   prints `ok=5` / `div0=-1` — so value tag 22 encodes, decodes, passes
   `verify_package`, and lowers on the consumer side.
+* **The doc's own reproduction**, verbatim, now prints
+  `caught operator code=77050002` then `d=-1` and exits 0.
