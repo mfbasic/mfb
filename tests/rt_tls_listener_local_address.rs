@@ -53,6 +53,24 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 /// handshake is what proves the reported port is the listener's.
 const PAYLOAD: &str = "listener-port-ok";
 
+/// Wall-clock bound on each blocking interaction with the server, and the mfb
+/// side's `tls::accept` deadline.
+///
+/// Generous on purpose. These bounds exist to turn a *hang* into a named failure
+/// so a stalled TLS server cannot wedge `cargo test` — they are not performance
+/// assertions, and every second here is free unless something is already broken.
+/// The sibling `rt_macos_tls_write_capacity` was measured failing its 30s bound
+/// purely from CPU starvation (three heavy jobs on one machine) and passing in
+/// 67s when re-run alone. That failure is far more dangerous than a slow test,
+/// because a starved timeout and a real TLS stall print the identical message —
+/// so the number is set well clear of the contended case rather than close to
+/// the observed-good one.
+const DEADLINE: Duration = Duration::from_secs(120);
+/// The mfb-side accept bound, in milliseconds, kept under [`DEADLINE`] so a
+/// server that gives up reports `ErrTimeout` through the program rather than
+/// tripping the harness's outer kill.
+const ACCEPT_MS: u64 = 90_000;
+
 fn nonce() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -115,7 +133,7 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
         \x20 RES server = tls::listen(\"127.0.0.1\", 0, \"{cert}\", \"{key}\")\n\
         \x20 LET bound = tls::localAddress(server)\n\
         \x20 io::print(\"bound \" & bound.host & \" \" & toString(bound.port))\n\
-        \x20 RES conn = tls::accept(server, 20000)\n\
+        \x20 RES conn = tls::accept(server, {ACCEPT_MS})\n\
         \x20 tls::write(conn, \"{PAYLOAD}\")\n\
         \x20 tls::close(conn)\n\
         \x20 tls::close(server)\n\
@@ -123,6 +141,7 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
          END FUNC\n",
         cert = cert.display(),
         key = key.display(),
+        ACCEPT_MS = ACCEPT_MS,
     );
     fs::write(root.join("src/main.mfb"), source).expect("write source");
 
@@ -155,11 +174,14 @@ fn read_bound_line(server: &mut Child) -> (String, u16) {
         let _ = BufReader::new(stdout).read_line(&mut line);
         let _ = tx.send(line);
     });
-    let line = match rx.recv_timeout(Duration::from_secs(30)) {
+    let line = match rx.recv_timeout(DEADLINE) {
         Ok(line) => line,
         Err(_) => {
             let _ = server.kill();
-            panic!("TLS server printed no bound address within 30s");
+            panic!(
+                "TLS server printed no bound address within {}s",
+                DEADLINE.as_secs()
+            );
         }
     };
     let mut parts = line.split_whitespace();
@@ -234,7 +256,7 @@ fn tls_local_address_reports_the_port_a_listener_bound_to() {
         let _ = tx.send(out.stdout);
     });
 
-    let stdout = match rx.recv_timeout(Duration::from_secs(30)) {
+    let stdout = match rx.recv_timeout(DEADLINE) {
         Ok(stdout) => {
             let _ = worker.join();
             stdout
@@ -244,7 +266,10 @@ fn tls_local_address_reports_the_port_a_listener_bound_to() {
                 let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
             }
             let _ = fs::remove_dir_all(&root);
-            panic!("TLS server did not serve the reported port {port} within 30s");
+            panic!(
+                "TLS server did not serve the reported port {port} within {}s",
+                DEADLINE.as_secs()
+            );
         }
     };
 
