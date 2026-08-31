@@ -139,6 +139,46 @@ acquire (an `O_EXCL` lock file or `flock` on a shared path, released on EXIT as
 Whoever takes this should decide which of the two they are buying; the doc's
 "Effort: small" line refers to the `pgrep` widening only.
 
+### Decision, 2026-08-31 (coordinator session mfb-59): buy the atomic lock
+
+The doc leaves this open. Deciding it here with evidence gathered while running
+four concurrent `/fix-bug` agents against this tree, so whoever implements it
+does not have to re-derive the call.
+
+**Take the `flock`/`O_EXCL` acquire, not the `pgrep` widening alone.** Reasons,
+in order of weight:
+
+1. **The concurrency this guard faces is no longer two runs.** `git worktree
+   list` reported **9 worktrees** during this session — four `/fix-bug` agents,
+   three peer sessions (bug-471, bug-480, P-98) and the main checkout. Every one
+   of them runs the full suite, and `tests/golden.rs` invokes `artifact-gate.sh`.
+   The check-to-start window is not sampled twice; it is sampled continuously by
+   ~8 independent writers. A window that is "narrow" against one competitor is
+   not narrow against eight.
+2. **The failure is already known to occur in practice.** It has its own
+   standing memory note — a contended gate reports phantom diffs, and the
+   documented mitigation is "re-run uncontended and ask peers", i.e. humans
+   currently absorb the race by hand. That is the cost the widening leaves in
+   place.
+3. **The phantom-diff failure mode is the expensive kind**: it does not error,
+   it produces a *plausible wrong answer* (a diff list) that an operator may act
+   on — reverting a correct change, or filing an arch-scoped batch as noise. Both
+   are worse than a refusal.
+4. **Neither script has any lock primitive today** — `grep -n
+   'flock\|lockfile\|O_EXCL' scripts/artifact-gate.sh scripts/test-accept.sh`
+   returns nothing — so this is additive, not a rewrite. `test-accept.sh:105`
+   already has an `EXIT` trap releasing `$MFB_HOME`, which is the release hook a
+   lock file can reuse.
+
+Keep the `pgrep` widening too, as a **diagnostic**, not as the mechanism: it is
+what lets the refusal message name the competing script and PID instead of just
+"busy". Keep exit code `98` for refusal (`tests/golden.rs:39` branches on it).
+
+macOS has no `flock(1)`, so a portable acquire is `mkdir` on a lock dir or
+`set -o noclobber` + `O_EXCL` on a lock file, released from the existing `EXIT`
+trap — and the release must be robust to a killed run (record the holder PID in
+the lock and treat a lock whose PID is gone as stale).
+
 A guard test should assert the refusal in both directions rather than only the
 new one, so the existing same-kind guard cannot regress unnoticed.
 
