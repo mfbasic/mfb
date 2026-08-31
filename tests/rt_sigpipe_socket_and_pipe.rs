@@ -177,3 +177,47 @@ END FUNC
          (status {status:?}); stderr:\n{stderr}",
     );
 }
+
+/// A spawned child must NOT inherit the parent's ignored SIGPIPE.
+///
+/// POSIX resets *caught* signals across `exec` but carries an **ignored**
+/// disposition through unchanged — measured here, not assumed:
+/// `sh -c 'trap "" PIPE; perl -e "print \$SIG{PIPE}"'` prints `IGNORE`. So without
+/// an explicit reset in the fork child, every program an MFBASIC process spawns
+/// would silently lose its own `prog | head` behaviour. `process::spawn` puts
+/// SIGPIPE back to `SIG_DFL` between `fork` and `execvp`.
+#[test]
+fn a_spawned_child_does_not_inherit_the_ignored_sigpipe() {
+    if which("perl").is_none() {
+        eprintln!("skipping: perl is not on PATH");
+        return;
+    }
+    let source = "\
+IMPORT io
+IMPORT process
+
+FUNC main AS Integer
+  RES p = process::spawn([\"perl\", \"-e\", \"print(($SIG{PIPE} // qq(DEFAULT)))\"])
+  LET out AS String = process::receive(p)
+  io::print(out)
+  RETURN 0
+END FUNC
+";
+    let exe = build_project("bug467_spawn_sigpipe", source);
+    let output = Command::new(&exe).output().expect("run program");
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    assert_eq!(
+        stdout.trim(),
+        "DEFAULT",
+        "spawned child inherited a non-default SIGPIPE disposition; stdout:\n{stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+fn which(program: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|dir| dir.join(program))
+            .find(|candidate| candidate.is_file())
+    })
+}

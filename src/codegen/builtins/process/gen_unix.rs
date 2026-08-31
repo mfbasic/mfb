@@ -15,6 +15,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::emit_fail;
+use crate::codegen::os::syscall::{SIGPIPE_SIGNO, SIG_DFL};
 use crate::target::shared::abi;
 use std::collections::HashMap;
 // POSIX constants identical across macOS and Linux for the ops here.
@@ -591,6 +592,18 @@ pub(crate) fn emit_spawn_tail(
             relocations,
         )?;
     }
+    // bug-467: the parent installs a process-wide `signal(SIGPIPE, SIG_IGN)` so a
+    // socket peer cannot kill it, and POSIX carries an IGNORED disposition across
+    // `exec` (only *caught* signals are reset). Handing a spawned child an
+    // inherited `SIG_IGN` would silently change that program's own behaviour --
+    // `mfbprog` running `sh -c 'yes | head'` would leave `yes` running forever.
+    // Restore the default in the child, after the fork and before the exec, where
+    // it affects nobody else.
+    instructions.extend([
+        abi::move_immediate(abi::c_arg(0), "Integer", SIGPIPE_SIGNO),
+        abi::move_immediate(abi::c_arg(1), "Integer", SIG_DFL),
+    ]);
+    platform.emit_external_call("signal", symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
         abi::load_u64(abi::c_arg(0), argv, 0),
         abi::move_register(abi::c_arg(1), argv),

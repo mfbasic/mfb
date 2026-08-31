@@ -105,12 +105,13 @@ impl LinuxPlan<'_> {
             imports.push(self.libc_import("getentropy", "_main"));
         }
         imports.push(self.libc_import("clock_gettime", "_main"));
-        // `signal` installs the SIGINT/SIGTERM handlers that run `_mfb_shutdown`.
-        // App mode (plan-05-linux-app.md §6.1) keeps its window-driven finish path
-        // and registers no console signal handlers, so the import is omitted.
-        if !module.build_mode.is_app() {
-            imports.push(self.libc_import("signal", "_main"));
-        }
+        // `signal` installs the SIGINT/SIGTERM handlers that run `_mfb_shutdown`
+        // and, since bug-467, the process-wide `SIGPIPE -> SIG_IGN` disposition
+        // that stops a socket peer from being able to kill the process. App mode
+        // (plan-05-linux-app.md §6.1) keeps its window-driven finish path and
+        // registers no console signal handlers, but owns sockets just the same, so
+        // the import is now unconditional.
+        imports.push(self.libc_import("signal", "_main"));
         imports
     }
 
@@ -198,7 +199,39 @@ impl LinuxPlan<'_> {
                 imports.push(self.libc_import("write", required_by));
             }
         };
-        match spec.call {
+        // bug-467: every helper below whose emission contains a write to the
+        // process's own stdout/stderr — the `io::` write family directly, and
+        // every call that pulls in the shared stdout drain (`uses_stdout_buffer`
+        // in `engine::builder`) — classifies its own `EPIPE` and restores
+        // SIGPIPE's default disposition before re-raising it, so that
+        // `prog | head` still ends the way a CLI is expected to end despite the
+        // process-wide `SIG_IGN` the entry now installs. Those blocks reference
+        // `signal`/`raise`, and (except where `write` is a raw syscall returning
+        // `-errno`) the errno accessor that classifies the failure. Attributed
+        // here so the merged table always resolves them and no arm declares a
+        // symbol its code unit never references.
+        let mut sigpipe_imports = Vec::new();
+        if matches!(
+            spec.call,
+            "io.print"
+                | "io.write"
+                | "io.printError"
+                | "io.writeError"
+                | "io.flush"
+                | "io.setBuffered"
+                | "io.readLine"
+                | "io.input"
+                | "io.readChar"
+                | "io.readByte"
+        ) {
+            sigpipe_imports.push(self.libc_import("signal", required_by));
+            sigpipe_imports.push(self.libc_import("raise", required_by));
+            if !self.abi.raw_write {
+                sigpipe_imports.push(self.libc_import("__errno_location", required_by));
+            }
+        }
+        let mut imports = sigpipe_imports;
+        imports.extend(match spec.call {
             "crypto.randomBytes" => vec![self.libc_import("getentropy", required_by)],
             "datetime.nowNanos" | "datetime.monotonicNanos" => {
                 vec![self.libc_import("clock_gettime", required_by)]
@@ -665,6 +698,7 @@ impl LinuxPlan<'_> {
                 imports
             }
             _ => Vec::new(),
-        }
+        });
+        imports
     }
 }

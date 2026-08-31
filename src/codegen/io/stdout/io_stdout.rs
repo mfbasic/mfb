@@ -28,6 +28,10 @@ pub(crate) fn lower_stdout_drain(
     let drain_loop = format!("{symbol}_loop");
     let advance = format!("{symbol}_advance");
     let err = format!("{symbol}_err");
+    // bug-467: the stdout drain's own EPIPE exit. See
+    // `emit_sigpipe_restore_and_raise` — the process-wide `SIG_IGN` the entry
+    // installs must not turn `prog | head` into an `ErrWriteFailed` raise.
+    let epipe = format!("{symbol}_epipe");
     let slide_loop = format!("{symbol}_slide_loop");
     let slide_done = format!("{symbol}_slide_done");
     let mut instructions = vec![
@@ -71,7 +75,7 @@ pub(crate) fn lower_stdout_drain(
     // also uses an `io::` read helper or `fs` (which import it). An output-only
     // program (drain alone) hard-errors the negative return instead — acceptable
     // for a drain, and `linux-x86_64`'s raw-`svc` write retries via its `-errno`.
-    emit_eintr_retry_or_error(
+    emit_eintr_retry_or_error_epipe(
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -82,6 +86,7 @@ pub(crate) fn lower_stdout_drain(
         "%v3",
         write_uses_raw_syscall(platform),
         &drain_loop,
+        stdout_epipe_label(platform, platform_imports, &epipe),
         &err,
     )?;
     instructions.extend([
@@ -121,6 +126,20 @@ pub(crate) fn lower_stdout_drain(
         abi::move_immediate(abi::return_register(), "Integer", "1"),
         abi::return_(),
     ]);
+    // bug-467: EPIPE on the stdout drain means the reader of `prog | head` is
+    // gone. `raise` does not return, so this block needs no exit.
+    if let Some(epipe) = stdout_epipe_label(platform, platform_imports, &epipe) {
+        emit_sigpipe_restore_and_raise(
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
+            epipe,
+        )?;
+    }
     Ok(finalize_vreg_helper(
         "runtime.io.stdout_drain",
         symbol,
@@ -128,6 +147,37 @@ pub(crate) fn lower_stdout_drain(
         instructions,
         relocations,
     ))
+}
+
+/// Whether a write site aimed at the process's own stdout should classify `EPIPE`
+/// and re-raise SIGPIPE, and under which label (bug-467).
+///
+/// `Some` on every POSIX target: the program entry installs a process-wide
+/// `signal(SIGPIPE, SIG_IGN)` so a socket peer cannot kill the process, and these
+/// sites restore the `prog | head` convention explicitly. `None` on Windows, which
+/// has no SIGPIPE, never installs the disposition, and whose stdout failures stay
+/// exactly what they were.
+pub(crate) fn stdout_epipe_label<'a>(
+    platform: &dyn CodegenPlatform,
+    platform_imports: &HashMap<String, String>,
+    label: &'a str,
+) -> Option<&'a str> {
+    if platform.family() == PlatformFamily::Windows {
+        return None;
+    }
+    // The block calls `signal`/`raise`, and classifying the failure needs the
+    // errno accessor unless `write` is the raw syscall that returns `-errno`
+    // itself. The `io::` plan arms attribute all three (see the bug-467 block in
+    // each `runtime_imports`); this is the emission-side check that keeps the two
+    // honest, exactly as `errno_accessor_available` does for the EINTR retry —
+    // a helper reached without them emits its pre-bug-467 body rather than a
+    // reference the merged import table cannot resolve.
+    let signal_available =
+        platform_imports.contains_key("signal") && platform_imports.contains_key("raise")
+            || platform_imports.contains_key("_signal") && platform_imports.contains_key("_raise");
+    let classifiable =
+        write_uses_raw_syscall(platform) || errno_accessor_available(platform_imports);
+    (signal_available && classifiable).then_some(label)
 }
 
 /// Emit the instructions that append the `len`-byte chunk at `src` to the
@@ -165,6 +215,11 @@ pub(crate) struct BufferSink<'a> {
     pub prefix: &'a str,
     pub v: [&'a str; 9],
     pub fd: Option<FdLoad<'a>>,
+    /// bug-467: where a direct write's `EPIPE` goes. `Some` only for the stdout
+    /// sink on a POSIX target — the caller owns the label and emits the
+    /// `signal(SIGPIPE, SIG_DFL)` + `raise` block once per function. `None` for a
+    /// file sink, whose destination is not the process's stdout pipe.
+    pub epipe_label: Option<&'a str>,
 }
 
 /// Emit the shared "append `len` bytes from `src` into the sink's buffer, draining
@@ -236,7 +291,7 @@ pub(crate) fn emit_append_to_buffer(
         abi::move_register(abi::string_length_register(), "%v41"),
     ]);
     platform.emit_write(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
-    emit_transfer_loop_tail(
+    emit_transfer_loop_tail_epipe(
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -249,6 +304,7 @@ pub(crate) fn emit_append_to_buffer(
         "%v40",
         "%v41",
         &alloc_failed_loop,
+        s.epipe_label,
         write_error,
     )?;
     ctx.instructions.extend([
@@ -293,7 +349,7 @@ pub(crate) fn emit_append_to_buffer(
         abi::move_register(abi::string_length_register(), "%v41"),
     ]);
     platform.emit_write(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
-    emit_transfer_loop_tail(
+    emit_transfer_loop_tail_epipe(
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -306,6 +362,7 @@ pub(crate) fn emit_append_to_buffer(
         "%v40",
         "%v41",
         &big_write_loop,
+        s.epipe_label,
         write_error,
     )?;
     ctx.instructions.extend([

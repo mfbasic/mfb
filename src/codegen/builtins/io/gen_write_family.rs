@@ -81,6 +81,14 @@ pub(crate) fn lower_write_family(
     // uses `term::` (`term_state_offset` is `Some`) — so a non-term program's
     // `io::write` is byte-identical. The grid path is emitted just before `done`.
     let grid_path = format!("{symbol}_grid");
+    // bug-467: the single EPIPE exit for every write this helper emits, buffered
+    // and direct. The program entry installs a process-wide
+    // `signal(SIGPIPE, SIG_IGN)` so a socket peer cannot kill the process; here —
+    // where the destination IS the process's own stdout/stderr — the pipeline
+    // convention (`prog | head` ends when `head` exits) is restored explicitly by
+    // putting SIGPIPE back to `SIG_DFL` and re-raising it. Every other errno still
+    // raises `ErrWriteFailed` at `write_error`.
+    let epipe = format!("{symbol}_epipe");
     // The String object arrives in the return register. Capture it into a vreg
     // that stays live across the active-check branch: the check's own load may be
     // allocated into the return register (rax on x86), clobbering the pointer
@@ -131,6 +139,7 @@ pub(crate) fn lower_write_family(
             &v17,
             &v19,
             "line",
+            stdout_epipe_label(platform, platform_imports, &epipe),
             &write_error,
             &mut vregs,
         )?;
@@ -153,6 +162,7 @@ pub(crate) fn lower_write_family(
                 &v17,
                 &v19,
                 "newline",
+                stdout_epipe_label(platform, platform_imports, &epipe),
                 &write_error,
                 &mut vregs,
             )?;
@@ -195,7 +205,7 @@ pub(crate) fn lower_write_family(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_transfer_loop_tail(
+    emit_transfer_loop_tail_epipe(
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -208,6 +218,7 @@ pub(crate) fn lower_write_family(
         &v13,
         &v14,
         &direct_loop,
+        stdout_epipe_label(platform, platform_imports, &epipe),
         &write_error,
     )?;
     instructions.push(abi::label(&direct_written));
@@ -235,7 +246,7 @@ pub(crate) fn lower_write_family(
             &mut instructions,
             &mut relocations,
         )?;
-        emit_transfer_loop_tail(
+        emit_transfer_loop_tail_epipe(
             &mut EmitCtx {
                 symbol,
                 platform_imports,
@@ -248,6 +259,7 @@ pub(crate) fn lower_write_family(
             &v13,
             &v14,
             &newline_loop,
+            stdout_epipe_label(platform, platform_imports, &epipe),
             &write_error,
         )?;
         instructions.push(abi::label(&newline_written));
@@ -255,8 +267,22 @@ pub(crate) fn lower_write_family(
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
-        abi::label(&write_error),
     ]);
+    // bug-467. `raise` does not return; the fall-through into `write_error` below
+    // is unreachable and exists only so the block has no dangling edge.
+    if let Some(epipe) = stdout_epipe_label(platform, platform_imports, &epipe) {
+        emit_sigpipe_restore_and_raise(
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
+            epipe,
+        )?;
+    }
+    instructions.push(abi::label(&write_error));
     raise_error_into(
         symbol,
         "ErrWriteFailed",
@@ -296,11 +322,13 @@ pub(crate) fn lower_write_family(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_append_to_stdout_buffer(
     ctx: &mut EmitCtx,
     src: &str,
     len: &str,
     tag: &str,
+    epipe_label: Option<&str>,
     write_error: &str,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
@@ -334,6 +362,7 @@ fn emit_append_to_stdout_buffer(
             v8.as_str(),
         ],
         fd: None,
+        epipe_label,
     };
     emit_append_to_buffer(ctx, src, len, tag, write_error, &sink)
 }
