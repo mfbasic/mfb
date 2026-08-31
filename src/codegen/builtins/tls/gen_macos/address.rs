@@ -266,6 +266,142 @@ pub(crate) fn lower_tls_address_macos(
     Ok((ins, rel, FRAME_SIZE))
 }
 
+/// `tls::localAddress(listener)` on macOS (bug-465).
+///
+/// Linux and Windows answer this with the same `getsockname` the plaintext
+/// `tcp::localAddress(listener)` uses: their TLS `Listener` keeps the listening
+/// descriptor in the canonical handle slot. macOS cannot — the slot holds an
+/// `nw_listener`, and Network.framework has no listener-side counterpart to the
+/// connection's `nw_connection_copy_current_path`. `nw_listener_get_port` is the
+/// entire address surface a listener exposes.
+///
+/// So the two halves come from two places: the port from `nw_listener_get_port`,
+/// and the host from the C string `tls::listen` parked at `REC_LHOST` when it
+/// built the local endpoint. That string is the `host` argument as given (or
+/// `"0.0.0.0"` for the bind-all spelling), which is what makes this differ, in
+/// one visible way, from the descriptor-based answer: bind a *name* like
+/// `"localhost"` and `getsockname` reports the resolved `127.0.0.1` while this
+/// reports `localhost`. Documented on the member; there is no macOS API that
+/// would close the gap.
+///
+/// `nw_listener_get_port` returns a `uint16_t` in **host** byte order, already
+/// the shape the `Address` record wants — unlike the `sockaddr` path, which
+/// decodes two network-order bytes. It is stored through a zeroed slot with a
+/// 16-bit store so the C return's undefined upper bits cannot leak into the port.
+pub(crate) fn lower_tls_listener_address_macos(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<TlsBodyParts, String> {
+    const FRAME_SIZE: usize = 128;
+    const REC: usize = 8; // the TLS listener record
+    const LISTENER: usize = 16; // its nw_listener
+    const HANDLE: usize = 24; // dlopen handle for Network.framework
+    const FNPTR: usize = 32; // scratch dlsym result
+    const HOSTP: usize = 40; // const char * — the bound host
+    const PORT: usize = 48; // host-order port from nw_listener_get_port
+    const HOSTLEN: usize = 56; // scratch for the shared Address builder
+    const AHOST: usize = 64; // scratch
+
+    let closed = format!("{symbol}_closed");
+    let load_fail = format!("{symbol}_load_fail");
+    let query_fail = format!("{symbol}_query_fail");
+    let alloc_fail = format!("{symbol}_alloc_fail");
+    let done = format!("{symbol}_done");
+
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+
+    // The listener record arrives in the first argument register. Refuse a closed
+    // handle before touching the listener.
+    ins.extend([
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
+        abi::load_u64(&v9, abi::return_register(), RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(&v9, "0"),
+        abi::branch_ne(&closed),
+        abi::load_u64(&v9, abi::return_register(), RESOURCE_OFFSET_HANDLE),
+        abi::store_u64(&v9, abi::stack_pointer(), LISTENER),
+        // The bound host, parked by `tls::listen`. A null here would mean a
+        // listener record this build did not write; refuse rather than walk it.
+        abi::load_u64(&v9, abi::return_register(), REC_LHOST),
+        abi::store_u64(&v9, abi::stack_pointer(), HOSTP),
+        abi::compare_immediate(&v9, "0"),
+        abi::branch_eq(&query_fail),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), PORT),
+    ]);
+
+    emit_dlopen_maclib(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
+        HANDLE,
+        &load_fail,
+    )?;
+
+    // port = nw_listener_get_port(listener) — uint16_t, host byte order. Stored
+    // 16 bits wide into the zeroed slot above.
+    emit_nw_call1(
+        symbol,
+        platform,
+        platform_imports,
+        &mut ins,
+        &mut rel,
+        &v9,
+        HANDLE,
+        FNPTR,
+        "nw_listener_get_port",
+        LISTENER,
+        &load_fail,
+    )?;
+    ins.push(abi::store_u16(
+        abi::return_register(),
+        abi::stack_pointer(),
+        PORT,
+    ));
+
+    // Same `net::Address` the sockaddr path builds, so `tcp` and `tls` render an
+    // endpoint identically.
+    crate::codegen::os::socket::shared::emit_address_from_host_and_port(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
+        "tlslisten",
+        HOSTP,
+        PORT,
+        HOSTLEN,
+        AHOST,
+        &alloc_fail,
+        &mut vregs,
+    );
+    ins.extend([
+        abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+    ]);
+
+    // Failure tails. Nothing is retained anywhere above, so none of them release.
+    ins.push(abi::label(&query_fail));
+    emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&load_fail));
+    emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&closed));
+    emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&alloc_fail));
+    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
+    ins.extend([abi::label(&done), abi::return_()]);
+    Ok((ins, rel, FRAME_SIZE))
+}
+
 /// `dlsym(handle, name)` then call it with one pointer argument loaded from
 /// `arg_off`, leaving the result in the return register.
 #[allow(clippy::too_many_arguments)]

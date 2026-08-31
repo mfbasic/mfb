@@ -885,8 +885,11 @@ impl plan::NativePlanPlatform for Platform {
                     })
                     .collect()
             }
+            // `resolve_func` sees only surface member names, so every `os_alias`
+            // code form has to be named here explicitly.
             call if crate::codegen::registry::registry().owning_package(call) == Some("tls")
-                || call == "tls.closeListener" =>
+                || call == "tls.closeListener"
+                || call == "tls.localAddressListener" =>
             {
                 // The macOS TLS backend resolves Network.framework (and, for the
                 // server side, Security.framework + CoreFoundation) entirely

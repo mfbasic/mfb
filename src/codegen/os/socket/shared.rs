@@ -302,6 +302,144 @@ pub(crate) fn emit_hints(
     ]);
 }
 
+/// The eight scratch vregs the two `net::Address` builders share, allocated in
+/// one place and in one order so both name the same register for the same role.
+struct AddrVregs {
+    /// Walking cursor while measuring the host string. The `sockaddr` builder
+    /// reuses it to hold the `sockaddr` pointer while decoding the port.
+    cursor: String,
+    /// The measured host length; reused as the port's high byte.
+    len: String,
+    /// Copy source cursor; reused as the port's low byte.
+    src: String,
+    /// Copy destination cursor.
+    dst: String,
+    /// Copy loop index.
+    idx: String,
+    /// The byte in flight.
+    byte: String,
+    /// The allocated MFBASIC `String` block.
+    string: String,
+    /// The allocated `net::Address` record.
+    record: String,
+}
+
+impl AddrVregs {
+    fn new(vregs: &mut Vregs) -> Self {
+        Self {
+            cursor: vregs.next(),
+            len: vregs.next(),
+            src: vregs.next(),
+            dst: vregs.next(),
+            idx: vregs.next(),
+            byte: vregs.next(),
+            string: vregs.next(),
+            record: vregs.next(),
+        }
+    }
+}
+
+/// The shared tail of both `net::Address` builders: measure the NUL-terminated
+/// host string whose pointer sits at `sp + src_off`, copy it into a freshly
+/// allocated MFBASIC `String`, then allocate the 16-byte `Address` record and
+/// store the host pointer into it. `len_off`/`host_off` are scratch stack slots.
+///
+/// The record is left in `v.record` (and in `x1`) with its **port field still
+/// unwritten**: where the port comes from is the only thing the two builders do
+/// differently, so each stores it itself right after this returns.
+fn emit_address_host_and_record(
+    ctx: &mut EmitCtx,
+    prefix: &str,
+    src_off: usize,
+    len_off: usize,
+    host_off: usize,
+    alloc_fail: &str,
+    v: &AddrVregs,
+) {
+    let symbol = ctx.symbol;
+    let count_loop = format!("{symbol}_{prefix}_addr_count");
+    let count_done = format!("{symbol}_{prefix}_addr_count_done");
+    let copy_loop = format!("{symbol}_{prefix}_addr_copy");
+    let copy_done = format!("{symbol}_{prefix}_addr_copy_done");
+    ctx.instructions.extend([
+        // Count the NUL-terminated host string length.
+        abi::load_u64(&v.cursor, abi::stack_pointer(), src_off),
+        abi::move_immediate(&v.len, "Integer", "0"),
+        abi::label(&count_loop),
+        abi::load_u8(&v.src, &v.cursor, 0),
+        abi::compare_immediate(&v.src, "0"),
+        abi::branch_eq(&count_done),
+        abi::add_immediate(&v.cursor, &v.cursor, 1),
+        abi::add_immediate(&v.len, &v.len, 1),
+        abi::branch(&count_loop),
+        abi::label(&count_done),
+        abi::store_u64(&v.len, abi::stack_pointer(), len_off),
+        // Allocate the host String: [u64 len][bytes][nul].
+        abi::add_immediate(abi::return_register(), &v.len, 9),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+    ]);
+    emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
+    ctx.instructions.extend([
+        abi::move_register(&v.string, abi::mfb_return(1)), // alloc result → vreg (plan-34-B Phase 3)
+        abi::load_u64(&v.len, abi::stack_pointer(), len_off),
+        abi::store_u64(&v.len, &v.string, 0),
+        abi::store_u64(&v.string, abi::stack_pointer(), host_off),
+        abi::load_u64(&v.src, abi::stack_pointer(), src_off),
+        abi::add_immediate(&v.dst, &v.string, 8),
+        abi::move_immediate(&v.idx, "Integer", "0"),
+        abi::label(&copy_loop),
+        abi::compare_registers(&v.idx, &v.len),
+        abi::branch_eq(&copy_done),
+        abi::load_u8(&v.byte, &v.src, 0),
+        abi::store_u8(&v.byte, &v.dst, 0),
+        abi::add_immediate(&v.src, &v.src, 1),
+        abi::add_immediate(&v.dst, &v.dst, 1),
+        abi::add_immediate(&v.idx, &v.idx, 1),
+        abi::branch(&copy_loop),
+        abi::label(&copy_done),
+        abi::store_u8(abi::ZERO, &v.dst, 0),
+        // Allocate the Address record: [host ptr][port].
+        abi::move_immediate(abi::return_register(), "Integer", "16"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+    ]);
+    emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
+    ctx.instructions.extend([
+        abi::move_register(&v.record, abi::mfb_return(1)), // alloc result → vreg (plan-34-B Phase 3)
+        abi::load_u64(&v.cursor, abi::stack_pointer(), host_off),
+        abi::store_u64(&v.cursor, &v.record, 0),
+    ]);
+}
+
+/// Build an `Address` record from a host name and port the caller already holds:
+/// a NUL-terminated `char *` at `sp + host_cstr_off` and a host-order port at
+/// `sp + port_off`. `len_off`/`host_off` are scratch stack slots, and the
+/// `Address` pointer is left in `x1`.
+///
+/// The sibling of [`emit_address_from_sockaddr`], for the one handle that has no
+/// descriptor to ask: a macOS TLS `Listener` holds a Network.framework
+/// `nw_listener`, which `getsockname` cannot see, so its bound address is
+/// assembled from the host it was created with plus `nw_listener_get_port`
+/// (bug-465). Both builders emit the identical record, so every package renders
+/// an endpoint the same way.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn emit_address_from_host_and_port(
+    ctx: &mut EmitCtx,
+    prefix: &str,
+    host_cstr_off: usize,
+    port_off: usize,
+    len_off: usize,
+    host_off: usize,
+    alloc_fail: &str,
+    vregs: &mut Vregs,
+) {
+    let v = AddrVregs::new(vregs);
+    emit_address_host_and_record(ctx, prefix, host_cstr_off, len_off, host_off, alloc_fail, &v);
+    ctx.instructions.extend([
+        abi::load_u64(&v.len, abi::stack_pointer(), port_off),
+        abi::store_u64(&v.len, &v.record, 8),
+    ]);
+}
+
 #[allow(clippy::too_many_arguments)]
 /// Build an `Address` record from a `sockaddr` whose pointer lives at
 /// `sp + sockaddr_off`. The observed port is read from `sockaddr + 2/3`.
@@ -325,18 +463,7 @@ pub(crate) fn emit_address_from_sockaddr(
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
-    let v9 = vregs.next();
-    let v10 = vregs.next();
-    let v11 = vregs.next();
-    let v12 = vregs.next();
-    let v13 = vregs.next();
-    let v14 = vregs.next();
-    let v15 = vregs.next();
-    let v16 = vregs.next();
-    let count_loop = format!("{symbol}_{prefix}_addr_count");
-    let count_done = format!("{symbol}_{prefix}_addr_count_done");
-    let copy_loop = format!("{symbol}_{prefix}_addr_copy");
-    let copy_done = format!("{symbol}_{prefix}_addr_copy_done");
+    let v = AddrVregs::new(vregs);
     // Temp dst buffer for the numeric host string.
     ctx.instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", &ADDR_STR_CAP.to_string()),
@@ -347,8 +474,8 @@ pub(crate) fn emit_address_from_sockaddr(
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), dst_off),
         // inet_ntop(AF_INET, sockaddr + 4, dst, ADDR_STR_CAP)
         abi::move_immediate(abi::return_register(), "Integer", AF_INET),
-        abi::load_u64(&v9, abi::stack_pointer(), sockaddr_off),
-        abi::add_immediate(abi::c_arg(1), &v9, 4),
+        abi::load_u64(&v.cursor, abi::stack_pointer(), sockaddr_off),
+        abi::add_immediate(abi::c_arg(1), &v.cursor, 4),
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), dst_off),
         abi::move_immediate(abi::c_arg(3), "Integer", &ADDR_STR_CAP.to_string()),
     ]);
@@ -362,58 +489,16 @@ pub(crate) fn emit_address_from_sockaddr(
     ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(addr_fail),
-        // Count the NUL-terminated host string length.
-        abi::load_u64(&v9, abi::stack_pointer(), dst_off),
-        abi::move_immediate(&v10, "Integer", "0"),
-        abi::label(&count_loop),
-        abi::load_u8(&v11, &v9, 0),
-        abi::compare_immediate(&v11, "0"),
-        abi::branch_eq(&count_done),
-        abi::add_immediate(&v9, &v9, 1),
-        abi::add_immediate(&v10, &v10, 1),
-        abi::branch(&count_loop),
-        abi::label(&count_done),
-        abi::store_u64(&v10, abi::stack_pointer(), len_off),
-        // Allocate the host String: [u64 len][bytes][nul].
-        abi::add_immediate(abi::return_register(), &v10, 9),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
-    emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
+    emit_address_host_and_record(ctx, prefix, dst_off, len_off, host_off, alloc_fail, &v);
     ctx.instructions.extend([
-        abi::move_register(&v15, abi::mfb_return(1)), // alloc result → vreg (plan-34-B Phase 3)
-        abi::load_u64(&v10, abi::stack_pointer(), len_off),
-        abi::store_u64(&v10, &v15, 0),
-        abi::store_u64(&v15, abi::stack_pointer(), host_off),
-        abi::load_u64(&v11, abi::stack_pointer(), dst_off),
-        abi::add_immediate(&v12, &v15, 8),
-        abi::move_immediate(&v13, "Integer", "0"),
-        abi::label(&copy_loop),
-        abi::compare_registers(&v13, &v10),
-        abi::branch_eq(&copy_done),
-        abi::load_u8(&v14, &v11, 0),
-        abi::store_u8(&v14, &v12, 0),
-        abi::add_immediate(&v11, &v11, 1),
-        abi::add_immediate(&v12, &v12, 1),
-        abi::add_immediate(&v13, &v13, 1),
-        abi::branch(&copy_loop),
-        abi::label(&copy_done),
-        abi::store_u8(abi::ZERO, &v12, 0),
-        // Allocate the Address record: [host ptr][port].
-        abi::move_immediate(abi::return_register(), "Integer", "16"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-    ]);
-    emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
-    ctx.instructions.extend([
-        abi::move_register(&v16, abi::mfb_return(1)), // alloc result → vreg (plan-34-B Phase 3)
-        abi::load_u64(&v9, abi::stack_pointer(), host_off),
-        abi::store_u64(&v9, &v16, 0),
         // port = (sockaddr[2] << 8) | sockaddr[3]
-        abi::load_u64(&v9, abi::stack_pointer(), sockaddr_off),
-        abi::load_u8(&v10, &v9, 2),
-        abi::load_u8(&v11, &v9, 3),
-        abi::shift_left_immediate(&v10, &v10, 8),
-        abi::or_registers(&v10, &v10, &v11),
-        abi::store_u64(&v10, &v16, 8),
+        abi::load_u64(&v.cursor, abi::stack_pointer(), sockaddr_off),
+        abi::load_u8(&v.len, &v.cursor, 2),
+        abi::load_u8(&v.src, &v.cursor, 3),
+        abi::shift_left_immediate(&v.len, &v.len, 8),
+        abi::or_registers(&v.len, &v.len, &v.src),
+        abi::store_u64(&v.len, &v.record, 8),
     ]);
     Ok(())
 }

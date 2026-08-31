@@ -187,6 +187,7 @@ impl NativeBackend for Backend {
                 "tls.writeText",
                 "tls.poll",
                 "tls.localAddress",
+                "tls.localAddressListener",
                 "tls.setReadTimeout",
                 "tls.setWriteTimeout",
                 "tls.remoteAddress",
