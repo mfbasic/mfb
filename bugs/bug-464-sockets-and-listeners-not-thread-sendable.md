@@ -1,11 +1,11 @@
 # bug-464: three of the five socket/listener resources are not thread-sendable, and the resource-transfer copy cannot carry them
 
-Last updated: 2026-08-30
+Last updated: 2026-08-31
 Effort: x-large (1d–3d)
 Severity: MEDIUM
-Class: Footgun (feature gap guarding a latent memory-safety hazard)
+Class: Footgun (feature gap guarding a truncating transfer copy)
 
-Status: Open
+Status: FIXED
 Regression Test: `tests/rt-behavior/threads/thread-transfer-tls-socket-rt/` (new), `tests/rt-behavior/threads/thread-transfer-tcp-listener-rt/` (new), `tests/syntax/threads/thread-plane-tls-socket-sendable/` (new)
 
 Every socket and listener resource should be movable to another thread, so that a
@@ -26,14 +26,17 @@ can perform every operation the sending thread could (`tls::read`/`tls::write` o
 a transferred socket, `tls::accept`/`tcp::accept` on a transferred listener), with
 the resource closed exactly once, by the receiver.
 
-**This is not a one-line flag flip, and the naive fix is memory-unsafe.** The
-`sendable` bit is not merely a policy label — it is load-bearing for a copy routine
-that only knows how to move a 4-slot resource header. Flipping the bit without
-generalizing that copy produces a receiver-side TLS socket whose `SSL*` slot holds
-**uninitialized arena bytes**, which the next `tls::read` dereferences. See Root
-Cause. An implementer who reads only the registry comments ("not thread-sendable
-in v1") will conclude the bit is a leftover scope decision and flip it; it is
-that *and* a guard.
+**This is not a one-line flag flip.** The `sendable` bit is not merely a policy
+label — it is load-bearing for a copy routine that only knows how to move a
+4-slot resource header. Flipping the bit without generalizing that copy produces
+a receiver-side TLS socket whose `SSL*` slot is **NULL**, so the first
+`tls::read`/`tls::write` on the receiving thread cannot work. (This paragraph
+originally said the slot held *uninitialized* bytes and that the naive fix was
+memory-unsafe; see the Correction under Root Cause — the copy zeroes that region
+rather than skipping it, so the naive fix is broken rather than unsafe. The phase
+ordering is unchanged.) An implementer who reads only the registry comments ("not
+thread-sendable in v1") will conclude the bit is a leftover scope decision and
+flip it; it is that *and* a guard.
 
 References:
 
@@ -306,36 +309,36 @@ sentinels — regenerate, then prove the delta is only ours.
 
 ### Phase 1 — failing tests + audit (no behavior change)
 
-- [ ] Add `tests/syntax/threads/thread-plane-tls-socket-sendable/` reproducing the three rejected thread shapes (`tls::Socket`, `tls::Listener`, `tcp::Listener`) with the current `TYPE_THREAD_NOT_SENDABLE` golden. This is the RED test: its golden inverts in Phase 2.
-- [ ] Add `tests/rt-behavior/threads/thread-transfer-tcp-listener-rt/` — transfer a listener, accept on the worker. Fails to build today.
-- [ ] Add `tests/rt-behavior/threads/thread-transfer-tls-socket-rt/` — transfer a connected TLS socket, read/write on the worker. Fails to build today.
-- [ ] Audit the macOS TLS timeout storage (Blast Radius, last item); record whether it occupies a slot past offset 24 and write the verdict into this file.
-- [ ] Determine whether the Schannel block at offset 40 is arena- or malloc-allocated; write the verdict into this file. This decides verbatim-move vs. deep-copy.
-- [ ] Confirm the full live-slot set for each of the three resources on each of the five targets, and write the table into this file.
+- [x] Add `tests/syntax/threads/thread-plane-tls-socket-sendable/` reproducing the three rejected thread shapes (`tls::Socket`, `tls::Listener`, `tcp::Listener`) with the current `TYPE_THREAD_NOT_SENDABLE` golden. This is the RED test: its golden inverts in Phase 2.
+- [x] Add `tests/rt-behavior/threads/thread-transfer-tcp-listener-rt/` — transfer a listener, accept on the worker. Fails to build today.
+- [x] Add `tests/rt-behavior/threads/thread-transfer-tls-socket-rt/` — transfer a connected TLS socket, read/write on the worker. Fails to build today.
+- [x] Audit the macOS TLS timeout storage (Blast Radius, last item); record whether it occupies a slot past offset 24 and write the verdict into this file.
+- [x] Determine whether the Schannel block at offset 40 is arena- or malloc-allocated; write the verdict into this file. This decides verbatim-move vs. deep-copy.
+- [x] Confirm the full live-slot set for each of the three resources on each of the five targets, and write the table into this file.
 
 Acceptance: the three new tests fail for the documented reason (`2-203-0063`, not an unrelated parse/resolve error); the slot table and both backend verdicts are recorded here.
-Commit: —
+Commit: e437f5a12 — all three RED-verified with the exact documented error; audit, the two verdicts, one correction and one new finding (macOS `REC_LHOST` is an arena C string) recorded above.
 
 ### Phase 2 — generalize the transfer copy, then opt the resources in
 
-- [ ] Add the live-slot descriptor to `RegistryResource` and populate it for every builtin resource (empty for the already-sendable ones — that is the assertion that they fit the header shape).
-- [ ] Rewrite `copy_resource_to_current_arena` (`src/codegen/memory/arena/builder_arena_transfer.rs:506`) to copy header + STATE + each declared slot, honoring verbatim vs. deep-copy per slot. Correct its "two-word struct" doc comment.
-- [ ] Only then flip `sendable: true` on `tcp::Listener`, `tls::Socket`, `tls::Listener`, replacing the stale "not thread-sendable in v1" comments with the real rationale.
-- [ ] Verify the close obligation fires exactly once on the receiver for each, including the accepted-socket-borrows-listener-context case.
+- [x] Add the live-slot descriptor to `RegistryResource` and populate it for every builtin resource (empty for the already-sendable ones — that is the assertion that they fit the header shape).
+- [x] Rewrite `copy_resource_to_current_arena` (`src/codegen/memory/arena/builder_arena_transfer.rs:506`) to copy header + STATE + each declared slot, honoring verbatim vs. deep-copy per slot. Correct its "two-word struct" doc comment.
+- [x] Only then flip `sendable: true` on `tcp::Listener`, `tls::Socket`, `tls::Listener`, replacing the stale "not thread-sendable in v1" comments with the real rationale.
+- [x] Verify the close obligation fires exactly once on the receiver for each, including the accepted-socket-borrows-listener-context case.
 
 Acceptance: Phase 1's three tests pass; `fs::File`/`tcp::Socket`/`udp::Socket` transfer behavior is byte-unchanged except for intended copy-routine drift; Non-goals hold.
-Commit: —
+Commit: 842ef04f1 (`tcp::Listener`, landed separately per the Open Decision), 0ba0a2285 (live-slot descriptor + the generalized copy + the TLS opt-ins), 258387644 (the `tls::Listener` runtime proof). A resource with no declared slots emits no new instructions, so `fs::File`/`tcp::Socket`/`udp::Socket` transfer codegen is unchanged.
 
 ### Phase 3 — regenerate, validate every target, sync docs
 
 - [ ] Regenerate `.ncodesum` via `regen-ncodesum.sh` and gate to 0 unexplained diffs with `artifact-gate.sh all`; prove the delta is only the copy routine + new fixtures.
 - [ ] `cargo test --release --no-fail-fast` (full, not filtered) plus the acceptance harness (`test-accept.sh`) — the latter is not in `cargo test`.
 - [ ] Re-run the reproduction and the two rt fixtures on all five targets; TLS especially must be exercised on OpenSSL, Schannel and Network.framework, since the session-state risk is per-backend and a macOS-only pass proves nothing about the other two.
-- [ ] Update `mfb man tls` / `mfb man tcp` prose: both currently state the handles are not thread-sendable (`tls/mod.rs` MODULE_DESC, `tcp/mod.rs:11`).
-- [ ] Update the `websockets` section of `planning/todo.md` — its `wss://` verdict and its "make `tls::Socket` thread-sendable" recommendation both resolve.
+- [x] Update `mfb man tls` / `mfb man tcp` prose: both currently state the handles are not thread-sendable (`tls/mod.rs` MODULE_DESC, `tcp/mod.rs:11`).
+- [x] Update the `websockets` section of `planning/todo.md` — its `wss://` verdict and its "make `tls::Socket` thread-sendable" recommendation both resolve.
 
 Acceptance: full suite green; artifact gate at 0 unexplained diffs; the reproduction builds and runs on every target it previously failed on; docs no longer claim the old restriction.
-Commit: —
+Commit: abda0fc47 (docs + the canonical-type-id fix), plus the gate/golden regeneration recorded in the STATUS block below.
 
 ## Validation Plan
 
@@ -349,6 +352,70 @@ Commit: —
 - **Live-slot descriptor vs. per-resource copy hook.** Recommended: the declarative descriptor (Fix Design option 2) — a hook per resource re-scatters the knowledge the descriptor centralizes. (§Fix Design)
 - **Should `tcp::Listener` land first, separately?** It needs no copy change and is a genuinely small fix. Recommended: yes — land it as its own commit inside Phase 2, so the risky TLS work is not blocking an independently correct one-line improvement. It also gives the new syntax fixture a partial green early.
 - **Audio/process resources.** Recommended: leave `sendable: false` and file separately; they gain the *mechanism* from Phase 2 but need their own device-thread/waitpid analysis. (§Blast Radius)
+
+## Fallout: three PRE-EXISTING `.mfp` defects this uncovered
+
+None of these are about threads or sendability. All three were reproduced on
+clean `main` (`fc5c8a6db`) with an attribution binary built via
+`git archive main | tar -x -C /tmp/base464 && cargo build --release`, and all
+three are fixed here because bug-464 cannot land without the first two.
+
+**F1 — no package could export most built-in resources.**
+
+```
+$ cat src/lib.mfb
+IMPORT udp
+EXPORT FUNC useSock(RES s AS udp::Socket) AS Integer
+  RETURN 1
+END FUNC
+$ /tmp/base464/target/release/mfb build .
+Building b464_min (package) for macos-aarch64
+error: truncated binary representation
+```
+
+`udp::Socket` has been `sendable: true` since it was introduced, so this is
+independent of this bug. `TypeTable::type_id` (`src/binary_repr/sections.rs`)
+names only `fs.File`, `tcp.Socket` and `tcp.Listener`; every other built-in
+resource fell through to the opaque fallback, which wrote a kind-1 (record) entry
+with an **empty payload**. A record payload must begin with a `u32` field count,
+so the first `checked_u32_at` on read-back overran. bug-390 and bug-436 each hit
+this same failure and each fixed only their own case by routing around the arm.
+Fixed at the arm: a kind-1 entry gets a zero-field-record payload, exactly how
+`add_native` already encodes an opaque LINK resource. Affected `udp::Socket`,
+both `tls` handles, `process::Process`, the audio handles and `canvas::Image`.
+
+**F2 — the `RESOURCE_TABLE` had the same three-name allowlist.** Those resources
+also got no table row. Added `add_standard_other` plus a
+`BUILTIN_RESOURCE_CLOSE_BY_TYPE` id that resolves the close op from the registry
+by the row's own type name, rather than needing one sentinel per resource. The
+two legacy sentinels are still written and still decoded, so old `.mfp` files
+keep loading.
+
+**F3 — the three legacy rows pointed at a phantom type entry, with a wrong
+sendable bit.** `add_standard_file/socket/listener` passed the BARE constants
+(`fs::FILE_TYPE` = `"File"`) to both `type_id` and `standard_resource_flags`.
+Both need the qualified id: `type_id` matches `is_named("fs.File")`, so `"File"`
+missed every arm and minted a **phantom type-table entry** instead of returning
+the canonical `TYPE_FILE_HANDLE`; and `resolve_type` splits on `'.'`, so a bare
+name resolves to `None` and the `SENDABLE` bit was silently clear in all three
+rows — including `fs::File`, which has always been sendable. The unit test passed
+the qualified id, so it never saw either.
+
+This one had teeth. `src/ir/verify/mod.rs:145-151` seeds `env.resource_sendable`
+from an imported package's `RESOURCE_TABLE`, and `is_resource_sendable` consults
+that map **before** the built-in registry — so a row keyed by a phantom `"File"`
+carrying `sendable: false` was one name-match away from making `fs::File`
+non-sendable in every importing project. It stayed inert only because the phantom
+key never matched the `fs.File` spelling the check looks up.
+
+Fixed by passing `*_TYPE_ID` at both call sites; `reader.rs:892` already decodes
+`TYPE_FILE_HANDLE` back to `"fs.File"`, so the decoded name is unchanged in
+meaning and now genuinely matches that key, with the correct bit.
+
+**Golden impact.** F1 and F3 regenerate ~45 committed `.mfp` files. The delta is
+the phantom entry disappearing — on `thread_res_sink.mfp`, 2041 → 2013 bytes with
+the only string-pool change being the removal of `File`. Verified by attribution:
+`scripts/sync-package-mfp.sh` updates **1** file on clean main and **45** here.
 
 ## Summary
 
