@@ -461,6 +461,14 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "tls.pollList",
             "tls.close",
             "tls.closeListener",
+            // The endpoint queries raise ErrResourceClosed/ErrNetworkFailed too.
+            // Neither can fire this gate on its own — a handle to ask about only
+            // comes from `connect`/`listen`/`accept`, all listed above — but the
+            // rule this list encodes is "every helper that can raise one of these
+            // is named", and bug-249 is what listing by inference costs.
+            "tls.localAddress",
+            "tls.localAddressListener",
+            "tls.remoteAddress",
         ],
     ) {
         for value in [

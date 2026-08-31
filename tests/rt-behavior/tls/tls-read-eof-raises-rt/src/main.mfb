@@ -1,0 +1,47 @@
+' bug-465: the encrypted half of the end-of-stream contract, and a
+' CHARACTERIZATION test like its plaintext twin — it passed the day it was
+' written.
+'
+' `tcp` and `tls` expose the same 11 function names and are meant to be drop-in
+' mirrors, so a protocol package can be written once against a transport shim.
+' At EOF they already agree: both raise `ErrConnectionClosed`, with the same
+' message. What diverged was `tcp`'s prose, which claimed an empty `List OF Byte`
+' instead; bug-465 moved the docs to the code. This fixture and
+' `rt-behavior/tcp/tcp-read-eof-raises-rt` pin the two contracts side by side so
+' a later change to either transport cannot silently re-divide them.
+'
+' Network-gated (see test-gate.sh): proving a real close needs a real peer, and
+' an MFBASIC TLS server would need a certificate/key pair a static fixture
+' cannot carry. The plaintext twin runs offline.
+IMPORT errorCode
+IMPORT io
+IMPORT tls
+
+' Read to the server's close. `Connection: close` makes dns.google finish the
+' response and shut the session down, which is the clean EOF under test. Output
+' is reduced to stable booleans so the golden does not depend on response bytes.
+FUNC drainToEof AS String
+  RES conn = tls::connect("8.8.8.8", 443, 5000, "dns.google")
+  LET crlfBytes AS List OF Byte = [toByte(13), toByte(10)]
+  LET crlf AS String = toString(crlfBytes)
+  tls::write(conn, "HEAD / HTTP/1.0" & crlf & "Host: dns.google" & crlf & "Connection: close" & crlf & crlf)
+  MUT total = 0
+  WHILE TRUE
+    LET chunk AS List OF Byte = tls::read(conn, 4096)
+    IF len(chunk) = 0 THEN
+      ' Unreachable: a zero-length receive raises rather than returning. If this
+      ' ever prints, `tls::read` has changed contract and `tcp::read` has not.
+      RETURN "returnedEmpty=TRUE"
+    END IF
+    total = total + len(chunk)
+  END WHILE
+  RETURN "loopFellThrough=TRUE"
+  TRAP(err)
+    RETURN "raised=" & toString(err.code = errorCode::ErrConnectionClosed) & " readSomething=" & toString(total > 0)
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  io::print("eof " & drainToEof())
+  RETURN 0
+END FUNC

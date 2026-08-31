@@ -471,6 +471,31 @@ pub(crate) fn lower_tls_address_helper(
     }
 }
 
+/// `tls::localAddress(listener)` — the `Listener` overload (bug-465).
+///
+/// Linux and Windows share the plaintext emitter: their TLS `Listener` keeps the
+/// listening descriptor in the canonical handle slot, so `getsockname` on it is
+/// the same query `tcp::localAddress(listener)` performs, and the two packages
+/// report the same bytes for the same bind. macOS holds an `nw_listener` there
+/// instead and needs its own path — see `lower_tls_listener_address_macos`.
+pub(crate) fn lower_tls_listener_address_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<TlsBodyParts, String> {
+    match platform.family() {
+        PlatformFamily::MacOS => {
+            macos::lower_tls_listener_address_macos(symbol, platform_imports, platform)
+        }
+        _ => crate::codegen::os::socket::shared::lower_net_address_helper(
+            symbol,
+            platform_imports,
+            platform,
+            false,
+        ),
+    }
+}
+
 /// `tls::setReadTimeout` / `tls::setWriteTimeout` (plan-110-D Phase 2). `write`
 /// selects the send deadline over the receive one.
 ///

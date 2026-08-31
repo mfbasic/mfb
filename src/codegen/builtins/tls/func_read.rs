@@ -18,12 +18,17 @@ the peer closes its side of the TLS session, or the underlying read fails.
 does not request that exactly that many bytes be read. On success the returned
 list always holds at least one byte.
 
-Unlike a plain stream read that signals end of stream with a zero-length result,
-`read` raises an error when the peer has closed the connection: there is no
-empty-list sentinel. To consume a whole response, call `read` in a loop,
-appending each result, and stop when an `ErrConnectionClosed` error is raised.
-Use `tls::read` when the peer sends UTF-8 text and a `String` is more
-convenient than raw bytes."#;
+`read` raises `ErrConnectionClosed` when the peer has closed the connection:
+there is no empty-list sentinel. To consume a whole response, call `read` in a
+loop, appending each result, and stop when that error is raised. `tcp::read` ends
+a stream exactly the same way, so a protocol written against one transport reads
+the same on the other.
+
+**There is no `readText`.** A stream read stops wherever the network happened to
+divide the data, which need not be a character boundary, so a decode at that
+point can split a multi-byte character in half. Assemble the whole message first,
+then decode it with `encoding::toUtf8Text`. `tls::write` does accept a `String`
+directly, because sending is not subject to the same hazard."#;
 const EX: &str = r#"Read up to 4096 bytes from a connected TLS socket:
 
 ```

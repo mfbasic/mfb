@@ -32,7 +32,16 @@ or to bound how many descriptors a long-running program holds open. Closing and
 then letting the binding drop is safe: the drop sees the closed flag and does
 nothing.
 
-An already-closed handle is an error rather than a no-op. The handle's closed word
+**An already-closed handle is an error rather than a no-op, and `tls::close`
+deliberately differs** — there, closing twice succeeds. The two are otherwise
+drop-in mirrors, so the split is worth knowing: code moved between the transports
+must not assume either answer. Neither package will change under the other
+without a decision, because each has callers relying on what it does today
+(bug-465). In practice the difference is invisible to the recommended idiom —
+close once, or let lexical drop do it — since a drop after an explicit close is a
+no-op on both.
+
+The handle's closed word
 is checked first, and a non-zero value refuses the call. That word also carries
 the *moved* bit that `thread::transfer` sets, so a handle transferred to another
 thread is refused too — but with `ErrResourceMoved`, which names the real reason,

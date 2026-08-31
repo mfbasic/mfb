@@ -580,8 +580,11 @@ impl LinuxPlan<'_> {
                     self.libc_import("dlsym", required_by),
                 ]
             }
+            // `resolve_func` sees only surface member names, so every `os_alias`
+            // code form has to be named here explicitly.
             call if crate::codegen::registry::registry().owning_package(call) == Some("tls")
-                || call == "tls.closeListener" =>
+                || call == "tls.closeListener"
+                || call == "tls.localAddressListener" =>
             {
                 // The TLS backend resolves OpenSSL at load time via dlopen/dlsym;
                 // tls.connect/listen also open the TCP socket themselves, and
@@ -600,7 +603,10 @@ impl LinuxPlan<'_> {
                 // plan-110-D: the endpoint queries reuse the `net` address emitter
                 // (the TLS record keeps the fd in the canonical handle slot), so
                 // they need its syscalls and the numeric-host formatter.
-                if matches!(call, "tls.localAddress" | "tls.remoteAddress") {
+                if matches!(
+                    call,
+                    "tls.localAddress" | "tls.localAddressListener" | "tls.remoteAddress"
+                ) {
                     imports.extend([
                         self.libc_import("getsockname", required_by),
                         self.libc_import("getpeername", required_by),

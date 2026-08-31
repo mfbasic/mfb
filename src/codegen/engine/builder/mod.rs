@@ -1632,6 +1632,14 @@ pub(crate) fn lower_module_for_platform(
         // plan-110-D: tls's write split and Address connect, on the same rule.
         ("_mfb_rt_tls_tls_write", "_mfb_rt_tls_tls_writeText"),
         ("_mfb_rt_tls_tls_connect", "_mfb_rt_tls_tls_connectAddr"),
+        // bug-465: `tls::localAddress` spans Socket and Listener, and the two
+        // cannot share a body (macOS asks an `nw_connection` and an `nw_listener`
+        // different questions). Same rule as the rest: the NIR names only the base
+        // member, so the listener form is forced in beside it.
+        (
+            "_mfb_rt_tls_tls_localAddress",
+            "_mfb_rt_tls_tls_localAddressListener",
+        ),
     ] {
         if runtime_symbols.iter().any(|symbol| symbol == base)
             && !runtime_symbols.iter().any(|symbol| symbol == synthesized)

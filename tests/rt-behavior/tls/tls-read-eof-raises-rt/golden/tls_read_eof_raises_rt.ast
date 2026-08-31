@@ -1,0 +1,74 @@
+{
+  "project": "tls_read_eof_raises_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "errorCode", "line": 16 },
+    { "module": "io", "line": 17 },
+    { "module": "tls", "line": 18 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "drainToEof",
+      "line": 23,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "conn", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "8.8.8.8" }, { "kind": "number", "value": "443" }, { "kind": "number", "value": "5000" }, { "kind": "string", "value": "dns.google" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "crlfBytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "13" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "10" }] }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "crlf", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "crlfBytes" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.write", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "HEAD / HTTP/1.0" }, "right": { "kind": "identifier", "value": "crlf" } }, "right": { "kind": "string", "value": "Host: dns.google" } }, "right": { "kind": "identifier", "value": "crlf" } }, "right": { "kind": "string", "value": "Connection: close" } }, "right": { "kind": "identifier", "value": "crlf" } }, "right": { "kind": "identifier", "value": "crlf" } }] }, "line": 27 },
+      { "kind": "binding", "mutable": true, "name": "total", "type": null, "value": { "kind": "number", "value": "0" }, "line": 28 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "boolean", "value": true },
+        "line": 29,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "chunk", "type": "List OF Byte", "value": { "kind": "call", "callee": "tls.read", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "number", "value": "4096" }] }, "line": 30 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "chunk" }] }, "right": { "kind": "number", "value": "0" } },
+          "line": 31,
+          "then": [
+          { "kind": "return", "value": { "kind": "string", "value": "returnedEmpty=TRUE" }, "line": 34 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "chunk" }] } }, "line": 36 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "string", "value": "loopFellThrough=TRUE" }, "line": 38 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 39,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "raised=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrConnectionClosed" } }] } }, "right": { "kind": "string", "value": " readSomething=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "number", "value": "0" } }] } }, "line": 40 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 44,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "eof " }, "right": { "kind": "call", "callee": "drainToEof", "arguments": [] } }] }, "line": 45 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 46 }
+      ]
+    }
+    ]
+  }
+  ]
+}
