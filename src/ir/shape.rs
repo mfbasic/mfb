@@ -648,26 +648,32 @@ impl<'a> Walker<'a> {
         // compiler did not inject) or an imported `.mfp` exports means that
         // type, not the builtin's, so it is excluded — as is a name two builtin
         // packages both declare, which no single import would name.
-        let shadowed: HashSet<ParameterType> = hir
+        //
+        // `shadowed` is read off the `types` table built above rather than
+        // re-walking the HIR: that table already holds exactly these two
+        // populations, keyed by the very `ParameterType` a lookup will use, so
+        // the two cannot disagree about a key. An entry's `file` is the
+        // declaring file, or empty for an imported type.
+        let internal_files: HashSet<&str> = hir
             .files
             .iter()
-            .filter(|file| !file.internal)
-            .flat_map(|file| &file.items)
-            .filter_map(|item| match item {
-                HirItem::Type(type_decl) => Some(ParameterType::declared(&type_decl.name)),
-                _ => None,
-            })
-            .chain(
-                imported_types
-                    .iter()
-                    .map(|imported| ParameterType::declared(&imported.name)),
-            )
+            .filter(|file| file.internal)
+            .map(|file| file.path.as_str())
+            .collect();
+        let shadowed: HashSet<&ParameterType> = types
+            .iter()
+            .filter(|(_, shape)| !internal_files.contains(shape.file.as_str()))
+            .map(|(type_, _)| type_)
             .collect();
         let mut builtin_record_owner: HashMap<ParameterType, &'static str> = HashMap::new();
         let mut ambiguous: HashSet<ParameterType> = HashSet::new();
         for package in crate::codegen::registry::registry().packages() {
             for record in package.records() {
-                let type_ = ParameterType::declared(record.name);
+                // `named`, not `declared`: a registry record's name is a bare
+                // `&'static str` nominal the descriptor already built this way
+                // (`ParameterType::named(net::ADDRESS_TYPE)`), so this is a
+                // constructor call, not a grammar entry.
+                let type_ = ParameterType::named(record.name);
                 if shadowed.contains(&type_) {
                     continue;
                 }
