@@ -90,6 +90,11 @@ const CANVAS_DRAW_SYMBOL: &str = "_mfb_gtkapp_canvas_draw";
 /// and the window-input pipe fds live here so every helper can reach them without
 /// register preservation (plan-05-linux-app.md §6.2).
 const STATE_SYMBOL: &str = "_mfb_gtkapp_state";
+/// plan-98-F: the headless gate's environment variable, the Linux twin of
+/// `MFB_MACAPP_HEADLESS` / `MFB_WINAPP_HEADLESS`.
+pub(super) const STR_HEADLESS_ENV: (&str, &str) =
+    ("_mfb_gtkapp_str_headless", "MFB_GTKAPP_HEADLESS");
+
 const ST_APPLICATION: usize = 0;
 const ST_WINDOW: usize = 8;
 const ST_SCROLLED: usize = 16;
@@ -932,6 +937,10 @@ pub(crate) fn app_mode_imports(
         // the redundant original descriptor so stdin EOF works (bug-59).
         (libc, "close"),
         (libc, "setenv"),
+        // plan-98-F: the headless gate reads its env name and then parks the main
+        // thread; the worker owns termination from there.
+        (libc, "getenv"),
+        (libc, "pause"),
         (libc, "write"),
         // The activate handler sets the pipe write end O_NONBLOCK so a full pipe
         // makes the key handler's write() return EAGAIN instead of blocking the
@@ -985,6 +994,8 @@ pub(crate) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         STR_ENV_A11Y,
         STR_ENV_IM,
         STR_ENV_NONE,
+        // plan-98-F: the headless gate's env name.
+        STR_HEADLESS_ENV,
     ]
     .iter()
     .map(|(symbol, text)| CodeDataObject {

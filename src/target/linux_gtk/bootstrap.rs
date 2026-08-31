@@ -42,9 +42,9 @@ pub(super) fn emit_libc_start_trampoline() -> Result<CodeFunction, String> {
 /// `__libc_start_main` exits cleanly.
 pub(super) fn emit_main_bootstrap() -> Result<CodeFunction, String> {
     let mut asm = Asm::new(GTK_MAIN_SYMBOL);
-    // lr@0, argc@8, argv@16.
+    // lr@0, argc@8, argv@16, headless pthread_t@24.
     asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(32));
+    asm.push(abi::subtract_stack(48));
     asm.push(abi::store_u64(
         abi::link_register(),
         abi::stack_pointer(),
@@ -58,6 +58,41 @@ pub(super) fn emit_main_bootstrap() -> Result<CodeFunction, String> {
     asm.store_state(abi::c_arg(0), ST_ARGC);
     asm.store_state(abi::c_arg(1), ST_ARGV);
 
+    // plan-98-F: the headless gate, the Linux twin of `MFB_MACAPP_HEADLESS` and
+    // `MFB_WINAPP_HEADLESS`.
+    //
+    // It has to be structurally different from macOS's, and the difference is the
+    // point. macOS builds its window and merely skips showing it, keeping the AppKit
+    // run loop; GTK cannot get that far — `gtk_init` fails outright with "Failed to
+    // open display" when there is no display server, so `activate` never fires and
+    // the worker, which is spawned from `activate`, never starts. So headless skips
+    // GTK **entirely**: spawn the worker here and park. The program then runs with no
+    // window, no main loop and no display, which is what makes canvas testable on a
+    // box that has none — and until this existed, Linux was the only one of the three
+    // platforms where it was not.
+    //
+    // Nothing downstream needs a new flag to notice. The finish helper already exits
+    // the process when `ST_TEXT_BUFFER` is null (there is no transcript to write a
+    // status line into), and the canvas blit gates on `ST_CANVAS_AREA`, which stays
+    // null because no window was ever built. Both are the states headless naturally
+    // leaves behind, rather than a mode the code has to be told about.
+    asm.local_address(abi::c_arg(0), STR_HEADLESS_ENV.0);
+    asm.call_external("getenv");
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq("gtk_path"));
+    // pthread_create(&thread@sp+24, NULL, _mfb_gtkapp_worker, NULL), then park.
+    // The worker owns termination: its finish helper `_exit`s with the program's
+    // code, so this thread never has to wake up.
+    asm.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 24));
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
+    asm.local_address(abi::c_arg(2), WORKER_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    asm.call_external("pthread_create");
+    asm.push(abi::label("headless_park"));
+    asm.call_external("pause");
+    asm.push(abi::branch("headless_park"));
+
+    asm.push(abi::label("gtk_path"));
     // Disable the a11y + IM layers before GTK initializes (they crash in
     // g_variant_new_string on transcript inserts): setenv("GTK_A11Y","none",1) and
     // setenv("GTK_IM_MODULE","none",1).
@@ -1302,6 +1337,17 @@ pub(super) fn emit_canvas_blit_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_register(abi::LOCAL[0], abi::mfb_arg(0))); // pixels
     asm.push(abi::move_register(abi::LOCAL[1], abi::mfb_arg(1))); // width
     asm.push(abi::move_register(abi::LOCAL[2], abi::mfb_arg(2))); // height
+
+    // No drawing area, no blit. Headless (`MFB_GTKAPP_HEADLESS`) there is no window
+    // and no main loop, so the `g_idle_add` below would hand a malloc'd frame to a
+    // queue nothing drains — one leaked surface per frame. This is the same check
+    // the macOS blit makes against its app delegate, and it means a headless run
+    // builds nothing rather than building a frame it immediately has to drop.
+    // `MFB_CANVAS_DUMP` still sees the frame: the dump is written by
+    // `__canvas_presentSurface`, before and independently of this call.
+    asm.load_state(abi::SCRATCH[0], ST_CANVAS_AREA);
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&no_memory));
 
     // bytes = width * height * 4; block = malloc(bytes + 16)
     asm.push(abi::multiply_registers(
