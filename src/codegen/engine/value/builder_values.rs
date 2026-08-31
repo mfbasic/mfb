@@ -1702,7 +1702,17 @@ impl CodeBuilder<'_> {
             Err(err) => return Some(Err(err)),
         };
         let ctx = self.inline_abi_ctx();
-        Some(lower(self, &arg_values, &ctx))
+        // `-vv`: attribute inline-lowering time to the builtin being lowered.
+        // A registry body is free to do arbitrary work per call site — build a
+        // Unicode table, emit a kernel — and no span tree keyed by *stage* can
+        // show that one builtin is responsible. Timed around the body only: arg
+        // lowering above recurses into other builtins, and including it would
+        // charge them to whichever call happened to enclose them.
+        crate::trace::timed_tally(
+            "abi_inline builtin",
+            || target.to_string(),
+            || Some(lower(self, &arg_values, &ctx)),
+        )
     }
 
     /// Pre-lower each `NirValue` arg to a `ValueResult` for an `AbiInline` body

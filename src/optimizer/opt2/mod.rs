@@ -122,52 +122,75 @@ pub(crate) fn optimize_mir(
     // pruning (L2) drops what the folded branches orphaned; CFG simplification
     // (L2) tidies the leftovers and block merging (L2) fuses them back into
     // straight-line blocks.
-    constant_folding::fold_constants(instructions);
-    constprop::eliminate(instructions, model);
-    sccp::eliminate(instructions, model);
+    //
+    // Every row is wrapped in a `-vv` trace span named for its catalog row, so
+    // the profile attributes MIR time per pass rather than to the seam as a
+    // whole. The wrapper is inert without `-vv` (`crate::trace::timed` calls the
+    // body directly), and — like every other row here — self-guarding stays
+    // inside each pass, so wrapping changes nothing about what runs.
+    use crate::trace::timed;
+    timed("constant folding", || {
+        constant_folding::fold_constants(instructions)
+    });
+    timed("constant propagation", || {
+        constprop::eliminate(instructions, model)
+    });
+    timed("SCCP", || sccp::eliminate(instructions, model));
     // One traversal serves both memory rows (see `stldfwd::forward`).
-    stldfwd::forward(instructions, model);
-    indvars::simplify(instructions, model);
+    timed("store-to-load + redundant load", || {
+        stldfwd::forward(instructions, model)
+    });
+    timed("induction variables", || {
+        indvars::simplify(instructions, model)
+    });
     // Tail duplication (L3) runs before the block-local rows below: removing a
     // merge is what lets them keep their facts through the duplicated tail.
-    tailduped::duplicate(instructions);
+    timed("tail duplication", || tailduped::duplicate(instructions));
     // The known-bits rows (L2) run before value numbering: a mask or
     // extension they turn into a copy is one fewer expression to number.
-    knownbits::simplify(instructions, model);
-    lvn::eliminate(instructions, model);
-    gvn::eliminate(instructions, model);
-    copyprop::eliminate(instructions, model);
+    timed("known bits", || knownbits::simplify(instructions, model));
+    timed("local value numbering", || {
+        lvn::eliminate(instructions, model)
+    });
+    timed("global value numbering", || {
+        gvn::eliminate(instructions, model)
+    });
+    timed("copy propagation", || {
+        copyprop::eliminate(instructions, model)
+    });
     // PRE (L3) picks up where global value numbering had to stop: the
     // expressions available on only some paths into a join. It runs before the
     // control-flow rows below so the joins it reasons about are the ones the
     // stream actually still has.
-    pre::eliminate(instructions, model);
+    timed("PRE", || pre::eliminate(instructions, model));
     // Loop-nest code motion (L3) runs on the redundancy-free stream: what is
     // left in a loop body by now is what genuinely recomputes each iteration.
-    licm::hoist(instructions, model);
-    branches::fold_branches(instructions);
+    timed("LICM (MIR)", || licm::hoist(instructions, model));
+    timed("branch folding", || branches::fold_branches(instructions));
     // The range-driven check-elision rows (L3) run after the constant-based
     // branch folding above and before threading/UCE below: what they decide is
     // exactly the guards constants alone cannot, and the raise paths they
     // orphan are what the unreachable-block sweep then removes.
-    checks::eliminate(instructions, model);
+    timed("check elision", || checks::eliminate(instructions, model));
     // Check fusion (L3) runs right after them, on what survives: a comparison
     // the flags already hold is deleted, its branch left to read the earlier
     // one's flags.
-    flags::fuse(instructions, model);
+    timed("check fusion", || flags::fuse(instructions, model));
     // Sinking (L3) runs once the control flow above has settled: the branches
     // it moves work into are the ones that survive folding and threading.
-    sink::sink(instructions, model);
-    threading::thread_jumps(instructions);
-    dse::eliminate(instructions, model);
-    dce::eliminate(instructions, model);
-    adce::eliminate(instructions, model);
-    uce::eliminate(instructions);
+    timed("sinking", || sink::sink(instructions, model));
+    timed("jump threading", || threading::thread_jumps(instructions));
+    timed("dead-store elimination", || {
+        dse::eliminate(instructions, model)
+    });
+    timed("DCE (MIR)", || dce::eliminate(instructions, model));
+    timed("ADCE", || adce::eliminate(instructions, model));
+    timed("UCE (MIR)", || uce::eliminate(instructions));
     // CFG simplification (L2) tidies what the control-flow rows above leave —
     // no-op conditionals, jumps to returns, duplicate labels — and runs just
     // before merging so a label it removes can let a merge happen.
-    simplifycfg::simplify(instructions);
-    merge::merge_blocks(instructions);
+    timed("CFG simplification", || simplifycfg::simplify(instructions));
+    timed("block merging", || merge::merge_blocks(instructions));
 }
 
 #[cfg(test)]

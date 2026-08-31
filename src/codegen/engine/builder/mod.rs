@@ -687,7 +687,9 @@ pub(crate) fn lower_module_for_platform(
     // thing still read straight off the `.mfp` is each binding's native library
     // locator table (plan-46-C), which is per-target and so cannot be resolved
     // upstream of this per-flavor pass.
-    let link_libraries = resolve_link_libraries(module, packages, platform)?;
+    let link_libraries = crate::trace::timed("resolve link libraries", || {
+        resolve_link_libraries(module, packages, platform)
+    })?;
     let mut function_symbols = module
         .functions
         .iter()
@@ -756,7 +758,11 @@ pub(crate) fn lower_module_for_platform(
         }
     }
     let package_global_count = 0usize;
-    let string_symbols = string_symbols(module);
+    // The module-level steps below each walk every function, so `-vv` gives
+    // each a row: without them their cost lands in this stage's self time, which
+    // is exactly the "where did the rest of the minute go" gap the profiler
+    // exists to close.
+    let string_symbols = crate::trace::timed("string symbols", || string_symbols(module));
     let mut string_objects = string_symbols.iter().collect::<Vec<_>>();
     string_objects.sort_by_key(|(_, left_symbol)| *left_symbol);
     let mut data_objects = string_objects
@@ -969,7 +975,9 @@ pub(crate) fn lower_module_for_platform(
             platform.family(),
         ));
     }
-    let type_model = TypeModel::from_module_and_packages(module, packages)?;
+    let type_model = crate::trace::timed("type model", || {
+        TypeModel::from_module_and_packages(module, packages)
+    })?;
     // bug-377: the close thunks, by symbol. Every consumer of a resource's
     // registered close op resolves it through `resolve_closer_symbol`, so the
     // scope-drop call site and the thunk's own "am I a close op?" test cannot
@@ -1287,20 +1295,34 @@ pub(crate) fn lower_module_for_platform(
     // plan-86 K1: functions used as callbacks (FunctionRef) are invoked through an
     // owning ABI, so they are excluded from the parameter-passthrough borrow elision.
     // Computed once for the whole module and shared by every function's lowering.
-    let callback_referenced_functions = collect_function_ref_names(module);
+    let callback_referenced_functions = crate::trace::timed("collect function refs", || {
+        collect_function_ref_names(module)
+    });
     for function in &module.functions {
-        code_functions.push(lower_function(
-            function,
-            &function_symbols,
-            &functions,
-            &package_return_types,
-            &platform_imports,
-            platform,
-            module.build_mode,
-            &globals,
-            &string_symbols,
-            &callback_referenced_functions,
-            type_model.clone(),
+        // `-vv` (`crate::trace`): the per-function codegen cost, recorded twice —
+        // aggregated into the span tree (so its sub-stages nest underneath) and
+        // as a leaderboard row keyed by the function's name. Whether the module
+        // is slow because one function is pathological or because there are
+        // thousands of ordinary ones is the first question a slow native build
+        // raises, and only the leaderboard answers it.
+        code_functions.push(crate::trace::timed_item(
+            "lower_function",
+            || function.name.clone(),
+            || {
+                lower_function(
+                    function,
+                    &function_symbols,
+                    &functions,
+                    &package_return_types,
+                    &platform_imports,
+                    platform,
+                    module.build_mode,
+                    &globals,
+                    &string_symbols,
+                    &callback_referenced_functions,
+                    type_model.clone(),
+                )
+            },
         )?);
     }
     for (name, type_, symbol) in builtin_function_refs(module) {
@@ -1671,19 +1693,30 @@ pub(crate) fn lower_module_for_platform(
         }
     }
     for symbol in &runtime_symbols {
-        code_functions.push(lower_runtime_helper(
-            symbol,
-            module.build_mode,
-            &module.project,
-            ArenaLayout {
-                term_state_offset,
-                presentation_mode_offset,
-                global_slots: arena_global_slots,
+        // `-vv`: the hand-written runtime helpers are the other half of the
+        // emitted code, and they scale with the *builtins the program touches*
+        // rather than with its own source. Separating them from
+        // `lower_function` is what tells a "my program is small but the build is
+        // slow" report which half to look at.
+        code_functions.push(crate::trace::timed_item(
+            "lower_runtime_helper",
+            || symbol.clone(),
+            || {
+                lower_runtime_helper(
+                    symbol,
+                    module.build_mode,
+                    &module.project,
+                    ArenaLayout {
+                        term_state_offset,
+                        presentation_mode_offset,
+                        global_slots: arena_global_slots,
+                    },
+                    uses_rng,
+                    &type_model,
+                    &platform_imports,
+                    platform,
+                )
             },
-            uses_rng,
-            &type_model,
-            &platform_imports,
-            platform,
         )?);
     }
     if uses_rng {
@@ -1872,8 +1905,11 @@ pub(crate) fn lower_module_for_platform(
     // sequence, the arena allocator, the error path, the PCG64 RNG, the kernels,
     // and the thread trampoline all flow through the neutral MIR (plan-00-G: the
     // sole code path).
-    for function in &mut code_functions {
-        mir::route_function_through_mir(function);
+    {
+        let _span = crate::trace::span("route helpers through MIR");
+        for function in &mut code_functions {
+            mir::route_function_through_mir(function);
+        }
     }
 
     // plan-56-A §4.2: bind any relocation whose `library` was deferred at emit
@@ -1885,7 +1921,9 @@ pub(crate) fn lower_module_for_platform(
     // `CodegenPlatform` hooks, and binding per-hook means a hook added later
     // silently ships relocations labelled with no library at all — which is
     // exactly what happened when this was first written per-entry-point.
-    bind_deferred_relocation_libraries(&mut code_functions, &platform_imports)?;
+    crate::trace::timed("bind relocation libraries", || {
+        bind_deferred_relocation_libraries(&mut code_functions, &platform_imports)
+    })?;
 
     let plan = NativeCodePlan {
         target: module.target.clone(),
@@ -1897,6 +1935,8 @@ pub(crate) fn lower_module_for_platform(
         data_objects,
         functions: code_functions,
     };
+    // `validate` opens its own `-vv` span, so both this call and the backend's
+    // second one on the returned plan are attributed to the same row.
     plan.validate()?;
     Ok(plan)
 }

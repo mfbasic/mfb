@@ -16,15 +16,29 @@ pub fn lower_project(
 ) -> Result<NirModule, String> {
     // Merge imported packages' Binary Representation into the project up front so runtime
     // helper detection and codegen both see the complete, unified function set.
-    let merged = nir::merge_packages(ir, packages)?;
-    let helpers = runtime::required_helpers(&merged);
-    let module = nir::lower_module(&merged, target_name, build_mode, stdin_log_cap, helpers)?;
+    //
+    // The `-vv` spans (`crate::trace`) split the `codegen: lowering module`
+    // stage into its four steps. This is the sole `NirModule` producer, so one
+    // set of spans here covers all five targets.
+    let merged = crate::trace::timed("merge packages", || nir::merge_packages(ir, packages))?;
+    let helpers = crate::trace::timed("required helpers", || runtime::required_helpers(&merged));
+    let module = crate::trace::timed("IR -> NIR", || {
+        nir::lower_module(&merged, target_name, build_mode, stdin_log_cap, helpers)
+    })?;
+    crate::trace::count("NIR functions", module.functions.len() as u64);
+    crate::trace::count(
+        "NIR statements",
+        module
+            .functions
+            .iter()
+            .map(|function| function.body.len() as u64)
+            .sum(),
+    );
     // plan-100 §3: the Opt1 seam. This is the sole `NirModule` producer, so one
     // wrap here covers all five targets. Occupied by the Level-1 local-rewrite
     // rows — constant folding, algebraic simplification, strength reduction
     // (`optimizer::opt1`).
-    Ok(crate::optimizer::opt1::optimize_nir(
-        module,
-        crate::optimizer::active_opt_level(),
-    ))
+    Ok(crate::trace::timed("opt1 (NIR)", || {
+        crate::optimizer::opt1::optimize_nir(module, crate::optimizer::active_opt_level())
+    }))
 }

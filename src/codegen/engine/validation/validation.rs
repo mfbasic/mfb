@@ -13,6 +13,12 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 impl NativeCodePlan {
     pub(crate) fn validate(&self) -> Result<(), String> {
+        // `-vv` (`crate::trace`): a whole-plan validation walks every function's
+        // every instruction, and each backend runs it *twice* — once as the tail
+        // of `lower_module_for_platform` and once on the returned plan. Both
+        // calls land in one tree row with a count of 2, so the report shows the
+        // duplication rather than hiding half of it in a parent's self time.
+        let _span = crate::trace::span("validate code plan");
         if self.target.is_empty() {
             return Err("native code plan target must not be empty".to_string());
         }
