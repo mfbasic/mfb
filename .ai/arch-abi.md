@@ -392,3 +392,28 @@ In `src/os/windows/link/mod.rs:write_executable`, the PE writer appends optional
 The trap: if each trailing section computes its own slot as `align_up(rsrc_rva + rsrc_bytes.len())` (i.e. "right after `.rsrc`"), then TWO trailing sections both land at the SAME RVA/file offset and **silently overlap** — no error, the section table just has two entries pointing at the same bytes.
 
 Rule: chain them. The unconditional `.mfbnote` is placed after `.rsrc`; `.mfbsign` must be placed after `.mfbnote` (`align_up(mfbnote_rva + mfbnote_bytes.len(), SECTION_ALIGNMENT)`), not after `.rsrc`. Any future third trailing section chains off the last one. Guard added: `signed_build_emits_both_mfbnote_and_mfbsign_disjoint` asserts non-overlapping virtual extents. The write-only linkers have no runtime verifier, so a byte/section scan test is the only guard against this class of bug.
+
+## Staging arguments in place clobbers them when the callee's own arguments share the bank
+
+`canvas::metalDrawScene` stages its arguments into the MFB argument bank, and its own
+arguments *arrive* in that bank. Writing `mfb_arg(k)` before reading every `located[j]`
+that might live in it is therefore a clobber waiting for the argument count to grow into
+it. It did: with a seventh argument, `located[5]` arrived in the register `mfb_arg(5)`
+names, so
+
+```
+ldr  x5, [x4, #0x8]     ; count  = offsets->count   -> mfb_arg(5)
+add  x6, x5, #0x28      ; meta   = located[5] + hdr -> reads the count, not the pointer
+add  x7, x6, #0x28      ; cov    = located[6] + hdr -> reads that
+```
+
+The failure is a **SIGSEGV at a tiny address** (`0x29` here) on whichever thread runs the
+call, with one frame in the crash report and nothing naming the argument. `otool -tV` on
+the shipped binary is what localizes it — the three-instruction sequence above is the
+whole bug.
+
+**Compute every value into a temporary vreg first, then write the argument registers.**
+Reordering the writes happens to work for one mapping and is a trap for the next argument
+added. The two-pass form cannot be wrong and the allocator coalesces most of the moves
+away. Same family as the scratch-pool/argument-bank aliasing above: a fixed ABI token is
+not a variable, and the allocator will not keep a live range in it for you.

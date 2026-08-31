@@ -14,11 +14,11 @@
 
 layout(push_constant) uniform Item {
     ivec4 quad;
-    ivec4 shape;
+    ivec4 shape;   // p0..p3 (16.16 px); for a glyph, the bitmap origin in WHOLE px
     ivec4 fill;
     ivec4 stroke;
-    ivec4 misc;    // kind, radius (16.16), strokeHalf (16.16), edgeCount
-    ivec4 arc;     // startAngle, endAngle (16.16 rad), edgeBase, unused
+    ivec4 misc;    // kind, radius (16.16), strokeHalf (16.16), edgeCount / glyph width
+    ivec4 arc;     // startAngle / glyph height, endAngle (16.16 rad), edgeBase, unused
     ivec4 surface;
 } item;
 
@@ -41,6 +41,10 @@ layout(push_constant) uniform Item {
 layout(std430, set = 0, binding = 0) readonly buffer Edges {
     int values[];
 } edges;
+
+// Where the glyph coverage region starts inside that same buffer. Kept in step with
+// `VULKAN_GLYPH_BASE_WORDS` by a unit test rather than by two hand-edited numbers.
+const int GLYPH_BASE = 65536;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -113,9 +117,27 @@ float geoDistance(vec2 p) {
     if (item.misc.x == 4) {
         return edgeDistance(item.arc.z, item.misc.w, p);
     }
-    // The empty kind (5) — `Text` and `Picture`, which draw nothing until
-    // plan-98-G — and anything unknown.
+    // The empty kind (5) — `Picture`, which draws nothing until it has an atlas — and
+    // anything unknown. A glyph (6) never reaches here: it has coverage, not a
+    // distance, and `main` handles it before asking for one.
     return 1.0e6;
+}
+
+// A glyph's coverage, read straight from the cache the software rasteriser filled.
+//
+// There is no distance field and no sampler. The bitmap already *is* antialiased
+// coverage — the CPU evaluated the outline's signed distance once per sample when it
+// filled the cache — so the GPU's job is a lookup, and any filtering here would be a
+// second antialiasing pass over an already-antialiased image.
+//
+// The pen is on a whole pixel and the quad is the bitmap's exact box, so the mapping is
+// integer and exact. Outside the box is zero rather than clamped: a quad can cover a
+// pixel its bitmap does not, and clamping would smear the border row outward.
+int glyphCoverage(vec2 p) {
+    int ix = int(p.x) - item.shape.x;
+    int iy = int(p.y) - item.shape.y;
+    if (ix < 0 || iy < 0 || ix >= item.misc.w || iy >= item.arc.x) { return 0; }
+    return edges.values[GLYPH_BASE + item.arc.z + iy * item.misc.w + ix];
 }
 
 float srgbToLinear(float c) {
@@ -123,15 +145,24 @@ float srgbToLinear(float c) {
     return c <= 0.04045 ? (c / 12.92) : pow((c + 0.055) / 1.055, 2.4);
 }
 
-vec4 premultiplied(ivec4 rgba, float distance) {
-    int coverage = int(clamp(0.5 - distance, 0.0, 1.0) * 255.0 + 0.5);
+vec4 covered(ivec4 rgba, int coverage) {
     float a = float((rgba.w * coverage) / 255) / 255.0;
     return vec4(srgbToLinear(float(rgba.x)) * a,
                 srgbToLinear(float(rgba.y)) * a,
                 srgbToLinear(float(rgba.z)) * a, a);
 }
 
+vec4 premultiplied(ivec4 rgba, float distance) {
+    return covered(rgba, int(clamp(0.5 - distance, 0.0, 1.0) * 255.0 + 0.5));
+}
+
 void main() {
+    if (item.misc.x == 6) {
+        // A glyph is fill-only: a text item's stroke was turned into an outline
+        // polygon by the geometry builder, so there is nothing here to stroke.
+        fragColor = covered(item.fill, glyphCoverage(gl_FragCoord.xy));
+        return;
+    }
     float d = geoDistance(gl_FragCoord.xy);
     vec4 colour = premultiplied(item.fill, d);
     float halfWidth = fx(item.misc.z);

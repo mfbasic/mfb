@@ -73,10 +73,29 @@ cat > "$proj/project.json" <<'JSON'
   "entry": "main", "targets": ["native"] }
 JSON
 
+# The fixture font, so the scene can contain text.
+#
+# Synthesized rather than borrowed from the box: a system font would make the
+# comparison depend on which fonts the box happens to have, and the point of this test
+# is that the two *backends* agree — not that a particular typeface renders. This is
+# the same twelve-glyph file `tests/rt_canvas_font.rs` builds: `unitsPerEm` 1000, one
+# square glyph at (100,0)-(400,300), so a `Text` item is a row of squares whose pixels
+# are easy to reason about and whose bitmaps are far inside both backends' caps.
+base64 -d > "$proj/fixture.ttf" <<'TTF'
+AAEAAAAGAAAAAAAAY21hcAAAAAAAAABsAAAANGdseWYAAAAAAAAAoAAAACJoZWFkAAAAAAAAAMIA
+AAA2aGhlYQAAAAAAAAD4AAAAJGhtdHgAAAAAAAABHAAAAAxsb2NhAAAAAAAAASgAAAAIAAAAAQAD
+AAoAAAAMAAwAAAAAACgAAAAAAAAAAgAAAEEAAABBAAAAAQAAAEIAAABCAAAAAgABAGQAAAGQASwA
+AwAAAQEBAQBkASwAAP7UAAAAAAEsAAAAAAAAAAAAAAAAAAAAAAAAAAAD6AAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAyD/OABkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMB
+9AAAAPoAAAEsAAAAAAAAABEAEQ==
+TTF
+
 # Every primitive the Vulkan shader claims to draw, including `Polygon` — whose edges
 # reach the shader through the descriptor-bound storage buffer rather than the push
-# constants (Phase 2). Two of them, so the per-item edge base is actually exercised:
-# with one polygon a base of zero would pass whether or not it was ever written.
+# constants (Phase 2) — and `Text`, whose glyph bitmaps reach it through that same
+# buffer's second region (plan-98-G Phase 2). Two polygons, so the per-item edge base
+# is actually exercised: with one, a base of zero would pass whether or not it was
+# ever written. Four glyphs, for the same reason applied to the glyph cursor.
 #
 # The convex triangle and the concave arrow are deliberate: the crossing-count sign
 # test and the nearest-edge magnitude only disagree on a shape that is not convex, so
@@ -87,9 +106,12 @@ IMPORT canvas
 IMPORT os
 SUB main()
   app::setMode(Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    EXIT SUB
+  END TRAP
   LET yellow AS Color = canvas::rgb(255, 255, 0)
   LET green AS Color = canvas::rgb(0, 160, 0)
-  LET face AS DrawItem = Circle[x := 450.0, y := 320.0, radius := 150.0, paint := canvas::fill(yellow)]
+  LET head AS DrawItem = Circle[x := 450.0, y := 320.0, radius := 150.0, paint := canvas::fill(yellow)]
   LET eyeL AS DrawItem = Circle[x := 400.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
   LET eyeR AS DrawItem = Circle[x := 500.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
   LET smile AS DrawItem = Arc[x := 450.0, y := 335.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := canvas::stroke(green, 14.0)]
@@ -99,7 +121,8 @@ SUB main()
   LET faint AS DrawItem = Rectangle[x := 600.0, y := 40.0, w := 120.0, h := 80.0, paint := canvas::fill(canvas::rgba(0, 200, 255, 180))]
   LET tri AS DrawItem = Polygon[points := [Point[x := 620.0, y := 200.0], Point[x := 740.0, y := 200.0], Point[x := 680.0, y := 300.0]], paint := canvas::fill(canvas::rgb(200, 0, 200))]
   LET arrow AS DrawItem = Polygon[points := [Point[x := 60.0, y := 400.0], Point[x := 160.0, y := 400.0], Point[x := 160.0, y := 360.0], Point[x := 230.0, y := 430.0], Point[x := 160.0, y := 500.0], Point[x := 160.0, y := 460.0], Point[x := 60.0, y := 460.0]], paint := canvas::fillStroke(canvas::rgb(0, 180, 180), canvas::rgb(20, 20, 20), 6.0)]
-  canvas::present([box, rounded, line, faint, face, eyeL, eyeR, smile, tri, arrow])
+  LET label AS DrawItem = Text[x := 300.0, y := 560.0, text := "AAAA", font := canvas::fontRef(face), size := 90.0, paint := canvas::fill(canvas::rgb(220, 40, 160))]
+  canvas::present([box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label])
   ' Stay alive for the resize case below. Without this the worker returns from main
   ' the moment its frame lands and the finish helper _exits the process, so the
   ' scripted resize on the main thread loses the race every time. Measured before the
@@ -115,6 +138,7 @@ host="test@127.0.0.1"
 remote="/tmp/mfb-vkcanvas-$$"
 ssh -p "$PORT" "$host" "rm -rf $remote && mkdir -p $remote"
 scp -P "$PORT" "$proj/build/vkcanvas-$LIBC.AppImage" "$host:$remote/app.AppImage" >/dev/null
+scp -P "$PORT" "$proj/fixture.ttf" "$host:$remote/fixture.ttf" >/dev/null
 
 # Provision the driver before anything measures with it.
 icd_env=""
@@ -228,6 +252,33 @@ else:
     print(f"worst={worst} differing={fraction * 100:.4f}% first-beyond-tolerance={first}")
 PY
 }
+
+# Agreement is only meaningful if both frames actually contain the text. Two backends
+# that each drew nothing agree perfectly, and the glyph arm is exactly the kind of thing
+# that fails by drawing nothing — a wrong buffer offset reads zero coverage, which is
+# transparent, which is invisible. So count the lit pixels in the label's own band
+# first, in BOTH frames, before believing the diff.
+glyphs() {
+python3 - "$1" <<'PY'
+import sys
+
+frame = open(sys.argv[1], "rb").read()
+width = 900
+# The label sits at y=560 with size 90; the fixture glyph rises 0.3 em, so its ink runs
+# from about y=533 to y=560. Sample the middle of that band.
+row = 545
+lit = sum(1 for x in range(width) if frame[(row * width + x) * 4 + 3] != 0)
+print(lit)
+PY
+}
+
+sw_lit="$(glyphs "$work/sw.rgba")"
+gpu_lit="$(glyphs "$work/gpu.rgba")"
+if [ "$sw_lit" -lt 50 ] || [ "$gpu_lit" -lt 50 ]; then
+  fail "the text band is empty (software $sw_lit lit, GPU $gpu_lit lit) — the frames may agree only because neither drew it"
+else
+  pass "both backends drew the glyph run (software $sw_lit lit, GPU $gpu_lit lit)"
+fi
 
 verdict="$(compare "$work/sw.rgba" "$work/gpu.rgba" 900)"
 case "$verdict" in

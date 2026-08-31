@@ -80,13 +80,19 @@ END FUNC"#;
 /// polygon and Vulkan caps their sum. The two really are different conditions, and a
 /// scene can be GPU-renderable on one backend and not the other.
 ///
-/// **Both decline a glyph run** (`__CANVAS_GEO_TEXT`). Neither shader has a sampler, and
-/// a glyph run's tail is cache indices rather than edges, so a backend that accepted it
-/// would draw nothing while reporting success — the exact lie both predicates exist to
-/// prevent, and one this letter watched happen: the first version of the glyph cache
-/// left the predicates alone and the GPU frame came back with the text missing and no
-/// error anywhere. Restoring GPU text needs a glyph atlas and a sampler, which is
-/// plan-98-G Phase 2's own row.
+/// **A glyph run is bounded rather than refused**, and the two bounds have different
+/// shapes for a real reason. Metal's bitmap rides `setFragmentBytes:`, copied into the
+/// command buffer per draw, so its cap is 4 KiB **per glyph** — about 64x64, a glyph at
+/// roughly 200 px. Vulkan's bitmaps are copied into one buffer that serves the whole
+/// recording, so its cap is a **frame** total. Neither truncates: a clipped glyph is a
+/// different glyph and would read as a rasteriser bug.
+///
+/// Both predicates declined `__CANVAS_GEO_TEXT` outright for as long as neither backend
+/// could draw one, and that was not caution — the version before it *accepted* a kind
+/// neither shader knew, and Metal returned a frame with the text simply missing and no
+/// error anywhere. 4,536 pixels wrong, reported as success. That is the lie these
+/// predicates exist to prevent, and it is why the bound is checked here rather than
+/// discovered in the emitter.
 ///
 /// Sharing the Metal predicate was the tempting shortcut when this shader still
 /// declined every polygon, and it would have rendered them as nothing while reporting
@@ -114,11 +120,37 @@ END FUNC
 
 LET __CANVAS_METAL_MAX_EDGES AS Integer = 256
 
+LET __CANVAS_METAL_MAX_GLYPH_SAMPLES AS Integer = 4096
+
+' The largest bitmap in a glyph run. Metal's cap is PER GLYPH, not per frame, because
+' its bitmaps ride `setFragmentBytes:` -- the same payload its edges ride -- and that is
+' copied into the command buffer per draw. Vulkan's is per frame for the opposite
+' reason: one buffer serves the whole recording.
+FUNC __canvas_runLargestGlyph(offset AS Integer) AS Integer
+  LET glyphs AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
+  MUT worst AS Integer = 0
+  MUT g AS Integer = 0
+  WHILE g < glyphs
+    LET entry AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_HEADER + g * 3, 0.0))
+    IF entry >= 0 THEN
+      LET base AS Integer = entry * 5
+      LET samples AS Integer = collections::getOr(__CANVAS_GLYPH_META, base + 2, 0) * collections::getOr(__CANVAS_GLYPH_META, base + 3, 0)
+      IF samples > worst THEN
+        worst = samples
+      END IF
+    END IF
+    g = g + 1
+  END WHILE
+  RETURN worst
+END FUNC
+
 FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
-      RETURN FALSE
+      IF __canvas_runLargestGlyph(offset) > __CANVAS_METAL_MAX_GLYPH_SAMPLES THEN
+        RETURN FALSE
+      END IF
     END IF
     IF kind = __CANVAS_GEO_POLYGON THEN
       IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0)) > __CANVAS_METAL_MAX_EDGES THEN
@@ -136,24 +168,48 @@ FUNC __canvas_renderMetal() AS Boolean
   END IF
   LET size AS Size = __canvas_surfaceSize()
   LET buffer AS List OF Byte = canvas::newSurface(size.width, size.height)
-  canvas::metalDrawScene(buffer, size.width, size.height, __CANVAS_GEO_DATA, offsets)
+  canvas::metalDrawScene(buffer, size.width, size.height, __CANVAS_GEO_DATA, offsets, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV)
   __canvas_presentSurface(buffer, size.width, size.height)
   RETURN TRUE
 END FUNC
 
 LET __CANVAS_VULKAN_MAX_FRAME_EDGES AS Integer = 16384
+LET __CANVAS_VULKAN_MAX_GLYPH_SAMPLES AS Integer = 1048576
+
+' The coverage samples one glyph run puts in the frame's glyph region -- the sum of its
+' cached bitmaps' areas. A run carries cache indices rather than bitmaps, so this is the
+' only place the two caches meet, and it is why the predicate takes the shape it does:
+' the question "does this frame fit" cannot be answered from the geometry alone.
+FUNC __canvas_runSamples(offset AS Integer) AS Integer
+  LET glyphs AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
+  MUT total AS Integer = 0
+  MUT g AS Integer = 0
+  WHILE g < glyphs
+    LET entry AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_HEADER + g * 3, 0.0))
+    IF entry >= 0 THEN
+      LET base AS Integer = entry * 5
+      total = total + collections::getOr(__CANVAS_GLYPH_META, base + 2, 0) * collections::getOr(__CANVAS_GLYPH_META, base + 3, 0)
+    END IF
+    g = g + 1
+  END WHILE
+  RETURN total
+END FUNC
 
 FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   MUT total AS Integer = 0
+  MUT samples AS Integer = 0
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
-      RETURN FALSE
+      samples = samples + __canvas_runSamples(offset)
     END IF
     IF kind = __CANVAS_GEO_POLYGON THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
   NEXT
+  IF samples > __CANVAS_VULKAN_MAX_GLYPH_SAMPLES THEN
+    RETURN FALSE
+  END IF
   RETURN total <= __CANVAS_VULKAN_MAX_FRAME_EDGES
 END FUNC
 
@@ -164,7 +220,7 @@ FUNC __canvas_renderVulkan() AS Boolean
   END IF
   LET size AS Size = __canvas_surfaceSize()
   LET buffer AS List OF Byte = canvas::newSurface(size.width, size.height)
-  canvas::vulkanDrawScene(buffer, size.width, size.height, __CANVAS_GEO_DATA, offsets)
+  canvas::vulkanDrawScene(buffer, size.width, size.height, __CANVAS_GEO_DATA, offsets, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV)
   __canvas_presentSurface(buffer, size.width, size.height)
   RETURN TRUE
 END FUNC"#;
@@ -283,7 +339,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 mod tests {
     use super::*;
     use crate::codegen::runtime::canvas::{
-        GEO_KIND_POLYGON, HEADER_AUX0, MAX_EDGES, VULKAN_MAX_FRAME_EDGES,
+        GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_AUX0, MAX_EDGES, METAL_MAX_GLYPH_SAMPLES,
+        VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
     };
 
     /// Find `LET <name> AS Integer = <n>` in the injected MFBASIC source.
@@ -309,6 +366,17 @@ mod tests {
             declared("__CANVAS_VULKAN_MAX_FRAME_EDGES"),
             VULKAN_MAX_FRAME_EDGES
         );
+        assert_eq!(
+            declared("__CANVAS_VULKAN_MAX_GLYPH_SAMPLES"),
+            VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+            "the predicate admits a frame whose glyph bitmaps the buffer's glyph \
+             region cannot hold",
+        );
+        assert_eq!(
+            declared("__CANVAS_METAL_MAX_GLYPH_SAMPLES"),
+            METAL_MAX_GLYPH_SAMPLES,
+            "the predicate admits a glyph bigger than `setFragmentBytes:` will carry",
+        );
     }
 
     /// The predicates read the geometry header by slot. `offset + 20` is
@@ -322,9 +390,21 @@ mod tests {
             RENDER_METAL
                 .matches(&format!("offset + {HEADER_AUX0}"))
                 .count(),
-            2,
-            "both predicates should read the edge count from HEADER_AUX0"
+            4,
+            "the two edge sums and both glyph-run walks should all read HEADER_AUX0"
         );
+    }
+
+    /// A glyph run is a kind the predicates now *admit* rather than refuse, so its
+    /// spelling has to be as pinned as the polygon's — and by the same argument. It
+    /// was not always: both predicates declined `__CANVAS_GEO_TEXT` outright until
+    /// the backends could draw one, and the version before *that* accepted it while
+    /// neither shader knew the kind, returning a frame with the text missing and
+    /// calling it success.
+    #[test]
+    fn the_text_kind_is_spelled_once() {
+        assert_eq!(GEO_KIND_TEXT, "6");
+        assert!(RENDER_METAL.contains("= __CANVAS_GEO_TEXT THEN"));
     }
 
     /// Both predicates test the same kind the emitters and the shaders branch on.

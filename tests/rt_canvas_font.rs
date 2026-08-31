@@ -15,7 +15,7 @@
 
 mod common;
 
-use common::canvas_image::{compare_exact, Frame};
+use common::canvas_image::{compare_exact, compare_within_tolerance, Frame, Tolerance};
 use std::process::Command;
 
 /// Build a `--app` program, run it headless, and return its stdout lines.
@@ -642,17 +642,15 @@ END SUB
     );
 }
 
-/// A text scene with enough glyphs to be worth comparing, but few enough to stay under
-/// Metal's per-polygon edge cap.
+/// A text scene the GPU draws — four glyphs, at a size whose bitmaps fit Metal's
+/// per-glyph payload.
 ///
-/// That cap is the reason this scene is four squares rather than a sentence. `MAX_EDGES`
-/// is 256 because a Metal `setFragmentBytes:` payload is 4 KB, and a *curved* glyph
-/// costs about 160 flattened edges — measured, in Andale Mono: `Sog@` is 688 edges and
-/// `Sogsogsogsog` is 1899. So on Metal the cap is exceeded by the **second** curved
-/// character, and real text falls back to software today (plan-98-G Correction 12).
-///
-/// The fixture's glyph is a square, so four of them are sixteen edges and this
-/// comparison is about the pixels rather than about the cap.
+/// Since the glyph cache landed, a glyph reaches the GPU as a *coverage bitmap* rather
+/// than as flattened edges, so the old `MAX_EDGES` cap no longer decides whether text is
+/// GPU-drawable. What decides it now is bitmap size: Metal carries one glyph's coverage
+/// in a `setFragmentBytes:` payload, capped at 4 KiB — about 64x64 — and Vulkan carries
+/// the whole frame's in a buffer region. At size 120 the fixture's square is 36x36, well
+/// inside both.
 const GPU_TEXT: &str = r#"IMPORT app
 IMPORT canvas
 
@@ -667,7 +665,7 @@ END SUB
 "#;
 
 #[test]
-fn a_scene_containing_text_is_declined_by_the_gpu_and_falls_back_completely() {
+fn text_on_the_gpu_matches_the_software_oracle() {
     let software = render_with("canvas_text_gpu_sw", GPU_TEXT, false);
     let gpu = render_with("canvas_text_gpu_hw", GPU_TEXT, true);
     if gpu.is_empty() {
@@ -690,18 +688,19 @@ fn a_scene_containing_text_is_declined_by_the_gpu_and_falls_back_completely() {
         height,
         pixels: gpu,
     };
-    // Since the glyph cache landed, a glyph run is a kind neither shader can draw, so
-    // both `*Renderable` predicates decline the whole scene and the frame comes from the
-    // software path. That is why this asserts **exact** equality rather than a
-    // tolerance: a fallback producing *nearly* the software frame would mean the GPU had
-    // drawn part of it, and a partial GPU frame is the failure this exists to catch.
+    // A tolerance rather than exact equality, for the same reason every other GPU
+    // comparison uses one: the shader composites in linear space with hardware blending
+    // and the oracle blends in sRGB, so antialiased edges land within a step or two of
+    // each other rather than on the same value.
     //
-    // Not hypothetical. The first version of the cache left the predicates alone, Metal
-    // accepted a scene whose kind its shader does not know, and the frame came back with
-    // the text simply missing and no error anywhere — 4536 pixels wrong, reported as
-    // success. That is the exact lie both predicates were written to prevent.
-    if let Err(diff) = compare_exact(&got, &want) {
-        panic!("a scene containing text must fall back to the software renderer whole: {diff:?}");
+    // What this catches is the failure that is otherwise silent. Before the backends
+    // could draw a glyph, Metal accepted a scene whose kind its shader did not know and
+    // returned a frame with the text simply missing — 4,536 pixels wrong, reported as
+    // success. A GPU frame that merely *resembles* the oracle is the same lie in a
+    // quieter form, which is why this compares pixels rather than checking that the
+    // renderer claimed the GPU.
+    if let Err(diff) = compare_within_tolerance(&got, &want, Tolerance::GPU_DEFAULT) {
+        panic!("GPU text differs from the software oracle: {diff:?}");
     }
 }
 

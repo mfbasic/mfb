@@ -58,6 +58,8 @@ pub(crate) fn lower_metal_draw_scene(
         "the height argument",
         "the geometry argument",
         "the offsets argument",
+        "the glyph metadata argument",
+        "the glyph coverage argument",
     ]
     .into_iter()
     .enumerate()
@@ -70,24 +72,47 @@ pub(crate) fn lower_metal_draw_scene(
         );
     }
 
-    // The offset count comes off the collection header rather than from a sixth
+    // **Every value is computed into a temporary before ANY argument register is
+    // written.** The incoming arguments are themselves in the MFB argument bank, so
+    // staging in place makes each write a potential clobber of a later read — and it
+    // does not stay theoretical: with the glyph cache added, `located[5]` arrives in the
+    // register `mfb_arg(5)` names, so loading the offset count straight into it
+    // destroyed the glyph metadata pointer, and the next instruction derived the
+    // coverage pointer from the wreckage. The graphics thread then segfaulted
+    // dereferencing 0x29. Two passes cost a few moves the allocator mostly coalesces
+    // away, and cannot be wrong.
+    //
+    // The offset count comes off the collection header rather than from a seventh
     // MFBASIC argument: `len(offsets)` at the call site and `count` in the block are
     // the same number, and reading it here means the caller cannot pass a count that
     // disagrees with the list it also passed.
-    builder.emit(abi::load_u64(
-        abi::mfb_arg(5),
-        &located[4],
-        COLLECTION_OFFSET_COUNT,
-    ));
-    for (slot, source) in [(0usize, 0usize), (3, 3), (4, 4)] {
+    let count = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&count, &located[4], COLLECTION_OFFSET_COUNT));
+    let mut staged = Vec::new();
+    // Slots 6 and 7 are the glyph cache — its metadata and its coverage bytes — which a
+    // `Text` item's run indexes into. They are the last two MFB argument registers: the
+    // bank is eight wide, so this seam is now full and a ninth argument would have to
+    // travel on the stack.
+    for (slot, source) in [(0usize, 0usize), (3, 3), (4, 4), (6, 5), (7, 6)] {
+        let payload = builder.temporary_vreg();
         builder.emit(abi::add_immediate(
-            abi::mfb_arg(slot),
+            &payload,
             &located[source],
             COLLECTION_HEADER_SIZE,
         ));
+        staged.push((slot, payload));
     }
-    builder.emit(abi::move_register(abi::mfb_arg(1), &located[1]));
-    builder.emit(abi::move_register(abi::mfb_arg(2), &located[2]));
+    let width = builder.temporary_vreg();
+    let height = builder.temporary_vreg();
+    builder.emit(abi::move_register(&width, &located[1]));
+    builder.emit(abi::move_register(&height, &located[2]));
+
+    for (slot, payload) in staged {
+        builder.emit(abi::move_register(abi::mfb_arg(slot), &payload));
+    }
+    builder.emit(abi::move_register(abi::mfb_arg(1), &width));
+    builder.emit(abi::move_register(abi::mfb_arg(2), &height));
+    builder.emit(abi::move_register(abi::mfb_arg(5), &count));
 
     if let Some(result) =
         ctx.platform
@@ -136,6 +161,8 @@ pub(crate) fn lower_vulkan_draw_scene(
         "the height argument",
         "the geometry argument",
         "the offsets argument",
+        "the glyph metadata argument",
+        "the glyph coverage argument",
     ]
     .into_iter()
     .enumerate()
@@ -156,6 +183,8 @@ pub(crate) fn lower_vulkan_draw_scene(
         &located[2],
         &located[3],
         &located[4],
+        &located[5],
+        &located[6],
     )?;
     builder.emit(abi::move_immediate(
         RESULT_TAG_REGISTER,
@@ -203,7 +232,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 }
 
 /// The parameter list both GPU draw seams take: the surface to write, its
-/// dimensions, the geometry cache, and the per-item offsets in draw order.
+/// dimensions, the geometry cache, the per-item offsets in draw order, and the glyph
+/// coverage cache a `Text` item's run indexes into.
+///
+/// The glyph cache arrives as two lists rather than being reachable from the geometry:
+/// a run stores cache *indices*, and the bitmaps live in globals the emitters cannot
+/// name. Passing them is what lets a backend draw text at all — without them a glyph
+/// run is three numbers per character and no pixels.
 fn scene_params() -> Vec<Parameter> {
     vec![
         Parameter {
@@ -239,6 +274,20 @@ fn scene_params() -> Vec<Parameter> {
             desc: "",
             aliases: &[],
             ty: ParameterType::list_of(ParameterType::Integer),
+            default: DefaultValue::None,
+        },
+        Parameter {
+            name: "glyphMeta",
+            desc: "",
+            aliases: &[],
+            ty: ParameterType::list_of(ParameterType::Integer),
+            default: DefaultValue::None,
+        },
+        Parameter {
+            name: "glyphCoverage",
+            desc: "",
+            aliases: &[],
+            ty: ParameterType::list_of(ParameterType::Byte),
             default: DefaultValue::None,
         },
     ]

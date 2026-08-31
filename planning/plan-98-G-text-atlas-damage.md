@@ -305,7 +305,7 @@ within tolerance); `measureText` works and its API is shaper-independent; a `Fon
 loads, is named by a `FontRef` in a `Text` item, and is released by
 `canvas::destroyFont` and by scope-drop; `canvas::loadImage` decodes a real file to
 the same `Image` resource `canvas::createImage` produces.
-Commit: —
+Commit: 6fb4e7df3 (`canvas::loadImage`; the rest of Phase 1 landed across the commits named in Corrections 1-12)
 
 ### Phase 2 — Glyph atlas LRU eviction
 
@@ -326,11 +326,25 @@ Commit: —
       **pixel-identical**. Measured `glyphEvictions=23, glyphs=261` under pressure against
       `glyphEvictions=0, glyphs=300` without. It is not a vacuous test — it found two real
       defects before it passed (Corrections 15 and 16).
-- [ ] **GPU text** (added — Correction 14 is its motivation): give Metal and Vulkan a glyph
-      atlas texture and a sampler so a `__CANVAS_GEO_TEXT` scene renders on the GPU instead of
-      being declined. Until then both `*Renderable` predicates decline it and the whole scene
-      falls back to software, which is correct but forfeits the GPU for any scene with a
-      character in it.
+- [x] **GPU text** (added — Correction 14 is its motivation): a `__CANVAS_GEO_TEXT` scene
+      renders on the GPU instead of being declined. Not a texture and a sampler in the end
+      (Correction 21): a glyph's cached bitmap already *is* antialiased coverage, so both
+      backends read it as a plain array and any filtering would be a second antialiasing pass
+      over an already-antialiased image.
+
+      Vulkan copies the frame's bitmaps into a second region of the buffer that already
+      carries polygon edges and passes a per-draw offset; Metal hands each bitmap to
+      `setFragmentBytes:` in place, out of the cache. Both `*Renderable` predicates now bound
+      a glyph run rather than refusing it — per frame on Vulkan, per glyph on Metal, because
+      that is where each backend's limit actually is.
+
+      **Measured.** macOS/Metal: the GPU frame and the software oracle are *byte-identical*
+      (0 differing pixels, 4536 lit in each) — `tests/rt_canvas_font.rs`'s
+      `text_on_the_gpu_matches_the_software_oracle`. Linux/Vulkan on both libcs
+      (`scripts/test-canvas-vulkan.sh --box 2228 --libc glibc` and
+      `--box 2227 --libc musl --icd auto`): `worst=1 differing=0.0335%`, with the scene's text
+      band asserted lit in *both* frames first — 900 pixels each — so an agreement reached by
+      neither backend drawing it cannot pass.
 
 Acceptance: atlas eviction is LRU and never evicts a live glyph; output is golden-stable across
 eviction cycles — asserted as **exact pixel equality** between a pressured and an unpressured
@@ -691,6 +705,50 @@ not say so.** `FUNC __canvas_adam7Count(total, origin, step AS Integer)` is refu
 identifier or why. It is the reserved word (`.ai/`-level lore, and the same trap
 Correction 8 records for `sub` and `to`). Renamed to `interval`, with the reason left in
 the body so the next reader does not rediscover it.
+
+**Correction 21 (Phase 2) — GPU text wanted a buffer, not a texture and a sampler.** The
+row this letter added said "a glyph atlas texture and a sampler", which is how a text
+renderer normally reaches a GPU. It is the wrong shape here for a specific reason: the
+cached bitmap is *already* antialiased coverage — the CPU evaluated the outline's signed
+distance once per sample when it filled the cache — so a sampler would filter an image
+that has already been filtered, and a linear filter over coverage is not the same as
+coverage of a filtered outline. The mapping from pixel to sample is exact anyway: the pen
+is rounded to a whole pixel and the quad is the bitmap's own box, so an integer index is
+both simpler and more correct than a texture coordinate.
+
+What each backend needed instead followed from how it already carries polygon edges.
+Vulkan records one command buffer for the whole frame, so a shared buffer with a per-draw
+offset is the only thing that gives each glyph its own view; its bitmaps therefore ride a
+second region of the buffer the edges already use — one allocation, one memory-type
+search, one descriptor binding. Metal's `setFragmentBytes:` copies into the command buffer
+at record time, so its bitmap needs no staging at all and is handed over as a pointer into
+the coverage cache. The two caps differ for the same reason: Metal's is 4 KiB **per
+glyph** (about 64x64, a glyph at roughly 200 px), Vulkan's is a **frame** total.
+
+**Correction 22 (Phase 2) — staging arguments in place clobbered them, and it took a
+segfault at 0x29 to see it.** `canvas::metalDrawScene` stages its arguments into the MFB
+argument bank, and its own arguments arrive in that same bank. With the glyph cache added
+the seventh argument arrived in the register `mfb_arg(5)` names, so loading the offset
+count into `mfb_arg(5)` destroyed the glyph metadata pointer — and the *next* instruction
+derived the coverage pointer from the wreckage. The graphics thread died dereferencing
+`0x29`, with one frame in the crash report and no indication which argument was wrong;
+`otool -tV` on the shipped binary showed `add x6, x5, #0x28` two instructions after `ldr
+x5, [x4, #0x8]`, which is the whole bug in two lines.
+
+Every value is now computed into a temporary **before any argument register is written**.
+Reordering the writes would have worked for this particular mapping and would have been a
+trap for the next argument added; the two-pass form cannot be wrong, and the allocator
+coalesces most of the moves away. Recorded in `.ai/arch-abi.md` beside the other
+argument-bank aliasing traps, because it is a property of the convention rather than of
+this seam.
+
+**Correction 23 (Phase 2) — a GPU/oracle agreement is worthless until both frames are
+known non-empty.** `scripts/test-canvas-vulkan.sh` compares the two renders and passes when
+they agree. Two backends that each drew *nothing* agree perfectly, and the glyph arm fails
+exactly that way: a wrong buffer offset reads zero coverage, which is transparent, which is
+invisible. The script now counts lit pixels in the label's own scanline in **both** frames
+and fails if either is empty, before it believes the diff. It reports 900 lit in each,
+which is also how the row above can quote a number rather than a verdict.
 
 ## Summary
 

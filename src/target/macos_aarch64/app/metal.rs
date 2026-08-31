@@ -49,10 +49,12 @@
 use super::*;
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::codegen::runtime::canvas::{
-    EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, HEADER_AUX0, HEADER_AUX1, HEADER_BOUNDS,
-    HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF,
-    HEADER_STROKE_R, ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC,
-    ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, MAX_EDGES,
+    EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
+    GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS, HEADER_AUX0,
+    HEADER_AUX1, HEADER_BOUNDS, HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE,
+    HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE,
+    ITEM_OFFSET_ARC, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE,
+    ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, MAX_EDGES, METAL_MAX_GLYPH_SAMPLES,
 };
 use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_MTL_DEVICE, GRAPHICS_OFFSET_MTL_PIPELINE, GRAPHICS_OFFSET_MTL_QUEUE,
@@ -176,6 +178,12 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  c = c / 255.0;\n",
     "  return c <= 0.04045 ? (c / 12.92) : pow((c + 0.055) / 1.055, 2.4);\n",
     "}\n",
+    "static float4 covered(int4 rgba, int coverage) {\n",
+    "  float a = float((rgba.w * coverage) / 255) / 255.0;\n",
+    "  return float4(srgbToLinear(float(rgba.x)) * a,\n",
+    "                srgbToLinear(float(rgba.y)) * a,\n",
+    "                srgbToLinear(float(rgba.z)) * a, a);\n",
+    "}\n",
     "static float4 premultiplied(int4 rgba, float distance) {\n",
     // The oracle quantizes coverage to a whole 0..255 and then takes an integer
     // `(colourAlpha * coverage) / 255`. Matching that here rather than blending in
@@ -184,15 +192,26 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // coverage that merely rounds differently produces a visible disagreement on
     // every antialiased edge. Quantizing the same way leaves only the pixels within
     // a rounding boundary of each other.
-    "  int coverage = int(clamp(0.5 - distance, 0.0, 1.0) * 255.0 + 0.5);\n",
-    "  float a = float((rgba.w * coverage) / 255) / 255.0;\n",
-    "  return float4(srgbToLinear(float(rgba.x)) * a,\n",
-    "                srgbToLinear(float(rgba.y)) * a,\n",
-    "                srgbToLinear(float(rgba.z)) * a, a);\n",
+    "  return covered(rgba, int(clamp(0.5 - distance, 0.0, 1.0) * 255.0 + 0.5));\n",
     "}\n",
     "fragment float4 mfbFragment(VOut in [[stage_in]],\n",
     "                            constant MfbItem &item [[buffer(0)]],\n",
-    "                            constant int *edges [[buffer(1)]]) {\n",
+    "                            constant int *edges [[buffer(1)]],\n",
+    "                            constant uchar *glyph [[buffer(2)]]) {\n",
+    // A glyph has coverage, not a distance: the CPU rasterised its outline once and
+    // cached the bitmap (plan-98-G Phase 2), so the GPU's job here is a lookup. It
+    // returns before `geoDistance` for that reason, and it is fill-only — a stroked
+    // text item became an outline polygon in the geometry builder.
+    //
+    // Outside the bitmap is zero rather than clamped: the quad can cover a pixel the
+    // bitmap does not, and clamping would smear the border row outward.
+    "  if (item.misc.x == 6) {\n",
+    "    int ix = int(in.pos.x) - item.shape.x;\n",
+    "    int iy = int(in.pos.y) - item.shape.y;\n",
+    "    int cov = (ix < 0 || iy < 0 || ix >= item.misc.w || iy >= item.arc.x)\n",
+    "      ? 0 : int(glyph[iy * item.misc.w + ix]);\n",
+    "    return covered(item.fill, cov);\n",
+    "  }\n",
     "  float d = geoDistance(item, edges, in.pos.xy);\n",
     "  float4 colour = premultiplied(item.fill, d);\n",
     "  float halfWidth = fx(item.misc.z);\n",
@@ -592,7 +611,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // stack area. Getting that wrong is not a subtle mismatch: the callee dereferences
 // whatever is in that register, and a zero there faults inside
 // `-[IOGPUMetalTexture getBytes:…]` with none of our frames in the trace.
-const DRAW_FRAME: usize = 320 + MAX_EDGES * 16;
+const DRAW_FRAME: usize = 400 + MAX_EDGES * 16;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -606,7 +625,24 @@ const OFF_TEXTURE: usize = 304;
 /// and every scratch register is caller-saved across it.
 const OFF_EDGE_COUNT: usize = 312;
 /// The polygon edge buffer: `MAX_EDGES` edges of four 16.16 ints.
-const OFF_EDGES: usize = 320;
+/// The glyph cache's two payload pointers, and the per-glyph loop's state.
+///
+/// On the stack rather than in `LOCAL` registers because the glyph loop makes two
+/// `objc_msgSend` calls per glyph and the low `LOCAL`s are the objc temporaries.
+const OFF_GLYPH_META: usize = 320;
+const OFF_GLYPH_COV: usize = 328;
+const OFF_GLYPH_INDEX: usize = 336;
+const OFF_GLYPH_COUNT: usize = 344;
+const OFF_GLYPH_HEADER: usize = 352;
+const OFF_GLYPH_W: usize = 360;
+const OFF_GLYPH_H: usize = 368;
+const OFF_GLYPH_X: usize = 376;
+const OFF_GLYPH_Y: usize = 384;
+/// The pointer handed straight to `setFragmentBytes:` — into the coverage cache
+/// itself. Metal copies at record time, so the bitmap needs no staging buffer of its
+/// own; the cache's bytes for one glyph are already contiguous.
+const OFF_GLYPH_SRC: usize = 392;
+const OFF_EDGES: usize = 400;
 
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
 /// render one frame on the GPU and read it back into `pixels`.
@@ -634,6 +670,8 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     let have_texture = format!("{METAL_DRAW_SYMBOL}_have_texture");
     let item_head = format!("{METAL_DRAW_SYMBOL}_item_head");
     let item_done = format!("{METAL_DRAW_SYMBOL}_item_done");
+    let item_next = format!("{METAL_DRAW_SYMBOL}_item_next");
+    let text_item = format!("{METAL_DRAW_SYMBOL}_text_item");
     let swizzle_head = format!("{METAL_DRAW_SYMBOL}_swizzle_head");
     let swizzle_done = format!("{METAL_DRAW_SYMBOL}_swizzle_done");
 
@@ -670,6 +708,13 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     asm.push(abi::move_register(abi::LOCAL[3], abi::mfb_arg(3))); // geometry payload
     asm.push(abi::move_register(abi::LOCAL[4], abi::mfb_arg(4))); // offsets payload
     asm.push(abi::move_register(abi::LOCAL[5], abi::mfb_arg(5))); // offset count
+    for (argument, slot) in [(6usize, OFF_GLYPH_META), (7, OFF_GLYPH_COV)] {
+        asm.push(abi::store_u64(
+            abi::mfb_arg(argument),
+            abi::stack_pointer(),
+            slot,
+        ));
+    }
 
     // The pipeline, built on first use. A failure here leaves the surface exactly as
     // `canvas::newSurface` made it, which is the cleared frame — not garbage.
@@ -883,6 +928,25 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         abi::SCRATCH[0],
     ));
 
+    // A glyph run is not one draw: it forks here, before the item block is built,
+    // because the block a glyph needs describes the *glyph* and not the run.
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_GLYPH_HEADER,
+    ));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        abi::SCRATCH[0],
+        HEADER_KIND * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[1], GEO_KIND_TEXT));
+    asm.push(abi::branch_eq(&text_item));
+
     emit_edge_buffer(&mut asm);
     asm.push(abi::store_u64(
         abi::SCRATCH[2],
@@ -950,7 +1014,12 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "4"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::branch(&item_next));
 
+    asm.push(abi::label(&text_item));
+    emit_glyph_draws(&mut asm);
+
+    asm.push(abi::label(&item_next));
     asm.push(abi::add_immediate(abi::LOCAL[2], abi::LOCAL[2], 1));
     asm.push(abi::branch(&item_head));
     asm.push(abi::label(&item_done));
@@ -1110,6 +1179,411 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
 ///
 /// Positions narrow to 16.16 fixed point, colours cross as the whole 0–255 values the
 /// header already stores. Nothing here rounds a colour, so a fill is exact.
+/// One quad per glyph, for a `__CANVAS_GEO_TEXT` item.
+///
+/// The Metal twin of `emit_glyph_draws` in `runtime/canvas/vulkan.rs`, and simpler for
+/// one reason: `setFragmentBytes:` copies into the command buffer at record time, so a
+/// glyph's bitmap can be handed over **in place** — a pointer into the coverage cache —
+/// where Vulkan has to copy it into a frame-wide buffer and pass an offset. The price is
+/// the payload's 4 KiB cap, which is `METAL_MAX_GLYPH_SAMPLES` and is why
+/// `__canvas_metalRenderable` declines a scene with a glyph bigger than about 64x64.
+///
+/// The item block is built once for the run — fill, stroke and surface are the same for
+/// every glyph in it — and then edited per glyph.
+fn emit_glyph_draws(asm: &mut Asm) {
+    let head = format!("{METAL_DRAW_SYMBOL}_glyph_head");
+    let done = format!("{METAL_DRAW_SYMBOL}_glyph_done");
+    let next = format!("{METAL_DRAW_SYMBOL}_glyph_next");
+
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_GLYPH_HEADER,
+    ));
+    emit_item_block(asm);
+
+    // The run's glyph count, and a zeroed index.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_GLYPH_HEADER,
+    ));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        abi::SCRATCH[0],
+        HEADER_AUX0 * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_GLYPH_COUNT,
+    ));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_GLYPH_INDEX,
+    ));
+
+    // kind = 6, radius = 0, strokeHalf = 0. A glyph is fill-only: a stroked text item
+    // became an outline polygon in the geometry builder and never reaches here.
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        GEO_KIND_TEXT,
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC,
+    ));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    for word in 1..3 {
+        asm.push(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_ITEM + ITEM_OFFSET_MISC + word * 4,
+        ));
+    }
+
+    asm.push(abi::label(&head));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_GLYPH_INDEX,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_GLYPH_COUNT,
+    ));
+    asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
+    asm.push(abi::branch_ge(&done));
+
+    // run = header + HEADER_SLOTS + index * GLYPH_RUN_SLOTS, in doubles.
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        &GLYPH_RUN_SLOTS.to_string(),
+    ));
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        3,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_GLYPH_HEADER,
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+    ));
+    asm.push(abi::add_immediate(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        HEADER_SLOTS * 8,
+    ));
+    for (slot, register) in [
+        (0usize, abi::SCRATCH[2]),
+        (1, abi::SCRATCH[3]),
+        (2, abi::SCRATCH[4]),
+    ] {
+        asm.push(abi::load_double(
+            abi::FP_SCRATCH[1],
+            abi::SCRATCH[0],
+            slot * 8,
+        ));
+        asm.push(abi::float_convert_to_signed_x(register, abi::FP_SCRATCH[1]));
+    }
+    // A cache entry of -1 is a glyph the eviction pass dropped after this run was
+    // built: it draws nothing rather than indexing the metadata out of range.
+    asm.push(abi::compare_immediate(abi::SCRATCH[2], "0"));
+    asm.push(abi::branch_lt(&next));
+
+    // meta = glyphMeta + entry * GLYPH_META_SLOTS, in 8-byte Integers.
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[5],
+        "Integer",
+        &GLYPH_META_SLOTS.to_string(),
+    ));
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[2],
+        abi::SCRATCH[2],
+        abi::SCRATCH[5],
+    ));
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[2],
+        abi::SCRATCH[2],
+        3,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        OFF_GLYPH_META,
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[2],
+        abi::SCRATCH[5],
+        abi::SCRATCH[2],
+    ));
+
+    asm.push(abi::load_u64(
+        abi::SCRATCH[5],
+        abi::SCRATCH[2],
+        GLYPH_META_X0 * 8,
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[5],
+        abi::SCRATCH[5],
+        abi::SCRATCH[3],
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        OFF_GLYPH_X,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[5],
+        abi::SCRATCH[2],
+        GLYPH_META_Y0 * 8,
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[5],
+        abi::SCRATCH[5],
+        abi::SCRATCH[4],
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        OFF_GLYPH_Y,
+    ));
+    for (slot, parked) in [(GLYPH_META_W, OFF_GLYPH_W), (GLYPH_META_H, OFF_GLYPH_H)] {
+        asm.push(abi::load_u64(abi::SCRATCH[5], abi::SCRATCH[2], slot * 8));
+        asm.push(abi::store_u64(
+            abi::SCRATCH[5],
+            abi::stack_pointer(),
+            parked,
+        ));
+    }
+    // src = coverage + covStart — handed to `setFragmentBytes:` as it is.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[5],
+        abi::SCRATCH[2],
+        GLYPH_META_START * 8,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[6],
+        abi::stack_pointer(),
+        OFF_GLYPH_COV,
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[5],
+        abi::SCRATCH[6],
+        abi::SCRATCH[5],
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        OFF_GLYPH_SRC,
+    ));
+
+    // An empty bitmap — a space, or a glyph with no contours — draws nothing, and
+    // `setFragmentBytes:length:` will not take a zero length anyway.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        OFF_GLYPH_W,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[5], "0"));
+    asm.push(abi::branch_le(&next));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[6],
+        abi::stack_pointer(),
+        OFF_GLYPH_H,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[6], "0"));
+    asm.push(abi::branch_le(&next));
+    // Bigger than the payload is a scene `__canvas_metalRenderable` should already have
+    // declined. Skipping rather than truncating: a clipped glyph is a different glyph.
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[6],
+        abi::SCRATCH[5],
+        abi::SCRATCH[6],
+    ));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[7],
+        "Integer",
+        &METAL_MAX_GLYPH_SAMPLES.to_string(),
+    ));
+    asm.push(abi::compare_registers(abi::SCRATCH[6], abi::SCRATCH[7]));
+    asm.push(abi::branch_gt(&next));
+
+    // --- the glyph's own item block ------------------------------------------------
+    // quad is 16.16 like every other kind's; shape.x/.y are WHOLE pixels, because the
+    // shader indexes the bitmap with them.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_GLYPH_X,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_GLYPH_Y,
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_SHAPE,
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_SHAPE + 4,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[2],
+        abi::stack_pointer(),
+        OFF_GLYPH_W,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[3],
+        abi::stack_pointer(),
+        OFF_GLYPH_H,
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[4],
+        abi::SCRATCH[0],
+        abi::SCRATCH[2],
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[5],
+        abi::SCRATCH[1],
+        abi::SCRATCH[3],
+    ));
+    for (register, word) in [
+        (abi::SCRATCH[0], 0usize),
+        (abi::SCRATCH[1], 1),
+        (abi::SCRATCH[4], 2),
+        (abi::SCRATCH[5], 3),
+    ] {
+        asm.push(abi::shift_left_immediate(abi::SCRATCH[6], register, 16));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[6],
+            abi::stack_pointer(),
+            OFF_ITEM + ITEM_OFFSET_QUAD + word * 4,
+        ));
+    }
+    // misc.w = width, arc.x = height. Metal needs no bitmap offset: its payload starts
+    // at the glyph, where Vulkan's is one region shared by the whole frame.
+    asm.push(abi::store_u32(
+        abi::SCRATCH[2],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[3],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_GLYPH_HEIGHT,
+    ));
+
+    // --- bind and draw ---------------------------------------------------------------
+    for setter in [SEL_SET_VERTEX_BYTES.0, SEL_SET_FRAGMENT_BYTES.0] {
+        asm.load_selector(setter);
+        asm.push(abi::add_immediate(
+            abi::c_arg(2),
+            abi::stack_pointer(),
+            OFF_ITEM,
+        ));
+        asm.push(abi::move_immediate(
+            abi::c_arg(3),
+            "Integer",
+            &ITEM_BLOCK_SIZE.to_string(),
+        ));
+        asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+    }
+
+    // The edge buffer still has to be bound: the fragment function declares it, and an
+    // unbound buffer is a validation failure at draw time rather than a nil the shader
+    // could test. One edge's worth of whatever is in the scratch area is enough — the
+    // glyph arm returns before `geoDistance` ever reads it.
+    asm.load_selector(SEL_SET_FRAGMENT_BYTES.0);
+    asm.push(abi::add_immediate(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        OFF_EDGES,
+    ));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "16"));
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "1"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    asm.load_selector(SEL_SET_FRAGMENT_BYTES.0);
+    asm.push(abi::load_u64(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        OFF_GLYPH_SRC,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        OFF_GLYPH_W,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[6],
+        abi::stack_pointer(),
+        OFF_GLYPH_H,
+    ));
+    asm.push(abi::multiply_registers(
+        abi::c_arg(3),
+        abi::SCRATCH[5],
+        abi::SCRATCH[6],
+    ));
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "2"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    asm.load_selector(SEL_DRAW_PRIMITIVES.0);
+    asm.push(abi::move_immediate(
+        abi::c_arg(2),
+        "Integer",
+        MTL_PRIMITIVE_TRIANGLE_STRIP,
+    ));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "4"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    asm.push(abi::label(&next));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_GLYPH_INDEX,
+    ));
+    asm.push(abi::add_immediate(abi::SCRATCH[0], abi::SCRATCH[0], 1));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_GLYPH_INDEX,
+    ));
+    asm.push(abi::branch(&head));
+    asm.push(abi::label(&done));
+}
+
 fn emit_item_block(asm: &mut Asm) {
     let header = abi::SCRATCH[0];
     let scale = abi::FP_SCRATCH[0];

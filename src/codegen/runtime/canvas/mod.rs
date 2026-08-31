@@ -257,7 +257,16 @@ pub(crate) const ITEM_OFFSET_MISC: usize = 64;
 /// travels.
 pub(crate) const ITEM_OFFSET_ARC: usize = 80;
 /// The word inside `ITEM_OFFSET_ARC` holding the polygon's first-edge index.
+///
+/// For a glyph (`GEO_KIND_TEXT`) the same word holds the first-*sample* index into the
+/// buffer's glyph region, for exactly the same reason: Vulkan records one buffer for the
+/// frame, so a per-draw offset is the only way each glyph can see its own bitmap.
 pub(crate) const ITEM_ARC_EDGE_BASE: usize = 8;
+/// The word inside `ITEM_OFFSET_ARC` holding a glyph's bitmap height.
+///
+/// A glyph reads neither arc angle, so `arc.x` carries the height beside `misc.w`'s
+/// width — the same per-kind reuse the arc/polygon pair already makes of this block.
+pub(crate) const ITEM_ARC_GLYPH_HEIGHT: usize = 0;
 /// The surface's width and height, in whole pixels.
 pub(crate) const ITEM_OFFSET_SURFACE: usize = 96;
 
@@ -270,6 +279,26 @@ pub(crate) const ITEM_OFFSET_SURFACE: usize = 96;
 /// `__CANVAS_GEO_POLYGON` cannot leave two backends disagreeing with the source of
 /// truth in different ways.
 pub(crate) const GEO_KIND_POLYGON: &str = "4";
+
+/// `__CANVAS_GEO_TEXT` — a glyph run, the other kind whose payload does not fit in the
+/// item block, and the only one that is not *one* draw.
+///
+/// A run's tail is `(cacheEntry, penX, penY)` per glyph, and each glyph is its own quad
+/// with its own coverage bitmap, so a text item becomes N draws rather than one. Both
+/// emitters therefore branch on this before they build an item block at all.
+pub(crate) const GEO_KIND_TEXT: &str = "6";
+/// Floats per glyph in a `__CANVAS_GEO_TEXT` tail: `cacheEntry, penX, penY`.
+pub(crate) const GLYPH_RUN_SLOTS: usize = 3;
+/// Integers per `__CANVAS_GLYPH_META` entry: `x0, y0, w, h, covStart`.
+///
+/// `x0`/`y0` are the bitmap's offset from the pen, which is what lets the same bitmap
+/// serve the same glyph wherever it lands; `covStart` indexes `__CANVAS_GLYPH_COV`.
+pub(crate) const GLYPH_META_SLOTS: usize = 5;
+pub(crate) const GLYPH_META_X0: usize = 0;
+pub(crate) const GLYPH_META_Y0: usize = 1;
+pub(crate) const GLYPH_META_W: usize = 2;
+pub(crate) const GLYPH_META_H: usize = 3;
+pub(crate) const GLYPH_META_START: usize = 4;
 
 /// 16.16 fixed point: the scale both shaders divide positions by.
 ///
@@ -321,6 +350,36 @@ pub(crate) const MAX_EDGES: usize = 256;
 pub(crate) const VULKAN_MAX_FRAME_EDGES: usize = 16384;
 /// Four 16.16 words per edge — the two endpoints.
 pub(crate) const VULKAN_EDGE_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16;
+
+/// The most coverage samples one **frame**'s glyphs may carry on the Vulkan path.
+///
+/// Glyph bitmaps ride the same buffer as the edges, in a region after them, for the
+/// reason a second buffer would have to be justified rather than assumed: it would need
+/// its own allocation, its own memory-type search, its own descriptor binding and its
+/// own upload, to hold data with exactly the edges' lifetime and exactly their access
+/// pattern. One buffer, two regions, one binding.
+///
+/// One sample per 32-bit word rather than four packed per word. That wastes three
+/// quarters of the region and buys a shader arm with no shifting and no masking, in the
+/// only place where a packing mistake would be invisible — a wrongly unpacked coverage
+/// byte still produces a glyph, just a wrong one. A megabyte of samples is 4 MiB of
+/// buffer, which is nothing on any device that has a Vulkan driver at all.
+pub(crate) const VULKAN_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 20;
+/// Where the glyph region starts, in 32-bit words — i.e. immediately after the edges.
+pub(crate) const VULKAN_GLYPH_BASE_WORDS: usize = VULKAN_EDGE_BYTES / 4;
+/// The whole shared buffer: edges, then glyph coverage.
+pub(crate) const VULKAN_BUFFER_BYTES: usize =
+    VULKAN_EDGE_BYTES + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4;
+
+/// The most coverage samples one glyph may carry on the **Metal** path.
+///
+/// Metal's glyph bitmap rides `setFragmentBytes:` exactly as its edges do, so the bound
+/// is the same 4 KiB payload and it is per glyph rather than per frame. That is about a
+/// 64x64 bitmap, which is a glyph at roughly 200 px. `__canvas_metalRenderable` declines
+/// a scene containing a bigger one rather than clipping it, for the reason it declines
+/// an over-long polygon: a clipped glyph is a *different glyph*, and would read as a
+/// rasteriser bug rather than as a backend limit.
+pub(crate) const METAL_MAX_GLYPH_SAMPLES: usize = 4096;
 
 /// The trampoline `pthread_create` starts: establishes the MFB context, then loops.
 pub(crate) const GRAPHICS_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_canvas_graphics_entry";
