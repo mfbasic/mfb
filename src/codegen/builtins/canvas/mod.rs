@@ -41,16 +41,27 @@ mod func_fill_stroke;
 mod func_get_bytes;
 mod func_get_size;
 mod func_image_ref;
+mod func_installed_items;
+mod func_installed_layers;
 mod func_present;
 mod func_present_layers;
+mod func_publish_scene;
 mod func_rgb;
 mod func_rgba;
+mod func_scene_hashes;
 mod func_set_bytes;
 mod func_stroke;
 pub(crate) mod gen_image;
 mod gen_present;
 mod helper_clamp_byte;
+mod helper_color;
+mod helper_draw;
+mod helper_geometry;
+mod helper_items;
 mod helper_paint_defaults;
+mod helper_render;
+mod helper_shapes;
+mod helper_surface;
 
 /// The `Image` resource's bare type name, and the package-qualified id members
 /// spell in their signatures.
@@ -126,6 +137,12 @@ because the scene holds only its id."#;
 /// (plan-98-A invariant 6).
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("canvas", MODULE_INTRO, MODULE_DESC);
+    // The companion source needs `collections` (the surface is a `List OF Byte`),
+    // `math` (`sqrt`, the one transcendental-free primitive the distance functions
+    // use), `os`/`fs` (the headless frame dump), and `canvas` itself — a package
+    // reaches its own internal-only members through the qualified spelling, exactly
+    // as `astrings` reaches `astrings::readSpans`.
+    pkg.add_imports(vec!["canvas", "collections", "math", "os", "fs"]);
 
     // ---- Value types the items are built from -----------------------------
 
@@ -705,6 +722,10 @@ pub(crate) fn register(r: &mut Registry) {
     func_stroke::register(&mut pkg);
     func_fill_stroke::register(&mut pkg);
     func_present::register(&mut pkg);
+    func_publish_scene::register(&mut pkg);
+    func_installed_items::register(&mut pkg);
+    func_installed_layers::register(&mut pkg);
+    func_scene_hashes::register(&mut pkg);
     func_present_layers::register(&mut pkg);
     func_create_image::register(&mut pkg);
     func_destroy_image::register(&mut pkg);
@@ -714,6 +735,14 @@ pub(crate) fn register(r: &mut Registry) {
     func_set_bytes::register(&mut pkg);
     helper_clamp_byte::register(&mut pkg);
     helper_paint_defaults::register(&mut pkg);
+    // Order matters only for readability — the helper section renders in call order.
+    helper_color::register(&mut pkg);
+    helper_shapes::register(&mut pkg);
+    helper_draw::register(&mut pkg);
+    helper_geometry::register(&mut pkg);
+    helper_items::register(&mut pkg);
+    helper_surface::register(&mut pkg);
+    helper_render::register(&mut pkg);
 
     r.add_package(pkg);
 }
@@ -898,6 +927,36 @@ mod tests {
                 .find(|p| p.ty.name() == handle)
                 .unwrap_or_else(|| panic!("{owner} should name a {handle}"));
             assert!(matches!(field.name, "image" | "font"), "{owner}");
+        }
+    }
+
+    /// The assembled companion source must parse.
+    ///
+    /// `canvas` carries the software rasteriser as MFBASIC source, so this is a large
+    /// body of code whose only other compile check is building a program that imports
+    /// the package — which reports errors against a virtual `<builtin-canvas>` file
+    /// the developer cannot open. This fails in milliseconds and names the line.
+    #[test]
+    fn reassembled_source_parses() {
+        let source = registry()
+            .resolve_package("canvas")
+            .expect("canvas")
+            .get_mfb();
+        if crate::ast::parse_source_internal(
+            std::path::Path::new("<builtin-canvas>"),
+            "builtins/canvas.mfb",
+            &source,
+        )
+        .is_err()
+        {
+            // The parser reports its own diagnostics against `<builtin-canvas>`, a
+            // file that exists only in memory — so echo the numbered source, or the
+            // line numbers it just printed name nothing a developer can open.
+            let mut report = String::new();
+            for (index, line) in source.lines().enumerate() {
+                report.push_str(&format!("\n{:5} | {line}", index + 1));
+            }
+            panic!("reassembled canvas source does not parse (diagnostics above):{report}");
         }
     }
 

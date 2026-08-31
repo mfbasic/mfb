@@ -349,10 +349,14 @@ pub(crate) const CANVAS_SCENE_COUNT_OFFSET: usize = 8;
 /// Byte offset of the pointer to the published items — a deep copy of the caller's
 /// `List OF DrawItem`, owned by the arena, pointing at nothing caller-owned.
 pub(crate) const CANVAS_SCENE_ITEMS_OFFSET: usize = 16;
-// Offset 24 is reserved for the pointer to the per-item content hashes, which lands
-// with the geometry cache in plan-98-C Phase 1 — the hash exists to key that cache,
-// so it arrives when there is geometry to cache. Left as a comment rather than an
-// unused constant; the slot is held open because the layer offsets below start at 32.
+/// Byte offset of the pointer to the per-item content hashes — a `List OF Integer`
+/// parallel to the published items, one hash per item.
+///
+/// The hashes key the renderer's geometry cache, which is why they are published
+/// alongside the scene rather than recomputed per frame: a resize or damage repaint
+/// re-renders the installed scene with no `present` in sight, and it must probe the
+/// same keys the presenting frame did.
+pub(crate) const CANVAS_SCENE_HASHES_OFFSET: usize = 24;
 /// Byte offset of the pointer to the published **layers** — a deep copy of a
 /// `List OF DrawLayer` from `canvas::presentLayers`.
 ///

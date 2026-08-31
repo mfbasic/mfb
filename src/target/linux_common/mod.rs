@@ -54,6 +54,12 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     // Mode.Canvas at runtime).
     "canvas.present",
     "canvas.presentLayers",
+    "canvas.publishScene",
+    "canvas.publishLayers",
+    "canvas.installedItems",
+    "canvas.installedLayers",
+    "canvas.publishHashes",
+    "canvas.installedHashes",
     "canvas.createImage",
     "canvas.destroyImage",
     "canvas.imageRef",

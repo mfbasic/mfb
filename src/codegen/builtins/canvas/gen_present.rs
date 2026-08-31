@@ -61,6 +61,11 @@ impl SceneShape {
 /// Deep-copy the incoming list into the arena's canvas scene region and publish it,
 /// skipping the publish when the content is unchanged.
 ///
+/// Returns **TRUE when it published** and FALSE when it skipped, so the caller can
+/// gate the render on it. That is what makes the frame skip worth anything: the
+/// publish is three stores, the render is the whole scene, and skipping only the
+/// stores would save nothing measurable.
+///
 /// **Why a copy at all**: the renderer reads the installed scene at arbitrary times
 /// after the call returns, with no further involvement from the program. A scene
 /// pointing at caller storage would be read after that storage was reused.
@@ -173,7 +178,10 @@ pub(crate) fn emit_publish(
         &format!("{tag}_same"),
     );
 
+    // Skipped: report FALSE so the caller does not re-render. That is what makes the
+    // skip worth anything — the publish itself is cheap, the render is not.
     builder.emit(abi::label(&skip));
+    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
     builder.emit(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -220,6 +228,7 @@ pub(crate) fn emit_publish(
         scene_offset + CANVAS_SCENE_REVISION_OFFSET,
     ));
 
+    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"));
     builder.emit(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",

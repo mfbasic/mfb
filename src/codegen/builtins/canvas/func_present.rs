@@ -1,13 +1,10 @@
 //! `canvas::present` — install a scene as the canvas's current content.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
-    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::types::ParameterType;
-
-use super::gen_present::{emit_publish, SceneShape};
 
 const INTRO: &str = r#"Install a list of `DrawItem`s as the canvas's current content."#;
 
@@ -58,17 +55,18 @@ SUB main()
 END SUB
 ```"#;
 
-/// `canvas::present(items)` — the flat shape of the shared publish
-/// ([`emit_publish`]). The copy, the exact frame-skip comparison, the store
-/// ordering and the mode gate all live there, because `presentLayers` needs the
-/// identical guarantees and two copies of them would drift.
-pub(crate) fn lower_present(
-    builder: &mut CodeBuilder,
-    args: &[ValueResult],
-    ctx: &AbiCtx,
-) -> Result<ValueResult, String> {
-    emit_publish(builder, args, ctx, SceneShape::Flat)
-}
+/// Publish, then render only if the publish actually changed anything.
+///
+/// The two steps are separate calls because the skip has to gate the *render* to be
+/// worth anything: publishing is three stores, rendering is the whole scene.
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
+  IF canvas::publishScene(items) THEN
+    canvas::publishHashes(__canvas_hashScene(items))
+    __canvas_renderScene()
+  END IF
+END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
@@ -89,7 +87,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Nothing,
             errors: vec!["ErrWrongMode"],
-            body: Body::abi_function(lower_present),
+            body: Body::mfb(BODY, "__canvas_present"),
         }],
     });
 }

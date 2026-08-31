@@ -1,13 +1,10 @@
 //! `canvas::presentLayers` — install a layered scene.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
-    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::types::ParameterType;
-
-use super::gen_present::{emit_publish, SceneShape};
 
 const INTRO: &str = r#"Install a list of `DrawLayer`s as the canvas's current content."#;
 
@@ -54,18 +51,15 @@ SUB main()
 END SUB
 ```"#;
 
-/// `canvas::presentLayers(layers)` — the layered shape of the shared publish
-/// ([`emit_publish`]). It differs from `canvas::present` only in the element type
-/// it copies and which pair of scene slots it writes; every correctness property —
-/// the mode gate before the allocation, the transitive copy, the exact frame-skip
-/// comparison, and the revision-last store ordering — is the same code.
-pub(crate) fn lower_present_layers(
-    builder: &mut CodeBuilder,
-    args: &[ValueResult],
-    ctx: &AbiCtx,
-) -> Result<ValueResult, String> {
-    emit_publish(builder, args, ctx, SceneShape::Layered)
-}
+/// The layered twin of `canvas::present`: publish, render only on a real change.
+#[rustfmt::skip]
+const BODY: &str =
+r#"FUNC __canvas_presentLayers(layers AS List OF DrawLayer) AS Nothing
+  IF canvas::publishLayers(layers) THEN
+    canvas::publishHashes(__canvas_hashLayers(layers))
+    __canvas_renderScene()
+  END IF
+END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
@@ -86,7 +80,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Nothing,
             errors: vec!["ErrWrongMode"],
-            body: Body::abi_function(lower_present_layers),
+            body: Body::mfb(BODY, "__canvas_presentLayers"),
         }],
     });
 }

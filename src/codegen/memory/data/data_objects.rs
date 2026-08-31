@@ -206,7 +206,19 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     // reference `app::` by name to reach either — it always does in practice, since
     // it must `setMode` to get into canvas mode, but keying on the canvas calls
     // themselves makes the gate's relocation resolve from its own cause.
-    if module_uses_any_call(module, &["canvas.present", "canvas.presentLayers"]) {
+    if module_uses_any_call(
+        module,
+        &[
+            "canvas.present",
+            "canvas.presentLayers",
+            "canvas.publishScene",
+            "canvas.publishLayers",
+            "canvas.installedItems",
+            "canvas.installedLayers",
+            "canvas.publishHashes",
+            "canvas.installedHashes",
+        ],
+    ) {
         for value in [err_msg("ErrWrongMode"), err_msg("ErrOutOfMemory")] {
             push_string_value(&mut values, value);
         }

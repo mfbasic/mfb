@@ -165,28 +165,37 @@ wrong gate; C writes the tolerance comparator they will use.
 > vertex data rather than built empty and re-shaped when the data arrives. B kept the
 > whole-scene frame skip, which is real without them.
 
-- [ ] **Per-item content hashing** (moved from B Phase 3): hash each item's bytes
-      within the published scene block and store into the scene region's reserved
-      `hashes` slot — offset **24** in the canvas scene region, held open by B. Declare
-      `CANVAS_SCENE_HASHES_OFFSET` here, where it is first used. The block
-      is contiguous and pointer-free (B Correction 13), so the hash spans the copied
-      bytes directly.
-- [ ] **Geometry cache** (moved from B Phase 3):
-      `GeoCacheEntry{hash, vtxOffset, vtxCount, bounds, lastUsedRev}`; probe on the
-      item hash, hit reuses the vertex range, miss generates and inserts, LRU-evict by
-      `lastUsedRev` under pressure. This is what makes plan-98-A invariant 2 true —
-      re-presenting an unchanged item must be free — so its test must show a **hit
-      skipping generation**, which is only observable now that generation does work.
-- [ ] Implement geometry generation for Rect, Line (stroke expansion), Polygon
-      (tessellation), Image (textured quad), RoundedRect / Circle / Arc (SDF quad; Arc =
-      angle-wedge-clipped stroked ring) — feeding B's cache miss path with real `Vertex`
-      ranges.
-- [ ] Implement the software rasteriser: premultiplied-alpha linear-space over-blend,
-      deterministic sRGB encode on store, Y-down top-left pixel coords, per-pixel SDF
-      evaluation with **deterministic AA** (fixed-point/exact-coverage — pin the math).
-- [ ] Tests: unit tests rasterising each primitive to a small buffer with hand-checked
-      pixel values (corner AA, blend over a background, SDF Circle, a stroked Arc sweeping
-      `0..PI`). The smiley scene from plan-98-api.md is a good golden fixture.
+- [x] **Per-item content hashing** (moved from B Phase 3): hash each item's
+      **fields** (Correction 1 — not its bytes) and publish the resulting
+      `List OF Integer` into the scene region's reserved `hashes` slot — offset **24**
+      in the canvas scene region, held open by B. `CANVAS_SCENE_HASHES_OFFSET` is
+      declared here, where it is first used, via the internal-only
+      `canvas::publishHashes` / `canvas::installedHashes` pair.
+- [x] **Geometry cache** (moved from B Phase 3): the entry's five fields live as
+      parallel lists (`__CANVAS_GEO_HASHES` / `_OFFSETS` / `_COUNTS` / `_LASTUSED`,
+      with `bounds` inside the geometry record itself at slots 16-19); probe on the
+      item hash, **confirm the hit by comparing the 22-float header exactly**
+      (Correction 2), miss generates and inserts, LRU-evict by `lastUsedRev` at 256
+      entries. `rt_canvas_rasteriser::cache_hit_skips_geometry_generation` shows the
+      hit skipping generation: three frames report `generations = 3, 4, 4`.
+- [x] Implement geometry generation for Rect, Line (stroke expansion), Polygon
+      (**precomputed edge array**, Correction 3 — not a triangle tessellation),
+      RoundedRect / Circle / Arc (SDF quad; Arc = angle-wedge-clipped stroked ring) —
+      feeding the cache miss path with real geometry records. Image is `Picture`, which
+      generates the `__CANVAS_GEO_NONE` kind until plan-98-G brings the sampler
+      (Correction 4).
+- [x] Implement the software rasteriser: linear-space over-blend through a literal
+      256-entry sRGB table, deterministic sRGB encode on store, Y-down top-left pixel
+      coords, per-pixel SDF evaluation with **exact-coverage AA** pinned to
+      `clamp(0.5 - d, 0, 1)` — `+ - * / sqrt` only, no transcendental anywhere
+      (Correction 5 pins the math and records why `smoothstep` was rejected).
+- [x] Tests: `tests/rt_canvas_rasteriser.rs` — 8 tests rendering each primitive
+      headless and checking hand-derived pixel values (rectangle span, circle AA edge
+      `= 203`, rounded-rect cut corner, polygon interior, linear-space blend `= 188`
+      where an sRGB-space blend would give `128`, an `Arc` sweeping `0..PI` present
+      below its centre and **absent above it**), plus byte-reproducibility across two
+      independent builds and the cache-hit test above. Four `--bin mfb` unit tests pin
+      the sRGB table's length, endpoints, monotonicity and transfer function.
 
 Acceptance: each primitive rasterises to expected pixels deterministically on the test
 machine; AA and sRGB encode are reproducible (same bytes on re-run); and a re-`present`
@@ -267,7 +276,93 @@ codegen drift gate. The oracle itself is unchanged — invariant 5 still stands.
 letter cited no paths that moved in the 2026-08-16/17 restructurings, so no remap was
 needed.
 
-<Further corrections filled in during execution — especially the pinned AA/sRGB math.>
+**Correction 1 (Phase 1) — the per-item hash is over an item's *fields*, not its
+bytes.** The plan said "the hash spans the copied bytes directly", which is cheaper
+and was correct about the block being contiguous and pointer-free. It is still the
+wrong key: a record's padding is not specified to be initialized, so two items with
+identical content can differ in their padding bytes. A byte hash would then *miss* a
+cache hit that is really there, silently turning plan-98-A invariant 2 off with no
+visible symptom — the frame renders identically either way. `__canvas_hashItem`
+therefore hashes the generated 22-float header, which is padding-independent and
+stands for exactly the content that determines the drawing. The hashes are published
+through the internal-only `canvas::publishHashes`, read back by
+`canvas::installedHashes`, and land at `CANVAS_SCENE_HASHES_OFFSET = 24` as the plan
+required.
+
+**Correction 2 (Phase 1) — a hash probe alone would be a correctness bug; hits are
+confirmed.** The plan said "probe on the item hash, hit reuses the vertex range". A
+bare hash probe lets a collision reuse another item's geometry, which draws the wrong
+picture — a rare wrong answer, which is worse than a common slow one, and one no
+golden would reliably catch. `__canvas_geometryFor` probes by hash and then confirms
+with an exact 22-float header comparison before reusing the tail. The confirmation is
+22 float compares against a tail that can be thousands, so it costs nothing the cache
+was buying.
+
+**Correction 3 (Phase 1) — polygon geometry is a precomputed edge array, not a
+triangle tessellation.** The plan asked for tessellation into `Vertex{x,y,u,v,color}`
+triangles *and*, three paragraphs later, for analytic-SDF antialiasing with the
+determinism that makes an exact-match oracle possible ("Rejected alternatives: MSAA /
+tessellated curves"). Those two bullets contradict each other: a triangle list carries
+no distance field, so AA over it needs coverage sampling — exactly the MSAA the same
+section rejects — and a scanline filler and an SDF filler disagree about edge pixels,
+which is the one disagreement an oracle cannot have. The SDF requirement wins, because
+AA determinism is the phase's acceptance criterion. Geometry is therefore a flat float
+buffer: a 22-slot header (kind, SDF params, both colours, bounds) plus, for a polygon,
+five floats per edge (`x0, y0, dx, dy, invLenSq`). That is still real generated
+geometry that the cache genuinely pays for — it turns the per-pixel distance query
+from "recompute every edge vector and its reciprocal length" into five reads — and it
+is still what plan-98-E/F upload, since an SDF quad's per-instance parameter block is
+precisely this header.
+
+**Correction 4 (Phase 1) — `Image` geometry moves to plan-98-G with the rest of the
+sampler.** The phase listed "Image (textured quad)" among the kinds to generate. There
+is nothing to sample: `canvas::loadImage` is plan-98-G's (plan-98-B Phase 4 declared
+the `Image` resource but no loader), so a textured quad would reference a texture no
+program can produce. `Picture` generates the `__CANVAS_GEO_NONE` kind and draws
+nothing, exactly as `Text` does, and both still occupy a geometry record so item
+indices, hashes and offsets stay parallel. This is deferral only in the sense the plan
+already made it one — G's scope names `canvas::loadImage` explicitly.
+
+**Correction 5 (Phase 1) — the AA and sRGB math, pinned.** The plan left this as an
+Open Decision ("exact analytic coverage ... or a fixed-point SDF smoothstep").
+Resolved: **coverage is `clamp(0.5 - d, 0, 1)`**, the exact fraction of a pixel inside
+a locally straight edge, evaluated with `+ - * /` and `sqrt` only — all exactly
+specified by IEEE-754, so the result is bit-identical on every target. `smoothstep`
+and `fwidth` are rejected: their result depends on a derivative *estimate*, and the
+oracle has to be the exact answer the GPU is compared against, not another
+approximation. **No transcendental appears anywhere in the rasteriser**: sRGB uses a
+literal 256-entry table (a `pow` on the path would make the oracle platform-
+dependent), the arc's sweep test uses two cross products rather than `atan2`, and
+`sin`/`cos` for the sweep endpoints are 9th-degree Taylor series evaluated once per
+arc. Blending is `dst + (src - dst) * alpha / 255` on the **linear** values with
+round-to-nearest (`+ 127` before the divide), so `blendChannel(d, s, 255) == s` holds
+exactly.
+
+**Correction 6 (Phase 1) — a defect found and fixed en route: the sRGB table was
+truncated and wrong.** The pasted 256-entry literal held 252 entries and diverged from
+the transfer function from index 121 onward. The effect was invisible to every
+structural check and to the frame skip: `collections::getOr` fell back to its `0`
+default for the high channels, so every *antialiased* pixel blended towards black
+while every fully-covered pixel stayed correct. It was found by dumping a frame and
+finding only two distinct red values in the whole image where AA should have produced
+a gradient. Fixed by regenerating the table, and pinned by four `--bin mfb` unit tests
+(length, endpoints, monotonicity, transfer function) which were RED-checked against the
+truncated literal — the length and endpoint tests fail on it.
+
+**Correction 7 (Phase 1) — `canvas::presentLayers` rendered nothing; added
+`canvas::installedLayers`.** A scene is published in one of two shapes and the
+renderer read only the flat one, so `presentLayers` published correctly and then drew
+an empty frame. The internal-only `canvas::installedLayers` is the layered twin of
+`canvas::installedItems`, and `__canvas_renderScene` walks both shapes in draw order
+with one index into the published hash list.
+
+**Correction 8 (Phase 1) — `MFB_CANVAS_STATS` added as a test affordance.** The
+cache's whole claim is that re-presenting an unchanged item generates nothing, and
+that claim is invisible in the pixels: an identical frame is what you get whether the
+geometry was reused or rebuilt. `__canvas_presentSurface` appends one counter line per
+rendered frame when the variable is set — appends, not overwrites, because the
+interesting quantity is the *delta* between frames. Same shape as the `MFB_CANVAS_DUMP`
+readback this phase also uses.
 
 ## Summary
 
