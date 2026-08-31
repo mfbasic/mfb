@@ -792,6 +792,7 @@ pub(crate) fn lower_module_for_platform(
     // documentation and `.ai/canvas-threading.md` §2. Emitted only for a module that
     // uses `canvas::`, so every other program keeps its exact data-object set.
     if module_uses_canvas(module) {
+        data_objects.push(crate::codegen::runtime::canvas::graphics_state_data_object());
         data_objects.push(CodeDataObject {
             symbol: CANVAS_SCENE_SYMBOL.to_string(),
             kind: "raw".to_string(),
@@ -1473,7 +1474,10 @@ pub(crate) fn lower_module_for_platform(
             uses_term,
             skip_entry_arena_destroy,
             uses_stdout_buffer,
-        ));
+            module_uses_call(module, "canvas.startGraphics"),
+            &platform_imports,
+            platform,
+        )?);
     }
     if register_signal_handlers {
         code_functions.push(lower_signal_handler(platform)?);
@@ -1772,6 +1776,18 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(platform.emit_thread_trampoline(
             &platform_imports,
             uses_stdin,
+            ArenaInitSymbols {
+                link_init: link_init_symbol,
+                global_init: global_initializer_symbol.as_deref(),
+            },
+        )?);
+    }
+    // plan-98-D Phase 2: the graphics thread's trampoline. Emitted for a program that
+    // draws, alongside the shared-state block `canvas::startGraphics` spawns it from.
+    if module_uses_call(module, "canvas.startGraphics") {
+        code_functions.push(crate::codegen::runtime::canvas::emit_graphics_trampoline(
+            &platform_imports,
+            platform,
             ArenaInitSymbols {
                 link_init: link_init_symbol,
                 global_init: global_initializer_symbol.as_deref(),

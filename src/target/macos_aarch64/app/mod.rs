@@ -362,9 +362,16 @@ const RECONCILE_MARSHAL_SYMBOL: &str = "_mfb_macapp_reconcile_marshal";
 /// `performSelectorOnMainThread:withObject:` takes an object and a `CGImageRef` is
 /// not one. Boxing the pointer rather than wrapping it in an `NSValue` keeps the
 /// unboxing to a single `longLongValue` send.
+///
+/// The box is built with `alloc`/`initWithLongLong:` and explicitly `release`d
+/// rather than with the autoreleasing `numberWithLongLong:`. The graphics thread has
+/// no autorelease pool — and giving it one would only defer the problem, since a
+/// per-frame autoreleased object on a thread-lifetime pool grows without bound. An
+/// unpooled autorelease also does not merely leak: the thread-exit TSD cleanup
+/// drains it and aborts in libmalloc, which is what it did.
 const SEL_MFB_BLIT: (&str, &str) = ("_mfb_macapp_sel_mfbBlit", "mfbBlit:");
-const SEL_NUMBER_WITH_LONG_LONG: (&str, &str) =
-    ("_mfb_macapp_sel_numberWithLongLong", "numberWithLongLong:");
+const SEL_INIT_WITH_LONG_LONG: (&str, &str) =
+    ("_mfb_macapp_sel_initWithLongLong", "initWithLongLong:");
 const SEL_LONG_LONG_VALUE: (&str, &str) = ("_mfb_macapp_sel_longLongValue", "longLongValue");
 const SEL_SET_CONTENTS: (&str, &str) = ("_mfb_macapp_sel_setContents", "setContents:");
 /// Worker-side helper `canvas::blitSurface` calls: wraps the frame in a `CGImage`
@@ -373,6 +380,15 @@ const SEL_SET_CONTENTS: (&str, &str) = ("_mfb_macapp_sel_setContents", "setConte
 /// no run loop to drain the perform and `waitUntilDone:YES` would deadlock, and
 /// where the frame has nowhere to go anyway.
 const CANVAS_BLIT_SYMBOL: &str = "_mfb_macapp_canvas_blit";
+/// The app delegate, published by the bootstrap on the main thread.
+///
+/// The blit runs on the graphics thread and must reach the delegate to marshal to
+/// it. It cannot get there the obvious way: `[NSApplication sharedApplication]` is
+/// main-thread-only, and calling it from a background thread is both unsanctioned
+/// and — measured — enough to leave that thread with an Obj-C thread-local the exit
+/// cleanup then aborts on ("pointer being freed was not allocated" inside
+/// `_pthread_tsd_cleanup`). Reading a plain pointer touches no Obj-C at all.
+const DELEGATE_GLOBAL_SYM: &str = "_mfb_macapp_delegate";
 /// IMP for the delegate's `mfbBlit:` — runs on the main thread and sets the boxed
 /// `CGImage` as the canvas layer's contents.
 const CANVAS_BLIT_APPLY_SYMBOL: &str = "_mfb_macapp_canvas_blit_apply";
@@ -1038,7 +1054,7 @@ pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
         STR_CANVASVIEW_CLASS,
         // plan-98-C Phase 3: the frame blit's marshal and its main-thread apply.
         SEL_MFB_BLIT,
-        SEL_NUMBER_WITH_LONG_LONG,
+        SEL_INIT_WITH_LONG_LONG,
         SEL_LONG_LONG_VALUE,
         SEL_SET_CONTENTS,
     ]
@@ -1052,7 +1068,7 @@ pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
         value: hex_cstring(text),
     })
     .collect();
-    for key in [RECONCILE_TV_KEY, CANVAS_VIEW_ASSOC_KEY] {
+    for key in [RECONCILE_TV_KEY, CANVAS_VIEW_ASSOC_KEY, DELEGATE_GLOBAL_SYM] {
         objects.push(CodeDataObject {
             symbol: key.to_string(),
             kind: "raw".to_string(),

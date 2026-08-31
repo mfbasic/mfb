@@ -64,7 +64,8 @@ const BODY: &str =
 r#"FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
   IF canvas::publishScene(items) THEN
     canvas::publishHashes(__canvas_hashScene(items))
-    __canvas_renderScene()
+    canvas::startGraphics()
+    canvas::signalRedraw()
   END IF
 END FUNC"#;
 

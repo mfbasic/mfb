@@ -664,6 +664,26 @@ impl plan::NativePlanPlatform for Platform {
                 required_by: required_by.clone(),
             })
             .collect(),
+            // plan-98-D Phase 2: the graphics thread. A smaller set than `thread::`'s
+            // — the render loop has no message queue, no timed wait and no join, so
+            // it needs neither the timedwait/clock pair nor `pthread_detach`.
+            "canvas.startGraphics" | "canvas.signalRedraw" | "canvas.waitForRedraw" => [
+                "_pthread_create",
+                "_pthread_join",
+                "_pthread_mutex_init",
+                "_pthread_mutex_lock",
+                "_pthread_mutex_unlock",
+                "_pthread_cond_init",
+                "_pthread_cond_wait",
+                "_pthread_cond_signal",
+            ]
+            .into_iter()
+            .map(|symbol| PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: symbol.to_string(),
+                required_by: required_by.clone(),
+            })
+            .collect(),
             "thread.start"
             | "thread.isRunning"
             | "thread.waitFor"

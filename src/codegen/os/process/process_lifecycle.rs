@@ -5,6 +5,7 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
+use std::collections::HashMap;
 /// Shared process teardown. Reads the main arena-state address from the writable
 /// global, clears the global (so a second entry — e.g. a signal arriving during
 /// normal cleanup — becomes a no-op), pins it in `x19`, then conditionally
@@ -16,7 +17,10 @@ pub(crate) fn lower_shutdown(
     auto_term_off: bool,
     skip_arena_destroy: bool,
     drain_stdout: bool,
-) -> CodeFunction {
+    stop_graphics: bool,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<CodeFunction, String> {
     // Vreg-allocated (plan-00-G Phase 2). The allocator builds the frame and saves
     // the link register (there are `bl`s). `x19` (arena_base) is reserved from
     // allocation, but this function deliberately *repoints* it at the main arena to
@@ -59,6 +63,23 @@ pub(crate) fn lower_shutdown(
         instructions.push(abi::branch_link("_mfb_rt_term_term_off"));
         relocations.push(internal_branch(SHUTDOWN_SYMBOL, "_mfb_rt_term_term_off"));
     }
+    // plan-98-D Phase 2: stop and JOIN the graphics thread before the arena goes.
+    // The published scene blocks live in the worker's arena, so a render still in
+    // flight when this frees it is reading memory that no longer exists — R12 in
+    // `.ai/canvas-threading.md` §8, and a hard segfault in practice. A no-op for
+    // every program that never started the thread.
+    if stop_graphics {
+        let scratch =
+            crate::codegen::runtime::canvas::GraphicsScratch::new(&mut || vregs.next());
+        crate::codegen::runtime::canvas::emit_stop_graphics(
+            SHUTDOWN_SYMBOL,
+            &scratch,
+            platform_imports,
+            platform,
+            &mut instructions,
+            &mut relocations,
+        )?;
+    }
     if !skip_arena_destroy {
         instructions.push(abi::branch_link(ARENA_DESTROY_SYMBOL));
         relocations.push(internal_branch(SHUTDOWN_SYMBOL, ARENA_DESTROY_SYMBOL));
@@ -68,13 +89,13 @@ pub(crate) fn lower_shutdown(
         abi::move_register(ARENA_STATE_REGISTER, &saved_arena),
         abi::return_(),
     ]);
-    finalize_vreg_helper(
+    Ok(finalize_vreg_helper(
         "runtime.shutdown",
         SHUTDOWN_SYMBOL,
         "Nothing",
         instructions,
         relocations,
-    )
+    ))
 }
 
 /// `void handler(int signo)` for SIGINT/SIGTERM: run the shared teardown, then

@@ -95,7 +95,24 @@ r#"FUNC __canvas_newSurface(width AS Integer, height AS Integer) AS List OF Byte
   RETURN out
 END FUNC"#;
 
+/// The graphics thread's whole life: wait, render, repeat.
+///
+/// It never returns. The wait is a real condition wait, so a static scene costs
+/// nothing — no timer, no poll, no spin (`.ai/canvas-threading.md` §4: time is
+/// deliberately not a redraw trigger).
+///
+/// It renders the *installed* scene rather than being handed one, which is what lets
+/// a repaint no `present` caused — a resize, an expose — draw the right picture.
+#[rustfmt::skip]
+const RENDER_LOOP: &str =
+r#"FUNC __canvas_renderLoop() AS Nothing
+  WHILE canvas::waitForRedraw()
+    __canvas_renderScene()
+  END WHILE
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_helper(RegistryHelper::always("canvas_renderLoop", RENDER_LOOP));
     pkg.add_helper(RegistryHelper::always("canvas_hashScene", HASH_SCENE));
     pkg.add_helper(RegistryHelper::always("canvas_renderScene", RENDER_SCENE));
     pkg.add_helper(RegistryHelper::always("canvas_newSurface", NEW_SURFACE));

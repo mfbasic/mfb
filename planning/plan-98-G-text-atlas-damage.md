@@ -136,6 +136,18 @@ stb raster proves machine-variant) and within tolerance on GPU. Damage-rect pres
 - **Unchanged:** the frozen `DrawItem` set, the scene model, thread/ring/retirement, the GPU
   backends' pipeline, and visible output under damage-rect present (efficiency only).
 
+> **Carried in from a 2026-08-30 review (plan-98-D Phase 2).** `ImageRef` and
+> `FontRef` are exported records with a public `id: Integer`, so a program can write
+> `ImageRef[id := 7]` and fabricate a handle naming an image that does not exist —
+> the runtime then draws nothing, silently. The *indirection* is forced (the spec's
+> `TYPE_RESOURCE_FIELD_FORBIDDEN` rule says a resource never appears inside a data
+> type, and a scene holding an image would also make `canvas::destroyImage` a lie),
+> but the public field is not. The fix is to make both types opaque — no public
+> fields, no user constructor, obtainable only from `canvas::imageRef` /
+> `canvas::fontRef`. Deferred deliberately by the author on 2026-08-30 ("leave it as
+> is for now"); G is where it lands because G is the letter that introduces `Font`
+> and `canvas::loadImage` and touches both types anyway.
+
 ## Phases
 
 ### Phase 1 — Resolve the dependency policy; stb text render + measureText

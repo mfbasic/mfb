@@ -57,7 +57,8 @@ const BODY: &str =
 r#"FUNC __canvas_presentLayers(layers AS List OF DrawLayer) AS Nothing
   IF canvas::publishLayers(layers) THEN
     canvas::publishHashes(__canvas_hashLayers(layers))
-    __canvas_renderScene()
+    canvas::startGraphics()
+    canvas::signalRedraw()
   END IF
 END FUNC"#;
 

@@ -712,6 +712,10 @@ fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool, uses_canvas: bool) {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // delegate instance
+    // plan-98-D Phase 2: publish the delegate for the graphics thread, which cannot
+    // ask `NSApp` for it (main-thread-only).
+    asm.local_address("x2", DELEGATE_GLOBAL_SYM);
+    asm.push(abi::store_u64(abi::LOCAL[4], "x2", 0));
     asm.load_selector(SEL_SET_DELEGATE.0);
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[4]));
     asm.push(abi::move_register(abi::c_arg(0), REG_APP));
@@ -849,19 +853,14 @@ pub(super) fn emit_canvas_blit_helper() -> CodeFunction {
     asm.push(abi::move_register(abi::LOCAL[4], abi::mfb_arg(1))); // width
     asm.push(abi::move_register(abi::LOCAL[5], abi::mfb_arg(2))); // height
 
-    // Check for a delegate FIRST, so a headless run allocates no CoreGraphics
-    // objects at all rather than building an image it then has to release.
-    asm.external_data(abi::LOCAL[0], CLASS_NS_APPLICATION, LIB_APPKIT);
-    asm.load_selector(SEL_SHARED_APPLICATION.0);
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // app
-    asm.load_selector(SEL_DELEGATE.0);
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
-    asm.push(abi::branch_eq(&skip));
-    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // delegate
+    // Check for a delegate FIRST — a plain pointer load, no Obj-C. Headless there is
+    // none, so this returns having touched nothing: no CoreGraphics objects built
+    // and released for nothing, and no message send on a thread that may not make
+    // them.
+    asm.local_address(abi::LOCAL[0], DELEGATE_GLOBAL_SYM);
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::LOCAL[0], 0));
+    asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+    asm.push(abi::branch_eq(&skip)); // delegate in LOCAL[0]
 
     // space = CGColorSpaceCreateDeviceRGB()
     asm.call_external("_CGColorSpaceCreateDeviceRGB", LIB_COREGRAPHICS);
@@ -899,9 +898,13 @@ pub(super) fn emit_canvas_blit_helper() -> CodeFunction {
     asm.push(abi::compare_immediate(abi::LOCAL[3], "0"));
     asm.push(abi::branch_eq(&skip));
 
-    // number = [NSNumber numberWithLongLong:image]
+    // number = [[NSNumber alloc] initWithLongLong:image] — owned, not autoreleased.
     asm.external_data(abi::LOCAL[1], CLASS_NS_NUMBER, LIB_FOUNDATION);
-    asm.load_selector(SEL_NUMBER_WITH_LONG_LONG.0);
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0)));
+    asm.load_selector(SEL_INIT_WITH_LONG_LONG.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[3]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
@@ -916,6 +919,11 @@ pub(super) fn emit_canvas_blit_helper() -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(3), abi::LOCAL[1]));
     asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "1"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // [number release] — the perform waited, so the main thread is done with it.
+    asm.load_selector(SEL_RELEASE.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
     // CGImageRelease(image) — safe now the main thread has consumed it, because the
