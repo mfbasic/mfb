@@ -1,0 +1,32 @@
+' Sharing a resource collection across threads is out of scope (spec §15.6), so a
+' `RES`-marked collection on a thread's DATA plane is rejected with
+' TYPE_THREAD_NOT_SENDABLE. The plane it sits on must not change that answer.
+'
+' bug-463: it did. The output plane is never measured — the thread grammar takes
+' "everything after the last ` TO `" — but the MESSAGE plane has to be measured to
+' find where it ends, and that measurement had no `RES ` arm. It stopped inside the
+' element (after `List OF RES`), the ` TO ` split failed, and the entire spelling
+' survived as one opaque nominal. The sendability rule never ran; the resolver
+' rejected the junk name instead, reporting a package `Thread OF List OF RES fs`
+' that never existed. The program was refused by an accident of spelling rather
+' than by the rule that governs it.
+
+IMPORT fs
+IMPORT io
+
+FUNC viaList(t AS Thread OF List OF RES fs::File TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC viaMap(t AS Thread OF Map OF String TO RES fs::File TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC viaWorker(t AS ThreadWorker OF List OF RES fs::File TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  io::print("unreachable")
+  RETURN 0
+END FUNC
