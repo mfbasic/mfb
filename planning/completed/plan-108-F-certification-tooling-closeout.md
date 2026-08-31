@@ -37,7 +37,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-108-E complete | E's boxes ticked; census 100% | NOT MET until E lands |
+| plan-108-E complete | E's boxes ticked; census 100% | **MET** 2026-08-31 — re-run at close-out, not trusted from the Status column. `grep -c '^- \[ \]'` over all six letters returns `0` for each of A, B, C, D, E, F. `./scripts/man-census.sh --fill` reports `TOTAL 502 502 502 502 831/831` and "pages with neither Description nor Examples: 0". E landed as `734646ce6` (its content, swept into D's commit — see E's Corrections 5) and `c670f9c51`. |
 
 ## 1. Goal
 
