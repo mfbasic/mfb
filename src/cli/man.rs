@@ -756,15 +756,19 @@ mod tests {
 
     #[test]
     fn function_types_use_public_package_qualification() {
-        let package = registry().resolve_package("net").unwrap();
+        // plan-110-E: `poll` moved to `tcp` with the rest of the stream surface.
+        let package = registry().resolve_package("tcp").unwrap();
         let function = package.function("poll").unwrap();
         let md = render_function_markdown(package, function);
 
-        assert!(md.contains("sock AS net::Socket"));
-        assert!(md.contains("socks AS List OF net::Socket"));
-        assert!(md.contains("| `sock` | `net::Socket` |"));
-        assert!(md.contains("| `socks` | `List OF net::Socket` |"));
-        assert!(!md.contains("net.Socket"));
+        assert!(md.contains("sock AS tcp::Socket"));
+        // `tcp` declares the list form as `List OF RES tcp::Socket` -- net's
+        // original omitted the `RES`, which no source spelling of a resource list
+        // may do (§15.6). The qualification this test guards is unaffected.
+        assert!(md.contains("socks AS List OF RES tcp::Socket"));
+        assert!(md.contains("| `sock` | `tcp::Socket` |"));
+        assert!(md.contains("| `socks` | `List OF RES tcp::Socket` |"));
+        assert!(!md.contains("tcp.Socket"));
     }
 
     #[test]

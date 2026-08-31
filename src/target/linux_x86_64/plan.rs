@@ -167,9 +167,10 @@ mod tests {
             "fs.open",
             "fs.writeTextAtomic",
             // bug-300 E10: these two were omitted, which is why the dead net
-            // `write` import survived this guard.
-            "net.write",
-            "net.writeText",
+            // `write` import survived this guard. plan-110-E: the stream members
+            // are tcp's now.
+            "tcp.write",
+            "tcp.writeText",
         ] {
             let spec = crate::target::shared::runtime::spec_for_call(call)
                 .unwrap_or_else(|| panic!("{call} spec"));

@@ -578,7 +578,7 @@ mod tests {
             "io.print",
             "fs.readText",
             "thread.start",
-            "net.connectTcp",
+            "tcp.connect",
             "crypto.randomBytes",
             "tls.connect",
         ] {

@@ -687,7 +687,9 @@ pub(crate) fn lower_module_for_platform(
     // thing still read straight off the `.mfp` is each binding's native library
     // locator table (plan-46-C), which is per-target and so cannot be resolved
     // upstream of this per-flavor pass.
-    let link_libraries = resolve_link_libraries(module, packages, platform)?;
+    let link_libraries = crate::trace::timed("resolve link libraries", || {
+        resolve_link_libraries(module, packages, platform)
+    })?;
     let mut function_symbols = module
         .functions
         .iter()
@@ -756,7 +758,11 @@ pub(crate) fn lower_module_for_platform(
         }
     }
     let package_global_count = 0usize;
-    let string_symbols = string_symbols(module);
+    // The module-level steps below each walk every function, so `-vv` gives
+    // each a row: without them their cost lands in this stage's self time, which
+    // is exactly the "where did the rest of the minute go" gap the profiler
+    // exists to close.
+    let string_symbols = crate::trace::timed("string symbols", || string_symbols(module));
     let mut string_objects = string_symbols.iter().collect::<Vec<_>>();
     string_objects.sort_by_key(|(_, left_symbol)| *left_symbol);
     let mut data_objects = string_objects
@@ -987,7 +993,9 @@ pub(crate) fn lower_module_for_platform(
             platform.family(),
         ));
     }
-    let type_model = TypeModel::from_module_and_packages(module, packages)?;
+    let type_model = crate::trace::timed("type model", || {
+        TypeModel::from_module_and_packages(module, packages)
+    })?;
     // bug-377: the close thunks, by symbol. Every consumer of a resource's
     // registered close op resolves it through `resolve_closer_symbol`, so the
     // scope-drop call site and the thunk's own "am I a close op?" test cannot
@@ -1051,14 +1059,27 @@ pub(crate) fn lower_module_for_platform(
     let uses_term = runtime_symbols
         .iter()
         .any(|symbol| symbol.starts_with("_mfb_rt_term_"));
-    // Whether the program reaches any `net::` socket helper — or a `tls::` helper,
-    // whose Schannel client opens its own raw Winsock socket (getaddrinfo/socket/
-    // connect/send/recv). Windows needs WSAStartup/WSACleanup in the entry only
-    // then (plan-47-I §3.2); every other platform ignores the flag, so a
-    // socket-free program stays byte-identical.
+    // Whether the program reaches any socket helper. Windows needs
+    // WSAStartup/WSACleanup in the entry only then (plan-47-I §3.2); every other
+    // platform ignores the flag, so a socket-free program stays byte-identical.
+    //
+    // bug-460: this listed only `net` and `tls`, from when those were the only two
+    // families that touched Winsock. plan-110-B/C moved the transports into `tcp`
+    // and `udp`, which carry their OWN runtime families, so a tcp- or udp-only
+    // program initialized nothing and every socket call failed with
+    // WSANOTINITIALISED. It hid behind `net::lookup`: resolving a host first pulled
+    // in a `_mfb_rt_net_` symbol and the gate fired for the rest of the program.
+    // `tls` stays listed because its Schannel client opens its own raw Winsock
+    // socket (getaddrinfo/socket/connect/send/recv).
+    const WINSOCK_FAMILIES: [&str; 4] = [
+        "_mfb_rt_net_",
+        "_mfb_rt_tcp_",
+        "_mfb_rt_udp_",
+        "_mfb_rt_tls_",
+    ];
     let uses_net = runtime_symbols
         .iter()
-        .any(|symbol| symbol.starts_with("_mfb_rt_net_") || symbol.starts_with("_mfb_rt_tls_"));
+        .any(|symbol| WINSOCK_FAMILIES.iter().any(|f| symbol.starts_with(f)));
     // Whether the program uses the `math::` random generator. When it does we
     // emit the PCG64 helpers, seed each thread's arena, and draw a fresh
     // per-thread stream on spawn.
@@ -1310,20 +1331,34 @@ pub(crate) fn lower_module_for_platform(
     // plan-86 K1: functions used as callbacks (FunctionRef) are invoked through an
     // owning ABI, so they are excluded from the parameter-passthrough borrow elision.
     // Computed once for the whole module and shared by every function's lowering.
-    let callback_referenced_functions = collect_function_ref_names(module);
+    let callback_referenced_functions = crate::trace::timed("collect function refs", || {
+        collect_function_ref_names(module)
+    });
     for function in &module.functions {
-        code_functions.push(lower_function(
-            function,
-            &function_symbols,
-            &functions,
-            &package_return_types,
-            &platform_imports,
-            platform,
-            module.build_mode,
-            &globals,
-            &string_symbols,
-            &callback_referenced_functions,
-            type_model.clone(),
+        // `-vv` (`crate::trace`): the per-function codegen cost, recorded twice —
+        // aggregated into the span tree (so its sub-stages nest underneath) and
+        // as a leaderboard row keyed by the function's name. Whether the module
+        // is slow because one function is pathological or because there are
+        // thousands of ordinary ones is the first question a slow native build
+        // raises, and only the leaderboard answers it.
+        code_functions.push(crate::trace::timed_item(
+            "lower_function",
+            || function.name.clone(),
+            || {
+                lower_function(
+                    function,
+                    &function_symbols,
+                    &functions,
+                    &package_return_types,
+                    &platform_imports,
+                    platform,
+                    module.build_mode,
+                    &globals,
+                    &string_symbols,
+                    &callback_referenced_functions,
+                    type_model.clone(),
+                )
+            },
         )?);
     }
     for (name, type_, symbol) in builtin_function_refs(module) {
@@ -1570,6 +1605,40 @@ pub(crate) fn lower_module_for_platform(
     {
         runtime_symbols.push("_mfb_rt_net_net_connectTcpAddr".to_string());
     }
+    // plan-110-A: `ping(Address, …)` routes to `net.pingAddr` the same way — the
+    // NIR names only `net.ping`, so without this the call site relocates against a
+    // symbol nothing defines. It shares `ping`'s libc imports.
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_net_net_ping")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_net_net_pingAddr")
+    {
+        runtime_symbols.push("_mfb_rt_net_net_pingAddr".to_string());
+    }
+    // plan-110-B: tcp's three synthesized code forms. The NIR names only the base
+    // member (`tcp.connect`/`tcp.poll`/`tcp.write`); `builder_values` picks the
+    // variant at emission, so each variant's body has to be forced into the symbol
+    // set whenever its base is present or the call site relocates against a symbol
+    // nothing defines.
+    for (base, synthesized) in [
+        ("_mfb_rt_tcp_tcp_connect", "_mfb_rt_tcp_tcp_connectAddr"),
+        ("_mfb_rt_tcp_tcp_poll", "_mfb_rt_tcp_tcp_pollList"),
+        ("_mfb_rt_tcp_tcp_write", "_mfb_rt_tcp_tcp_writeText"),
+        // plan-110-C: udp's two, on the same rule.
+        ("_mfb_rt_udp_udp_poll", "_mfb_rt_udp_udp_pollList"),
+        ("_mfb_rt_udp_udp_send", "_mfb_rt_udp_udp_sendText"),
+        // plan-110-D: tls's write split and Address connect, on the same rule.
+        ("_mfb_rt_tls_tls_write", "_mfb_rt_tls_tls_writeText"),
+        ("_mfb_rt_tls_tls_connect", "_mfb_rt_tls_tls_connectAddr"),
+    ] {
+        if runtime_symbols.iter().any(|symbol| symbol == base)
+            && !runtime_symbols.iter().any(|symbol| symbol == synthesized)
+        {
+            runtime_symbols.push(synthesized.to_string());
+        }
+    }
     // plan-90-A: the 4-arg `spawn(args, cwd, env, envReplace)` overload routes to
     // `process.spawnEnv`, a synthesized target the NIR never names (it carries only
     // `process.spawn`), so emit its helper body whenever `spawn` is present —
@@ -1663,20 +1732,33 @@ pub(crate) fn lower_module_for_platform(
         }
     }
     for symbol in &runtime_symbols {
-        code_functions.push(lower_runtime_helper(
-            symbol,
-            module.build_mode,
-            &module.project,
-            ArenaLayout {
-                term_state_offset,
-                presentation_mode_offset,
-                global_slots: arena_global_slots,
+        // `-vv`: the hand-written runtime helpers are the other half of the
+        // emitted code, and they scale with the *builtins the program touches*
+        // rather than with its own source. Separating them from
+        // `lower_function` is what tells a "my program is small but the build is
+        // slow" report which half to look at.
+        code_functions.push(crate::trace::timed_item(
+            "lower_runtime_helper",
+            || symbol.clone(),
+            || {
+                lower_runtime_helper(
+                    symbol,
+                    module.build_mode,
+                    &module.project,
+                    ArenaLayout {
+                        term_state_offset,
+                        presentation_mode_offset,
+                        global_slots: arena_global_slots,
+                    },
+                    uses_rng,
+                    &type_model,
+                    &platform_imports,
+                    platform,
+                    // plan-98-C: the real string table, not an empty one — an
+                    // `abi_function` body with a string literal needs its data object.
+                    &string_symbols,
+                )
             },
-            uses_rng,
-            &type_model,
-            &platform_imports,
-            platform,
-            &string_symbols,
         )?);
     }
     if uses_rng {
@@ -1711,7 +1793,6 @@ pub(crate) fn lower_module_for_platform(
                     | "_mfb_rt_fs_fs_readLine"
                     | "_mfb_rt_net_net_readText"
                     | "_mfb_rt_net_net_receiveTextFrom"
-                    | "_mfb_rt_tls_tls_readText"
                     | "_mfb_rt_process_process_receive"
                     | "_mfb_rt_process_process_receiveFrom"
             )
@@ -1878,8 +1959,11 @@ pub(crate) fn lower_module_for_platform(
     // sequence, the arena allocator, the error path, the PCG64 RNG, the kernels,
     // and the thread trampoline all flow through the neutral MIR (plan-00-G: the
     // sole code path).
-    for function in &mut code_functions {
-        mir::route_function_through_mir(function);
+    {
+        let _span = crate::trace::span("route helpers through MIR");
+        for function in &mut code_functions {
+            mir::route_function_through_mir(function);
+        }
     }
 
     // plan-56-A §4.2: bind any relocation whose `library` was deferred at emit
@@ -1891,7 +1975,9 @@ pub(crate) fn lower_module_for_platform(
     // `CodegenPlatform` hooks, and binding per-hook means a hook added later
     // silently ships relocations labelled with no library at all — which is
     // exactly what happened when this was first written per-entry-point.
-    bind_deferred_relocation_libraries(&mut code_functions, &platform_imports)?;
+    crate::trace::timed("bind relocation libraries", || {
+        bind_deferred_relocation_libraries(&mut code_functions, &platform_imports)
+    })?;
 
     let plan = NativeCodePlan {
         target: module.target.clone(),
@@ -1903,6 +1989,8 @@ pub(crate) fn lower_module_for_platform(
         data_objects,
         functions: code_functions,
     };
+    // `validate` opens its own `-vv` span, so both this call and the backend's
+    // second one on the returned plan are attributed to the same row.
     plan.validate()?;
     Ok(plan)
 }

@@ -807,9 +807,9 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // the shared Linux emitter; only the import *library* differs (kernel32/
         // bcrypt vs libc), and that lives in `platform_imports`.
         crate::target::linux_common::code::emit_linux_c_call(
-            // Win64's MFB result bank is `rax`-based (= the C return), so no
-            // `%retC`→aligned staging is needed; pass the Windows target so the
-            // shared emitter skips it (plan-85).
+            // Win64's aligned MFB result bank starts at `rcx` (plan-85-A), not at
+            // the C return `rax`, so the shared emitter stages `mov rcx, rax`
+            // after the call exactly as it does for SysV's `rdi`.
             "windows-x86_64",
             from,
             base,
@@ -3092,6 +3092,32 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
     }
     fn so_sndtimeo(&self) -> &'static str {
         "4101" // SO_SNDTIMEO = 0x1005 on Winsock
+    }
+    fn so_rcvbuf(&self) -> &'static str {
+        "4098" // SO_RCVBUF = 0x1002 on Winsock
+    }
+    // plan-110-A: Windows reaches ICMP through `iphlpapi`'s `IcmpSendEcho`, which
+    // takes the TTL in an `IP_OPTION_INFORMATION` struct and reports the reply TTL
+    // in `ICMP_ECHO_REPLY.Options.Ttl` — it never sets an IP-level socket option and
+    // never reads a control message. These four therefore have no Windows analogue
+    // and are unreachable there; `clock_monotonic` is likewise unused because the
+    // API reports its own round-trip time. Returning a wrong-looking value would be
+    // worse than refusing: any caller reaching one is a routing bug in the ping
+    // backend's platform dispatch, so say so loudly.
+    fn ipproto_ip(&self) -> &'static str {
+        unreachable!("Windows ICMP uses iphlpapi, not IP-level socket options")
+    }
+    fn ip_ttl(&self) -> &'static str {
+        unreachable!("Windows ICMP sets TTL via IP_OPTION_INFORMATION, not IP_TTL")
+    }
+    fn ip_recvttl(&self) -> &'static str {
+        unreachable!("Windows ICMP reports TTL in ICMP_ECHO_REPLY, not via a cmsg")
+    }
+    fn cmsg_ip_ttl_type(&self) -> &'static str {
+        unreachable!("Windows ICMP delivers no control messages")
+    }
+    fn clock_monotonic(&self) -> &'static str {
+        unreachable!("Windows ICMP reports its own RoundTripTime; no clock_gettime")
     }
     fn socket_would_block_code(&self) -> &'static str {
         "10035" // WSAEWOULDBLOCK

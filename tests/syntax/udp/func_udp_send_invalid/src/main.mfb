@@ -1,0 +1,22 @@
+' Migrated from net::sendTo by plan-110-C. Also pins the cross-package identity
+' rule: a `tcp::Socket` is not a `udp::Socket`, even though `net`'s datagram
+' socket is gone — the stream socket must not be usable as a datagram one.
+IMPORT net
+IMPORT tcp
+IMPORT udp
+
+FUNC main AS Integer
+  RES sock = udp::bind("127.0.0.1", 0)
+  LET dest = net::lookup("127.0.0.1", 9931)
+
+  LET missing = udp::send()
+  LET wrongType = udp::send(1, 2, 3)
+  LET tooMany = udp::send(1, 2, 3, 4)
+  LET badPayload = udp::send(sock, dest, 42)
+
+  ' A tcp stream socket is not a datagram socket.
+  RES stream = tcp::connect("127.0.0.1", 9931)
+  LET wrongSocket = udp::send(stream, dest, "x")
+
+  RETURN 0
+END FUNC

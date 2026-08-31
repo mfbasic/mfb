@@ -121,10 +121,14 @@ mod tests {
             &crate::types::ParameterType::declared("fs.File")
         ));
         assert!(is_builtin_resource_type(
-            &crate::types::ParameterType::declared("net.Socket")
+            &crate::types::ParameterType::declared("tcp.Socket")
         ));
         assert!(is_builtin_resource_type(
-            &crate::types::ParameterType::declared("net.Listener")
+            &crate::types::ParameterType::declared("tcp.Listener")
+        ));
+        // plan-110-E: net has no resources of its own any more.
+        assert!(!is_builtin_resource_type(
+            &crate::types::ParameterType::declared("net.Socket")
         ));
         assert!(!is_builtin_resource_type(
             &crate::types::ParameterType::declared("Integer")
@@ -141,32 +145,28 @@ mod tests {
             _ => panic!("{name} is not a built-in resource"),
         };
         assert_eq!(
-            builtin_resource_close_function(&crate::types::ParameterType::declared("fs.File")),
-            Some("fs.close")
+            builtin_resource_close_function(&crate::types::ParameterType::declared("tcp.Socket")),
+            Some("tcp.close")
         );
         assert_eq!(
-            builtin_resource_close_function(&crate::types::ParameterType::declared("net.Socket")),
-            Some("net.close")
-        );
-        assert_eq!(
-            builtin_resource_close_function(&crate::types::ParameterType::declared("net.Listener")),
-            Some("net.close")
+            builtin_resource_close_function(&crate::types::ParameterType::declared("tcp.Listener")),
+            Some("tcp.close")
         );
         // File and Socket move across threads; a Listener stays put.
         assert!(is_builtin_sendable_resource_type(
             &crate::types::ParameterType::declared("fs.File")
         ));
         assert!(is_builtin_sendable_resource_type(
-            &crate::types::ParameterType::declared("net.Socket")
+            &crate::types::ParameterType::declared("tcp.Socket")
         ));
         assert!(!is_builtin_sendable_resource_type(
-            &crate::types::ParameterType::declared("net.Listener")
+            &crate::types::ParameterType::declared("tcp.Listener")
         ));
         // close-may-fail holds for every standard resource (the descriptor
         // states it; drop-time cleanup derives the same fact from the close
         // wrapper's `SUCCESS ON`).
         assert!(descriptor("fs.File").close_may_fail);
-        assert!(descriptor("net.Listener").close_may_fail);
+        assert!(descriptor("tcp.Listener").close_may_fail);
     }
 
     #[test]
@@ -186,13 +186,17 @@ mod tests {
         for name in [
             // All built-in resources carry their package-qualified identity (plan-97).
             "fs.File",
-            "net.Socket",
-            "net.Listener",
-            "net.UdpSocket",
+            "tcp.Socket",
+            "tcp.Listener",
+            // plan-110-B/C: the transport handles moved out of `net`.
+            // `net.UdpSocket` is gone entirely — `udp.Socket` replaces it.
+            "tcp.Socket",
+            "tcp.Listener",
+            "udp.Socket",
             "audio.AudioInput",
             "audio.AudioOutput",
-            "tls.TlsSocket",
-            "tls.TlsListener",
+            "tls.Socket",
+            "tls.Listener",
             "process.Process",
         ] {
             let type_ = ParameterType::declared(name);
@@ -216,14 +220,14 @@ mod tests {
             &crate::types::ParameterType::declared("Nothing")
         ));
         assert_eq!(
-            builtin_resource_close_function(&crate::types::ParameterType::declared("net.Socket")),
-            Some("net.close")
+            builtin_resource_close_function(&crate::types::ParameterType::declared("tcp.Socket")),
+            Some("tcp.close")
         );
         assert!(is_builtin_sendable_resource_type(
-            &crate::types::ParameterType::declared("net.Socket")
+            &crate::types::ParameterType::declared("tcp.Socket")
         ));
         assert!(!is_builtin_sendable_resource_type(
-            &crate::types::ParameterType::declared("net.Listener")
+            &crate::types::ParameterType::declared("tcp.Listener")
         ));
     }
 }

@@ -262,9 +262,15 @@ mod tests {
             RuntimeHelper::Process,
             // plan-67-B: catalogued (four `perf.*` specs) though code-layer-only.
             RuntimeHelper::Perf,
+            // plan-110-B: `tcp` is its own family rather than riding the shared
+            // `Abi` one, so its helpers keep `_mfb_rt_tcp_tcp_*` symbols that name
+            // the package — matching `net`/`tls` and keeping a stack trace legible.
+            RuntimeHelper::Tcp,
             RuntimeHelper::Term,
             RuntimeHelper::Thread,
             RuntimeHelper::Tls,
+            // plan-110-C: `udp` is likewise its own family, for the same reason.
+            RuntimeHelper::Udp,
         ] {
             assert!(
                 families.contains(&helper),
@@ -272,6 +278,6 @@ mod tests {
                 helper.name()
             );
         }
-        assert_eq!(families.len(), 14, "unexpected extra catalogued family");
+        assert_eq!(families.len(), 15, "unexpected extra catalogued family");
     }
 }

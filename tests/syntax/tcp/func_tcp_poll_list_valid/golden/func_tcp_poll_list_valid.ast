@@ -1,0 +1,42 @@
+{
+  "project": "func_tcp_poll_list_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "net", "line": 4 },
+    { "module": "tcp", "line": 5 },
+    { "module": "io", "line": 6 },
+    { "module": "collections", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": null, "value": { "kind": "call", "callee": "tcp.listen", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "bound", "type": null, "value": { "kind": "call", "callee": "tcp.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "client", "type": null, "value": { "kind": "call", "callee": "tcp.connect", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "conn", "type": null, "value": { "kind": "call", "callee": "tcp.accept", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "ready", "type": "Boolean", "value": { "kind": "call", "callee": "tcp.poll", "arguments": [{ "kind": "identifier", "value": "conn" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "readyT", "type": "Boolean", "value": { "kind": "call", "callee": "tcp.poll", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "number", "value": "100" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ready" }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "readyT" }] } }] }, "line": 18 },
+      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES tcp.Socket", "value": { "kind": "list", "values": [] }, "line": 21 },
+      { "kind": "assignment", "name": "socks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "identifier", "value": "conn" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "first", "type": "tcp.Socket", "value": { "kind": "call", "callee": "tcp.poll", "arguments": [{ "kind": "identifier", "value": "socks" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "firstT", "type": "tcp.Socket", "value": { "kind": "call", "callee": "tcp.poll", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "number", "value": "100" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.write", "arguments": [{ "kind": "identifier", "value": "first" }, { "kind": "string", "value": "x" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.write", "arguments": [{ "kind": "identifier", "value": "firstT" }, { "kind": "string", "value": "y" }] }, "line": 26 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 27 }
+      ]
+    }
+    ]
+  }
+  ]
+}

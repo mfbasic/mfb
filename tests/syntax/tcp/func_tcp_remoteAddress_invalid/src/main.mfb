@@ -1,0 +1,9 @@
+IMPORT net
+IMPORT tcp
+
+FUNC main AS Integer
+  LET missing = tcp::remoteAddress()
+  LET wrongType = tcp::remoteAddress(1)
+  LET tooMany = tcp::remoteAddress(1, 2)
+  RETURN 0
+END FUNC

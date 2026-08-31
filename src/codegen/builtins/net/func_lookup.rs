@@ -25,7 +25,7 @@ Each returned `Address` carries a `host` field holding the textual IPv4 address
 and a `port` field holding the requested port. `port` does not influence
 resolution: it is not passed to the resolver as a service name but written
 directly into each result's port field, so that the `Address` can be handed
-straight to `net::connectTcp` or a UDP send. When `port` is omitted the compiler
+straight to `tcp::connect` or `udp::send`. When `port` is omitted the compiler
 supplies `0`, and every returned `Address` carries port `0`.
 
 `net::lookup` exposes no resolver metadata — no record types, TTLs, or canonical
@@ -63,7 +63,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-/// `abi_function` body for `net::lookup` — calls the shared `lower_net_*_helper`
+/// `abi_function` body for `net::lookup` — calls the `lower_net_lookup_helper`
 /// emitter and finalizes.
 pub(crate) fn lower_lookup(
     builder: &mut CodeBuilder,
@@ -76,7 +76,7 @@ pub(crate) fn lower_lookup(
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
     builder.stack_size = stack_size;
-    Ok(super::gen_shared::void_result(ctx.call))
+    Ok(crate::codegen::os::socket::shared::void_result(ctx.call))
 }
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

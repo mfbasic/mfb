@@ -7,7 +7,6 @@ use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
 use crate::codegen::memory::arena::*;
 use crate::codegen::string::util::*;
-use crate::codegen::string::validate::*;
 use crate::target::shared::abi;
 pub(crate) fn emit_port_itoa(
     symbol: &str,
@@ -67,7 +66,6 @@ const CFG_DESC_SYMBOL: &str = "_mfb_tls_cfg_block_desc";
 // bodies (`target/macos_aarch64/tls.rs`) — hence `pub(crate)`.
 pub(crate) const STATE_INVOKE: &str = "_mfb_tls_nw_state_invoke";
 pub(crate) const SEND_INVOKE: &str = "_mfb_tls_nw_send_invoke";
-pub(crate) const RECV_INVOKE: &str = "_mfb_tls_nw_recv_invoke";
 // plan-76-B Phase 4: the poll readiness receive's completion block. Identical to
 // RECV_INVOKE but writes the dedicated CTX_PCONTENT/CTX_PERROR slots and signals
 // CTX_PSEM, so an outstanding poll receive never collides with the read/write
@@ -139,7 +137,22 @@ pub(crate) const CTX_PEND_BUF: usize = 72; // stashed plaintext arena buffer (0 
 pub(crate) const CTX_PEND_LEN: usize = 80; // total bytes in CTX_PEND_BUF
 pub(crate) const CTX_PEND_OFF: usize = 88; // consume cursor into CTX_PEND_BUF
 pub(crate) const CTX_ARMED: usize = 96; // 1 while a poll receive is outstanding
-const CTX_SIZE: &str = "112";
+                                        // plan-110-D Phase 2: the per-socket read/write deadlines `tls::setReadTimeout`
+                                        // and `tls::setWriteTimeout` install. Linux and Windows push these down to the
+                                        // OS as SO_RCVTIMEO/SO_SNDTIMEO; Network.framework owns the socket and has no
+                                        // such knob, so macOS carries the policy here and bounds its own semaphore waits
+                                        // with it. Both hold milliseconds, or `TIMEOUT_UNBOUNDED_SENTINEL` for "no
+                                        // deadline" — the state a fresh connection starts in, which is what keeps an
+                                        // unconfigured socket's wait FOREVER exactly as before.
+pub(crate) const CTX_RTO: usize = 104;
+pub(crate) const CTX_WTO: usize = 112;
+// 1 while a send completion is outstanding. A write that hits its deadline
+// cannot cancel the posted send — the completion block will still signal
+// CTX_SEM later — so the next write must consume that stale signal instead of
+// mistaking it for its own. This is the same outstanding-operation model
+// plan-76-B gave the receive side with `CTX_ARMED`.
+pub(crate) const CTX_WARMED: usize = 120;
+const CTX_SIZE: &str = "128";
 
 // The listener context extends the shared ctx prefix (the listener's
 // state-changed handler is the plain STATE_INVOKE trampoline over the same
@@ -195,6 +208,14 @@ const SYMBOLS: &[&str] = &[
     "_nw_content_context_default_message",
     "nw_tls_copy_sec_protocol_options",
     "sec_protocol_options_set_tls_server_name",
+    // plan-110-D: the endpoint queries behind `tls::localAddress` /
+    // `tls::remoteAddress`. Network.framework owns the socket and exposes no fd,
+    // so these are how macOS answers what Linux/Windows answer with
+    // getsockname/getpeername.
+    "nw_connection_copy_current_path",
+    "nw_path_copy_effective_local_endpoint",
+    "nw_path_copy_effective_remote_endpoint",
+    "nw_endpoint_get_address",
 ];
 
 /// The additional server-side entry points (`tls::listen`/`tls::accept`).
@@ -528,12 +549,31 @@ fn emit_fresh_sem(
     Ok(())
 }
 
-/// Emit `dispatch_semaphore_wait(ctx->sem, FOREVER)`.
-fn emit_wait(
+/// Wait on one of the ctx semaphores, bounded by a deadline held in a ctx slot,
+/// branching to `timeout` when the deadline elapses first.
+///
+/// This is [`emit_wait`] with a deadline instead of `DISPATCH_TIME_FOREVER`.
+/// Network.framework owns the socket, so macOS cannot express a read/write
+/// deadline as `SO_RCVTIMEO`/`SO_SNDTIMEO` the way Linux and Windows do; the
+/// deadline lives in `CTX_RTO`/`CTX_WTO` and is applied here, at the only place
+/// the operation actually blocks.
+///
+/// The timeout convention (`.ai/net-tls.md`) maps straight onto `dispatch_time`:
+/// the unbounded sentinel is `DISPATCH_TIME_FOREVER`, `0` is `DISPATCH_TIME_NOW`
+/// (one immediate attempt), and a positive value is `dispatch_time(NOW, ms*1e6)`.
+/// `tag` distinguishes this call site's labels; `deadline_off` is a scratch stack
+/// slot in the caller's frame.
+#[allow(clippy::too_many_arguments)]
+fn emit_wait_bounded(
     ctx: &mut EmitCtx,
     handle_off: usize,
     ctx_off: usize,
     fnptr_off: usize,
+    deadline_off: usize,
+    sem_slot: usize,
+    timeout_slot: usize,
+    tag: &str,
+    timeout: &str,
     fail: &str,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
@@ -542,7 +582,51 @@ fn emit_wait(
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
+    let wait_now = format!("{symbol}_{tag}_wait_now");
+    let wait_forever = format!("{symbol}_{tag}_wait_forever");
+    let ready = format!("{symbol}_{tag}_deadline_ready");
 
+    ctx.instructions.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), ctx_off),
+        abi::load_u64(&v9, &v9, timeout_slot),
+        abi::move_immediate(&v10, "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers(&v9, &v10),
+        abi::branch_eq(&wait_forever),
+        abi::compare_immediate(&v9, "0"),
+        abi::branch_eq(&wait_now),
+    ]);
+    dlsym(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: ctx.instructions,
+            relocations: ctx.relocations,
+        },
+        handle_off,
+        "dispatch_time",
+        fnptr_off,
+        fail,
+    )?;
+    ctx.instructions.extend([
+        abi::move_immediate(abi::return_register(), "Integer", "0"), // DISPATCH_TIME_NOW
+        abi::load_u64(&v9, abi::stack_pointer(), ctx_off),
+        abi::load_u64(abi::c_arg(1), &v9, timeout_slot),
+        abi::move_immediate(&v10, "Integer", "1000000"),
+        abi::multiply_registers(abi::c_arg(1), abi::c_arg(1), &v10),
+        abi::load_u64(&v9, abi::stack_pointer(), fnptr_off),
+        abi::branch_link_register(&v9),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), deadline_off),
+        abi::branch(&ready),
+        abi::label(&wait_now),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), deadline_off),
+        abi::branch(&ready),
+        abi::label(&wait_forever),
+        abi::move_immediate(&v9, "Integer", "0"),
+        abi::bitwise_not(&v9, &v9), // DISPATCH_TIME_FOREVER
+        abi::store_u64(&v9, abi::stack_pointer(), deadline_off),
+        abi::label(&ready),
+    ]);
     dlsym(
         &mut EmitCtx {
             symbol,
@@ -558,11 +642,13 @@ fn emit_wait(
     )?;
     ctx.instructions.extend([
         abi::load_u64(&v9, abi::stack_pointer(), ctx_off),
-        abi::load_u64(abi::return_register(), &v9, CTX_SEM),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-        abi::bitwise_not(abi::c_arg(1), abi::c_arg(1)),
+        abi::load_u64(abi::return_register(), &v9, sem_slot),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), deadline_off),
         abi::load_u64(&v10, abi::stack_pointer(), fnptr_off),
         abi::branch_link_register(&v10),
+        // Non-zero => the deadline elapsed before the operation signalled.
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(timeout),
     ]);
     Ok(())
 }
@@ -622,11 +708,14 @@ fn emit_dlopen_at(
     Ok(())
 }
 
+mod address;
 mod client;
 mod server;
 #[cfg(test)]
 mod tests;
+mod timeout;
 
+pub(crate) use address::lower_tls_address_macos;
 pub(crate) use client::{
     lower_tls_close_macos, lower_tls_connect_macos, lower_tls_poll_macos, lower_tls_read_macos,
     lower_tls_write_macos,
@@ -634,3 +723,4 @@ pub(crate) use client::{
 pub(crate) use server::{
     lower_tls_accept_macos, lower_tls_close_listener_macos, lower_tls_listen_macos,
 };
+pub(crate) use timeout::lower_tls_set_timeout_macos;

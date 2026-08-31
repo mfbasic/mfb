@@ -26,10 +26,12 @@ pub(crate) mod perf;
 pub(crate) mod process;
 pub(crate) mod regex;
 pub(crate) mod strings;
+pub(crate) mod tcp;
 pub(crate) mod term;
 pub(crate) mod testing;
 pub(crate) mod thread;
 pub(crate) mod tls;
+pub(crate) mod udp;
 pub(crate) mod vector;
 
 // ---------------------------------------------------------------------------
@@ -70,9 +72,11 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
             | "process"
             | "regex"
             | "strings"
+            | "tcp"
             | "term"
             | "thread"
             | "tls"
+            | "udp"
             | "vector"
     )
 }
@@ -437,9 +441,17 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
 /// neither set has its calls' arguments merely inferred, never bound or
 /// validated. Shared by `ir::shape` (the named-argument rules) and `ir::verify`
 /// (the arity/argument rules) so both draw the same boundary (plan-107-E).
+/// A package missing from this list is NOT a compile error and produces no
+/// warning — its calls are merely inferred, so an arity or argument-type mistake
+/// degrades into a bare `TYPE_UNKNOWN_VALUE` on the binding instead of naming the
+/// problem. plan-110-B added `tcp` here after observing exactly that: with `tcp`
+/// absent, `tcp::connect(1, 80)` reported nothing at all while the identical
+/// `net::connectTcp(1, 80)` reported `TYPE_CALL_ARGUMENT_MISMATCH`. Any new
+/// package needs a row here.
 const ARGUMENT_CHECKED_PACKAGES: &[&str] = &[
-    "encoding", "astrings", "crypto", "strings", "math", "bits", "fs", "os", "net", "tls", "audio",
-    "process", "io", "json", "csv", "regex", "datetime", "money", "app", "http", "vector",
+    "encoding", "astrings", "crypto", "strings", "math", "bits", "fs", "os", "net", "tcp", "tls",
+    "audio", "process", "io", "json", "csv", "regex", "datetime", "money", "app", "http", "udp",
+    "vector",
 ];
 
 /// Whether a builtin call (canonical `package.member` name) is checked by the

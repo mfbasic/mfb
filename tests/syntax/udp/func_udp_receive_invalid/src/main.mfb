@@ -1,0 +1,16 @@
+' Migrated from net::receiveFrom by plan-110-C. Also pins that the text-receive
+' shape does not exist: `receiveText` and `DatagramText` were deliberately not
+' carried across, because a datagram's encoding is not something the network
+' reports.
+IMPORT udp
+
+FUNC main AS Integer
+  RES sock = udp::bind("127.0.0.1", 0)
+
+  LET missing = udp::receive()
+  LET wrongType = udp::receive(1, 2)
+  LET tooMany = udp::receive(sock, 16, 3)
+  LET badMax = udp::receive(sock, "lots")
+
+  RETURN 0
+END FUNC

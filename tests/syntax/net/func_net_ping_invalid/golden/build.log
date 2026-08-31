@@ -1,0 +1,74 @@
+$ mfb build -ast -ir tests/syntax/net/func_net_ping_invalid
+   5 | 
+   6 | FUNC main AS Integer
+   7 |   LET missing = net::ping()
+     | ^
+tests/syntax/net/func_net_ping_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.ping` has 0 argument(s), expected 1 to 4.
+   5 | 
+   6 | FUNC main AS Integer
+   7 |   LET missing = net::ping()
+     | ^
+tests/syntax/net/func_net_ping_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   6 | FUNC main AS Integer
+   7 |   LET missing = net::ping()
+   8 |   LET wrongHost = net::ping(1)
+     | ^
+tests/syntax/net/func_net_ping_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `net.ping` has argument type(s) (Integer), expected String, Integer, Integer, Integer or Address, Integer, Integer, Integer.
+   6 | FUNC main AS Integer
+   7 |   LET missing = net::ping()
+   8 |   LET wrongHost = net::ping(1)
+     | ^
+tests/syntax/net/func_net_ping_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongHost` does not have a known type.
+   7 |   LET missing = net::ping()
+   8 |   LET wrongHost = net::ping(1)
+   9 |   LET wrongTimeout = net::ping("h", "soon")
+     | ^
+tests/syntax/net/func_net_ping_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `net.ping` has argument type(s) (String, String), expected String, Integer, Integer, Integer or Address, Integer, Integer, Integer.
+   7 |   LET missing = net::ping()
+   8 |   LET wrongHost = net::ping(1)
+   9 |   LET wrongTimeout = net::ping("h", "soon")
+     | ^
+tests/syntax/net/func_net_ping_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongTimeout` does not have a known type.
+   8 |   LET wrongHost = net::ping(1)
+   9 |   LET wrongTimeout = net::ping("h", "soon")
+  10 |   LET wrongTtl = net::ping("h", 100, "low")
+     | ^
+tests/syntax/net/func_net_ping_invalid/src/main.mfb:10 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `net.ping` has argument type(s) (String, Integer, String), expected String, Integer, Integer, Integer or Address, Integer, Integer, Integer.
+   8 |   LET wrongHost = net::ping(1)
+   9 |   LET wrongTimeout = net::ping("h", "soon")
+  10 |   LET wrongTtl = net::ping("h", 100, "low")
+     | ^
+tests/syntax/net/func_net_ping_invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongTtl` does not have a known type.
+   9 |   LET wrongTimeout = net::ping("h", "soon")
+  10 |   LET wrongTtl = net::ping("h", 100, "low")
+  11 |   LET wrongSize = net::ping("h", 100, 64, "big")
+     | ^
+tests/syntax/net/func_net_ping_invalid/src/main.mfb:11 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `net.ping` has argument type(s) (String, Integer, Integer, String), expected String, Integer, Integer, Integer or Address, Integer, Integer, Integer.
+   9 |   LET wrongTimeout = net::ping("h", "soon")
+  10 |   LET wrongTtl = net::ping("h", 100, "low")
+  11 |   LET wrongSize = net::ping("h", 100, 64, "big")
+     | ^
+tests/syntax/net/func_net_ping_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongSize` does not have a known type.
+  10 |   LET wrongTtl = net::ping("h", 100, "low")
+  11 |   LET wrongSize = net::ping("h", 100, 64, "big")
+  12 |   LET tooMany = net::ping("h", 100, 64, 56, 1)
+     | ^
+tests/syntax/net/func_net_ping_invalid/src/main.mfb:12 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.ping` has 5 argument(s), expected 1 to 4.
+  10 |   LET wrongTtl = net::ping("h", 100, "low")
+  11 |   LET wrongSize = net::ping("h", 100, 64, "big")
+  12 |   LET tooMany = net::ping("h", 100, 64, 56, 1)
+     | ^
+tests/syntax/net/func_net_ping_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]

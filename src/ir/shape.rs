@@ -3820,7 +3820,7 @@ mod tests {
             ParameterType::named("Point"),
             ParameterType::named("Shape"),
             ParameterType::named("Error"),
-            ParameterType::named("net.Socket"),
+            ParameterType::named("tcp.Socket"),
             ParameterType::ResultOf(Box::new(ParameterType::Money)),
             ParameterType::Func(
                 vec![ParameterType::Integer, ParameterType::String],

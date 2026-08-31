@@ -544,7 +544,13 @@ impl LinuxPlan<'_> {
                 imports.push(self.libc_import("environ", required_by));
                 imports
             }
-            call if crate::codegen::registry::registry().owning_package(call) == Some("net") => {
+            // plan-110-B: `tcp` lowers through net's emitters, so it needs the same
+            // libc symbols and the same errno accessor.
+            call if matches!(
+                crate::codegen::registry::registry().owning_package(call),
+                Some("net") | Some("tcp") | Some("udp")
+            ) =>
+            {
                 // bug-300 E10: where `emit_write` is a raw syscall the net write
                 // helper derives errno from the negated raw return (bug-109), so
                 // the libc `write` PLT symbol is never referenced and importing
@@ -556,6 +562,9 @@ impl LinuxPlan<'_> {
                     .filter(|base| !(self.abi.raw_write && **base == "write"))
                     .map(|base| self.libc_import(base, required_by))
                     .collect::<Vec<_>>();
+                if let Some(receive) = plan::net_ping_receive_symbol(call, false) {
+                    imports.push(self.libc_import(receive, required_by));
+                }
                 imports.push(self.libc_import("__errno_location", required_by));
                 imports
             }
@@ -587,6 +596,22 @@ impl LinuxPlan<'_> {
                     "tls.connect" | "tls.close" | "tls.listen" | "tls.accept" | "tls.closeListener"
                 ) {
                     imports.push(self.libc_import("close", required_by));
+                }
+                // plan-110-D: the endpoint queries reuse the `net` address emitter
+                // (the TLS record keeps the fd in the canonical handle slot), so
+                // they need its syscalls and the numeric-host formatter.
+                if matches!(call, "tls.localAddress" | "tls.remoteAddress") {
+                    imports.extend([
+                        self.libc_import("getsockname", required_by),
+                        self.libc_import("getpeername", required_by),
+                        self.libc_import("inet_ntop", required_by),
+                    ]);
+                }
+                // plan-110-D: the timeout setters likewise reuse `net`'s emitter,
+                // which is a plain SO_RCVTIMEO/SO_SNDTIMEO setsockopt on the
+                // descriptor the TLS record already holds.
+                if matches!(call, "tls.setReadTimeout" | "tls.setWriteTimeout") {
+                    imports.push(self.libc_import("setsockopt", required_by));
                 }
                 if call == "tls.connect" {
                     // getaddrinfo..connect open the socket; fcntl/poll/getsockopt

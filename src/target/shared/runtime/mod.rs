@@ -27,9 +27,11 @@ pub enum RuntimeHelper {
     // set in `plan::symbols::runtime_symbols` rather than routed by
     // `helper_for_call`/`required_helpers`.
     Perf,
+    Tcp,
     Term,
     Thread,
     Tls,
+    Udp,
 }
 
 impl RuntimeHelper {
@@ -48,9 +50,11 @@ impl RuntimeHelper {
             RuntimeHelper::Os => "os",
             RuntimeHelper::Process => "process",
             RuntimeHelper::Perf => "perf",
+            RuntimeHelper::Tcp => "tcp",
             RuntimeHelper::Term => "term",
             RuntimeHelper::Thread => "thread",
             RuntimeHelper::Tls => "tls",
+            RuntimeHelper::Udp => "udp",
         }
     }
 
@@ -69,6 +73,8 @@ impl RuntimeHelper {
             "io" => RuntimeHelper::Io,
             "math" => RuntimeHelper::Math,
             "net" => RuntimeHelper::Net,
+            "tcp" => RuntimeHelper::Tcp,
+            "udp" => RuntimeHelper::Udp,
             "os" => RuntimeHelper::Os,
             "process" => RuntimeHelper::Process,
             "perf" => RuntimeHelper::Perf,

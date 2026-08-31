@@ -4,7 +4,7 @@
 //! backend (see the `macos` submodule) drives Network.framework through a
 //! dispatch-semaphore synchronous bridge.
 //!
-//! On Linux a `TlsSocket` handle is an arena record with the canonical plan-80
+//! On Linux a `Socket` handle is an arena record with the canonical plan-80
 //! header (`tag`@0, `fd`@8, `closed`@16, `STATE`@24) and a TLS tail: the
 //! `SSL_CTX*` at 32 and the `SSL*` at 40. Each helper
 //! re-`dlopen`s `libssl` (cheap once loaded — it just bumps the refcount) and
@@ -29,7 +29,7 @@ use std::collections::HashMap;
 // fd (handle)@8, closed@16, STATE@24 — then the TLS-specific `SSL_CTX*`/`SSL*`
 // tail at 32+. Before plan-80 this record was 32 bytes with `SSL*` at 16, which
 // collided with the generic `STATE` slot and SIGSEGV'd a `Stream STATE` union
-// over a `TlsSocket` (plan-76-D D4). An accepted (server-side) `TlsSocket`
+// over a `Socket` (plan-76-D D4). An accepted (server-side) `Socket`
 // stores 0 in the `SSL_CTX*` slot: the marker that it points at the listener's
 // shared server context and must not free it (plan-06-tls-server.md §5.1).
 pub(crate) const TLS_OFFSET_FD: usize = RESOURCE_OFFSET_HANDLE;
@@ -46,7 +46,7 @@ pub(crate) const TLS_RECORD_SIZE: &str = RESOURCE_RECORD_SIZE;
 // handles in the block this points at).
 pub(crate) const TLS_SCHANNEL_OFFSET_BLOCK: usize = 40;
 
-// The `TlsListener` record: the listening fd plus the server `SSL_CTX*` it owns
+// The `Listener` record: the listening fd plus the server `SSL_CTX*` it owns
 // (freed exactly once, when the listener closes). Shares the canonical header;
 // the `SSL_CTX*` moves to the type-specific tail at 32 (plan-80).
 pub(crate) const TLS_LISTENER_OFFSET_FD: usize = RESOURCE_OFFSET_HANDLE;
@@ -95,6 +95,10 @@ pub(crate) const TLS_SYMBOLS: &[&str] = &[
     "SSL_connect",
     "SSL_get_verify_result",
     "SSL_read",
+    // plan-110-D: classify a failed `SSL_read`. A read that hit the socket's
+    // SO_RCVTIMEO surfaces as SSL_ERROR_WANT_READ/WRITE with the session intact,
+    // which is `ErrTimeout`, not `ErrTlsFailed`.
+    "SSL_get_error",
     // plan-76-B: non-consuming count of already-decrypted, buffered app bytes —
     // the readiness fast-path for `tls::poll` (a TLS record can hold app bytes with
     // the fd idle, so an fd-only poll would under-report).
@@ -388,13 +392,111 @@ pub(crate) fn lower_tls_connect_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    address: bool,
 ) -> Result<TlsBodyParts, String> {
     match platform.family() {
-        PlatformFamily::MacOS => macos::lower_tls_connect_macos(symbol, platform_imports, platform),
-        PlatformFamily::Linux => {
-            openssl::lower_tls_connect_openssl(symbol, platform_imports, platform)
+        PlatformFamily::MacOS => {
+            macos::lower_tls_connect_macos(symbol, platform_imports, platform, address)
         }
-        PlatformFamily::Windows => schannel::lower_tls_connect(symbol, platform_imports, platform),
+        PlatformFamily::Linux => {
+            openssl::lower_tls_connect_openssl(symbol, platform_imports, platform, address)
+        }
+        PlatformFamily::Windows => {
+            schannel::lower_tls_connect(symbol, platform_imports, platform, address)
+        }
+    }
+}
+
+/// The argument prologue every backend's `connect` starts with, spilling the
+/// endpoint and the two optional arguments into its frame.
+///
+/// Two shapes reach the same body. The host form arrives as
+/// `(host, port, timeoutMs, serverName)`. The `net::Address` form
+/// (`tls.connectAddr`) arrives as `(address, timeoutMs, serverName)` and reads
+/// the endpoint out of the record — `host` String pointer at +0, `port` at +8,
+/// the same layout `net`/`tcp`/`udp` build — which shifts the two optional
+/// arguments down one register. Everything after this is identical, so the
+/// Address form is a pure re-staging, not a second connect implementation.
+pub(crate) fn connect_arg_prologue(
+    address: bool,
+    scratch: &str,
+    host_off: usize,
+    port_off: usize,
+    timeout_off: usize,
+    sname_off: usize,
+) -> Vec<CodeInstruction> {
+    if address {
+        vec![
+            abi::load_u64(scratch, abi::return_register(), 0),
+            abi::store_u64(scratch, abi::stack_pointer(), host_off),
+            abi::load_u64(scratch, abi::return_register(), 8),
+            abi::store_u64(scratch, abi::stack_pointer(), port_off),
+            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), timeout_off),
+            abi::store_u64(abi::c_arg(2), abi::stack_pointer(), sname_off),
+        ]
+    } else {
+        vec![
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), host_off),
+            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), port_off),
+            abi::store_u64(abi::c_arg(2), abi::stack_pointer(), timeout_off),
+            abi::store_u64(abi::c_arg(3), abi::stack_pointer(), sname_off),
+        ]
+    }
+}
+
+/// `tls::localAddress` / `tls::remoteAddress` (plan-110-D Phase 2). `remote`
+/// selects the peer endpoint over the local one.
+///
+/// Linux and Windows reuse the `net` address emitter unchanged: their TLS record
+/// keeps the OS descriptor in the canonical handle slot, so `getsockname` /
+/// `getpeername` work on it exactly as on a plain socket. macOS cannot — its
+/// handle slot holds an `nw_connection` — and gets a Network.framework
+/// implementation instead (plan-110-D §C4).
+pub(crate) fn lower_tls_address_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    remote: bool,
+) -> Result<TlsBodyParts, String> {
+    match platform.family() {
+        PlatformFamily::MacOS => {
+            macos::lower_tls_address_macos(symbol, platform_imports, platform, remote)
+        }
+        _ => crate::codegen::os::socket::shared::lower_net_address_helper(
+            symbol,
+            platform_imports,
+            platform,
+            remote,
+        ),
+    }
+}
+
+/// `tls::setReadTimeout` / `tls::setWriteTimeout` (plan-110-D Phase 2). `write`
+/// selects the send deadline over the receive one.
+///
+/// Linux and Windows push the deadline down to the OS exactly as `tcp` does --
+/// their TLS record keeps the descriptor in the canonical handle slot, so
+/// `setsockopt(SO_RCVTIMEO/SO_SNDTIMEO)` on it behaves identically to a plain
+/// socket, and the same shared emitter serves both packages. macOS cannot:
+/// Network.framework owns the socket and exposes no such knob, so the deadline
+/// is stored on the connection context and applied at the semaphore waits
+/// (`emit_wait_bounded`).
+pub(crate) fn lower_tls_set_timeout_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    write: bool,
+) -> Result<TlsBodyParts, String> {
+    match platform.family() {
+        PlatformFamily::MacOS => {
+            macos::lower_tls_set_timeout_macos(symbol, platform_imports, platform, write)
+        }
+        _ => crate::codegen::os::socket::poll::lower_net_set_timeout_helper(
+            symbol,
+            platform_imports,
+            platform,
+            write,
+        ),
     }
 }
 
@@ -426,22 +528,23 @@ pub(crate) fn lower_tls_accept_helper(
     }
 }
 
+/// `tls::read`. Bytes only — plan-110-D removed `tls::readText`, so the former
+/// `text` parameter (which decoded and validated UTF-8 in the backend) is gone
+/// with it. A caller that wants text decodes the returned list with
+/// `encoding::toUtf8Text`, which is also the only correct place to do it: a
+/// stream read stops wherever the network divided the data, which need not be a
+/// character boundary.
 pub(crate) fn lower_tls_read_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-    text: bool,
 ) -> Result<TlsBodyParts, String> {
     match platform.family() {
-        PlatformFamily::MacOS => {
-            macos::lower_tls_read_macos(symbol, platform_imports, platform, text)
-        }
+        PlatformFamily::MacOS => macos::lower_tls_read_macos(symbol, platform_imports, platform),
         PlatformFamily::Linux => {
-            openssl::lower_tls_read_openssl(symbol, platform_imports, platform, text)
+            openssl::lower_tls_read_openssl(symbol, platform_imports, platform)
         }
-        PlatformFamily::Windows => {
-            schannel::lower_tls_read(symbol, platform_imports, platform, text)
-        }
+        PlatformFamily::Windows => schannel::lower_tls_read(symbol, platform_imports, platform),
     }
 }
 
@@ -481,7 +584,7 @@ pub(crate) fn lower_tls_poll_helper(
     }
 }
 
-/// plan-76-C: `tls::poll(List OF RES TlsSocket[, timeoutMs]) AS TlsSocket` — the TLS
+/// plan-76-C: `tls::poll(List OF RES Socket[, timeoutMs]) AS Socket` — the TLS
 /// readiness multiplex. Blocks until one socket in the list is readable, then returns
 /// a BORROWED pointer to the first ready one (lowest index); the list keeps ownership
 /// and closes each socket on scope exit (§15.6). Empty list → `ErrInvalidArgument`;

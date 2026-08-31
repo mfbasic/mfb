@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/syntax/tcp/resource_bare_name_confusion_invalid
+  21 | 
+  22 |   ' Same bare name `Socket`, different packages.
+  23 |   RES asUdp AS udp::Socket = tcp::accept(server, 0)
+     | ^
+tests/syntax/tcp/resource_bare_name_confusion_invalid/src/main.mfb:23 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `asUdp` has initializer type tcp.Socket, expected udp.Socket.
+  22 |   ' Same bare name `Socket`, different packages.
+  23 |   RES asUdp AS udp::Socket = tcp::accept(server, 0)
+  24 |   RES asTls AS tls::Socket = tcp::accept(server, 0)
+     | ^
+tests/syntax/tcp/resource_bare_name_confusion_invalid/src/main.mfb:24 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `asTls` has initializer type tcp.Socket, expected tls.Socket.
+  25 | 
+  26 |   ' Same bare name `Listener`, different packages.
+  27 |   RES asTlsListener AS tls::Listener = tcp::listen("127.0.0.1", 0)
+     | ^
+tests/syntax/tcp/resource_bare_name_confusion_invalid/src/main.mfb:27 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `asTlsListener` has initializer type tcp.Listener, expected tls.Listener.
+  28 | 
+  29 |   ' And the reverse direction, so the check is not one-sided.
+  30 |   RES back AS tcp::Socket = udp::bind("127.0.0.1", 0)
+     | ^
+tests/syntax/tcp/resource_bare_name_confusion_invalid/src/main.mfb:30 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `back` has initializer type udp.Socket, expected tcp.Socket.
+[exit 1]

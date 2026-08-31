@@ -1,10 +1,10 @@
 IMPORT fs
-IMPORT net
+IMPORT tcp
 IMPORT io
 
 UNION Stream
   fs::File
-  net::Socket
+  tcp::Socket
 END UNION
 
 FUNC main AS Integer
@@ -13,7 +13,7 @@ FUNC main AS Integer
     CASE fs::File(f)
       fs::writeAll(f, "union-data")
       io::print("file")
-    CASE net::Socket(sock)
+    CASE tcp::Socket(sock)
       io::print("socket")
   END MATCH
   RETURN 0

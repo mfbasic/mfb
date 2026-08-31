@@ -29,6 +29,7 @@ mod terminal_safe;
 mod testing;
 #[cfg(test)]
 mod testutil;
+mod trace;
 mod types;
 mod unicode;
 

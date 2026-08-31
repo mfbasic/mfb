@@ -1,10 +1,10 @@
 IMPORT thread
 IMPORT fs
-IMPORT net
+IMPORT tcp
 
 UNION Stream
   fs::File
-  net::Socket
+  tcp::Socket
 END UNION
 
 ' plan-75: a *stateless* resource union was equally broken — its variant record
@@ -16,7 +16,7 @@ EXPORT ISOLATED FUNC takeUnionVariant(t AS ThreadWorker OF RES Stream TO Integer
   MATCH s
     CASE fs::File(f)
       RETURN 1
-    CASE net::Socket(sock)
+    CASE tcp::Socket(sock)
       RETURN 2
   END MATCH
 END FUNC

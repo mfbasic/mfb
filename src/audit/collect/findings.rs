@@ -503,8 +503,8 @@ mod tests {
             ResourceEntry {
                 function: "g".to_string(),
                 name: "s".to_string(),
-                resource_type: "Socket".to_string(),
-                close_op: "net.close".to_string(),
+                resource_type: "tcp.Socket".to_string(),
+                close_op: "tcp.close".to_string(),
                 path: "main.mfb".to_string(),
                 line: 9,
                 native: false,

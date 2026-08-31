@@ -9,10 +9,10 @@ const INTRO: &str = r#"Bind a local port and load a server certificate to termin
 const DESC: &str = r#"`listen` binds a local TCP endpoint and loads a server TLS identity so a program
 can *terminate* TLS: accept encrypted inbound connections, present a server
 certificate that clients validate, and exchange application data. It returns a
-`TlsListener` resource that `tls::accept` draws connections from. It is the
+`Listener` resource that `tls::accept` draws connections from. It is the
 server-side counterpart to the client's `tls::connect`.
 
-The endpoint is resolved and bound exactly as `net::listenTcp` does. An empty
+The endpoint is resolved and bound exactly as `tcp::listen` does. An empty
 `host` (or `"0.0.0.0"`) binds all local interfaces; any other value binds the
 matching address. The listening socket is created with the address-reuse option
 set, so a restarted server can re-bind a recently used port. The optional
@@ -23,25 +23,41 @@ default when omitted) uses the host default.
 chain (leaf certificate first, followed by any intermediates) and the matching
 private key. The pair is loaded once, when the listener is created, into a
 **server TLS context** that every accepted connection reuses. A cert or key that
-cannot be read, does not parse, or does not match its partner raises
-`ErrTlsFailed` and the listening socket is closed before the error is returned.
+cannot be read or does not parse raises `ErrTlsFailed`, and the listening socket
+is closed before the error is returned.
 
-The server TLS context is owned by the `TlsListener` and *borrowed* by each
-accepted `TlsSocket`: closing an accepted socket never frees the shared context,
+A cert and key that parse but do not belong together are NOT rejected here: no
+backend verifies the pair while building the credential. The mismatch surfaces on
+the first connection instead, as an `ErrTlsFailed` from `tls::accept`, with the
+client reporting a bad certificate signature. Measured on macOS aarch64: listen
+succeeds, accept raises `7-707-0008`, and `openssl s_client` reports
+`tls_process_cert_verify: bad signature`.
+
+The key may be in either PEM encoding, on every platform: PKCS#8
+(`-----BEGIN PRIVATE KEY-----`, what a modern `openssl req` or `openssl genpkey`
+writes) or the traditional PKCS#1 (`-----BEGIN RSA PRIVATE KEY-----`, what
+`openssl rsa -traditional` writes). One file therefore serves every target, and
+no conversion step is needed to move a server between them. The key must be
+unencrypted: a passphrase-protected PEM has no way to be unlocked here and raises
+`ErrTlsFailed`.
+
+The server TLS context is owned by the `Listener` and *borrowed* by each
+accepted `Socket`: closing an accepted socket never frees the shared context,
 which is released exactly once when the listener itself closes. The listener
 presents its certificate but does not request or verify a client certificate
 (no mutual TLS in this version)."#;
 const EX: &str = r#"Terminate TLS on port 8443 with a self-signed certificate and echo one line:
 
 ```
+IMPORT encoding
 IMPORT tls
 IMPORT io
 
 SUB main()
   RES server = tls::listen("127.0.0.1", 8443, "cert.pem", "key.pem")
   RES client = tls::accept(server)
-  LET line = tls::readText(client, 4096)
-  tls::writeText(client, "you said: " & line)
+  LET line = encoding::utf8Decode(tls::read(client, 4096))
+  tls::write(client, "you said: " & line)
   tls::close(client)
   ' server is closed by lexical drop when this scope ends
 END SUB
@@ -99,7 +115,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "keyPath",
-                    desc: "Filesystem path to a PEM file holding the private key matching the leaf certificate.",
+                    desc: "Filesystem path to an unencrypted PEM file holding the private key matching the leaf certificate. Either PKCS#8 (`BEGIN PRIVATE KEY`) or traditional PKCS#1 (`BEGIN RSA PRIVATE KEY`) encoding, on every platform.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,

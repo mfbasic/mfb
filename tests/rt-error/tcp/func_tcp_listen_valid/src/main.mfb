@@ -1,0 +1,10 @@
+IMPORT tcp
+IMPORT io
+
+FUNC main AS Integer
+  RES s1 = tcp::listen("127.0.0.1", 0)
+  RES s2 = tcp::listen("127.0.0.1", 0, 16)
+  RES s3 = tcp::listen("", 0)
+  io::print("listening all overloads")
+  RETURN 0
+END FUNC

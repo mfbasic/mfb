@@ -1,0 +1,15 @@
+IMPORT net
+IMPORT tcp
+IMPORT io
+
+FUNC main AS Integer
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound = tcp::localAddress(server)
+  RES client = tcp::connect("127.0.0.1", bound.port)
+  RES conn = tcp::accept(server)
+  tcp::close(conn)
+  tcp::close(client)
+  tcp::close(server)
+  io::print("closed socket and listener")
+  RETURN 0
+END FUNC

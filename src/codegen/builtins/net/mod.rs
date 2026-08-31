@@ -1,21 +1,26 @@
-//! The built-in `net` package (DNS, TCP, and UDP sockets) on the clean-room
+//! The built-in `net` package (DNS, ICMP, addresses, and URLs) on the clean-room
 //! registry.
 //!
-//! `net` resolves host names, opens and accepts plaintext TCP connections, binds
-//! UDP datagram sockets, and transfers bytes over both. Its three resources —
-//! `Socket` (a connected TCP stream), `Listener` (a bound TCP server endpoint),
-//! and `UdpSocket` (a bound datagram socket) — are opaque, owned handles released
-//! by lexical drop.
+//! `net` names hosts; it does not connect to them. `net::lookup` resolves a host
+//! name and `net::ping` sends one ICMP echo request. plan-110 moved every
+//! transport out: `tcp` took the stream (`Socket`/`Listener`), `udp` the datagram
+//! (`Socket`/`Datagram`), and `tls` the encrypted stream. **`net` owns no
+//! resources at all.**
 //!
-//! Like `fs`/`audio`, `net` is a **native OS-seam** package migrated to the
-//! `Body::abi_function` clean-room shape: every socket/DNS/UDP member carries a
-//! per-platform runtime-helper lowering. The relocated syscall emission lives in the
-//! `gen_shared`/`gen_io`/`gen_poll` `lower_net_*_helper` emitters; each member owns
-//! its own [`Body::abi_function_aliased`] body in its `func_*.rs` (`lower_<name>`),
-//! which calls the matching `lower_net_*_helper` (with any bool/alias discriminant)
-//! and finalizes; each emitter selects the posix/win emission by `platform.family()`.
-//! The member plus its `connectTcpAddr` /
-//! `pollList` code-form aliases route through `is_abi_function_call` /
+//! What all four still share is the `Address` value record, which stays here: it
+//! is what `net::lookup` returns, what a `udp` datagram reports as its sender, and
+//! what every transport's connect/bind/localAddress speaks. A file that names an
+//! `Address` must `IMPORT net` as well as its transport — imports are not
+//! transitive.
+//!
+//! Like `fs`/`audio`, `net` is a **native OS-seam** package on the
+//! `Body::abi_function` clean-room shape: `lookup` and `ping` each carry a
+//! per-platform runtime-helper lowering. The syscall emission lives in `gen_io`
+//! (the resolver) and `gen_ping`, over the shared address/handle primitives in
+//! [`crate::codegen::os::socket`]; each member owns its own
+//! [`Body::abi_function_aliased`] body in its `func_*.rs` (`lower_<name>`) and
+//! finalizes, selecting the posix/win emission by `platform.family()`. `ping`'s
+//! `pingAddr` code-form alias routes through `is_abi_function_call` /
 //! `abi_function_lower` (the aux→primary routing is registry data), and the `Net`
 //! runtime family is preserved via `abi_function_family` so the `_mfb_rt_net_*`
 //! symbols are unchanged.
@@ -26,13 +31,13 @@
 //! private helpers live one per `helper_*.rs` (`add_helper` — private-only), and
 //! `toString(net::Url)` is registered as an [`RegistryPackage::add_override`].
 //!
-//! `poll`/`connectTcp` are argument-shape-overloaded — two/four `Implementation`s —
-//! so the registry's generic overload/return resolution answers everything with no
+//! `lookup`/`ping` are argument-shape-overloaded — two/four `Implementation`s — so
+//! the registry's generic overload/return resolution answers everything with no
 //! custom resolver (the datetime/net idiom).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Parameter, RecordProp, Registry, RegistryOverride, RegistryPackage,
-    RegistryRecord, RegistryResource,
+    Body, DefaultValue, EnumVariant, Parameter, RecordProp, Registry, RegistryEnum,
+    RegistryOverride, RegistryPackage, RegistryRecord,
 };
 use crate::types::ParameterType;
 
@@ -67,39 +72,12 @@ pub(crate) fn opt(name: &'static str, desc: &'static str, ty: ParameterType) -> 
     }
 }
 
-/// The qualified socket / listener / UDP resource types as `ParameterType`s.
-pub(crate) fn socket() -> ParameterType {
-    ParameterType::named(SOCKET_TYPE_ID)
-}
-pub(crate) fn listener() -> ParameterType {
-    ParameterType::named(LISTENER_TYPE_ID)
-}
-pub(crate) fn udp() -> ParameterType {
-    ParameterType::named(UDP_SOCKET_TYPE_ID)
-}
-
-mod func_accept;
-mod func_bind_udp;
-mod func_close;
-mod func_connect_tcp;
-mod func_listen_tcp;
-mod func_local_address;
+/// The qualified socket / listener resource types as `ParameterType`s.
 mod func_lookup;
 mod func_parse_query;
 mod func_percent_decode;
-mod func_poll;
-mod func_read;
-mod func_read_text;
-mod func_receive_from;
-mod func_receive_text_from;
-mod func_remote_address;
-mod func_send_text_to;
-mod func_send_to;
-mod func_set_read_timeout;
-mod func_set_write_timeout;
+mod func_ping;
 mod func_to_url;
-mod func_write;
-mod func_write_text;
 
 mod helper_authority_end;
 mod helper_decode_query_component;
@@ -111,56 +89,52 @@ mod helper_percent_decode_impl;
 mod helper_slice;
 mod helper_url_to_string;
 
-mod gen_io;
-mod gen_poll;
-pub(crate) mod gen_shared;
+pub(crate) mod gen_io;
+mod gen_ping;
 
 /// The bare resource/record type names — the identity *within* the `net` package
 /// (the `RegistryResource`/`RegistryRecord` name, the `type` half of a qualified
 /// id). Used for registry-internal lookups and by the code layer.
-pub(crate) const SOCKET_TYPE: &str = "Socket";
-pub(crate) const LISTENER_TYPE: &str = "Listener";
-pub(crate) const UDP_SOCKET_TYPE: &str = "UdpSocket";
 pub(crate) const ADDRESS_TYPE: &str = "Address";
-pub(crate) const DATAGRAM_TYPE: &str = "Datagram";
-pub(crate) const DATAGRAM_TEXT_TYPE: &str = "DatagramText";
+/// The `PingStatus` enum and `PingResult` record `net::ping` reports through
+/// (plan-110-A). `PingStatus`'s variant ORDER is its wire contract: a variant's
+/// ordinal is its declaration index, and `gen_ping` emits those ordinals directly.
+pub(crate) const PING_STATUS_TYPE: &str = "PingStatus";
+pub(crate) const PING_RESULT_TYPE: &str = "PingResult";
 /// The `Url` value record's name — registry-modeled (`add_record`, DOC
 /// round-tripped via `description`).
 pub(crate) const URL_TYPE: &str = "Url";
-
-/// The package-qualified type identities (`net.Socket`, `net.Listener`,
-/// `net.UdpSocket`) — plan-97 / bug-441. The string every `RES` binding,
-/// parameter, and return of a net resource carries; the `ResourceRegistry` key.
-pub(crate) const SOCKET_TYPE_ID: &str = "net.Socket";
-pub(crate) const LISTENER_TYPE_ID: &str = "net.Listener";
-pub(crate) const UDP_SOCKET_TYPE_ID: &str = "net.UdpSocket";
 
 /// The internal source-companion (`package.mfb`) render target for the
 /// `toString(net::Url)` override — routed here by [`RegistryPackage::add_override`].
 pub(crate) const URL_TO_STRING: &str = "__net_urlToString";
 
-const MODULE_INTRO: &str =
-    r#"DNS lookup, TCP client and server sockets, UDP datagram sockets, and URL parsing"#;
-const MODULE_DESC: &str = r#"The `net` package resolves host names and opens plaintext TCP and UDP network
-connections. `net::connectTcp` opens an outbound TCP stream; `net::listenTcp` and
-`net::accept` run a TCP server; `net::bindUdp`, `net::sendTo`, and
-`net::receiveFrom` exchange UDP datagrams; and `net::read`/`net::write` (and their
-text forms) transfer bytes. For encrypted TLS connections use `tls`; for HTTP use
-`http`.
+const MODULE_INTRO: &str = r#"DNS lookup, ICMP echo, URL parsing, and the shared network address"#;
+const MODULE_DESC: &str = r#"The `net` package names hosts. `net::lookup` resolves a host name to a list of
+`Address` values, and `net::ping` sends one ICMP echo request and reports how the
+host answered. Nothing in this package opens a connection.
 
-The package also parses and renders URLs: `net::toUrl` decomposes an absolute
-URL into a `Url` value record, `toString` renders it back, and
-`net::percentDecode` / `net::parseQuery` decode request-target components. The
-`Socket`, `Listener`, and `UdpSocket` handles are opaque, owned resources closed
-automatically by lexical drop; `net::close` releases one earlier."#;
+`Address` is the shared endpoint record every transport speaks: an address from
+`net::lookup`, from a received datagram's `from` field, or from a socket's local
+or remote address query can be handed straight to any of them. **A program that
+names an `Address` must `IMPORT net` as well as its transport** — imports are not
+transitive and a package cannot re-export another's types.
+
+The transports live in their own packages: `tcp` for byte streams, `udp` for
+datagrams, `tls` for encrypted streams, and `http` for requests and responses.
+
+The package also parses and renders URLs: `net::toUrl` decomposes an absolute URL
+into a `Url` value record, `toString` renders it back, and `net::percentDecode` /
+`net::parseQuery` decode request-target components.
+
+`net` owns no resources. It has no handles to close."#;
 
 /// Build a native `net.*` member's `Body::abi_function_aliased`: its own per-member
 /// lowering `lower` (which lives in the member's `func_*.rs` and calls the matching
-/// `gen_shared`/`gen_io`/`gen_poll` `lower_net_*_helper` emitter), plus any code-form
-/// `os_aliases` (`connectTcpAddr`/`pollList`) the overload emits — the `abi_function`
-/// successor to the `native_os_seam` twin idiom (crypto/io/fs/audio shape). Aliases
-/// route to the same member body through `abi_function_lower`, distinguished off
-/// `AbiCtx::call`.
+/// `gen_io`/`gen_ping` emitter over `codegen::os::socket`), plus any code-form
+/// `os_aliases` (`pingAddr`) the overload emits — the `abi_function` successor to
+/// the `native_os_seam` twin idiom (crypto/io/fs/audio shape). Aliases route to the
+/// same member body through `abi_function_lower`, distinguished off `AbiCtx::call`.
 pub(crate) fn native_body(
     lower: crate::codegen::registry::AbiFunction,
     os_aliases: &'static [&'static str],
@@ -245,73 +219,78 @@ pub(crate) fn register(r: &mut Registry) {
             },
         ],
     });
-    pkg.add_record(RegistryRecord {
-        name: DATAGRAM_TYPE,
+
+    // `net::ping`'s two value types (plan-110-A). The enum's variant ORDER is the
+    // contract, not just documentation: a variant's ordinal is its declaration
+    // index, and `gen_ping` writes those ordinals into `PingResult.status`
+    // directly, so reordering these silently changes what a ping reports.
+    pkg.add_enum(RegistryEnum {
+        name: PING_STATUS_TYPE,
         export: true,
-        description: "",
-        props: vec![
-            RecordProp {
-                name: "from",
-                ty: ParameterType::named(ADDRESS_TYPE),
-                description: "The datagram's source address.",
+        variants: vec![
+            EnumVariant {
+                name: "Ok",
+                description: "An echo reply came back; `rttMs`, `ttl`, and `size` are measured.",
+                advisory: None,
             },
-            RecordProp {
-                name: "bytes",
-                ty: ParameterType::list_of(ParameterType::Byte),
-                description: "The datagram payload bytes.",
+            EnumVariant {
+                name: "Timeout",
+                description: "No reply arrived before the deadline.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Unreachable",
+                description: "A router reported the destination unreachable.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "TtlExceeded",
+                description: "The request outlived its TTL in transit and a router reported it.",
+                advisory: None,
             },
         ],
     });
+    // Field ORDER is likewise contract: `gen_ping` builds this record by writing
+    // five consecutive 8-byte slots at the offsets these declarations fix.
     pkg.add_record(RegistryRecord {
-        name: DATAGRAM_TEXT_TYPE,
+        name: PING_RESULT_TYPE,
         export: true,
-        description: "",
+        description: "The outcome of one `net::ping`. Only an `Ok` status carries measured `rttMs`, `ttl`, and `size`; every other status zeroes all three.",
         props: vec![
             RecordProp {
-                name: "from",
-                ty: ParameterType::named(ADDRESS_TYPE),
-                description: "The datagram's source address.",
+                name: "status",
+                ty: ParameterType::named(PING_STATUS_TYPE),
+                description: "How the host answered.",
             },
             RecordProp {
-                name: "value",
-                ty: ParameterType::String,
-                description: "The datagram payload as UTF-8 text.",
+                name: "address",
+                ty: ParameterType::named(ADDRESS_TYPE),
+                description: "Who answered — the responder for `Ok`, the reporting router for `Unreachable`/`TtlExceeded`, and the destination that was aimed at for `Timeout`. Its `port` is always `0`: ICMP has no transport port.",
+            },
+            RecordProp {
+                name: "rttMs",
+                // Float, not Integer: a loopback round trip is tens of
+                // microseconds and would always truncate to 0 (plan-110-A §C3).
+                ty: ParameterType::Float,
+                description: "The round-trip time in milliseconds, or `0.0` when the status is not `Ok`.",
+            },
+            RecordProp {
+                name: "ttl",
+                ty: ParameterType::Integer,
+                description: "The TTL observed on the reply, or `0` when the status is not `Ok`.",
+            },
+            RecordProp {
+                name: "size",
+                ty: ParameterType::Integer,
+                description: "The number of payload bytes echoed back, or `0` when the status is not `Ok`.",
             },
         ],
     });
 
-    // The three opaque socket handles. All share the public `net.close` close op;
-    // a `Listener` accepts on its owning thread and is not thread-sendable.
-    pkg.add_resource(RegistryResource {
-        name: SOCKET_TYPE,
-        export: true,
-        description: "A connected TCP stream from `net::connectTcp` or `net::accept`, \
-                      closed automatically when it leaves scope.",
-        close_function: "net.close",
-        sendable: true,
-        close_may_fail: true,
-        kind: crate::codegen::resource::ResourceKind::Builtin,
-    });
-    pkg.add_resource(RegistryResource {
-        name: LISTENER_TYPE,
-        export: true,
-        description: "A bound TCP server endpoint from `net::listenTcp`; \
-                      `net::accept` draws connections from it.",
-        close_function: "net.close",
-        sendable: false,
-        close_may_fail: true,
-        kind: crate::codegen::resource::ResourceKind::Builtin,
-    });
-    pkg.add_resource(RegistryResource {
-        name: UDP_SOCKET_TYPE,
-        export: true,
-        description: "A bound UDP datagram socket from `net::bindUdp`.",
-        close_function: "net.close",
-        sendable: true,
-        close_may_fail: true,
-        kind: crate::codegen::resource::ResourceKind::Builtin,
-    });
-
+    // plan-110-E: net has NO resources any more. Its stream handles (`Socket`,
+    // `Listener`) moved to `tcp`, and `UdpSocket` moved to `udp` in plan-110-C.
+    // What is left -- resolution and URLs -- is all values, so nothing net
+    // returns needs a close op or a lexical drop.
     // `toString(net::Url)` renders a `Url` back to an absolute href — the registry
     // home of the hand row in `builtins::general_override_target`.
     pkg.add_override(RegistryOverride {
@@ -336,24 +315,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_decode_query_component::register(&mut pkg);
 
     func_lookup::register(&mut pkg);
-    func_connect_tcp::register(&mut pkg);
-    func_listen_tcp::register(&mut pkg);
-    func_accept::register(&mut pkg);
-    func_poll::register(&mut pkg);
-    func_read::register(&mut pkg);
-    func_read_text::register(&mut pkg);
-    func_write::register(&mut pkg);
-    func_write_text::register(&mut pkg);
-    func_close::register(&mut pkg);
-    func_local_address::register(&mut pkg);
-    func_remote_address::register(&mut pkg);
-    func_set_read_timeout::register(&mut pkg);
-    func_set_write_timeout::register(&mut pkg);
-    func_bind_udp::register(&mut pkg);
-    func_receive_from::register(&mut pkg);
-    func_receive_text_from::register(&mut pkg);
-    func_send_to::register(&mut pkg);
-    func_send_text_to::register(&mut pkg);
+    func_ping::register(&mut pkg);
     func_to_url::register(&mut pkg);
     func_percent_decode::register(&mut pkg);
     func_parse_query::register(&mut pkg);

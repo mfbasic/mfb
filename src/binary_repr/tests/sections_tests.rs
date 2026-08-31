@@ -84,14 +84,14 @@ fn type_id_maps_primitives_and_composites() {
     assert_eq!(
         types.type_id(
             &mut strings,
-            &crate::types::ParameterType::declared("net.Socket")
+            &crate::types::ParameterType::declared("tcp.Socket")
         ),
         TYPE_SOCKET_HANDLE
     );
     assert_eq!(
         types.type_id(
             &mut strings,
-            &crate::types::ParameterType::declared("net.Listener")
+            &crate::types::ParameterType::declared("tcp.Listener")
         ),
         TYPE_LISTENER_HANDLE
     );
@@ -613,12 +613,14 @@ fn wire_type_ids_are_unchanged_by_the_typed_encoder() {
     assert_eq!(id_of(&mut types, &mut strings, "Money"), TYPE_MONEY);
     assert_eq!(id_of(&mut types, &mut strings, "Scalar"), TYPE_SCALAR);
     assert_eq!(id_of(&mut types, &mut strings, "fs.File"), TYPE_FILE_HANDLE);
+    // plan-110-E: the wire ids are unchanged, but the identity that carries them
+    // is `tcp`'s now -- net has no stream resources left.
     assert_eq!(
-        id_of(&mut types, &mut strings, "net.Socket"),
+        id_of(&mut types, &mut strings, "tcp.Socket"),
         TYPE_SOCKET_HANDLE
     );
     assert_eq!(
-        id_of(&mut types, &mut strings, "net.Listener"),
+        id_of(&mut types, &mut strings, "tcp.Listener"),
         TYPE_LISTENER_HANDLE
     );
 

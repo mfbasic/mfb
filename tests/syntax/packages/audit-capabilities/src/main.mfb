@@ -3,7 +3,7 @@
 ' The audit golden proves each one is reported (and that `sqlite3_open` shows up
 ' under "Native links:").
 IMPORT io
-IMPORT net
+IMPORT tcp
 IMPORT os
 IMPORT math
 IMPORT datetime
@@ -29,8 +29,8 @@ FUNC main() AS Integer
   LET pid = os::pid()
   LET roll = math::rand(1, 6)
   LET at = datetime::now()
-  RES socket = net::connectTcp("127.0.0.1", 9)
-  net::close(socket)
+  RES socket = tcp::connect("127.0.0.1", 9)
+  tcp::close(socket)
   RES db AS Db = sql::open(":memory:")
   sql::close(db)
   io::print(home)

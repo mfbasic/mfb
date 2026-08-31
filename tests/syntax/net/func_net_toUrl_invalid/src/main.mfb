@@ -1,0 +1,17 @@
+' plan-110-F Phase 1: `net::toUrl` was the one surviving `net` member with no
+' COMPILE-time invalid coverage. `func_net_toUrl_invalid_runtime` covers the
+' other half -- an href that parses as the wrong shape raises at run time -- but
+' arity and argument type are rejected before the program ever runs.
+'
+' (`Url` itself is an ordinary, constructible value record -- unlike `Address`,
+' which the socket helpers build and `ir::verify::read_only_record_type` marks
+' compiler-owned. Nothing to pin on that side.)
+IMPORT net
+
+FUNC main AS Integer
+  LET missing = net::toUrl()
+  LET wrongType = net::toUrl(42)
+  LET tooMany = net::toUrl("https://example.com", "extra")
+
+  RETURN 0
+END FUNC

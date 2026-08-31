@@ -4,8 +4,9 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "io", "line": 2 },
-    { "module": "net", "line": 3 }
+    { "module": "collections", "line": 2 },
+    { "module": "io", "line": 3 },
+    { "module": "net", "line": 4 }
     ],
     "items": [
     {
@@ -13,80 +14,42 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 5,
+      "line": 6,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sock", "type": "net.Socket", "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "80" }] }, "line": 6 },
-      { "kind": "binding", "mutable": false, "name": "got", "type": null, "value": { "kind": "call", "callee": "net.read", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "number", "value": "64" }] }, "line": 7 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "net.write", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "identifier", "value": "got" }] }, "line": 8 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "got" }] }] }] }, "line": 9 },
-      {
-        "kind": "forEach",
-        "name": "addr",
-        "iterable": { "kind": "call", "callee": "net.lookup", "arguments": [{ "kind": "string", "value": "example.com" }] },
-        "line": 10,
-        "body": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "addr" }, "member": "port" }] }] }, "line": 11 }
-        ]
-      },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sockT", "type": "net.Socket", "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "80" }, { "kind": "number", "value": "1000" }] }, "line": 16 },
-      { "kind": "binding", "mutable": false, "name": "locAddr", "type": null, "value": { "kind": "call", "callee": "net.localAddress", "arguments": [{ "kind": "identifier", "value": "sock" }] }, "line": 17 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "locAddr" }, "member": "host" }] }, "line": 18 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sockA", "type": "net.Socket", "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "identifier", "value": "locAddr" }] }, "line": 19 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sockAT", "type": "net.Socket", "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "identifier", "value": "locAddr" }, { "kind": "number", "value": "1000" }] }, "line": 20 },
-      { "kind": "binding", "mutable": false, "name": "txt", "type": null, "value": { "kind": "call", "callee": "net.readText", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "number", "value": "64" }] }, "line": 23 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "txt" }] }, "line": 24 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "net.writeText", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "string", "value": "hello" }] }, "line": 25 },
-      { "kind": "binding", "mutable": false, "name": "ready", "type": null, "value": { "kind": "call", "callee": "net.poll", "arguments": [{ "kind": "identifier", "value": "sock" }] }, "line": 26 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ready" }] }] }, "line": 27 },
-      { "kind": "binding", "mutable": false, "name": "readyT", "type": null, "value": { "kind": "call", "callee": "net.poll", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "number", "value": "100" }] }, "line": 28 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "readyT" }] }] }, "line": 29 },
-      { "kind": "binding", "mutable": false, "name": "remAddr", "type": null, "value": { "kind": "call", "callee": "net.remoteAddress", "arguments": [{ "kind": "identifier", "value": "sock" }] }, "line": 30 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "remAddr" }, "member": "host" }] }, "line": 31 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "net.setReadTimeout", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "number", "value": "1000" }] }, "line": 32 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "net.setWriteTimeout", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "number", "value": "1000" }] }, "line": 33 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "lst", "type": "net.Listener", "value": { "kind": "call", "callee": "net.listenTcp", "arguments": [{ "kind": "string", "value": "0.0.0.0" }, { "kind": "number", "value": "8080" }] }, "line": 36 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "lstB", "type": "net.Listener", "value": { "kind": "call", "callee": "net.listenTcp", "arguments": [{ "kind": "string", "value": "0.0.0.0" }, { "kind": "number", "value": "8080" }, { "kind": "number", "value": "16" }] }, "line": 37 },
-      { "kind": "binding", "mutable": false, "name": "lstAddr", "type": null, "value": { "kind": "call", "callee": "net.localAddress", "arguments": [{ "kind": "identifier", "value": "lst" }] }, "line": 38 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "lstAddr" }, "member": "host" }] }, "line": 39 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "peer", "type": "net.Socket", "value": { "kind": "call", "callee": "net.accept", "arguments": [{ "kind": "identifier", "value": "lst" }] }, "line": 40 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "net.poll", "arguments": [{ "kind": "identifier", "value": "peer" }] }] }] }, "line": 41 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "peerT", "type": "net.Socket", "value": { "kind": "call", "callee": "net.accept", "arguments": [{ "kind": "identifier", "value": "lst" }, { "kind": "number", "value": "1000" }] }, "line": 42 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "net.poll", "arguments": [{ "kind": "identifier", "value": "peerT" }] }] }] }, "line": 43 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "udp", "type": "net.UdpSocket", "value": { "kind": "call", "callee": "net.bindUdp", "arguments": [{ "kind": "string", "value": "0.0.0.0" }, { "kind": "number", "value": "0" }] }, "line": 46 },
-      { "kind": "binding", "mutable": false, "name": "udpAddr", "type": null, "value": { "kind": "call", "callee": "net.localAddress", "arguments": [{ "kind": "identifier", "value": "udp" }] }, "line": 47 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "udpAddr" }, "member": "host" }] }, "line": 48 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "net.sendTo", "arguments": [{ "kind": "identifier", "value": "udp" }, { "kind": "identifier", "value": "udpAddr" }, { "kind": "identifier", "value": "got" }] }, "line": 49 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "net.sendTextTo", "arguments": [{ "kind": "identifier", "value": "udp" }, { "kind": "identifier", "value": "udpAddr" }, { "kind": "string", "value": "ping" }] }, "line": 50 },
-      { "kind": "binding", "mutable": false, "name": "dg", "type": null, "value": { "kind": "call", "callee": "net.receiveFrom", "arguments": [{ "kind": "identifier", "value": "udp" }, { "kind": "number", "value": "128" }] }, "line": 51 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dg" }, "member": "bytes" }] }] }] }, "line": 52 },
-      { "kind": "binding", "mutable": false, "name": "dgt", "type": null, "value": { "kind": "call", "callee": "net.receiveTextFrom", "arguments": [{ "kind": "identifier", "value": "udp" }, { "kind": "number", "value": "128" }] }, "line": 53 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dgt" }, "member": "value" }] }, "line": 54 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "net.setReadTimeout", "arguments": [{ "kind": "identifier", "value": "udp" }, { "kind": "number", "value": "1000" }] }, "line": 55 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "net.setWriteTimeout", "arguments": [{ "kind": "identifier", "value": "udp" }, { "kind": "number", "value": "1000" }] }, "line": 56 },
       {
         "kind": "forEach",
         "name": "addr2",
         "iterable": { "kind": "call", "callee": "net.lookup", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "80" }] },
-        "line": 59,
+        "line": 14,
         "body": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "addr2" }, "member": "port" }] }] }, "line": 60 }
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "addr2" }, "member": "port" }] }] }, "line": 15 }
         ]
       },
-      { "kind": "binding", "mutable": false, "name": "url", "type": null, "value": { "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "string", "value": "http://user:pass@example.com:8080/a/b?x=1#frag" }] }, "line": 64 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "url" }, "member": "host" }] }, "line": 65 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "url" }, "member": "port" }] }] }, "line": 66 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "url" }] }] }, "line": 67 },
-      { "kind": "binding", "mutable": false, "name": "query", "type": null, "value": { "kind": "call", "callee": "net.parseQuery", "arguments": [{ "kind": "string", "value": "a=1&b=2" }] }, "line": 68 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "query" }] }] }] }, "line": 69 },
-      { "kind": "binding", "mutable": false, "name": "decoded", "type": null, "value": { "kind": "call", "callee": "net.percentDecode", "arguments": [{ "kind": "string", "value": "a%20b" }] }, "line": 70 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "decoded" }] }, "line": 71 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "net.close", "arguments": [{ "kind": "identifier", "value": "sockT" }] }, "line": 75 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "net.close", "arguments": [{ "kind": "identifier", "value": "lstB" }] }, "line": 76 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "net.close", "arguments": [{ "kind": "identifier", "value": "udp" }] }, "line": 77 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 79 }
+      { "kind": "binding", "mutable": false, "name": "p1", "type": null, "value": { "kind": "call", "callee": "net.ping", "arguments": [{ "kind": "string", "value": "example.com" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "p1" }, "member": "ttl" }] }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "p2", "type": null, "value": { "kind": "call", "callee": "net.ping", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "1000" }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "p2" }, "member": "size" }] }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "p3", "type": null, "value": { "kind": "call", "callee": "net.ping", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "1000" }, { "kind": "number", "value": "32" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "p3" }, "member": "rttMs" }] }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "p4", "type": null, "value": { "kind": "call", "callee": "net.ping", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "1000" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "128" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p4" }, "member": "address" }, "member": "host" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "locAddr", "type": null, "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "call", "callee": "net.lookup", "arguments": [{ "kind": "string", "value": "example.com" }] }, { "kind": "number", "value": "0" }] }, "line": 31 },
+      { "kind": "binding", "mutable": false, "name": "p5", "type": null, "value": { "kind": "call", "callee": "net.ping", "arguments": [{ "kind": "identifier", "value": "locAddr" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "p5" }, "member": "ttl" }] }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "name": "p6", "type": null, "value": { "kind": "call", "callee": "net.ping", "arguments": [{ "kind": "identifier", "value": "locAddr" }, { "kind": "number", "value": "1000" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "128" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "p6" }, "member": "size" }] }] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "name": "url", "type": null, "value": { "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "string", "value": "http://user:pass@example.com:8080/a/b?x=1#frag" }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "url" }, "member": "host" }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "url" }, "member": "port" }] }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "url" }] }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "query", "type": null, "value": { "kind": "call", "callee": "net.parseQuery", "arguments": [{ "kind": "string", "value": "a=1&b=2" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "query" }] }] }] }, "line": 43 },
+      { "kind": "binding", "mutable": false, "name": "decoded", "type": null, "value": { "kind": "call", "callee": "net.percentDecode", "arguments": [{ "kind": "string", "value": "a%20b" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "decoded" }] }, "line": 45 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 49 }
       ]
     }
     ]

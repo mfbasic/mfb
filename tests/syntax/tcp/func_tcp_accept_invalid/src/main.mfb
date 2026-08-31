@@ -1,0 +1,8 @@
+IMPORT tcp
+
+FUNC main AS Integer
+  RES missing = tcp::accept()
+  RES wrongType = tcp::accept(1)
+  RES tooMany = tcp::accept(1, 2, 3)
+  RETURN 0
+END FUNC

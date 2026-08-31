@@ -2680,7 +2680,7 @@ END FUNC
     fn tls_connect_pads_optional_arguments() {
         let src = "IMPORT tls\n\
              FUNC run() AS Integer\n\
-               RES s AS tls::TlsSocket = tls::connect(\"host\", 443)\n\
+               RES s AS tls::Socket = tls::connect(\"host\", 443)\n\
                tls::close(s)\n\
                RETURN 0\n\
              END FUNC\n\
@@ -2698,11 +2698,11 @@ END FUNC
 
     #[test]
     fn tls_close_on_listener_routes_to_listener_helper() {
-        // `tls::close` on a `TlsListener` operand routes to the listener-shaped
+        // `tls::close` on a `tls::Listener` operand routes to the listener-shaped
         // internal close helper (the tls.close listener branch).
         let src = "IMPORT tls\n\
              FUNC run() AS Integer\n\
-               RES l AS tls::TlsListener = tls::listen(\"0.0.0.0\", 8080, \"cert\", \"key\")\n\
+               RES l AS tls::Listener = tls::listen(\"0.0.0.0\", 8080, \"cert\", \"key\")\n\
                tls::close(l)\n\
                RETURN 0\n\
              END FUNC\n\
@@ -6841,5 +6841,62 @@ mod lower_coverage_tests {
                RETURN 0\nEND FUNC\n",
         );
         let _ = function(&ir, "main");
+    }
+
+    /// bug-459: an explicit `tls::close(listener)` must rewrite to the internal
+    /// `tls.closeListener` body, which cancels an `nw_listener`. The socket body
+    /// it fell back to calls `nw_connection_cancel` on that listener, whose
+    /// dispatch-queue slot is not a connection's -- a SIGSEGV on macOS.
+    ///
+    /// The rewrite selected on a BARE type name (`Listener`), while a built-in
+    /// resource has been package-qualified end to end since bug-441, so the
+    /// filter matched nothing from that commit on. Scope-drop was unaffected
+    /// (the resource descriptor names `tls.closeListener` directly), which is
+    /// why only an EXPLICIT close crashed.
+    #[test]
+    fn explicit_tls_listener_close_rewrites_to_the_listener_body() {
+        let ir = lower_src(
+            "IMPORT tls\n\n\
+             FUNC main AS Integer\n  \
+               RES l AS tls::Listener = tls::listen(\"127.0.0.1\", 0, \"c.pem\", \"k.pem\")\n  \
+               RES c AS tls::Socket = tls::connect(\"example.com\", 443)\n  \
+               tls::close(c)\n  \
+               tls::close(l)\n  \
+               RETURN 0\nEND FUNC\n",
+        );
+        let json = ir.to_json();
+        assert!(
+            json.contains("\"target\": \"tls.closeListener\""),
+            "closing a tls::Listener must lower to tls.closeListener"
+        );
+        // The socket close is NOT rewritten: exactly one plain `tls.close`, for `c`.
+        assert_eq!(
+            json.matches("\"target\": \"tls.close\"").count(),
+            1,
+            "only the Socket close stays `tls.close`"
+        );
+    }
+
+    /// The mirror: `tcp::Listener` also spells its bare name `Listener`, so a
+    /// rewrite matching bare names would capture it too. `tcp::close` has one
+    /// body for both handle kinds and must never reach tls's.
+    #[test]
+    fn closing_a_tcp_listener_does_not_reach_the_tls_listener_body() {
+        let ir = lower_src(
+            "IMPORT tcp\n\n\
+             FUNC main AS Integer\n  \
+               RES l AS tcp::Listener = tcp::listen(\"127.0.0.1\", 0)\n  \
+               tcp::close(l)\n  \
+               RETURN 0\nEND FUNC\n",
+        );
+        let json = ir.to_json();
+        assert!(
+            !json.contains("tls.closeListener"),
+            "a tcp::Listener must not reach tls's listener body"
+        );
+        assert!(
+            json.contains("\"target\": \"tcp.close\""),
+            "tcp::close(Listener) stays tcp.close"
+        );
     }
 }

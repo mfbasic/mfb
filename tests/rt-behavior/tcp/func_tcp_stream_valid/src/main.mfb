@@ -1,0 +1,72 @@
+' The whole `tcp` surface over loopback (plan-110-B): every member and every
+' overload, including the three that lower through a distinct code form and so
+' could silently route to the wrong emitter —
+'
+'   tcp::connect(Address, ...)  -> tcp.connectAddr
+'   tcp::write(sock, String)    -> tcp.writeText
+'   tcp::poll(List OF RES ...)  -> tcp.pollList
+'
+' `IMPORT net` is required, not incidental: endpoints are `net::Address` values and
+' imports are not transitive, so a file that USES an address from
+' tcp::localAddress has to import the package that declares the type.
+
+IMPORT collections
+IMPORT encoding
+IMPORT net
+IMPORT tcp
+IMPORT io
+
+FUNC main AS Integer
+  ' listen(host, port) with port 0 -> the OS picks; localAddress reports which.
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound = tcp::localAddress(server)
+  io::print("bound host=" & bound.host & " port>0=" & toString(bound.port > 0))
+
+  ' connect(host, port, timeoutMs) and the bounded accept.
+  RES client = tcp::connect("127.0.0.1", bound.port, 2000)
+  RES conn = tcp::accept(server, 2000)
+  io::print("peer=" & tcp::remoteAddress(conn).host)
+  io::print("client local=" & tcp::localAddress(client).host)
+
+  ' write(sock, String) -> the writeText code form.
+  tcp::write(client, "hello")
+  io::print("text=" & encoding::utf8Decode(tcp::read(conn, 64)))
+
+  ' write(sock, List OF Byte) -> the byte code form. 255 proves no sign extension.
+  LET payload AS List OF Byte = [1, 2, 3, 255]
+  tcp::write(client, payload)
+  LET raw = tcp::read(conn, 64)
+  io::print("bytes=" & toString(len(raw)) & " last=" & toString(collections::get(raw, 3)))
+
+  ' Scalar poll answers a Boolean both ways round: ready, then not ready.
+  tcp::write(conn, "back")
+  io::print("poll ready=" & toString(tcp::poll(client, 1000)))
+  io::print("read back=" & encoding::utf8Decode(tcp::read(client, 16)))
+  io::print("poll idle=" & toString(tcp::poll(client, 50)))
+
+  ' connect(Address, timeoutMs) -> the connectAddr code form, fed by net::lookup.
+  LET dest = collections::get(net::lookup("127.0.0.1", bound.port), 0)
+  RES viaAddr = tcp::connect(dest, 2000)
+  RES conn2 = tcp::accept(server, 2000)
+  tcp::write(viaAddr, "addr")
+  io::print("via address=" & encoding::utf8Decode(tcp::read(conn2, 16)))
+
+  ' List poll returns the ready member, BORROWED: the list still owns it and
+  ' closes it once at scope exit, so this must not double-close.
+  LET pool AS List OF RES tcp::Socket = [conn, conn2]
+  tcp::write(client, "pick")
+  RES ready AS tcp::Socket = tcp::poll(pool, 2000)
+  io::print("list poll=" & encoding::utf8Decode(tcp::read(ready, 16)))
+
+  ' A read timeout is a property of the socket, and it fires.
+  tcp::setReadTimeout(client, 150)
+  tcp::setWriteTimeout(client, 150)
+  LET late = tcp::read(client, 16) TRAP(e)
+    io::print("read timeout fired")
+    ' Explicit close of one handle; every other handle releases by lexical drop.
+    tcp::close(viaAddr)
+    RETURN 0
+  END TRAP
+  io::print("UNEXPECTED read of " & toString(len(late)))
+  RETURN 0
+END FUNC

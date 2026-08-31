@@ -11,7 +11,7 @@
 ' on-device with a two-process loopback: build this project, run it, and drive it
 ' with the http client — see the plan's C3 loopback notes.
 IMPORT http
-IMPORT net
+IMPORT tcp
 IMPORT collections
 IMPORT errorCode
 
@@ -51,7 +51,7 @@ END FUNC
 
 ' The worked-example accept loop. Compiled here; run on-device.
 SUB serverMain()
-  RES s AS net::Listener = http::server(8080)
+  RES s AS tcp::Listener = http::server(8080)
   DO
     http::handleRequest(s, routes())
   LOOP UNTIL FALSE

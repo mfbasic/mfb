@@ -1,0 +1,14 @@
+' Static rejection of malformed net::ping calls (plan-110-A). Range violations are
+' RUNTIME errors, not static ones (the values are not constant-folded), so they
+' live in tests/rt-error/net/func_net_ping_range_invalid instead.
+IMPORT net
+
+FUNC main AS Integer
+  LET missing = net::ping()
+  LET wrongHost = net::ping(1)
+  LET wrongTimeout = net::ping("h", "soon")
+  LET wrongTtl = net::ping("h", 100, "low")
+  LET wrongSize = net::ping("h", 100, 64, "big")
+  LET tooMany = net::ping("h", 100, 64, 56, 1)
+  RETURN 0
+END FUNC

@@ -1250,7 +1250,7 @@ mod tests {
                 "Result OF Integer",
                 false,
             ),
-            (vec!["RES fs.File"], "RES net.Socket", false),
+            (vec!["RES fs.File"], "RES tcp.Socket", false),
             // A higher-order parameter — the shape whose embedded `) AS ` broke
             // the old first-match `split_once(") AS ")` splitter.
             (vec!["FUNC(Integer) AS String"], "Boolean", false),

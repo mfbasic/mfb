@@ -16,7 +16,7 @@ tests/syntax/tls/close_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALU
    5 |   LET wrongType = tls::close(1)
      | ^
 tests/syntax/tls/close_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tls.close` has argument type(s) (Integer), expected TlsSocket or TlsListener.
+               Call to `tls.close` has argument type(s) (Integer), expected Socket or Listener.
    3 | FUNC main AS Integer
    4 |   LET missing = tls::close()
    5 |   LET wrongType = tls::close(1)
@@ -36,13 +36,13 @@ tests/syntax/tls/close_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_M
 tests/syntax/tls/close_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
    6 |   LET tooMany = tls::close(1, 2)
-   7 |   ' close overloads over tls::TlsSocket and tls::TlsListener only — a String is neither.
+   7 |   ' close overloads over tls::Socket and tls::Listener only — a String is neither.
    8 |   LET notHandle = tls::close("socket")
      | ^
 tests/syntax/tls/close_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tls.close` has argument type(s) (String), expected TlsSocket or TlsListener.
+               Call to `tls.close` has argument type(s) (String), expected Socket or Listener.
    6 |   LET tooMany = tls::close(1, 2)
-   7 |   ' close overloads over tls::TlsSocket and tls::TlsListener only — a String is neither.
+   7 |   ' close overloads over tls::Socket and tls::Listener only — a String is neither.
    8 |   LET notHandle = tls::close("socket")
      | ^
 tests/syntax/tls/close_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined

@@ -1,0 +1,79 @@
+{
+  "project": "bug109_write_timeout",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "net", "line": 1 },
+    { "module": "tcp", "line": 2 },
+    { "module": "io", "line": 3 },
+    { "module": "errorCode", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "pump",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": null, "value": { "kind": "call", "callee": "tcp.listen", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "bound", "type": null, "value": { "kind": "call", "callee": "tcp.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "client", "type": null, "value": { "kind": "call", "callee": "tcp.connect", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "accepted", "type": null, "value": { "kind": "call", "callee": "tcp.accept", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.setWriteTimeout", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "number", "value": "100" }] }, "line": 18 },
+      { "kind": "binding", "mutable": true, "name": "big", "type": "String", "value": { "kind": "string", "value": "x" }, "line": 20 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 21 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "20" } },
+        "line": 22,
+        "body": [
+        { "kind": "assignment", "name": "big", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "identifier", "value": "big" } }, "line": 23 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 24 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 26 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "1000" } },
+        "line": 27,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.write", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "identifier", "value": "big" }] }, "line": 28 },
+        { "kind": "assignment", "name": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "1" } }, "line": 29 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 31 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 32,
+      "body": [
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 33 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 37,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "code", "type": "Integer", "value": { "kind": "call", "callee": "pump", "arguments": [] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "writeTimeout=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrTimeout" } }] } }] }, "line": 39 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 40 }
+      ]
+    }
+    ]
+  }
+  ]
+}

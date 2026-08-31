@@ -26,14 +26,21 @@ pub(crate) struct PlatformImport {
     pub(crate) required_by: String,
 }
 
-/// Base libc symbol names required by each `net` runtime helper. These are
+/// Base libc symbol names required by each socket runtime helper (`net::lookup`
+/// and `net::ping` plus every `tcp`/`udp` member). These are
 /// platform independent; macOS prepends a leading `_` (libSystem) and Linux uses
 /// them verbatim (libc). The platform's `errno` accessor (`___error` /
 /// `__errno_location`) is added separately because its name differs by platform.
 pub(crate) fn net_libc_symbols(call: &str) -> &'static [&'static str] {
     match call {
         "net.lookup" => &["getaddrinfo", "freeaddrinfo", "inet_ntop"],
-        "net.connectTcp" => &[
+        // plan-110-B/E: `tcp` took net's stream surface and owns these rows
+        // outright -- they were spelled out rather than aliased to the `net.*`
+        // originals precisely so that deleting net's transport members here in
+        // plan-110-E could not silently empty them.
+        // bug-314 H2: the bounded wait sets the listener non-blocking around the
+        // accept and restores its flags at each exit, so `accept` needs fcntl.
+        "tcp.connect" | "tcp.connectAddr" => &[
             "getaddrinfo",
             "freeaddrinfo",
             "socket",
@@ -43,7 +50,7 @@ pub(crate) fn net_libc_symbols(call: &str) -> &'static [&'static str] {
             "poll",
             "getsockopt",
         ],
-        "net.listenTcp" => &[
+        "tcp.listen" => &[
             "getaddrinfo",
             "freeaddrinfo",
             "socket",
@@ -52,21 +59,49 @@ pub(crate) fn net_libc_symbols(call: &str) -> &'static [&'static str] {
             "listen",
             "close",
         ],
-        // bug-314 H2: the bounded wait sets the listener non-blocking around the
-        // accept and restores its flags at each exit, so the helper needs fcntl.
-        "net.accept" => &["accept", "poll", "close", "fcntl"],
-        "net.poll" => &["poll"],
-        "net.read" | "net.readText" => &["read"],
-        "net.write" | "net.writeText" => &["write"],
-        "net.close" => &["close"],
-        "net.localAddress" => &["getsockname", "inet_ntop"],
-        "net.remoteAddress" => &["getpeername", "inet_ntop"],
-        "net.setReadTimeout" | "net.setWriteTimeout" => &["setsockopt"],
-        "net.bindUdp" => &["getaddrinfo", "freeaddrinfo", "socket", "bind", "close"],
-        "net.receiveFrom" | "net.receiveTextFrom" => &["recvfrom", "inet_ntop"],
-        "net.sendTo" | "net.sendTextTo" => &["getaddrinfo", "freeaddrinfo", "sendto"],
+        "tcp.accept" => &["accept", "poll", "close", "fcntl"],
+        "tcp.poll" | "tcp.pollList" => &["poll"],
+        "tcp.read" => &["read"],
+        "tcp.write" | "tcp.writeText" => &["write"],
+        "tcp.close" => &["close"],
+        "tcp.localAddress" => &["getsockname", "inet_ntop"],
+        "tcp.remoteAddress" => &["getpeername", "inet_ntop"],
+        "tcp.setReadTimeout" | "tcp.setWriteTimeout" => &["setsockopt"],
+        // plan-110-C: `udp` shares net's datagram emitters, so it needs the same
+        // libc symbols as the `net` members it replaces.
+        "udp.bind" => &["getaddrinfo", "freeaddrinfo", "socket", "bind", "close"],
+        "udp.send" | "udp.sendText" => &["getaddrinfo", "freeaddrinfo", "sendto"],
+        "udp.receive" => &["recvfrom", "inet_ntop"],
+        "udp.poll" | "udp.pollList" => &["poll"],
+        "udp.close" => &["close"],
+        "udp.localAddress" => &["getsockname", "inet_ntop"],
+        "udp.setReadTimeout" | "udp.setWriteTimeout" => &["setsockopt"],
+        // plan-110-A. The receive call is deliberately absent: macOS uses `recvfrom`
+        // and Linux `recvmsg` (only Linux can reach the reply TTL, and only through a
+        // control message), so each backend appends its own via
+        // [`net_ping_receive_symbol`] rather than importing a symbol it never
+        // references — the same reason bug-300 E10 filters `write` here.
+        "net.ping" | "net.pingAddr" => &[
+            "getaddrinfo",
+            "freeaddrinfo",
+            "socket",
+            "setsockopt",
+            "sendto",
+            "poll",
+            "close",
+            "inet_ntop",
+            "clock_gettime",
+        ],
         _ => &[],
     }
+}
+
+/// The receive symbol `net::ping` references on this platform, or `None` for a call
+/// that is not ping. macOS reads the reply with `recvfrom` (the IPv4 header, and so
+/// the TTL, is already in the buffer); Linux must use `recvmsg` to collect the
+/// `IP_RECVTTL` control message, because it strips the header (plan-110-A §C1).
+pub(crate) fn net_ping_receive_symbol(call: &str, darwin: bool) -> Option<&'static str> {
+    matches!(call, "net.ping" | "net.pingAddr").then(|| if darwin { "recvfrom" } else { "recvmsg" })
 }
 
 pub(crate) struct PlannedFunction {

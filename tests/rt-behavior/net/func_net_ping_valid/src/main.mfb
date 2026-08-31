@@ -1,0 +1,76 @@
+' net::ping over the loopback interface (plan-110-A).
+'
+' Deliberately assertion-shaped rather than value-printing: the measured fields
+' are genuinely environment-dependent — the reply TTL is 64 on Unix and 128 on
+' Windows, and the round-trip time is whatever the host takes — so printing them
+' would bake one machine's numbers into a golden. What IS invariant is the
+' contract: an Ok reports the responder and positive measurements, a silent
+' address reports Timeout with the fields zeroed, and out-of-range arguments
+' raise rather than returning a status.
+'
+' This fixture needs the OS to permit ICMP. Where it does not (a Linux box whose
+' net.ipv4.ping_group_range excludes the caller), ping raises rather than
+' returning a status, which is itself the documented contract — see
+' tests/rt-error/net/func_net_ping_range_invalid for the raising half.
+
+IMPORT collections
+IMPORT net
+IMPORT io
+
+FUNC statusName(r AS PingResult) AS String
+  MUT name = "?"
+  MATCH r.status
+    CASE PingStatus.Ok
+      name = "Ok"
+    CASE PingStatus.Timeout
+      name = "Timeout"
+    CASE PingStatus.Unreachable
+      name = "Unreachable"
+    CASE PingStatus.TtlExceeded
+      name = "TtlExceeded"
+  END MATCH
+  RETURN name
+END FUNC
+
+FUNC main AS Integer
+  ' A loopback echo answers, and only an Ok carries measurements.
+  LET a = net::ping("127.0.0.1", 2000)
+  io::print("loopback status=" & statusName(a))
+  io::print("loopback responder=" & a.address.host)
+  ' The port is always 0: ICMP has no transport port.
+  io::print("loopback port=" & toString(a.address.port))
+  ' rttMs is a Float precisely so a sub-millisecond loopback round trip is still
+  ' reported as positive rather than truncating to zero.
+  io::print("loopback rtt positive=" & toString(a.rttMs > 0.0))
+  io::print("loopback ttl positive=" & toString(a.ttl > 0))
+  ' The default payload is 56 bytes and is echoed back whole.
+  io::print("loopback size=" & toString(a.size))
+
+  ' The Address overload names the same destination; its port is ignored on input.
+  LET target = collections::get(net::lookup("127.0.0.1", 9999), 0)
+  LET b = net::ping(target, 2000)
+  io::print("address status=" & statusName(b))
+  io::print("address port=" & toString(b.address.port))
+
+  ' An explicit payload size round-trips, including 0 (a bare echo header) and the
+  ' documented maximum. 8184 is the interesting one: it exceeds macOS's default
+  ' raw receive space, so it only comes back because the backend raises SO_RCVBUF.
+  LET zero = net::ping("127.0.0.1", 2000, 64, 0)
+  io::print("zero status=" & statusName(zero) & " size=" & toString(zero.size))
+  LET big = net::ping("127.0.0.1", 2000, 64, 8184)
+  io::print("max status=" & statusName(big) & " size=" & toString(big.size))
+
+  ' A silent destination (TEST-NET-1, reserved for documentation and routed
+  ' nowhere) times out. The result still names the destination that was aimed at,
+  ' and every measurement is zeroed.
+  LET quiet = net::ping("192.0.2.1", 300)
+  io::print("silent status=" & statusName(quiet))
+  io::print("silent host=" & quiet.address.host)
+  io::print("silent zeroed=" & toString(quiet.rttMs = 0.0 AND quiet.ttl = 0 AND quiet.size = 0))
+
+  ' timeoutMs = 0 is one immediate check, not an error and not an infinite wait.
+  LET immediate = net::ping("192.0.2.1", 0)
+  io::print("immediate status=" & statusName(immediate))
+
+  RETURN 0
+END FUNC

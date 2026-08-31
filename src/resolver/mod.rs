@@ -33,12 +33,13 @@ const BUILTIN_TYPES: &[&str] = &[
     crate::codegen::builtins::fs::FILE_TYPE_ID,
     crate::codegen::builtins::term::TERM_COLOR_TYPE,
     crate::codegen::builtins::term::TERM_SIZE_TYPE,
-    crate::codegen::builtins::net::SOCKET_TYPE_ID,
-    crate::codegen::builtins::net::LISTENER_TYPE_ID,
     crate::codegen::builtins::net::ADDRESS_TYPE,
-    crate::codegen::builtins::net::UDP_SOCKET_TYPE_ID,
-    crate::codegen::builtins::net::DATAGRAM_TYPE,
-    crate::codegen::builtins::net::DATAGRAM_TEXT_TYPE,
+    // plan-110-B/C: the transport types moved out of `net`. `DatagramText` is gone
+    // entirely — a datagram's encoding is not something the network reports.
+    crate::codegen::builtins::tcp::SOCKET_TYPE_ID,
+    crate::codegen::builtins::tcp::LISTENER_TYPE_ID,
+    crate::codegen::builtins::udp::SOCKET_TYPE_ID,
+    crate::codegen::builtins::udp::DATAGRAM_TYPE,
     crate::codegen::builtins::tls::TLS_SOCKET_TYPE_ID,
     crate::codegen::builtins::tls::TLS_LISTENER_TYPE_ID,
     crate::codegen::builtins::audio::AUDIO_INPUT_TYPE_ID,

@@ -1,6 +1,6 @@
 IMPORT io
 IMPORT fs
-IMPORT net
+IMPORT tcp
 IMPORT collections
 
 ' bug-429: a `List`/`Map OF RES <ResourceUnion> STATE <S>` that OWNS its
@@ -21,7 +21,7 @@ END TYPE
 
 UNION Handle
   fs::File
-  net::Socket
+  tcp::Socket
 END UNION
 
 ' Build a list whose union elements float in from the loop body, read each

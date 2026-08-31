@@ -1,10 +1,10 @@
 IMPORT fs
-IMPORT net
+IMPORT tcp
 IMPORT io
 
 UNION Stream
   fs::File
-  net::Socket
+  tcp::Socket
 END UNION
 
 ' The union's active variant is File. On scope-drop the tag-dispatched cleanup
@@ -14,7 +14,7 @@ SUB writeVia(path AS String, data AS String)
   MATCH s
     CASE fs::File(f)
       fs::writeAll(f, data)
-    CASE net::Socket(sock)
+    CASE tcp::Socket(sock)
       io::print("unexpected socket")
   END MATCH
 END SUB

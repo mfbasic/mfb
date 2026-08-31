@@ -1,0 +1,45 @@
+' Byte-identity coverage for the `udp` package (plan-110-C): every member and
+' every overload, so a codegen change to the datagram backend flips a .ncodesum on
+' all five targets. Replaces the UDP section that used to live in
+' tests/byte-identity/net, which lost its datagram surface in plan-110-C.
+'
+' Compile-only by design, like the other byte-identity fixtures.
+
+IMPORT collections
+IMPORT net
+IMPORT udp
+IMPORT io
+
+FUNC main AS Integer
+  RES sock AS udp::Socket = udp::bind("0.0.0.0", 0)
+  LET at = udp::localAddress(sock)
+  io::print(at.host)
+
+  ' send: both overloads. List OF Byte lowers through `udp.send`, String through
+  ' the `udp.sendText` code form.
+  LET payload AS List OF Byte = [1, 2, 3]
+  udp::send(sock, at, payload)
+  udp::send(sock, at, "ping")
+
+  ' receive returns a Datagram carrying the sender's address and the raw bytes.
+  LET dg = udp::receive(sock, 128)
+  io::print(toString(len(dg.bytes)))
+  io::print(dg.from.host)
+
+  ' Scalar poll, both arities.
+  io::print(toString(udp::poll(sock)))
+  io::print(toString(udp::poll(sock, 100)))
+
+  udp::setReadTimeout(sock, 1000)
+  udp::setWriteTimeout(sock, 1000)
+
+  ' List poll -- the `udp.pollList` code form, returning a borrowed member.
+  RES other AS udp::Socket = udp::bind("0.0.0.0", 0)
+  LET pool AS List OF RES udp::Socket = [sock, other]
+  RES ready AS udp::Socket = udp::poll(pool, 100)
+  io::print(toString(len(udp::receive(ready, 8).bytes)))
+
+  udp::close(other)
+
+  RETURN 0
+END FUNC

@@ -1,13 +1,14 @@
+IMPORT encoding
 IMPORT tls
 IMPORT io
 
 ' Takes a pointer to a session for one request/response round trip (no close: the owner
 ' closes it).
-FUNC ioRound(RES c AS tls::TlsSocket) AS Integer
-  tls::writeText(c, "GET / HTTP/1.0\r\n\r\n")
+FUNC ioRound(RES c AS tls::Socket) AS Integer
+  tls::write(c, "GET / HTTP/1.0\r\n\r\n")
   LET payload AS List OF Byte = [1, 2, 3]
   tls::write(c, payload)
-  LET text = tls::readText(c, 16)
+  LET text = encoding::utf8Decode(tls::read(c, 16))
   LET bytes = tls::read(c, 16)
   io::print(text)
   RETURN len(bytes)

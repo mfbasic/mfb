@@ -18,7 +18,33 @@ A TLS socket's "is a read ready?" is **not** an fd `poll(2)`. One TLS record dec
 - **schannel** (Windows, `tls/schannel_io.rs` / `schannel_read_close.rs`): a decrypted-record carry-over buffer, else `WSAPoll(POLLRDNORM)` (`schannel_impl.rs` `WSAPOLLFD`).
 - **macOS** (`tls/macos/`): **Network.framework — there is NO raw fd.** Decrypted data lands in a single-producer/single-consumer ring of pending retained buffers (`macos/mod.rs:106`), drained on the owning thread; readiness = ring non-empty OR terminal state, and any bounded wait uses the read path's `dispatch_semaphore` (which already has a per-read release/leak hazard, `macos/mod.rs:418` — a poll waiting on it must not steal the read's signal or leak a semaphore).
 
-As of this writing `tls` has **no** `poll` and **no** `setReadTimeout` at all (`src/builtins/tls.rs` `TLS_FUNCTIONS` has connect/listen/accept/read/write/close only); `net` does have both. Related: the resources ownership model, and `net::poll` fd scaffolding at `src/target/shared/code/net/poll.rs:17`.
+`tls` now has `poll` (plan-76-B/C) and, since plan-110-D, `localAddress`/`remoteAddress` and `setReadTimeout`/`setWriteTimeout`. Related: the resources ownership model, and `tcp::poll` fd scaffolding.
+
+## A TLS read/write deadline is a socket option on two platforms and a ctx field on the third
+
+`tls::setReadTimeout`/`setWriteTimeout` reuse `net`'s `setsockopt(SO_RCVTIMEO/SO_SNDTIMEO)` emitter verbatim on Linux and Windows — their TLS record keeps the descriptor in the canonical handle slot, so the option lands on the same fd `tcp` would use. **macOS cannot**: Network.framework owns the socket. The deadline is stored on the connection ctx (`CTX_RTO`/`CTX_WTO`, sentinel = unbounded) and applied by `emit_wait_bounded` at the `dispatch_semaphore_wait` that actually blocks.
+
+Three traps in that, all load-bearing:
+
+- **A timed-out read must leave its receive outstanding.** `nw_connection_receive` has no cancel, so its completion block will still fire. The read path therefore posts the *poll-style* block (`RECV_POLL_INVOKE` → `CTX_PCONTENT`/`CTX_PSEM`) and sets `CTX_ARMED`; the timeout exit clears nothing and releases nothing, so the next read drains that same receive instead of posting a second one. Clearing `CTX_ARMED` there strands the bytes and leaks the content object.
+- **A timed-out write must be drained before the next one recycles CTX_SEM.** `tls::write` calls `emit_fresh_sem`, and replacing the semaphore under an in-flight send is the bug-52/55 hazard. `CTX_WARMED` marks the outstanding send; write drains it (bounded) *before* the fresh-sem call.
+- **`tls::read` must NOT call `emit_fresh_sem`.** It waits on `CTX_PSEM` now; recycling `CTX_SEM` would break a concurrent-in-the-same-thread outstanding send.
+
+## The deadline error code is `ErrTimeout` on every backend — and each one had to be taught it
+
+The convention says a deadline raises `ErrTimeout` (77050008). Left alone, each backend reported its own transport error instead, and the three disagreed for the identical event:
+
+| backend | what expiry looks like | reported before plan-110-D |
+|---|---|---|
+| macOS | `dispatch_semaphore_wait` returns non-zero | ErrTimeout (correct) |
+| Linux | `SSL_read` <= 0, `SSL_get_error` = `SSL_ERROR_WANT_READ`(2)/`WANT_WRITE`(3) | ErrTlsFailed |
+| Windows | `recv` = SOCKET_ERROR, `WSAGetLastError` = `WSAETIMEDOUT` (10060, **not** EWOULDBLOCK) | ErrNetworkFailed |
+
+If you add a bounded operation to any backend, classify the expiry explicitly — the natural error path will otherwise swallow it as a transport failure and a caller cannot tell a slow peer from a broken session.
+
+## There is no `tls::wrap`, and the reason is macOS-specific
+
+Upgrading an established `tcp::Socket` in place needs to adopt its fd. On macOS nothing supported can: Network.framework fixes TLS in `nw_parameters` at creation and cannot graft it onto a live connection; `nw_connection_create_with_connected_socket` is exported but declared in no SDK header and fails `ENETDOWN` for every parameter shape; Secure Transport can adopt an fd but is deprecated and rejects `kTLSProtocol13` (`errSSLIllegalParam`), capping at TLS 1.2. The system LibreSSL (`/usr/lib/libssl.48.dylib`) *can* do it at TLS 1.3 — measured — but ships no headers and the unversioned path deliberately aborts, so it is unsupported. Shipping `wrap` on Linux and Windows alone would let a program compile for five targets and fail at runtime on one, so the member exists nowhere (plan-110-D §C9). Do not reintroduce it on two platforms.
 
 ## Repository client transport security is per-URL, not per-hop
 

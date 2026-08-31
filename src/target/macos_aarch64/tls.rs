@@ -13,9 +13,9 @@
 use crate::arch::aarch64::abi;
 use crate::codegen::builtins::tls::gen_macos::{
     BLK_CAP, CFG_CAP_COPYFN, CFG_CAP_RELEASEFN, CFG_CAP_SETFN, CFG_CAP_SNAME, CFG_INVOKE,
-    CTX_CONTENT, CTX_ERROR, CTX_PCONTENT, CTX_PERROR, CTX_PSEM, CTX_RETAIN, CTX_SEM, CTX_SIGNAL,
-    CTX_STATE, LCONN_INVOKE, LCTX_HEAD, LCTX_RING, LCTX_RING_CAP, LCTX_TAIL, RECV_INVOKE,
-    RECV_POLL_INVOKE, SEND_INVOKE, STATE_INVOKE,
+    CTX_ERROR, CTX_PCONTENT, CTX_PERROR, CTX_PSEM, CTX_RETAIN, CTX_SEM, CTX_SIGNAL, CTX_STATE,
+    LCONN_INVOKE, LCTX_HEAD, LCTX_RING, LCTX_RING_CAP, LCTX_TAIL, RECV_POLL_INVOKE, SEND_INVOKE,
+    STATE_INVOKE,
 };
 use crate::codegen::engine::types::CodeFrame;
 use crate::codegen::engine::types::CodeFunction;
@@ -110,10 +110,6 @@ fn recv_invoke_impl(
         instructions,
         relocations: Vec::new(),
     }
-}
-
-fn recv_invoke_function() -> CodeFunction {
-    recv_invoke_impl(RECV_INVOKE, CTX_CONTENT, CTX_ERROR, CTX_SEM)
 }
 
 fn recv_poll_invoke_function() -> CodeFunction {
@@ -239,7 +235,6 @@ pub(crate) fn block_trampolines(server: bool) -> Vec<CodeFunction> {
         invoke_function(STATE_INVOKE, &[("x1", CTX_STATE), ("x2", CTX_ERROR)]),
         // send_completion(error @x1)
         invoke_function(SEND_INVOKE, &[("x1", CTX_ERROR)]),
-        recv_invoke_function(),
         recv_poll_invoke_function(),
         cfg_invoke_function(),
     ];

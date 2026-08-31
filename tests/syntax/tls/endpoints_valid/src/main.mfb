@@ -1,0 +1,43 @@
+' plan-110-D Phase 2: the endpoint queries and the per-socket timeout setters.
+' A file that uses the returned address must IMPORT net as well as tls --
+' imports are not transitive and packages cannot re-export types.
+IMPORT collections
+IMPORT net
+IMPORT tls
+IMPORT io
+
+' Both endpoint queries borrow the socket; neither consumes it, so the same
+' handle is still usable afterwards and is closed by lexical drop.
+FUNC describe(RES c AS tls::Socket) AS String
+  LET peer AS net::Address = tls::remoteAddress(c)
+  LET mine AS net::Address = tls::localAddress(c)
+  RETURN peer.host & ":" & toString(peer.port) & " from :" & toString(mine.port)
+END FUNC
+
+FUNC main AS Integer
+  RES c1 = tls::connect("example.com", 443)
+  io::print(describe(c1))
+
+  ' The timeout setters return Nothing and are properties of the socket, so
+  ' read/write take no timeout argument. `0` is the non-blocking form.
+  tls::setReadTimeout(c1, 2000)
+  tls::setWriteTimeout(c1, 2000)
+  tls::setReadTimeout(c1, 0)
+  tls::setWriteTimeout(c1, 0)
+
+  ' Every `connect` shape: host/port at three arities, then the net::Address
+  ' form at three arities. The Address form's endpoint is one value, so its
+  ' optional arguments sit one position earlier.
+  LET dest AS net::Address = collections::get(net::lookup("example.com", 443), 0)
+  RES h3 = tls::connect("example.com", 443, 5000)
+  RES h4 = tls::connect("example.com", 443, 5000, "example.com")
+  RES a1 = tls::connect(dest)
+  RES a2 = tls::connect(dest, 5000)
+  RES a3 = tls::connect(dest, 5000, "example.com")
+  io::print(toString(tls::localAddress(h3).port > 0))
+  io::print(toString(tls::localAddress(h4).port > 0))
+  io::print(toString(tls::localAddress(a1).port > 0))
+  io::print(toString(tls::localAddress(a2).port > 0))
+  io::print(toString(tls::localAddress(a3).port > 0))
+  RETURN 0
+END FUNC

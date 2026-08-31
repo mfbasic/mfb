@@ -138,7 +138,15 @@ fn socket_connect(
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), CSOERR),
         abi::add_immediate(abi::c_arg(4), abi::stack_pointer(), CSOLEN),
     ]);
-    platform.emit_external_call("getsockopt", symbol, imports, ins, rel)?;
+    // getsockopt takes FIVE int args; on Win64 the 5th (&optlen) is a STACK
+    // argument above the shadow space, not a register (bug-384). Passed in a
+    // register it is never seen, so getsockopt fails with a garbage optlen and
+    // the non-blocking connect can never resolve — `tls::connect` reported
+    // ErrNetworkFailed for every host. `net`/`tcp` already route this call
+    // through the same helper.
+    crate::codegen::os::ffi::emit_external_int_call(
+        platform, "getsockopt", symbol, 5, imports, ins, rel,
+    )?;
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -231,6 +239,7 @@ pub(crate) fn lower_tls_connect(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    address: bool,
 ) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -282,11 +291,12 @@ pub(crate) fn lower_tls_connect(
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
+    // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName.
+    // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName.
+    ins.extend(super::gen_shared::connect_arg_prologue(
+        address, &v9, HOST, PORT, TIMEOUT, SNAME,
+    ));
     ins.extend([
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST),
-        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT),
-        abi::store_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT),
-        abi::store_u64(abi::c_arg(3), abi::stack_pointer(), SNAME),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), STATE),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTOF),
     ]);
@@ -394,8 +404,33 @@ pub(crate) fn lower_tls_connect(
         abi::move_immediate(&v9, "Integer", SCH_CRED_FLAGS),
         abi::store_u32(&v9, &v18, st::SC_CRED + 72),
     ]);
-    // Marshal serverName -> wide cstr (SNAMEW) for pszTargetName.
-    emit_wide_cstring(symbol, SNAME, SNAMEW, &alloc_fail, imports, platform, &mut ins, &mut rel)?;
+    // Marshal the SNI / certificate-validation name -> wide cstr (SNAMEW) for
+    // pszTargetName. `serverName` is optional and defaults to the EMPTY string,
+    // in which case the contract (and the OpenSSL and macOS backends) says to use
+    // `host`. Schannel never did the fallback: it marshalled the empty string and
+    // sent a ClientHello with an empty SNI, which any SNI-requiring host rejects.
+    // Measured on box 2230 against example.com (Cloudflare): the server answered
+    // the ClientHello with a 7-byte alert record, type 21 / description 40
+    // (handshake_failure), and `InitializeSecurityContextW` reported
+    // SEC_E_ILLEGAL_MESSAGE — so `tls::connect(host, port)` and
+    // `tls::connect(host, port, timeoutMs)` failed on Windows while the
+    // 4-argument form with an explicit `serverName` succeeded.
+    {
+        let use_sname = format!("{symbol}_use_sname");
+        let sni_ready = format!("{symbol}_sni_ready");
+        // A String record holds its byte length at +0; 0 means empty.
+        ins.extend([
+            abi::load_u64(&v9, abi::stack_pointer(), SNAME),
+            abi::load_u64(&v10, &v9, 0),
+            abi::compare_immediate(&v10, "0"),
+            abi::branch_ne(&use_sname),
+        ]);
+        emit_wide_cstring(symbol, HOST, SNAMEW, &alloc_fail, imports, platform, &mut ins, &mut rel)?;
+        ins.push(abi::branch(&sni_ready));
+        ins.push(abi::label(&use_sname));
+        emit_wide_cstring(symbol, SNAME, SNAMEW, &alloc_fail, imports, platform, &mut ins, &mut rel)?;
+        ins.push(abi::label(&sni_ready));
+    }
 
     // AcquireCredentialsHandleW(NULL, "Microsoft Unified Security Protocol
     //   Provider", SECPKG_CRED_OUTBOUND, NULL, &cred, NULL, NULL, &state.cred, &expiry)

@@ -516,7 +516,10 @@ const RESOURCE_FLAG_SENDABLE: u32 = 1 << 2;
 const RESOURCE_FLAG_CLOSE_MAY_FAIL: u32 = 1 << 3;
 const CLEANUP_FLAG_RECORD_SECONDARY_CLOSE_FAILURE: u32 = 1 << 0;
 pub(crate) const BUILTIN_FS_CLOSE_FUNCTION_ID: u32 = 0xffff_ff00;
-pub(crate) const BUILTIN_NET_CLOSE_FUNCTION_ID: u32 = 0xffff_feff;
+// plan-110-E: the standard stream close op. The NUMERIC id is format state and
+// must not change -- existing `.mfp` files reference it -- but the resource it
+// names moved from `net` to `tcp` when net's stream surface was removed.
+pub(crate) const BUILTIN_STREAM_CLOSE_FUNCTION_ID: u32 = 0xffff_feff;
 
 pub fn read_package_exports(path: &Path) -> Result<Vec<BinaryReprExport>, String> {
     let package = read_package_binary_repr(path)?;

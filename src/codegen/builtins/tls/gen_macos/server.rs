@@ -461,6 +461,17 @@ pub(crate) fn lower_tls_listen_macos(
         abi::store_u64(abi::c_arg(2), abi::stack_pointer(), CERT),
         abi::store_u64(abi::c_arg(3), abi::stack_pointer(), KEY),
     ]);
+    // bug-462: NULL the four CoreFoundation cleanup slots before anything can
+    // branch to `cert_fail`. That exit best-effort-releases each of them, guarded
+    // on non-NULL -- a guard that only means anything once they hold NULL rather
+    // than whatever the caller left on the stack. Every failure BEFORE both refs
+    // are set (an unreadable cert, a malformed PEM, an encrypted key, a mismatched
+    // pair) went through it, so a misconfigured server did not raise
+    // `ErrTlsFailed`: it `CFRelease`d stack garbage and trapped in `CF_IS_OBJC`.
+    ins.extend(
+        [DATA, ITEMS, CERTREF, KEYREF]
+            .map(|slot| abi::store_u64(abi::ZERO, abi::stack_pointer(), slot)),
+    );
     // Read the PEM pair into arena buffers before touching any framework.
     emit_read_whole_file(
         &mut EmitCtx {
@@ -1161,7 +1172,7 @@ pub(crate) fn lower_tls_listen_macos(
         abi::branch(&wait_loop),      // invalid / waiting
         abi::label(&ready),
     ]);
-    // Build the TlsListener record: header { tag, listener, closed=0, STATE=0 }
+    // Build the Listener record: header { tag, listener, closed=0, STATE=0 }
     // then the macOS tail { lctx, queue } (plan-80).
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", REC_SIZE),
@@ -1493,6 +1504,13 @@ pub(crate) fn lower_tls_accept_macos(
         abi::store_u64(abi::ZERO, &v9, CTX_PEND_LEN),
         abi::store_u64(abi::ZERO, &v9, CTX_PEND_OFF),
         abi::store_u64(abi::ZERO, &v9, CTX_ARMED),
+        // plan-110-D: no read/write deadline until one is installed. The
+        // sentinel is what makes the waits below stay FOREVER on a socket
+        // whose owner never called a timeout setter.
+        abi::move_immediate(&v10, "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::store_u64(&v10, &v9, CTX_RTO),
+        abi::store_u64(&v10, &v9, CTX_WTO),
+        abi::store_u64(abi::ZERO, &v9, CTX_WARMED),
     ]);
     dlsym(
         &mut EmitCtx {
@@ -1605,7 +1623,7 @@ pub(crate) fn lower_tls_accept_macos(
         abi::branch(&conn_fail), // waiting/failed/cancelled
         abi::label(&ready),
     ]);
-    // Build the TlsSocket record { closed=0, conn, queue=0, cctx } — the queue
+    // Build the Socket record { closed=0, conn, queue=0, cctx } — the queue
     // slot is 0 (not the listener's shared serial queue) so the shared close
     // helper releases the connection and ctx semaphore this socket owns but not
     // the listener-owned queue, which closeListener releases (bug-55). read/

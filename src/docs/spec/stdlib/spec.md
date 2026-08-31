@@ -4,7 +4,8 @@ The semantic and algorithmic *models* of the standard packages — those
 implemented as injected MFBASIC source, plus those backed by native seam helpers:
 the regex engine, the date/time model, the CSV dialect, the JSON data model, the
 HTTP client, the URL model, the `math::` PCG64 RNG, the bit-operation primitives,
-the exact base-10 `money::` model, and the OS environment/introspection surface.
+the exact base-10 `money::` model, the OS environment/introspection surface, and
+the ICMP echo contract behind `net::ping`.
 These are the parts a faithful reimplementation needs that the per-function API
 reference does not capture.
 
@@ -52,6 +53,13 @@ built-in injection chain.
   open `Attribute` model, the higher-start-wins overlay resolution, the inclusive
   attribute-range semantics, the Tier-A/Tier-B `strings::` overload split, and the
   `toMarkdown` marker vocabulary.
+- `icmp` — the `net::ping` model: which outcomes are `PingStatus` values and which
+  are errors, what each field of `PingResult` means, the argument ranges, the
+  Linux permission model, and the three per-platform ICMP backends.
+- `transports` — the `tcp`/`udp`/`tls` model: the shared `net::Address` endpoint,
+  handle ownership and the consuming `close`, stream reads versus preserved
+  datagram boundaries, `poll`'s readiness-query and producing-call overloads, and
+  the TLS handshake/credential rules.
 
 ## See Also
 

@@ -1,0 +1,103 @@
+{
+  "project": "func_net_ping_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 16 },
+    { "module": "net", "line": 17 },
+    { "module": "io", "line": 18 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "statusName",
+      "line": 20,
+      "params": [
+      { "name": "r", "type": "PingResult", "default": null, "line": 20 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "name", "type": null, "value": { "kind": "string", "value": "?" }, "line": 21 },
+      {
+        "kind": "match",
+        "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "status" },
+        "line": 22,
+        "cases": [
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "PingStatus" }, "member": "Ok" } },
+          "guard": null,
+          "line": 23,
+          "body": [
+          { "kind": "assignment", "name": "name", "value": { "kind": "string", "value": "Ok" }, "line": 24 }
+          ]
+        },
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "PingStatus" }, "member": "Timeout" } },
+          "guard": null,
+          "line": 25,
+          "body": [
+          { "kind": "assignment", "name": "name", "value": { "kind": "string", "value": "Timeout" }, "line": 26 }
+          ]
+        },
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "PingStatus" }, "member": "Unreachable" } },
+          "guard": null,
+          "line": 27,
+          "body": [
+          { "kind": "assignment", "name": "name", "value": { "kind": "string", "value": "Unreachable" }, "line": 28 }
+          ]
+        },
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "PingStatus" }, "member": "TtlExceeded" } },
+          "guard": null,
+          "line": 29,
+          "body": [
+          { "kind": "assignment", "name": "name", "value": { "kind": "string", "value": "TtlExceeded" }, "line": 30 }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "name" }, "line": 32 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 35,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": null, "value": { "kind": "call", "callee": "net.ping", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "2000" }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "loopback status=" }, "right": { "kind": "call", "callee": "statusName", "arguments": [{ "kind": "identifier", "value": "a" }] } }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "loopback responder=" }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "address" }, "member": "host" } }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "loopback port=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "address" }, "member": "port" }] } }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "loopback rtt positive=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "rttMs" }, "right": { "kind": "number", "value": "0.0" } }] } }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "loopback ttl positive=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "ttl" }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "loopback size=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "size" }] } }] }, "line": 47 },
+      { "kind": "binding", "mutable": false, "name": "target", "type": null, "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "call", "callee": "net.lookup", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "9999" }] }, { "kind": "number", "value": "0" }] }, "line": 50 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": { "kind": "call", "callee": "net.ping", "arguments": [{ "kind": "identifier", "value": "target" }, { "kind": "number", "value": "2000" }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "address status=" }, "right": { "kind": "call", "callee": "statusName", "arguments": [{ "kind": "identifier", "value": "b" }] } }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "address port=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "address" }, "member": "port" }] } }] }, "line": 53 },
+      { "kind": "binding", "mutable": false, "name": "zero", "type": null, "value": { "kind": "call", "callee": "net.ping", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "2000" }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "0" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "zero status=" }, "right": { "kind": "call", "callee": "statusName", "arguments": [{ "kind": "identifier", "value": "zero" }] } }, "right": { "kind": "string", "value": " size=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "zero" }, "member": "size" }] } }] }, "line": 59 },
+      { "kind": "binding", "mutable": false, "name": "big", "type": null, "value": { "kind": "call", "callee": "net.ping", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "2000" }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "8184" }] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "max status=" }, "right": { "kind": "call", "callee": "statusName", "arguments": [{ "kind": "identifier", "value": "big" }] } }, "right": { "kind": "string", "value": " size=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "big" }, "member": "size" }] } }] }, "line": 61 },
+      { "kind": "binding", "mutable": false, "name": "quiet", "type": null, "value": { "kind": "call", "callee": "net.ping", "arguments": [{ "kind": "string", "value": "192.0.2.1" }, { "kind": "number", "value": "300" }] }, "line": 66 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "silent status=" }, "right": { "kind": "call", "callee": "statusName", "arguments": [{ "kind": "identifier", "value": "quiet" }] } }] }, "line": 67 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "silent host=" }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "quiet" }, "member": "address" }, "member": "host" } }] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "silent zeroed=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "quiet" }, "member": "rttMs" }, "right": { "kind": "number", "value": "0.0" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "quiet" }, "member": "ttl" }, "right": { "kind": "number", "value": "0" } } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "quiet" }, "member": "size" }, "right": { "kind": "number", "value": "0" } } }] } }] }, "line": 69 },
+      { "kind": "binding", "mutable": false, "name": "immediate", "type": null, "value": { "kind": "call", "callee": "net.ping", "arguments": [{ "kind": "string", "value": "192.0.2.1" }, { "kind": "number", "value": "0" }] }, "line": 72 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "immediate status=" }, "right": { "kind": "call", "callee": "statusName", "arguments": [{ "kind": "identifier", "value": "immediate" }] } }] }, "line": 73 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 75 }
+      ]
+    }
+    ]
+  }
+  ]
+}

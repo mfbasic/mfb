@@ -5,7 +5,7 @@
     "path": "src/main.mfb",
     "imports": [
     { "module": "fs", "line": 1 },
-    { "module": "net", "line": 2 }
+    { "module": "tcp", "line": 2 }
     ],
     "items": [
     {
@@ -25,7 +25,7 @@
       "includes": [],
       "variants": [
       { "name": "fs.File", "line": 9 },
-      { "name": "net.Socket", "line": 10 }
+      { "name": "tcp.Socket", "line": 10 }
       ]
     },
     {

@@ -2,8 +2,8 @@
 
 A *runtime helper* is a compiler-owned native routine that implements an
 OS-touching or otherwise non-inlinable builtin (`audio::`, `io::`, `fs::`,
-`net::`, `tls::`, `term::`, `datetime::`, `crypto::`, `os::`, and the `thread::`
-family). Source calls to those packages
+`net::`, `tcp::`, `udp::`, `tls::`, `term::`, `datetime::`, `crypto::`, `os::`, and
+the `thread::` family). Source calls to those packages
 lower to a `bl` against a stable helper symbol; the helper itself is supplied by
 the backend runtime, not by user code, and never appears as a `LINK` import or a
 package dependency. This topic owns the *general* helper ABI; the `thread`
@@ -32,9 +32,9 @@ already module-qualified (`io.print`, `fs.open`), the `.` is rewritten to `_` an
 the family name appears **twice** — the characteristic doubled-module quirk:
 
 ```text
-io.print   ->  _mfb_rt_io_io_print
-fs.open    ->  _mfb_rt_fs_fs_open
-net.close  ->  _mfb_rt_net_net_close
+io.print    ->  _mfb_rt_io_io_print
+fs.open     ->  _mfb_rt_fs_fs_open
+net.lookup  ->  _mfb_rt_net_net_lookup
 ```
 
 The leading `_mfb_rt_<helper>_` is the runtime-module prefix; the trailing

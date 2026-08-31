@@ -1,0 +1,71 @@
+' A socket from a BOUNDED accept must be blocking, like one from a plain accept.
+'
+' The bounded path (`accept(listener, timeoutMs)`) puts the LISTENER into
+' non-blocking mode so that a connection lost between the readiness poll and the
+' accept turns into EAGAIN and re-enters the poll instead of blocking for the next
+' client (bug-314 H2). It restores the listener's flags afterwards — but on
+' macOS/BSD the ACCEPTED socket inherits O_NONBLOCK from the listener, and nothing
+' cleared it. Every read on such a socket then returned EAGAIN, which the read
+' helper maps to ErrTimeout.
+'
+' The failure was data-dependent, which is why it survived: with nothing between
+' the accept and the read, the loopback bytes had usually already landed in the
+' socket buffer, so the non-blocking read found them and succeeded. Insert any
+' work at all — an allocation, a `localAddress` call — and the read loses that
+' race and raises. So this fixture deliberately does something between accepting
+' and reading, and asserts on BOTH accept forms so the bounded one cannot silently
+' diverge from the blocking one again.
+
+IMPORT encoding
+IMPORT net
+IMPORT tcp
+IMPORT strings
+IMPORT io
+
+' `bounded` selects accept(listener, timeoutMs) over accept(listener).
+FUNC roundTrip(bounded AS Boolean) AS String
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET at = tcp::localAddress(server)
+  RES client = tcp::connect("127.0.0.1", at.port, 2000)
+
+  IF bounded THEN
+    RES conn = tcp::accept(server, 2000)
+    ' Work between accept and read: this is what loses the race when the
+    ' accepted socket is wrongly non-blocking.
+    LET filler = strings::repeat("x", 64)
+    tcp::write(client, "hello" & toString(len(filler)))
+    LET got = encoding::utf8Decode(tcp::read(conn, 64)) TRAP(e)
+      RETURN "RAISED"
+    END TRAP
+    RETURN got
+  END IF
+
+  RES conn2 = tcp::accept(server)
+  LET filler2 = strings::repeat("x", 64)
+  tcp::write(client, "hello" & toString(len(filler2)))
+  LET got2 = encoding::utf8Decode(tcp::read(conn2, 64)) TRAP(e)
+    RETURN "RAISED"
+  END TRAP
+  RETURN got2
+END FUNC
+
+FUNC main AS Integer
+  ' Both forms must deliver the same bytes. Before the fix the bounded one
+  ' printed RAISED here while the blocking one printed hello64.
+  io::print("bounded  = " & roundTrip(TRUE))
+  io::print("blocking = " & roundTrip(FALSE))
+
+  ' And a bounded-accepted socket must still honour an explicitly set read
+  ' timeout — the fix restores blocking mode, it does not disable timeouts.
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET at = tcp::localAddress(server)
+  RES client = tcp::connect("127.0.0.1", at.port, 2000)
+  RES conn = tcp::accept(server, 2000)
+  tcp::setReadTimeout(conn, 100)
+  LET quiet = encoding::utf8Decode(tcp::read(conn, 16)) TRAP(e)
+    io::print("explicit read timeout still fires")
+    RETURN 0
+  END TRAP
+  io::print("UNEXPECTED read of " & toString(len(quiet)))
+  RETURN 0
+END FUNC

@@ -23,6 +23,10 @@ const SHELL32: &str = "shell32.dll"; // os.args: CommandLineToArgvW (plan-66-B)
                                      // WASAPI audio (plan-66 G+H): the COM runtime (object activation) rides ole32; the
                                      // endpoint objects themselves are called through their vtables (no import).
 const OLE32: &str = "ole32.dll";
+/// `net::ping`'s ICMP API (plan-110-A). Present on every supported Windows: the
+/// `Icmp*` exports were confirmed in `C:\Windows\System32\IPHLPAPI.DLL` on the
+/// Windows 11 test box (10.0.26100.9168).
+const IPHLPAPI: &str = "iphlpapi.dll";
 
 pub(crate) fn lower_module(module: &NirModule) -> Result<NativePlan, String> {
     plan::lower_module_for_platform(module, &Platform)
@@ -509,36 +513,63 @@ impl NativePlanPlatform for Platform {
             // whenever any socket call is reachable. `close`→`closesocket`,
             // `poll`→`WSAPoll`, the non-blocking toggle→`ioctlsocket`; the error
             // channel reuses kernel32's GetLastError (== WSAGetLastError on Win32).
-            call if call.starts_with("net.") => vec![
+            // plan-110-A: Windows has no unprivileged ICMP socket (Winsock's raw
+            // ICMP needs Administrator), so ping rides iphlpapi's ICMP API, which
+            // builds and matches the echo itself. It still needs Winsock for
+            // getaddrinfo/inet_ntop, and QPC for the sub-millisecond round-trip
+            // time (the API's own RoundTripTime is whole milliseconds and reads 0
+            // on loopback). Matched before the general `net.` arm so ordinary
+            // socket programs do not pull iphlpapi in.
+            "net.ping" | "net.pingAddr" => vec![
+                import("IcmpCreateFile", IPHLPAPI, required_by),
+                import("IcmpSendEcho", IPHLPAPI, required_by),
+                import("IcmpCloseHandle", IPHLPAPI, required_by),
                 import("WSAStartup", WS2_32, required_by),
                 import("WSACleanup", WS2_32, required_by),
-                import("socket", WS2_32, required_by),
-                import("connect", WS2_32, required_by),
-                import("bind", WS2_32, required_by),
-                import("listen", WS2_32, required_by),
-                import("accept", WS2_32, required_by),
-                import("recv", WS2_32, required_by),
-                import("send", WS2_32, required_by),
-                import("recvfrom", WS2_32, required_by),
-                import("sendto", WS2_32, required_by),
-                import("closesocket", WS2_32, required_by),
-                import("WSAPoll", WS2_32, required_by),
                 import("getaddrinfo", WS2_32, required_by),
                 import("freeaddrinfo", WS2_32, required_by),
-                import("setsockopt", WS2_32, required_by),
-                import("getsockopt", WS2_32, required_by),
-                import("getsockname", WS2_32, required_by),
-                import("getpeername", WS2_32, required_by),
                 import("inet_ntop", WS2_32, required_by),
-                import("ioctlsocket", WS2_32, required_by),
                 import("GetLastError", KERNEL32, required_by),
-                // A socket resource shares the File-record scope-drop and stream
-                // read/write glue: close is CloseHandle, and net.read/net.write reuse
-                // ReadFile/WriteFile — all valid on a SOCKET handle on Windows.
-                import("CloseHandle", KERNEL32, required_by),
-                import("ReadFile", KERNEL32, required_by),
-                import("WriteFile", KERNEL32, required_by),
+                import("QueryPerformanceCounter", KERNEL32, required_by),
+                import("QueryPerformanceFrequency", KERNEL32, required_by),
             ],
+            // plan-110-B: `tcp` is the same Winsock2 surface under a new package
+            // name, so it takes the identical import set.
+            call if call.starts_with("net.")
+                || call.starts_with("tcp.")
+                || call.starts_with("udp.") =>
+            {
+                vec![
+                    import("WSAStartup", WS2_32, required_by),
+                    import("WSACleanup", WS2_32, required_by),
+                    import("socket", WS2_32, required_by),
+                    import("connect", WS2_32, required_by),
+                    import("bind", WS2_32, required_by),
+                    import("listen", WS2_32, required_by),
+                    import("accept", WS2_32, required_by),
+                    import("recv", WS2_32, required_by),
+                    import("send", WS2_32, required_by),
+                    import("recvfrom", WS2_32, required_by),
+                    import("sendto", WS2_32, required_by),
+                    import("closesocket", WS2_32, required_by),
+                    import("WSAPoll", WS2_32, required_by),
+                    import("getaddrinfo", WS2_32, required_by),
+                    import("freeaddrinfo", WS2_32, required_by),
+                    import("setsockopt", WS2_32, required_by),
+                    import("getsockopt", WS2_32, required_by),
+                    import("getsockname", WS2_32, required_by),
+                    import("getpeername", WS2_32, required_by),
+                    import("inet_ntop", WS2_32, required_by),
+                    import("ioctlsocket", WS2_32, required_by),
+                    import("GetLastError", KERNEL32, required_by),
+                    // A socket resource shares the File-record scope-drop and stream
+                    // read/write glue: close is CloseHandle, and net.read/net.write reuse
+                    // ReadFile/WriteFile — all valid on a SOCKET handle on Windows.
+                    import("CloseHandle", KERNEL32, required_by),
+                    import("ReadFile", KERNEL32, required_by),
+                    import("WriteFile", KERNEL32, required_by),
+                ]
+            }
             // crypto:: NIST-EC over CNG/BCrypt (plan-47-J). randomBytes already
             // rides BCryptGenRandom in the entry floor; the EC ops pull the key/
             // hash/sign surface. Any crypto.* EC call declares the whole set; the
@@ -651,6 +682,12 @@ impl NativePlanPlatform for Platform {
                 import("send", WS2_32, required_by),
                 import("recv", WS2_32, required_by),
                 import("closesocket", WS2_32, required_by),
+                // plan-110-D: tls.localAddress/tls.remoteAddress. Schannel layers
+                // over a plain SOCKET kept in the record's handle slot, so the
+                // endpoint queries reuse the `net` address emitter verbatim.
+                import("getsockname", WS2_32, required_by),
+                import("getpeername", WS2_32, required_by),
+                import("inet_ntop", WS2_32, required_by),
                 // The PEM cert/key files are read via the Win32 file API.
                 import("CreateFileW", KERNEL32, required_by),
                 import("ReadFile", KERNEL32, required_by),

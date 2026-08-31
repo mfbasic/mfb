@@ -9,4 +9,5 @@
 
 pub(crate) mod ffi;
 pub(crate) mod process;
+pub(crate) mod socket;
 pub(crate) mod syscall;

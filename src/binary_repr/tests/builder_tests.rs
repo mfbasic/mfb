@@ -72,9 +72,9 @@ fn resolve_resource_close_name_maps_builtins_and_functions() {
         .map(str::to_string)
     );
     assert_eq!(
-        resolve_resource_close_name(&package, BUILTIN_NET_CLOSE_FUNCTION_ID).unwrap(),
+        resolve_resource_close_name(&package, BUILTIN_STREAM_CLOSE_FUNCTION_ID).unwrap(),
         builtins::resource_close_function(&crate::types::ParameterType::named(
-            crate::codegen::builtins::net::SOCKET_TYPE
+            crate::codegen::builtins::tcp::SOCKET_TYPE_ID
         ))
         .map(str::to_string)
     );

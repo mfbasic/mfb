@@ -1,0 +1,47 @@
+IMPORT collections
+IMPORT encoding
+IMPORT net
+IMPORT udp
+IMPORT io
+
+' Migrated from net::receiveFrom by plan-110-C, and folded together with the old
+' func_net_receiveTextFrom_valid: `receiveText` does not survive, because a
+' datagram's encoding is not something the network reports. The text assertion it
+' carried is preserved by decoding the received bytes explicitly.
+
+' Receives one datagram, returning its byte count, or the error code if the
+' datagram does not fit in `maxBytes` (ErrMessageTooLarge, 77070007). An oversized
+' datagram must RAISE rather than be truncated: a clipped datagram is a corrupted
+' message with no signal that anything was lost.
+FUNC recvCount(RES s AS udp::Socket, maxBytes AS Integer) AS Integer
+  LET dg = udp::receive(s, maxBytes)
+  RETURN len(dg.bytes)
+  TRAP(e)
+    RETURN e.code
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  RES server = udp::bind("127.0.0.1", 0)
+  udp::setReadTimeout(server, 2000)
+  LET bound = udp::localAddress(server)
+  RES client = udp::bind("127.0.0.1", 0)
+  LET dest = collections::get(net::lookup("127.0.0.1", bound.port), 0)
+  LET payload AS List OF Byte = [10, 20, 30, 40]
+
+  udp::send(client, dest, payload)
+  io::print(toString(recvCount(server, 16)))
+  udp::send(client, dest, payload)
+  io::print(toString(recvCount(server, 2)))
+
+  ' The text round-trip the old receiveTextFrom fixture asserted, now explicit.
+  udp::send(client, dest, "hello")
+  LET dg = udp::receive(server, 64)
+  io::print(encoding::utf8Decode(dg.bytes))
+  ' The sender's address comes back with the datagram, and is a real endpoint.
+  io::print(dg.from.host & " port>0=" & toString(dg.from.port > 0))
+
+  udp::close(server)
+  udp::close(client)
+  RETURN 0
+END FUNC

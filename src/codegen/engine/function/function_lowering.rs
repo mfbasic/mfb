@@ -990,14 +990,23 @@ pub(crate) fn lower_function(
     builder.callback_referenced_functions = callback_referenced_functions.clone();
     builder.current_returns_param_borrow =
         function_returns_param_borrow(function, callback_referenced_functions);
-    builder.lower_ops(&function.body)?;
-    if !builder.current_block_returns() {
-        builder.emit_return_exit(None)?;
+    {
+        // `-vv` span (`crate::trace`): emission is one of the four big
+        // per-function costs, and separating it from allocation is what says
+        // whether a slow function is slow to *lower* or slow to *color*.
+        let _span = crate::trace::span("emit ops");
+        builder.lower_ops(&function.body)?;
+        if !builder.current_block_returns() {
+            builder.emit_return_exit(None)?;
+        }
     }
     // Fuse single-use `a*b ± c` float chains into one single-rounded fused op
     // (plan-02 Phase 3) before allocation, so the fused op's operands are colored
     // as a unit. A no-op unless the `d`-native FP virtual registers are present.
-    fma_fusion::fuse_scalar_fma(&mut builder.instructions);
+    {
+        let _span = crate::trace::span("fma fusion");
+        fma_fusion::fuse_scalar_fma(&mut builder.instructions);
+    }
     // Color virtual registers to physical registers (plan-03 Stage A) before the
     // body is moved out for the peephole pass and finalize_frame.
     builder.run_register_allocation()?;
@@ -1061,18 +1070,28 @@ pub(crate) fn lower_function(
     // rather than sniffing operand spellings.
     let is_x86 = mir::active_backend().register_model().arena_base()
         == crate::arch::x86_64::regmodel::ARENA_BASE_REGISTER;
-    peephole::forward_stores_to_loads(&mut instructions, is_x86);
+    {
+        let _span = crate::trace::span("peephole: store-to-load");
+        peephole::forward_stores_to_loads(&mut instructions, is_x86);
+    }
     // Drop the GP shuttle a checked float value round-trips through (plan-16). The
     // FP-shuttle liveness derives its call-clobber mask from the active backend's
     // register model, not from operand spellings (bug-350).
-    peephole::remove_fp_shuttles(&mut instructions, mir::active_backend().register_model());
+    {
+        let _span = crate::trace::span("peephole: fp shuttles");
+        peephole::remove_fp_shuttles(&mut instructions, mir::active_backend().register_model());
+    }
     let mut stack_slots = builder.stack_slots;
-    let frame = finalize_frame(
-        &mut instructions,
-        &mut stack_slots,
-        builder.stack_size,
-        builder.used_callee_saved,
-    );
+    let frame = {
+        let _span = crate::trace::span("finalize frame");
+        finalize_frame(
+            &mut instructions,
+            &mut stack_slots,
+            builder.stack_size,
+            builder.used_callee_saved,
+        )
+    };
+    crate::trace::count("machine instructions", instructions.len() as u64);
 
     Ok(CodeFunction {
         name: function.name.clone(),

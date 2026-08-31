@@ -9,7 +9,7 @@ const INTRO: &str =
 
 const DESC: &str = r#"`startRead` opens a connection, writes a body-less request, and returns
 immediately with a bound `http::Stream` — a resource union over the plaintext
-(`net::Socket`) and TLS (`net::TlsSocket`) transports — carrying a fresh
+(`tcp::Socket`) and TLS (`tls::Socket`) transports — carrying a fresh
 `PendingState`. It does **not** wait for the reply. The caller then drives the
 exchange without blocking its thread: test `http::ready`, call `http::pump` to
 read whatever bytes are available, repeat until `http::done`, and parse with

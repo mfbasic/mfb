@@ -289,23 +289,20 @@ impl CodeBuilder<'_> {
     ///   never a transfer: the collection's owning scope closes it. Every other
     ///   call — `fs::openFile`, a user `FUNC … AS RES File` — *does* transfer
     ///   ownership to this binding and must keep its cleanup.
-    /// * `net.poll(List OF RES Socket)` (plan-76-A) — the readiness multiplex
-    ///   returns a pointer to the first ready list element, the exact
-    ///   borrowed-element shape as `collections::get`: the list still owns and
-    ///   closes it. Classified via `net::returns_borrowed_resource`.
+    /// * `tcp.poll`/`udp.poll`/`tls.poll` over a `List OF RES Socket`
+    ///   (plan-76-A) — the readiness multiplex returns a pointer to the first
+    ///   ready list element, the exact borrowed-element shape as
+    ///   `collections::get`: the list still owns and closes it.
     pub(crate) fn value_aliases_live_resource(value: &NirValue) -> bool {
         match value {
             NirValue::Local(_) => true,
-            NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => {
+            NirValue::Call { target, .. }
+            | NirValue::CallResult { target, .. }
+            | NirValue::RuntimeCall { target, .. } => {
                 matches!(
                     crate::codegen::registry::native_bare_target(target),
                     Some("get" | "getOr")
-                ) || target == "net.poll"
-                    // `tls::poll(List OF RES TlsSocket)` returns a borrowed pointer to
-                    // the first ready list element (the list keeps ownership), like
-                    // `net::poll(List)` — the migrated tls package folds this into the
-                    // call-name check here.
-                    || target == "tls.poll"
+                ) || matches!(target.as_str(), "tcp.poll" | "udp.poll" | "tls.poll")
             }
             _ => false,
         }
@@ -1705,7 +1702,17 @@ impl CodeBuilder<'_> {
             Err(err) => return Some(Err(err)),
         };
         let ctx = self.inline_abi_ctx();
-        Some(lower(self, &arg_values, &ctx))
+        // `-vv`: attribute inline-lowering time to the builtin being lowered.
+        // A registry body is free to do arbitrary work per call site — build a
+        // Unicode table, emit a kernel — and no span tree keyed by *stage* can
+        // show that one builtin is responsible. Timed around the body only: arg
+        // lowering above recurses into other builtins, and including it would
+        // charge them to whichever call happened to enclose them.
+        crate::trace::timed_tally(
+            "abi_inline builtin",
+            || target.to_string(),
+            || Some(lower(self, &arg_values, &ctx)),
+        )
     }
 
     /// Pre-lower each `NirValue` arg to a `ValueResult` for an `AbiInline` body
@@ -2023,13 +2030,33 @@ impl CodeBuilder<'_> {
                 type_: ParameterType::Integer,
                 value: "0".to_string(),
             });
-        } else if target == "net.connectTcp" {
-            // `connectTcp(Address, timeoutMs?)` keeps its single Address argument
-            // and is routed to the `net.connectTcpAddr` helper below; the
-            // `connectTcp(host, port, timeoutMs?)` form is 3-arg. The only ever-missing
-            // argument is the trailing `timeoutMs`; plan-73-C pads it with the
-            // unbounded sentinel so an omitted connect timeout BLOCKS until the
-            // connection resolves (was the 120s DEFAULT_CONNECT_TIMEOUT_MS).
+        } else if target == "net.ping" {
+            // plan-110-A: `ping(host|address, timeoutMs?, ttl?, size?)`. Both
+            // overloads take the same three optional trailing arguments, so the
+            // padding is shape-independent — unlike `connectTcp`, whose Address form
+            // has a different positional layout. An omitted `timeoutMs` follows the
+            // timeout convention (unbounded); `ttl`/`size` take the documented
+            // defaults, which are public contract (plan-110-A §C3).
+            const PING_DEFAULT_TTL: &str = "64";
+            const PING_DEFAULT_SIZE: &str = "56";
+            for value in [
+                TIMEOUT_UNBOUNDED_SENTINEL,
+                PING_DEFAULT_TTL,
+                PING_DEFAULT_SIZE,
+            ]
+            .into_iter()
+            .skip(helper_args.len().saturating_sub(1))
+            {
+                helper_args.push(NirValue::Const {
+                    type_: ParameterType::Integer,
+                    value: value.to_string(),
+                });
+            }
+        } else if target == "tcp.connect" {
+            // plan-110-B: the same padding `net.connectTcp` takes. The Address form
+            // keeps its single record argument (2 total), the host/port form is 3;
+            // the only ever-missing argument is the trailing `timeoutMs`, and an
+            // omitted connect timeout BLOCKS per the convention.
             let is_address = self.net_connect_is_address_form(args);
             let target_args = if is_address { 2 } else { 3 };
             while helper_args.len() < target_args {
@@ -2038,25 +2065,20 @@ impl CodeBuilder<'_> {
                     value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
                 });
             }
-        } else if target == "net.listenTcp" && helper_args.len() == 2 {
+        } else if target == "tcp.listen" && helper_args.len() == 2 {
             helper_args.push(NirValue::Const {
                 type_: ParameterType::Integer,
                 value: "128".to_string(),
             });
-        } else if target == "net.poll" && helper_args.len() == 1 {
-            // plan-73-C: an omitted `net::poll` timeout blocks until the socket is
-            // readable (the convention's readiness-query omit rule). Pad with the
-            // unbounded sentinel; the poll helper routes it to a -1 (infinite) poll.
+        } else if target == "udp.poll" && helper_args.len() == 1 {
+            // plan-110-C: an omitted readiness timeout blocks, as everywhere else.
             helper_args.push(NirValue::Const {
                 type_: ParameterType::Integer,
                 value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
-        } else if target == "net.accept" && helper_args.len() == 1 {
-            // plan-73-C: an omitted `net::accept` timeout blocks until a client
-            // arrives (the convention's producing-call omit rule). Pad with the
-            // unbounded sentinel; the accept helper routes it to the block path,
-            // treats `0` as one immediate attempt (`ErrTimeout` if none pending),
-            // and rejects other negatives.
+        } else if matches!(target, "tcp.poll" | "tcp.accept") && helper_args.len() == 1 {
+            // An omitted readiness/accept timeout blocks, exactly as the `net`
+            // originals do.
             helper_args.push(NirValue::Const {
                 type_: ParameterType::Integer,
                 value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
@@ -2064,24 +2086,43 @@ impl CodeBuilder<'_> {
         }
         let result_type = self
             .thread_runtime_return_type(target, &helper_args)
-            // plan-76-A: `net.poll` is return-type-overloaded (scalar `Socket →
-            // Boolean` vs list `List OF RES Socket → Socket`), so the fixed
-            // `call_return_type_name` yields `None`; select by argument shape here.
+            // plan-110-B: `tcp.poll` is return-type-overloaded the same way
+            // `net.poll` is — a scalar socket answers `Boolean`, a list answers
+            // with the first ready `Socket`.
             .or_else(|| {
-                (target == "net.poll").then(|| {
+                (target == "tcp.poll").then(|| {
                     if self.net_poll_is_list_form(&helper_args) {
-                        ParameterType::named(crate::codegen::builtins::net::SOCKET_TYPE)
+                        ParameterType::named(crate::codegen::builtins::tcp::SOCKET_TYPE_ID)
+                    } else {
+                        ParameterType::Boolean
+                    }
+                })
+            })
+            // plan-110-C: `udp.poll` is return-type-overloaded the same way.
+            .or_else(|| {
+                (target == "udp.poll").then(|| {
+                    if self.net_poll_is_list_form(&helper_args) {
+                        ParameterType::named(crate::codegen::builtins::udp::SOCKET_TYPE_ID)
                     } else {
                         ParameterType::Boolean
                     }
                 })
             })
             // plan-76-C: `tls.poll` is likewise return-type-overloaded — the list
-            // form yields a borrowed `TlsSocket`, the scalar a `Boolean`.
+            // form yields a borrowed `tls::Socket`, the scalar a `Boolean`.
+            //
+            // All four of these name the resource with its PACKAGE-QUALIFIED id,
+            // not the bare `SOCKET_TYPE`. A bare resource spelling is invisible
+            // to the resource classification, so an inline-TRAP'd list-form poll
+            // treated the returned handle as an ordinary value and tried to
+            // flat-copy it: "native inlined field size not available for type
+            // 'Socket'", at build time, before plan-110-D. It is the same defect
+            // the audio device-overload opens hit (see
+            // `registry::alias_call_return_type`), reached by a different route.
             .or_else(|| {
                 (target == "tls.poll").then(|| {
                     if self.net_poll_is_list_form(&helper_args) {
-                        ParameterType::named(crate::codegen::builtins::tls::TLS_SOCKET_TYPE)
+                        ParameterType::named(crate::codegen::builtins::tls::TLS_SOCKET_TYPE_ID)
                     } else {
                         ParameterType::Boolean
                     }
@@ -2171,27 +2212,104 @@ impl CodeBuilder<'_> {
                     "thread.readResource"
                 }
             }
-            "net.connectTcp" => {
+            // plan-110-A: `ping(Address, …)` lowers through `net.pingAddr`, which
+            // reads the host out of the record. Unlike `connectTcp`, the two ping
+            // overloads share a positional layout, so the first argument's type
+            // decides on its own at every arity.
+            "net.ping" => {
+                if args
+                    .first()
+                    .and_then(|arg| self.static_type_name(arg))
+                    .is_some_and(|type_| type_.is_named("Address"))
+                {
+                    "net.pingAddr"
+                } else {
+                    "net.ping"
+                }
+            }
+            // plan-110-B: tcp's three overload-split code forms. `connect`/`poll`
+            // split exactly as their `net` originals do; `write` is new — `net` had
+            // separate `write`/`writeText` members, and collapsing them into one
+            // overloaded member means the *lowering* has to be selected here, by
+            // the payload's static type, instead of by the member name.
+            "tcp.connect" => {
                 if self.net_connect_is_address_form(args) {
-                    "net.connectTcpAddr"
+                    "tcp.connectAddr"
                 } else {
-                    "net.connectTcp"
+                    "tcp.connect"
                 }
             }
-            // plan-76-A: the readiness-multiplex overload `poll(List OF RES Socket)`
-            // lowers through a distinct helper (`net.pollList`) that builds a
-            // `pollfd[n]` over the list's fds and returns the first ready element's
-            // record ptr, vs the scalar `poll(Socket) → Boolean`.
-            "net.poll" => {
+            "tcp.poll" => {
                 if self.net_poll_is_list_form(args) {
-                    "net.pollList"
+                    "tcp.pollList"
                 } else {
-                    "net.poll"
+                    "tcp.poll"
                 }
             }
-            // plan-76-C: `tls::poll(List OF RES TlsSocket)` lowers through the portable
+            "tcp.write" => {
+                if args
+                    .get(1)
+                    .and_then(|arg| self.static_type_name(arg))
+                    .is_some_and(|type_| matches!(type_, ParameterType::String))
+                {
+                    "tcp.writeText"
+                } else {
+                    "tcp.write"
+                }
+            }
+            // plan-110-C: udp's two code forms. `send`'s payload is argument 2
+            // (socket, address, payload), not argument 1 as in `tcp::write`.
+            "udp.poll" => {
+                if self.net_poll_is_list_form(args) {
+                    "udp.pollList"
+                } else {
+                    "udp.poll"
+                }
+            }
+            "udp.send" => {
+                if args
+                    .get(2)
+                    .and_then(|arg| self.static_type_name(arg))
+                    .is_some_and(|type_| matches!(type_, ParameterType::String))
+                {
+                    "udp.sendText"
+                } else {
+                    "udp.send"
+                }
+            }
+            // plan-110-D: the `net::Address` connect overload. Selected by the
+            // first argument's static type rather than by arity, because tls's
+            // optional `timeoutMs`/`serverName` are `DefaultValue::Fill` — every
+            // call reaches here already padded, so the two shapes differ only in
+            // whether the endpoint is one record or a host/port pair.
+            "tls.connect" => {
+                if args
+                    .first()
+                    .and_then(|arg| self.static_type_name(arg))
+                    .is_some_and(|type_| type_.is_named("Address"))
+                {
+                    "tls.connectAddr"
+                } else {
+                    "tls.connect"
+                }
+            }
+            // plan-110-D: `tls::writeText` became a String overload of `tls::write`,
+            // so the byte-vs-text lowering is selected here by the payload's type
+            // rather than by the member name — the same move `tcp::write` made.
+            "tls.write" => {
+                if args
+                    .get(1)
+                    .and_then(|arg| self.static_type_name(arg))
+                    .is_some_and(|type_| matches!(type_, ParameterType::String))
+                {
+                    "tls.writeText"
+                } else {
+                    "tls.write"
+                }
+            }
+            // plan-76-C: `tls::poll(List OF RES tls::Socket)` lowers through the portable
             // `tls.pollList` driver (scans the list via the scalar readiness helper),
-            // vs the scalar `tls::poll(TlsSocket) → Boolean`.
+            // vs the scalar `tls::poll(tls::Socket) → Boolean`.
             "tls.poll" => {
                 if self.net_poll_is_list_form(args) {
                     "tls.pollList"
@@ -2352,5 +2470,58 @@ mod concat_spine_tests {
     #[test]
     fn a_lone_operand_is_its_own_spine() {
         assert_eq!(spine(&text("a")), vec!["a"]);
+    }
+}
+
+#[cfg(test)]
+mod borrowed_resource_tests {
+    use super::*;
+    use crate::codegen::engine::builder::CodeBuilder;
+    use crate::target::shared::nir::NirSourceLoc;
+    use crate::target::shared::runtime::RuntimeHelper;
+
+    fn runtime_call(target: &str) -> NirValue {
+        NirValue::RuntimeCall {
+            helper: RuntimeHelper::Tcp,
+            target: target.to_string(),
+            args: Vec::new(),
+            loc: NirSourceLoc::default(),
+        }
+    }
+
+    fn plain_call(target: &str) -> NirValue {
+        NirValue::Call {
+            target: target.to_string(),
+            args: Vec::new(),
+            loc: NirSourceLoc::default(),
+        }
+    }
+
+    /// The list form of `poll` returns a pointer to an element the list still
+    /// owns, so its `RES` bind must register no close (bug-375).
+    ///
+    /// The guard is on the **NIR variant**, not just the name: a built-in
+    /// package's member lowers to `NirValue::RuntimeCall`, and this predicate
+    /// used to match only `Call`/`CallResult`. The `net.poll`/`tls.poll` names it
+    /// listed were therefore never reached, and every `poll(List)` bind was
+    /// classified as an owner -- closing the borrowed element at the bind's scope
+    /// exit and again when the list drained.
+    #[test]
+    fn poll_list_forms_alias_a_live_resource() {
+        for target in ["tcp.poll", "udp.poll", "tls.poll"] {
+            assert!(
+                CodeBuilder::value_aliases_live_resource(&runtime_call(target)),
+                "{target} returns a borrowed list element"
+            );
+        }
+        // A producing member of the same package still transfers ownership.
+        assert!(!CodeBuilder::value_aliases_live_resource(&runtime_call(
+            "tcp.accept"
+        )));
+        // `collections::get`/`getOr` keep their own borrow classification, which
+        // arrives as a plain call rather than a runtime call.
+        assert!(CodeBuilder::value_aliases_live_resource(&plain_call(
+            "collections.get"
+        )));
     }
 }

@@ -4,11 +4,11 @@
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Bind an HTTPS listening socket, load a PEM server identity, and return the `tls::TlsListener` that drives the accept loop."#;
+const INTRO: &str = r#"Bind an HTTPS listening socket, load a PEM server identity, and return the `tls::Listener` that drives the accept loop."#;
 
 const DESC: &str = r#"`serverSSL` is the TLS counterpart of `http::server`. It binds a listening TCP
 socket and loads a server certificate chain and private key, returning the
-`tls::TlsListener` **directly** — the `http` package adds no wrapper resource of
+`tls::Listener` **directly** — the `http` package adds no wrapper resource of
 its own. The call is a pass-through to `tls::listen(host, port, certPath,
 keyPath, backlog)`, so the listener behaves in every respect like one opened by
 `tls` itself. Note the argument order differs: `serverSSL` leads with `port` to
@@ -75,7 +75,7 @@ END FUNC
 SUB secureMain()
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/", home))
-  RES s AS tls::TlsListener = http::serverSSL(8443, "cert.pem", "key.pem")
+  RES s AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem")
   DO
     http::handleRequest(s, routes)
   LOOP UNTIL FALSE
@@ -90,14 +90,14 @@ IMPORT tls
 IMPORT io
 
 SUB localOnly()
-  RES s AS tls::TlsListener = http::serverSSL(8443, "cert.pem", "key.pem", "127.0.0.1", 16)
+  RES s AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem", "127.0.0.1", 16)
   io::print("listening on 127.0.0.1:8443")
 END SUB
 ```"#;
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __http_serverSSL(port AS Integer, certPath AS String, keyPath AS String, host AS String, backlog AS Integer) AS RES tls::TlsListener
+r#"FUNC __http_serverSSL(port AS Integer, certPath AS String, keyPath AS String, host AS String, backlog AS Integer) AS RES tls::Listener
   RETURN tls::listen(host, port, certPath, keyPath, backlog)
 END FUNC"#;
 

@@ -892,6 +892,33 @@ pub(crate) trait CodegenPlatform {
     fn so_reuseaddr(&self) -> &'static str;
     fn so_rcvtimeo(&self) -> &'static str;
     fn so_sndtimeo(&self) -> &'static str;
+    /// `SO_RCVBUF` — the socket receive-buffer size option. macOS/Winsock 4098
+    /// (`0x1002`), Linux 8 (measured, plan-110-A §C5). `net::ping` raises this
+    /// because macOS's default raw receive space (8192) silently DROPS a reply
+    /// larger than about 8160 bytes even though `sendto` accepted the request, so
+    /// without it the documented maximum payload sends but never comes back.
+    fn so_rcvbuf(&self) -> &'static str;
+    /// The `IPPROTO_IP` `setsockopt` level (0 everywhere, but named rather than
+    /// spelled `"0"` at the emission sites so an IP-level option is visibly
+    /// IP-level). plan-110-A.
+    fn ipproto_ip(&self) -> &'static str;
+    /// `IP_TTL` — the IP-level option that sets an outgoing datagram's TTL.
+    /// **macOS 4, Linux 2** (measured, plan-110-A §C5); getting this wrong makes
+    /// `net::ping`'s `ttl` argument silently set an unrelated option.
+    fn ip_ttl(&self) -> &'static str;
+    /// `IP_RECVTTL` — the IP-level option that asks for the *received* TTL as a
+    /// control message. macOS 24, Linux 12. Note this is the value passed to
+    /// `setsockopt`; the control message that arrives is typed
+    /// [`cmsg_ip_ttl_type`](Self::cmsg_ip_ttl_type), which is a different number.
+    fn ip_recvttl(&self) -> &'static str;
+    /// The `cmsg_type` an `IP_RECVTTL` control message actually carries — `IP_TTL`,
+    /// **not** `IP_RECVTTL` (Linux 2 vs 12). Split out because conflating the two
+    /// makes the reply TTL look unavailable even though the kernel supplied it
+    /// (plan-110-A §C5 trap 2).
+    fn cmsg_ip_ttl_type(&self) -> &'static str;
+    /// The `clock_gettime` clock id for a monotonic elapsed-time measurement.
+    /// **macOS 6, Linux 1** (Darwin renumbers the POSIX clocks).
+    fn clock_monotonic(&self) -> &'static str;
     /// The platform's "operation would block" socket error code, used to
     /// distinguish a non-blocking read/write/accept timeout from a real failure.
     /// POSIX reports `EAGAIN`/`EWOULDBLOCK` via `errno`; Winsock reports

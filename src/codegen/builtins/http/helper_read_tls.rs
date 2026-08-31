@@ -8,7 +8,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __http_readTls(RES t AS tls::TlsSocket, n AS Integer) AS __http_PumpRead
+r#"FUNC __http_readTls(RES t AS tls::Socket, n AS Integer) AS __http_PumpRead
   MUT chunk AS List OF Byte = []
   MUT closed AS Boolean = FALSE
   MUT err AS Integer = 0

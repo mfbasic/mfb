@@ -1,0 +1,70 @@
+{
+  "project": "func_tcp_stream_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 13 },
+    { "module": "encoding", "line": 14 },
+    { "module": "net", "line": 15 },
+    { "module": "tcp", "line": 16 },
+    { "module": "io", "line": 17 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 19,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": null, "value": { "kind": "call", "callee": "tcp.listen", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "bound", "type": null, "value": { "kind": "call", "callee": "tcp.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bound host=" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "host" } }, "right": { "kind": "string", "value": " port>0=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "client", "type": null, "value": { "kind": "call", "callee": "tcp.connect", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }, { "kind": "number", "value": "2000" }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "conn", "type": null, "value": { "kind": "call", "callee": "tcp.accept", "arguments": [{ "kind": "identifier", "value": "server" }, { "kind": "number", "value": "2000" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "peer=" }, "right": { "kind": "memberAccess", "target": { "kind": "call", "callee": "tcp.remoteAddress", "arguments": [{ "kind": "identifier", "value": "conn" }] }, "member": "host" } }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "client local=" }, "right": { "kind": "memberAccess", "target": { "kind": "call", "callee": "tcp.localAddress", "arguments": [{ "kind": "identifier", "value": "client" }] }, "member": "host" } }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.write", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "string", "value": "hello" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "text=" }, "right": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "call", "callee": "tcp.read", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "number", "value": "64" }] }] } }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "name": "payload", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "255" }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.write", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "identifier", "value": "payload" }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "raw", "type": null, "value": { "kind": "call", "callee": "tcp.read", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "number", "value": "64" }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bytes=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "raw" }] }] } }, "right": { "kind": "string", "value": " last=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "raw" }, { "kind": "number", "value": "3" }] }] } }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.write", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "string", "value": "back" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "poll ready=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "tcp.poll", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "number", "value": "1000" }] }] } }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "read back=" }, "right": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "call", "callee": "tcp.read", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "number", "value": "16" }] }] } }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "poll idle=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "tcp.poll", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "number", "value": "50" }] }] } }] }, "line": 45 },
+      { "kind": "binding", "mutable": false, "name": "dest", "type": null, "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "call", "callee": "net.lookup", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, { "kind": "number", "value": "0" }] }, "line": 48 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "viaAddr", "type": null, "value": { "kind": "call", "callee": "tcp.connect", "arguments": [{ "kind": "identifier", "value": "dest" }, { "kind": "number", "value": "2000" }] }, "line": 49 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "conn2", "type": null, "value": { "kind": "call", "callee": "tcp.accept", "arguments": [{ "kind": "identifier", "value": "server" }, { "kind": "number", "value": "2000" }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.write", "arguments": [{ "kind": "identifier", "value": "viaAddr" }, { "kind": "string", "value": "addr" }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "via address=" }, "right": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "call", "callee": "tcp.read", "arguments": [{ "kind": "identifier", "value": "conn2" }, { "kind": "number", "value": "16" }] }] } }] }, "line": 52 },
+      { "kind": "binding", "mutable": false, "name": "pool", "type": "List OF RES tcp.Socket", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "conn" }, { "kind": "identifier", "value": "conn2" }] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.write", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "string", "value": "pick" }] }, "line": 57 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "ready", "type": "tcp.Socket", "value": { "kind": "call", "callee": "tcp.poll", "arguments": [{ "kind": "identifier", "value": "pool" }, { "kind": "number", "value": "2000" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "list poll=" }, "right": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "call", "callee": "tcp.read", "arguments": [{ "kind": "identifier", "value": "ready" }, { "kind": "number", "value": "16" }] }] } }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.setReadTimeout", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "number", "value": "150" }] }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.setWriteTimeout", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "number", "value": "150" }] }, "line": 63 },
+      { "kind": "binding", "mutable": false, "name": "late", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 64,
+        "expression": { "kind": "call", "callee": "tcp.read", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "number", "value": "16" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "read timeout fired" }] }, "line": 65 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.close", "arguments": [{ "kind": "identifier", "value": "viaAddr" }] }, "line": 67 },
+        { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 68 }
+        ]
+      }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "UNEXPECTED read of " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "late" }] }] } }] }, "line": 70 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 71 }
+      ]
+    }
+    ]
+  }
+  ]
+}

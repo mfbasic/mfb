@@ -1,0 +1,9 @@
+IMPORT tcp
+
+FUNC main AS Integer
+  RES missing = tcp::listen("h")
+  RES wrongHost = tcp::listen(1, 80)
+  RES wrongBacklog = tcp::listen("h", 80, "x")
+  RES tooMany = tcp::listen("h", 80, 1, 2)
+  RETURN 0
+END FUNC

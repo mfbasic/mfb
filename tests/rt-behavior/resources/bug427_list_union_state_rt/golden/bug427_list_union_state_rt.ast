@@ -6,7 +6,7 @@
     "imports": [
     { "module": "io", "line": 1 },
     { "module": "fs", "line": 2 },
-    { "module": "net", "line": 3 },
+    { "module": "tcp", "line": 3 },
     { "module": "collections", "line": 4 }
     ],
     "items": [
@@ -27,7 +27,7 @@
       "includes": [],
       "variants": [
       { "name": "fs.File", "line": 20 },
-      { "name": "net.Socket", "line": 21 }
+      { "name": "tcp.Socket", "line": 21 }
       ]
     },
     {

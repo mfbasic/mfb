@@ -2798,9 +2798,9 @@ mod tests {
             "Stmt",
             "SoundFile",
             "SoundFile STATE FileInfo",
-            "net.Socket",
-            "net.Listener",
-            "net.UdpSocket",
+            "tcp.Socket",
+            "tcp.Listener",
+            "udp.Socket",
             "audio.AudioInput",
             "audio.AudioOutput",
         ] {

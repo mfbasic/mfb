@@ -1,0 +1,92 @@
+{
+  "project": "func_udp_poll_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 8 },
+    { "module": "encoding", "line": 9 },
+    { "module": "errorCode", "line": 10 },
+    { "module": "net", "line": 11 },
+    { "module": "udp", "line": 12 },
+    { "module": "io", "line": 13 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "listPollTimesOut",
+      "line": 17,
+      "params": [
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": null, "value": { "kind": "call", "callee": "udp.bind", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "b", "type": null, "value": { "kind": "call", "callee": "udp.bind", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 19 },
+      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES udp.Socket", "value": { "kind": "list", "values": [] }, "line": 20 },
+      { "kind": "assignment", "name": "socks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "identifier", "value": "a" }] }, "line": 21 },
+      { "kind": "assignment", "name": "socks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "identifier", "value": "b" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "ready", "type": "udp.Socket", "value": { "kind": "call", "callee": "udp.poll", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "number", "value": "0" }] }, "line": 23 },
+      { "kind": "return", "value": { "kind": "boolean", "value": false }, "line": 24 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 25,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrTimeout" } }, "line": 26 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "emptyListPollIsInvalid",
+      "line": 32,
+      "params": [
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES udp.Socket", "value": { "kind": "list", "values": [] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "ready", "type": "udp.Socket", "value": { "kind": "call", "callee": "udp.poll", "arguments": [{ "kind": "identifier", "value": "socks" }] }, "line": 34 },
+      { "kind": "return", "value": { "kind": "boolean", "value": false }, "line": 35 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 36,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } }, "line": 37 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 41,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "receiver", "type": null, "value": { "kind": "call", "callee": "udp.bind", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "at", "type": "Address", "value": { "kind": "call", "callee": "udp.localAddress", "arguments": [{ "kind": "identifier", "value": "receiver" }] }, "line": 43 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sender", "type": null, "value": { "kind": "call", "callee": "udp.bind", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "idle=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "udp.poll", "arguments": [{ "kind": "identifier", "value": "receiver" }, { "kind": "number", "value": "0" }] }] } }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.send", "arguments": [{ "kind": "identifier", "value": "sender" }, { "kind": "identifier", "value": "at" }, { "kind": "string", "value": "ping" }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ready=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "udp.poll", "arguments": [{ "kind": "identifier", "value": "receiver" }] }] } }] }, "line": 53 },
+      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES udp.Socket", "value": { "kind": "list", "values": [] }, "line": 57 },
+      { "kind": "assignment", "name": "socks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "identifier", "value": "receiver" }] }, "line": 58 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "picked", "type": "udp.Socket", "value": { "kind": "call", "callee": "udp.poll", "arguments": [{ "kind": "identifier", "value": "socks" }] }, "line": 59 },
+      { "kind": "binding", "mutable": false, "name": "got", "type": null, "value": { "kind": "call", "callee": "udp.receive", "arguments": [{ "kind": "identifier", "value": "picked" }, { "kind": "number", "value": "16" }] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "payload=" }, "right": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "got" }, "member": "bytes" }] } }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "listTimeout=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "listPollTimesOut", "arguments": [] }] } }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "emptyInvalid=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "emptyListPollIsInvalid", "arguments": [] }] } }] }, "line": 64 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 65 }
+      ]
+    }
+    ]
+  }
+  ]
+}

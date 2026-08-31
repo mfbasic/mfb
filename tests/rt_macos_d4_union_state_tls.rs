@@ -1,11 +1,11 @@
 //! plan-80 D4 proof: a resource union carrying plan-74 `STATE` binds over a
-//! **live** `TlsSocket` and drives real TLS I/O without corrupting the handle.
+//! **live** `tls::Socket` and drives real TLS I/O without corrupting the handle.
 //!
 //! plan-76-D Corrections D4 (the core-premise defect plan-80 exists to fix):
 //! plan-74 stored the `STATE` pointer at record offset 16, which is free in the
 //! File/Socket layout but held `SSL*` (openssl) / the dispatch queue (macOS
-//! Network.framework) in a `TlsSocket` record. Binding a `Stream STATE …` union
-//! to a `TlsSocket` therefore clobbered the live TLS handle, and the next `tls::*`
+//! Network.framework) in a `tls::Socket` record. Binding a `Stream STATE …` union
+//! to a `tls::Socket` therefore clobbered the live TLS handle, and the next `tls::*`
 //! op dereferenced garbage — `http::read("https://…")` SIGSEGV'd (exit 139).
 //!
 //! plan-80 relocates `STATE` to offset 24, free in every backend layout. This
@@ -13,10 +13,10 @@
 //! `Stream STATE PendingState` union: it default-inits the STATE, mutates it
 //! (`state.sentAll`, `state.raw` appends), then reads the peer greeting and
 //! writes the accumulated STATE bytes back — all via the MATCH-extracted
-//! `TlsSocket` variant. If the STATE write still clobbered the macOS dispatch
-//! queue (the pre-plan-80 bug), that `tls::readText`/`tls::write` would crash or
+//! `tls::Socket` variant. If the STATE write still clobbered the macOS dispatch
+//! queue (the pre-plan-80 bug), that `tls::read`/`tls::write` would crash or
 //! stall; instead the peer receives the exact bytes and the union drops cleanly
-//! (union cleanup closes the TlsSocket variant + frees the STATE block).
+//! (union cleanup closes the tls::Socket variant + frees the STATE block).
 //!
 //! Gated to macOS — only there does the binary embed the `macos.rs` TLS record
 //! whose offset-16 `REC_QUEUE` was the collision. The openssl path (offset-16
@@ -35,7 +35,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// The server accumulates these into `state.raw` (one append each) and writes
-/// them back through the MATCH-extracted `TlsSocket` variant.
+/// them back through the MATCH-extracted `tls::Socket` variant.
 const EXPECTED: &[u8] = &[65, 66, 67, 68, 69]; // "ABCDE"
 const PORT: u16 = 18461;
 
@@ -93,21 +93,21 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
         "{\"name\":\"d4tls\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\"sources\":[{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}],\"entry\":\"main\",\"targets\":[\"native\"]}\n",
     )
     .expect("write project.json");
-    // The accepted `TlsSocket` is widened into a `Stream STATE PendingState`
+    // The accepted `tls::Socket` is widened into a `Stream STATE PendingState`
     // union; STATE is default-inited at the bind, then mutated, then the live
     // handle is used for real TLS I/O — the exact sequence that SIGSEGV'd
     // pre-plan-80.
     let source = format!(
-        "IMPORT tls\nIMPORT net\nIMPORT collections\n\n\
+        "IMPORT collections\nIMPORT tcp\nIMPORT tls\n\n\
          TYPE PendingState\n\
         \x20 raw AS List OF Byte\n\
         \x20 sentAll AS Boolean\n\
          END TYPE\n\n\
          UNION Stream\n\
-        \x20 net::Socket\n\
-        \x20 tls::TlsSocket\n\
+        \x20 tcp::Socket\n\
+        \x20 tls::Socket\n\
          END UNION\n\n\
-         FUNC serveOnce(RES listener AS tls::TlsListener) AS Integer\n\
+         FUNC serveOnce(RES listener AS tls::Listener) AS Integer\n\
         \x20 RES client AS Stream STATE PendingState = tls::accept(listener)\n\
         \x20 client.state.sentAll = TRUE\n\
         \x20 client.state.raw = collections::append(client.state.raw, toByte(65))\n\
@@ -116,10 +116,10 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
         \x20 client.state.raw = collections::append(client.state.raw, toByte(68))\n\
         \x20 client.state.raw = collections::append(client.state.raw, toByte(69))\n\
         \x20 MATCH client\n\
-        \x20   CASE tls::TlsSocket(t)\n\
+        \x20   CASE tls::Socket(t)\n\
         \x20     tls::write(t, client.state.raw)\n\
-        \x20   CASE net::Socket(p)\n\
-        \x20     net::write(p, client.state.raw)\n\
+        \x20   CASE tcp::Socket(p)\n\
+        \x20     tcp::write(p, client.state.raw)\n\
         \x20 END MATCH\n\
         \x20 RETURN 0\n\
          END FUNC\n\n\
@@ -216,7 +216,7 @@ fn macos_union_state_over_live_tls_socket_does_not_corrupt_the_handle() {
             let _ = fs::remove_dir_all(&root);
             panic!(
                 "plan-80 D4: TLS server did not respond within 30s — a STATE-on-union \
-                 write over a live TlsSocket corrupted the handle (queue/SSL* stall) \
+                 write over a live tls::Socket corrupted the handle (queue/SSL* stall) \
                  or crashed; killed server+peer and failed instead of hanging"
             );
         }
@@ -225,7 +225,7 @@ fn macos_union_state_over_live_tls_socket_does_not_corrupt_the_handle() {
     assert!(
         stdout.windows(EXPECTED.len()).any(|w| w == EXPECTED),
         "peer did not receive the STATE bytes {EXPECTED:?}; the union's STATE write \
-         over a live TlsSocket corrupted the TLS handle (plan-80 D4). got {:x?}",
+         over a live tls::Socket corrupted the TLS handle (plan-80 D4). got {:x?}",
         stdout
     );
 

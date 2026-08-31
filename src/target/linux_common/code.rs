@@ -277,12 +277,23 @@ pub(crate) fn emit_linux_c_call(
     // result into the MFB result register here, ONCE, so every downstream consumer is
     // correct whether it reads the result (`return_register()`) or feeds it straight
     // into the next call's first argument (`c_arg(0)`, the `getuid`→`getpwuid` shape).
-    // This is emitted ONLY on `linux-x86_64`: on AArch64/RISC-V the argument and result
-    // banks coincide (both `x0`) so the result is already there. Win64 external calls go
-    // through `win_x86_64::code::call_external`, which stages the C result the same way
-    // (`mov rcx,rax`) for the aligned Win64 result bank; this Linux emitter never runs
-    // for Win64.
-    if target == "linux-x86_64" {
+    // This is emitted on BOTH x86 targets: on AArch64/RISC-V the argument and result
+    // banks coincide (both `x0`) so the result is already there, but on x86 they never
+    // do — SysV's aligned bank starts at `rdi` and Win64's at `rcx`, while the C result
+    // is `rax` on both.
+    //
+    // Win64 was excluded here until plan-110-D, on the strength of a comment claiming
+    // its "MFB result bank is `rax`-based (= the C return)". That was true before
+    // plan-85-A re-aligned `%retMFB` onto the call-argument bank
+    // (`CALL_ARGS_WIN64[0] == "rcx"`, `src/arch/x86_64/select.rs`), and the exclusion
+    // was never revisited. The consequence was silent and total: every shared OS-seam
+    // emitter reads a call result through `abi::return_register()`, so on Windows
+    // `socket()`/`connect()`/`getsockname()`/... were all checked against `rcx` — the
+    // third outgoing argument — instead of their real return value. `tcp::connect`
+    // failed for every host including loopback, and `tcp::listen` "succeeded" while
+    // storing a non-socket as its handle (measured on box 2230: `bl socket` followed by
+    // `sxtw rcx, rcx` with no staging move).
+    if target == "linux-x86_64" || target == "windows-x86_64" {
         instructions.push(abi::move_register(
             abi::return_register(),
             crate::target::shared::abi::c_return(0),
@@ -1278,6 +1289,37 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
 
     fn so_sndtimeo(&self) -> &'static str {
         "21" // SO_SNDTIMEO on Linux
+    }
+
+    fn so_rcvbuf(&self) -> &'static str {
+        "8" // SO_RCVBUF on Linux
+    }
+
+    // plan-110-A §C5: measured with `scripts/icmp-constants-probe.c` on 2227
+    // (x86_64 musl), 2228 (x86_64 glibc), 2229 (riscv64 musl) and 2223 (aarch64
+    // glibc) — identical on all four, so one Linux row is correct for every ISA.
+
+    fn ipproto_ip(&self) -> &'static str {
+        "0" // IPPROTO_IP
+    }
+
+    fn ip_ttl(&self) -> &'static str {
+        "2" // IP_TTL on Linux (Darwin uses 4)
+    }
+
+    fn ip_recvttl(&self) -> &'static str {
+        "12" // IP_RECVTTL on Linux (Darwin uses 24)
+    }
+
+    fn cmsg_ip_ttl_type(&self) -> &'static str {
+        // The cmsg the kernel delivers is typed IP_TTL (2), NOT the IP_RECVTTL (12)
+        // used to enable it. Comparing against 12 finds no match and loses a TTL the
+        // kernel did supply (plan-110-A §C5 trap 2).
+        "2"
+    }
+
+    fn clock_monotonic(&self) -> &'static str {
+        "1" // CLOCK_MONOTONIC on Linux (Darwin uses 6)
     }
 
     fn socket_would_block_code(&self) -> &'static str {

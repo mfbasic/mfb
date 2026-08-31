@@ -1,0 +1,98 @@
+$ mfb build -ast -ir tests/syntax/udp/func_udp_endpoints_invalid
+  11 | FUNC main AS Integer
+  12 |   ' `localAddress` takes exactly one udp socket.
+  13 |   LET missingLocal = udp::localAddress()
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:13 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `udp.localAddress` has 0 argument(s), expected 1.
+  11 | FUNC main AS Integer
+  12 |   ' `localAddress` takes exactly one udp socket.
+  13 |   LET missingLocal = udp::localAddress()
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:13 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missingLocal` does not have a known type.
+  12 |   ' `localAddress` takes exactly one udp socket.
+  13 |   LET missingLocal = udp::localAddress()
+  14 |   LET wrongLocal = udp::localAddress(1)
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:14 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `udp.localAddress` has argument type(s) (Integer), expected Socket.
+  12 |   ' `localAddress` takes exactly one udp socket.
+  13 |   LET missingLocal = udp::localAddress()
+  14 |   LET wrongLocal = udp::localAddress(1)
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:14 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongLocal` does not have a known type.
+  13 |   LET missingLocal = udp::localAddress()
+  14 |   LET wrongLocal = udp::localAddress(1)
+  15 |   LET tooManyLocal = udp::localAddress(1, 2)
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:15 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `udp.localAddress` has 2 argument(s), expected 1.
+  13 |   LET missingLocal = udp::localAddress()
+  14 |   LET wrongLocal = udp::localAddress(1)
+  15 |   LET tooManyLocal = udp::localAddress(1, 2)
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:15 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooManyLocal` does not have a known type.
+  16 | 
+  17 |   ' `close` consumes exactly one udp socket and returns Nothing.
+  18 |   udp::close()
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:18 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `udp.close` has 0 argument(s), expected 1.
+  17 |   ' `close` consumes exactly one udp socket and returns Nothing.
+  18 |   udp::close()
+  19 |   udp::close(1)
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:19 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `udp.close` has argument type(s) (Integer), expected Socket.
+  18 |   udp::close()
+  19 |   udp::close(1)
+  20 |   udp::close(1, 2)
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:20 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `udp.close` has 2 argument(s), expected 1.
+  21 | 
+  22 |   ' The timeout setters take a socket and an Integer.
+  23 |   udp::setReadTimeout()
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:23 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `udp.setReadTimeout` has 0 argument(s), expected 2.
+  22 |   ' The timeout setters take a socket and an Integer.
+  23 |   udp::setReadTimeout()
+  24 |   udp::setReadTimeout(1, 2)
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:24 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `udp.setReadTimeout` has argument type(s) (Integer, Integer), expected Socket, Integer.
+  23 |   udp::setReadTimeout()
+  24 |   udp::setReadTimeout(1, 2)
+  25 |   udp::setReadTimeout(1, "soon")
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:25 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `udp.setReadTimeout` has argument type(s) (Integer, String), expected Socket, Integer.
+  24 |   udp::setReadTimeout(1, 2)
+  25 |   udp::setReadTimeout(1, "soon")
+  26 |   udp::setWriteTimeout()
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:26 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `udp.setWriteTimeout` has 0 argument(s), expected 2.
+  25 |   udp::setReadTimeout(1, "soon")
+  26 |   udp::setWriteTimeout()
+  27 |   udp::setWriteTimeout(1, 2)
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:27 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `udp.setWriteTimeout` has argument type(s) (Integer, Integer), expected Socket, Integer.
+  26 |   udp::setWriteTimeout()
+  27 |   udp::setWriteTimeout(1, 2)
+  28 |   udp::setWriteTimeout(1, 2, 3)
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:28 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `udp.setWriteTimeout` has 3 argument(s), expected 2.
+  33 |   RES sock = udp::bind("127.0.0.1", 0)
+  34 |   udp::close(sock)
+  35 |   LET afterClose = udp::localAddress(sock)
+     | ^
+tests/syntax/udp/func_udp_endpoints_invalid/src/main.mfb:35 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `sock` was moved and cannot be used again.
+[exit 1]

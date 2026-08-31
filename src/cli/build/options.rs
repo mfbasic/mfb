@@ -43,6 +43,39 @@ fn parse_common_option(
     Ok(true)
 }
 
+/// Whether `arg` is any spelling of the verbosity flag: the single `-v` /
+/// `--verbose`, or the bundled `-vv` that asks for the compile profiler in one
+/// word.
+fn is_verbose_flag(arg: &str) -> bool {
+    matches!(arg, "-v" | "--verbose" | "-vv" | "--vv")
+}
+
+/// A verbosity that is not `Quiet` — i.e. one that conflicts with `-q`.
+fn is_verbose(level: Verbosity) -> bool {
+    level >= Verbosity::Verbose
+}
+
+/// Apply one verbosity flag, escalating rather than replacing.
+///
+/// Repeating the flag is how every compiler spells "more of this", so `-v -v`
+/// (and `--verbose --verbose`) reaches [`Verbosity::Trace`] exactly as the
+/// bundled `-vv` does; a third `-v` is a no-op because there is nothing above
+/// Trace to reach. Escalation, not replacement, is what lets a wrapper script
+/// pass a baseline `-v` and a user add another on the command line.
+fn raise_verbosity(arg: &str, level: &mut Option<Verbosity>, cmd: &str) -> Result<(), String> {
+    let bundled = arg == "-vv" || arg == "--vv";
+    *level = Some(match *level {
+        Some(Verbosity::Quiet) => {
+            return Err(format!("mfb {cmd} accepts at most one of -q / -v"));
+        }
+        // Already verbose (or already tracing): another flag means Trace.
+        Some(Verbosity::Verbose) | Some(Verbosity::Trace) => Verbosity::Trace,
+        Some(Verbosity::Normal) | None if bundled => Verbosity::Trace,
+        Some(Verbosity::Normal) | None => Verbosity::Verbose,
+    });
+    Ok(())
+}
+
 pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
     let mut location = None;
     let mut outputs: Vec<BuildOutput> = Vec::new();
@@ -87,13 +120,11 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
         } else if arg == "--unsigned" {
             allow_unsigned = true;
         } else if arg == "-q" || arg == "--quiet" {
-            if verbosity.replace(Verbosity::Quiet) == Some(Verbosity::Verbose) {
+            if verbosity.replace(Verbosity::Quiet).is_some_and(is_verbose) {
                 return Err("mfb build accepts at most one of -q / -v".to_string());
             }
-        } else if arg == "-v" || arg == "--verbose" {
-            if verbosity.replace(Verbosity::Verbose) == Some(Verbosity::Quiet) {
-                return Err("mfb build accepts at most one of -q / -v".to_string());
-            }
+        } else if is_verbose_flag(&arg) {
+            raise_verbosity(&arg, &mut verbosity, "build")?;
         } else if arg.starts_with('-') {
             return Err(format!("unknown build option `{arg}`"));
         } else if location.replace(PathBuf::from(&arg)).is_some() {
@@ -126,14 +157,14 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
     let mut target = None;
     let mut opt = crate::optimizer::active_opt_level();
     let mut coverage = false;
-    let mut verbose = false;
+    let mut verbose: Option<Verbosity> = None;
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
         if arg == "--coverage" {
             coverage = true;
-        } else if arg == "-v" || arg == "--verbose" {
-            verbose = true;
+        } else if is_verbose_flag(&arg) {
+            raise_verbosity(&arg, &mut verbose, "test")?;
         } else if parse_common_option(&arg, &mut iter, "test", &mut target, &mut opt)? {
             // handled by the shared --target/-O parser
         } else if arg.starts_with('-') {
@@ -160,12 +191,9 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
         // summary would be noise and (via `target.name()`) non-portable across
         // machines, churning `.testrun` goldens. Stay quiet by default
         // (plan-36); `-v` opts into the build summary, per-phase timings, live
-        // `codegen:` lines, and optimizer fire counts — all on stderr, so the
-        // pass/fail tree on stdout is unchanged.
-        verbosity: if verbose {
-            Verbosity::Verbose
-        } else {
-            Verbosity::Quiet
-        },
+        // `codegen:` lines, and optimizer fire counts, and `-vv` adds the
+        // compile-profiler report — all on stderr, so the pass/fail tree on
+        // stdout is unchanged.
+        verbosity: verbose.unwrap_or(Verbosity::Quiet),
     })
 }

@@ -8,7 +8,7 @@ const INTRO: &str = r#"Report whether an HTTP stream has data available to read 
 const DESC: &str = r#"`ready` returns `TRUE` when a non-blocking read of `stream` would return bytes or
 observe end-of-stream right now, and `FALSE` when it would have to wait. It is a
 pure readiness probe with a zero timeout — it never blocks and never consumes
-bytes — layered on the scalar `net::poll`/`tls::poll` of the active transport
+bytes — layered on the scalar `tcp::poll`/`tls::poll` of the active transport
 variant. Use it to gate `http::pump` so a cooperative drive loop only reads when
 progress is possible and otherwise does the caller's own work.
 
@@ -35,9 +35,9 @@ const BODY: &str =
 r#"' `TRUE` iff a non-blocking read would return bytes or EOF now.
 FUNC __http_ready(RES s AS Stream STATE PendingState) AS Boolean
   MATCH s
-    CASE net::Socket(p)
-      RETURN net::poll(p, 0)
-    CASE tls::TlsSocket(t)
+    CASE tcp::Socket(p)
+      RETURN tcp::poll(p, 0)
+    CASE tls::Socket(t)
       RETURN tls::poll(t, 0)
   END MATCH
   RETURN FALSE

@@ -1,0 +1,9 @@
+IMPORT tcp
+
+FUNC main AS Integer
+  LET missing = tcp::read()
+  LET wrongType = tcp::read(1, 16)
+  LET wrongCount = tcp::read("s")
+  LET tooMany = tcp::read(1, 2, 3)
+  RETURN 0
+END FUNC

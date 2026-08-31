@@ -1,0 +1,62 @@
+$ mfb build -ast -ir tests/syntax/udp/func_udp_poll_invalid
+  14 | 
+  15 | FUNC main AS Integer
+  16 |   LET missing = udp::poll()
+     | ^
+tests/syntax/udp/func_udp_poll_invalid/src/main.mfb:16 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `udp.poll` has 0 argument(s), expected 1 to 2.
+  14 | 
+  15 | FUNC main AS Integer
+  16 |   LET missing = udp::poll()
+     | ^
+tests/syntax/udp/func_udp_poll_invalid/src/main.mfb:16 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+  15 | FUNC main AS Integer
+  16 |   LET missing = udp::poll()
+  17 |   LET wrongType = udp::poll(1)
+     | ^
+tests/syntax/udp/func_udp_poll_invalid/src/main.mfb:17 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `udp.poll` has argument type(s) (Integer), expected Socket, Integer or List OF RES Socket, Integer.
+  15 | FUNC main AS Integer
+  16 |   LET missing = udp::poll()
+  17 |   LET wrongType = udp::poll(1)
+     | ^
+tests/syntax/udp/func_udp_poll_invalid/src/main.mfb:17 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+  16 |   LET missing = udp::poll()
+  17 |   LET wrongType = udp::poll(1)
+  18 |   LET wrongTimeout = udp::poll(1, "soon")
+     | ^
+tests/syntax/udp/func_udp_poll_invalid/src/main.mfb:18 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `udp.poll` has argument type(s) (Integer, String), expected Socket, Integer or List OF RES Socket, Integer.
+  16 |   LET missing = udp::poll()
+  17 |   LET wrongType = udp::poll(1)
+  18 |   LET wrongTimeout = udp::poll(1, "soon")
+     | ^
+tests/syntax/udp/func_udp_poll_invalid/src/main.mfb:18 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongTimeout` does not have a known type.
+  17 |   LET wrongType = udp::poll(1)
+  18 |   LET wrongTimeout = udp::poll(1, "soon")
+  19 |   LET tooMany = udp::poll(1, 2, 3)
+     | ^
+tests/syntax/udp/func_udp_poll_invalid/src/main.mfb:19 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `udp.poll` has 3 argument(s), expected 1 to 2.
+  17 |   LET wrongType = udp::poll(1)
+  18 |   LET wrongTimeout = udp::poll(1, "soon")
+  19 |   LET tooMany = udp::poll(1, 2, 3)
+     | ^
+tests/syntax/udp/func_udp_poll_invalid/src/main.mfb:19 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+  23 |   MUT wrongList AS List OF RES tcp::Socket = []
+  24 |   wrongList = collections::append(wrongList, stream)
+  25 |   RES notUdp = udp::poll(wrongList, 0)
+     | ^
+tests/syntax/udp/func_udp_poll_invalid/src/main.mfb:25 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `udp.poll` has argument type(s) (List OF RES tcp.Socket, Integer), expected Socket, Integer or List OF RES Socket, Integer.
+  23 |   MUT wrongList AS List OF RES tcp::Socket = []
+  24 |   wrongList = collections::append(wrongList, stream)
+  25 |   RES notUdp = udp::poll(wrongList, 0)
+     | ^
+tests/syntax/udp/func_udp_poll_invalid/src/main.mfb:25 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `notUdp` does not have a known type.
+[exit 1]

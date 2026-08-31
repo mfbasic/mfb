@@ -5,6 +5,7 @@
 IMPORT io
 IMPORT http
 IMPORT net
+IMPORT tcp
 IMPORT tls
 IMPORT fs
 IMPORT collections
@@ -59,19 +60,19 @@ FUNC main() AS Integer
   routes = collections::append(routes, http::route("/static/*", coverHandler))
   io::print(toString(len(routes)))
 
-  ' --- server: 3 overloads (returns net::Listener) -------------------------
-  RES lst1 AS net::Listener = http::server(8080)
-  RES lst2 AS net::Listener = http::server(8081, "0.0.0.0")
-  RES lst3 AS net::Listener = http::server(8082, "0.0.0.0", 16)
-  io::print(toString(net::localAddress(lst2).port))
-  io::print(toString(net::localAddress(lst3).port))
+  ' --- server: 3 overloads (returns tcp::Listener) -------------------------
+  RES lst1 AS tcp::Listener = http::server(8080)
+  RES lst2 AS tcp::Listener = http::server(8081, "0.0.0.0")
+  RES lst3 AS tcp::Listener = http::server(8082, "0.0.0.0", 16)
+  io::print(toString(tcp::localAddress(lst2).port))
+  io::print(toString(tcp::localAddress(lst3).port))
 
-  ' --- serverSSL: 3 overloads (returns tls::TlsListener) -------------------
-  RES tl1 AS tls::TlsListener = http::serverSSL(8443, "cert.pem", "key.pem")
-  RES tl2 AS tls::TlsListener = http::serverSSL(8444, "cert.pem", "key.pem", "0.0.0.0")
-  RES tl3 AS tls::TlsListener = http::serverSSL(8445, "cert.pem", "key.pem", "0.0.0.0", 16)
+  ' --- serverSSL: 3 overloads (returns tls::Listener) -------------------
+  RES tl1 AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem")
+  RES tl2 AS tls::Listener = http::serverSSL(8444, "cert.pem", "key.pem", "0.0.0.0")
+  RES tl3 AS tls::Listener = http::serverSSL(8445, "cert.pem", "key.pem", "0.0.0.0", 16)
 
-  ' --- handleRequest: both overloads (net::Listener + tls::TlsListener) -----
+  ' --- handleRequest: both overloads (tcp::Listener + tls::Listener) -----
   http::handleRequest(lst1, routes)
   http::handleRequest(tl1, routes)
 

@@ -1,0 +1,28 @@
+' plan-73-C Phase 4: tcp::setReadTimeout(sock, 0) is now NON-BLOCKING (was
+' "disable"), and a read that times out raises the single ErrTimeout (77050008),
+' not the retired ErrReadTimeout. With no data ever written, readText returns at
+' once with ErrTimeout.
+IMPORT encoding
+IMPORT net
+IMPORT tcp
+IMPORT io
+
+FUNC main AS Integer
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound = tcp::localAddress(server)
+  RES client = tcp::connect("127.0.0.1", bound.port)
+  RES conn = tcp::accept(server)
+
+  tcp::setReadTimeout(conn, 0)
+  LET s = encoding::utf8Decode(tcp::read(conn, 16))
+  io::print("no-trap")
+  RETURN 1
+  TRAP(err)
+    IF err.code = 77050008 THEN
+      io::print("read0 timeout")
+      RETURN 0
+    END IF
+    io::print("read0 wrong " & toString(err.code))
+    RETURN 1
+  END TRAP
+END FUNC

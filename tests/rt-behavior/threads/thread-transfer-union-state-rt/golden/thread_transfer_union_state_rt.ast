@@ -7,7 +7,7 @@
     { "module": "io", "line": 1 },
     { "module": "thread", "line": 2 },
     { "module": "fs", "line": 3 },
-    { "module": "net", "line": 4 },
+    { "module": "tcp", "line": 4 },
     { "module": "union_xfer_workers", "line": 5 }
     ],
     "items": [
@@ -28,7 +28,7 @@
       "includes": [],
       "variants": [
       { "name": "fs.File", "line": 12 },
-      { "name": "net.Socket", "line": 13 }
+      { "name": "tcp.Socket", "line": 13 }
       ]
     },
     {

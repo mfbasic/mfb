@@ -26,32 +26,33 @@ use common::{assert_no_aligned_bank_result_reads, build_ncode, temp_project};
 // Exercises every `tls::*` entry point (connect/read/write/readText/writeText/
 // poll/close/listen/accept) so each `AbiFunction` body is emitted.
 const SOURCE: &str = "\
+IMPORT encoding\n\
 IMPORT io\n\
 IMPORT tls\n\
 FUNC main() AS Integer\n\
-  RES sock AS tls::TlsSocket = tls::connect(\"example.com\", 443)\n\
-  RES sock2 AS tls::TlsSocket = tls::connect(\"example.com\", 443, 5000)\n\
-  RES sock3 AS tls::TlsSocket = tls::connect(\"example.com\", 443, 5000, \"example.com\")\n\
+  RES sock AS tls::Socket = tls::connect(\"example.com\", 443)\n\
+  RES sock2 AS tls::Socket = tls::connect(\"example.com\", 443, 5000)\n\
+  RES sock3 AS tls::Socket = tls::connect(\"example.com\", 443, 5000, \"example.com\")\n\
   LET got = tls::read(sock, 64)\n\
   tls::write(sock, got)\n\
   io::print(toString(len(got)))\n\
-  LET txt = tls::readText(sock2, 4096)\n\
-  tls::writeText(sock2, txt)\n\
+  LET txt = encoding::utf8Decode(tls::read(sock2, 4096))\n\
+  tls::write(sock2, txt)\n\
   io::print(toString(len(txt)))\n\
-  tls::writeText(sock3, \"GET / HTTP/1.0\")\n\
+  tls::write(sock3, \"GET / HTTP/1.0\")\n\
   LET ready1 = tls::poll(sock)\n\
   LET ready2 = tls::poll(sock2, 1000)\n\
   io::print(toString(ready1) & toString(ready2))\n\
   tls::close(sock)\n\
   tls::close(sock2)\n\
   tls::close(sock3)\n\
-  RES server AS tls::TlsListener = tls::listen(\"\", 8443, \"cert.pem\", \"key.pem\")\n\
-  RES server2 AS tls::TlsListener = tls::listen(\"\", 8444, \"cert.pem\", \"key.pem\", 16)\n\
-  RES client AS tls::TlsSocket = tls::accept(server)\n\
-  RES client2 AS tls::TlsSocket = tls::accept(server2, 5000)\n\
-  LET reply = tls::readText(client, 4096)\n\
+  RES server AS tls::Listener = tls::listen(\"\", 8443, \"cert.pem\", \"key.pem\")\n\
+  RES server2 AS tls::Listener = tls::listen(\"\", 8444, \"cert.pem\", \"key.pem\", 16)\n\
+  RES client AS tls::Socket = tls::accept(server)\n\
+  RES client2 AS tls::Socket = tls::accept(server2, 5000)\n\
+  LET reply = encoding::utf8Decode(tls::read(client, 4096))\n\
   io::print(toString(len(reply)))\n\
-  tls::writeText(client2, \"hi\")\n\
+  tls::write(client2, \"hi\")\n\
   tls::close(client)\n\
   tls::close(client2)\n\
   tls::close(server)\n\

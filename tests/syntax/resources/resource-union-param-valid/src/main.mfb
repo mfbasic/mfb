@@ -1,10 +1,10 @@
 IMPORT fs
-IMPORT net
+IMPORT tcp
 
 ' Every variant is a resource -> Stream is a resource union.
 UNION Stream
   fs::File
-  net::Socket
+  tcp::Socket
 END UNION
 
 ' A non-owning RES parameter that names the resource union.

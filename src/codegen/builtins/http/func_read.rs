@@ -80,7 +80,7 @@ r#"' plan-76-D: the blocking client is now a thin driver over the non-blocking c
 ' It produces the SAME `Response` as the pre-plan-76-D `__http_exchange` path —
 ' identical request (`__http_buildRequest`), identical accumulated bytes, identical
 ' parse (`__http_parseResponse`) — only the read loop's shape differs (readiness-
-' gated `pump` vs a direct `net::read` loop). `__http_waitReadable` preserves the
+' gated `pump` vs a direct `tcp::read` loop). `__http_waitReadable` preserves the
 ' read deadline; the socket is closed exactly once by `s`'s scope drop.
 FUNC __http_read(url AS net::Url, headers AS Map OF String TO String, method AS String) AS Response
   RES s AS Stream STATE PendingState = __http_startExchange(url, "", FALSE, headers, method)

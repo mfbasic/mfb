@@ -876,6 +876,33 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         "4101" // SO_SNDTIMEO (0x1005) on Darwin
     }
 
+    fn so_rcvbuf(&self) -> &'static str {
+        "4098" // SO_RCVBUF (0x1002) on Darwin
+    }
+
+    // plan-110-A §C5: measured with `scripts/icmp-constants-probe.c` on this host,
+    // not transcribed from memory — Darwin renumbers all three against Linux.
+
+    fn ipproto_ip(&self) -> &'static str {
+        "0" // IPPROTO_IP
+    }
+
+    fn ip_ttl(&self) -> &'static str {
+        "4" // IP_TTL on Darwin (Linux uses 2)
+    }
+
+    fn ip_recvttl(&self) -> &'static str {
+        "24" // IP_RECVTTL on Darwin (Linux uses 12)
+    }
+
+    fn cmsg_ip_ttl_type(&self) -> &'static str {
+        "4" // the arriving cmsg is typed IP_TTL
+    }
+
+    fn clock_monotonic(&self) -> &'static str {
+        "6" // CLOCK_MONOTONIC on Darwin (Linux uses 1)
+    }
+
     fn socket_would_block_code(&self) -> &'static str {
         "35" // EAGAIN on Darwin
     }

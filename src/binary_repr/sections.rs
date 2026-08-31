@@ -151,8 +151,8 @@ impl TypeTable {
             // Bare nominals: no variant, so matched by name.
             t if t.is_named("Scalar") => TYPE_SCALAR,
             t if t.is_named("fs.File") => TYPE_FILE_HANDLE,
-            t if t.is_named("net.Socket") => TYPE_SOCKET_HANDLE,
-            t if t.is_named("net.Listener") => TYPE_LISTENER_HANDLE,
+            t if t.is_named("tcp.Socket") => TYPE_SOCKET_HANDLE,
+            t if t.is_named("tcp.Listener") => TYPE_LISTENER_HANDLE,
             // plan-89-A: an opaque primitive-like type, identified on the wire by
             // its id alone (like `Scalar`/`Money`); its internal field layout is a
             // compiler-side hardcoded table, never serialized.
@@ -693,12 +693,12 @@ impl ResourceTable {
     pub(super) fn add_standard_socket(&mut self, types: &mut TypeTable, strings: &mut StringPool) {
         let type_id = types.type_id(
             strings,
-            &ParameterType::named(crate::codegen::builtins::net::SOCKET_TYPE),
+            &ParameterType::named(crate::codegen::builtins::tcp::SOCKET_TYPE),
         );
         self.entries.push(ResourceEntry {
             type_id,
-            close_function_id: BUILTIN_NET_CLOSE_FUNCTION_ID,
-            flags: standard_resource_flags(crate::codegen::builtins::net::SOCKET_TYPE),
+            close_function_id: BUILTIN_STREAM_CLOSE_FUNCTION_ID,
+            flags: standard_resource_flags(crate::codegen::builtins::tcp::SOCKET_TYPE),
         });
     }
 
@@ -709,12 +709,12 @@ impl ResourceTable {
     ) {
         let type_id = types.type_id(
             strings,
-            &ParameterType::named(crate::codegen::builtins::net::LISTENER_TYPE),
+            &ParameterType::named(crate::codegen::builtins::tcp::LISTENER_TYPE),
         );
         self.entries.push(ResourceEntry {
             type_id,
-            close_function_id: BUILTIN_NET_CLOSE_FUNCTION_ID,
-            flags: standard_resource_flags(crate::codegen::builtins::net::LISTENER_TYPE),
+            close_function_id: BUILTIN_STREAM_CLOSE_FUNCTION_ID,
+            flags: standard_resource_flags(crate::codegen::builtins::tcp::LISTENER_TYPE),
         });
     }
 

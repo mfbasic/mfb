@@ -31,7 +31,7 @@ fs::close(f)          ' registered close → f invalidated
 ' exec(f, "...")      ' COMPILE ERROR: f used after close
 ```
 
-A resource value may be passed to a function whose parameter is declared `RES` and either **explicitly names that concrete resource type** — such as `RES f AS fs::File`, `RES s AS net::Socket`, or a `LINK`-declared resource — **or names a resource union of which that type is a variant** (a `File` value passed to a `RES s AS Stream` parameter, where `Stream` is the resource union below). A function returns a resource with an explicit `AS RES <Type>` return.
+A resource value may be passed to a function whose parameter is declared `RES` and either **explicitly names that concrete resource type** — such as `RES f AS fs::File`, `RES s AS tcp::Socket`, or a `LINK`-declared resource — **or names a resource union of which that type is a variant** (a `File` value passed to a `RES s AS Stream` parameter, where `Stream` is the resource union below). A function returns a resource with an explicit `AS RES <Type>` return.
 
 This variant→union widening is **directional** and applies only in **non-owning parameter position**: a variant value widens *into* a union-typed parameter, never the reverse. A union-typed value passed to a parameter that names a **concrete** resource type is rejected (`TYPE_CALL_ARGUMENT_MISMATCH`). Consequently every registered close op, `thread::transfer`, and `thread::accept` — each of which declares a concrete-typed parameter — keeps its exact type and is unaffected: a resource union is dropped by dispatching on its tag to the active variant's close op, never by handing the whole union to a concrete close. The widening is **representation-neutral**: a resource value already carries its own kind, so a variant argument lowers to the same single handle whether the parameter names the concrete type or the union — no tagged temporary is materialized. Binding, returning, and consuming a resource union are unchanged; only the non-owning-parameter position widens.
 
@@ -112,19 +112,24 @@ See `./mfb spec architecture escape-analysis` for the ownership/escape decision 
 
 ```basic
 UNION Stream            ' every variant is a resource → Stream is a resource
-  File
-  Socket
+  fs::File
+  tcp::Socket
 END UNION
 
 RES s AS Stream = fs::open("app.db", "read")   ' a File wraps into the union
 MATCH s
-  CASE File(f)
+  CASE fs::File(f)
     LET line = fs::readLine(f)
-  CASE Socket(sock)
-    LET data = net::read(sock, 1024)
+  CASE tcp::Socket(sock)
+    LET data = tcp::read(sock, 1024)
 END MATCH
 ' scope end → drop closes the active variant via its registered close op
 ```
+
+Variants are spelled package-qualified. Built-in resources are package-qualified
+identities (§17), and several packages deliberately share a bare name —
+`tcp::Socket`, `udp::Socket` and `tls::Socket` are three distinct resource types —
+so a bare `Socket` would not say which one.
 
 A resource union owns exactly one resource at a time (the active variant), so it is atomic — a *choice* among resources, not a bundle. **Drop is tag-dispatched**: cleanup reads the union tag and calls the active variant's registered close op. Matching a resource union yields a pointer to the active variant (the union retains ownership and closes it on drop). A union may **not mix** data and resource variants (`TYPE_MIXED_RESOURCE_UNION`). A value of any variant may be passed into a `RES` parameter that names the union (variant→union widening, §15.4) — a `File` into a `RES s AS Stream` parameter — but never the reverse: a `Stream` value is not accepted by a concrete `RES f AS fs::File` parameter, which is what keeps each variant's registered close op concrete-typed.
 

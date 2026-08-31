@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/rt-behavior/udp/func_udp_endpoints_valid
+Wrote AST to tests/rt-behavior/udp/func_udp_endpoints_valid/func_udp_endpoints_valid.ast
+Wrote IR to tests/rt-behavior/udp/func_udp_endpoints_valid/func_udp_endpoints_valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/udp/func_udp_endpoints_valid
+Wrote executable to tests/rt-behavior/udp/func_udp_endpoints_valid/build/func_udp_endpoints_valid.out
+[exit 0]
+$ tests/rt-behavior/udp/func_udp_endpoints_valid/build/func_udp_endpoints_valid.out
+host=127.0.0.1
+ephemeral=TRUE
+timeouts set
+readNegRejected=TRUE
+writeNegRejected=TRUE
+closed
+[exit 0]

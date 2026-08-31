@@ -5,11 +5,12 @@
 ' host executes it (macOS locally; openssl on Linux; schannel on Windows).
 IMPORT io
 IMPORT strings
+IMPORT encoding
 IMPORT tls
 IMPORT errorCode
 
 ' poll(conn, -1) is a genuine negative timeout → ErrInvalidArgument.
-FUNC pollNeg(RES conn AS tls::TlsSocket) AS Boolean
+FUNC pollNeg(RES conn AS tls::Socket) AS Boolean
   LET r AS Boolean = tls::poll(conn, -1)
   RETURN FALSE
   TRAP(e)
@@ -23,17 +24,21 @@ FUNC fetch AS Boolean
   RES conn = tls::connect("8.8.8.8", 443, 30000, "dns.google")
   LET crlfBytes AS List OF Byte = [toByte(13), toByte(10)]
   LET crlf AS String = toString(crlfBytes)
-  tls::writeText(conn, "GET / HTTP/1.1" & crlf & "Host: dns.google" & crlf & "Connection: close" & crlf & crlf)
+  tls::write(conn, "GET / HTTP/1.1" & crlf & "Host: dns.google" & crlf & "Connection: close" & crlf & crlf)
   MUT raw AS String = ""
   MUT eof AS Boolean = FALSE
   WHILE eof = FALSE
     IF tls::poll(conn) THEN
-      LET chunk AS String = tls::readText(conn, 4096) TRAP(e)
+      ' The read is bound on its own before decoding. Nesting it inside
+      ' encoding::utf8Decode(...) would put the fallible call one level in,
+      ' where the inline TRAP does not cover it (bug-457) -- the EOF that ends
+      ' this loop would then escape fetch() entirely.
+      LET bytes AS List OF Byte = tls::read(conn, 4096) TRAP(e)
         eof = TRUE
-        RECOVER ""
+        RECOVER []
       END TRAP
       IF eof = FALSE THEN
-        raw = raw & chunk
+        raw = raw & encoding::utf8Decode(bytes)
       END IF
     END IF
   END WHILE
@@ -49,10 +54,10 @@ FUNC main AS Integer
   io::print("negInvalid=" & toString(pollNeg(conn)))
   LET crlfBytes AS List OF Byte = [toByte(13), toByte(10)]
   LET crlf AS String = toString(crlfBytes)
-  tls::writeText(conn, "HEAD / HTTP/1.0" & crlf & "Host: dns.google" & crlf & crlf)
+  tls::write(conn, "HEAD / HTTP/1.0" & crlf & "Host: dns.google" & crlf & crlf)
   ' Omitted timeout blocks until the reply is readable.
   io::print("ready=" & toString(tls::poll(conn)))
-  LET reply AS String = tls::readText(conn, 4096)
+  LET reply AS String = encoding::utf8Decode(tls::read(conn, 4096))
   io::print("httpResponse=" & toString(strings::startsWith(reply, "HTTP/")))
   tls::close(conn)
   ' Poll-gated read loop across a few connections: no leak / no data loss.

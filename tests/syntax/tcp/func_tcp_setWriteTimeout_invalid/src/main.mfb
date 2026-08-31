@@ -1,0 +1,9 @@
+IMPORT tcp
+
+FUNC main AS Integer
+  LET missing = tcp::setWriteTimeout()
+  LET wrongType = tcp::setWriteTimeout(1, 100)
+  LET wrongMs = tcp::setWriteTimeout("s", "x")
+  LET tooMany = tcp::setWriteTimeout(1, 2, 3)
+  RETURN 0
+END FUNC

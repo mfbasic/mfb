@@ -12,13 +12,13 @@ tests/syntax/tls/accept_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_
 tests/syntax/tls/accept_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
    7 |   LET missing = tls::accept()
-   8 |   ' Wrong receiver type: a tls::TlsSocket is not a tls::TlsListener.
+   8 |   ' Wrong receiver type: a tls::Socket is not a tls::Listener.
    9 |   LET wrongReceiver = tls::accept(conn)
      | ^
 tests/syntax/tls/accept_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tls.accept` has argument type(s) (tls.TlsSocket), expected TlsListener, Integer.
+               Call to `tls.accept` has argument type(s) (tls.Socket), expected Listener, Integer.
    7 |   LET missing = tls::accept()
-   8 |   ' Wrong receiver type: a tls::TlsSocket is not a tls::TlsListener.
+   8 |   ' Wrong receiver type: a tls::Socket is not a tls::Listener.
    9 |   LET wrongReceiver = tls::accept(conn)
      | ^
 tests/syntax/tls/accept_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
@@ -28,7 +28,7 @@ tests/syntax/tls/accept_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VAL
   11 |   LET badTimeout = tls::accept(server, "soon")
      | ^
 tests/syntax/tls/accept_invalid/src/main.mfb:11 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tls.accept` has argument type(s) (tls.TlsListener, String), expected TlsListener, Integer.
+               Call to `tls.accept` has argument type(s) (tls.Listener, String), expected Listener, Integer.
    9 |   LET wrongReceiver = tls::accept(conn)
   10 |   ' Wrong timeout type: timeoutMs must be Integer.
   11 |   LET badTimeout = tls::accept(server, "soon")
@@ -48,9 +48,9 @@ tests/syntax/tls/accept_invalid/src/main.mfb:13 error[2-203-0022 TYPE_CALL_ARITY
 tests/syntax/tls/accept_invalid/src/main.mfb:13 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
    7 |   LET missing = tls::accept()
-   8 |   ' Wrong receiver type: a tls::TlsSocket is not a tls::TlsListener.
+   8 |   ' Wrong receiver type: a tls::Socket is not a tls::Listener.
    9 |   LET wrongReceiver = tls::accept(conn)
      | ^
 tests/syntax/tls/accept_invalid/src/main.mfb:9 error[2-203-0082 TYPE_RESOURCE_REQUIRES_RES]: resource must be bound with RES
-               binding `wrongReceiver` holds resource `tls.TlsSocket`; bind it with `RES`, not `LET`/`MUT`.
+               binding `wrongReceiver` holds resource `tls.Socket`; bind it with `RES`, not `LET`/`MUT`.
 [exit 1]

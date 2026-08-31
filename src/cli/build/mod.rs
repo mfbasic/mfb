@@ -25,8 +25,12 @@ use crate::target;
 
 /// How much human-facing progress `mfb build` prints (plan-36). Never reaches
 /// codegen — only the CLI's own `println!`/`eprintln!` lines are gated on it, so
-/// the emitted artifact bytes are identical across all three levels.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+/// the emitted artifact bytes are identical across all four levels.
+///
+/// Ordered least-to-most verbose, and compared with `>=` rather than `==` at
+/// every gate: a level that prints must print everything the level below it
+/// does, so `-vv` is `-v` plus more rather than a different report.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub(crate) enum Verbosity {
     /// `-q`/`--quiet`: today's minimal output — only the `Wrote … to` artifact
     /// line(s) and any diagnostics.
@@ -38,6 +42,15 @@ pub(crate) enum Verbosity {
     /// stage and a `<catalog row>: <count>` optimizer-pass fire-count line per
     /// landed dial row. Doubles as a lightweight build profiler.
     Verbose,
+    /// `-vv` / `-v -v` / `--verbose --verbose`: everything `-v` prints, plus the
+    /// [`crate::trace`] compile profiler — a `codegen: <stage> <N>ms` completion
+    /// time for each live codegen sub-stage, and, once the build ends, the
+    /// nested span tree, the slowest-unit leaderboards, and the size counters.
+    ///
+    /// `-v` tells you *which phase* is slow; this tells you which pass, which
+    /// function, and over how much input. It is a diagnostic mode, not a louder
+    /// default: the report is tens of lines long.
+    Trace,
 }
 
 /// The single place that knows the verbosity level. All human progress lines go
@@ -49,14 +62,29 @@ pub(crate) enum Verbosity {
 /// integration tests `strip_prefix`).
 pub(crate) struct Reporter {
     level: Verbosity,
+    /// The codegen sub-stage currently streaming, and when it started. Only
+    /// `Trace` fills it: `-v` prints a bare stage name on entry, and printing a
+    /// *duration* means waiting for the stage to end, which is one stage later.
+    /// `RefCell` because the backend receives `progress` as a `&dyn Fn(&str)` —
+    /// a shared closure — so the reporter cannot take `&mut self` there.
+    stage: std::cell::RefCell<Option<(String, std::time::Instant)>>,
 }
 
 impl Reporter {
     pub(crate) fn new(level: Verbosity) -> Self {
-        Self { level }
+        // The compile profiler is a process-global sink (spans open deep inside
+        // codegen, which has no channel back to the CLI), so `-vv` arms it here,
+        // before the pipeline runs, rather than threading a handle down.
+        if level >= Verbosity::Trace {
+            crate::trace::enable();
+        }
+        Self {
+            level,
+            stage: std::cell::RefCell::new(None),
+        }
     }
 
-    /// The `Building …` context line — printed at Normal and Verbose, suppressed
+    /// The `Building …` context line — printed at Normal and above, suppressed
     /// at Quiet.
     fn summary(&self, line: &str) {
         if self.level != Verbosity::Quiet {
@@ -64,35 +92,63 @@ impl Reporter {
         }
     }
 
-    /// One `phase <name> <N>ms` profiler line — printed only at Verbose. The
-    /// caller always computes the elapsed time (so `-v` and the default take an
-    /// identical path into codegen); only the print is level-gated.
+    /// One `phase <name> <N>ms` profiler line — printed at Verbose and above.
+    /// The caller always computes the elapsed time (so `-v` and the default take
+    /// an identical path into codegen); only the print is level-gated.
     fn phase(&self, name: &str, dt: Duration) {
-        if self.level == Verbosity::Verbose {
+        if self.level >= Verbosity::Verbose {
             eprintln!("phase {name} {}ms", dt.as_millis());
         }
     }
 
     /// One live `codegen: <stage>` line, printed as a `write_executable`
-    /// sub-stage is entered — Verbose only, on stderr (bug-393). Unlike
+    /// sub-stage is entered — Verbose and above, on stderr (bug-393). Unlike
     /// [`Reporter::phase`], which is a post-hoc total printed once the whole
     /// stage completes, these stream *during* codegen so a minute-plus build is
     /// visibly progressing and the slow sub-stage is named. The backend calls it
     /// unconditionally through a closure; the level gate lives here, so codegen
     /// bytes never depend on verbosity.
+    ///
+    /// At `Trace` each stage additionally reports how long it took, printed when
+    /// the *next* stage opens (or by [`Reporter::finish_stage`] for the last
+    /// one). These are the only per-stage numbers covering the platform-specific
+    /// tail — object writing, linking, bundle sealing — which lives in each
+    /// backend's `write_executable` rather than in the shared lowering the span
+    /// tree instruments.
     fn progress(&self, stage: &str) {
-        if self.level == Verbosity::Verbose {
-            eprintln!("codegen: {stage}");
+        if self.level < Verbosity::Verbose {
+            return;
+        }
+        self.finish_stage();
+        eprintln!("codegen: {stage}");
+        if self.level >= Verbosity::Trace {
+            *self.stage.borrow_mut() = Some((stage.to_string(), std::time::Instant::now()));
+            // Mirror the stage into the span tree, so the deep spans the shared
+            // lowering opens land under the stage that contains them and each
+            // backend's platform-specific tail gets a node of its own.
+            crate::trace::stage(stage);
         }
     }
 
-    /// One `<catalog row>: <count>` line per landed dial row — Verbose only, on
-    /// stderr, printed once codegen has run. The counts accumulate in
+    /// Close out the streaming codegen stage, printing its elapsed time. Called
+    /// when the next stage opens and once more once codegen returns, so the
+    /// final stage (linking) is timed like every other — and so the stage span
+    /// closes *inside* the enclosing `codegen+link` span rather than outliving
+    /// it.
+    fn finish_stage(&self) {
+        crate::trace::end_stage();
+        if let Some((name, start)) = self.stage.borrow_mut().take() {
+            eprintln!("codegen: {name} {}ms", start.elapsed().as_millis());
+        }
+    }
+
+    /// One `<catalog row>: <count>` line per landed dial row — Verbose and
+    /// above, on stderr, printed once codegen has run. The counts accumulate in
     /// `optimizer::stats` as the gated passes fire (the passes have no channel
     /// back to the CLI); a row is printed only when the active dial actually
     /// ran it, so `-O0` prints nothing and `-O1` omits the L2/L3 rows.
     fn opt_stats(&self) {
-        if self.level != Verbosity::Verbose {
+        if self.level < Verbosity::Verbose {
             return;
         }
         for row in crate::optimizer::catalog::rows() {
@@ -101,6 +157,29 @@ impl Reporter {
             }
         }
     }
+
+    /// The `-vv` compile-profiler report: the span tree, the slowest-unit
+    /// leaderboards, and the size counters. Renders nothing at any lower level
+    /// (no span was ever recorded).
+    fn trace_report(&self) {
+        self.finish_stage();
+        crate::trace::render();
+    }
+}
+
+/// Top-level function declarations across an elaborated project, for the `-vv`
+/// size counters.
+///
+/// Counted on the HIR rather than the IR because the interesting comparison is
+/// *across* monomorphization — the same shape on both sides of it — and only
+/// the HIR exists on the generic side.
+fn hir_function_count(project: &crate::hir::HirProject) -> u64 {
+    project
+        .files
+        .iter()
+        .flat_map(|file| &file.items)
+        .filter(|item| matches!(item, crate::hir::HirItem::Function(_)))
+        .count() as u64
 }
 
 pub(crate) struct BuildOptions {
@@ -284,7 +363,16 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         target.name()
     ));
     let parse_start = std::time::Instant::now();
-    let mut ast = ast::parse_project(project_name, &options.location, &manifest)?;
+    // The `-vv` span tree mirrors the `-v` phase lines at the top level, then
+    // keeps going: every `reporter.phase(name, …)` below has a `trace::span`
+    // with the same name wrapped around it, so a reader can descend from a slow
+    // `phase` line straight into the sub-steps that account for it. The spans
+    // are inert unless `-vv` armed the tracer (`crate::trace`).
+    let parse_span = crate::trace::span("parse");
+    let mut ast = {
+        let _span = crate::trace::span("parse_project");
+        ast::parse_project(project_name, &options.location, &manifest)?
+    };
     // plan-62-A §3.3 / plan-98-B: the `app::` and `canvas::` packages are importable
     // ONLY in `--app` builds. `is_builtin_import` makes `IMPORT app` legal at the
     // name gate (so the resolver does not reject it as an unknown package); the CLI
@@ -320,7 +408,10 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // case bodies (which may reference privates) are rewritten consistently.
     // Returns shadow warnings (rendered with the other diagnostics below) and a
     // should-never-fire hash-collision.
-    let scope_diagnostics = crate::ast::scope_privates::scope_privates(&mut ast);
+    let scope_diagnostics = {
+        let _span = crate::trace::span("scope_privates");
+        crate::ast::scope_privates::scope_privates(&mut ast)
+    };
     // The `-ast` dump shows the parsed TESTING syntax (post-rename), so snapshot
     // after `scope_privates` but before the blocks are lowered away — only when
     // the dump is actually requested.
@@ -334,7 +425,10 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // fixes where the instrumented binary writes its coverage sidecars.
     let project_abs =
         std::fs::canonicalize(&options.location).unwrap_or_else(|_| options.location.clone());
-    let test_lowering = crate::testing::lower_testing_blocks(&mut ast, options.mode, &project_abs);
+    let test_lowering = {
+        let _span = crate::trace::span("lower_testing_blocks");
+        crate::testing::lower_testing_blocks(&mut ast, options.mode, &project_abs)
+    };
     if options.mode.coverage() {
         let covmap = project_abs.join(crate::testing::COVMAP_FILE);
         if let Err(err) = crate::testing::coverage::write_covmap(&covmap, &test_lowering.cov_slots)
@@ -342,17 +436,41 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             eprintln!("warning: failed to write coverage map: {err}");
         }
     }
+    drop(parse_span);
     reporter.phase("parse", parse_start.elapsed());
+    crate::trace::count("source files", ast.files.len() as u64);
     let resolve_start = std::time::Instant::now();
-    resolver::resolve_project(&options.location, &manifest, &ast)?;
+    let resolve_span = crate::trace::span("resolve");
+    {
+        let _span = crate::trace::span("resolve_project");
+        resolver::resolve_project(&options.location, &manifest, &ast)?;
+    }
     // Inject the builtin package sources BEFORE monomorphization so the
     // monomorphizer sees them (in particular so a builtin's native overload set is
     // mangled to private symbols like a user overload, not collided at codegen).
-    let augmented = resolver::augment_project(&ast)?;
+    let augmented = {
+        let _span = crate::trace::span("augment_project");
+        resolver::augment_project(&ast)?
+    };
     // plan-102-D3: elaborate ABOVE monomorph, then monomorphize the generic HIR
     // into concrete HIR, which `ir::lower_augmented_project` consumes directly.
-    let generic_hir = crate::hir::elaborate(&augmented);
-    let concrete_hir = monomorph::monomorphize_project(&options.location, &generic_hir)?;
+    let generic_hir = {
+        let _span = crate::trace::span("elaborate");
+        crate::hir::elaborate(&augmented)
+    };
+    crate::trace::count("HIR functions (generic)", hir_function_count(&generic_hir));
+    let concrete_hir = {
+        let _span = crate::trace::span("monomorphize");
+        monomorph::monomorphize_project(&options.location, &generic_hir)?
+    };
+    // The pair of counters straddling monomorphization is the one that explains
+    // a slow *back* end: everything below here is per-function work, so a 10x
+    // jump across this line means codegen was handed 10x the input, which is a
+    // different problem from codegen being slow per function.
+    crate::trace::count(
+        "HIR functions (concrete)",
+        hir_function_count(&concrete_hir),
+    );
     // plan-106-D: every pass from here down consumes `&concrete_hir` directly.
     // This is where the compile path used to turn around — `deelaborate` rendered
     // the concrete HIR back to an AST for `resolve_augmented`, entry validation
@@ -363,9 +481,14 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // overloaded/generic declarations, so their doc headers would falsely appear
     // unresolved. The original-AST pass above already validated them. The AST is
     // already augmented, so resolve without re-injecting the package sources.
-    resolver::resolve_augmented(&options.location, &manifest, &concrete_hir, false)?;
+    {
+        let _span = crate::trace::span("resolve_augmented");
+        resolver::resolve_augmented(&options.location, &manifest, &concrete_hir, false)?;
+    }
+    drop(resolve_span);
     reporter.phase("resolve", resolve_start.elapsed());
     let verify_start = std::time::Instant::now();
+    let verify_span = crate::trace::span("verify");
     // In test mode the synthesized driver is the entry point (it replaces the
     // manifest `main`), so bypass entry validation and point at the driver.
     let entry = match &test_lowering.entry {
@@ -446,28 +569,38 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         .iter()
         .map(|name| name.to_string())
         .collect();
-    let shape_diagnostics = ir::shape::collect_diagnostics(
-        &options.location,
-        &concrete_hir,
-        &imported_types,
-        &all_external_signatures,
-        &imported_resource_type_names,
-    );
-    let source_ir = ir::lower_augmented_project(
-        &concrete_hir,
-        entry.clone(),
-        &source_external_signatures,
-        &imported_types,
-    );
+    let shape_diagnostics = {
+        let _span = crate::trace::span("shape");
+        ir::shape::collect_diagnostics(
+            &options.location,
+            &concrete_hir,
+            &imported_types,
+            &all_external_signatures,
+            &imported_resource_type_names,
+        )
+    };
+    let source_ir = {
+        let _span = crate::trace::span("lower to IR");
+        ir::lower_augmented_project(
+            &concrete_hir,
+            entry.clone(),
+            &source_external_signatures,
+            &imported_types,
+        )
+    };
+    crate::trace::count("IR functions", source_ir.functions.len() as u64);
     // plan-107-C: the LINK declarations' source spans, so verify's native-ABI
     // rules report at the slot/parameter/field lines the former source checker did.
     let link_spans = ir::link_spans(&concrete_hir);
-    let verify_diagnostics = ir::verify_source_diagnostics(
-        &source_ir,
-        &options.location,
-        &imported_resources,
-        &link_spans,
-    );
+    let verify_diagnostics = {
+        let _span = crate::trace::span("verify rules");
+        ir::verify_source_diagnostics(
+            &source_ir,
+            &options.location,
+            &imported_resources,
+            &link_spans,
+        )
+    };
     let mut diagnostics = shape_diagnostics;
     diagnostics.extend(verify_diagnostics);
     // EXPORT is only valid in a package project (it is the `.mfp` export flag);
@@ -479,6 +612,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         is_package, &ast,
     ));
     diagnostics.extend(scope_diagnostics);
+    drop(verify_span);
     reporter.phase("verify", verify_start.elapsed());
     let had_error = diagnostics.iter().any(|d| crate::rules::is_error(&d.rule));
     crate::rules::render_pending(diagnostics);
@@ -593,6 +727,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 return Err(());
             }
             let codegen_start = std::time::Instant::now();
+            let codegen_span = crate::trace::span("codegen+link");
             // bug-393: stream live codegen sub-stage lines during the otherwise
             // opaque `write_executable` block. The closure gates on verbosity via
             // the reporter, so backends call `progress(...)` unconditionally and
@@ -708,8 +843,16 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     return Err(());
                 }
             };
+            // Close the last streaming codegen stage before the enclosing span,
+            // so the stage nests inside `codegen+link` instead of outliving it.
+            reporter.finish_stage();
+            drop(codegen_span);
             reporter.phase("codegen+link", codegen_start.elapsed());
             reporter.opt_stats();
+            // Before the test binary runs: its own output would otherwise be
+            // interleaved with the profile, and the profile is about the
+            // *compile*.
+            reporter.trace_report();
             // `mfb test` compiles the driver, then runs it and adopts its exit
             // status (non-zero iff any case failed).
             if options.mode.is_test() {
@@ -773,17 +916,21 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 apply_signing_metadata(&mut metadata, signing);
             }
             let codegen_start = std::time::Instant::now();
-            let package_path = target::write_package(
-                &options.location,
-                &ir,
-                &metadata,
-                &packages,
-                signing.as_ref().map(|signing| &signing.package_signing),
-            )
-            .map_err(|err| {
-                eprintln!("error: {err}");
-            })?;
+            let package_path = {
+                let _span = crate::trace::span("codegen+link");
+                target::write_package(
+                    &options.location,
+                    &ir,
+                    &metadata,
+                    &packages,
+                    signing.as_ref().map(|signing| &signing.package_signing),
+                )
+                .map_err(|err| {
+                    eprintln!("error: {err}");
+                })?
+            };
             reporter.phase("codegen+link", codegen_start.elapsed());
+            reporter.trace_report();
             println!("Wrote package to {}", package_path.display());
         } else {
             // bug-300 E8 reported this arm as unreachable ("validate_project_manifest
@@ -946,6 +1093,10 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     }) {
         reporter.opt_stats();
     }
+    // The dump paths are worth profiling too — `--ncode` runs the whole native
+    // pipeline — and the front-end spans are recorded regardless of which
+    // output was asked for.
+    reporter.trace_report();
 
     Ok(())
 }
@@ -1190,7 +1341,11 @@ mod tests {
                 "unexpected error for {args:?}: {err}"
             );
         }
-        // Repeating the same flag is not a conflict.
+        // Repeating the same flag is not a conflict. `-q` is idempotent; `-v`
+        // escalates to the compile profiler (see
+        // `parse_build_options_repeated_verbose_selects_trace`) — plan-36
+        // specified only that repeating must not error, not what a second `-v`
+        // means, and the second one now means Trace.
         assert_eq!(
             parse_build_options(s(&["-q", "-q"]))
                 .expect("repeat quiet")
@@ -1201,8 +1356,46 @@ mod tests {
             parse_build_options(s(&["-v", "-v"]))
                 .expect("repeat verbose")
                 .verbosity,
-            Verbosity::Verbose
+            Verbosity::Trace
         );
+    }
+
+    /// `-vv`, `-v -v` and `--verbose --verbose` all select the compile
+    /// profiler, and a third flag is a no-op (nothing sits above Trace).
+    #[test]
+    fn parse_build_options_repeated_verbose_selects_trace() {
+        for args in [
+            &["-vv"][..],
+            &["-v", "-v"][..],
+            &["--verbose", "--verbose"][..],
+            &["-v", "--verbose"][..],
+            &["-v", "-v", "-v"][..],
+            &["-vv", "-v"][..],
+        ] {
+            let options = parse_build_options(s(args)).expect("trace options");
+            assert_eq!(options.verbosity, Verbosity::Trace, "args {args:?}");
+        }
+        // Ordered least-to-most verbose, which is what every `>=` gate in
+        // `Reporter` relies on to make each level a superset of the one below.
+        assert!(Verbosity::Trace > Verbosity::Verbose);
+        assert!(Verbosity::Verbose > Verbosity::Normal);
+        assert!(Verbosity::Normal > Verbosity::Quiet);
+    }
+
+    /// `-q` conflicts with the bundled `-vv` exactly as it does with `-v`.
+    #[test]
+    fn parse_build_options_quiet_and_trace_conflict() {
+        for args in [
+            &["-q", "-vv"][..],
+            &["-vv", "-q"][..],
+            &["-q", "-v", "-v"][..],
+        ] {
+            let err = build_err(args);
+            assert!(
+                err.contains("at most one of -q / -v"),
+                "unexpected error for {args:?}: {err}"
+            );
+        }
     }
 
     #[test]
@@ -1226,14 +1419,25 @@ mod tests {
             assert_eq!(options.location, PathBuf::from("."));
         }
         // Repeating it is not an error, and it composes with the other flags.
+        // As on `mfb build`, the second `-v` escalates to the compile profiler.
         let options =
             parse_test_options(s(&["-v", "--verbose", "--coverage", "proj"])).expect("options");
-        assert_eq!(options.verbosity, Verbosity::Verbose);
+        assert_eq!(options.verbosity, Verbosity::Trace);
         assert_eq!(
             options.mode,
             crate::testing::CompileMode::Test { coverage: true }
         );
         assert_eq!(options.location, PathBuf::from("proj"));
+    }
+
+    /// `mfb test -vv` reaches the same profiler `mfb build -vv` does, from a
+    /// Quiet baseline rather than a Normal one.
+    #[test]
+    fn parse_test_options_repeated_verbose_selects_trace() {
+        for args in [&["-vv"][..], &["-v", "-v"][..], &["--verbose", "-vv"][..]] {
+            let options = parse_test_options(s(args)).expect("trace test options");
+            assert_eq!(options.verbosity, Verbosity::Trace, "args {args:?}");
+        }
     }
 
     /// `mfb test` builds quietly by default, so `-q` would be a no-op flag; it
@@ -2944,6 +3148,21 @@ mod tests {
             parse_build_options(s(&["-v", dir.path().to_str().unwrap()])).expect("options");
         assert_eq!(options.verbosity, Verbosity::Verbose);
         build_project(&options).expect("verbose build succeeds");
+    }
+
+    /// A `-vv` build runs the whole compile profiler — every span opened deep in
+    /// codegen, the leaderboards, the counters, and the render — and still
+    /// produces the same artifact. The span stack is thread-local and each span
+    /// records against its depth, so an unbalanced open/close would show up here
+    /// as a panic or a hang rather than silently mis-filing later builds.
+    #[test]
+    fn build_project_trace_runs_the_compile_profiler() {
+        let dir = tempfile::tempdir().unwrap();
+        write_executable_project(dir.path());
+        let options =
+            parse_build_options(s(&["-vv", dir.path().to_str().unwrap()])).expect("options");
+        assert_eq!(options.verbosity, Verbosity::Trace);
+        build_project(&options).expect("trace build succeeds");
     }
 
     /// App mode requires an executable project; a package with `--app` is rejected

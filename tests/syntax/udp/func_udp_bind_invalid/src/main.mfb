@@ -1,0 +1,9 @@
+' Migrated from net::bindUdp by plan-110-C.
+IMPORT udp
+
+FUNC main AS Integer
+  RES missing = udp::bind()
+  RES wrongType = udp::bind(1, 2)
+  RES tooMany = udp::bind("127.0.0.1", 0, 1)
+  RETURN 0
+END FUNC

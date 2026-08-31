@@ -1,0 +1,46 @@
+{
+  "project": "func_udp_send_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 1 },
+    { "module": "encoding", "line": 2 },
+    { "module": "net", "line": 3 },
+    { "module": "udp", "line": 4 },
+    { "module": "io", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": null, "value": { "kind": "call", "callee": "udp.bind", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.setReadTimeout", "arguments": [{ "kind": "identifier", "value": "server" }, { "kind": "number", "value": "2000" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "bound", "type": null, "value": { "kind": "call", "callee": "udp.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "client", "type": null, "value": { "kind": "call", "callee": "udp.bind", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "dest", "type": null, "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "call", "callee": "net.lookup", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, { "kind": "number", "value": "0" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "payload", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "65" }, { "kind": "number", "value": "66" }, { "kind": "number", "value": "67" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.send", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "identifier", "value": "dest" }, { "kind": "identifier", "value": "payload" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "dg", "type": null, "value": { "kind": "call", "callee": "udp.receive", "arguments": [{ "kind": "identifier", "value": "server" }, { "kind": "number", "value": "16" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dg" }, "member": "bytes" }] }] }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dg" }, "member": "bytes" }, { "kind": "number", "value": "0" }] }] }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dg" }, "member": "bytes" }, { "kind": "number", "value": "2" }] }] }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "dg" }, "member": "from" }, "member": "host" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.send", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "identifier", "value": "dest" }, { "kind": "string", "value": "hi" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "udp.receive", "arguments": [{ "kind": "identifier", "value": "server" }, { "kind": "number", "value": "16" }] }, "member": "bytes" }] }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.close", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "udp.close", "arguments": [{ "kind": "identifier", "value": "client" }] }, "line": 31 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 32 }
+      ]
+    }
+    ]
+  }
+  ]
+}

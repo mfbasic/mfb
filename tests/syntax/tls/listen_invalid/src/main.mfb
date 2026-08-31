@@ -1,8 +1,8 @@
 IMPORT tls
 
-' A tls::TlsListener is a non-collectable resource: it cannot be a record field.
+' A tls::Listener is a non-collectable resource: it cannot be a record field.
 TYPE Holder
-  listener AS tls::TlsListener
+  listener AS tls::Listener
 END TYPE
 
 FUNC main AS Integer
@@ -14,8 +14,8 @@ FUNC main AS Integer
   LET badCert = tls::listen("host", 443, 1, "key.pem")
   ' Too many arguments (listen takes at most 5).
   LET tooMany = tls::listen("host", 443, "cert.pem", "key.pem", 10, 20)
-  ' A tls::TlsListener cannot be stored as a collection element.
+  ' A tls::Listener cannot be stored as a collection element.
   RES s = tls::listen("host", 443, "cert.pem", "key.pem")
-  LET items AS List OF tls::TlsListener = [s]
+  LET items AS List OF tls::Listener = [s]
   RETURN 0
 END FUNC

@@ -5,7 +5,7 @@
     "path": "src/main.mfb",
     "imports": [
     { "module": "io", "line": 5 },
-    { "module": "net", "line": 6 },
+    { "module": "tcp", "line": 6 },
     { "module": "os", "line": 7 },
     { "module": "math", "line": 8 },
     { "module": "datetime", "line": 9 }
@@ -91,8 +91,8 @@
       { "kind": "binding", "mutable": false, "name": "pid", "type": null, "value": { "kind": "call", "callee": "os.pid", "arguments": [] }, "line": 29 },
       { "kind": "binding", "mutable": false, "name": "roll", "type": null, "value": { "kind": "call", "callee": "math.rand", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "6" }] }, "line": 30 },
       { "kind": "binding", "mutable": false, "name": "at", "type": null, "value": { "kind": "call", "callee": "datetime.now", "arguments": [] }, "line": 31 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "socket", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "9" }] }, "line": 32 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "net.close", "arguments": [{ "kind": "identifier", "value": "socket" }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "socket", "type": null, "value": { "kind": "call", "callee": "tcp.connect", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "9" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tcp.close", "arguments": [{ "kind": "identifier", "value": "socket" }] }, "line": 33 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 34 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "sql.close", "arguments": [{ "kind": "identifier", "value": "db" }] }, "line": 35 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "home" }] }, "line": 36 },

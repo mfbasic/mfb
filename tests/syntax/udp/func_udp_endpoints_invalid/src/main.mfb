@@ -1,0 +1,38 @@
+' plan-110-F Phase 1: the four `udp` members the census found with no invalid
+' coverage of their own -- `close`, `localAddress`, and the two timeout setters.
+' The `tls` sibling of this file is `tests/syntax/tls/endpoints_invalid`.
+'
+' Arity and argument-type cases only. The members `udp` deliberately does NOT
+' have are pinned in `func_udp_absent_members_invalid`: an unknown member is a
+' RESOLVER error, reported before type checking runs, so one in this file would
+' suppress every diagnostic below it.
+IMPORT udp
+
+FUNC main AS Integer
+  ' `localAddress` takes exactly one udp socket.
+  LET missingLocal = udp::localAddress()
+  LET wrongLocal = udp::localAddress(1)
+  LET tooManyLocal = udp::localAddress(1, 2)
+
+  ' `close` consumes exactly one udp socket and returns Nothing.
+  udp::close()
+  udp::close(1)
+  udp::close(1, 2)
+
+  ' The timeout setters take a socket and an Integer.
+  udp::setReadTimeout()
+  udp::setReadTimeout(1, 2)
+  udp::setReadTimeout(1, "soon")
+  udp::setWriteTimeout()
+  udp::setWriteTimeout(1, 2)
+  udp::setWriteTimeout(1, 2, 3)
+
+  ' `close` is the one `udp` call that CONSUMES its argument, so using the
+  ' handle afterwards is a compile error rather than a runtime raise. This is
+  ' the half `func_udp_endpoints_valid` cannot show: it would not build.
+  RES sock = udp::bind("127.0.0.1", 0)
+  udp::close(sock)
+  LET afterClose = udp::localAddress(sock)
+
+  RETURN 0
+END FUNC

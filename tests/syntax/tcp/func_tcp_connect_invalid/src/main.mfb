@@ -1,0 +1,16 @@
+IMPORT tcp
+
+FUNC main AS Integer
+  RES missing = tcp::connect()
+  RES wrongHost = tcp::connect(1, 80)
+  RES wrongPort = tcp::connect("h", "p")
+  RES tooMany = tcp::connect("h", 80, 0, 0)
+  ' `timeoutMs` names the timeout, so it must never silently fill the port slot:
+  ' this omits `port` and is an arity error, not a connection to port 5000.
+  RES timeoutAsPort = tcp::connect(host := "h", timeoutMs := 5000)
+  RES unknownName = tcp::connect(host := "h", port := 80, deadline := 1)
+  RES duplicateName = tcp::connect(host := "h", host := "h2", port := 80)
+  RES positionalCollision = tcp::connect("h", host := "h2")
+  RES noSuchOverload = tcp::connect(address := "h", port := 80)
+  RETURN 0
+END FUNC

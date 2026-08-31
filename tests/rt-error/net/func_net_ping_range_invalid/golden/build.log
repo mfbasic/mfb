@@ -1,0 +1,21 @@
+$ mfb build -ast -ir tests/rt-error/net/func_net_ping_range_invalid
+Wrote AST to tests/rt-error/net/func_net_ping_range_invalid/func_net_ping_range_invalid.ast
+Wrote IR to tests/rt-error/net/func_net_ping_range_invalid/func_net_ping_range_invalid.ir
+[exit 0]
+$ mfb build tests/rt-error/net/func_net_ping_range_invalid
+Wrote executable to tests/rt-error/net/func_net_ping_range_invalid/build/func_net_ping_range_invalid.out
+[exit 0]
+$ tests/rt-error/net/func_net_ping_range_invalid/build/func_net_ping_range_invalid.out
+negative timeout raised Argument value is not valid for the requested operation.
+very negative timeout raised Argument value is not valid for the requested operation.
+ttl zero raised Argument value is not valid for the requested operation.
+ttl negative raised Argument value is not valid for the requested operation.
+ttl too large raised Argument value is not valid for the requested operation.
+size negative raised Argument value is not valid for the requested operation.
+size too large raised Argument value is not valid for the requested operation.
+unresolvable host raised Network host, address, or port is invalid.
+ttl minimum DID NOT RAISE
+ttl maximum DID NOT RAISE
+size minimum DID NOT RAISE
+size maximum DID NOT RAISE
+[exit 0]

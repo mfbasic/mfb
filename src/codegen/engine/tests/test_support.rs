@@ -79,6 +79,14 @@ impl CodegenPlatform for TestPlatform {
     fn so_reuseaddr(&self) -> &'static str { "2" }
     fn so_rcvtimeo(&self) -> &'static str { "20" }
     fn so_sndtimeo(&self) -> &'static str { "21" }
+    // plan-110-A net::ping constants; this stub mirrors the Linux values, like the
+    // socket options above.
+    fn so_rcvbuf(&self) -> &'static str { "8" }
+    fn ipproto_ip(&self) -> &'static str { "0" }
+    fn ip_ttl(&self) -> &'static str { "2" }
+    fn ip_recvttl(&self) -> &'static str { "12" }
+    fn cmsg_ip_ttl_type(&self) -> &'static str { "2" }
+    fn clock_monotonic(&self) -> &'static str { "1" }
     fn socket_would_block_code(&self) -> &'static str { "11" }
     fn socket_message_size_code(&self) -> &'static str { "90" }
     fn socket_in_progress_code(&self) -> &'static str { "115" }

@@ -1,0 +1,52 @@
+' Regression: the list form of `poll` returns a BORROWED resource, and under an
+' inline TRAP that return has to keep its package-qualified identity. All four
+' list polls (`net`, `tcp`, `udp`, `tls`) named the resource with its bare
+' spelling, which the resource classification does not recognise, so the handle
+' was treated as an ordinary value and flat-copied. The program did not run
+' wrong -- it did not BUILD:
+'
+'   error: native inlined field size not available for type 'Socket'
+'          while lowering bind $trap_res0 AS Result OF tcp.Socket
+'
+' Loopback only, so this needs no network. `tls`'s half of the same fix is
+' covered by tests/rt-behavior/tls/tls-poll-list-rt, which could not be built at
+' all before it.
+IMPORT collections
+IMPORT errorCode
+IMPORT net
+IMPORT tcp
+IMPORT udp
+IMPORT io
+
+FUNC main AS Integer
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound AS net::Address = tcp::localAddress(server)
+  RES c1 = tcp::connect("127.0.0.1", bound.port)
+  RES c2 = tcp::connect("127.0.0.1", bound.port)
+  MUT socks AS List OF RES tcp::Socket = []
+  socks = collections::append(socks, c1)
+  socks = collections::append(socks, c2)
+
+  ' Two connected but silent sockets: an immediate scan finds none ready and
+  ' raises ErrTimeout, which the inline TRAP must catch.
+  MUT tcpIdle AS Boolean = FALSE
+  RES probe AS tcp::Socket = tcp::poll(socks, 0) TRAP(e)
+    tcpIdle = (e.code = errorCode::ErrTimeout)
+    RECOVER c1
+  END TRAP
+  io::print("tcpIdleTimeout=" & toString(tcpIdle))
+
+  RES u1 = udp::bind("127.0.0.1", 0)
+  RES u2 = udp::bind("127.0.0.1", 0)
+  MUT usocks AS List OF RES udp::Socket = []
+  usocks = collections::append(usocks, u1)
+  usocks = collections::append(usocks, u2)
+
+  MUT udpIdle AS Boolean = FALSE
+  RES uprobe AS udp::Socket = udp::poll(usocks, 0) TRAP(e)
+    udpIdle = (e.code = errorCode::ErrTimeout)
+    RECOVER u1
+  END TRAP
+  io::print("udpIdleTimeout=" & toString(udpIdle))
+  RETURN 0
+END FUNC

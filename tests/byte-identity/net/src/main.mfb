@@ -1,64 +1,38 @@
 ' Byte-identity coverage for a backend that carried NO generated-code golden.\n' plan-57 rewrites the collection builders these helpers all construct their\n' List OF Byte / List OF String results through, and its acceptance is\n' artifact byte-identity — so each of these needs a .ncode golden or the gate is\n' blind to it. Goldens exist per target because several of these backends are\n' platform-specific (audio/alsa and tls/openssl are Linux-only).\n' Compile-only by design: these open devices and sockets that do not exist in a\n' test run, so there is no .run golden and the harness never executes them.\n
+IMPORT collections
 IMPORT io
 IMPORT net
 
 FUNC main() AS Integer
-  RES sock AS net::Socket = net::connectTcp("example.com", 80)
-  LET got = net::read(sock, 64)
-  net::write(sock, got)
-  io::print(toString(len(got)))
-  FOR EACH addr IN net::lookup("example.com")
-    io::print(toString(addr.port))
-  NEXT
-
-  ' connectTcp overloads: (host, port) covered above; add the timeout,
-  ' Address, and Address+timeout forms.
-  RES sockT AS net::Socket = net::connectTcp("example.com", 80, 1000)
-  LET locAddr = net::localAddress(sock)
-  io::print(locAddr.host)
-  RES sockA AS net::Socket = net::connectTcp(locAddr)
-  RES sockAT AS net::Socket = net::connectTcp(locAddr, 1000)
-
-  ' net::Socket read/write text forms, poll, remoteAddress, timeouts.
-  LET txt = net::readText(sock, 64)
-  io::print(txt)
-  net::writeText(sock, "hello")
-  LET ready = net::poll(sock)
-  io::print(toString(ready))
-  LET readyT = net::poll(sock, 100)
-  io::print(toString(readyT))
-  LET remAddr = net::remoteAddress(sock)
-  io::print(remAddr.host)
-  net::setReadTimeout(sock, 1000)
-  net::setWriteTimeout(sock, 1000)
-
-  ' net::Listener: both listenTcp overloads, localAddress, both accept overloads.
-  RES lst AS net::Listener = net::listenTcp("0.0.0.0", 8080)
-  RES lstB AS net::Listener = net::listenTcp("0.0.0.0", 8080, 16)
-  LET lstAddr = net::localAddress(lst)
-  io::print(lstAddr.host)
-  RES peer AS net::Socket = net::accept(lst)
-  io::print(toString(net::poll(peer)))
-  RES peerT AS net::Socket = net::accept(lst, 1000)
-  io::print(toString(net::poll(peerT)))
-
-  ' UDP socket: bind, address, send/receive byte + text forms, timeouts.
-  RES udp AS net::UdpSocket = net::bindUdp("0.0.0.0", 0)
-  LET udpAddr = net::localAddress(udp)
-  io::print(udpAddr.host)
-  net::sendTo(udp, udpAddr, got)
-  net::sendTextTo(udp, udpAddr, "ping")
-  LET dg = net::receiveFrom(udp, 128)
-  io::print(toString(len(dg.bytes)))
-  LET dgt = net::receiveTextFrom(udp, 128)
-  io::print(dgt.value)
-  net::setReadTimeout(udp, 1000)
-  net::setWriteTimeout(udp, 1000)
+  ' plan-110-E: net's stream surface moved to `tcp`; its byte-identity coverage
+  ' lives in tests/byte-identity/tcp. What net still generates code for is
+  ' resolution (lookup, ping) and the URL/query helpers, all covered below.
+  ' UDP moved to the `udp` package (plan-110-C); its coverage lives in
+  ' tests/byte-identity/udp.
 
   ' lookup (host, port) overload.
   FOR EACH addr2 IN net::lookup("example.com", 80)
     io::print(toString(addr2.port))
   NEXT
+
+  ' ping: both overloads and every arity, so the ICMP backend's codegen is gated
+  ' on all five targets. Compile-only like the rest of this fixture — no packet is
+  ' ever sent.
+  LET p1 = net::ping("example.com")
+  io::print(toString(p1.ttl))
+  LET p2 = net::ping("example.com", 1000)
+  io::print(toString(p2.size))
+  LET p3 = net::ping("example.com", 1000, 32)
+  io::print(toString(p3.rttMs))
+  LET p4 = net::ping("example.com", 1000, 32, 128)
+  io::print(p4.address.host)
+  ' An Address to drive ping's Address overloads. It comes from `lookup` now --
+  ' `net::localAddress` moved to `tcp` with the rest of the stream.
+  LET locAddr = collections::get(net::lookup("example.com"), 0)
+  LET p5 = net::ping(locAddr)
+  io::print(toString(p5.ttl))
+  LET p6 = net::ping(locAddr, 1000, 32, 128)
+  io::print(toString(p6.size))
 
   ' URL and query string helpers.
   LET url = net::toUrl("http://user:pass@example.com:8080/a/b?x=1#frag")
@@ -70,11 +44,7 @@ FUNC main() AS Integer
   LET decoded = net::percentDecode("a%20b")
   io::print(decoded)
 
-  ' close: exercise the net::Socket, net::Listener, and net::UdpSocket overloads; the
-  ' remaining handles release by lexical drop at end of scope.
-  net::close(sockT)
-  net::close(lstB)
-  net::close(udp)
+  ' net::close moved to tcp::close with the rest of the stream surface.
 
   RETURN 0
 END FUNC

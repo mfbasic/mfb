@@ -139,7 +139,7 @@ The resolver knows the built-in type names:
 `Nothing`, `Result`, `String`, plus the resource and record types contributed by
 built-in packages — `File` (fs), `TermColor` and `TermSize` (term), `Socket`,
 `Listener`, `Address`, `UdpSocket`, `Datagram`, `DatagramText` (net), and
-`TlsSocket`/`TlsListener` (tls). The package-contributed names are referenced by a
+`tls::Socket`/`tls::Listener` (tls). The package-contributed names are referenced by a
 shared constant so the resolver list and the packages stay in
 sync.[[src/resolver/mod.rs:BUILTIN_TYPES]]
 

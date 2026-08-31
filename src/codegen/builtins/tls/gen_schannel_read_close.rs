@@ -4,7 +4,6 @@ pub(crate) fn lower_tls_read(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-    text: bool,
 ) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -24,16 +23,15 @@ pub(crate) fn lower_tls_read(
     const OUTBUF: usize = 112;
     const NOUT: usize = 120;
     const COLL: usize = 128;
-    const STR: usize = 136;
     const RFD: usize = 144; // socket fd, for the renegotiation handshake
     const FRAME_SIZE: usize = 0x100;
 
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
     let peer_closed = format!("{symbol}_peer");
+    let timed_out = format!("{symbol}_timed_out");
     let fail = format!("{symbol}_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
-    let enc_error = format!("{symbol}_enc");
     let done = format!("{symbol}_done");
     let have = format!("{symbol}_have");
     let dloop = format!("{symbol}_dloop");
@@ -82,11 +80,26 @@ pub(crate) fn lower_tls_read(
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
     platform.emit_external_call("recv", symbol, imports, &mut ins, &mut rel)?;
+    let recv_ok = format!("{symbol}_recv_ok");
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&peer_closed),
-        abi::branch_lt(&fail),
+        abi::branch_gt(&recv_ok),
+    ]);
+    // plan-110-D: distinguish the socket's read deadline from a transport
+    // failure. `tls::setReadTimeout` installs SO_RCVTIMEO, whose expiry Winsock
+    // reports as WSAETIMEDOUT (10060) -- not EWOULDBLOCK -- and the contract
+    // says a deadline raises ErrTimeout on every platform. Without this the
+    // Windows backend reported ErrNetworkFailed while macOS reported ErrTimeout
+    // for the identical event. `tls::connect` already applies this mapping to
+    // its handshake recv.
+    platform.emit_errno(symbol, (&v9).into(), imports, &mut ins, &mut rel)?;
+    ins.extend([
+        abi::compare_immediate(&v9, "10060"), // WSAETIMEDOUT
+        abi::branch_eq(&timed_out),
+        abi::branch(&fail),
+        abi::label(&recv_ok),
         abi::load_u64(&v9, abi::stack_pointer(), STATE),
         abi::load_u64(&v11, &v9, st::RECV_LEN),
         abi::add_registers(&v11, &v11, abi::return_register()),
@@ -197,19 +210,9 @@ pub(crate) fn lower_tls_read(
         abi::subtract_registers(&v13, &v13, &v10),
         abi::store_u64(&v13, &v9, st::LEFT_LEN),
     ]);
-    if text {
-        emit_string_result_build(symbol, OUTBUF, NOUT, STR, &format!("{symbol}_scp"), &format!("{symbol}_scd"), &alloc_fail, &enc_error, &mut ins, &mut rel);
-        ins.extend([
-            abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STR),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-            abi::branch(&done),
-            abi::label(&enc_error),
-        ]);
-        emit_fail(symbol, "ErrEncoding", &mut ins, &mut rel, &done);
-    } else {
-        emit_build_byte_list(symbol, &format!("{symbol}_bl"), &format!("{symbol}_bld"), OUTBUF, NOUT, Some(COLL), abi::mfb_return(1), &alloc_fail, &mut ins, &mut rel);
-        ins.push(abi::branch(&done));
-    }
+    emit_build_byte_list(symbol, &format!("{symbol}_bl"), &format!("{symbol}_bld"), OUTBUF, NOUT, Some(COLL), abi::mfb_return(1), &alloc_fail, &mut ins, &mut rel);
+    ins.push(abi::branch(&done));
+
 
     // --- SEC_I_RENEGOTIATE handler: drive the buffered post-handshake data through
     // the ISC handshake loop (reusing the arena STATE scratch), then resume decrypt.
@@ -348,6 +351,8 @@ pub(crate) fn lower_tls_read(
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&invalid));
     emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
+    ins.push(abi::label(&timed_out));
+    emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     ins.push(abi::label(&fail));
     emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));

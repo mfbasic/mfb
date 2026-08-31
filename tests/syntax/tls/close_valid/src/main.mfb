@@ -1,7 +1,7 @@
 IMPORT tls
 
-' tls::close spans both handle types. A client tls::TlsSocket, an accepted server
-' tls::TlsSocket, and a tls::TlsListener are all closed by the same call. Because an
+' tls::close spans both handle types. A client tls::Socket, an accepted server
+' tls::Socket, and a tls::Listener are all closed by the same call. Because an
 ' accepted socket only points at the listener's shared server context, closing
 ' the listener while accepted sockets have already been closed must not
 ' double-free — the listener owns and frees the context exactly once. Both

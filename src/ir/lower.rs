@@ -3020,8 +3020,16 @@ fn lower_expression_with_expected(
                 });
             }
             // The `Fill` trailing params of a migrated (clean-room registry) call.
-            let padding =
-                crate::codegen::registry::default_argument_padding(&canonical_callee, args.len());
+            // The first argument's type picks the overload on a member whose forms
+            // differ in shape (`tls::connect`'s host/port vs `net::Address`).
+            let first_argument_type = normalized_builtin
+                .first()
+                .and_then(|arg| expression_type(arg, locals, context));
+            let padding = crate::codegen::registry::default_argument_padding(
+                &canonical_callee,
+                args.len(),
+                first_argument_type.as_ref(),
+            );
             for (type_, value) in &padding {
                 // plan-106-A: the `Fill` type arrives typed, so the empty-collection
                 // vs scalar choice is a variant match, not a prefix test.
@@ -3075,7 +3083,7 @@ fn lower_expression_with_expected(
                 };
             let resolved_target = package_override
                 .or_else(|| {
-                    // `tls::close` spans two record shapes; a `TlsListener`
+                    // `tls::close` spans two record shapes; a `tls::Listener`
                     // operand routes to the listener-shaped internal close
                     // helper while `tls::close` stays the single user-facing
                     // name (plan-06-tls-server.md §4.1/§6.4). The target is a
@@ -3088,8 +3096,15 @@ fn lower_expression_with_expected(
                         .first()
                         .map(call_arg_value)
                         .and_then(|argument| expression_type(argument, locals, context))
+                        // bug-459: the PACKAGE-QUALIFIED identity, not the bare
+                        // name. A built-in resource has been qualified end to end
+                        // since bug-441, so a bare `Listener` matched nothing and
+                        // every explicit `tls::close(listener)` silently ran the
+                        // SOCKET body -- `nw_connection_cancel` on an `nw_listener`,
+                        // a SIGSEGV on macOS. Bare matching is also wrong in the
+                        // other direction now: `tcp` declares a `Listener` too.
                         .filter(|type_| {
-                            type_.name() == crate::codegen::builtins::tls::TLS_LISTENER_TYPE
+                            type_.name() == crate::codegen::builtins::tls::TLS_LISTENER_TYPE_ID
                         })
                         .map(|_| crate::codegen::builtins::tls::CLOSE_LISTENER.to_string())
                 })

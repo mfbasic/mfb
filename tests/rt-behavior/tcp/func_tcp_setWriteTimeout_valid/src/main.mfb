@@ -1,0 +1,14 @@
+IMPORT net
+IMPORT tcp
+IMPORT io
+
+FUNC main AS Integer
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound = tcp::localAddress(server)
+  RES client = tcp::connect("127.0.0.1", bound.port)
+  RES conn = tcp::accept(server)
+  tcp::setWriteTimeout(client, 1000)
+  tcp::setWriteTimeout(client, 0)
+  io::print("write timeout set")
+  RETURN 0
+END FUNC

@@ -764,7 +764,13 @@ impl plan::NativePlanPlatform for Platform {
                 })
                 .collect()
             }
-            call if crate::codegen::registry::registry().owning_package(call) == Some("net") => {
+            // plan-110-B: `tcp` lowers through net's emitters, so it needs the same
+            // libSystem symbols and the same errno accessor.
+            call if matches!(
+                crate::codegen::registry::registry().owning_package(call),
+                Some("net") | Some("tcp") | Some("udp")
+            ) =>
+            {
                 let mut imports = plan::net_libc_symbols(call)
                     .iter()
                     .map(|base| PlatformImport {
@@ -773,6 +779,13 @@ impl plan::NativePlanPlatform for Platform {
                         required_by: required_by.clone(),
                     })
                     .collect::<Vec<_>>();
+                if let Some(receive) = plan::net_ping_receive_symbol(call, true) {
+                    imports.push(PlatformImport {
+                        library: "libSystem".to_string(),
+                        symbol: format!("_{receive}"),
+                        required_by: required_by.clone(),
+                    });
+                }
                 imports.push(PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "___error".to_string(),
@@ -925,6 +938,12 @@ impl plan::NativePlanPlatform for Platform {
                 let mut symbols = vec!["_dlopen", "_dlsym", "___error"];
                 if call == "tls.listen" {
                     symbols.extend(["_open", "_read", "_lseek", "_close"]);
+                }
+                // plan-110-D: the endpoint queries render the peer/local sockaddr
+                // through the shared `net` Address builder, which formats the
+                // numeric host with inet_ntop.
+                if matches!(call, "tls.localAddress" | "tls.remoteAddress") {
+                    symbols.push("_inet_ntop");
                 }
                 symbols
                     .into_iter()

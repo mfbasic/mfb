@@ -11,7 +11,7 @@
 //! The value types (`Response`, `Request`, `RequestPart`, `Route`, the non-blocking
 //! `Stream` union + its `PendingState`) are registry-modeled (`add_record`/
 //! `add_union`, DOC round-tripped via `description`). `handleRequest` is overloaded
-//! by listener type (`net::Listener` vs `tls::TlsListener`); that is two
+//! by listener type (`tcp::Listener` vs `tls::Listener`); that is two
 //! `Implementation`s, each rewriting to its own transport body, selected by the
 //! generic overload resolution (the datetime/net idiom, no custom resolver).
 
@@ -109,8 +109,8 @@ pub(crate) fn stream_state() -> ParameterType {
         ParameterType::named("PendingState"),
     )
 }
-pub(crate) const LISTENER_TYPE: &str = "net.Listener";
-pub(crate) const TLS_LISTENER_TYPE: &str = "tls.TlsListener";
+pub(crate) const LISTENER_TYPE: &str = "tcp.Listener";
+pub(crate) const TLS_LISTENER_TYPE: &str = "tls.Listener";
 pub(crate) const FILE_TYPE: &str = "fs.File";
 /// The route handler's exact function type, `FUNC(Request) AS Response`.
 ///
@@ -189,7 +189,11 @@ pub(crate) fn register(r: &mut Registry) {
     // The companion source drives the wire protocol over `net`/`tls`, parses with
     // `strings`/`collections`, serves files with `fs`, and raises `errorCode` errors.
     pkg.add_imports(vec![
+        // plan-110-E: `net` stays for the URL/query surface (`net::Url`,
+        // `net::toUrl`, `net::percentDecode`, `net::parseQuery`), which did not
+        // move; the transport moved to `tcp`.
         "net",
+        "tcp",
         "tls",
         "fs",
         "strings",
@@ -408,7 +412,7 @@ pub(crate) fn register(r: &mut Registry) {
     // plan-76-D: the non-blocking client's transport. `Stream` is a RESOURCE union
     // over the two transports; plan-97/bug-441 made built-in resources
     // package-qualified end to end, so the variants carry their qualified
-    // identities (`net::Socket`, `tls::TlsSocket`) and the close-wiring keys on
+    // identities (`tcp::Socket`, `tls::Socket`) and the close-wiring keys on
     // that same identity. It carries a `PendingState` (union STATE). A program
     // drives an exchange without blocking its thread:
     //   RES s AS http::Stream STATE PendingState = http::startRead(url, {}, "GET")
@@ -421,11 +425,11 @@ pub(crate) fn register(r: &mut Registry) {
         export: true,
         variants: vec![
             UnionVariant {
-                name: "net::Socket",
+                name: "tcp::Socket",
                 description: "A plain-TCP exchange's transport.",
             },
             UnionVariant {
-                name: "tls::TlsSocket",
+                name: "tls::Socket",
                 description: "An HTTPS exchange's transport.",
             },
         ],

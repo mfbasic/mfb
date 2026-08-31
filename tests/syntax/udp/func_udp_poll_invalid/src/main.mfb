@@ -1,0 +1,28 @@
+' plan-110-F Phase 1: `udp::poll` had no invalid coverage at all -- the census
+' found `bind`/`send`/`receive` pinned and the other five members not.
+'
+' Both overloads are here. The scalar form takes a socket and an optional
+' timeout; the list form takes a `List OF RES udp::Socket` and the same optional
+' timeout, and returns a BORROWED element rather than a Boolean. Neither accepts
+' a third argument, and neither accepts a non-socket first argument -- which is
+' the case that matters most, because `tcp::Socket` and `udp::Socket` share a
+' bare name and were substitutable for each other until plan-110-E closed the
+' hole (see `tests/syntax/tcp/resource_bare_name_confusion_invalid`).
+IMPORT collections
+IMPORT tcp
+IMPORT udp
+
+FUNC main AS Integer
+  LET missing = udp::poll()
+  LET wrongType = udp::poll(1)
+  LET wrongTimeout = udp::poll(1, "soon")
+  LET tooMany = udp::poll(1, 2, 3)
+
+  ' A LIST of the wrong package's sockets is not a `List OF RES udp::Socket`.
+  RES stream = tcp::connect("127.0.0.1", 9)
+  MUT wrongList AS List OF RES tcp::Socket = []
+  wrongList = collections::append(wrongList, stream)
+  RES notUdp = udp::poll(wrongList, 0)
+
+  RETURN 0
+END FUNC

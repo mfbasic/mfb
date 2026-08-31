@@ -12,180 +12,180 @@
   "functions": [
   {
     "name": "dropNormal",
-    "line": 48,
+    "line": 49,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 49, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } }
+    { "op": "bind", "line": 50, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } }
     ]
   },
   {
     "name": "dropReturn",
-    "line": 54,
+    "line": 55,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "n", "line": 54, "type": "Integer", "default": null }
+    { "name": "n", "line": 55, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 55, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+    { "op": "bind", "line": 56, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
     {
       "op": "if",
-      "line": 56,
+      "line": 57,
       "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "return", "line": 57, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      { "op": "return", "line": 58, "value": { "kind": "const", "type": "Integer", "value": "1" } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 59, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 60, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {
     "name": "dropExit",
-    "line": 64,
+    "line": 65,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 65, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 66, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 66,
+      "line": 67,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
       "body": [
-      { "op": "bind", "line": 67, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+      { "op": "bind", "line": 68, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
       {
         "op": "if",
-        "line": 68,
+        "line": 69,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
         "then": [
-        { "op": "exitLoop", "line": 69, "loop": "while" }
+        { "op": "exitLoop", "line": 70, "loop": "while" }
         ],
         "else": [
         ]
       },
-      { "op": "assign", "line": 71, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 72, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     }
     ]
   },
   {
     "name": "dropContinue",
-    "line": 77,
+    "line": 78,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 78, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 79, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 79,
+      "line": 80,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
       "body": [
-      { "op": "bind", "line": 80, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
-      { "op": "assign", "line": 81, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-      { "op": "continueLoop", "line": 82, "loop": "while" }
+      { "op": "bind", "line": 81, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+      { "op": "assign", "line": 82, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "continueLoop", "line": 83, "loop": "while" }
       ]
     }
     ]
   },
   {
     "name": "dropFail",
-    "line": 89,
+    "line": 90,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 90, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
-    { "op": "fail", "line": 91, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "intentional failure to reach the drop path" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "91" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    { "op": "bind", "line": 91, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+    { "op": "fail", "line": 92, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "intentional failure to reach the drop path" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "92" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
     ]
   },
   {
     "name": "driveFail",
-    "line": 94,
+    "line": 95,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "line": 95, "value": { "kind": "call", "type": "Nothing", "target": "dropFail", "args": [] } },
-    { "op": "return", "line": 96, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } },
+    { "op": "eval", "line": 96, "value": { "kind": "call", "type": "Nothing", "target": "dropFail", "args": [] } },
+    { "op": "return", "line": 97, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } },
     {
       "op": "trap",
-      "line": 97,
+      "line": 98,
       "name": "err",
       "body": [
       {
         "op": "if",
-        "line": 98,
+        "line": 99,
         "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050002" } },
         "then": [
-        { "op": "fail", "line": 98, "error": { "kind": "local", "name": "err" } }
+        { "op": "fail", "line": 99, "error": { "kind": "local", "name": "err" } }
         ],
         "else": [
         ]
       },
-      { "op": "return", "line": 99, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+      { "op": "return", "line": 100, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
       ]
     }
     ]
   },
   {
     "name": "closeExplicitly",
-    "line": 108,
+    "line": 109,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 109, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
-    { "op": "eval", "line": 110, "value": { "kind": "call", "type": "Nothing", "target": "sql.close", "args": [{ "kind": "local", "name": "db" }] } }
+    { "op": "bind", "line": 110, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+    { "op": "eval", "line": 111, "value": { "kind": "call", "type": "Nothing", "target": "sql.close", "args": [{ "kind": "local", "name": "db" }] } }
     ]
   },
   {
     "name": "main",
-    "line": 113,
+    "line": 114,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 114, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 115, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 115,
+      "line": 116,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2000" } },
       "body": [
-      { "op": "eval", "line": 116, "value": { "kind": "call", "type": "Nothing", "target": "dropNormal", "args": [] } },
-      { "op": "bind", "line": 117, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "dropReturn", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } },
-      { "op": "eval", "line": 118, "value": { "kind": "call", "type": "Nothing", "target": "dropExit", "args": [] } },
-      { "op": "eval", "line": 119, "value": { "kind": "call", "type": "Nothing", "target": "dropContinue", "args": [] } },
-      { "op": "eval", "line": 120, "value": { "kind": "call", "type": "Nothing", "target": "driveFail", "args": [] } },
-      { "op": "eval", "line": 121, "value": { "kind": "call", "type": "Nothing", "target": "closeExplicitly", "args": [] } },
-      { "op": "assign", "line": 122, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "eval", "line": 117, "value": { "kind": "call", "type": "Nothing", "target": "dropNormal", "args": [] } },
+      { "op": "bind", "line": 118, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "dropReturn", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } },
+      { "op": "eval", "line": 119, "value": { "kind": "call", "type": "Nothing", "target": "dropExit", "args": [] } },
+      { "op": "eval", "line": 120, "value": { "kind": "call", "type": "Nothing", "target": "dropContinue", "args": [] } },
+      { "op": "eval", "line": 121, "value": { "kind": "call", "type": "Nothing", "target": "driveFail", "args": [] } },
+      { "op": "eval", "line": 122, "value": { "kind": "call", "type": "Nothing", "target": "closeExplicitly", "args": [] } },
+      { "op": "assign", "line": 123, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "eval", "line": 124, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "drops=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }] } },
-    { "op": "eval", "line": 125, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "done" }] } },
-    { "op": "return", "line": 126, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 125, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "drops=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }] } },
+    { "op": "eval", "line": 126, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "done" }] } },
+    { "op": "return", "line": 127, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

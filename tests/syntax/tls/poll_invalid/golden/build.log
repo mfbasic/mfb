@@ -1,12 +1,12 @@
 $ mfb build -ast -ir tests/syntax/tls/poll_invalid
    6 |   RES conn = tls::connect("example.com", 443)
-   7 |   ' Wrong receiver: a tls::TlsListener is not a tls::TlsSocket.
+   7 |   ' Wrong receiver: a tls::Listener is not a tls::Socket.
    8 |   LET wrongReceiver = tls::poll(server)
      | ^
 tests/syntax/tls/poll_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tls.poll` has argument type(s) (tls.TlsListener), expected TlsSocket, Integer or List OF RES TlsSocket, Integer.
+               Call to `tls.poll` has argument type(s) (tls.Listener), expected Socket, Integer or List OF RES Socket, Integer.
    6 |   RES conn = tls::connect("example.com", 443)
-   7 |   ' Wrong receiver: a tls::TlsListener is not a tls::TlsSocket.
+   7 |   ' Wrong receiver: a tls::Listener is not a tls::Socket.
    8 |   LET wrongReceiver = tls::poll(server)
      | ^
 tests/syntax/tls/poll_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
@@ -16,7 +16,7 @@ tests/syntax/tls/poll_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE
   10 |   LET wrongType = tls::poll("nope")
      | ^
 tests/syntax/tls/poll_invalid/src/main.mfb:10 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tls.poll` has argument type(s) (String), expected TlsSocket, Integer or List OF RES TlsSocket, Integer.
+               Call to `tls.poll` has argument type(s) (String), expected Socket, Integer or List OF RES Socket, Integer.
    8 |   LET wrongReceiver = tls::poll(server)
    9 |   ' Wrong argument type entirely.
   10 |   LET wrongType = tls::poll("nope")
@@ -28,7 +28,7 @@ tests/syntax/tls/poll_invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALU
   12 |   LET badTimeout = tls::poll(conn, "soon")
      | ^
 tests/syntax/tls/poll_invalid/src/main.mfb:12 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `tls.poll` has argument type(s) (tls.TlsSocket, String), expected TlsSocket, Integer or List OF RES TlsSocket, Integer.
+               Call to `tls.poll` has argument type(s) (tls.Socket, String), expected Socket, Integer or List OF RES Socket, Integer.
   10 |   LET wrongType = tls::poll("nope")
   11 |   ' Wrong timeout type: timeoutMs must be Integer.
   12 |   LET badTimeout = tls::poll(conn, "soon")

@@ -6,7 +6,7 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 const INTRO: &str = r#"Read available bytes from a connected TLS socket."#;
-const DESC: &str = r#"`read` receives decrypted application data from a connected `TlsSocket` and
+const DESC: &str = r#"`read` receives decrypted application data from a connected `Socket` and
 returns it as a `List OF Byte`. A single call performs one underlying TLS read:
 it returns as soon as any plaintext is available rather than waiting to fill the
 requested size, so the returned list is frequently shorter than `maxBytes`. The
@@ -22,7 +22,7 @@ Unlike a plain stream read that signals end of stream with a zero-length result,
 `read` raises an error when the peer has closed the connection: there is no
 empty-list sentinel. To consume a whole response, call `read` in a loop,
 appending each result, and stop when an `ErrConnectionClosed` error is raised.
-Use `tls::readText` when the peer sends UTF-8 text and a `String` is more
+Use `tls::read` when the peer sends UTF-8 text and a `String` is more
 convenient than raw bytes."#;
 const EX: &str = r#"Read up to 4096 bytes from a connected TLS socket:
 
@@ -31,7 +31,7 @@ IMPORT tls
 
 SUB main()
   RES conn = tls::connect("example.com", 443)
-  tls::writeText(conn, "GET / HTTP/1.0\r\n\r\n")
+  tls::write(conn, "GET / HTTP/1.0\r\n\r\n")
   LET chunk = tls::read(conn, 4096)
   ' conn is closed by lexical drop when this scope ends
 END SUB
@@ -48,12 +48,8 @@ pub(crate) fn lower_read(
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let (instructions, relocations, stack_size) = super::gen_shared::lower_tls_read_helper(
-        &symbol,
-        ctx.platform_imports,
-        ctx.platform,
-        false,
-    )?;
+    let (instructions, relocations, stack_size) =
+        super::gen_shared::lower_tls_read_helper(&symbol, ctx.platform_imports, ctx.platform)?;
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
     builder.stack_size = stack_size;
@@ -66,7 +62,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: Some("TlsSocket, Integer"),
+        expected_arguments: Some("Socket, Integer"),
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
