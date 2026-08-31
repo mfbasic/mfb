@@ -770,10 +770,13 @@ mod tests {
     /// candidate nor be counted as reclaimable bytes.
     #[tokio::test]
     async fn a_stat_failure_is_reported_and_the_candidate_is_still_listed() {
-        let (temp, store, blobs) = fixture();
+        // `_temp` is the tempdir guard: the store and blob backend live inside
+        // it, so it must stay bound (not `_`) for the life of the test. The
+        // injection below no longer needs its path.
+        let (_temp, store, blobs) = fixture();
         // A hash whose derived object path is rejected before it reaches the
         // OS, so `stat`ing it fails with `InvalidInput` — neither success nor
-        // "no such object". See `unstattable_hash`.
+        // "no such object". See `UNSTATTABLE_HASH`.
         store
             .record_native_blob(UNSTATTABLE_HASH, "data/unstattable.bin")
             .unwrap();
