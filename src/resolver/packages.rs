@@ -248,6 +248,7 @@ mod tests {
         HirFile {
             path: "main.mfb".to_string(),
             imports: Vec::new(),
+            own_imports: Vec::new(),
             items: Vec::new(),
             internal: false,
         }

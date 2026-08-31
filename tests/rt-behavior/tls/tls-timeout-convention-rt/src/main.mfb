@@ -5,7 +5,16 @@
 '   - connect(h, p, 0)   -> one immediate attempt; the handshake cannot complete
 '     now, so ErrTimeout (77050008) (was block-forever before plan-73).
 ' Runs on any backend whose host executes it (macOS locally; OpenSSL on Linux).
+'
+' bug-466: `IMPORT net` is required because this file READS a field off the
+' `net::Address` that `tcp::localAddress` returns (`bound.port`). plan-110-E
+' Phase 2 migrated this fixture from `net::` to `tcp::` and dropped the import
+' with it, which silently killed the fixture -- the build failed with the
+' unlocated `native plan has no storage class for type 'Unknown'` and the golden
+' was rebaselined onto that failure, so none of the assertions below have run
+' since. Restoring the import restores the coverage.
 IMPORT tcp
+IMPORT net
 IMPORT tls
 IMPORT io
 

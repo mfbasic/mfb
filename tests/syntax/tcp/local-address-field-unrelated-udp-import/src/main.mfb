@@ -1,0 +1,14 @@
+' bug-466 Reproduction 4: `IMPORT udp` is never referenced, yet it used to make
+' this otherwise-identical program BUILD — `udp` declares a record whose field is
+' a `net::Address`, which dragged `Address`'s definition into the project-wide
+' type table. Whether a program compiled depended on which unrelated packages it
+' imported. The verdict must now be the same with or without this import.
+IMPORT tcp
+IMPORT udp
+
+FUNC main AS Integer
+  RES s = tcp::listen("127.0.0.1", 0)
+  LET b = tcp::localAddress(s)
+  RES c = tcp::connect("127.0.0.1", b.port)
+  RETURN 0
+END FUNC

@@ -123,13 +123,14 @@ Endpoints are `net::Address` values, so an address resolved by `net::lookup` can
 be handed straight to `tcp::connect`, and `tcp::localAddress` /
 `tcp::remoteAddress` report the same shape back.
 
-**A program that uses those addresses must `IMPORT net` as well as `tcp`.**
+**A file that reads those addresses' fields must `IMPORT net` as well as `tcp`.**
 Imports are not transitive and a package cannot re-export another's types (see
 `mfb spec language modules-and-packages`), so `Address` is only nameable in a
-file that imports the package declaring it. Without that import, the value
-returned by `tcp::localAddress` has no nameable type and the *next* call using it
-fails to resolve. Only the address-valued members are affected: `tcp::connect`,
-`tcp::listen`, `tcp::read`, and `tcp::write` need nothing but `IMPORT tcp`.
+file that imports the package declaring it. Passing the whole value on still
+works without it — `tcp::connect(bound)` compiles — but `bound.host` and
+`bound.port` are refused there. Only the address-valued members are affected:
+`tcp::connect`, `tcp::listen`, `tcp::read`, and `tcp::write` need nothing but
+`IMPORT tcp`.
 
 `Socket` and `Listener` are opaque handles that close themselves when their
 binding goes out of scope. `tcp::close` closes one earlier — to release a

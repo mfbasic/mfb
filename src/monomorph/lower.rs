@@ -475,6 +475,10 @@ impl<'a> Monomorphizer<'a> {
                 HirFile {
                     path: file.path.clone(),
                     imports: file.imports.clone(),
+                    // Copied verbatim, and NOT widened by the union below: this
+                    // is the file's own declaration list, which the union is
+                    // deliberately not (see `HirFile::own_imports`).
+                    own_imports: file.own_imports.clone(),
                     items,
                     internal: file.internal,
                 }

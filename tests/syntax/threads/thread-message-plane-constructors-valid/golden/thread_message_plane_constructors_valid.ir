@@ -1,0 +1,89 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_message_plane_constructors_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 15,
+    "visibility": "public",
+    "name": "Pairing$Integer$String",
+    "fields": [
+    { "visibility": null, "line": 16, "name": "first", "type": "Integer" },
+    { "visibility": null, "line": 17, "name": "second", "type": "String" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "viaSet",
+    "line": 20,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "t", "line": 20, "type": "Thread OF Set OF Integer TO Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 21, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "viaNestedSet",
+    "line": 24,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "t", "line": 24, "type": "Thread OF List OF Set OF Integer TO Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 25, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "viaMapOfSet",
+    "line": 28,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "t", "line": 28, "type": "Thread OF Map OF Set OF Integer TO Integer TO Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 29, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "viaGeneric",
+    "line": 32,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "t", "line": 32, "type": "Thread OF Pairing$Integer$String TO Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 33, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 36,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "return", "line": 38, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
