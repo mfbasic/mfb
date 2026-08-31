@@ -627,7 +627,7 @@ list (`mfb man variable | grep -E '<banned>'` → 0). — **MET**:
 → **0**. (It was not 0 on the first draft: the opening paragraph said "there
 is no **allocator** to call", which the page's own ban forbids. Rewritten to
 "there is nothing to reserve, nothing to release".)
-Commit: (hash recorded in the following commit)
+Commit: f816298ea
 
 **A bug was found while writing this page — filed as bug-468 (HIGH).** The
 section demonstrating that records are `WITH`-only needed a probe showing the
@@ -798,7 +798,7 @@ What the pilot taught, now folded into the workflow for B–E:
    it the syntax traps (`&` not `+` for concatenation, `Type[f := v]`
    constructors, `WITH` updates) — the `bits` run wasted a build on `+`.
 
-Commit: (hash recorded in the following commit)
+Commit: 55b7565d8
 
 ## Validation Plan
 
