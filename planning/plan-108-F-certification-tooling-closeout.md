@@ -561,3 +561,23 @@ accounted for in a ledger, and the last pointers to the retired Markdown
 workflow removed — leaving `mfb man` documentation accurate,
 developer-voiced, example-checked, free of C/Rust memory vocabulary, and
 with a single written standard for whoever touches it next.
+
+**What it actually certified, and what that cost.** The three sweeps pass:
+502/502 pages carry an intro, a description and an example, 831/831 parameters
+are described, `--memory-scope` is 0 unclassified against a 94-hit baseline, and
+`--scope` is 0. But the sweeps were not what found the remaining defects. The
+scope pattern reported **0 while 42 leaked lines were still on the surface**,
+because it had been built from compiler nouns and the real leak was host-API
+vocabulary and `Internally, ...` mechanism paragraphs. A mechanical
+cross-package sweep — not the spot-check the letter asked for — found one rule
+stated **eleven different ways**. And reading pages end to end, after every
+sweep was green, found a false claim in `collections::find`, four pages
+describing their own lowering, and a doubled clause this plan had introduced
+itself.
+
+The lesson worth carrying out of this letter is the one in Correction 1: **a
+0-hit sweep is evidence about the pattern, not about the pages.** Every
+instrument in this plan — the census, the example runner, the reviewer prompt —
+was wrong at least once in the direction of agreeing with the documentation
+instead of testing it, and each time the correction found real defects behind
+it.
