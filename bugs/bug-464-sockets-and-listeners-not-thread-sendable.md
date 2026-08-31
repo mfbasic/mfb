@@ -141,7 +141,34 @@ four slots:
 | handle / fd | 8 | yes, verbatim |
 | closed flag | 16 | yes, verbatim |
 | STATE | 24 | yes — deep-copied into the receiver arena (bug-257) |
-| **everything from 32 to 95** | 32–95 | **never written** |
+| **everything from 32 to 87** | 32–87 | **overwritten with ZERO** (corrected — see below) |
+| headroom | 88–95 | never written |
+
+> **Correction (Phase 1, 2026-08-31).** The two rows above are the corrected
+> ones; this document originally claimed 32–95 was "never written" and that a
+> naive bit-flip therefore yielded *uninitialized/poisoned* arena bytes and a
+> wild `SSL*` dereference inside libssl. **That is wrong.** The routine ends with
+> eleven *unconditional* stores covering every 8-byte slot from 0 to 80:
+> `FILE_OFFSET_BUF_PTR`@32, `BUF_FILLED`@40, `BUF_ENABLED`@48 and
+> `FILE_OFFSET_READ_PTR`@56 / `READ_POS`@64 / `READ_FILL`@72 / `READ_AT_EOF`@80
+> are each stored `ZERO` (`builder_arena_transfer.rs:624-660`, and the
+> `RESOURCE_RECORD_SIZE_BYTES`/`FILE_OFFSET_*` constants at
+> `error_constants.rs:772-824`). Those stores exist to reset `fs::File`'s
+> write buffer and read cache on a move, but they are emitted for *every*
+> resource — `copy_resource_to_current_arena` is type-agnostic, and its only two
+> callers (`builder_arena_transfer.rs:395` and `:1290`) reach it for all
+> resource kinds.
+>
+> So the real defect is **truncation by zeroing, not by omission**: a naively
+> opted-in `tls::Socket` reaches its receiver with `SSL_CTX*` = `SSL*` = **NULL**.
+> The consequence is a null dereference or a guard rejection on the first
+> `tls::read`, not an arbitrary wild pointer.
+>
+> **This does not weaken the phase ordering, and the Non-goal below still
+> stands** — a naive flip still ships a `tls::Socket` that cannot work on its
+> receiver, which is a correctness bug either way. It does downgrade the *stated*
+> severity of the tempting wrong fix from "memory-unsafe" to "broken". The fix is
+> unchanged: the copy must carry each resource's declared live slots.
 
 The `sendable: true` resources are exactly the ones that fit that shape.
 `tcp::Socket` uses only `FILE_OFFSET_FD`/`FILE_OFFSET_CLOSED` in its record
@@ -169,6 +196,62 @@ libssl, not a clean null crash.
 plain fd + closed, identical in shape to `tcp::Socket`. Its `sendable: false` is
 pure policy ("a listener accepts on its owning thread",
 `src/codegen/builtins/tcp/mod.rs:178`) and is genuinely a one-line change plus tests.
+
+## Phase 1 audit results (2026-08-31)
+
+Reproduction re-run verbatim on macos-aarch64 with `target/release/mfb build`:
+all three declarations refused with `2-203-0063 TYPE_THREAD_NOT_SENDABLE`, on the
+type declaration, exactly as filed. `tcp::Socket`, `udp::Socket` and `fs::File`
+in the same file produce no error.
+
+### Live-slot table (the header 0–24 is carried by the existing copy on every row)
+
+| resource | backend | live slots past the header | transfer mode |
+| --- | --- | --- | --- |
+| `tcp::Listener` | all | *none* — fd@8 + closed@16 only | n/a |
+| `tcp::Socket` | all | *none* (deadlines are kernel-side via `SO_RCVTIMEO`/`SO_SNDTIMEO`) | n/a — already sendable |
+| `udp::Socket` | all | *none* | n/a — already sendable |
+| `fs::File` | all | 32/40/48 write buffer, 56/64/72/80 read cache | deliberately **zeroed** (a cache; unchanged) |
+| `tls::Socket` | OpenSSL | 32 `SSL_CTX*`, 40 `SSL*` (`gen_shared.rs:38,39`) | **verbatim** — malloc heap, not arena |
+| `tls::Socket` | Schannel | 40 SSPI block ptr (`gen_shared.rs:47`) | **deep-copy** — arena, `st::SIZE` = 320 + 2×0x4400 = **35136** B (`gen_schannel.rs:88`) |
+| `tls::Socket` | Network.framework | 32 ctx, 40 dispatch queue, 48 local-host C string (`gen_macos/mod.rs:102,103,112`) | 32/40 **verbatim** (refcounted); 48 is an **arena C string** |
+| `tls::Listener` | OpenSSL | 32 `SSL_CTX*` (`gen_shared.rs:54`) | **verbatim** |
+| `tls::Listener` | Schannel | 40 WORK block ptr | **deep-copy** — arena, `stl::SIZE` = **288** B (`gen_schannel_server.rs:38`) |
+| `tls::Listener` | Network.framework | 32 ctx, 40 queue, 48 lhost (`gen_macos/server.rs:1183-1199`) | as the socket row |
+
+### Verdict 1 — macOS TLS timeout storage: **not in the record**
+
+`lower_tls_set_timeout_macos` (`gen_macos/timeout.rs:52-55`) stores the deadline
+on the per-connection **ctx**, at `CTX_RTO`=104 / `CTX_WTO`=112
+(`gen_macos/mod.rs:157,158`) — reached through `REC_CTX`@32, not held in the
+resource record. It therefore rides the ctx pointer for free, exactly as the
+Linux/Windows `setsockopt` deadlines ride the fd. **No extra record slot.**
+
+### Verdict 2 — Schannel block at offset 40: **arena-allocated → deep-copy**
+
+Both Schannel blocks are arena blocks, not malloc/LocalAlloc: the listener's is
+allocated at `gen_schannel_server.rs:399-405` ("Allocate the persistent WORK
+block (zeroed) that the listener record points at") and the socket's likewise.
+Per the `arena-state-is-per-thread` rule no thread may free another's block, so a
+verbatim pointer move is unsound and the block must be **byte-copied** into the
+receiver's arena.
+
+A byte copy is *sufficient* as well as necessary here, because this is a **move**:
+the sender is tombstoned `moved|closed` and its cleanup deactivated, so only the
+receiver ever calls `DeleteSecurityContext`/`FreeCredentialsHandle` on the
+duplicated SSPI handle values — no double-free. The listener block's
+`stl::CONTNAME` key-container name is derived from the *original* WORK pointer
+but is stored as bytes, so the copy keeps naming the container that actually
+exists.
+
+### Newly found, not in the original filing — macOS `REC_LHOST`@48 is an arena C string
+
+`gen_macos/server.rs:1193-1199` stores the bound host as "an arena copy or the
+static `_mfb_tls_anyhost`". A verbatim move would leave the receiver's
+`tls::localAddress` reading a **NUL-terminated string in the sender's arena**,
+freed at the sender thread's teardown — a use-after-free rather than a
+double-free, and a third transfer mode (copy a C string of unknown length) on top
+of verbatim and fixed-size-block.
 
 ## Goal
 
