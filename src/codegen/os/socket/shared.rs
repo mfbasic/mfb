@@ -433,7 +433,15 @@ pub(crate) fn emit_address_from_host_and_port(
     vregs: &mut Vregs,
 ) {
     let v = AddrVregs::new(vregs);
-    emit_address_host_and_record(ctx, prefix, host_cstr_off, len_off, host_off, alloc_fail, &v);
+    emit_address_host_and_record(
+        ctx,
+        prefix,
+        host_cstr_off,
+        len_off,
+        host_off,
+        alloc_fail,
+        &v,
+    );
     ctx.instructions.extend([
         abi::load_u64(&v.len, abi::stack_pointer(), port_off),
         abi::store_u64(&v.len, &v.record, 8),

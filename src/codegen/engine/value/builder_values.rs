@@ -2316,7 +2316,9 @@ impl CodeBuilder<'_> {
                 if args
                     .first()
                     .and_then(|arg| self.static_type_name(arg))
-                    .is_some_and(|type_| type_.is_named(crate::codegen::builtins::tls::TLS_LISTENER_TYPE_ID))
+                    .is_some_and(|type_| {
+                        type_.is_named(crate::codegen::builtins::tls::TLS_LISTENER_TYPE_ID)
+                    })
                 {
                     crate::codegen::builtins::tls::LOCAL_ADDRESS_LISTENER
                 } else {
