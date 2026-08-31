@@ -220,11 +220,21 @@ pub(super) fn write_image(
     w.u16(if gui { 2 } else { 3 });
     w.u16(0x0100 | 0x8000); // DllCharacteristics: NX_COMPAT | TERMINAL_SERVER_AWARE (DYNAMIC_BASE clear)
                             // 8 MiB reserve matching the worker-thread stacks, with 1 MiB committed
-                            // up front. Committing a full megabyte (rather than the usual single guard
-                            // page) means a function with a large frame — `sub rsp, N` for N up to 1 MiB —
-                            // never skips the stack guard page, so this codegen needs no inline __chkstk
-                            // probe. Real frames are far smaller (the largest observed is ~9 KiB in `main`);
-                            // beyond 1 MiB the OS still grows the stack one guard page at a time.
+                            // up front. The commit is a warm-start optimization ONLY — it does not
+                            // license skipping stack probes. This comment used to claim it did ("a
+                            // function with a large frame never skips the stack guard page, so this
+                            // codegen needs no inline __chkstk probe. Real frames are far smaller —
+                            // the largest observed is ~9 KiB in `main`"), and both halves were wrong:
+                            // a >4 KiB frame is ordinary (17 of the 23 `regex` helpers have one, up to
+                            // 19688 bytes in `__regex_parseParen`), and past the committed megabyte the
+                            // OS grows the stack one guard page at a time, so such a frame steps over
+                            // the guard and takes STATUS_ACCESS_VIOLATION. Recursion through those
+                            // frames reached that point quickly — `regex::match` on a deeply nested
+                            // pattern died ~1 MiB in. The probes now live in the prologue, emitted by
+                            // `finalize_frame` under `Backend::stack_probe_page_bytes` (Win64: 4096);
+                            // see `.ai/arch-abi.md`. Raising the commit is NOT an alternative fix: it
+                            // would not help a thread stack, and a frame near the reserve limit would
+                            // still skip the guard.
     w.u64(0x0080_0000); // SizeOfStackReserve (8 MiB)
     w.u64(0x0010_0000); // SizeOfStackCommit  (1 MiB)
     w.u64(0x0010_0000); // SizeOfHeapReserve

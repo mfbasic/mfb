@@ -693,6 +693,23 @@ pub(crate) trait Backend: Sync {
     fn outgoing_args_base_offset(&self) -> usize {
         0
     }
+    /// The page granularity at which this target grows a thread stack on demand,
+    /// or 0 if the whole stack is always addressable without probing.
+    ///
+    /// Windows reserves a thread's stack but commits only part of it, and extends
+    /// it by *one page at a time* when an access faults on the single guard page
+    /// below the committed region. A frame larger than one page that moves `rsp`
+    /// down and then writes therefore steps clean over the guard page into
+    /// reserved-but-uncommitted memory, and the OS raises `STATUS_ACCESS_VIOLATION`
+    /// instead of extending the stack — which is why every Windows compiler emits
+    /// a `__chkstk` probe for such frames. Returning a non-zero page here makes
+    /// [`finalize_frame`](crate::codegen::engine::util::finalize_frame) touch each
+    /// page as it allocates, so the guard is hit once per page and the stack grows
+    /// normally. SysV/AAPCS64 targets grow the stack without this cooperation, so
+    /// they keep the single `sub sp` and stay byte-identical.
+    fn stack_probe_page_bytes(&self) -> usize {
+        0
+    }
 }
 
 thread_local! {

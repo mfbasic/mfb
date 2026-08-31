@@ -6,6 +6,40 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::regalloc;
 use crate::codegen::engine::types::*;
 use crate::target::shared::abi;
+/// Emit the prologue's frame allocation: one `sub sp, total` on a target whose
+/// stack is addressable without cooperation, or a page-by-page probing sequence
+/// on one that grows its stack a guard page at a time (Windows — see
+/// `Backend::stack_probe_page_bytes`).
+///
+/// The probing form subtracts one page and writes a zero at the new `sp` for each
+/// whole page of the frame, then subtracts the remainder. Every probe address
+/// lies inside the frame being allocated (`total - i*page >= 0`) and is dead at
+/// this point — the callee-saved stores, the spill area, and the outgoing-argument
+/// tail are all written afterwards — so zeroing it changes nothing. The trailing
+/// remainder needs no probe of its own: it is smaller than a page, so the first
+/// body access below it can only ever land on the immediately next page, which is
+/// the single-page step the guard is designed to absorb.
+///
+/// A frame of one page or less can never skip the guard, so it keeps the single
+/// `sub sp` — which is every frame in the runtime helpers and the overwhelming
+/// majority of lowered functions, leaving them byte-identical.
+fn push_frame_allocation(prologue: &mut Vec<CodeInstruction>, total_stack_size: usize) {
+    let page = crate::codegen::engine::mir::active_backend().stack_probe_page_bytes();
+    if page == 0 || total_stack_size <= page {
+        prologue.push(abi::subtract_stack(total_stack_size));
+        return;
+    }
+    let whole_pages = total_stack_size / page;
+    for _ in 0..whole_pages {
+        prologue.push(abi::subtract_stack(page));
+        prologue.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0));
+    }
+    let remainder = total_stack_size - whole_pages * page;
+    if remainder != 0 {
+        prologue.push(abi::subtract_stack(remainder));
+    }
+}
+
 pub(crate) fn finalize_frame(
     instructions: &mut Vec<CodeInstruction>,
     stack_slots: &mut [CodeStackSlot],
@@ -104,7 +138,7 @@ pub(crate) fn finalize_frame(
     }
 
     let mut prologue = Vec::new();
-    prologue.push(abi::subtract_stack(total_stack_size));
+    push_frame_allocation(&mut prologue, total_stack_size);
     for (index, register) in callee_saved.iter().enumerate() {
         prologue.push(save_callee_saved(
             register,

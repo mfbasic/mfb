@@ -78,6 +78,48 @@ Writing a shared `src/target/shared/code/**` helper (numeric `Vregs` + `abi::` b
 
 **2. `abi::move_register(reg, abi::ZERO)` does NOT zero a register on x86-64.** There is no hardware zero register; `ZERO` maps to a GPR holding garbage. `store_u64(ZERO, base, off)` special-cases it to an immediate `$0x0` store (so zeroing memory works), but `move_register`/register args do not — the disasm shows `movq %r8,%rcx` (r8 = leftover loop garbage). Zero a register arg with `move_immediate(reg, "Integer", "0")` (the fs Win64 helpers' convention). A CreateProcessA whose `lpApplicationName`/attrs came from `move_register(_,ZERO)` gets a garbage pointer and returns FALSE. aarch64 hides this (xzr).
 
+### Win64 stack growth: a frame bigger than one page MUST probe
+
+Windows does not hand a thread its whole stack. The PE header reserves 8 MiB and
+commits 1 MiB (`os/windows/link/pe.rs`); past the committed region the stack
+grows **one page at a time**, when an access faults on the single guard page
+below it. So a prologue that does a bare `sub rsp, N` for `N > 4096` and then
+writes steps clean OVER the guard page into reserved-but-uncommitted memory, and
+the OS raises `STATUS_ACCESS_VIOLATION` (`0xC0000005`) instead of growing the
+stack. This is the entire reason `__chkstk` exists; MSVC/clang emit it for every
+frame over a page.
+
+`finalize_frame` therefore allocates a big frame page-by-page, touching each page,
+gated on `Backend::stack_probe_page_bytes()` (4096 on Win64, **0 everywhere
+else** — SysV/AAPCS64 grow the stack without cooperation, so they keep the single
+`sub sp` and stay byte-identical). The sub-page remainder is left unprobed on
+purpose: it can only ever step onto the immediately next page, which is exactly
+the single-page step the guard is designed to absorb.
+
+Three things make this bug hard to catch, all of which cost time once:
+
+- **"Frames are small" is false.** `pe.rs` justified the 1 MiB commit with "the
+  largest observed is ~9 KiB in `main`". A >4 KiB frame is ordinary: 17 of the 23
+  `regex` helpers have one, up to 19688 bytes in `__regex_parseParen`. Check with
+  the `sub_sp` imm in a `-ncode` dump before believing any such claim.
+- **The 1 MiB commit HIDES it until the stack passes 1 MiB.** Shallow calls with
+  huge frames are fine; only recursion reaches the guard. `regex::match` on an
+  N-deep group nest costs ≈37.9 KB/level, so it died at N≈36 — ~1 MiB in, i.e.
+  exactly the commit size. A crash depth that equals `commit / bytes-per-level`
+  is the signature.
+- **It is NOT a frame-size anomaly, so don't go tuning frames.** windows-x86_64
+  and linux-x86_64 frames agree to within the 32-byte shadow space (parseParen
+  19688 vs 19656) and Linux tolerates ~350 levels of the same recursion. Compare
+  the two targets' `sub_sp` immediates first; if they match, the stack contract is
+  the difference, not codegen bloat.
+
+Byte-identity cannot see this (the bytes are "correct", the missing probe is what
+is wrong) and neither macOS nor Linux can reproduce it — execution-verify on the
+Win11 box. Note also that `cargo test` fail-fast can hide it for a long time: the
+test that catches it (`rt_native_regex_parser_depth`) sorts *after*
+`rt_native_io_runtime`, so the windows CI row never reached it while an earlier
+binary was red. Use `--no-fail-fast`.
+
 ## riscv64
 
 ### riscv64 V-extension (RVV) two-profile qemu oracle

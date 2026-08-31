@@ -1,4 +1,9 @@
+// Only the hand-rolled temp projects use these, and every test that builds one
+// is Unix-only (the `close()`-interposer trio and the macOS short-write case);
+// the rest go through `common::temp_project`.
+#[cfg(unix)]
 use std::fs;
+#[cfg(unix)]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod common;
@@ -84,6 +89,12 @@ END FUNC
     assert_eq!(stderr, "77020002\n");
 }
 
+/// Unix-only: the oracle is a `close()` interposer injected with
+/// `LD_PRELOAD` / `DYLD_INSERT_LIBRARIES` (see `build_close_interposer`).
+/// Windows has no loader-level symbol-preload mechanism, and process exit
+/// closes every handle regardless, so there is no way to observe whether the
+/// runtime issued the close itself.
+#[cfg(unix)]
 #[test]
 fn native_resource_cleanup_reports_secondary_close_failure_metadata() {
     let nonce = SystemTime::now()
@@ -142,6 +153,12 @@ END FUNC
     );
 }
 
+/// Unix-only: the oracle is a `close()` interposer injected with
+/// `LD_PRELOAD` / `DYLD_INSERT_LIBRARIES` (see `build_close_interposer`).
+/// Windows has no loader-level symbol-preload mechanism, and process exit
+/// closes every handle regardless, so there is no way to observe whether the
+/// runtime issued the close itself.
+#[cfg(unix)]
 #[test]
 fn native_exit_program_runs_caller_resource_cleanup() {
     let nonce = SystemTime::now()
@@ -202,6 +219,12 @@ END FUNC
     );
 }
 
+/// Unix-only: the oracle is a `close()` interposer injected with
+/// `LD_PRELOAD` / `DYLD_INSERT_LIBRARIES` (see `build_close_interposer`).
+/// Windows has no loader-level symbol-preload mechanism, and process exit
+/// closes every handle regardless, so there is no way to observe whether the
+/// runtime issued the close itself.
+#[cfg(unix)]
 #[test]
 fn native_loop_exit_and_continue_run_body_resource_cleanup() {
     let nonce = SystemTime::now()
@@ -268,6 +291,12 @@ END FUNC
     );
 }
 
+/// Unix-only: driven through a real pty (`pty.openpty` + `termios`), which is
+/// how the child is made to take its interactive terminal path. Windows has no
+/// equivalent the harness can drive — a ConPTY cannot be opened from Python's
+/// standard library, and the parent cannot read the child's console mode, which
+/// is what the echo-state synchronisation below depends on.
+#[cfg(unix)]
 #[test]
 fn native_io_input_flushes_stdout_before_reading() {
     let project = temp_project(
@@ -291,6 +320,12 @@ END FUNC
     assert!(normalized.contains("hello Ada\n"), "got {normalized:?}");
 }
 
+/// Unix-only: driven through a real pty (`pty.openpty` + `termios`), which is
+/// how the child is made to take its interactive terminal path. Windows has no
+/// equivalent the harness can drive — a ConPTY cannot be opened from Python's
+/// standard library, and the parent cannot read the child's console mode, which
+/// is what the echo-state synchronisation below depends on.
+#[cfg(unix)]
 #[test]
 fn native_io_input_echoes_terminal_line_input() {
     let project = temp_project(
@@ -313,6 +348,12 @@ END FUNC
     );
 }
 
+/// Unix-only: driven through a real pty (`pty.openpty` + `termios`), which is
+/// how the child is made to take its interactive terminal path. Windows has no
+/// equivalent the harness can drive — a ConPTY cannot be opened from Python's
+/// standard library, and the parent cannot read the child's console mode, which
+/// is what the echo-state synchronisation below depends on.
+#[cfg(unix)]
 #[test]
 fn native_io_readline_suppresses_terminal_echo_until_newline() {
     let project = temp_project(
@@ -341,6 +382,12 @@ END FUNC
     );
 }
 
+/// Unix-only: driven through a real pty (`pty.openpty` + `termios`), which is
+/// how the child is made to take its interactive terminal path. Windows has no
+/// equivalent the harness can drive — a ConPTY cannot be opened from Python's
+/// standard library, and the parent cannot read the child's console mode, which
+/// is what the echo-state synchronisation below depends on.
+#[cfg(unix)]
 #[test]
 fn native_io_readchar_reads_terminal_key_without_newline_or_echo() {
     let project = temp_project(
@@ -372,6 +419,12 @@ END FUNC
     );
 }
 
+/// Unix-only: driven through a real pty (`pty.openpty` + `termios`), which is
+/// how the child is made to take its interactive terminal path. Windows has no
+/// equivalent the harness can drive — a ConPTY cannot be opened from Python's
+/// standard library, and the parent cannot read the child's console mode, which
+/// is what the echo-state synchronisation below depends on.
+#[cfg(unix)]
 #[test]
 fn native_io_readbyte_reads_terminal_key_without_newline_or_echo() {
     let project = temp_project(
@@ -521,19 +574,26 @@ END FUNC
     );
     let executable = build_project(&project);
 
+    // The pipe half is portable — all three streams are pipes here on every
+    // platform, so it runs everywhere.
     let direct = run_with_stdin(&executable, b"");
     assert_eq!(direct, "FALSE\nFALSE\nFALSE\n");
 
-    let pty = run_under_pty(&executable);
-    let lines = pty
-        .replace("\r\n", "\n")
-        .lines()
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    assert!(lines.len() >= 3, "expected tty output, got {lines:?}");
-    assert_eq!(lines[0], "TRUE");
-    assert_eq!(lines[1], "TRUE");
-    assert_eq!(lines[2], "TRUE");
+    // The tty half needs a real terminal on the other end of all three streams;
+    // only the Unix pty harness can supply one (see `run_under_pty`).
+    #[cfg(unix)]
+    {
+        let pty = run_under_pty(&executable);
+        let lines = pty
+            .replace("\r\n", "\n")
+            .lines()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert!(lines.len() >= 3, "expected tty output, got {lines:?}");
+        assert_eq!(lines[0], "TRUE");
+        assert_eq!(lines[1], "TRUE");
+        assert_eq!(lines[2], "TRUE");
+    }
 }
 
 /// bug-51: output paths that issue a single `write()` treated a short *positive*
