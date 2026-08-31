@@ -22,13 +22,33 @@
 # runs to the end of the indented region.
 #
 # Env: MFB (default ./target/release/mfb), SCRATCH (default /tmp/man-examples),
-#      STDIN_FILE (a file piped to each example's stdin; unset = inherit)
+#      STDIN_FILE (a file piped to each example's stdin; unset = inherit),
+#      RUN_TIMEOUT (seconds one example may run; default 60)
 
 set -uo pipefail
 
 MFB=${MFB:-./target/release/mfb}
 SCRATCH=${SCRATCH:-/tmp/man-examples}
 STDIN_FILE=${STDIN_FILE:-}
+# Seconds any one example may run before it is killed and reported as a failure.
+RUN_TIMEOUT=${RUN_TIMEOUT:-60}
+
+# `timeout`/`gtimeout` are not on a stock macOS, so bound the run by hand: start
+# the example, start a killer, and take whichever finishes first. Exit 124 marks
+# a timeout, matching coreutils `timeout`.
+run_bounded() {
+	"$@" &
+	run_pid=$!
+	( sleep "$RUN_TIMEOUT"; kill -9 "$run_pid" 2>/dev/null ) &
+	killer_pid=$!
+	wait "$run_pid" 2>/dev/null
+	run_rc=$?
+	kill "$killer_pid" 2>/dev/null
+	wait "$killer_pid" 2>/dev/null
+	# kill -9 surfaces as 137 (128 + SIGKILL).
+	[ "$run_rc" = 137 ] && return 124
+	return "$run_rc"
+}
 export LC_ALL=${LC_ALL:-en_US.UTF-8}
 
 pkg=${1:?usage: man-run-examples.sh <pkg> [--run] [fn...]}
@@ -250,9 +270,13 @@ for fn in $(functions "$@"); do
 				if [ -z "$bin" ]; then
 					rc=1
 				elif [ -n "$STDIN_FILE" ]; then
-					result=$(cd "$SCRATCH" && "$bin" <"$STDIN_FILE" 2>&1) && rc=0 || rc=1
+					result=$(cd "$SCRATCH" && run_bounded "$bin" <"$STDIN_FILE" 2>&1) && rc=0 || rc=$?
 				else
-					result=$(cd "$SCRATCH" && "$bin" 2>&1) && rc=0 || rc=1
+					result=$(cd "$SCRATCH" && run_bounded "$bin" 2>&1) && rc=0 || rc=$?
+				fi
+				if [ "$rc" = 124 ]; then
+					result="TIMED OUT after ${RUN_TIMEOUT}s — an example must terminate.
+$result"
 				fi
 				# An example may document its own failure — `groupBy`'s third
 				# shows a propagating error and the page says "prints, and exits

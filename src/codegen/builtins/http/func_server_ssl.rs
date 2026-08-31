@@ -51,7 +51,7 @@ them, so closing one connection leaves the listener and its settings intact; it 
 released exactly once when the listener itself closes.
 
 The returned listener is a resource: bind it with `RES`, and it is closed by
-itself at scope exit (or earlier with `tls::close`). Drive it with a
+itself when its binding goes out of scope (or earlier with `tls::close`). Drive it with a
 your own `DO`/`LOOP` over `http::handleRequest`, which is overloaded on the
 listener type — the loop body and route list are unchanged between `http://` and
 `https://`. Each call accepts one connection, performs the server-side TLS

@@ -68,7 +68,7 @@ SUB main()
   FOR EACH event IN events
     fs::writeAll(log, event & "\n")
   NEXT
-  ' log is flushed and closed automatically at scope exit
+  ' log is flushed and closed when this scope ends
 END SUB
 ```
 

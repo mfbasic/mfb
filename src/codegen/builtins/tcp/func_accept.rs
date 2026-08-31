@@ -13,7 +13,7 @@ const INTRO: &str = r#"Accept the next pending connection on a TCP listener."#;
 const DESC: &str = r#"`tcp::accept` removes the next pending connection from a `Listener`'s queue and
 returns a connected `Socket` for talking to that client. Each call accepts a
 single connection, so a server loops over `accept` to serve clients as they
-arrive. The listener stays open and usable — you still close it.
+arrive. The listener stays open — you still close it.
 
 `timeoutMs` follows the language timeout convention (see `mfb spec language
 builtin-functions` → "Timeout convention"). **Omitted, the call blocks**
@@ -23,12 +23,11 @@ without waiting. A positive value bounds the wait (clamped to `2147483647`) and
 raises `ErrTimeout` if no client arrives. A negative value raises
 `ErrInvalidArgument`.
 
-On the bounded path the listener is temporarily switched into non-blocking mode
-and its original file-status flags are restored before returning, on every exit
-path. This matters when a connection the readiness poll saw is aborted by the
-peer, or taken by another thread, between the poll and the accept: the accept
-then reports "would block" and the call re-enters the poll rather than blocking
-for the *next* client and overrunning `timeoutMs`. A signal that interrupts
+A bounded `accept` never overruns its `timeoutMs`, even in the awkward case: a
+connection that looked ready can be gone by the time `accept` reaches it —
+aborted by the peer, or taken by another thread — and rather than settle in to
+wait for the *next* client, the call goes back to waiting against the deadline
+you gave it. A signal that interrupts
 either the poll or the accept re-issues it instead of surfacing a spurious
 failure.
 

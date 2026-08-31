@@ -148,18 +148,92 @@ corrected.
 
 ### Phase 1 — process, io, os
 
-- [ ] Verify 15+15+15 pages + overviews + types pages; fix the `process`
-      resources-in-collections defect (ledger: old wording → new wording →
-      spec cite); io stdin examples classified in the ledger.
-- [ ] Memory-scope rewrite for `process` (18 hits) and `io` (1): the
-      `Borrowed, not consumed` parameter descriptions, "Letting a Process
-      drop at scope exit", "not treated as an ownership". `os` is already 0
-      — confirm, do not churn. Reuse C's net/tcp/udp handle sentences where
-      the situation is the same (a handle that stays open, a handle closed
-      by the call); record any process-specific sentence in the ledger.
-- [ ] Cross-model review per package + apply; ledgers.
-- [ ] Verify: rendering reads clean; census still 100%;
-      `--memory-scope` = 0 for all three.
+- [x] Verify **14+15+19** pages + overviews + types pages; the `process`
+      resources-in-collections defect fixed (ledger below); io stdin
+      examples verified by *running* rather than classified compile-only —
+      the harness gained `STDIN_FILE=`, so all 22 run.
+- [x] Memory-scope rewrite for `process` (**32** rendered hits, not 18),
+      `io` (**9**, not 1) and `os` (**12**, not 0 — the plan was wrong on
+      all three; see Corrections). C's net/tcp/udp sentences reused
+      verbatim where the situation matched; process-specific sentences in
+      the ledger.
+- [x] Cross-model review per package + apply; ledgers.
+      `os`'s review is re-queued — see Corrections item 4.
+- [x] Verify: rendering reads clean; census still 100%
+      (14/15/19 pages, 26/7/9 parameters); `--memory-scope` = 0 for all
+      three; examples 18/18, 22/22, 21/21.
+
+**Ledger — the known `process` defect (the one this letter entered with).**
+
+> Old: "Like every resource handle it cannot be copied, stored as a
+> collection element, or carried in a record; it is closed automatically by
+> lexical drop when its binding leaves scope."
+>
+> New: "Like every resource handle it cannot be copied and cannot be a field
+> of a record, but it can be held in a collection (a
+> `List OF RES process::Process` is how you supervise several children). It
+> closes itself when its binding goes out of scope."
+
+Both halves compiled before the wording was written, and the compiler
+supplied the exact spelling — the first attempt said `List OF
+process::Process` and `TYPE_RESOURCE_REQUIRES_RES` corrected it to
+`List OF RES process::Process`:
+
+```
+LET kids AS List OF RES process::Process = []      ' builds
+TYPE Holder                                        ' TYPE_RESOURCE_FIELD_FORBIDDEN
+  p AS process::Process
+END TYPE
+```
+
+Cite: spec §15.6; memory `resources-in-collections-yes-records-no`.
+
+**Ledger — process, from the review (16 findings). Two are runtime bugs,
+now filed:**
+
+- **bug-474 (HIGH), `detach` breaks `waitFor` for every other child.**
+  `process::detach` installs `signal(SIGCHLD, SIG_IGN)`, which is
+  program-wide, so a later `waitFor` on an unrelated handle returns `0`
+  instead of the real exit code. Reproduced: `shell("sleep 0.1; exit 7")`
+  prints `7` alone and `0` once any other child is detached. Documented
+  explicitly on both `waitFor` and `detach` until it is fixed.
+- **bug-475 (MEDIUM), `waitFor` hangs on an undrained child.** The page
+  claimed unread output "is discarded when the pipe buffer fills". It is
+  not — the child blocks in `write` and never exits. Reproduced:
+  `shell("yes | head -c 1048576")` under a 5s alarm exits 142 with no
+  output. The page now tells you to drain first, which is the difference
+  between a working program and a hang.
+
+Other process findings applied: the `Signal` platform mapping that three
+pages promised "is tabulated in `mfb man process types`" **did not exist** —
+the types page renders only one-line variant descriptions. The mapping is
+now a real table on the overview (Unix signal / Windows behaviour / what
+`didSignal` reads back), and the two other pages point at it. Added the
+undocumented negative-`timeoutMs` behaviour of `poll` (verified: waits with
+no deadline) and the `ErrResourceClosed` that `poll`/`receive`/`receiveBytes`
+raise on a detached handle (verified).
+
+**Ledger — io (16 findings).** Accuracy: `io::print`/`io::write` accept an
+`AttributedString` as well as a `String`, which three pages denied
+("Only `String` is accepted") — verified by compiling and running
+`io::print(astrings::fromString(...))`. `io::pollInput`'s "a `TRUE` result
+promises that the next read will not block" is false for `io::readChar` when
+only the first byte of a multi-byte scalar has arrived; the page now says
+`TRUE` means *one byte* is ready and lists the two cases that still block.
+`readLine` was said to read "the same way" as `input` — it does not, it
+suppresses terminal echo, which is the whole reason to prefer it for a
+passphrase. Added: input ending mid-line returns those bytes as the final
+unterminated line (verified). Leakage: every "file descriptor 0/1/2" and
+"`isatty` probe" removed.
+
+**Ledger — os.** 12 memory-vocabulary hits, all one pattern: "an owned
+`String`" for a value the host copied out. A developer experiences that as
+"your own copy, unaffected by later host changes", so `owned` is simply
+dropped (`os::hostName` "copied into a `String`"), and the map overview's
+"follow the ordinary owned-value rules" became "behave like any other
+value". `os::sleep`'s second example was a worker fragment with no `main`
+that could not build; it is now a complete program that starts the worker,
+cancels it, and prints `cancelled`.
 
 Acceptance: three packages verified; known defect fixed and recorded;
 memory-scope 0.
@@ -170,18 +244,69 @@ Commit: —
 The plan's heaviest memory-vocabulary phase: tls 23 + audio 10 + crypto 1 =
 34 rendered hits.
 
-- [ ] Verify 17+10+12+3 pages + overviews + types pages; compile-only
-      classifications recorded (tls/audio/app largely compile-only).
-- [ ] Memory-scope rewrite across tls/audio/crypto to 0. **`tls` reuses
-      C's `tcp`/`udp` sentences verbatim** — same sockets, same listener,
-      same accept; writing new wording here is the drift F sweeps for.
-      Hand-fix the named offenders from References (`:36160` borrowed
-      pointer, `:35662` never frees, `:36828` close moves). Where a page
-      wants to explain the model, link `mfb man variable`.
-- [ ] Cross-model review + apply; ledgers.
-- [ ] Verify: rendering + census as Phase 1; `--memory-scope` = 0;
-      `mfb man tls accept` diffed against `mfb man tcp accept` (C's) for
-      identical handle wording.
+- [x] Verify **20+11+11+2** pages + overviews + types pages, **plus
+      `canvas`'s 13** — `canvas` was assigned to no letter at all
+      (Corrections item 2). Runs recorded per package; the harness gained a
+      per-example timeout so a device-blocking example is reported rather
+      than hanging the run (Corrections item 5).
+- [x] Memory-scope rewrite across tls/audio/crypto **and canvas** to 0.
+      `tls` reuses C's `tcp`/`udp` sentences verbatim; `mfb man tls accept`
+      and `mfb man tcp accept` now carry the same handle sentence. All three
+      named offenders fixed:
+
+      | Was | Now |
+      |---|---|
+      | "The returned `Socket` is a **borrowed** pointer — an alias of a list element — so the list retains ownership and closes every socket" | "The returned `Socket` is an **alias** of the one in the list — closing it closes that one — so the list still closes every socket" |
+      | "closing an accepted socket never frees the shared context, which is owned by the `Listener`" | "The `Listener` holds the server's TLS settings and every accepted `Socket` shares them: closing an accepted socket leaves them intact" |
+      | "`close` consumes the `Socket` it is given: the value is moved into the call" | "`close` closes the `Socket` it is given: the handle cannot be used again" |
+
+- [x] Cross-model review + apply; ledgers.
+- [x] Verify: rendering + census as Phase 1; `--memory-scope` = 0 for
+      tls, audio, crypto, app and canvas; `mfb man tls accept` diffed
+      against `mfb man tcp accept` — identical handle wording.
+
+**Ledger — canvas (the unassigned package).** 11 memory-vocabulary hits and
+one accuracy defect. `Image` is genuinely a resource, so the rewrite keeps
+that and drops only the C/Rust framing: "an owned resource, released when it
+leaves scope" → "a resource; it closes itself when its binding goes out of
+scope"; "nothing in the installed scene points at anything the caller owns"
+→ "the installed scene is entirely its own"; "A handle naming a destroyed
+image is not dangling" → "An id naming a destroyed image is harmless: it is
+just an integer". The load-bearing fact — a scene holds an image's *id* and
+never keeps the image open — is stated more prominently than before, on the
+overview, `present` and `imageRef`.
+
+**Accuracy defect (pre-existing, found here).** `present` and
+`destroyImage` both claimed "the runtime defers freeing the backing texture
+until the GPU has finished with it". No such mechanism exists:
+`rg -n IMAGE_DIRTY src/` gives four hits, all writes plus the constant and
+an import — nothing reads the flag; `helper_geometry.rs:131,346` return
+`__canvas_emptyHeader()` / `[]` for `CASE Picture(pic)`; there is no
+texture, atlas or upload anywhere. Destroying is safe for a simpler reason,
+which the pages now give: the scene holds the id, not the image. Confirmed
+against the plan-98 session, which owns this code.
+
+**Ledger — the shared handle vocabulary (audio, tls).** Both packages spoke
+C. `Borrowed, not consumed.` → `The handle stays open — you still close it.`
+(12 parameter descriptions across audio, 8 across tls); `Consumed by the
+call` → `Closed by this call; the handle cannot be used again.`; "closed
+automatically by lexical drop when its binding leaves scope" → "closes
+itself when its binding goes out of scope". `audio::close` also carried an
+internals line — "IR lowering routes each operand to a distinct
+per-direction internal body (`audio.closeInput` / `audio.closeOutput`)" —
+now "It accepts either direction, and does the right thing for each — a
+capture stream and a playback stream shut down differently."
+
+**Ledger — crypto.** 18 rendered hits, but **9 were not editable prose**:
+they are the auto-derived Errors table rendering `ErrOutOfMemory —
+"Allocation failed."`, whose text is the runtime's own error string. That is
+a census-scope defect, not a content one; see Corrections item 3. The 9
+authored lines were fixed ("validated before any allocation" → "The check
+happens before any work is done"; "the internal entropy scratch buffer is
+zeroed, so no later allocation can observe the generated bytes" → "the
+working copy of the entropy is wiped, so nothing later in the program can
+read the generated bytes back out of it"; "a fast, seedable PCG64 generator"
+→ "a fast, seedable random sequence").
 
 Acceptance: four packages verified and reviewed; memory-scope 0; tls handle
 wording matches C's tcp/udp.
@@ -189,17 +314,57 @@ Commit: —
 
 ### Phase 3 — json, csv, money, regex (+ errorcode/perf per A's ruling)
 
-- [ ] Verify 5+5+4+4 pages + overviews + types pages; regex `\x{…}`
-      pattern-vs-escape boundary stated precisely; execute A's
-      errorcode/perf assignment.
-- [ ] Memory-scope: `money` 1 hit; the rest already 0 — confirm.
-- [ ] Cross-model review + apply; ledgers.
-- [ ] Verify: rendering + census as Phase 1; `--memory-scope` = 0;
-      all **30** registry packages now covered by a letter (`ls
-      src/codegen/builtins/ | grep -v mod.rs | wc -l` = 30, cross-checked
-      against A–E's package lists).
+- [x] Verify **4+4+3+4** pages + overviews + types pages; regex `\x{…}`
+      pattern-vs-escape boundary stated precisely; A's errorcode/perf
+      assignment executed (`errorCode` 1 hit fixed, `perf` already 0).
+- [x] Memory-scope: `money` 1, `json` 1, `regex` 2, `errorCode` 1 — all
+      fixed; `csv` and `perf` already 0, confirmed.
+- [x] Cross-model review + apply; ledgers.
+- [x] Verify: rendering + census as Phase 1; `--memory-scope` = 0; the
+      package-coverage cross-check is recorded below — and it found a gap.
 
-Acceptance: all remaining packages verified and reviewed; the 30-package
+**Ledger — the `\x{…}` boundary, stated from a probe rather than from
+memory.** The regex overview said only that "a backslash the regex needs is
+written `"\\"` in a source literal". That understates it, because the
+failure is *silent*. Measured:
+
+```
+LET naive AS String = "\x{41}"     ' len 5  -> x{41}
+LET pat   AS String = "\\x{41}"    ' len 6  -> \x{41}
+regex::match("A", pat)   = TRUE
+regex::match("AA", naive) = FALSE
+```
+
+`\x` is not an MFBASIC escape (the Unicode escape is `\u{…}`), so the
+backslash is dropped and the pattern silently becomes the **quantifier**
+`x{41}` — "41 letter `x`s". The overview now shows both spellings, both
+outcomes, and the rule ("one backslash in the *pattern* is two in the
+*source*"; a pattern read from input needs no doubling).
+
+**Small-package memory hits, all one line each.** `json::parse` "does not
+consume a native stack frame" → "does not use a stack frame";
+`money::round` "settles a line item or an allocation" → "or a share";
+`regex::findAll` "a position already consumed by the previous match" → "a
+position the previous match already covered"; `regex::replace` "An unbraced
+reference consumes the longest valid run" → "takes the longest run of digits
+it can"; `errorCode` "no conversion and no allocation" → "with no conversion
+at all".
+
+**Package-coverage cross-check — this is where the gap was found.**
+`ls src/codegen/builtins/ | grep -v '^mod.rs' | wc -l` reports **31**, not
+the 30 the plan assumed, and the extra one is `canvas`, which appeared in no
+letter's package list (`grep -l canvas planning/plan-108-*.md` returned
+nothing). Absorbed into Phase 2 above and completed there. All **31**
+packages are now covered:
+
+| Letter | Packages |
+|---|---|
+| B | astrings, bits, general, strings, term, testing, thread, vector |
+| C | http, net, tcp, udp |
+| D | collections, datetime, encoding, fs, math |
+| E | app, audio, **canvas**, crypto, csv, errorcode, io, json, money, os, perf, process, regex, tls |
+
+Acceptance: all remaining packages verified and reviewed; the **31**-package
 coverage cross-check recorded here.
 Commit: —
 
@@ -217,7 +382,68 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+1. **Every memory-hit count in this letter was wrong, all in the same
+   direction.** Measured with `./scripts/man-census.sh --memory-scope <pkg>`
+   at execution time:
+
+   | Package | Plan said | Actually | |
+   |---|---|---|---|
+   | `process` | 18 | **32** | |
+   | `io` | 1 | **9** | |
+   | `os` | 0 ("confirm, do not churn") | **12** | the plan told this letter to skip a package that needed twelve fixes |
+   | `tls` | 23 | **49** | |
+   | `audio` | 10 | **25** | |
+   | `crypto` | 1 | **18** | 9 of them not editable, see item 3 |
+
+   Phase totals corrected in place. The `os` row is the instructive one: a
+   "already 0 — confirm" instruction, trusted, would have shipped twelve
+   defects.
+
+2. **`canvas` was assigned to no letter.** The plan's closing cross-check
+   asserted 30 registry packages; `ls src/codegen/builtins/ | grep -v '^mod.rs'
+   | wc -l` says **31**. `canvas` — 13 pages, 11 memory-vocabulary hits and a
+   false claim about deferred texture frees — was in no letter's list. Added
+   to Phase 2 and completed. The cross-check in Phase 3 is now written out as
+   a per-letter table so the next reader can re-derive it rather than trust a
+   number.
+
+3. **`--memory-scope` counted auto-derived Errors-table rows.** The Errors
+   table is generated from the `errorCode` constant descriptors, and
+   `ErrOutOfMemory`'s `message` is the string the runtime prints when the
+   error is raised (`_mfb_str_error_allocation`). It reads "Allocation
+   failed.", so every page that can raise it showed the banned word
+   `allocation` in a cell no page author can edit — and editing it would
+   change program output and drift goldens, which this plan is barred from
+   doing. Added as **carve-out 2**, classified and counted separately exactly
+   like the datetime arithmetic borrows, never silently dropped. 20 rows
+   across the surface.
+
+4. **The `os` cross-model review did not complete** — the reviewing model
+   returned `You've hit your usage limit ... try again at 3:34 AM` partway
+   through, after ~129k tokens. `process` (16 findings) and `io` (16) both
+   completed and are applied. `os`'s content was independently verified here
+   (12 memory hits fixed, all 21 examples run, `--fill` 19/19/19/19 9/9); the
+   review is re-queued rather than counted as done, and is tracked in F.
+
+5. **This letter's content changes landed inside plan-108-D's commit.**
+   `734646ce6` was staged with `git add -A` while E's `process`, `io`, `os`,
+   `crypto`, `tls`, `audio` and `canvas` edits were already in the working
+   tree, so that commit carries both letters' package changes (141 files)
+   even though its message describes only D's five packages. `git show --stat
+   734646ce6` shows the E packages in it. Not amended — the hash is already
+   recorded on D's three phases, and amending would invalidate it. E's
+   remaining edits and both plan files land in the following commit. The
+   lesson is the obvious one: stage by path when two letters are in flight.
+
+6. **The example harness had three defects, all of which made a broken
+   example look fine.** Two are recorded in plan-108-D's Corrections (working
+   directory, documented-failure exits). The third surfaced here: **no
+   per-example timeout**. An `http` example blocked a run for ~3 hours while
+   looking identical to "still working", and `audio`'s device-opening
+   examples did the same. `RUN_TIMEOUT` (default 60s) now bounds every
+   example and reports a timeout as the failure it is. macOS has no
+   `timeout(1)`, so the harness backgrounds the child against a
+   `sleep N; kill -9` and maps 137 → 124.
 
 ## Summary
 

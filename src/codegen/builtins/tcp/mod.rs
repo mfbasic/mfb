@@ -164,7 +164,7 @@ pub(crate) fn register(r: &mut Registry) {
         name: SOCKET_TYPE,
         export: true,
         description: "A connected TCP stream from `tcp::connect` or `tcp::accept`, \
-                      closed automatically when it leaves scope.",
+                      closed automatically when its binding goes out of scope.",
         close_function: "tcp.close",
         sendable: true,
         close_may_fail: true,

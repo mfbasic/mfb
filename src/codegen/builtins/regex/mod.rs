@@ -1,4 +1,4 @@
-//! Package: json
+//! Package: regex
 //! Type: Pure MFBasic
 //! Plan: plan-72-T
 
@@ -98,10 +98,32 @@ The package defines no new types. `pattern` and `replacement` are ordinary
 runtime `String` values, so they may be literals, built at run time, or read from
 input; a pattern is compiled at the moment a function is called. An invalid
 pattern fails the call with `ErrInvalidFormat` rather than being silently treated
-as "no match". Because MFBASIC `String` literals process their own backslash
-escapes, a backslash the regex needs is written `"\\"` in a source literal
-(`"\\d"` is the pattern `\d`); a pattern read from a file or user input has no
-such doubling.
+as "no match".
+
+**Backslashes in a pattern need doubling, and `\x{...}` is the trap.** A pattern
+is written as an ordinary MFBASIC string, and MFBASIC's own string escapes are
+applied first. `\x{...}` is **not** one of them: MFBASIC's Unicode escape is
+`\u{...}`, so an unrecognised `\x` simply loses its backslash. That turns
+
+```
+LET pattern AS String = "\x{41}"
+```
+
+into the five-character string `x{41}` — which the regex engine reads as the
+quantifier "41 letter `x`s", not as the letter `A`. Nothing warns you; the
+pattern is valid, it just means something else.
+
+Double the backslash to send a real one through:
+
+```
+LET pattern AS String = "\\x{41}"   ' six characters: \x{41}
+IF regex::match("A", pattern) THEN     ' TRUE
+```
+
+The same doubling applies to every pattern backslash — `\\d`, `\\w`, `\\s`,
+`\\b`, `\\p{Lu}`, `\\A`, `\\z`. The rule is simply: one backslash in the
+*pattern* is two in the *source*. A pattern read from a file or from user
+input is not a source literal and needs no doubling at all.
 
 Matching operates over Unicode scalar values. Every position and index a regex
 function accepts or reports is a zero-based Unicode scalar index — never a byte

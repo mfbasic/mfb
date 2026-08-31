@@ -390,7 +390,7 @@ pub(crate) fn register(r: &mut Registry) {
         name: AUDIO_INPUT_TYPE,
         export: true,
         description: "An opaque, move-only PCM capture stream from `audio::openInput`, closed \
-                      automatically when it leaves scope.",
+                      automatically when its binding goes out of scope.",
         close_function: CLOSE_INPUT,
         // A capture stream is driven from its owning thread (blocking read / OS
         // callback ring); not thread-sendable in v1 (plan-33-A §4).
@@ -402,7 +402,7 @@ pub(crate) fn register(r: &mut Registry) {
         name: AUDIO_OUTPUT_TYPE,
         export: true,
         description: "An opaque, move-only PCM playback stream from `audio::openOutput`, closed \
-                      automatically when it leaves scope.",
+                      automatically when its binding goes out of scope.",
         close_function: CLOSE_OUTPUT,
         // A playback stream blocks on write from its owning thread; not
         // thread-sendable in v1 (plan-33-A §4).

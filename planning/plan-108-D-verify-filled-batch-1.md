@@ -187,7 +187,7 @@ applied).**
   its own because it is a value, not a function.
 
 Acceptance: both packages verified and reviewed; ledgers recorded.
-Commit: —
+Commit: 734646ce6
 
 ### Phase 2 — encoding, fs
 
@@ -239,7 +239,7 @@ The remaining fs findings were the same LEAKAGE classes as collections.
   storage" → "the UTF-8 bytes of the string, one list element per byte".
 
 Acceptance: both packages verified and reviewed.
-Commit: —
+Commit: 734646ce6
 
 ### Phase 3 — datetime
 
@@ -275,7 +275,7 @@ Commit: —
   the Rust `::` path or the numeric tags.
 
 Acceptance: datetime verified and reviewed.
-Commit: —
+Commit: 734646ce6
 
 ## Validation Plan
 

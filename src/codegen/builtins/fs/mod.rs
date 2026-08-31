@@ -158,8 +158,8 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_resource(RegistryResource {
         name: FILE_TYPE,
         export: true,
-        description: "An opaque handle to an open file, released automatically \
-                      when it leaves scope.",
+        description: "An opaque handle to an open file, closed automatically \
+                      when its binding goes out of scope.",
         close_function: CLOSE,
         sendable: true,
         close_may_fail: true,

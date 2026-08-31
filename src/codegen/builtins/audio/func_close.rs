@@ -68,7 +68,7 @@ used afterward. Closing an `AudioOutput` first
 drains queued playback (so it can block until the audio already written has finished
 sounding); closing an `AudioInput` drops any buffered capture immediately. `close` is
 idempotent — closing an already-closed or defaulted handle is a no-op that returns
-successfully. A stream is also closed automatically by itself when its binding goes out of scope."#;
+successfully. A stream also closes itself when its binding goes out of scope."#;
 const EX: &str = r#"Close an output stream explicitly after playback:
 
 ```

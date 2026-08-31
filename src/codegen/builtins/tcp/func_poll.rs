@@ -21,7 +21,7 @@ deadline is a `FALSE`, not an error.
 
 Given a `List OF RES Socket` it answers with the first ready socket, scanning in
 list order. The returned socket is an **alias** of the one in the list: the list still
-still closes each of its members exactly once at scope exit, so the result must
+still closes each of its members exactly once when it goes out of scope, so the result must
 not be closed or transferred. This is the multiplex form — one call waits on many
 connections instead of a thread per connection. An empty list raises
 `ErrInvalidArgument`, and a deadline that expires with none ready raises

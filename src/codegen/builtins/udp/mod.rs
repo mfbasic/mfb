@@ -162,7 +162,7 @@ pub(crate) fn register(r: &mut Registry) {
         name: SOCKET_TYPE,
         export: true,
         description: "A bound UDP datagram socket from `udp::bind`, \
-                      closed automatically when it leaves scope.",
+                      closed automatically when its binding goes out of scope.",
         close_function: "udp.close",
         sendable: true,
         close_may_fail: true,

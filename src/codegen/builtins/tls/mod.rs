@@ -161,7 +161,7 @@ pub(crate) fn register(r: &mut Registry) {
         export: true,
         description: "A connected TLS stream — an outbound client connection from \
                       `tls::connect` or an accepted server connection from `tls::accept` — \
-                      closed automatically when it leaves scope.",
+                      closed automatically when its binding goes out of scope.",
         close_function: "tls.close",
         // A TLS session is driven from its owning thread; not thread-sendable in v1
         // (plan-03-net.md §4.4).
