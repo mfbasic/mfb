@@ -354,9 +354,9 @@ block holding the whole list.
 with `ErrInvalidArgument`; there is no clamping and no default, so the argument
 is always required.
 
-Each block is built by the internal slice helper, which is lowered natively as a
+Each block is a new list holding its own copy of the corresponding elements, and
 bulk copy, so the elements are copied into new lists and
-no block shares storage with `value`. `value` is not modified.
+nothing you do with a block affects `value`. `value` is not modified.
 
 `T` is inferred from `value` and carries no ordering or comparability
 requirement: `chunks` copies contiguous ranges and never inspects an element, so

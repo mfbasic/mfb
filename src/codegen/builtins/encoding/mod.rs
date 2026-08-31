@@ -126,7 +126,12 @@ The binary codecs (`hexEncode`/`hexDecode`, `base32Encode`/`base32Decode`,
 integer codecs (`uleb128Encode`/`uleb128Decode`, `sleb128Encode`/`sleb128Decode`,
 `varintEncode`/`varintDecode`) round-trip their respective forms.
 
-Decoders reject malformed input with `ErrInvalidFormat` (`77050003`)."#;
+Decoders reject malformed input with `ErrInvalidFormat` (`77050003`): an
+invalid character, a bad length, or a misplaced pad. One thing they do **not**
+reject is a non-canonical final group — `encoding::base64Decode("AB==")` and
+`encoding::base32Decode("AB======")` each return a single `0` byte rather than
+raising, because the unused trailing bits are ignored rather than required to be
+zero. Do not use a decode round-trip as a canonical-form check."#;
 
 /// Register the `encoding` package on the clean-room registry.
 ///

@@ -25,7 +25,7 @@ new pixels appear on the next rendered frame. That is the whole reason images ar
 identified by handle rather than embedded in items — a video frame, a plot, or a
 progress bar can update without rebuilding the scene at all.
 
-The pixels are copied, so the caller may reuse or drop the list immediately.
+The pixels are copied, so you may reuse or discard the list immediately.
 
 Raises `ErrResourceClosed` if the image has been destroyed."#;
 

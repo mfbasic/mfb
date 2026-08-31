@@ -113,7 +113,7 @@ pub(crate) fn lower_user_name(
 
 const INTRO: &str = r#"The effective user's login name"#;
 const DESC: &str = r#"`os::userName` returns the login name of the effective user, resolved through
-`getpwuid(getuid())` and copied into an owned `String`. Using the passwd database
+`getpwuid(getuid())` and copied into a `String`. Using the passwd database
 rather than the controlling terminal means it works without a login session (for
 example under a service manager).
 

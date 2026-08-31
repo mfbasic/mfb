@@ -22,10 +22,10 @@ length raises `ErrBadPixelCount` rather than reading past the end or silently
 padding.
 
 The pixels are **copied**. The runtime keeps its own copy as the image's contents,
-so the caller is free to reuse or drop the list immediately, and
+so you are free to reuse or discard the list immediately, and
 `canvas::getBytes` can answer later without asking the backend for anything.
 
-The result is an owned resource, released when it leaves scope or when
+The result is a resource; it closes itself when its binding goes out of scope, or when
 `canvas::destroyImage` is called. Drawing it means putting a `canvas::imageRef` of
 it in a `Picture` item — the scene carries the id, not the image, so destroying an
 image a scene still names is safe.

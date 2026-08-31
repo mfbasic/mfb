@@ -13,20 +13,19 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Release an image before it leaves scope."#;
 
 const DESC: &str = r#"`destroyImage` closes the image, exactly as `fs::close` closes a file: the handle
-is released now rather than when the binding goes out of scope. Letting an `Image`
+is closed now rather than when the binding goes out of scope. Letting an `Image`
 leave scope does the same thing, so this is for the case where an image is large
 and the scope is long.
 
-**It is safe at any time, including while a presented scene still draws the
-image.** A scene carries the id, not the image, so it cannot dangle; the runtime
-simply defers freeing the backing object until the GPU has finished with the last
-frame that used it. That deferral is entirely runtime-side and invisible here.
+**It is safe at any time, including while a presented scene still names the
+image.** A scene carries the id, not the image, so destroying the image leaves
+the scene intact — the runtime simply stops drawing that item.
 
 Closing twice is the defined no-op, and using a closed image afterwards raises the
 universal `ErrResourceClosed` — the same contract every resource has.
 
 Unlike the rest of `canvas`, `destroyImage` does **not** require `Mode.Canvas`: a
-program leaving canvas mode must still be able to release what it allocated, and
+program leaving canvas mode must still be able to close the images it made, and
 closing a handle touches no surface."#;
 
 const EX: &str = r#"```
@@ -90,7 +89,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "image",
-                desc: "The image to release. Safe to call twice, and safe while a \
+                desc: "The image to destroy. Safe to call twice, and safe while a \
                        presented scene still draws it.",
                 aliases: &[],
                 ty: ParameterType::named(super::IMAGE_TYPE_ID),

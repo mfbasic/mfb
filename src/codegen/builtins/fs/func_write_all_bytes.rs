@@ -63,7 +63,8 @@ const EX: &str = r#"Write raw bytes to an open file:
 IMPORT fs
 
 SUB main()
-  RES f = fs::openFile("target/output.bin", "write")
+  fs::createDirectories("output")
+  RES f = fs::openFile("output/report.bin", "write")
   LET bytes AS List OF Byte = [72, 105]
   fs::writeAllBytes(f, bytes)
   ' f closes itself when this scope ends

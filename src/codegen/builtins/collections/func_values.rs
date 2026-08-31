@@ -9,9 +9,9 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 const INTO_VALUES: &str = "Return a map's values as a list.";
 const DESC_VALUES: &str = r#"`collections::values` builds a new `List OF V` holding the value of every entry
-in `value`. It walks the map's lookup-entry table front to back, copying each
+in `value`. It walks the map front to back, copying each
 entry's value payload into a new list. The source map is not
-mutated and its own storage is not aliased by the result — the returned list is
+mutated, and the returned list is
 an independent collection.
 
 The result has exactly one item per map entry, so its length equals

@@ -14,8 +14,7 @@ const INTO_FILTER: &str = "Keep the elements of a list for which a predicate ret
 const DESC_FILTER: &str = r#"`collections::filter` walks `value` from the first element to the last, calls
 `predicate` once per element, and appends the element to a new list when the
 predicate returns `TRUE`. Elements for which the predicate returns `FALSE` are
-skipped. It is a **native** member: the compiler emits the selection loop
-directly rather than instantiating an MFBASIC generic.
+skipped.
 
 Relative order is preserved: kept elements appear in the result in the same
 order they had in `value`. The result has the same type as `value`, so filtering

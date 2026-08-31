@@ -72,6 +72,7 @@ Guard against re-creating a directory that already exists:
 IMPORT fs
 
 SUB main()
+  fs::createDirectories("scratch")
   IF NOT fs::directoryExists("scratch/cache") THEN
     fs::createDirectory("scratch/cache")
   END IF

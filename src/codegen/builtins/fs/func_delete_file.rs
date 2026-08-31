@@ -56,7 +56,9 @@ const EX: &str = r#"Remove a generated output file:
 IMPORT fs
 
 SUB main()
-  fs::deleteFile("target/output.txt")
+  fs::createDirectories("output")
+  fs::writeText("output/report.txt", "generated")
+  fs::deleteFile("output/report.txt")
 END SUB
 ```
 

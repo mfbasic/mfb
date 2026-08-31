@@ -24,7 +24,7 @@ use super::gen_unix::*;
 use super::gen_windows::*;
 const INTRO: &str =
     r#"Run a command line through the platform shell, returning a handle to the child."#;
-const DESC: &str = r#"`process::shell` runs `cmd` as a shell command line and returns an owned `Process`
+const DESC: &str = r#"`process::shell` runs `cmd` as a shell command line and returns a `Process`
 handle to the resulting child. Unlike `process::spawn`, which execs a program
 directly, `shell` hands the string to the platform shell — `/bin/sh -c` on Unix —
 so shell features work: pipelines (`|`), redirection (`>`, `<`), globbing (`*`),
@@ -38,9 +38,9 @@ have a program and its arguments already separated — prefer `process::spawn`, 
 avoids the shell entirely.
 
 The child is wired to three pipes for its standard streams exactly as with
-`process::spawn`, and the returned handle has the same ownership: it is closed by
-lexical drop at scope exit, which force-kills and reaps a still-running child unless
-it is first awaited with `process::waitFor` or released with `process::detach`."#;
+`process::spawn`, and the returned handle behaves the same way: it closes itself
+when its binding goes out of scope, force-killing and reaping a still-running child unless
+it is first awaited with `process::waitFor` or ended with `process::detach`."#;
 const EX: &str = r#"Run a pipeline and read the result:
 
 ```

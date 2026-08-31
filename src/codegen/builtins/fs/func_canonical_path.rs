@@ -59,7 +59,9 @@ IMPORT fs
 IMPORT io
 
 SUB main()
-  LET full AS String = fs::canonicalPath("target/output.txt")
+  fs::createDirectories("output")
+  fs::writeText("output/report.txt", "hello")
+  LET full AS String = fs::canonicalPath("output/report.txt")
   io::print(full)
 END SUB
 ```

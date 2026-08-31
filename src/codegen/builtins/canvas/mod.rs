@@ -90,10 +90,10 @@ and re-presenting an unchanged scene is a no-op. Animated content does call it
 every frame, which is why the runtime caches each item's geometry on a content
 hash: re-presenting an item that did not change is free.
 
-`present` **deep-copies the scene transitively** — item fields, polygon point
-arrays, text strings, the `Paint` values. After it returns, nothing in the
-published scene points at caller memory, so the program is free to mutate or drop
-whatever it built the list from.
+`present` **copies the whole scene** — item fields, polygon point lists, text
+strings, the `Paint` values. After it returns, the published scene is entirely
+its own, so you are free to change or discard whatever you built the list
+from.
 
 Coordinates are pixels with a top-left origin and Y increasing downward. Angles
 are radians, measured clockwise from +X (which, under Y-down, is the direction
@@ -115,10 +115,10 @@ shape": every field the caller did not name is already inert.
 
 An item that draws an image or text names it through an `ImageRef` / `FontRef` —
 a plain value holding the id the backend knows the resource by. The scene holds
-that id and nothing more, which is what makes a published scene independent of
-every resource's lifetime. `canvas::imageRef` takes that handle from an `Image`.
+that id and nothing more, which is what lets a published scene outlive the image
+it names. `canvas::imageRef` takes that id from an `Image`.
 
-`Image` is an owned resource, so it is bound with `RES` and named
+`Image` is a resource, so it is bound with `RES` and named
 **package-qualified**, exactly like `fs::File`:
 
 ```
@@ -126,9 +126,9 @@ RES logo AS canvas::Image = canvas::createImage(w, h, pixels)
 ```
 
 The value types — `Color`, `DrawItem`, `Paint` and the rest — are referenced bare.
-An image is released when it leaves scope, or earlier with
-`canvas::destroyImage`; releasing one a presented scene still draws is safe,
-because the scene holds only its id."#;
+An image closes itself when its binding goes out of scope, or earlier with
+`canvas::destroyImage`; destroying one that a presented scene still draws is
+safe, because the scene holds only its id."#;
 
 /// Register the `canvas` package on the clean-room registry.
 ///
@@ -706,8 +706,8 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_resource(RegistryResource {
         name: IMAGE_TYPE,
         export: true,
-        description: "An opaque, owned handle to an image the drawing backend holds, \
-                      released automatically when it leaves scope. A scene names one \
+        description: "An opaque handle to an image the drawing backend holds, closed \
+                      automatically when its binding goes out of scope. A scene names one \
                       through an `ImageRef`, never directly, so destroying an image a \
                       scene still draws is safe.",
         close_function: DESTROY_IMAGE,

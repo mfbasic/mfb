@@ -17,12 +17,9 @@ wall-clock adjustments (NTP steps, manual clock changes, daylight saving), the
 difference is a reliable interval where `datetime::now` would not be. Use
 `datetime::now`, not `monotonic`, whenever you need an actual point in time.
 
-Internally `monotonic` reads a single nanoseconds-since-origin value from the OS
-intrinsic (`datetime::monotonicNanos`, `clock_gettime(CLOCK_MONOTONIC)` on the
-supported platforms), then splits it into the `seconds` and `nanos` fields of a
-`Duration` by a truncating divide and remainder against `1_000_000_000`. The
-divisor is a non-zero constant, so the split cannot trap, and the nanosecond
-remainder already falls in `0 .. 999_999_999`.
+`monotonic` is `datetime::monotonicNanos` split into the `seconds` and `nanos`
+fields of a `Duration`. The split never fails, and `nanos` always falls in
+`0 .. 999_999_999`.
 
 
 `monotonic` is **not pure**: two calls may return different spans, and the values

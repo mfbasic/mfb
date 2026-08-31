@@ -91,13 +91,13 @@ presence as a `Boolean`, so a program can choose whether absence is an error.
 `os::environ` returns a `Map OF String TO String` snapshot built by walking the
 process environment array and splitting each `NAME=VALUE` entry at its first `=`;
 an `=` inside a value is preserved as part of the value. The map is an ordinary
-owned value taken at the moment of the call and does not track later mutations.
+value taken at the moment of the call and does not track later mutations.
 
 `os::setEnv` and `os::unsetEnv` mutate process-global state. They are **not**
 synchronized against a concurrent `os::getEnv`/`os::environ` running in another
 `thread::` worker — this is the classic `getenv`/`setenv` data race and is the
 caller's responsibility to avoid. All returned `String`, `Boolean`, and
-`Map OF String TO String` values follow the ordinary owned-value rules; the
+`Map OF String TO String` values behave like any other value; the
 package holds no resource handles."#;
 
 /// Register the `os` package on the clean-room registry.

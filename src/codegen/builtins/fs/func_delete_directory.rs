@@ -65,8 +65,8 @@ Create a directory and then remove it:
 IMPORT fs
 
 SUB main()
-  fs::createDirectory("scratch/scratch")
-  fs::deleteDirectory("scratch/scratch")
+  fs::createDirectories("scratch/cache")
+  fs::deleteDirectory("scratch/cache")
 END SUB
 ```"#;
 

@@ -11,7 +11,7 @@ use crate::types::ParameterType;
 const INTO_REMOVE_KEY: &str = "Return a copy of a map with the entry for one key removed.";
 const DESC_REMOVE_KEY: &str = r#"`collections::removeKey` produces a **new** map containing every entry of
 `value` except the one whose key matches `key`. It does not edit `value` in
-place: it scans the entry table to count the entries it will retain
+place: it counts the entries it will keep
 and how much room they need, builds a new map, and copies the retained entries
 into it. The original map is left untouched and remains usable.
 

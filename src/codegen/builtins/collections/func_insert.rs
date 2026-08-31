@@ -30,10 +30,9 @@ at `index`, which is the same splice that backs `append` (index `= len`) and
 
 `insert` does not change `value`. The list it names is unchanged; the modified
 list is the returned value, and a program observes the update only through what
-it does with that return value. There is no in-place fast path for `insert` at an
-arbitrary index — the compiler's in-place assignment recognizers cover
-`append`, bulk `append`, `prepend`, `set`, and string concatenation, not
-`insert`.
+it does with that return value. Unlike `append`, `prepend`, and `set`, there is
+no cheap in-place shape for `insert` at an arbitrary index: every call copies
+the list.
 
 `insert` is **fallible**: the range check is a real trappable domain error, so an
 inline `TRAP` on an `insert` call compiles and catches the out-of-range failure

@@ -27,7 +27,7 @@ backs `append` and `insert`.
 list is the returned value. When the compiler can prove the target is a uniquely
 same local being reassigned — the `list = collections::prepend(list, x)` shape,
 on a non-`by_ref` local that is not the live iterable of an enclosing `FOR EACH` —
-it lowers the call to an in-place shift-and-insert with geometric spare capacity
+it inserts into the existing list rather than copying it
 instead of a full copy. This is an optimization only; the observable semantics
 are identical either way. Note that prepending must shift every existing lookup
 entry right by one, so a repeated prepend stays O(n) per call even on the

@@ -262,7 +262,7 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"The absolute path of a build resource"#;
 const DESC: &str = r#"`os::resourcePath` returns the **absolute** on-disk path of a resource the build
-copied out of the project's manifest `resources` section, as an owned `String`.
+copied out of the project's manifest `resources` section, as a `String`.
 The `relative` argument is the resource's path below its declared destination
 directory (for example `music/song.ogg`), and the result is `<base>/<relative>`.
 

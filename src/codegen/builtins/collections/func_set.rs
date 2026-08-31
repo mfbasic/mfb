@@ -30,25 +30,16 @@ missing position is an error:
 
 `set` does not change its argument in either overload. The collection named by `value` is
 unchanged; the updated collection is the returned value, and a program observes
-the update only through what it does with that return value. When the compiler
-can prove the target is a same local being reassigned — the
-`c = collections::set(c, k, v)` shape, on a non-`by_ref` local that is not the
-live iterable of an enclosing `FOR EACH` — it lowers the call to an in-place
-update instead of rebuilding the collection. This is an optimization only; the
-observable semantics, including the list bounds check, are identical either way.
+the update only through what it does with that return value. Assigning straight
+back to the same local variable — `c = collections::set(c, k, v)` — is the cheap
+shape: it updates the collection in place rather than rebuilding it. Writing
+through something reached another way (a parameter, a module-level `MUT`, or the
+collection a `FOR EACH` is walking) copies the whole collection on every write,
+which turns a write-heavy loop quadratic. The result is the same either way.
 
-On the general (copying) path the list overload is composed from
-`removeAt(index)` followed by an insert of the replacement at the same index,
-which is where its `0 <= index < len(value)` bound comes from; the map overload
-is composed from `removeKey` — which is a filter and never fails on a missing
-key — followed by a concatenation of the single new entry, which is why an
-absent key inserts rather than raising.
-
-`set` is classified **fallible** overall because of the list overload's range
-check, so an inline `TRAP` on a `set` call compiles and catches that failure
-rather than being reported as a dead handler. On the list path the bounds test
-runs before any replacement value is materialized, so a rejected index builds
-nothing."#;
+`set` can fail, because of the list overload's range check, so an inline `TRAP`
+on a `set` call compiles and catches that failure. A rejected index changes
+nothing: the bounds check happens before anything is written."#;
 
 const EX: &str = r#"Replace an existing list element:
 

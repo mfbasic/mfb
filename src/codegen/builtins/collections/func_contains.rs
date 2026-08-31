@@ -15,7 +15,7 @@ const INTO_CONTAINS: &str = "Test whether a list holds an item equal to a given 
 const DESC_CONTAINS: &str = r#"`collections::contains` scans `value` from index `0` upward and returns `TRUE`
 as soon as an element matches `item`, or `FALSE` after every element has been
 examined without a match. The list is neither copied nor mutated, and no element
-payload is materialized — the scan compares stored bytes in place.
+element is copied out — the scan just compares.
 
 `contains` also has a **`Set OF T`** overload. Both forms take
 `(collection, element) AS Boolean` and answer the same membership question; the

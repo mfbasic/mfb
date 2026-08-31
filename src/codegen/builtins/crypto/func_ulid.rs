@@ -44,7 +44,7 @@ alphabet is `0123456789ABCDEFGHJKMNPQRSTVWXYZ`, excluding ambiguous letters.
 The function takes no arguments. Values sort by generation millisecond under
 ordinary ASCII lexical ordering; calls within one millisecond use independent
 randomness and are not guaranteed to sort in call order. Clock, entropy, or
-allocation failures propagate from the underlying built-ins."#;
+out-of-memory failures propagate from the underlying built-ins."#;
 const EX: &str = r#"Generate a compact, time-sortable identifier:
 
 ```

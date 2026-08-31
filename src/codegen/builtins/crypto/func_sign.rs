@@ -1675,7 +1675,7 @@ that is not 57 bytes, or an otherwise
 malformed key the platform import rejects, raises `ErrInvalidArgument`; `message`
 may be any length, including empty. `X25519` and `X448` are key-agreement keys and
 cannot sign — they raise `ErrInvalidArgument`. A platform-library or system failure raises
-`ErrUnknown`, and an allocation failure raises `ErrOutOfMemory`. The private key
+`ErrUnknown`, and running out of memory raises `ErrOutOfMemory`. The private key
 material is zeroed from the working buffers before return.
 
 **Implementation.** ECDSA signing runs through the host platform key API,

@@ -71,8 +71,9 @@ const EX: &str = r#"Append a single newline byte to a log file:
 IMPORT fs
 
 SUB main()
+  fs::createDirectories("output")
   LET bytes AS List OF Byte = [10]
-  fs::appendBytes("target/log.bin", bytes)
+  fs::appendBytes("output/log.bin", bytes)
 END SUB
 ```
 

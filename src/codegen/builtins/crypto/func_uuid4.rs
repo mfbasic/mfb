@@ -29,7 +29,7 @@ seedable, non-cryptographic counterpart see `math::rand`, which must never be
 used for security-sensitive identifiers.
 
 `uuid4` takes no arguments. It is total in normal operation, but because it draws
-entropy through `crypto::randomBytes`, an OS entropy failure or allocation
+entropy through `crypto::randomBytes`, an entropy or out-of-memory
 failure there propagates out as `ErrUnknown` or `ErrOutOfMemory`.
 
 **Implementation.** `uuid4` is portable MFBASIC software layered over

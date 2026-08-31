@@ -15,7 +15,7 @@ layer, not merely the first chunk. The socket must still be open.
 The bytes are taken from the list in order, starting at its first element. An
 empty `bytes` list is a no-op: nothing is sent and the call succeeds without
 touching the TLS layer. The function reads from the existing list buffer and
-allocates nothing of its own; it has no side effects beyond the bytes it sends
+keeps nothing of its own; it has no side effects beyond the bytes it sends
 and does not close the socket.
 
 `write` returns `Nothing`; there is no short-write result to inspect, because a
@@ -35,7 +35,7 @@ SUB main()
   LET request = strings::toBytes("GET / HTTP/1.0\r\n\r\n")
   tls::write(conn, request)
   LET reply = encoding::utf8Decode(tls::read(conn, 4096))
-  ' conn is closed by lexical drop when this scope ends
+  ' conn closes itself when this scope ends
 END SUB
 ```"#;
 

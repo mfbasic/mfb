@@ -39,8 +39,8 @@ sample rate, mixes the tracks by summing (with clamping), and writes the result 
 `output` via `audio::write`. Because the sequencer renders at 48 kHz mono, `output`
 must be an `AudioOutput` opened with `sampleRate = 48000` and `channels = 1`. `play`
 parses and synthesizes the entire program before writing, so malformed MML raises an
-error and nothing is written. The `output` stream is borrowed — not consumed, so the
-caller keeps ownership and must close it. A track is a string of space-separated
+error and nothing is written. The `output` stream stays open — you still
+close it. A track is a string of space-separated
 tokens (notes `A`..`G` with accidentals/length/dots, `R`/`P` rests, `O`/`<`/`>`
 octave, `L` length, `T` tempo, `V` volume, `I <name>` instrument, `( )` legato,
 `[ ]` staccato, `{ }<count>` repeat). `play` is deterministic."#;
@@ -62,7 +62,7 @@ END SUB
 fn output_param() -> Parameter {
     param(
         "output",
-        "An open playback stream opened at 48 kHz mono (`audio::openOutput(48000, 1, ...)`). Borrowed — `play` writes to it and leaves it open.",
+        "An open playback stream opened at 48 kHz mono (`audio::openOutput(48000, 1, ...)`). The handle stays open — `play` writes to it and leaves it open.",
         &[],
         ParameterType::named(AUDIO_OUTPUT_TYPE_ID),
     )

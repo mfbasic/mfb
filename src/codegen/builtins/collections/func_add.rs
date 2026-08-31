@@ -20,10 +20,9 @@ appended in insertion order so a later `collections::toList` places it last.
 
 `add` does not change `value`. The set it names is unchanged; the modified set
 is the returned value, and a program observes the update only through what it
-does with that return value. When the compiler can prove the target is a
-same local being reassigned — the `set = collections::add(set, x)`
-shape — it may update the live buffer in place; this is an optimization only, and
-the observable semantics are identical either way.
+does with that return value. Assigning straight back to the same variable —
+`set = collections::add(set, x)` — is the cheap shape: it updates the set
+rather than building a second one. The result is the same either way.
 
 `add` is **infallible**: nothing it does raises a trappable domain error,
 so an inline `TRAP` written on an `add` call has a dead handler. Running out of

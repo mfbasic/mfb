@@ -59,7 +59,7 @@ SUB main()
   RES conn = tls::connect("example.com", 443)
   tls::write(conn, "GET / HTTP/1.0\r\n\r\n")
   LET response = encoding::utf8Decode(tls::read(conn, 4096))
-  ' conn is closed by lexical drop when this scope ends
+  ' conn closes itself when this scope ends
 END SUB
 ```
 
@@ -71,7 +71,7 @@ IMPORT tls
 
 SUB main()
   RES conn = tls::connect("93.184.216.34", 443, timeoutMs := 5000, serverName := "example.com")
-  ' conn is closed by lexical drop when this scope ends
+  ' conn closes itself when this scope ends
 END SUB
 ```"#;
 

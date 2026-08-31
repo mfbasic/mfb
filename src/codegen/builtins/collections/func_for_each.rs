@@ -13,11 +13,9 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 const INTO_FOR_EACH: &str = "Call an action once for each element of a list, in order";
 const DESC_FOR_EACH: &str = r#"`collections::forEach` walks `value` from the first element to the last and
-calls `action` once per element, passing the element as the single argument. It
-is a **native** member: the compiler emits the traversal loop directly rather
-than instantiating an MFBASIC generic.
+calls `action` once per element, passing the element as the single argument.
 
-The loop is a straight forward scan over the list's entry table with no
+The loop visits each element once, front to back, with no
 reordering and no skipping, so `action` observes exactly the elements of `value`
 in their stored order. `value` is neither copied nor modified; `forEach` builds
 no result collection at all and evaluates to `Nothing`.

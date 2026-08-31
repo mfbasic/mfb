@@ -70,9 +70,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-108-D complete | D's boxes ticked; census 100% | NOT MET until D lands |
-| `mfb man variable` exists (this letter links it instead of re-explaining) | `mfb man variable` renders | delivered by plan-108-A Phase 2b |
-| C's net/tcp/udp handle wording is landed and readable | `mfb man tcp accept`, `mfb man udp receive` | delivered by plan-108-C (`tls` copies it) |
+| plan-108-D complete | D's boxes ticked; census 100% | **MET** 2026-08-31 — `./scripts/man-census.sh collections math encoding fs datetime` reports 183/183 on intro, desc and example and **286/286 parameter descriptions**; `--memory-scope` 0 (plus the 15 classified datetime arithmetic borrows) and `--scope` 0. Commits `56f99703d`, `3d5759dfe`, `b6256f0c6`, `4d275306b`, `dcf42e404`, `c5646161a`. |
+| `mfb man variable` exists (this letter links it instead of re-explaining) | `mfb man variable` renders | **MET** — delivered by plan-108-A Phase 2b, commit `f816298ea` |
+| C's net/tcp/udp handle wording is landed and readable | `mfb man tcp accept`, `mfb man udp receive` | **MET** — landed in `fd8e0473d`/`4a429d828` and recorded as a verbatim table in plan-108-C, "The settled network-family handle wording". `tls` copies rows 1, 2, 3 and 6. |
 
 ## 1. Goal
 

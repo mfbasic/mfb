@@ -29,7 +29,7 @@ const INTRO: &str = r#"Read an environment variable, raising when it is unset"#;
 const DESC: &str = r#"`os::getEnv` returns the value of the environment variable named `name` as it
 appears in the live process environment, including any value written earlier by
 `os::setEnv`. The lookup is the host `getenv` call; the returned bytes are copied
-into a fresh owned `String`.
+into a fresh `String`.
 
 If the variable is not set, `os::getEnv` raises `ErrNotFound` rather than
 returning an empty string, so a program can distinguish an unset variable from

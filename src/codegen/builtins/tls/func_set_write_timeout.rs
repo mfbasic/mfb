@@ -78,7 +78,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "sock",
-                    desc: "An open TLS socket whose write deadline to set. Borrowed, not consumed.",
+                    desc: "An open TLS socket whose write deadline to set. The handle stays open — you still close it.",
                     aliases: &[],
                     ty: ParameterType::named(super::TLS_SOCKET_TYPE_ID),
                     default: DefaultValue::None,

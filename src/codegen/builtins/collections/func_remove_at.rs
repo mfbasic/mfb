@@ -23,9 +23,9 @@ therefore always raises, since no index satisfies the range.
 
 `removeAt` does not change `value`. The list it names is unchanged; the
 shortened list is the returned value, and a program observes the update only
-through what it does with that return value. There is no in-place fast path for
-`removeAt` — the compiler's in-place assignment recognizers cover `append`, bulk
-`append`, `prepend`, `set`, and string concatenation, not `removeAt`.
+through what it does with that return value. Unlike `append`, `prepend`, and
+`set`, there is no cheap in-place shape for `removeAt`: every call copies the
+list.
 
 `removeAt` is **fallible**: the range check is a real trappable domain error, so
 an inline `TRAP` on a `removeAt` call compiles and catches the out-of-range

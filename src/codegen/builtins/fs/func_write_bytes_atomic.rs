@@ -77,8 +77,9 @@ const EX: &str = r#"Atomically write raw bytes to a file:
 IMPORT fs
 
 SUB main()
+  fs::createDirectories("output")
   LET bytes AS List OF Byte = [72, 105]
-  fs::writeBytesAtomic("target/output.bin", bytes)
+  fs::writeBytesAtomic("output/report.bin", bytes)
 END SUB
 ```
 

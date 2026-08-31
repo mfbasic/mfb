@@ -36,7 +36,7 @@ current Unix timestamp in milliseconds, its version nibble is `7`, its variant
 bits are `10`, and its remaining 74 bits are drawn from the OS CSPRNG. This makes
 values naturally time-ordered while retaining strong same-millisecond uniqueness.
 
-The function takes no arguments. Clock, entropy, or allocation failures propagate
+The function takes no arguments. Clock, entropy, or out-of-memory failures propagate
 from `datetime::nowNanos`, `crypto::randomBytes`, and string construction."#;
 const EX: &str = r#"Generate a time-ordered identifier:
 

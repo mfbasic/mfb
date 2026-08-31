@@ -103,9 +103,20 @@ packages() {
 # The function names a package's overview page lists. Continuation rows of a
 # wrapped summary start with a blank first column, so anchoring on `^│ pkg::`
 # counts each function exactly once.
+# Members that actually have a page, taken from the overview's *Functions*
+# table only. Scoping to that table matters: a package may render other tables
+# whose cells are also `pkg::name` — `math`'s Constants table lists `math::pi`
+# and friends, which are values with no page at all, and counting them reported
+# a phantom "7 pages with no prose".
 functions_of() {
 	local pkg=$1
 	"$MFB" man "$pkg" 2>/dev/null |
+		awk '
+			/^Functions$/ { infn = 1; next }
+			# A bare capitalised word on its own line starts the next section.
+			infn && /^[A-Za-z][A-Za-z ]*$/ { infn = 0 }
+			infn { print }
+		' |
 		grep -oE "^│ ${pkg}::[A-Za-z0-9_]+" |
 		sed "s/^│ ${pkg}:://" |
 		sort -u
@@ -300,12 +311,23 @@ mode_fill() {
 
 # ---------------------------------------------------------------------------
 # Rendered hits for the banned memory vocabulary, attributed to the page they
-# render on. Carve-out 1 (plan-108-A §3 (2a)): every `borrow` in `datetime` is
-# ARITHMETIC borrow ("a negative nanos value borrows a second"), not a memory
-# claim — classified and counted separately, never silently dropped.
+# render on.
+#
+# Carve-out 1 (plan-108-A §3 (2a)): every `borrow` in `datetime` is ARITHMETIC
+# borrow ("a negative nanos value borrows a second"), not a memory claim.
+#
+# Carve-out 2 (plan-108-E): an Errors-table row. Those rows are DERIVED from the
+# `errorCode` constant descriptors, whose `message` is the string the runtime
+# prints when the error is raised (`_mfb_str_error_allocation` and friends) —
+# not authored page prose. `ErrOutOfMemory`'s message is "Allocation failed.",
+# so every page that can raise it shows the banned word `allocation` in a cell
+# no page author can edit. Changing it would change program output and drift
+# goldens, which plan-108 is explicitly barred from doing.
+#
+# Both are classified and counted separately, never silently dropped.
 mode_memory_scope() {
 	local pkgs=("$@")
-	local pkg fn hits carve=0 unclassified=0
+	local pkg fn hits carve=0 carve2=0 unclassified=0
 
 	scan_page() { # $1 = label, $2 = rendered text
 		local label=$1 text=$2 line
@@ -315,6 +337,9 @@ mode_memory_scope() {
 			if [ "$pkg" = datetime ] && printf '%s' "$body" | grep -qiE 'borrow'; then
 				carve=$((carve + 1))
 				printf 'CARVE-1  %-28s %5s  %s\n' "$label" "$n" "$body"
+			elif printf '%s' "$body" | grep -qE '^.?.?.?.?[[:space:]]*[0-9]{8}[[:space:]]*.?.?.?.?[[:space:]]*Err[A-Za-z]'; then
+				carve2=$((carve2 + 1))
+				printf 'CARVE-2  %-28s %5s  %s\n' "$label" "$n" "$body"
 			else
 				unclassified=$((unclassified + 1))
 				printf 'HIT      %-28s %5s  %s\n' "$label" "$n" "$body"
@@ -335,6 +360,7 @@ mode_memory_scope() {
 	printf '\n'
 	printf 'unclassified memory-vocabulary hits: %d\n' "$unclassified"
 	printf 'carve-out 1 (datetime arithmetic borrow): %d\n' "$carve"
+	printf 'carve-out 2 (derived Errors-table row): %d\n' "$carve2"
 	[ "$unclassified" -eq 0 ]
 }
 

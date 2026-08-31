@@ -25,7 +25,7 @@ const DESC: &str = r#"`io::readLine` reads bytes from standard input up to and i
 feed (LF, byte `0x0A`) and returns the line as a `String` with its terminator
 removed. If the byte immediately before the LF is a carriage return (CR, byte
 `0x0D`) — a CRLF ending — that CR is stripped as well. A line that is empty before
-its terminator returns an empty `String`, while still consuming the terminator. It
+its terminator returns an empty `String`, and the terminator is read too. It
 takes no arguments.
 
 **On a terminal, `io::readLine` suppresses echo for the duration of the read.**
@@ -42,7 +42,9 @@ produced — including a prompt written with `io::write` — appears before the
 program waits. Bytes are decoded as UTF-8 as they arrive, with the full validity
 check; an ill-formed sequence fails rather than yielding a replacement character.
 End of input is reported as an error, not as an empty result — but only when it
-arrives before any byte of the line. Standard input is a per-thread broadcast log;
+arrives before any byte of the line. Input that ends mid-line is not lost: those
+bytes come back as the final, unterminated line, and the *next* call raises
+`ErrEof`. Standard input is a per-thread broadcast log;
 a thread other than the main thread must subscribe with `thread::openStdIn` before
 reading, or the call raises `ErrInvalidContext`."#;
 const EX: &str = r#"Read a line and echo it back:

@@ -69,7 +69,8 @@ const EX: &str = r#"Write text to a file:
 IMPORT fs
 
 SUB main()
-  fs::writeText("target/output.txt", "Hello")
+  fs::createDirectories("output")
+  fs::writeText("output/report.txt", "Hello")
 END SUB
 ```
 

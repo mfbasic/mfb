@@ -15,7 +15,7 @@ const INTO_SUM: &str = "Add up the elements of an Integer, Float, or Fixed list"
 const DESC_SUM: &str = r#"`collections::sum` walks `value` from the first element to the last and adds
 each element into a running total, returning that total. It is a **native**
 member: the compiler emits the accumulation loop directly rather than
-instantiating an MFBASIC generic.
+
 
 There are exactly **three** overloads — `List OF Integer`, `List OF Float`, and
 `List OF Fixed` — and the return type always matches the element type. There is
@@ -38,7 +38,7 @@ double addition and never raises — an out-of-range total becomes `±Inf` in th
 usual floating-point way.
 
 Note a wrinkle worth knowing before writing a handler: the compiler's inline-
-built-in fallibility census classifies `sum` as **infallible**, so attaching an
+`sum` is treated as **infallible** for the purpose of inline `TRAP`, so attaching an
 inline `TRAP` to a `sum` call raises the `TYPE_INLINE_TRAP_DEAD_HANDLER`
 diagnostic and that handler does not receive the overflow. The overflow is still
 raised at run time and still propagates out of the enclosing function, where an

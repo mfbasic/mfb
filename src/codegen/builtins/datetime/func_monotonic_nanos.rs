@@ -128,16 +128,15 @@ interval where a difference of `datetime::nowNanos` readings would not be. Use
 the wall-clock readings, not the monotonic ones, whenever you need an actual
 point in time.
 
-Internally the call lowers to a libc runtime helper that reads a single
-nanoseconds-since-origin value from the OS (`clock_gettime(CLOCK_MONOTONIC)` on
-the supported platforms). Prefer `datetime::monotonic` in ordinary code; reach
+The reading is a single nanoseconds-since-origin count taken from the host.
+Prefer `datetime::monotonic` in ordinary code; reach
 for `monotonicNanos` only when you want the bare integer count without
 constructing a `Duration`.
 
 `monotonicNanos` is **not pure**: two calls may return different values, and the
 values depend on host clock state. It takes no arguments, reads clock state only,
-and has no side effects. The reading always succeeds — the intrinsic returns an
-`Integer` in the result register with the OK tag set and never raises an error."#;
+and has no side effects. The reading always succeeds and never raises an
+error."#;
 const EX: &str = r#"Measure the elapsed time around a block of work in nanoseconds:
 
 ```

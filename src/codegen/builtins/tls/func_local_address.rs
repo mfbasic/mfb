@@ -31,8 +31,8 @@ the OS for a free port and then reading back which one it chose is the only
 race-free way to bind: picking a port number in advance and hoping it is free
 loses to any other process that wants it.
 
-The handle is borrowed, not consumed. The result is an ordinary `net::Address`
-value with no tie to the handle's lifetime, so it stays valid after the handle is
+The handle stays open — you still close it. The result is an ordinary `net::Address`
+value independent of the handle, so it stays valid after the handle is
 closed.
 
 **A file that uses the returned address must `IMPORT net` as well as `tls`.**
@@ -142,12 +142,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![
             overload(
                 super::TLS_SOCKET_TYPE_ID,
-                "An open TLS socket whose local end to report. Borrowed, not consumed.",
+                "An open TLS socket whose local end to report. The handle stays open — you still close it.",
                 &[],
             ),
             overload(
                 super::TLS_LISTENER_TYPE_ID,
-                "An open listener whose bound address to report — the way to learn the port after binding `0`. Borrowed, not consumed.",
+                "An open listener whose bound address to report — the way to learn the port after binding `0`. The handle stays open — you still close it.",
                 &["localAddressListener"],
             ),
         ],

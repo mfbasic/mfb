@@ -59,19 +59,16 @@ pub(crate) fn lower_close(
     Ok(super::gen_shared::void_result(ctx.call))
 }
 
-const INTRO: &str =
-    r#"Close an audio stream and release its operating-system resources, consuming the handle."#;
+const INTRO: &str = r#"Close an audio stream and release its operating-system resources; the handle cannot be used again."#;
 const DESC: &str = r#"`audio::close` shuts an open capture or playback stream down and releases the
-underlying OS objects, returning `Nothing`. It is defined over both directions;
-IR lowering routes each operand to a distinct per-direction internal body
-(`audio.closeInput` / `audio.closeOutput`), because their teardown sequences differ.
-Unlike every other `audio::` call, `close` consumes its stream handle: the binding is
-moved into the call and cannot be used afterward. Closing an `AudioOutput` first
+underlying OS objects, returning `Nothing`. It accepts either direction, and
+does the right thing for each — a capture stream and a playback stream shut down
+differently. Unlike every other `audio::` call, `close` ends its stream handle: it cannot be
+used afterward. Closing an `AudioOutput` first
 drains queued playback (so it can block until the audio already written has finished
 sounding); closing an `AudioInput` drops any buffered capture immediately. `close` is
 idempotent — closing an already-closed or defaulted handle is a no-op that returns
-successfully. A stream is also closed automatically by lexical drop when its binding
-leaves scope."#;
+successfully. A stream is also closed automatically by itself when its binding goes out of scope."#;
 const EX: &str = r#"Close an output stream explicitly after playback:
 
 ```
@@ -85,7 +82,7 @@ SUB main()
 END SUB
 ```"#;
 
-const STREAM_DESC: &str = "An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Consumed by the call — the handle is moved and unusable afterward. A closed handle is a no-op.";
+const STREAM_DESC: &str = "An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Closed by this call; the handle cannot be used again. A closed handle is a no-op.";
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {

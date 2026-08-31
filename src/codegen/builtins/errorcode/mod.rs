@@ -38,7 +38,7 @@ purpose is to let a `TRAP` handler compare `err.code` against a name instead of 
 magic number: `errorCode::ErrPathNotFound` rather than `77020001`.
 
 Each name resolves to the same `Integer` the runtime puts in `Error.code`, so a
-comparison is an ordinary integer equality with no conversion and no allocation.
+comparison is an ordinary integer equality, with no conversion at all.
 The constants are compile-time values; referencing one costs nothing at run time.
 The specification topic `mfb spec diagnostics error-codes` is the single source of
 truth for the Name → Integer mapping."#;

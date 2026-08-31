@@ -79,7 +79,8 @@ Create a temporary file in a specific directory:
 IMPORT fs
 
 SUB main()
-  RES g = fs::createTempFile("target")
+  fs::createDirectories("output")
+  RES g = fs::createTempFile("output")
   fs::writeAll(g, "data")
   ' g closes itself when this scope ends
 END SUB

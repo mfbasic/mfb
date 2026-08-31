@@ -192,7 +192,7 @@ const INTRO: &str =
     r#"Test whether standard input is ready to read, optionally waiting up to a timeout"#;
 const DESC: &str = r#"`io::pollInput` reports whether a following read of standard input can proceed
 without blocking. It returns `TRUE` when input is ready and `FALSE` when the wait
-elapses first, and it **consumes nothing** — the bytes are still there for
+elapses first, and it **reads nothing** — the bytes are still there for
 `io::readLine`, `io::readChar`, `io::readByte`, or `io::input`.
 
 `timeoutMs` bounds the wait, in milliseconds, following the language timeout
@@ -200,18 +200,24 @@ convention. When it is **omitted, `pollInput` blocks** until standard input
 becomes ready and then returns `TRUE` (omit = unbounded). `0` is a non-blocking
 check that returns immediately with the current readiness. A positive value waits
 up to that long. A negative `timeoutMs` is rejected with `ErrInvalidArgument`.
-Because the host `poll` takes a C `int`, a value above `2147483647` is clamped to
-that, which is roughly 24 days.
+A value above `2147483647` waits no longer than that, roughly 24 days.
 
-Readiness is answered in two stages: a byte already staged in the per-thread
-broadcast log reports `TRUE` at once with no system call, and only when the log
-holds nothing for this thread does the call `poll` file descriptor 0. A thread
-that has not subscribed simply defers to that `poll`; unlike the read calls,
-`io::pollInput` does not raise `ErrInvalidContext`. **End of input counts as
-ready**, so `io::pollInput` returns `TRUE` and the following read then raises
-`ErrEof`; a `TRUE` result promises that the next read will not block, not that it
-will succeed. A signal delivered while blocked is not an error: the `poll` is
-re-armed and retried."#;
+Input already waiting for this thread reports `TRUE` immediately; otherwise the
+call waits on standard input itself. A thread that has not subscribed with
+`thread::openStdIn` may still call `io::pollInput` — unlike the read calls, it
+does not raise `ErrInvalidContext`.
+
+**`TRUE` means at least one byte is ready — not that the next read completes.**
+Two cases to know about:
+
+- **End of input counts as ready.** `io::pollInput` returns `TRUE` and the
+  following read raises `ErrEof`.
+- **A partial character still waits.** `io::readChar` returns a whole Unicode
+  scalar, so if only the first byte of a multi-byte sequence has arrived, the
+  read blocks for the rest even though `io::pollInput` said `TRUE`.
+
+`io::readByte` is the one read that a `TRUE` result does fully guarantee. A
+signal delivered while waiting is not an error; the wait is resumed."#;
 const EX: &str = r#"Read a line only when one is already pending (pass `0` for the immediate check —
 omitting the timeout would instead block until input is ready):
 

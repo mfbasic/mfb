@@ -96,7 +96,7 @@ pub(crate) fn lower_executable_path(
 
 const INTRO: &str = r#"The path to the running executable"#;
 const DESC: &str = r#"`os::executablePath` returns the filesystem path of the running binary as an
-owned `String`. On macOS it uses `_NSGetExecutablePath`; on Linux it reads the
+`String`. On macOS it uses `_NSGetExecutablePath`; on Linux it reads the
 `/proc/self/exe` symlink with `readlink`, which yields the absolute, symlink-
 resolved path.
 

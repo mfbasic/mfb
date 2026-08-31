@@ -15,8 +15,7 @@ const INTO_TRANSFORM: &str =
 const DESC_TRANSFORM: &str = r#"`collections::transform` walks `value` from the first element to the last,
 calls `f` once per element with that element as its only argument, and appends
 each returned value to a new list. The result therefore has exactly as many
-elements as `value`, in the same order. It is a **native** member: the compiler
-emits the mapping loop directly rather than instantiating an MFBASIC generic.
+elements as `value`, in the same order.
 
 The element type of the result is `f`'s success type `U`, so mapping a
 `List OF Integer` through a `FUNC(Integer) AS String` yields a `List OF String`.
@@ -32,9 +31,8 @@ ordinary callables and can be passed directly where their type fits.
 `SUB` — does not resolve, because there would be nothing to collect. Use
 `collections::forEach` to run a callback purely for its side effects.
 
-`value` is neither modified nor closed; the result is a new list. The output is pre-sized to the source list's working set, since
-`transform` emits exactly one entry per source element, and each mapped value is
-then appended in place.
+`value` is neither modified nor closed; the result is a new list with exactly
+one value per source element, in the same order.
 
 An empty `value` calls `f` zero times and yields an empty `List OF U`.
 

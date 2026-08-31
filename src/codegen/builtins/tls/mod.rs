@@ -105,11 +105,10 @@ For plain unencrypted TCP use `tcp`; for datagrams use `udp`.
 The package defines two built-in types. `Socket` is a connected TLS stream —
 either an outbound client connection from `tls::connect` or an accepted server
 connection from `tls::accept`. `Listener` is a bound, listening server
-endpoint from `tls::listen` that owns the loaded server TLS context; `tls::accept`
-draws connections from it. Both are opaque, owned, non-copyable resource handles.
-Each is closed automatically by lexical drop when its binding leaves scope, so
+endpoint from `tls::listen` that holds the loaded server TLS settings; `tls::accept` draws connections from it. Both are opaque handles.
+Each is closed automatically when its binding goes out of scope, so
 `tls::close` is needed only to release a handle earlier; unlike `tcp::close`,
-`tls::close` consumes the handle and treats an already-closed handle as success
+`tls::close` closes the handle and treats an already-closed handle as success
 rather than an error. Neither handle type is thread-sendable, and neither can be
 carried in a record. Both may be collection elements when the element type is
 spelled `RES` (a bare `List OF tls::Socket` is rejected with
@@ -117,9 +116,7 @@ spelled `RES` (a bare `List OF tls::Socket` is rejected with
 multiplex form takes.
 
 
-The server's TLS context is owned by the `Listener` and borrowed by every
-`Socket` that `tls::accept` returns from it: closing an accepted socket never
-frees the shared context, which is released exactly once when the listener
+The `Listener` holds the server's TLS settings and every `Socket` that `tls::accept` returns shares them: closing an accepted socket leaves the listener and its settings intact, which is released exactly once when the listener
 closes. Accepted sockets may therefore be closed in any order, and the listener
 may be closed while accepted sockets are still live. The server presents its
 certificate but does not request or verify a client certificate — there is no
@@ -175,8 +172,8 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_resource(RegistryResource {
         name: TLS_LISTENER_TYPE,
         export: true,
-        description: "A bound, listening server endpoint from `tls::listen` that owns the \
-                      loaded server TLS context; `tls::accept` draws connections from it.",
+        description: "A bound, listening server endpoint from `tls::listen`, holding the \
+                      loaded server TLS settings; `tls::accept` draws connections from it.",
         close_function: CLOSE_LISTENER,
         // The listener owns the server TLS context and accepts on its own thread; not
         // thread-sendable in v1 (plan-06-tls-server.md §1).

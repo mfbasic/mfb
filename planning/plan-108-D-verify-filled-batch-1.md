@@ -143,31 +143,136 @@ corrected.
 
 ### Phase 1 — collections, math
 
-- [ ] Verify collections 24 + math 21 pages + overviews + types pages;
-      every example compiled and run.
-- [ ] Cross-model review per package + apply; ledgers here.
-- [ ] Verify: rendering reads clean; census still 100%.
+- [x] Verify collections **49** + math **21** pages + overviews + types
+      pages; every example compiled and run (collections 140/140,
+      math 21/21 — `scripts/man-run-examples.sh <pkg> --run`).
+      Counts corrected, see Corrections.
+- [x] Cross-model review per package + apply; ledgers here.
+- [x] Verify: rendering reads clean; census still 100%
+      (`scripts/man-census.sh --fill collections math`).
+
+**Ledger — collections (33 findings, all LEAKAGE, all applied).** The
+package explained itself in compiler terms throughout. Rewritten by kind:
+
+| Was | Now |
+|---|---|
+| "It is a **native** member: the compiler emits the <X> loop directly rather than instantiating an MFBASIC generic" (`filter`, `find`, `forEach`, `mid`, `reduce`, `sum`, `transform`) | deleted — a developer cannot act on it |
+| "When the compiler can prove the target is a same local being reassigned … it lowers the call to an in-place grow with geometric spare capacity" (`add`, `append`, `set`, `remove`, `prepend`) | kept the FACT, dropped the mechanism: "Assigning straight back to the same local variable — `list = collections::append(list, x)` — is the cheap shape: it grows the list instead of copying it… Appending to something reached another way (a parameter, a module-level `MUT`, or the list a `FOR EACH` is walking) copies the whole list on every call." |
+| "the compiler's in-place assignment recognizers cover `append`, bulk `append`, `prepend`, `set`, and string concatenation, not `insert`" (`insert`, `removeAt`, `replace`) | "Unlike `append`, `prepend`, and `set`, there is no cheap in-place shape for `insert` at an arbitrary index: every call copies the list." |
+| "hash bucket index … linear scan of the entry table" (`get`, `getOr`, `hasKey`) | "is a direct lookup; other key types are found by scanning the map" |
+| "the lookup-entry table … its own storage is not aliased … separate derived metadata" (`keys`, `values`) | "The map keeps its entries in insertion order and `keys` walks them in that order" |
+| "a composite payload stored inline in the collection's data region is copied into a standalone arena block before it is handed back, so binding, storing, and freeing the result cannot disturb the source" (`get`) | "you get a copy, so nothing you do with it afterwards can disturb the collection it came from. See `mfb man variable`." |
+| "freeing it would turn a leak into a use-after-free. Intermediate accumulators are likewise left unfreed" (`reduce`) | "The reducer may return one of the elements it was given as the new accumulator, and that is safe to do." |
+| "the internal slice helper … lowered natively as a bulk range copy" (`chunks`, `drop`, `take`, `window`) | "The remaining elements are copied into a new list" |
+| "the compiler's inline-built-in fallibility census classifies `sum` as infallible" | "`sum` is treated as **infallible** for the purpose of inline `TRAP`" |
+| "does not share storage with `value`" (`drop`, `take`, `chunks`) | "nothing you do with the result affects `value`" |
+
+**Ledger — math (6 findings: 1 INACCURACY, 1 MISSING, 4 LEAKAGE; all
+applied).**
+
+- **INACCURACY + LEAKAGE.** "Every function lowers inline at the call site,
+  like `bits::*`, rather than calling a runtime helper, and produces
+  identical results on the native and Binary Representation execution
+  paths." False (`pow`/`atan2`/`rand`/`seed` call helpers) *and* internals.
+  Deleted; replaced with the return-type rules a caller needs.
+- **LEAKAGE.** intro "Scalar and vectorized (SIMD) numeric functions" →
+  "Numeric functions and constants". SIMD is a mechanism, not behaviour.
+- **LEAKAGE.** "this thread's PCG64 generator" (`rand`, `seed`) → "this
+  thread's random sequence".
+- **MISSING — the biggest of the six.** The overview said "14 compile-time
+  constants (`pi`, `e`, `ln2`, and friends)" and stopped. `mfb man math pi`
+  answers `error: unknown math function 'pi'`, so 11 of the 14 names were
+  undiscoverable from the documentation. The overview now carries the full
+  Float/Fixed/value table and says explicitly that a constant has no page of
+  its own because it is a value, not a function.
 
 Acceptance: both packages verified and reviewed; ledgers recorded.
 Commit: —
 
 ### Phase 2 — encoding, fs
 
-- [ ] Verify encoding 28 + fs 42 pages + overviews + types pages; fs
-      examples rewritten onto temp paths where needed, all compiled and
-      run.
-- [ ] Cross-model review + apply; ledgers.
-- [ ] Verify: rendering + census as Phase 1.
+- [x] Verify encoding 28 + fs **41** pages + overviews + types pages; fs
+      examples rewritten onto paths they create themselves, all compiled
+      and run (encoding 57/57, fs 94/94).
+- [x] Cross-model review + apply; ledgers.
+- [x] Verify: rendering + census as Phase 1.
+
+**Ledger — fs (33 findings; 16 of them one defect).** The review found
+**16 examples that do not run**, all the same defect: they read or write
+under a directory the example never creates — `target/` in fourteen cases,
+which exists in this repository's own checkout but never in a reader's
+project. `fs::writeText("target/output.txt", "Hello")` fails with
+`ErrNotFound` for anyone who pastes it.
+
+This also exposed a **defect in `scripts/man-run-examples.sh`**: it ran each
+built example with the *repository* as the working directory, so `target/`
+resolved to cargo's own `target/` and all 16 passed. Fixed (the binary now
+runs with the scratch project as cwd) — see Corrections. With the fix the
+harness reproduces all 16 failures exactly, and after the content fix reports
+94 built / 94 run / 0 failed.
+
+Each example now creates what it needs, which also demonstrates
+`fs::createDirectories`:
+
+```
+SUB main()
+  fs::createDirectories("output")
+  fs::writeText("output/report.txt", "Hello")
+END SUB
+```
+
+The remaining fs findings were the same LEAKAGE classes as collections.
+
+**Ledger — encoding (3 findings, all applied).**
+
+- **INACCURACY.** The overview said "Decoders reject malformed input with
+  `ErrInvalidFormat`". Base32/Base64 do **not** reject a non-canonical final
+  group. Verified: `encoding::base64Decode("AB==")` and
+  `encoding::base32Decode("AB======")` each return a single `0` byte instead
+  of raising. The page now says so and warns: "Do not use a decode round-trip
+  as a canonical-form check."
+- **MISSING.** `htmlUnescape` said a named reference is "looked up in the
+  built-in entity table" without saying the table is finite. `&alpha;` raises
+  `ErrInvalidFormat` ("unknown entity"). The page now lists all **44**
+  recognised names and says any other must be written numerically.
+- **LEAKAGE.** `utf8Encode`'s "the exact bytes that make up the string's
+  storage" → "the UTF-8 bytes of the string, one list element per byte".
 
 Acceptance: both packages verified and reviewed.
 Commit: —
 
 ### Phase 3 — datetime
 
-- [ ] Verify 45 pages + overview + types page; timezone/DST/precision
-      claims probe-verified; examples compiled and run.
-- [ ] Cross-model review + apply; ledger.
-- [ ] Verify: rendering + census as Phase 1.
+- [x] Verify **44** pages + overview + types page; timezone/DST/precision
+      claims probe-verified; examples compiled and run (112/112).
+- [x] Cross-model review + apply; ledger.
+- [x] Verify: rendering + census as Phase 1.
+
+**Ledger — datetime (12 findings: 3 INACCURACY, 9 LEAKAGE; all applied).**
+
+- **INACCURACY (reproduced here before applying).** The overview said
+  "Everything civil — `Date`, `Time`, and `DateTime` — is a projection of an
+  instant through a `Zone`." A hand-built `DateTime` is not checked:
+  `DateTime[Date[2026,6,26], Time[9,30,0,0], datetime::utc(), 3600]`
+  projected back through UTC gives `2026-06-26T08:30:00.000Z`, an hour off
+  the `09:30` supplied, because `resolve` believes the offset field. The
+  claim is now scoped to values the package *produces*, with the constructor
+  caveat spelled out.
+- **INACCURACY.** "Only three operations touch the host" omitted the three
+  public `*Nanos`/`localOffset` entry points. Now: "the wall clock (`now`
+  and `nowNanos`), the monotonic counter (`monotonic` and `monotonicNanos`),
+  and local-zone offset resolution".
+- **INACCURACY.** `now`'s "the only wall-clock entry point in the package" →
+  "the package's wall-clock entry point that returns an `Instant`
+  (`datetime::nowNanos` reads the same clock as a bare nanosecond count)".
+- **LEAKAGE ×9.** `clock_gettime(CLOCK_REALTIME)`, `tv_sec`, libc `timespec`,
+  `localtime_r`/`tm_gmtoff`, "lowers to a libc runtime helper", "returns an
+  `Integer` in the result register with the OK tag set", Howard Hinnant's
+  civil↔epoch-day algorithm, `daysFromCivil(...) * 86400`, and the
+  `ZoneKind::Utc`/tag-`0`/`FixedOffset`/tag-`1`/`Local`/tag-`2` walkthroughs.
+  All removed. Note `ZoneKind` is a **public enum of this package**, so its
+  variant *names* stay — respelled the MFBASIC way (`ZoneKind.Utc`), without
+  the Rust `::` path or the numeric tags.
 
 Acceptance: datetime verified and reviewed.
 Commit: —
@@ -185,7 +290,51 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+1. **Page counts were wrong for four of the five packages.** The plan said
+   collections 24, math 21, encoding 28, fs 42, datetime 45. Measured with
+   `scripts/man-census.sh --fill <pkg>`:
+
+   | Package | Plan said | Actually | Note |
+   |---|---|---|---|
+   | collections | 24 | **49** | more than double |
+   | math | 21 | 21 | correct |
+   | encoding | 28 | 28 | correct |
+   | fs | 42 | **41** | |
+   | datetime | 45 | **44** | |
+
+   Scope corrected in place above. No other letter derived a count from
+   these.
+
+2. **`scripts/man-census.sh` counted `math`'s constants as pages.**
+   `functions_of` scraped every `│ math::name` cell from the whole overview,
+   and the Constants table this letter added put `math::pi` … `math::ln10`
+   into that scrape. The census then reported "7 pages with neither
+   Description nor Examples" for members that have no page at all
+   (`mfb man math pi` → `error: unknown math function 'pi'`). Fixed by
+   scoping the scrape to the overview's *Functions* table. After the fix
+   `--fill math` reads `21 21 21 21 28/28`, not `28 21 21 21`.
+
+3. **`scripts/man-run-examples.sh` ran examples with the wrong working
+   directory** — the repository root rather than the scratch project. A
+   relative path in an example therefore resolved against cargo's `target/`,
+   and 16 broken `fs` examples reported as passing. This is the defect that
+   made the instrument agree with the documentation instead of testing it.
+   Fixed: the built binary now runs with the scratch project as cwd. Before
+   the fix `fs` reported 94 run / 0 failed; after it, 78 run / 16 failed —
+   exactly the 16 the independent review found.
+
+4. **The harness treated a documented failure as a harness failure.**
+   `collections::groupBy`'s third example demonstrates error propagation and
+   the page states its output ("prints, and exits non-zero: `failed:
+   77050002`"). The harness now accepts a non-zero exit when every line the
+   program printed appears in the rendered page — which additionally checks
+   the page's stated output against the real one.
+
+5. **Two example-only conveniences were added to the harness**, both to
+   verify by *running* rather than downgrading a page to compile-only:
+   `STDIN_FILE=` feeds real input to the `io` examples that read stdin (22/22
+   now run), and the companion `workers` package the `thread` and `os::sleep`
+   examples import is built automatically (13/13 now run).
 
 ## Summary
 

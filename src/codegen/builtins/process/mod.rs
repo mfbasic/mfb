@@ -85,11 +85,11 @@ pub(crate) const DROP: &str = "process.__drop";
 const MODULE_INTRO: &str =
     r#"Spawn and manage child processes: run a program, stream its standard I/O,"#;
 const MODULE_DESC: &str = r#"The `process` package runs and controls child processes. Its one resource,
-`Process`, is an opaque, owned, non-copyable handle to a spawned child — a native
-resource sharing the runtime's canonical resource record (resource tag `10`).
-Like every resource handle it cannot be copied, stored as a collection element,
-or carried in a record; it is closed automatically by lexical drop when its
-binding leaves scope.
+`Process`, is an opaque handle to a spawned child. Like every resource handle it
+cannot be copied and cannot be a field of a record, but it can be held in a
+collection (a `List OF RES process::Process` is how you supervise several
+children).
+It closes itself when its binding goes out of scope.
 
 
 A child is created two ways. `process::spawn` runs a program directly from an
@@ -101,12 +101,12 @@ working directory, an environment `Map OF String TO String`, and a replace-vs-me
 flag.
 
 
-Ownership of a live child is deliberate. Letting a `Process` drop at scope exit
+What happens to a live child is deliberate. Letting a `Process` go out of scope
 **force-kills and reaps** it (`SIGKILL` + `waitpid` on Unix), so no runaway child
-or zombie is left behind and the drop never blocks. `process::close` is *not* a
-handle-consuming close: it closes only the child's standard input (signalling
+or zombie is left behind and the cleanup never blocks. `process::close` does *not* close the
+handle: it closes only the child's standard input (signalling
 end-of-input to a filter) and leaves the child running and the handle usable.
-`process::detach` relinquishes ownership the other way — it closes the parent-side
+`process::detach` goes the other way — it closes the parent-side
 pipes, arranges for the child to be auto-reaped, and marks the handle closed so
 the child keeps running independently after the program exits.
 
@@ -123,10 +123,22 @@ reaches end of stream with nothing buffered raises `ErrResourceClosed`, so a
 consumer loops until that error is raised.
 
 
-The `Signal` enum is a four-bucket cross-platform vocabulary (`None`, `Kill`,
-`Terminate`, `Error`) used both to *deliver* a signal with `process::signal` and
-to *observe* how a terminated child died with `process::didSignal`; the exact
-platform mapping is tabulated in `mfb man process types`.
+The `Signal` enum is a four-bucket cross-platform vocabulary used both to
+*deliver* a signal with `process::signal` and to *observe* how a terminated
+child died with `process::didSignal`:
+
+| `Signal` | Sent on Unix | Sent on Windows | Read back when the child died from |
+|---|---|---|---|
+| `Signal.None` | nothing (a no-op) | nothing (a no-op) | a normal exit, or still running |
+| `Signal.Kill` | `SIGKILL` | `TerminateProcess` | `SIGKILL` |
+| `Signal.Terminate` | `SIGTERM` | `TerminateProcess` | `SIGTERM`, `SIGINT`, `SIGHUP`, `SIGQUIT` |
+| `Signal.Error` | `SIGABRT` | `TerminateProcess` | `SIGABRT`, `SIGSEGV`, `SIGFPE`, `SIGILL`, `SIGBUS` |
+
+Windows has no signals, so every delivered signal is the same forced
+termination there and `didSignal` reports `Signal.None` for every child. On
+Unix the buckets are lossy in the read direction: several signals map to one
+bucket, so `didSignal` tells you the *kind* of death, not which signal caused
+it.
 
 
 
@@ -198,8 +210,8 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_resource(RegistryResource {
         name: PROCESS_TYPE,
         export: true,
-        description: "An opaque handle to a spawned child process, released automatically \
-                      when it leaves scope.",
+        description: "An opaque handle to a spawned child process. When its binding \
+                      ends, a still-running child is stopped.",
         close_function: DROP,
         // A Process owns child pipe fds and drives waitpid from its owning thread; not
         // thread-sendable in v1 (plan-90-A; C revisits). The `__drop` op force-kills and

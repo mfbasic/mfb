@@ -10,7 +10,7 @@ const INTRO: &str = r#"Return a new list holding the first `count` elements of a
 
 const DESC: &str = r#"`collections::take` returns a new list containing the leading `count` elements
 of `value`, in their original order.`take(value, count)` is defined as the half-open range `[0, count)` of `value`,
-delegated to the internal slice helper. That helper is lowered natively as a
+The selected elements are copied as a
 bulk range copy, and that is what defines the boundary behavior:
 the range start is clamped into `[0, len]` and the range stop into
 `[start, len]`.
@@ -25,7 +25,7 @@ accepted and no index is ever rejected:
 - Otherwise the result holds exactly `count` elements.
 
 The result is a new list; the elements are copied into it, so
-the returned list does not share storage with `value`. `value` is not modified.
+nothing you do with the result affects `value`. `value` is not modified.
 `collections::drop` is the complementary operation, returning what `take` leaves
 behind.
 

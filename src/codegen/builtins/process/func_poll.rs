@@ -26,8 +26,13 @@ const DESC: &str = r#"`process::poll` reports whether a following read of a chil
 proceed without blocking. It returns `TRUE` when the selected stream is readable —
 **including** the case where the child has closed it and the stream is at end of
 output, so a draining `process::receive`/`process::receiveBytes` can follow — and
-`FALSE` when nothing became readable before the deadline. The stream is inspected
-only; no data is consumed, so a `TRUE` result leaves the bytes in place for the next
+`FALSE` when nothing became readable before the deadline. A `timeoutMs` of `0`
+checks and returns immediately; a negative `timeoutMs` waits with no deadline at
+all, until the stream is readable or the child exits.
+
+Calling `poll` after `process::detach` raises `ErrResourceClosed`, because
+detaching ends the handle. The stream is inspected
+only; nothing is read, so a `TRUE` result leaves the bytes in place for the next
 read.
 
 `ms` is the wait bound in milliseconds. `0` is a non-blocking check that returns the
@@ -53,7 +58,7 @@ FUNC main AS Integer
 END FUNC
 ```
 
-Check the child's standard error without blocking:
+Check the child's standard error, waiting up to half a second:
 
 ```
 IMPORT process
@@ -61,7 +66,7 @@ IMPORT io
 
 FUNC main AS Integer
   RES sh = process::shell("echo oops 1>&2")
-  IF process::poll(sh, 0, Stream.StdErr) THEN
+  IF process::poll(sh, 500, Stream.StdErr) THEN
     io::print(process::receive(sh, Stream.StdErr))
   END IF
   RETURN 0
@@ -107,7 +112,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "p",
-                    desc: "The child process handle. Borrowed and inspected for readiness only; no data is read. Also accepts the alternate named-argument spelling `process`.",
+                    desc: "The child process handle. The handle stays open — this only tests readiness and reads no data. Also accepts the alternate named-argument spelling `process`.",
                     aliases: &["process"],
                     ty: ParameterType::named(super::PROCESS_TYPE_ID),
                     default: DefaultValue::None,

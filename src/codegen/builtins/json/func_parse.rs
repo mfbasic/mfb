@@ -54,7 +54,7 @@ rejected.
 
 The parser is iterative rather than recursive at every *scanning* level —
 whitespace runs, digit runs, string bodies, and the sibling elements of a single
-array or object — so a long flat document does not consume a native stack frame
+array or object — so a long flat document does not use a stack frame
 per character.
 
 Structural *nesting*, by contrast, does descend one call per level, so it is

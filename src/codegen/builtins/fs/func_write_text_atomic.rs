@@ -78,7 +78,8 @@ const EX: &str = r#"Atomically write text to a file:
 IMPORT fs
 
 SUB main()
-  fs::writeTextAtomic("target/output.txt", "done")
+  fs::createDirectories("output")
+  fs::writeTextAtomic("output/report.txt", "done")
 END SUB
 ```
 

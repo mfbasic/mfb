@@ -43,8 +43,7 @@ const INTRO: &str = r#"Capture PCM frames from an input stream as raw `s16le` by
 const DESC: &str = r#"`audio::read` captures PCM from an open `AudioInput` and returns it as a
 `List OF Byte` of raw interleaved `s16le` samples (one frame is `channels * 2`
 bytes). `read` is defined only over `AudioInput`; passing an `AudioOutput` is a
-compile-time overload-resolution error. The stream is borrowed, not consumed.
-`frames` must be in `1..=1048576`. The two-argument form blocks until exactly
+compile-time overload-resolution error. The stream stays open — you still close it. `frames` must be in `1..=1048576`. The two-argument form blocks until exactly
 `frames` frames are captured. The three-argument form's `timeoutMs` follows the
 language timeout convention: a negative value raises `ErrInvalidArgument`; `0`
 returns immediately with whatever whole frames are already buffered (a poll); a
@@ -75,7 +74,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 param(
                     "input",
-                    "An open capture stream, from `audio::openInput`. Borrowed, not consumed. Reading after close raises `ErrAudioDevice`.",
+                    "An open capture stream, from `audio::openInput`. The handle stays open — you still close it. Reading after close raises `ErrAudioDevice`.",
                     &[],
                     ParameterType::named(AUDIO_INPUT_TYPE_ID),
                 ),

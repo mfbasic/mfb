@@ -7,7 +7,7 @@ use crate::types::ParameterType::{Integer, Nothing};
 
 use super::{overload, req};
 const INTRO: &str = r#"Reseed this thread's random generator."#;
-const DESC: &str = r#"`seed(value)` reseeds this thread's PCG64 generator so a subsequent sequence of
+const DESC: &str = r#"`seed(value)` resets this thread's random sequence so a subsequent sequence of
 `math::rand` draws is reproducible. It returns Nothing. Seeding is per-execution
 context: a worker thread inherits the spawning thread's stream and then diverges
 independently."#;

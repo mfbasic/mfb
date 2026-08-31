@@ -10,8 +10,8 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 const INTRO: &str = r#"Encode a `String` to its UTF-8 bytes."#;
-const DESC: &str = r#"`encoding::utf8Encode` returns the UTF-8 encoding of `value` — the exact bytes
-that make up the string's storage — one element per byte. Because MFBASIC strings
+const DESC: &str = r#"`encoding::utf8Encode` returns the UTF-8 encoding of `value`, one list element
+per byte. Because MFBASIC strings
 are always UTF-8 text, the result is the string's raw octets in order, with each
 element in the range `0..255`.
 

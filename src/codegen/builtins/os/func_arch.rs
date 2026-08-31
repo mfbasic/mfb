@@ -28,7 +28,7 @@ pub(crate) fn lower_arch(
 const INTRO: &str = r#"The CPU architecture the program was built for"#;
 const DESC: &str = r#"`os::arch` returns the CPU architecture of the build target: `"aarch64"`,
 `"x86_64"`, or `"riscv64"`. Like `os::name`, it is a compile-time constant fixed
-at build time and materialized directly into an owned `String`, with no host
+at build time and produced directly as a `String`, with no host
 call."#;
 const EX: &str = r#"Print the architecture:
 

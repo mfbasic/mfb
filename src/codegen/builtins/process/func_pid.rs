@@ -28,7 +28,7 @@ it returns the same value for the life of the handle, even after the child has
 exited (the pid is not re-checked for liveness — use `process::isRunning` for
 that).
 
-The handle is borrowed and left open. Calling `pid` on a handle that has already
+The handle stays open. Calling `pid` on a handle that has already
 been dropped or detached raises `ErrResourceClosed`."#;
 const EX: &str = r#"Print the child's process ID:
 
@@ -78,7 +78,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "p",
-                desc: "The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`.",
+                desc: "The child process handle. The handle stays open — you still close it. Also accepts the alternate named-argument spelling `process`.",
                 aliases: &["process"],
                 ty: ParameterType::named(super::PROCESS_TYPE_ID),
                 default: DefaultValue::None,

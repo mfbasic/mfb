@@ -16,8 +16,8 @@ missing it returns `default`. It raises no trappable error at all, which is
 precisely the difference between the two: an inline `TRAP` on a
 `collections::getOr` call has a dead handler.
 
-The collection is neither copied nor mutated; only the selected payload is
-materialized.
+The collection is neither copied nor mutated; only the selected item or value is
+copied out.
 
 Both paths return a value that is yours to keep and independent of the
 collection. When the element type is `String`, the supplied `default` is copied
@@ -34,9 +34,9 @@ and then bytes. A `Float` key is matched bit-for-bit, so `NaN` never matches and
 `-0.0` does not match a stored `0.0`; such a lookup simply yields `default`.
 
 Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`,
-`Byte`, and `Boolean` goes through the map's hash bucket index — the same probe
+`Byte`, and `Boolean` is a direct lookup — the same one
 `collections::get` uses — with `default` substituted on the probe's not-found
-branch; other key types fall back to a linear scan of the entry table. This is
+branch; other key types are found by scanning the map. This is
 a performance difference only — both paths select the same entry and yield the
 same `default` when the key is absent."#;
 

@@ -54,7 +54,7 @@ SUB main()
 END SUB
 ```"#;
 
-const STREAM_DESC: &str = "An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Borrowed, not consumed. A closed handle reports `0`.";
+const STREAM_DESC: &str = "An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. The handle stays open — you still close it. A closed handle reports `0`.";
 
 fn overload(stream_ty: &'static str) -> Implementation {
     Implementation {

@@ -9,8 +9,7 @@ const INTO_FIND: &str =
     "Return the index of the first matching element or contiguous sublist in a list";
 
 const DESC_FIND: &str = r#"`collections::find` scans `value` forward from `start` and returns the
-zero-based index of the first match. It is a **native** member: the compiler
-emits the search loop directly rather than instantiating an MFBASIC generic.
+zero-based index of the first match.
 
 This page documents the `List` form only. `collections::find` accepts nothing
 but a `List` as its first argument; the `String` search of the same name lives in

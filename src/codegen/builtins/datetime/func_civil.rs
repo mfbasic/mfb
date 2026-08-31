@@ -14,9 +14,8 @@ a concrete `Instant`, it round-trips: `datetime::resolve` on the returned
 
 
 The `year`, `month`, and `day` of `date` and the `hour`, `minute`, and `second`
-of `time` are combined into a single second count (`daysFromCivil * 86400 +
-hour * 3600 + minute * 60 + second`) that names the wall-clock moment, treated
-as a civil (zone-local) time. The offset for that moment is then resolved from
+of `time` are read together as one wall-clock moment, treated as a civil
+(zone-local) time. The offset for that moment is then resolved from
 `zone`. For a zone with a fixed offset (built by `datetime::utc` or
 `datetime::fixedOffset`) the offset is constant; for the host's local zone
 (`datetime::local`) it is resolved from the platform's zone table at that

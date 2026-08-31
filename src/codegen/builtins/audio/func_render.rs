@@ -45,8 +45,7 @@ const INTRO: &str = r#"Synthesize one `AudioNote` to mono `s16le` PCM at 48 kHz.
 const DESC: &str = r#"`audio::render` is a pure MFBASIC tone synthesizer, not a device call: it never
 opens hardware and touches no audio stream. It turns one `AudioNote` into raw
 single-channel `s16le` PCM at a fixed 48 kHz sample rate and returns it as a
-`List OF Byte` — the same mono frame layout `audio::write` consumes, so the result
-can be handed straight to an open `AudioOutput`. The returned list is
+`List OF Byte` — the same mono frame layout `audio::write` accepts, so the result can be handed straight to an open `AudioOutput`. The returned list is
 `note.noteFrames * 2` bytes long (empty when `note.noteFrames <= 0`). Each frame is
 a sine oscillator shaped by the note's `AudioEnvelope` (linear attack, decay to
 `sustainLevel`, held sustain, linear release), scaled by `gainOverall`, converted to

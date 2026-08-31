@@ -13,7 +13,7 @@ const INTRO: &str =
 const DESC: &str = r#"`money::round` settles `value` to `decimals` fractional places and returns the
 result, still as a `Money`. It is the explicit "compute at five places, book at
 two" operation: intermediate `Money` arithmetic keeps all five decimal places that
-the type carries, and `money::round` is what settles a line item or an allocation
+the type carries, and `money::round` is what settles a line item or a share
 remainder to whole cents (`decimals` `2`) or another scale when it is time to
 record it.
 

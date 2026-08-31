@@ -9,7 +9,7 @@ use super::{overload, req};
 const INTRO: &str =
     r#"A uniform random value in an inclusive range, from this thread's generator."#;
 const DESC: &str = r#"`rand(min, max)` returns a uniformly-distributed value in the inclusive range
-`[min, max]`, drawn from this thread's PCG64 generator (seeded with `math::seed`).
+`[min, max]`, drawn from this thread's random sequence (seeded with `math::seed`).
 The `(Integer, Integer)` form returns `Integer`; the `(Money, Money)` form returns
 `Money` (a uniform amount between two amounts is itself an amount). `min` must not
 exceed `max`, else `ErrInvalidArgument`."#;

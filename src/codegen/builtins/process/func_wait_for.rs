@@ -28,6 +28,13 @@ returns its exit code. A child that exited normally returns its exit status
 (`0 .. 255` on Unix); a child killed by a signal returns `-1`.
 
 
+**A `process::detach` anywhere in the program breaks the exit code.** On Unix,
+`process::detach` asks the operating system to clean up finished children
+automatically, and that setting applies to the whole program rather than to one
+child: after any `detach`, `waitFor` on any *other* handle reports `0` instead
+of that child's real exit code. Do not detach a child while you still need an
+accurate exit status from another one.
+
 `waitFor` is **idempotent**. The first call reaps the child (`waitpid` on Unix) and
 caches its exit code and raw wait status in the handle; every later call — and a
 call after `process::isRunning` already observed the exit — returns the cached code
@@ -35,15 +42,18 @@ without blocking again. Because reaping and caching happen here (or in
 `isRunning`), a subsequent `process::didSignal` can report how the child died.
 
 
-The handle is borrowed and left open; the child stays reaped, so letting the handle
-drop afterward is a no-op rather than a second wait. Calling `waitFor` on a handle
-that has already been dropped or detached raises `ErrResourceClosed`.
+The handle stays open and the child stays reaped, so ending the binding
+afterwards does not wait a second time. Calling `waitFor` on a handle whose
+binding has already ended, or that has been detached, raises
+`ErrResourceClosed`.
 
 
-Standard output a child writes but the program never reads is discarded when the
-pipe buffer fills, which can cause a child that keeps writing to block instead of
-exiting; drain the child with `process::receive` (or close its input with
-`process::close`) before `waitFor` when the child produces output."#;
+**Drain a chatty child before you wait.** Output the program never reads is not
+thrown away: once the pipe between parent and child fills up, the child blocks
+in its own write and can never exit, so `waitFor` waits forever. Read the child
+with `process::receive` or `process::receiveBytes` until it reports end of
+stream, *then* call `waitFor`. A child that writes less than a pipeful (tens of
+kilobytes) is safe either way."#;
 const EX: &str = r#"Run a command to completion and read its exit code:
 
 ```
@@ -94,7 +104,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "p",
-                desc: "The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`.",
+                desc: "The child process handle. The handle stays open — you still close it. Also accepts the alternate named-argument spelling `process`.",
                 aliases: &["process"],
                 ty: ParameterType::named(super::PROCESS_TYPE_ID),
                 default: DefaultValue::None,

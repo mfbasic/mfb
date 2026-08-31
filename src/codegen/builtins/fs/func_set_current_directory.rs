@@ -66,7 +66,8 @@ const EX: &str = r#"Move into a subdirectory and back up to the parent:
 IMPORT fs
 
 SUB main()
-  fs::setCurrentDirectory("tests")
+  fs::createDirectories("scratch")
+  fs::setCurrentDirectory("scratch")
   fs::setCurrentDirectory("..")
 END SUB
 ```
@@ -78,7 +79,8 @@ IMPORT fs
 IMPORT io
 
 SUB main()
-  fs::setCurrentDirectory("target")
+  fs::createDirectories("output")
+  fs::setCurrentDirectory("output")
   LET here AS String = fs::currentDirectory()
   io::print(here)
 END SUB

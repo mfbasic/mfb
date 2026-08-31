@@ -15,16 +15,13 @@ The function is exactly the composition of `datetime::resolve` and
 and then projects that `Instant` into `zone` with `datetime::inZone`.
 
 
-The `resolve` step reads the offset already pinned on `dt` to reach the UTC
-timeline without any zone lookup (`daysFromCivil(...) * 86400 + hour * 3600 +
-minute * 60 + second - dt.offset`). The `inZone` step then resolves the effective
-offset for `zone` at that instant — zero for a UTC zone (`ZoneKind::Utc`), the
-stored constant for a fixed-offset zone (`ZoneKind::FixedOffset`, built with
+The `resolve` step reaches the UTC timeline using the offset already pinned on
+`dt`, with no zone lookup at all. The `inZone` step then works out the offset
+`zone` had at that instant — zero for a UTC zone (`ZoneKind.Utc`), the stored
+constant for a fixed-offset zone (`ZoneKind.FixedOffset`, built with
 `datetime::fixedOffset`), and the DST-correct host offset for a local zone
-(`ZoneKind::Local`, built with `datetime::local`) — adds it to the instant's
-seconds, floor-divides into whole days and second-of-day, and splits the result
-into civil year/month/day and hour/minute/second with the proleptic Gregorian
-calendar.
+(`ZoneKind.Local`, built with `datetime::local`) — and produces the civil date
+and time an observer in `zone` reads at that moment.
 
 
 

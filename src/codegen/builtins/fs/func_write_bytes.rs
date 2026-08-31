@@ -69,8 +69,9 @@ const EX: &str = r#"Write raw bytes to a file:
 IMPORT fs
 
 SUB main()
+  fs::createDirectories("output")
   LET bytes AS List OF Byte = [72, 105]
-  fs::writeBytes("target/output.bin", bytes)
+  fs::writeBytes("output/report.bin", bytes)
 END SUB
 ```
 

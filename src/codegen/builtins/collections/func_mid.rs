@@ -8,9 +8,7 @@ use crate::types::ParameterType;
 const INTO_MID: &str = "Return a new list holding a contiguous run of elements taken from a list";
 
 const DESC_MID: &str = r#"`collections::mid` returns a new list holding the `count` elements of `value`
-that begin at the zero-based index `start`, in their original order. It is a
-**native** member: the compiler emits the slice loop directly rather than
-instantiating an MFBASIC generic.
+that begin at the zero-based index `start`, in their original order.
 
 This page documents the `List` form only. `collections::mid` accepts nothing but
 a `List` as its first argument; the `String` slice of the same name lives in
@@ -32,7 +30,7 @@ returns an empty list.
 
 The result is a new, independent list of the same type as
 `value`; `value` itself is neither modified nor closed, and element payloads
-are copied into the new list's own data region rather than shared.
+are copied into the new list rather than shared with `value`.
 
 `mid` copies the selected run using a fast contiguous path when the source
 entries covering the slice are stored in order and packed tightly, and falls

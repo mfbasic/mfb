@@ -78,13 +78,11 @@ pub(crate) fn lower_now_nanos(
 }
 
 const INTRO: &str = r#"The current wall-clock reading as nanoseconds since the Unix epoch."#;
-const DESC: &str = r#"`datetime::nowNanos` is the low-level OS-seam intrinsic behind `datetime::now`.
-It reads the host's real-time clock (`clock_gettime(CLOCK_REALTIME)` on the
-supported platforms) and returns a single `Integer` giving nanoseconds elapsed
-since `1970-01-01T00:00:00Z` on the UTC timeline (the Unix epoch, without leap
-seconds). The reading is formed as `tv_sec * 1_000_000_000 + tv_nsec` from the
-libc `timespec`, folding whole seconds and the sub-second remainder into one
-count rather than the `seconds`/`nanos` pair an `Instant` carries.
+const DESC: &str = r#"`datetime::nowNanos` is the raw form of `datetime::now`. It reads the host's
+wall clock and returns a single `Integer` giving nanoseconds elapsed since
+`1970-01-01T00:00:00Z` on the UTC timeline (the Unix epoch, without leap
+seconds) — one count, rather than the `seconds`/`nanos` pair an `Instant`
+carries.
 
 
 Most programs should call `datetime::now`, which splits this same reading into a

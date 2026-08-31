@@ -36,7 +36,7 @@ On Unix it decodes the terminating signal (`WTERMSIG`): `SIGKILL` maps to
 `didSignal` recovers only the fault case — an NTSTATUS "error"-severity exit code
 (e.g. `0xC0000005` `STATUS_ACCESS_VIOLATION`) maps to `Signal.Error`, and every
 other outcome maps to `Signal.None`; this is a documented Windows limitation. The
-full platform mapping is tabulated in `mfb man process types`.
+full platform mapping is tabulated on the `mfb man process` overview page.
 
 
 Reading a handle that has already been dropped or detached raises

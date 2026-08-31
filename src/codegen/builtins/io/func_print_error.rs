@@ -40,9 +40,9 @@ goes straight to the terminal rather than into the frame.
 
 The underlying write loops until every byte has been transferred: a short write
 advances the cursor and re-issues, and an `EINTR` interruption retries with the
-cursor unchanged. A zero-byte or failing write raises `ErrOutput`. Output goes to
-whatever is bound to standard error: file descriptor 2 in a console program, and
-the application transcript in app mode (`mfb build --app`)."#;
+cursor unchanged. A zero-byte or failing write raises `ErrOutput`. Output goes to standard error
+in a console program, and to the application transcript in app mode
+(`mfb build --app`)."#;
 const EX: &str = r#"Report a failure on the error stream:
 
 ```

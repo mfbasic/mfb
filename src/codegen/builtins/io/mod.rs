@@ -53,8 +53,9 @@ counterpart to the `fs` package: where `fs` works through named files and `File`
 handles, `io` works through the process standard streams. `io` is a built-in
 package: `IMPORT io` needs no manifest dependency.
 
-Output functions accept `String` values only and perform no implicit
-conversion; convert other values with `toString` first. Text is treated as UTF-8
+`io::print` and `io::write` accept a `String` or an `AttributedString`; the
+error-output functions accept a `String`. None of them convert implicitly, so
+convert other values with `toString` first. Text is treated as UTF-8
 and emitted byte for byte, with no escaping or newline translation beyond the
 trailing newline that `io::print` and `io::printError` add. `io::write` and
 `io::print` target standard output, `io::writeError` and `io::printError` target
@@ -68,8 +69,9 @@ appear first. Standard error is never buffered — it is written immediately, so
 has no flush.
 
 Input functions read from standard input. `io::input` reads a whole line with
-normal terminal echo and an optional prompt; `io::readLine` reads a line the same
-way but never writes a prompt. `io::readChar` returns one whole Unicode scalar
+normal terminal echo and an optional prompt; `io::readLine` reads a line without
+a prompt and, on a terminal, suppresses echo while it reads — which is what makes
+it the one to use for a passphrase. `io::readChar` returns one whole Unicode scalar
 value as a `String` and `io::readByte` returns one raw `Byte`, both reading a
 single unit without waiting for a newline and, on a terminal, with echo and
 canonical line mode suppressed for the read before the prior mode is restored.
@@ -77,22 +79,21 @@ Character and line reads decode input as UTF-8 and reject ill-formed byte
 sequences rather than substituting replacement characters; `io::readByte`
 transfers bytes verbatim with no decoding. End of input is reported as an error,
 not as an empty or sentinel result. `io::pollInput` tests whether input is ready
-to read, optionally waiting up to a timeout in milliseconds, without consuming
+to read, optionally waiting up to a timeout in milliseconds, without reading
 any input.
 
 The terminal predicates `io::isInputTerminal`, `io::isOutputTerminal`, and
 `io::isErrorTerminal` return a `Boolean` reporting whether the corresponding
 standard stream is connected to an interactive terminal; they never block,
-consume input, or raise. Output is directed to whichever destination is bound to
-each standard stream: in a normal console program these are file descriptors 0,
-1, and 2; in app mode the same calls are routed to the application transcript
-window, which is treated as an interactive terminal.
+read input, or raise. Each call uses its own standard stream; in app mode all of
+them are routed to the application transcript window, which is treated as an
+interactive terminal.
 
-Standard input is a per-thread broadcast. The runtime owns file descriptor 0 and
-reads it in chunks into one process-global append-only log; each subscribed
-thread reads its own cursor over that log, so every subscriber sees the whole
-stdin stream from its subscription point and a byte read by one thread is never
-consumed out from under another. The compiler subscribes the main thread at
+Standard input is a per-thread broadcast. The runtime reads standard input once,
+in chunks, into a single log all threads share; each subscribed thread reads at
+its own position in that log, so every subscriber sees the whole stdin stream
+from the point it subscribed, and a byte one thread reads is still there for the
+others. The compiler subscribes the main thread at
 program entry, so a single-threaded program is byte-identical to a direct per-byte
 reader. A thread other than main must subscribe with `thread::openStdIn` before
 reading, or the read raises `ErrInvalidContext`; `thread::closeStdIn`

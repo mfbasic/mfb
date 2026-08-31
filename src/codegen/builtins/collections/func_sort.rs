@@ -598,7 +598,7 @@ the instantiated element type must be one the `<` operator accepts: `Integer`,
 against `Money`, and `Scalar` never orders against `String`.
 
 The constraint is enforced once the element type is known, when the generic body has
-been instantiated for a concrete `T`. Sorting a list whose element type the `<`
+been given a concrete element type. Sorting a list whose element type the `<`
 operator does not accept — a `Boolean`, a record, a nested `List`, or a `Map` —
 is a compile-time `TYPE_BINARY_OPERATOR_MISMATCH` error reported against the
 comparison inside the merge, not a runtime failure."#;

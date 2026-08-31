@@ -20,12 +20,12 @@ the image by, and nothing else.
 This exists because **a scene must not hold a resource.** A `DrawItem` is a record,
 and a record field cannot hold a `RES` value; more importantly, a published scene
 outlives the call that installed it and is read by the renderer at arbitrary times,
-so a scene holding resources would have to keep them alive — which would make
-`canvas::destroyImage` a lie. Holding only the id means an installed scene has no
-opinion about any image's lifetime at all.
+so a scene holding resources would have to keep them open — which would make
+`canvas::destroyImage` a lie. Holding only the id means an installed scene never
+keeps an image open.
 
-A handle naming a destroyed image is not dangling: it is an integer, and the
-runtime simply stops drawing it once the image is gone.
+An id naming a destroyed image is harmless: it is just an integer, and the
+runtime stops drawing it once the image is gone.
 
 Raises `ErrResourceClosed` if the image has already been destroyed — taking a
 handle to something that no longer exists is a program error, unlike drawing a

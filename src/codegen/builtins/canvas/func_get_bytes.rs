@@ -18,7 +18,7 @@ const DESC: &str = r#"`getBytes` returns the image's pixels — `width * height 
 order, top row first.
 
 It is **cheap**: the runtime keeps its own copy of every image's pixels as the
-source of truth the backend is uploaded from, so this reads that copy rather than
+source of truth the backend draws from, so this reads that copy rather than
 asking the GPU to read anything back. A readback would be a full pipeline stall;
 this is a memory copy.
 

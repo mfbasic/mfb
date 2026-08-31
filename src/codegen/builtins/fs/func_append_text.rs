@@ -71,7 +71,8 @@ const EX: &str = r#"Append a line to a log file:
 IMPORT fs
 
 SUB main()
-  fs::appendText("target/output.txt", "line\n")
+  fs::createDirectories("output")
+  fs::appendText("output/app.log", "line\n")
 END SUB
 ```
 

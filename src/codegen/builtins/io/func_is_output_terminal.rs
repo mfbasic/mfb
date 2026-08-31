@@ -23,9 +23,8 @@ const DESC: &str = r#"`io::isOutputTerminal` returns `TRUE` when standard output
 terminal and `FALSE` when it is redirected to a file, a pipe, or any other
 non-terminal destination. It takes no arguments.
 
-The answer comes from an `isatty` probe of file descriptor 1: a result greater
-than zero yields `TRUE`, anything else — including an error return — yields
-`FALSE`. Because a failure is folded into `FALSE`, the call never raises.
+When the question cannot be answered the call reports `FALSE` rather than
+failing, so it never raises.
 
 The probe inspects state only: it writes nothing and changes nothing. Use it to
 decide whether emitting ANSI colour, progress bars, or cursor tricks is

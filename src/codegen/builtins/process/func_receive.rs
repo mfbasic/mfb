@@ -33,7 +33,9 @@ lines. Without a `from` argument it reads the child's standard output; pass a
 The call blocks until a full line is available or the stream ends. At end of stream
 it **drains before reporting closed**: any bytes accumulated since the last newline
 are returned as a final (newline-less) line, and only a subsequent read that finds
-end of stream with nothing buffered raises `ErrResourceClosed`. A consumer therefore
+end of stream with nothing buffered raises `ErrResourceClosed`. The same error
+is raised on a handle that has been detached, since `process::detach` ends the
+handle. A consumer therefore
 loops, reading lines until `ErrResourceClosed` marks the end of the output.
 
 

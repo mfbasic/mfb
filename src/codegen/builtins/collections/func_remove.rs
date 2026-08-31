@@ -22,8 +22,8 @@ remaining elements keep their relative insertion order.
 set is the returned value, and a program observes the update only through what it
 does with that return value. When the compiler can prove the target is a
 same local being reassigned — the `set = collections::remove(set, x)`
-shape — it may update the live buffer in place; this is an optimization only, and
-the observable semantics are identical either way.
+shape — is the cheap shape: it updates the set rather than building a second
+one. The result is the same either way.
 
 `remove` is **infallible**: removing an absent element is defined as a no-op
 rather than a failure, so no path raises a trappable domain error and an inline

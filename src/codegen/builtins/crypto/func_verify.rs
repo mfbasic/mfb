@@ -1593,7 +1593,7 @@ length, or a right-length off-curve point the platform import rejects — raises
 `ErrInvalidArgument` (it is a caller mistake, not a false verdict). For `Ed25519`
 and `Ed448` a wrong-length key or signature is simply `FALSE`. `X25519` and `X448` cannot
 verify and raise `ErrInvalidArgument`. A platform-library or system failure raises
-`ErrUnknown`, and an allocation failure raises `ErrOutOfMemory`. The untrusted
+`ErrUnknown`, and running out of memory raises `ErrOutOfMemory`. The untrusted
 `signature` bytes are fully bounds-checked before use.
 
 **Implementation.** ECDSA verification runs through the host platform key API,
