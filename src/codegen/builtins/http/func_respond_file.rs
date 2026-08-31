@@ -40,11 +40,20 @@ const EX: &str = r#"Serve one known file with an explicit content type:
 ```
 IMPORT fs
 IMPORT http
+IMPORT io
 
-FUNC page(req AS http::Request) AS http::Response
-  RES f AS fs::File = fs::openFile("./public/page.html")
-  RETURN http::respondFile(f, "text/html; charset=utf-8")
-END FUNC
+SUB main()
+  fs::writeText("/tmp/page.html", "<h1>hi</h1>")
+  RES f AS fs::File = fs::openFile("/tmp/page.html")
+  LET resp AS http::Response = http::respondFile(f, "text/html; charset=utf-8")
+  io::print(toString(resp.status) & " " & toString(len(resp.body)) & " bytes")
+END SUB
+```
+
+prints:
+
+```
+200 11 bytes
 ```
 
 Serve a binary download, letting the content type default:
@@ -52,11 +61,20 @@ Serve a binary download, letting the content type default:
 ```
 IMPORT fs
 IMPORT http
+IMPORT io
 
-FUNC download(req AS http::Request) AS http::Response
-  RES f AS fs::File = fs::openFile("./data/report.bin")
-  RETURN http::respondFile(f)
-END FUNC
+SUB main()
+  fs::writeText("/tmp/report.bin", "raw bytes")
+  RES f AS fs::File = fs::openFile("/tmp/report.bin")
+  LET resp AS http::Response = http::respondFile(f)
+  io::print(toString(resp.status) & " " & toString(len(resp.body)) & " bytes")
+END SUB
+```
+
+prints:
+
+```
+200 9 bytes
 ```
 
 Turn a missing file into a `404` rather than an error:
@@ -64,14 +82,24 @@ Turn a missing file into a `404` rather than an error:
 ```
 IMPORT fs
 IMPORT http
+IMPORT io
 
-FUNC maybe(req AS http::Request) AS http::Response
-  IF fs::fileExists("./public/page.html") = FALSE THEN
-    RETURN http::status(404, "Not Found")
+SUB main()
+  IF fs::fileExists("/tmp/does-not-exist.html") = FALSE THEN
+    LET missing AS http::Response = http::status(404, "Not Found")
+    io::print(toString(missing.status) & " ok=" & toString(missing.ok))
+    EXIT SUB
   END IF
-  RES f AS fs::File = fs::openFile("./public/page.html")
-  RETURN http::respondFile(f, "text/html; charset=utf-8")
-END FUNC
+  RES f AS fs::File = fs::openFile("/tmp/does-not-exist.html")
+  LET resp AS http::Response = http::respondFile(f, "text/html; charset=utf-8")
+  io::print(toString(resp.status))
+END SUB
+```
+
+prints:
+
+```
+404 ok=FALSE
 ```"#;
 
 #[rustfmt::skip]

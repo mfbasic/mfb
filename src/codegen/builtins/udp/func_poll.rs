@@ -54,18 +54,35 @@ FUNC main AS Integer
 END FUNC
 ```
 
-Serve whichever of several sockets has traffic first:
+Serve whichever of several sockets has traffic first. The list form returns the
+socket that is ready rather than a flag, and that socket is an alias of the one
+in the list — receiving from it receives on that socket:
 
 ```
+IMPORT net
 IMPORT udp
 IMPORT io
 
-FUNC serveFirst(socks AS List OF RES udp::Socket) AS Integer
-  RES ready AS udp::Socket = udp::poll(socks, 5000)
+FUNC main AS Integer
+  RES a = udp::bind("127.0.0.1", 0)
+  RES b = udp::bind("127.0.0.1", 0)
+  RES client = udp::bind("127.0.0.1", 0)
+
+  ' Only b is sent anything.
+  udp::send(client, udp::localAddress(b), "over here")
+
+  LET socks AS List OF RES udp::Socket = [a, b]
+  RES ready = udp::poll(socks, 5000)
   LET datagram = udp::receive(ready, 4096)
   io::print("got " & toString(len(datagram.bytes)) & " bytes")
   RETURN 0
 END FUNC
+```
+
+prints:
+
+```
+got 9 bytes
 ```"#;
 
 const TIMEOUT_DESC: &str = "Optional. The maximum time to wait, in milliseconds. Omit to block until a datagram arrives; `0` polls once; a positive value bounds the wait (clamped to `2147483647`); a negative value raises `ErrInvalidArgument`.";

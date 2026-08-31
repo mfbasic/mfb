@@ -53,17 +53,30 @@ FUNC main AS Integer
 END FUNC
 ```
 
-Bind every interface with an explicit backlog:
+Bind every interface with an explicit backlog. A real server would name its port
+(`tcp::listen("0.0.0.0", 8080, 16)`); this one asks the OS for a free one so it
+can connect to itself and finish:
 
 ```
 IMPORT tcp
+IMPORT net
+IMPORT io
 
 FUNC main AS Integer
-  RES server = tcp::listen("0.0.0.0", 8080, 16)
+  RES server = tcp::listen("0.0.0.0", 0, 16)
+  LET bound = tcp::localAddress(server)
+  RES client = tcp::connect("127.0.0.1", bound.port)
   RES peer = tcp::accept(server, 1000)
   tcp::write(peer, "hello")
+  io::print("served one connection")
   RETURN 0
 END FUNC
+```
+
+prints:
+
+```
+served one connection
 ```"#;
 
 /// `abi_function` body for `tcp::listen`.

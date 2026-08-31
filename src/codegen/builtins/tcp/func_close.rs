@@ -38,8 +38,8 @@ drop-in mirrors, so the split is worth knowing: code moved between the transport
 must not assume either answer. Neither package will change under the other
 without a decision, because each has callers relying on what it does today
 (bug-465). In practice the difference is invisible to the recommended idiom —
-close once, or let lexical drop do it — since a drop after an explicit close is a
-no-op on both.
+close once, or let the end of the scope do it — since the automatic close after
+an explicit one does nothing on both.
 
 The handle's closed word
 is checked first, and a non-zero value refuses the call. That word also carries

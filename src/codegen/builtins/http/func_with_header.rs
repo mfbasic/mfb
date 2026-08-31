@@ -42,34 +42,57 @@ const EX: &str = r#"Add a caching directive to a text response:
 
 ```
 IMPORT http
+IMPORT io
 
-FUNC ping(req AS http::Request) AS http::Response
-  RETURN http::withHeader(http::ok("pong"), "cache-control", "no-store")
-END FUNC
+SUB main()
+  LET resp AS http::Response = http::withHeader(http::ok("pong"), "cache-control", "no-store")
+  io::print(toString(resp.status) & " " & toString(len(resp.body)) & " bytes")
+END SUB
+```
+
+prints:
+
+```
+200 4 bytes
 ```
 
 Override the content type set by a constructor — note the lowercase name:
 
 ```
 IMPORT http
+IMPORT io
 
-FUNC page(req AS http::Request) AS http::Response
+SUB main()
   LET base AS http::Response = http::ok("<h1>hi</h1>")
-  RETURN http::withHeader(base, "content-type", "text/html; charset=utf-8")
-END FUNC
+  LET resp AS http::Response = http::withHeader(base, "content-type", "text/html; charset=utf-8")
+  io::print(toString(resp.status) & " " & toString(len(resp.body)) & " bytes")
+END SUB
+```
+
+prints:
+
+```
+200 11 bytes
 ```
 
 Chain several headers:
 
 ```
 IMPORT http
+IMPORT io
 
-FUNC api(req AS http::Request) AS http::Response
+SUB main()
   MUT resp AS http::Response = http::json("{\"ok\":true}")
   resp = http::withHeader(resp, "x-request-id", "abc123")
   resp = http::withHeader(resp, "cache-control", "no-store")
-  RETURN resp
-END FUNC
+  io::print(toString(resp.status) & " " & toString(len(resp.headers)) & " headers")
+END SUB
+```
+
+prints:
+
+```
+200 3 headers
 ```"#;
 
 #[rustfmt::skip]

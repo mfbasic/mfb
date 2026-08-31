@@ -50,7 +50,7 @@ FUNC home(req AS http::Request) AS http::Response
   RETURN http::ok("welcome")
 END FUNC
 
-SUB serverMain()
+SUB main()
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/", home))
   RES s AS tcp::Listener = http::server(8080)
@@ -68,7 +68,7 @@ IMPORT net
 IMPORT tcp
 IMPORT io
 
-SUB localOnly()
+SUB main()
   RES s AS tcp::Listener = http::server(8080, "127.0.0.1", 16)
   LET bound = tcp::localAddress(s)
   io::print("listening on port " & toString(bound.port))

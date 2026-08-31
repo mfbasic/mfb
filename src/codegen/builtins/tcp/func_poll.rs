@@ -61,19 +61,39 @@ FUNC main AS Integer
 END FUNC
 ```
 
-Serve whichever of several connections speaks first:
+Serve whichever of several connections speaks first. The list form returns the
+socket that is ready, not a flag, and that socket is an alias of the one in the
+list — reading from it reads that connection:
 
 ```
-IMPORT collections
 IMPORT tcp
+IMPORT net
 IMPORT io
 
-FUNC serve(conns AS List OF RES tcp::Socket) AS Integer
-  LET ready = tcp::poll(conns, 5000)
+FUNC main AS Integer
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound = tcp::localAddress(server)
+
+  RES clientA = tcp::connect("127.0.0.1", bound.port)
+  RES connA = tcp::accept(server)
+  RES clientB = tcp::connect("127.0.0.1", bound.port)
+  RES connB = tcp::accept(server)
+
+  ' Only the second client says anything.
+  tcp::write(clientB, "over here")
+
+  LET conns AS List OF RES tcp::Socket = [connA, connB]
+  RES ready = tcp::poll(conns, 5000)
   LET chunk = tcp::read(ready, 4096)
   io::print("read " & toString(len(chunk)) & " bytes")
   RETURN 0
 END FUNC
+```
+
+prints:
+
+```
+read 9 bytes
 ```"#;
 
 const TIMEOUT_DESC: &str = "Optional. The maximum time to wait, in milliseconds. Omit to block until something is readable; `0` polls once; a positive value bounds the wait (clamped to `2147483647`); a negative value raises `ErrInvalidArgument`.";

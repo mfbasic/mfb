@@ -98,7 +98,7 @@ FUNC showUser(req AS http::Request) AS http::Response
   RETURN http::ok("user " & collections::getOr(req.params, "id", ""))
 END FUNC
 
-SUB secureMain()
+SUB main()
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/user/:id", showUser))
   RES s AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem")

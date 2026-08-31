@@ -31,11 +31,19 @@ const EX: &str = r#"Replace the body of an existing response:
 
 ```
 IMPORT http
+IMPORT io
 
-FUNC teapot(req AS http::Request) AS http::Response
+SUB main()
   LET base AS http::Response = http::status(418, "")
-  RETURN WITH base { body := http::bytes("I'm a teapot") }
-END FUNC
+  LET resp AS http::Response = WITH base { body := http::bytes("I'm a teapot") }
+  io::print(toString(resp.status) & " " & toString(len(resp.body)) & " bytes")
+END SUB
+```
+
+prints:
+
+```
+418 12 bytes
 ```
 
 Round-trip a body back to text:

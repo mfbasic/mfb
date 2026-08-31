@@ -56,10 +56,18 @@ const EX: &str = r#"A validation-failure response from a handler:
 
 ```
 IMPORT http
+IMPORT io
 
-FUNC submit(req AS http::Request) AS http::Response
-  RETURN http::status(422, "validation failed")
-END FUNC
+SUB main()
+  LET resp AS http::Response = http::status(422, "validation failed")
+  io::print(toString(resp.status) & " ok=" & toString(resp.ok))
+END SUB
+```
+
+prints:
+
+```
+422 ok=FALSE
 ```
 
 The `ok` field follows the status class:

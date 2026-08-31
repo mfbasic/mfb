@@ -72,7 +72,7 @@ FUNC home(req AS http::Request) AS http::Response
   RETURN http::ok("welcome")
 END FUNC
 
-SUB secureMain()
+SUB main()
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/", home))
   RES s AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem")
@@ -89,7 +89,7 @@ IMPORT http
 IMPORT tls
 IMPORT io
 
-SUB localOnly()
+SUB main()
   RES s AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem", "127.0.0.1", 16)
   io::print("listening on 127.0.0.1:8443")
 END SUB

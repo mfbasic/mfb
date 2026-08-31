@@ -51,10 +51,18 @@ const EX: &str = r#"A JSON handler:
 
 ```
 IMPORT http
+IMPORT io
 
-FUNC info(req AS http::Request) AS http::Response
-  RETURN http::json("{\"ok\":true}")
-END FUNC
+SUB main()
+  LET resp AS http::Response = http::json("{\"ok\":true}")
+  io::print(toString(resp.status) & " " & toString(len(resp.body)) & " bytes")
+END SUB
+```
+
+prints:
+
+```
+200 11 bytes
 ```
 
 Serializing a value with the `json` package before sending it:

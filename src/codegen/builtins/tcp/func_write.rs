@@ -55,7 +55,7 @@ FUNC main AS Integer
   LET bound = tcp::localAddress(server)
   RES client = tcp::connect("127.0.0.1", bound.port)
   RES conn = tcp::accept(server)
-  tcp::write(client, "GET / HTTP/1.0" & chr(13) & chr(10))
+  tcp::write(client, "GET / HTTP/1.0\u{000D}\u{000A}")
   tcp::write(client, [toByte(72), toByte(105)])
   RETURN 0
 END FUNC

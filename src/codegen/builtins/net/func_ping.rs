@@ -78,9 +78,9 @@ IMPORT io
 FUNC main AS Integer
   LET result = net::ping("127.0.0.1", 1000)
   MATCH result.status
-    CASE net::PingStatus.Ok
+    CASE PingStatus.Ok
       io::print("up in " & toString(result.rttMs) & " ms")
-    CASE net::PingStatus.Timeout
+    CASE PingStatus.Timeout
       io::print("no answer")
     CASE ELSE
       io::print("unreachable")
@@ -115,7 +115,7 @@ IMPORT io
 
 FUNC main AS Integer
   LET hop = net::ping("example.com", 2000, 1)
-  IF hop.status = net::PingStatus.TtlExceeded THEN
+  IF hop.status = PingStatus.TtlExceeded THEN
     io::print("first hop is " & hop.address.host)
   END IF
   RETURN 0

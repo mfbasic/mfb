@@ -39,15 +39,22 @@ consistent:
 
 ```
 IMPORT http
+IMPORT io
 
-FUNC teapot() AS http::Response
+SUB main()
   MUT resp AS http::Response = http::responseDefault()
   resp = WITH resp { status := 418 }
   resp = WITH resp { reason := "I'm a teapot" }
   resp = WITH resp { ok := FALSE }
   resp = WITH resp { body := http::bytes("no coffee here") }
-  RETURN resp
-END FUNC
+  io::print(toString(resp.status) & " " & resp.reason)
+END SUB
+```
+
+prints:
+
+```
+418 I'm a teapot
 ```
 
 Starting from the default and adding a header:
