@@ -18,7 +18,7 @@ surface: on column `col`, it fills every row from `rowA` to `rowB` with the
 vertical form of the chosen `LineStyle`. The glyph is drawn with the colours and
 attributes currently in effect (`term::setForeground`/`setBackground`/`setBold`/
 `setUnderline`), exactly as `io::write` stamps text, and — like every drawing call
-on this surface — it mutates the back buffer only and appears on the next
+on this surface — it updates the surface only and appears on the next
 `term::sync`.
 
 Coordinates are **zero-based** and measured from the top-left corner: column 0 is
@@ -36,7 +36,7 @@ The `line` argument is a `LineStyle` enum value selecting the weight and pattern
 (`┋`), and `LineStyle.Double` (`║`). `term::drawHLine` draws the matching
 horizontal forms.
 
-Drawing a line does not move the shadow cursor and does not change the current
+Drawing a line does not move the cursor and does not change the current
 colours or attributes; it overwrites only the cells in the run, so a later draw
 over the same cell (for example a crossing horizontal line) wins. The same surface
 is rendered on the console backend and in windowed app mode, so the line looks the

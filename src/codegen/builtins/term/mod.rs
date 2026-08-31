@@ -114,14 +114,15 @@ same way on both.
 `term::on` is the gate for the whole module. It switches the terminal into TUI
 mode and resets all `term::` state to its defaults (white foreground, black
 background, bold and underline off, cursor visible, screen cleared, cursor at
-the home position). Every other `term::` call except `term::isOn` is a no-op
-while TUI mode is off, so a program must call `term::on` before any cursor,
-color, attribute, or clear call takes effect, and `term::off` later leaves TUI
-mode and restores the user's previous screen. `term::isOn` reports whether TUI
-mode is currently on and works whether or not it is.
+the home position). While TUI mode is off, nearly every other `term::` call is a
+no-op, so a program must call `term::on` before any cursor, color, attribute, or
+clear call takes effect, and `term::off` later leaves TUI mode and restores the
+user's previous screen. There are two exceptions to the no-op rule:
+`term::isOn`, which answers either way, and **`term::terminalSize`, which raises
+`ErrUnsupported`** rather than returning a meaningless size.
 
-While TUI mode is on the surface is **retained** and **double-buffered**: drawing
-calls (including `io::print`/`io::write`) mutate an in-memory cell grid rather
+While TUI mode is on the surface is **retained** and drawing is **buffered**:
+drawing calls (including `io::print`/`io::write`) update the surface rather
 than the terminal, and nothing appears until the program calls `term::sync`, the
 one operation that presents a frame. The console backend presents by writing only
 the cells that changed since the previous frame, so a program that repaints every

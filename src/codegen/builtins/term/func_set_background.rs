@@ -25,8 +25,8 @@ frame.
 Background colour is per cell, and it colours only the cells that drawn text
 occupies. Each cell records the attributes current when its glyph was written, so
 this call affects text drawn *after* it and does not restyle what is already in
-the back buffer. In particular, **`term::clear` does not paint the current
-background**: it zero-fills the grid, which is black regardless of this setting.
+the surface. In particular, **`term::clear` does not paint the current
+background**: it blanks to black regardless of this setting.
 To get a coloured region, set the background and then draw over it — for example
 by writing spaces across the cells you want filled.
 

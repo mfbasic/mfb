@@ -23,10 +23,10 @@ off.** There is no meaningful default size to report, so calling it before
 something invented. Guard with `term::isOn` if the call site may run outside TUI
 mode.
 
-While TUI mode is on, the size is read live from the terminal with a `TIOCGWINSZ`
-query on standard output, so it reflects the terminal as it is at the moment of
-the call. If that query fails — standard output is not a terminal, or the host
-does not answer — or if it reports zero rows or zero columns, the call raises
+While TUI mode is on, the size is read live from the terminal, so it reflects
+the terminal as it is at the moment of the call. If the terminal cannot say —
+standard output is not a terminal, or the host does not answer — or if it
+reports zero rows or zero columns, the call raises
 `ErrUnsupported`.
 
 Because the query is live, the answer can change between calls when the user
@@ -39,8 +39,8 @@ overlap and repaints in full — so immediately after a resize and before the ne
 old one.
 
 The call has no side effects: it draws nothing, moves no cursor, and changes no
-`term::` state. It can still fail when memory is exhausted, since it builds a
-record to return.
+`term::` state. Besides `ErrUnsupported` it can raise `ErrOutOfMemory` while
+producing its result.
 
 In app mode (`mfb build --app`) the size comes from the application's terminal
 view rather than from the console, and the same `ErrUnsupported` is raised when TUI mode

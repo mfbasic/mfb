@@ -20,10 +20,9 @@ When TUI mode is on, the teardown runs in this order.
 1. **A final `term::sync`.** `term::off` calls the present routine itself, so the
    last frame the program composed is displayed even if it never called
    `term::sync` explicitly.
-2. **The cooked line discipline is restored**, undoing the single-key
-   (`~ICANON`/`~ECHO`) mode `term::on` put a console tty into, so typing echoes
-   and lines are submitted with Return again. A no-op when raw mode was never
-   entered.
+2. **Normal line input is restored**, undoing the single-key mode `term::on` put
+   the terminal into, so typing echoes again and lines are submitted with
+   Return. Nothing happens here if that mode was never entered.
 3. **The terminal is restored**: the cursor is made visible, the alternate screen
    is left so the user's previous shell contents reappear, and the terminal's
    colour and attribute state is reset so ordinary output that follows is drawn

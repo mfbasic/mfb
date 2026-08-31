@@ -16,7 +16,7 @@ const DESC: &str = r#"`term::showCursor` marks the cursor as visible. It takes n
 Like everything else on this retained surface, the call **emits no escape
 sequence**. It sets a single visibility flag in the module's state; the terminal
 is only told about it when `term::sync` presents a frame. Every present ends with
-a trailing sequence that parks the terminal cursor at the shadow cursor's current
+a trailing sequence that parks the terminal cursor at its current
 position and then shows or hides it according to this flag, so the visible cursor
 always tracks where the next drawing would go.
 

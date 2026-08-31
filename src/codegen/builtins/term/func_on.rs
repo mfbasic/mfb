@@ -25,7 +25,7 @@ The call does four things, in this order.
    completely untouched — TUI mode is never left half-on.
 2. **Resets `term::` state to defaults**: foreground white (255, 255, 255),
    background black (0, 0, 0), bold off, underline off, cursor visible, and the
-   shadow cursor at the home position (row 0, column 0).
+   cursor at the home position (row 0, column 0).
 3. **Switches the terminal to its alternate screen**, so the user's previous
    shell contents are preserved and restored by `term::off`, and resets the
    terminal's own colours.

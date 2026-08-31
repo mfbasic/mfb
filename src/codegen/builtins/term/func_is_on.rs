@@ -29,7 +29,7 @@ The result is the module's active flag read directly, so it changes only at
 throughout.
 
 The call reads state only: it touches neither the terminal, the alternate screen,
-nor the shadow grid, and it cannot fail."#;
+nor the surface, and it cannot fail."#;
 
 const EX: &str = r#"Enter TUI mode only once:
 

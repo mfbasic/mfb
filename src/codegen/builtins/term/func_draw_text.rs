@@ -16,7 +16,7 @@ const INTRO: &str = r#"Draw a string at a position without moving the cursor"#;
 const DESC: &str = r#"`term::drawText` stamps `text` onto the surface on row `y` starting at column `x`,
 one grid cell per Unicode scalar, using the colours and attributes currently in
 effect. Coordinates are **zero-based** from the top-left (`x` is the column, `y`
-the row). Unlike `io::print`/`io::write`, it **does not move the shadow cursor**,
+the row). Unlike `io::print`/`io::write`, it **does not move the cursor**,
 so it is the tool for placing a label, status line, or field value at a fixed
 position without disturbing cursor-relative output.
 
@@ -36,10 +36,10 @@ stamps the same visible text as the `String` overload but honours the per-scalar
 styling the value carries: the two attributes the terminal surface can represent —
 **bold** and **underline** — are applied per run, and every other attribute
 (italic, strikethrough, overline, font, font size) is silently ignored. The text
-is drawn in maximal runs of a single (bold, underline) state, so each run renders
-with those attributes and grapheme-cluster and wide-glyph handling is identical to
-the `String` overload. The surface's current bold/underline are restored
-afterwards, so like the `String` overload the call leaves the pen it found. Using
+carries its own bold and underline as it is drawn, and grapheme-cluster and
+wide-glyph handling is identical to the `String` overload. Your own current
+bold and underline settings are put back afterwards, so like the `String`
+overload the call leaves the pen it found. Using
 this overload requires `IMPORT astrings` (the only way to build an
 `AttributedString`)."#;
 

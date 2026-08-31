@@ -24,7 +24,7 @@ or the next `term::on`.
 This is the *current attribute*, not the colour of anything on screen. Each cell
 of the grid carries the attributes that were current when its glyph was written,
 so this call says what the next drawing will use. Note in particular that
-`term::clear` zero-fills the grid rather than painting it with this colour, so a
+`term::clear` blanks the surface to black rather than painting it with this colour, so a
 cleared surface is black whatever `term::getBackground` reports.
 
 Unlike most of the module, `term::getBackground` does not simply do nothing while
