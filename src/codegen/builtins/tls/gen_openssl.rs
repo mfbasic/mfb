@@ -2462,12 +2462,20 @@ pub(crate) fn lower_tls_write_openssl(
     const REMAINING_OFFSET: usize = 24;
     const HANDLE_OFFSET: usize = 32;
     const FNPTR_OFFSET: usize = 40;
+    // bug-467: `SSL_write`'s return, spilled before the failure branch so the
+    // classification below can hand it to `SSL_get_error` without reading the
+    // aligned result bank across an external call (bug-452, and the same reason
+    // `lower_tls_read_openssl` spills its `n`).
+    const N_OFFSET: usize = 48;
 
     let closed = format!("{symbol}_closed");
     let load_fail = format!("{symbol}_load_fail");
     let write_loop = format!("{symbol}_write_loop");
     let write_done = format!("{symbol}_write_done");
     let write_fail = format!("{symbol}_write_fail");
+    let write_classify = format!("{symbol}_write_classify");
+    let write_timeout = format!("{symbol}_write_timeout");
+    let peer_closed = format!("{symbol}_peer_closed");
     let done = format!("{symbol}_done");
 
     let mut instructions: Vec<CodeInstruction> = Vec::new();
@@ -2542,8 +2550,9 @@ pub(crate) fn lower_tls_write_openssl(
         abi::branch_link_register(&v9),
         // SSL_write returns a C int; sign-extend before the signed <=0 test (bug-102).
         abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFFSET),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(&write_fail),
+        abi::branch_le(&write_classify),
         abi::load_u64(&v11, abi::stack_pointer(), SRC_OFFSET),
         abi::load_u64(&v10, abi::stack_pointer(), REMAINING_OFFSET),
         abi::add_registers(&v11, &v11, abi::return_register()),
@@ -2555,10 +2564,78 @@ pub(crate) fn lower_tls_write_openssl(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
+    // bug-467: classify the failure instead of collapsing every one of them into
+    // `ErrTlsFailed`. Until this bug, a write to a peer that had gone away never
+    // got here at all -- libssl's internal `write(2)` delivered SIGPIPE and the
+    // process died -- so the only reachable failures were load/protocol ones and
+    // one blanket code was enough. With SIGPIPE ignored the peer's disappearance
+    // now arrives here as a return value, and `tcp` and `tls` are documented
+    // drop-in mirrors: `tcp::write` raises `ErrConnectionClosed` for it, and
+    // `tls::read`/`tcp::read` already agree on that code at end of stream
+    // (bug-465, rt-behavior/{tcp,tls}/*-read-eof-raises-rt). `SSL_get_error` is
+    // the only way to tell the three cases apart:
+    //
+    //   2/3  WANT_READ / WANT_WRITE -- the SO_SNDTIMEO deadline `tls::setWriteTimeout`
+    //        installs expired. The session is intact; the convention is ErrTimeout
+    //        (plan-110-D). Letting this fall into the closed-connection arm would
+    //        report a slow peer as a broken one -- a new bug, not an old one.
+    //   5/6  SYSCALL / ZERO_RETURN -- the transport is gone (EPIPE, ECONNRESET) or
+    //        the peer sent close_notify. Mirrors `tcp::write`, which maps every
+    //        errno that is not EAGAIN/EINTR to ErrConnectionClosed.
+    //   else the protocol failure `ErrTlsFailed` has always meant.
+    //
+    // Reusing FNPTR_OFFSET for `SSL_get_error` is safe because every arm below is
+    // terminal: nothing re-enters `write_loop`, which is the only reader of the
+    // `SSL_write` pointer. `lower_tls_read_openssl` does exactly the same.
+    instructions.push(abi::label(&write_classify));
+    emit_dlsym(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        HANDLE_OFFSET,
+        "SSL_get_error",
+        FNPTR_OFFSET,
+        &load_fail,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), N_OFFSET),
+        abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register(&v9),
+        abi::sign_extend_word(&v10, abi::c_return(0)),
+        abi::compare_immediate(&v10, "2"), // SSL_ERROR_WANT_READ
+        abi::branch_eq(&write_timeout),
+        abi::compare_immediate(&v10, "3"), // SSL_ERROR_WANT_WRITE
+        abi::branch_eq(&write_timeout),
+        abi::compare_immediate(&v10, "5"), // SSL_ERROR_SYSCALL
+        abi::branch_eq(&peer_closed),
+        abi::compare_immediate(&v10, "6"), // SSL_ERROR_ZERO_RETURN
+        abi::branch_eq(&peer_closed),
+    ]);
     instructions.push(abi::label(&write_fail));
     emit_fail(
         symbol,
         "ErrTlsFailed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&peer_closed));
+    emit_fail(
+        symbol,
+        "ErrConnectionClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&write_timeout));
+    emit_fail(
+        symbol,
+        "ErrTimeout",
         &mut instructions,
         &mut relocations,
         &done,
