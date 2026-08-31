@@ -592,7 +592,7 @@ impl RegistryRecord {
             out.push_str("\n  ");
             out.push_str(prop.name);
             out.push_str(" AS ");
-            out.push_str(&prop.ty.name());
+            out.push_str(&source_spelling(&prop.ty));
         }
         out.push_str("\nEND TYPE");
         out
@@ -1771,6 +1771,27 @@ pub(crate) fn registry() -> &'static Registry {
 /// single-implementation function and a two-implementation overload); `csv` is the
 /// first real package migrated off `target::shared::registry` — it registers itself
 /// from its own module, `crate::codegen::builtins::csv`.
+/// Render `ty` the way SOURCE spells it.
+///
+/// The type system's qualifier is a dot (`net.Address`), matching the parser's
+/// internal normalization. MFBASIC source spells it `net::Address` -- a dot there
+/// is FIELD ACCESS, so emitting the internal form into injectable source makes the
+/// companion unparseable (`<builtin-udp>:10 Field name must be an identifier`).
+///
+/// Only the qualifier is rewritten; container spellings (`List OF`, `Map OF … TO`)
+/// and their nesting are already source-shaped.
+fn source_spelling(ty: &ParameterType) -> String {
+    let rendered = ty.name().into_owned();
+    let mut out = rendered.clone();
+    for package in registry().packages() {
+        let dotted = format!("{}.", package.import_name());
+        if out.contains(&dotted) {
+            out = out.replace(&dotted, &format!("{}::", package.import_name()));
+        }
+    }
+    out
+}
+
 /// Map every NOMINAL leaf of `ty` from its bare spelling to the package-qualified
 /// identity, per the owner rule in
 /// [`Registry::qualify_value_type_references`]. Container shapes

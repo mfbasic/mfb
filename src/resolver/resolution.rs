@@ -1640,9 +1640,9 @@ mod tests {
             );
         }
         for ok in [
-            "crypto::hash(Hash.SHA2_256, crypto::randomBytes(4))",
-            "crypto::sign(Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8))",
-            "crypto::verify(Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8), crypto::randomBytes(64))",
+            "crypto::hash(crypto::Hash.SHA2_256, crypto::randomBytes(4))",
+            "crypto::sign(crypto::Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8))",
+            "crypto::verify(crypto::Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8), crypto::randomBytes(64))",
         ] {
             assert!(
                 !resolve_source_fails(&format!(

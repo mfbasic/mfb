@@ -2491,7 +2491,9 @@ mod lower_tests {
         );
         assert!(matches!(
             bind_value(&function(&ir, "run").body, "j"),
-            Some(IrValue::Call { type_, .. }) if type_.name() == "Json"
+            // bug-480 Phase 4b: a builtin value type is addressed by its
+            // package-qualified identity now.
+            Some(IrValue::Call { type_, .. }) if type_.name() == "json.Json"
         ));
     }
 
