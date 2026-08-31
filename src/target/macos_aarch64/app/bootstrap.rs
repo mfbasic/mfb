@@ -712,8 +712,8 @@ fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool, uses_canvas: bool) {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // delegate instance
-    // plan-98-D Phase 2: publish the delegate for the graphics thread, which cannot
-    // ask `NSApp` for it (main-thread-only).
+                                                                // plan-98-D Phase 2: publish the delegate for the graphics thread, which cannot
+                                                                // ask `NSApp` for it (main-thread-only).
     asm.local_address("x2", DELEGATE_GLOBAL_SYM);
     asm.push(abi::store_u64(abi::LOCAL[4], "x2", 0));
     asm.load_selector(SEL_SET_DELEGATE.0);

@@ -69,8 +69,7 @@ pub(crate) fn lower_shutdown(
     // `.ai/canvas-threading.md` §8, and a hard segfault in practice. A no-op for
     // every program that never started the thread.
     if stop_graphics {
-        let scratch =
-            crate::codegen::runtime::canvas::GraphicsScratch::new(&mut || vregs.next());
+        let scratch = crate::codegen::runtime::canvas::GraphicsScratch::new(&mut || vregs.next());
         crate::codegen::runtime::canvas::emit_stop_graphics(
             SHUTDOWN_SYMBOL,
             &scratch,

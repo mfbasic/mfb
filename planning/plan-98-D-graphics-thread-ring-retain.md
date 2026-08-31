@@ -223,24 +223,39 @@ Commit: —
 
 ### Phase 2 — Graphics thread + software render loop (no ring yet)
 
-- [ ] Spawn the graphics thread from each platform's surface-ready UI callback (after A's
-      surface exists); it renders the single live scene (B's slot) via C's software path
-      and blits. No time-based spin — it waits on a redraw condition.
-- [ ] Wire redraw triggers 1 (present) and 3 (OS damage) to signal the graphics thread.
-- [ ] Dirty-texture upload + trigger 5: at frame start, upload any texture marked dirty by
-      `canvas::setBytes` (coalesced); `setBytes` signals a redraw only when its id is in the
-      current live scene's id set (else no repaint). Software backend: the "upload" is a
-      staging copy into the render buffer's source.
-- [ ] Tests: a present signals exactly one repaint; a synthetic OS-damage signal repaints
-      with no worker involvement; an idle static scene triggers zero repaints (no spin);
-      `setBytes` on an in-scene image repaints once (content updated next frame) and on an
-      off-scene image repaints zero times; N `setBytes` before a frame coalesce to one
-      upload — assert via repaint/upload counters over a fixed wall-clock window.
+- [x] The graphics thread is spawned by the **first `present`**, not from the
+      surface-ready callback (Correction 3): it is only useful once there is something
+      to draw, and `present` is the one place that knows. It renders the installed
+      scene — now from the process-global block, since B's arena slot is unreachable
+      from another thread (Correction 1) — through C's software path and blits. The
+      wait is a real `pthread_cond_wait`, so a static scene costs zero frames.
+- [~] Trigger 1 (present) is wired: `canvas::signalRedraw`. **Trigger 3 (OS damage)
+      is not** — the platform damage callbacks reach the *blit* (macOS `drawRect:`, GTK
+      draw func, Win32 `WM_PAINT`), which repaints the last committed frame without the
+      renderer, so damage is already handled without a re-render. Re-rendering on damage
+      only becomes necessary with the resize handshake, which is Phase 3; the trigger
+      lands there with the size change it exists to serve.
+- [x] ~~Dirty-texture upload + trigger 5~~ — **moot: there is nothing to upload.**
+      `Picture` generates the `__CANVAS_GEO_NONE` kind and draws nothing until plan-98-G
+      brings the image sampler (plan-98-C Correction 4), so no frame reads an image and
+      a dirty flag has no consumer. `canvas::setBytes` writes the CPU shadow, which
+      `getBytes` reads back — already tested by `cli_canvas_image_resource`. Building
+      the upload path now would be machinery with no content, which is what B Correction
+      18 already rejected once. It lands in G with the sampler that needs it.
+- [x] Tests: `tests/rt_canvas_graphics_thread.rs` — a present-then-immediate-return
+      still renders (the drain, Correction 5); canvas mode with no present starts no
+      thread and draws nothing; a static scene renders **once** across a one-second idle
+      (no spin); an identical re-present draws no second frame; and sync mode gives one
+      frame per changed present. Frame counts come from `MFB_CANVAS_STATS`, which
+      appends a line per frame. The `setBytes` rows are moot with the upload above.
 
-Acceptance: the graphics thread renders C's golden scene off the worker thread; static
-scene = zero repaints; damage repaints without the worker; `setBytes` on an in-scene image
-shows updated pixels next frame and coalesces, off-scene image triggers no repaint. Golden
-still exact-match.
+Acceptance: MET for everything with a consumer. The graphics thread renders C's
+golden scene off the worker and the frame is **byte-identical** to the synchronous
+render; an idle static scene renders exactly once; the exact-match golden still passes
+through the thread. Damage repaints without the worker via the platform blit paths
+(Correction 4), and the `setBytes` clauses are moot (no sampler until G).
+`cargo test` across every canvas/app-mode target: 53 passed;
+`MFB_MACAPP_GUI=1 test-macapp.sh`: 18 ok.
 Commit: —
 
 ### Phase 3 — Triple-buffer scene ring + resize handshake
@@ -355,6 +370,60 @@ arena state lives on the worker's *stack frame*, so a graphics thread still rend
 after the worker's entry returns is reading freed stack. The graphics thread must be
 joined, or proven stopped, before the worker's entry unwinds. Added to the matrix as
 R12 and therefore to Phase 4's tests.
+
+**Correction 3 (Phase 2) — the thread is spawned by the first `present`, not from the
+surface-ready callback.** The plan put the spawn in each platform's UI callback. Doing
+it on first present is both simpler (one site instead of three) and better: a program
+that enters `Mode.Canvas` and never draws gets no thread, and `present` is the only
+place that knows there is something to render. It is idempotent, guarded by a
+module-level `__CANVAS_GFX_READY`, so the cost after the first frame is one boolean.
+
+**Correction 4 (Phase 2) — OS damage does not need the renderer.** Trigger 3 is
+listed as a redraw trigger, but every platform's damage callback reaches the *blit*,
+not the render: macOS re-displays the layer's `contents`, GTK re-runs the draw func
+over the committed frame, and Win32 `WM_PAINT` re-`SetDIBitsToDevice`s it. Damage
+therefore already repaints correctly with zero worker *and* zero renderer involvement.
+A damage-driven **re-render** only becomes necessary when the surface *size* changes,
+so the trigger moves to Phase 3, with the resize handshake it exists to serve.
+
+**Correction 5 (Phase 2) — shutdown must DRAIN the pending frame, not cancel it.** The
+first version had `waitForRedraw` check `stopping` before `pending`, which reads as
+obviously right ("we are shutting down, why draw?") and is a silent frame-dropper: a
+program whose body is `present` then return races its own shutdown. Run from a shell it
+drew; run under `cargo test` it did not — and it exited 0 either way. The loop now
+checks `pending` first and drains before exiting. It terminates because shutdown sets
+`stopping` once and the worker is already inside shutdown, so no further present can
+arrive. This is R12's real resolution, and it is why R12 could not wait for Phase 4.
+
+**Correction 6 (Phase 2) — `MFB_CANVAS_SYNC` added; frame counts are otherwise
+nondeterministic.** Frames coalesce by design (§3), so "how many frames did three
+presents produce?" has no fixed answer — the same program was observed producing one,
+two and three. Every frame-level assertion in the plan therefore needs a way to pin it.
+`MFB_CANVAS_SYNC` makes `present` wait for the frame it asked for; it is off by
+default, so the production path keeps no wait. Phases 3 and 4 need it too.
+
+**Correction 7 (Phase 2) — a defect found and fixed en route: the frame skip had never
+worked.** `canvas::present`'s "identical content publishes nothing" compared the two
+blocks with a whole-block `memcmp`, and it has **never once** reported "same" — three
+identical presents produced three frames, on the pre-graphics-thread build too
+(measured against a `git archive` of `4db995345`). Both sides really are shrink-to-fit
+(`copy_flat_block` dispatches to `copy_collection_tight`), so slack was not the cause.
+The cause is that a lookup entry is 40 bytes of which a **list** writes only some:
+`keyOffset` and `keyLength` are meaningless without keys and are never written, so they
+carry whatever the arena handed out. The comparison now uses `count`, then
+`dataLength`, then the data region — the scene's actual content. Nothing caught this
+because the only test was a codegen-shape assertion that the comparison *exists*; a
+structural test proves the code is there, not that it works.
+
+**Correction 8 (Phase 2) — three codegen traps, recorded because each cost a
+misdirected hour.** (a) A hand-written pthread start routine **must** save the
+callee-saved registers it uses: `_pthread_start` is the caller, and clobbering `x19`
+aborted at *thread exit* in `_pthread_terminate` with a pointer-authentication failure
+and not one frame of our code in the trace. (b) It must set an explicit 8 MiB stack —
+macOS defaults to 512 KiB and MFB frames are large. (c) An `abi_function` body must
+take its scratch vregs from the **caller's** allocator: a fresh `Vregs::new()` starts
+at `%v0`, which the `CodeBuilder` has already handed out. All three are in
+auto-memory and cross-referenced from `.ai/canvas-threading.md`.
 
 <Further corrections filled in during execution.>
 

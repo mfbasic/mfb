@@ -46,6 +46,11 @@ fn render(name: &str, source: &str) -> (Vec<u8>, Vec<String>) {
         .env("MFB_WINAPP_HEADLESS", "1")
         .env("MFB_CANVAS_DUMP", &frame)
         .env("MFB_CANVAS_STATS", &stats)
+        // Render synchronously: since plan-98-D Phase 2 the render runs on a
+        // graphics thread and presents that arrive between frames coalesce by
+        // design, so how many frames a run produces is otherwise a scheduling
+        // detail — and every assertion below is about a frame.
+        .env("MFB_CANVAS_SYNC", "1")
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
     assert!(
@@ -56,7 +61,18 @@ fn render(name: &str, source: &str) -> (Vec<u8>, Vec<String>) {
         String::from_utf8_lossy(&run.stderr),
     );
 
-    let pixels = std::fs::read(&frame).expect("canvas dump written");
+    let pixels = std::fs::read(&frame).unwrap_or_else(|e| {
+        panic!(
+            "canvas dump {} not written: {e}\nstdout:\n{}\nstderr:\n{}\nproject dir: {:?}\nstats: {:?}",
+            frame.display(),
+            String::from_utf8_lossy(&run.stdout),
+            String::from_utf8_lossy(&run.stderr),
+            std::fs::read_dir(&project)
+                .map(|d| d.filter_map(|e| e.ok().map(|e| e.file_name())).collect::<Vec<_>>())
+                .unwrap_or_default(),
+            std::fs::read_to_string(&stats),
+        )
+    });
     assert_eq!(
         pixels.len(),
         WIDTH * HEIGHT * 4,
@@ -366,11 +382,17 @@ fn rendering_is_byte_reproducible() {
 
 /// A cache hit skips geometry generation — plan-98-A invariant 2.
 ///
-/// Three frames: three new polygons, then one of them moved, then back to the first
-/// scene. The generation counter must go `3, 4, 4` — one generation per genuinely new
-/// item and none at all for a repeat. This is the phase's acceptance criterion, and
+/// Three presents: three new polygons, then one of them moved, then back to the first
+/// scene. The claim is that re-presenting an unchanged item costs no generation, and
 /// it is invisible in the pixels (an identical frame results either way), which is
 /// why `MFB_CANVAS_STATS` exists.
+///
+/// The `3, 4, 4` sequence is only deterministic because the harness sets
+/// `MFB_CANVAS_SYNC`. Since plan-98-D Phase 2 the render runs on a graphics thread
+/// and the redraw signal is a *flag*, so presents arriving between two frames
+/// coalesce — deliberately (`.ai/canvas-threading.md` §3: an intermediate scene was
+/// never on screen and nothing observed it). Without the sync mode this run produced
+/// one, two or three frames depending on scheduling.
 #[test]
 fn cache_hit_skips_geometry_generation() {
     let (_, stats) = render(

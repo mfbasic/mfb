@@ -30,13 +30,13 @@
 //! three families.
 
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::runtime::thread::{emit_thread_external_call, thread_symbol};
 use crate::target::shared::abi;
 use std::collections::HashMap;
-
 
 /// Scratch registers for the graphics emitters, allocated by the caller.
 ///
@@ -95,8 +95,25 @@ pub(crate) const GRAPHICS_OFFSET_STOPPING: usize = 128;
 /// not be one of the fields above: aliasing it onto `started` would work by accident
 /// (a tid is never 0) right up until it did not.
 pub(crate) const GRAPHICS_OFFSET_TID: usize = 120;
+/// Frames completed. Incremented by the render loop after each frame.
+pub(crate) const GRAPHICS_OFFSET_FRAMES: usize = 200;
+/// The frame number a `signalRedraw` is asking for (`frames + 1` at signal time).
+/// Only read by `canvas::syncFrame`.
+pub(crate) const GRAPHICS_OFFSET_WANTED: usize = 208;
+/// Non-zero when `MFB_CANVAS_SYNC` was set at spawn: `canvas::present` then waits for
+/// the frame it asked for before returning.
+///
+/// **A test affordance, and off by default.** Frames coalesce by design
+/// (`.ai/canvas-threading.md` §3), so how many a run produces is a scheduling
+/// detail — which makes any frame-level assertion a flake without this. It is read
+/// once, at spawn, rather than per present.
+pub(crate) const GRAPHICS_OFFSET_SYNC: usize = 216;
+/// Scratch for the `pthread_attr_t` the spawn configures. 64 bytes covers macOS
+/// (64) and musl/glibc (56). It lives here rather than on the spawner's stack
+/// because there is exactly one spawn and the block is already process-global.
+pub(crate) const GRAPHICS_OFFSET_ATTR: usize = 224;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 136;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 288;
 
 /// The trampoline `pthread_create` starts: establishes the MFB context, then loops.
 pub(crate) const GRAPHICS_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_canvas_graphics_entry";
@@ -152,6 +169,18 @@ pub(crate) fn emit_graphics_trampoline(
         abi::stack_pointer(),
         0,
     ));
+    // **Save the arena register.** It is callee-saved, and the caller here is
+    // `_pthread_start`, which has its own live state in it — clobbering it corrupts
+    // pthread's frame and the thread dies at exit inside `_pthread_terminate` with a
+    // pointer-authentication failure, having run the whole body correctly first. The
+    // thread runtime's own trampoline saves the same register for the same reason;
+    // "a thread entry has nobody to return to" is wrong, because pthread is the
+    // caller.
+    instructions.push(abi::store_u64(
+        ARENA_STATE_REGISTER,
+        abi::stack_pointer(),
+        8,
+    ));
     // Pin the child arena state. Every MFB global access on this thread — including
     // the geometry cache and the sRGB table — is addressed off it.
     instructions.push(abi::move_register(ARENA_STATE_REGISTER, abi::c_arg(0)));
@@ -175,11 +204,8 @@ pub(crate) fn emit_graphics_trampoline(
     // return, and parking made the shutdown join wait forever on a thread that
     // was spinning two instructions away from finishing.
     instructions.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
-    instructions.push(abi::load_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        0,
-    ));
+    instructions.push(abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8));
+    instructions.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     instructions.push(abi::add_stack(32));
     instructions.push(abi::return_());
 
@@ -200,7 +226,12 @@ pub(crate) fn emit_graphics_trampoline(
 }
 
 /// Load the graphics-state block's address into `dst`.
-fn state_base(from: &str, dst: &str, ins: &mut Vec<CodeInstruction>, rel: &mut Vec<CodeRelocation>) {
+fn state_base(
+    from: &str,
+    dst: &str,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) {
     push_symbol_address(from, GRAPHICS_STATE_SYMBOL, dst, ins, rel);
 }
 
@@ -249,6 +280,19 @@ pub(crate) fn emit_signal_redraw(
         &scratch.scratch,
         &scratch.base,
         GRAPHICS_OFFSET_PENDING,
+    ));
+    // Record which frame this present is asking for, so `canvas::syncFrame` knows
+    // what to wait for. Under the mutex, like everything else here.
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_FRAMES,
+    ));
+    instructions.push(abi::add_immediate(&scratch.scratch, &scratch.scratch, 1));
+    instructions.push(abi::store_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_WANTED,
     ));
     instructions.push(abi::add_immediate(
         abi::c_arg(0),
@@ -318,15 +362,16 @@ pub(crate) fn emit_wait_for_redraw(
 
     instructions.push(abi::label(&retry));
     state_base(symbol, &scratch.base, instructions, relocations);
-    // Stopping wins over a pending frame: shutdown is waiting on the join, and one
-    // more frame would only be rendered into a surface that is about to go away.
-    instructions.push(abi::load_u64(
-        &scratch.scratch,
-        &scratch.base,
-        GRAPHICS_OFFSET_STOPPING,
-    ));
-    instructions.push(abi::compare_immediate(&scratch.scratch, "0"));
-    instructions.push(abi::branch_ne(&stop));
+    // **A pending frame wins over stopping** — the loop DRAINS before it exits.
+    //
+    // The other order looks tidier ("we are shutting down, why draw?") and is
+    // wrong: a program whose whole body is `present` then return races its own
+    // shutdown, and loses often enough that the frame is simply never drawn. It is
+    // not even a reliable failure — run from a shell it rendered, run under
+    // `cargo test` it did not.
+    //
+    // Draining terminates: shutdown sets `stopping` once, and the worker is inside
+    // shutdown, so no further `present` can arrive to keep the loop fed.
     instructions.push(abi::load_u64(
         &scratch.scratch,
         &scratch.base,
@@ -334,6 +379,13 @@ pub(crate) fn emit_wait_for_redraw(
     ));
     instructions.push(abi::compare_immediate(&scratch.scratch, "0"));
     instructions.push(abi::branch_ne(&have));
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_STOPPING,
+    ));
+    instructions.push(abi::compare_immediate(&scratch.scratch, "0"));
+    instructions.push(abi::branch_ne(&stop));
     instructions.push(abi::add_immediate(
         abi::c_arg(0),
         &scratch.base,
@@ -586,7 +638,14 @@ pub(crate) fn emit_start_graphics(
         GRAPHICS_OFFSET_STARTED,
     ));
 
-    emit_graphics_spawn(symbol, scratch, platform_imports, platform, instructions, relocations)?;
+    emit_graphics_spawn(
+        symbol,
+        scratch,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::label(&done));
     Ok(())
 }
@@ -631,17 +690,56 @@ fn emit_graphics_spawn(
         return Ok(());
     }
 
-    // pthread_create(&tid, NULL, entry, arg). The tid is written into the state
-    // block's spare word — nothing joins the thread, but `pthread_create` requires a
-    // writable slot for it.
+    // pthread_create(&tid, &attr, entry, arg).
+    //
+    // **The attr is not optional.** A NULL attr gives macOS's 512 KiB default stack,
+    // and the renderer overflowed it — not with a crash in the render, which
+    // completed and wrote a correct frame, but by smashing the thread's TSD block at
+    // the base of its stack, which then aborted in libmalloc during
+    // `_pthread_tsd_cleanup` at thread exit. `thread::start` sets 8 MiB for exactly
+    // this reason (a large MFB frame is normal; the regex engine's is ~230 KiB), and
+    // the graphics thread runs the same kind of code. The memory is reserved lazily,
+    // so the cost is address space rather than RSS.
     let create = thread_symbol(platform, "pthread_create");
+    let attr_init = thread_symbol(platform, "pthread_attr_init");
+    let attr_setstacksize = thread_symbol(platform, "pthread_attr_setstacksize");
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_ATTR,
+    ));
+    instructions.push(abi::branch_link(&attr_init));
+    relocations.push(external_branch(symbol, &attr_init, platform_imports)?);
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_ATTR,
+    ));
+    instructions.push(abi::move_immediate(
+        abi::c_arg(1),
+        "Integer",
+        &(8 * 1024 * 1024).to_string(),
+    ));
+    instructions.push(abi::branch_link(&attr_setstacksize));
+    relocations.push(external_branch(
+        symbol,
+        &attr_setstacksize,
+        platform_imports,
+    )?);
+
     state_base(symbol, &scratch.base, instructions, relocations);
     instructions.push(abi::add_immediate(
         abi::c_arg(0),
         &scratch.base,
         GRAPHICS_OFFSET_TID,
     ));
-    instructions.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
+    instructions.push(abi::add_immediate(
+        abi::c_arg(1),
+        &scratch.base,
+        GRAPHICS_OFFSET_ATTR,
+    ));
     push_symbol_address(
         symbol,
         GRAPHICS_TRAMPOLINE_SYMBOL,
@@ -653,4 +751,185 @@ fn emit_graphics_spawn(
     instructions.push(abi::branch_link(&create));
     relocations.push(external_branch(symbol, &create, platform_imports)?);
     Ok(())
+}
+
+/// `canvas::frameDone()` — the render loop reports a completed frame.
+///
+/// Advances the frame counter and wakes anything waiting on it. Broadcast rather
+/// than signal: the waiter is a different party from the render loop, and a signal
+/// could wake the loop's own wait instead.
+pub(crate) fn emit_frame_done(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_MUTEX,
+    ));
+    let mut ctx = EmitCtx {
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    };
+    emit_thread_external_call(&mut ctx, "pthread_mutex_lock")?;
+
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_FRAMES,
+    ));
+    instructions.push(abi::add_immediate(&scratch.scratch, &scratch.scratch, 1));
+    instructions.push(abi::store_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_FRAMES,
+    ));
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_COND,
+    ));
+    let mut ctx = EmitCtx {
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    };
+    emit_thread_external_call(&mut ctx, "pthread_cond_broadcast")?;
+
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_MUTEX,
+    ));
+    let mut ctx = EmitCtx {
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    };
+    emit_thread_external_call(&mut ctx, "pthread_mutex_unlock")?;
+    Ok(())
+}
+
+/// `canvas::syncFrame()` — wait for the frame this present asked for.
+///
+/// A no-op unless `MFB_CANVAS_SYNC` was set, which is the whole point: it exists so
+/// a test can make frame-level assertions without racing the scheduler, and it must
+/// not put a wait on the production present path.
+pub(crate) fn emit_sync_frame(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let skip = format!("{symbol}_no_sync");
+    let retry = format!("{symbol}_sync_wait");
+    let ready = format!("{symbol}_sync_ready");
+
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_SYNC,
+    ));
+    instructions.push(abi::compare_immediate(&scratch.scratch, "0"));
+    instructions.push(abi::branch_eq(&skip));
+
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_MUTEX,
+    ));
+    let mut ctx = EmitCtx {
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    };
+    emit_thread_external_call(&mut ctx, "pthread_mutex_lock")?;
+
+    instructions.push(abi::label(&retry));
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_FRAMES,
+    ));
+    instructions.push(abi::load_u64(
+        &scratch.verdict,
+        &scratch.base,
+        GRAPHICS_OFFSET_WANTED,
+    ));
+    instructions.push(abi::compare_registers(&scratch.scratch, &scratch.verdict));
+    instructions.push(abi::branch_ge(&ready));
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_COND,
+    ));
+    instructions.push(abi::add_immediate(
+        abi::c_arg(1),
+        &scratch.base,
+        GRAPHICS_OFFSET_MUTEX,
+    ));
+    let mut ctx = EmitCtx {
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    };
+    emit_thread_external_call(&mut ctx, "pthread_cond_wait")?;
+    instructions.push(abi::branch(&retry));
+
+    instructions.push(abi::label(&ready));
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_MUTEX,
+    ));
+    let mut ctx = EmitCtx {
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    };
+    emit_thread_external_call(&mut ctx, "pthread_mutex_unlock")?;
+    instructions.push(abi::label(&skip));
+    Ok(())
+}
+
+/// `canvas::setSyncMode(on)` — record whether `present` should wait for its frame.
+///
+/// Set from MFBASIC, which is where the environment is portably readable, rather
+/// than by calling `getenv` from the spawn: the env plumbing already exists there
+/// and differs per platform (`GetEnvironmentVariableW` on Windows), and this is one
+/// boolean read once.
+pub(crate) fn emit_set_sync_mode(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    value: &Operand,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::store_u64(value, &scratch.base, GRAPHICS_OFFSET_SYNC));
 }

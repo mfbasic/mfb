@@ -95,6 +95,23 @@ r#"FUNC __canvas_newSurface(width AS Integer, height AS Integer) AS List OF Byte
   RETURN out
 END FUNC"#;
 
+/// Start the graphics thread on the first present, and settle sync mode with it.
+///
+/// The guard makes this one `os::getEnvOr` per program rather than per frame, and it
+/// keeps the environment read in MFBASIC — where it is already portable — instead of
+/// putting a per-platform `getenv` on the spawn path.
+#[rustfmt::skip]
+const ENSURE_GRAPHICS: &str =
+r#"MUT __CANVAS_GFX_READY AS Boolean = FALSE
+
+FUNC __canvas_ensureGraphics() AS Nothing
+  IF NOT __CANVAS_GFX_READY THEN
+    canvas::setSyncMode(len(os::getEnvOr("MFB_CANVAS_SYNC", "")) > 0)
+    canvas::startGraphics()
+    __CANVAS_GFX_READY = TRUE
+  END IF
+END FUNC"#;
+
 /// The graphics thread's whole life: wait, render, repeat.
 ///
 /// It never returns. The wait is a real condition wait, so a static scene costs
@@ -108,10 +125,15 @@ const RENDER_LOOP: &str =
 r#"FUNC __canvas_renderLoop() AS Nothing
   WHILE canvas::waitForRedraw()
     __canvas_renderScene()
+    canvas::frameDone()
   END WHILE
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_helper(RegistryHelper::always(
+        "canvas_ensureGraphics",
+        ENSURE_GRAPHICS,
+    ));
     pkg.add_helper(RegistryHelper::always("canvas_renderLoop", RENDER_LOOP));
     pkg.add_helper(RegistryHelper::always("canvas_hashScene", HASH_SCENE));
     pkg.add_helper(RegistryHelper::always("canvas_renderScene", RENDER_SCENE));

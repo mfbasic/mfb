@@ -9,9 +9,12 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::error::constants::*;
-use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::registry::{
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+};
 use crate::codegen::runtime::canvas::{
-    emit_signal_redraw, emit_start_graphics, emit_wait_for_redraw, GraphicsScratch,
+    emit_frame_done, emit_set_sync_mode, emit_signal_redraw, emit_start_graphics, emit_sync_frame,
+    emit_wait_for_redraw, GraphicsScratch,
 };
 use crate::target::shared::abi;
 use crate::types::ParameterType;
@@ -118,6 +121,67 @@ pub(crate) fn lower_wait_for_redraw(
     })
 }
 
+/// `canvas::frameDone()` — the render loop reports a completed frame.
+pub(crate) fn lower_frame_done(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
+    emit_frame_done(
+        &symbol,
+        &scratch,
+        ctx.platform_imports,
+        ctx.platform,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )?;
+    Ok(ok_return(builder, symbol))
+}
+
+/// `canvas::syncFrame()` — wait for the frame this present asked for, in sync mode.
+pub(crate) fn lower_sync_frame(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
+    emit_sync_frame(
+        &symbol,
+        &scratch,
+        ctx.platform_imports,
+        ctx.platform,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )?;
+    Ok(ok_return(builder, symbol))
+}
+
+/// `canvas::setSyncMode(on AS Boolean)` — see `emit_set_sync_mode`.
+pub(crate) fn lower_set_sync_mode(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let value = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the flag argument"))?
+        .location
+        .clone();
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
+    emit_set_sync_mode(
+        &symbol,
+        &scratch,
+        &value,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    Ok(ok_return(builder, symbol))
+}
+
 fn internal(name: &'static str, body: Body) -> RegistryFunction {
     RegistryFunction {
         name,
@@ -144,6 +208,28 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "signalRedraw",
         Body::abi_function(lower_signal_redraw),
     ));
+    pkg.add_function(RegistryFunction {
+        name: "setSyncMode",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "on",
+                desc: "",
+                aliases: &[],
+                ty: ParameterType::Boolean,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Nothing,
+            errors: vec![],
+            body: Body::abi_function(lower_set_sync_mode),
+        }],
+    });
+    pkg.add_function(internal("frameDone", Body::abi_function(lower_frame_done)));
+    pkg.add_function(internal("syncFrame", Body::abi_function(lower_sync_frame)));
     pkg.add_function(RegistryFunction {
         name: "waitForRedraw",
         intro: "",

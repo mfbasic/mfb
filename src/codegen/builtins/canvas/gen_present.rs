@@ -9,6 +9,7 @@
 // --- codegen tier imports (migration) ---
 use super::scene_base::scene_base;
 use crate::codegen::app::hook::app::{prepend_wrong_mode_gate, ModeRequirement};
+use crate::codegen::collection::layout::list_entry_stride;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::error::constants::*;
@@ -116,11 +117,21 @@ pub(crate) fn emit_publish(
 
     // ---- Frame skip: an identical re-present publishes nothing ----------------
     //
-    // Comparing the *tight copy* against the installed scene, rather than the
-    // caller's block, is what makes this exact: a working buffer carries capacity
-    // headroom and the installed scene does not, so the same content in the two
-    // shapes has different bytes. Both sides here are shrink-to-fit, so equal
-    // content is equal bytes — no hash, and therefore no collisions.
+    // Compares the **data region**, not the whole block, plus `count` and
+    // `dataLength`. Those three together are the scene's content: the data region
+    // holds every element's bytes, and for a tight copy the entry offsets are
+    // sequential over it.
+    //
+    // The whole-block compare this replaced never once reported "same" (measured:
+    // three identical presents produced three frames, on the pre-graphics-thread
+    // build too). Both sides *are* shrink-to-fit — `copy_flat_block` dispatches to
+    // `copy_collection_tight` for a collection — so that was not the problem. The
+    // problem is that a lookup entry is 40 bytes of which a **list** writes only
+    // some: `keyOffset` and `keyLength` are meaningless without keys and are never
+    // written, so they hold whatever the arena handed out. Two allocations, two
+    // different values, one spurious "changed".
+    //
+    // Still no hash, so still no collisions.
     //
     // The copy still happens on a skipped frame. That is the design (plan-98-A
     // invariant 2 charges the deep copy to the caller's frame budget); what the skip
@@ -143,31 +154,71 @@ pub(crate) fn emit_publish(
     builder.emit(abi::compare_immediate(&installed, "0"));
     builder.emit(abi::branch_eq(&publish));
 
-    builder.emit_inlined_block_size_from_ptr_slot(&list_type, copy_slot, size_slot)?;
-    builder.emit_inlined_block_size_from_ptr_slot(
-        &list_type,
+    let fresh = builder.temporary_vreg();
+    let previous = builder.temporary_vreg();
+    let new_count = builder.temporary_vreg();
+    let old_count = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&fresh, abi::stack_pointer(), copy_slot));
+    builder.emit(abi::load_u64(
+        &previous,
+        abi::stack_pointer(),
         installed_slot,
-        installed_size_slot,
-    )?;
+    ));
+    builder.emit(abi::load_u64(&new_count, &fresh, COLLECTION_OFFSET_COUNT));
+    builder.emit(abi::load_u64(
+        &old_count,
+        &previous,
+        COLLECTION_OFFSET_COUNT,
+    ));
+    builder.emit(abi::compare_registers(&new_count, &old_count));
+    builder.emit(abi::branch_ne(&publish));
+
     let new_size = builder.temporary_vreg();
     let old_size = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&new_size, abi::stack_pointer(), size_slot));
     builder.emit(abi::load_u64(
+        &new_size,
+        &fresh,
+        COLLECTION_OFFSET_DATA_LENGTH,
+    ));
+    builder.emit(abi::load_u64(
+        &old_size,
+        &previous,
+        COLLECTION_OFFSET_DATA_LENGTH,
+    ));
+    builder.emit(abi::compare_registers(&new_size, &old_size));
+    builder.emit(abi::branch_ne(&publish));
+    builder.emit(abi::store_u64(&new_size, abi::stack_pointer(), size_slot));
+    builder.emit(abi::store_u64(
         &old_size,
         abi::stack_pointer(),
         installed_size_slot,
     ));
-    builder.emit(abi::compare_registers(&new_size, &old_size));
-    builder.emit(abi::branch_ne(&publish));
 
+    // Data base = block + HEADER + capacity * entryStride. Both sides are tight, so
+    // `capacity == count`; deriving it from each block's own capacity rather than
+    // assuming that keeps this correct if a future copy stops being tight.
+    let element = ParameterType::named(match shape {
+        SceneShape::Flat => "DrawItem",
+        SceneShape::Layered => "DrawLayer",
+    });
+    let stride = list_entry_stride(&element);
     let left = builder.temporary_vreg();
     let right = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&left, abi::stack_pointer(), copy_slot));
-    builder.emit(abi::load_u64(&right, abi::stack_pointer(), installed_slot));
+    for (block, out) in [(&fresh, &left), (&previous, &right)] {
+        let capacity = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&capacity, block, COLLECTION_OFFSET_CAPACITY));
+        let bytes = builder.temporary_vreg();
+        builder.emit(abi::move_immediate(&bytes, "Integer", &stride.to_string()));
+        builder.emit(abi::multiply_registers(&capacity, &capacity, &bytes));
+        builder.emit(abi::add_registers(out, block, &capacity));
+        builder.emit(abi::add_immediate(out, out, COLLECTION_HEADER_SIZE));
+    }
+    let length = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&length, abi::stack_pointer(), size_slot));
     builder.emit_compare_bytes_branch(
         &left,
         &right,
-        &new_size,
+        &length,
         &skip,
         &publish,
         &format!("{tag}_same"),

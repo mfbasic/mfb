@@ -446,6 +446,33 @@ impl LinuxPlan<'_> {
                 );
                 imports
             }
+            // plan-98-D Phase 2: the graphics thread. A smaller set than `thread::`'s
+            // — the render loop has no message queue, no timed wait and no detach.
+            "canvas.startGraphics"
+            | "canvas.signalRedraw"
+            | "canvas.waitForRedraw"
+            | "canvas.frameDone"
+            | "canvas.syncFrame"
+            | "canvas.setSyncMode" => [
+                "pthread_create",
+                "pthread_attr_init",
+                "pthread_attr_setstacksize",
+                "pthread_join",
+                "pthread_mutex_init",
+                "pthread_mutex_lock",
+                "pthread_mutex_unlock",
+                "pthread_cond_init",
+                "pthread_cond_wait",
+                "pthread_cond_signal",
+                "pthread_cond_broadcast",
+            ]
+            .into_iter()
+            .map(|symbol| PlatformImport {
+                library: self.libpthread().to_string(),
+                symbol: symbol.to_string(),
+                required_by: required_by.to_string(),
+            })
+            .collect(),
             "thread.start"
             | "thread.isRunning"
             | "thread.waitFor"

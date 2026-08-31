@@ -1033,6 +1033,18 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
             value: "00".to_string(),
         });
     }
+    // plan-98-D Phase 2: the delegate pointer the graphics thread reads instead of
+    // asking `NSApp` (main-thread-only). Emitted with the always-on set because the
+    // bootstrap *writes* it unconditionally — gating it on the canvas set left every
+    // non-canvas app program storing into a symbol that was never emitted.
+    objects.push(CodeDataObject {
+        symbol: DELEGATE_GLOBAL_SYM.to_string(),
+        kind: "raw".to_string(),
+        layout: "mfb.macapp.delegate.v1 { u64 delegate }".to_string(),
+        align: 8,
+        size: 8,
+        value: "0000000000000000".to_string(),
+    });
     objects
 }
 
@@ -1068,7 +1080,7 @@ pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
         value: hex_cstring(text),
     })
     .collect();
-    for key in [RECONCILE_TV_KEY, CANVAS_VIEW_ASSOC_KEY, DELEGATE_GLOBAL_SYM] {
+    for key in [RECONCILE_TV_KEY, CANVAS_VIEW_ASSOC_KEY] {
         objects.push(CodeDataObject {
             symbol: key.to_string(),
             kind: "raw".to_string(),
@@ -1195,6 +1207,10 @@ mod canvas_reconcile_tests {
     /// deadlock. Checking first also means a headless run — which is every golden
     /// test — builds no CoreGraphics objects at all rather than building an image it
     /// immediately has to release.
+    ///
+    /// The check reads `DELEGATE_GLOBAL_SYM`, not `[NSApp delegate]`: since
+    /// plan-98-D Phase 2 the blit runs on the graphics thread, and `NSApp` is
+    /// main-thread-only.
     #[test]
     fn canvas_blit_checks_for_a_delegate_before_building_an_image() {
         let func = emit_canvas_blit_helper();
@@ -1202,11 +1218,11 @@ mod canvas_reconcile_tests {
             .relocations
             .iter()
             .map(|r| r.to.as_str())
-            .filter(|name| *name == SEL_DELEGATE.0 || *name == "_CGColorSpaceCreateDeviceRGB")
+            .filter(|name| *name == DELEGATE_GLOBAL_SYM || *name == "_CGColorSpaceCreateDeviceRGB")
             .collect();
         let delegate = order
             .iter()
-            .position(|name| *name == SEL_DELEGATE.0)
+            .position(|name| *name == DELEGATE_GLOBAL_SYM)
             .expect("the blit must check for an app delegate");
         let colour_space = order
             .iter()
