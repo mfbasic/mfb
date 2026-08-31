@@ -77,8 +77,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| release `mfb` at current HEAD (needed to render pages and run examples) | `cargo build --release`; `ls -l target/release/mfb` mtime ≥ HEAD commit date | re-verify at kickoff |
-| no concurrent letter of plan-104-C/D touching the same builtins package | check active worktrees/sessions | coordinate at kickoff |
+| release `mfb` at current HEAD (needed to render pages and run examples) | `cargo build --release`; `ls -l target/release/mfb` mtime ≥ HEAD commit date | **MET** 2026-08-30 — built at the worktree tip; binary mtime 20:12 = HEAD commit time |
+| no concurrent letter of plan-104-C/D touching the same builtins package | check active worktrees/sessions | **MET** 2026-08-30 — plan-104-A–D are ARCHIVED (`ls planning/completed/ \| grep plan-104` → all four), so no letter of it can be running. The three peer sessions sharing the checkout were each asked directly; all three confirmed no pending builtins-prose edits, and the one overlapping change (`6f99d0af2`, http/tls prose) had already landed and is merged in here. |
 
 Interaction with plans 104–107: plan-108 edits ONLY prose string fields
 (`intro`/`desc`/`example`/param `desc`/type `description`) in files that
@@ -157,6 +157,15 @@ construction), and `mfb man <pkg> types` renders record/resource
 descriptions.
 
 ### Measured populations
+
+> **SUPERSEDED 2026-08-30 by Phase 1.** Every count in this table is the
+> 2026-08-24 run at HEAD `254506f9b` and much of it has since moved — six of
+> the nine "all-empty packages" are now filled, and the memory-vocabulary
+> baseline is 402 rendered lines, not 94. The authoritative figures are
+> Phase 1's census and memory-scope tables, and the two Corrections entries
+> that explain the deltas. The table is kept because the *methodology* rows
+> (source greps overcount; the renderer omits empty sections) are still true
+> and still load-bearing. **Cite Phase 1, never this table.**
 
 | What | Count | Command |
 |---|---|---|
@@ -428,19 +437,140 @@ if a pinned summary is itself corrected.
 
 ### Phase 1 — census tooling + the exact census
 
-- [ ] Write `scripts/man-census.sh`; run it; commit the per-package
+- [x] Write `scripts/man-census.sh`; run it; commit the per-package
       fill table into this file (replacing the UNMEASURED intro row).
-- [ ] Add `--memory-scope` mode (§3 (2a) banned list over rendered output,
+      Four modes: `--fill` (default), `--functions`, `--memory-scope`,
+      `--banned-list`.
+- [x] Add `--memory-scope` mode (§3 (2a) banned list over rendered output,
       per-package hit list with line context); run it whole-surface and
       commit the baseline table here — the number B–F drive to 0.
-- [ ] Resolve the `errorcode`/`perf` zero-page anomaly; record the answer
+      Baseline is **402** unclassified hits, not the 94 §2 predicted
+      (Corrections).
+- [x] Resolve the `errorcode`/`perf` zero-page anomaly; record the answer
       and assign ownership (a later letter's package list, or out of scope
-      with the reason).
-- [ ] Verify: script is deterministic (two runs, identical output).
+      with the reason). Resolved below — they resolve differently.
+- [x] Verify: script is deterministic (two runs, identical output).
+      `./scripts/man-census.sh > a; ./scripts/man-census.sh > b; diff a b`
+      → no output.
 
 Acceptance: census table in this file; memory-scope baseline table in this
-file; anomaly resolved in writing.
-Commit: —
+file; anomaly resolved in writing. — **MET**.
+Commit: (hash recorded in the following commit)
+
+#### The census (measured 2026-08-30, `./scripts/man-census.sh`)
+
+PKGDOC is `<overview-intro><overview-desc>`, 1 = present. TYPES is
+described-entries / total, where an entry is one record FIELD, one union or
+enum VARIANT, or one resource; `-` means the package renders no types page.
+
+```
+PACKAGE        PAGES  INTRO   DESC  EXAMPLE  PARAM-DESC PKGDOC  TYPES
+---------------------------------------------------------------------------
+app                2      2      2        2         1/1     11    2/2
+astrings          15     15     15       15       23/23     11  17/17
+audio             11     11     11       11       22/22     11  17/17
+bits              17     17     17       17       27/27     11      -
+collections       49     49     49       49      51/103     11      -
+crypto            20     20     20       20       55/55     11  28/28
+csv                4      4      4        4       11/11     11    8/8
+datetime          44     44     44       44        0/73     11  40/40
+encoding          28     28     28       28       28/28     11      -
+errorCode          0      0      0        0         0/0     11      -
+fs                41     41     41       41       54/54     11    1/1
+general           18     18      0        0        0/21     11      -
+http              19     19     19       19       38/38     11  25/25
+io                15     15     15       15         7/7     11      -
+json               4      4      4        4         7/7     11  12/12
+math              21     21     21       21        0/28     11      -
+money              3      3      3        3         3/3     11    2/2
+net                5      5      5        5       10/10     11  19/19
+os                19     19     19       19         9/9     11      -
+process           14     14     14       14       26/26     11    7/7
+regex              4      4      4        4       11/11     11      -
+strings           39     39     39       39       64/64     11      -
+tcp               11     11     11       11       24/24     11    2/2
+term              24     24     24       24       34/34     11  13/18
+testing           12     12      0        0       23/23     11      -
+thread            12      0      0        0        0/22     10      -
+tls               11     11     11       11       28/28     11    2/2
+udp                8      8      8        8       17/17     11    3/3
+vector            19     19     19       19        0/38     11  27/27
+---------------------------------------------------------------------------
+TOTAL            489    477    447      447     573/807
+pages with neither Description nor Examples: 42
+```
+
+**The denominator is 489 function pages across 29 packages** (30 directories
+minus `perf`, which is not a package — see the anomaly below). This settles
+§2's open question: the "466 over 28 packages" figure was an undercount, and
+489 is the number B–F cite.
+
+**What is actually left to do is not what §2 says.** Six of the nine
+"all-empty packages" have been filled since the 2026-08-24 census; only three
+remain empty. See Corrections — B and C are re-scoped accordingly.
+
+| Work | Population | Where |
+|---|---|---|
+| author desc + example from scratch | **42 pages** | general 18, testing 12, thread 12 |
+| verify existing desc + example | **447 pages** | the other 26 packages |
+| author the missing function `intro` | **12** | thread (every other package is 100%) |
+| author missing parameter descriptions | **234** | datetime 73, collections 52, vector 38, math 28, thread 22, general 21 |
+| author missing types-page entries | **5** | term (`TermColor.r/g/b`, `TermSize.columns/rows`) |
+| remove banned memory vocabulary | **402 lines** | 22 packages — table below |
+
+#### The memory-vocabulary baseline (`./scripts/man-census.sh --memory-scope`)
+
+**402 unclassified hits; 15 carve-out 1** — every `borrow` in `datetime`, all
+arithmetic, exactly as §3 (2a) predicted. A hit is a RENDERED LINE, so a line
+carrying two banned words counts once.
+
+```
+collections 66   fs 52   tls 48   process 32   tcp 28   strings 28   audio 25
+http 23   udp 21   term 18   crypto 18   os 12   io 9   encoding 6
+datetime 5 (+15 carve-out)   net 3   regex 2   bits 2
+vector 1   money 1   json 1   astrings 1
+```
+
+By word (a line may match more than one): `consumed` 69, `owned` 61,
+`borrowed` 59, `allocation` 46, `lexical drop` 38, `allocated` 37,
+`consumes` 22, `allocates` 22, `ownership` 15, `consuming` 12, `by value` 11,
+`owns` 10, `frees` 9, `owner` 8, `lifetime` 6, `allocating` 6, `freed` 5,
+`consume` 5, `allocate` 5, `borrows` 4, `moved into` 3, `moves the value` 2,
+`pointer` 1, `free the` 1, `deep copy` 1, `by reference` 1, `borrow` 1,
+`allocator` 1.
+
+#### The `errorcode` / `perf` anomaly — RESOLVED
+
+Both were census artifacts rather than renderer gaps, and they resolve
+differently:
+
+- **`errorCode` is a real package the census misspelled.** The directory is
+  `src/codegen/builtins/errorcode/` but the import name is camelCase
+  `errorCode`, so `mfb man errorcode` answers ``error: mfb man: unknown
+  package `errorcode` `` while `mfb man errorCode` renders a full overview.
+  It exports **constants only** — no callables, no types
+  (`errorcode/mod.rs:3-6`: "a flat set of `Integer` constants … and nothing
+  else: no callables, no builtin types, no resource") — so **0 function pages
+  is correct and permanent**, not an emptiness to fill. Its overview intro and
+  desc are present (PKGDOC `11`). **Ownership: plan-108-E**, as a one-page
+  overview verification alongside its other small packages.
+  `scripts/man-census.sh` now maps the directory name to the import name.
+- **`perf` is not an MFB package at all.** `src/codegen/builtins/perf/perf.rs:1-6`
+  says so outright: "These are NOT an MFB `perf::` package — there is no
+  language surface; the four helpers are invoked only by compiler-injected
+  calls in a `--cfg perf`-built … program". `mfb man perf` correctly errors.
+  **Out of scope, owned by no letter**, and excluded by `packages()` in the
+  census script with that reason recorded inline.
+
+Two enumeration facts the anomaly turned up, recorded so no later letter
+re-derives them:
+
+- The `mfb man` index lists **27** packages; `general` and `testing` are
+  deliberately absent because their members are unqualified globals needing
+  no `IMPORT` (`mfb man general`: they "are written as bare names and have no
+  `general::` spelling"). Both nonetheless render full pages and **are in
+  scope** — two of the three packages still to be authored.
+- 30 directories − `perf` = **29 censusable packages**.
 
 ### Phase 2 — the standard
 
@@ -534,6 +664,73 @@ Commit: —
   census then reports it.
 
 ## Corrections
+
+**2026-08-30 (Phase 1) — six of the nine "all-empty packages" are no longer
+empty; B and C are re-scoped.** §2's census was taken 2026-08-24 at HEAD
+`254506f9b`. Measured again at this worktree's tip with
+`./scripts/man-census.sh`, the fill state has moved a long way:
+
+| Package | §2 said | Phase 1 measures | Letter |
+|---|---|---|---|
+| strings | 39 pages, 0 desc | 39 pages, **39** desc + 39 example | B → verify, not author |
+| term | 25 pages, 0 desc | 24 pages, **24** desc + 24 example | B → verify, not author |
+| net | 23 pages, 0 desc | **5** pages, 5 desc + 5 example | C → verify, not author |
+| http | 19 pages, 0 desc | 19 pages, **19** desc + 19 example | C → verify, not author |
+| astrings | 18 pages, 0 desc | **15** pages, 15 desc + 15 example | C → verify, not author |
+| vector | 17 pages, 0 desc | **19** pages, 19 desc + 19 example | C → verify, not author |
+| general | 18 pages, 0 desc | 18 pages, **0** desc — still empty | C → author |
+| testing | 12 pages, 0 desc | 12 pages, **0** desc — still empty | B → author |
+| thread | 13 pages, 0 desc | **12** pages, **0** desc — still empty | A pilot → author |
+
+So the authoring population is **42 pages across 3 packages**, not 184 across
+9; the other six move from B/C's authoring column into the verification
+column. The whole-plan population is unchanged in kind — every page still
+needs the accuracy + scope + review cycle — but the balance shifts sharply
+from *authoring* to *verification*, which A's §3 workflow already covers as
+its cheaper branch (B's own §2 note: "verification of an existing page is
+cheaper per page than authoring").
+
+This does NOT re-split the feature: B keeps strings/term/testing, C keeps
+net/http/general/astrings/vector/tcp/udp. Only the per-package starting
+point changes, and each letter's Phase text is amended in place.
+
+Two populations §2 never measured, now measured and assigned:
+
+- **234 missing parameter descriptions**, concentrated in packages §2 called
+  "filled": datetime 0/73, collections 51/103, vector 0/38, math 0/28,
+  thread 0/22, general 0/21. A page with prose but bare parameter cells still
+  fails this plan's Goal ("every function page … has … per-parameter `desc`"),
+  so these are D's and C's work, not a cosmetic gap.
+- **5 missing types-page entries**, all in `term` (`TermColor.r/g/b`,
+  `TermSize.columns/rows`) — B's.
+
+**2026-08-30 (Phase 1) — the memory-vocabulary baseline is 402 rendered
+lines, not 94.** §2 and F both quote "94 memory-sense hits". That figure was
+produced by a regex that omitted four of the ban's own words, and each is
+common:
+
+```
+consumed 69   owned 61   allocation 46   lexical drop 38   allocated 37
+consumes 22   allocates 22   consuming 12   allocate 5   freed 5   allocator 1
+```
+
+§3 (2a) bans `consume`/`consumed` explicitly (calling it "the ban's most
+common single hit") and bans `allocate`/`allocation` in its banned list, yet
+the measuring command in §2 searched for neither, and searched `owns` without
+`owned`. Measured with the full list — as `scripts/man-census.sh
+--memory-scope` now does, using the script's `BANNED_CORE` as the one source
+— the surface carries **402 unclassified hits plus 15 carve-out 1**.
+
+One false positive was found and fixed while calibrating: unbounded `heap`
+matches **`cheap`** (5 rendered lines, e.g. `vector::perpendicular`'s "a cheap
+exact negation"). The script now matches whole words only, spelling the
+boundaries as `[^A-Za-z]` because BSD grep has no portable `\b`. Bare `own` is
+deliberately NOT banned — "builds its own copy" is the rewrite table's own
+prescribed replacement.
+
+Consequences: F's certification regex must be replaced by
+`scripts/man-census.sh --banned-list` (F Phase amended), and B–E's per-letter
+baselines are restated from this run.
 
 **2026-08-30 — memory-vocabulary hard ban added (user directive).** The
 plan as first written treated "developer voice, not compiler spec" as a
