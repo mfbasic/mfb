@@ -422,16 +422,14 @@ Commit: bc93ab44d
   | `cargo test --test cli_canvas_man_examples_compile` | ok — 1 passed |
   | `cargo test --test architecture_guards` | ok — 3 passed |
   | `cargo test --test no_type_strings` | ok — 7 passed, 1 ignored |
-  | `cargo test --test golden` | 4 fixtures PASSED, 0 FAILED before the run was killed by the environment; superseded by the direct check below |
-  | `.ncode` byte-identity, direct | `collections` and `fs` hash **identically** to their committed `macos-aarch64.ncodesum` goldens |
+  | `cargo test --test golden` | first run **772 passed, 17 FAILED** — all `term`, all `.ir`; after regenerating, **`test result: ok`, 789 passed, 0 failed** (275s). See Correction 9. |
+  | `.ncode` byte-identity, direct | `collections` and `fs` hash identically to their committed `macos-aarch64.ncodesum` goldens — true, and **not sufficient**; see Correction 9 |
   | `spec_citations_resolve` | ok |
   | `cargo check --all-targets` | clean, no warnings |
 
-  The `golden` harness could not be run to completion either — every detached
-  attempt was killed by the environment part-way, and `scripts/artifact-gate.sh`
-  correctly refused with "Another artifact-gate (pid 32405) is running" (a peer
-  session's). So codegen-neutrality was proven directly instead, which is
-  stronger than the summary line anyway:
+  `scripts/artifact-gate.sh` correctly refused with "Another artifact-gate
+  (pid 32405) is running" (a peer session's), so `.ncode` neutrality was also
+  checked directly:
 
   ```
   $ cp -R tests/byte-identity/collections /tmp/bi-coll && rm -rf /tmp/bi-coll/golden
@@ -442,9 +440,9 @@ Commit: bc93ab44d
   e851cc7d7729e6488da8d5b7735ad10ba0fa771147b639abd7b544b434903580
   ```
 
-  Same for `fs` (`2da69633...` both sides). That is the expected result and the
-  reason the plan's non-goals put compiler gates out of scope in the first
-  place: a `&'static str` the compiler never reads cannot move a `.ncode` byte.
+  Same for `fs` (`2da69633...` both sides). That much is true — but it is not the
+  whole story, and treating it as one was this letter's worst mistake. See
+  Correction 9.
 
   A bare `cargo test` could not be completed in one piece: it dies partway
   through `cli::build::tests::builtin_codegen_corpora_lower_in_process`, which
@@ -572,6 +570,61 @@ Commit: bc93ab44d
    needs one rule the package path does not: this page puts expected output
    directly under the code at the same indent, so a block must be truncated at
    its last top-level `END`, not at the next unindented line.)
+
+### Correction 9 — a `&'static str` CAN move a golden, and this plan landed red
+
+The claim "this plan edits only prose the compiler never reads, so no golden can
+move" is **false**, and acting on it put main in a red state for about twenty
+minutes.
+
+`cargo test --test golden` finished after the merge: **772 passed, 17 FAILED.**
+Every failure was `term`, and every one was an `.ir` golden.
+
+**Cause.** plan-108-B filled `TermColor`'s and `TermSize`'s empty record and
+field `description`s — pure prose by any reading. But a `RegistryRecord` /
+`RecordProp` description is **not** inert: it renders into the synthesized
+MFBASIC companion source, so a `description: ""` becoming a four-line string
+pushes every later declaration down four lines. `.ir` goldens embed those line
+numbers:
+
+```
+-    { "visibility": null, "line": 2, "name": "r", "type": "Byte" },
++    { "visibility": null, "line": 9, "name": "r", "type": "Byte" },
+```
+
+`TermColor` moved from line 1 to line 8, `TermSize` from 7 to 20, and 17
+fixtures across `byte-identity/`, `rt-behavior/` and `syntax/` drifted with
+them.
+
+**Why the verification missed it.** Codegen-neutrality was proven with two
+`.ncode` byte-identity checks, `collections` and `fs`, both byte-identical. That
+result is correct and irrelevant: `.ncode` is genuinely unaffected by this, and
+neither of those two packages renders a record with a description, so the check
+could not have detected the problem *in principle*. Right answer, wrong
+instrument, no coverage — and the same failure mode as Correction 1, one level
+up: a green check was read as evidence about the tree when it was only evidence
+about the check.
+
+**Fix.** `scripts/sync-goldens.sh` over the 17 fixtures (note: a bare basename
+syncs nothing, the full fixture path is required — `sync-goldens.sh <exe>
+term_valid` reports "synced 0 golden file(s) across 0 test(s)"). 50 golden files
+across 16 tests, plus `syntax/term/term-valid`. The entire diff is 153 lines
+changed and 153 removed, and every one is a `"line": N` field:
+
+```
+$ git diff | grep -E '^[+-]' | grep -v '^[+-][+-]' | grep -vcE '"line": [0-9]+'
+0
+```
+
+No semantic drift. Regenerating is the correct response, not reverting: per
+`AGENTS.md`, a golden churn from a correct change means regenerate the golden.
+
+**What should have happened.** The golden suite should have been green *before*
+the merge, not after. It had been attempted four times and killed by the
+environment each time; the fourth attempt succeeded and reported while the merge
+was already in flight. The lesson is not about the environment — it is that
+"prose cannot move a golden" was an assumption dressed up as a measurement, and
+it was load-bearing for the decision to merge.
 
 ## Summary
 

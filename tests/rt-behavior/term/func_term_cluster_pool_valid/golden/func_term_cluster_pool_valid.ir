@@ -10,28 +10,28 @@
   "types": [
   {
     "kind": "type",
-    "line": 1,
+    "line": 8,
     "visibility": "export",
     "name": "TermColor",
     "fields": [
-    { "visibility": null, "line": 2, "name": "r", "type": "Byte" },
-    { "visibility": null, "line": 3, "name": "g", "type": "Byte" },
-    { "visibility": null, "line": 4, "name": "b", "type": "Byte" }
+    { "visibility": null, "line": 9, "name": "r", "type": "Byte" },
+    { "visibility": null, "line": 10, "name": "g", "type": "Byte" },
+    { "visibility": null, "line": 11, "name": "b", "type": "Byte" }
     ]
   },
   {
     "kind": "type",
-    "line": 7,
+    "line": 20,
     "visibility": "export",
     "name": "TermSize",
     "fields": [
-    { "visibility": null, "line": 8, "name": "columns", "type": "Integer" },
-    { "visibility": null, "line": 9, "name": "rows", "type": "Integer" }
+    { "visibility": null, "line": 21, "name": "columns", "type": "Integer" },
+    { "visibility": null, "line": 22, "name": "rows", "type": "Integer" }
     ]
   },
   {
     "kind": "enum",
-    "line": 12,
+    "line": 25,
     "visibility": "export",
     "name": "LineStyle",
     "members": [
@@ -46,7 +46,7 @@
   },
   {
     "kind": "enum",
-    "line": 22,
+    "line": 35,
     "visibility": "export",
     "name": "FillStyle",
     "members": [
