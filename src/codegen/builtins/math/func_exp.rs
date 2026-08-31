@@ -23,6 +23,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed",
+        "The exponent to raise e to, or a list of them. A large value overflows the result range.",
         &[Float, Fixed],
         &[Float],
         &["ErrFloatInf", "ErrFloatNaN", "ErrOverflow"],

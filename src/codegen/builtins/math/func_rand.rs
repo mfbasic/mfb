@@ -23,17 +23,25 @@ END SUB
 
 const MIN_A: &[&str] = &["minimum"];
 const MAX_A: &[&str] = &["maximum"];
+const MIN_D: &str = "The lowest value the result may take, inclusive.";
+const MAX_D: &str = "The highest value the result may take, inclusive. Must not be below `min`.";
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     let impls: Vec<Implementation> = vec![
         overload(
-            vec![req("min", MIN_A, Integer), req("max", MAX_A, Integer)],
+            vec![
+                req("min", MIN_A, Integer, MIN_D),
+                req("max", MAX_A, Integer, MAX_D),
+            ],
             Integer,
             vec!["ErrInvalidArgument"],
             lower_math_rand,
         ),
         overload(
-            vec![req("min", MIN_A, Money), req("max", MAX_A, Money)],
+            vec![
+                req("min", MIN_A, Money, MIN_D),
+                req("max", MAX_A, Money, MAX_D),
+            ],
             Money,
             vec!["ErrInvalidArgument"],
             lower_math_rand,

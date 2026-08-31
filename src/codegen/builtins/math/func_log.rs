@@ -24,6 +24,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed",
+        "The number to take the natural logarithm of, or a list of them. Must be greater than zero.",
         &[Float, Fixed],
         &[Float, Fixed],
         &["ErrFloatDomain", "ErrInvalidArgument"],

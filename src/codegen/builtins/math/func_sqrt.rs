@@ -24,6 +24,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed",
+        "The number to take the square root of, or a list of them. Must not be negative.",
         &[Float, Fixed],
         &[Float, Fixed],
         &["ErrFloatDomain", "ErrInvalidArgument"],

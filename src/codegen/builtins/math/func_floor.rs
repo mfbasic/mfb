@@ -25,6 +25,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed | Money",
+        "The number to round down, or a list of them. Rounds toward negative infinity, so -1.5 becomes -2.",
         &[Float, Fixed, Money],
         &[Float, Fixed],
         &["ErrOverflow"],

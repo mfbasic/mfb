@@ -24,7 +24,7 @@ const SEED_A: &[&str] = &["seed"];
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     let impls: Vec<Implementation> = vec![overload(
-        vec![req("value", SEED_A, Integer)],
+        vec![req("value", SEED_A, Integer, "The value to seed the generator with. The same seed replays the same sequence, which is what makes a run reproducible.")],
         Nothing,
         vec![],
         lower_math_seed,

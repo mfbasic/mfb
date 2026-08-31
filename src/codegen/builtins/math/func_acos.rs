@@ -24,6 +24,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed",
+        "The cosine to invert, or a list of them. Must be within -1 through 1; outside that there is no angle and the call raises.",
         &[Float, Fixed],
         &[Float],
         &["ErrFloatDomain", "ErrInvalidArgument"],

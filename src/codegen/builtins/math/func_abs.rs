@@ -25,6 +25,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Integer | Float | Fixed | Money",
+        "The number to take the magnitude of, or a list of them. The most negative `Integer`/`Fixed` has no positive counterpart and raises `ErrOverflow`.",
         &[Integer, Float, Fixed, Money],
         &[Integer, Float, Fixed],
         &["ErrOverflow"],

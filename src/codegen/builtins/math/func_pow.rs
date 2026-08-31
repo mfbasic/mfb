@@ -25,8 +25,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed, same type",
-        ("base", &["value"]),
-        ("exponent", &["power"]),
+        ("base", &["value"], "The base, or a list of them."),
+        (
+            "exponent",
+            &["power"],
+            "The exponent, or a list of them. Must be the same type as the base.",
+        ),
         &[Float, Fixed],
         &[Float],
         &[

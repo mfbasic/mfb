@@ -99,15 +99,17 @@ two `Money` bounds, a `Money`); `seed` returns Nothing.
 `math` is a built-in package: `IMPORT math` needs no manifest dependency."#;
 
 /// One required parameter with optional keyword aliases and no default. `desc` is
-/// left empty — the human parameter documentation lives in the `math/*` man pages.
+/// the man page's Parameters-table prose — these descriptors ARE the man pages
+/// (`src/cli/man.rs` renders them), so an empty one renders as an empty cell.
 pub(crate) fn req(
     name: &'static str,
     aliases: &'static [&'static str],
     ty: ParameterType,
+    desc: &'static str,
 ) -> Parameter {
     Parameter {
         name,
-        desc: "",
+        desc,
         aliases,
         ty,
         default: DefaultValue::None,
@@ -200,6 +202,7 @@ pub(crate) fn preserving_unary(
     desc: &'static str,
     example: &'static str,
     expected: &'static str,
+    value_desc: &'static str,
     scalars: &[ParameterType],
     lists: &[ParameterType],
     errors: &[&'static str],
@@ -215,7 +218,12 @@ pub(crate) fn preserving_unary(
     let mut impls = Vec::new();
     for ty in lists {
         impls.push(overload(
-            vec![req("value", &[], ParameterType::list_of(ty.clone()))],
+            vec![req(
+                "value",
+                &[],
+                ParameterType::list_of(ty.clone()),
+                value_desc,
+            )],
             ParameterType::Arg(0),
             errors.to_vec(),
             lower,
@@ -223,7 +231,7 @@ pub(crate) fn preserving_unary(
     }
     for ty in scalars {
         impls.push(overload(
-            vec![req("value", &[], ty.clone())],
+            vec![req("value", &[], ty.clone(), value_desc)],
             ParameterType::Arg(0),
             errors.to_vec(),
             lower,
@@ -249,6 +257,7 @@ pub(crate) fn rounding(
     desc: &'static str,
     example: &'static str,
     expected: &'static str,
+    value_desc: &'static str,
     scalars: &[ParameterType],
     lists: &[ParameterType],
     errors: &[&'static str],
@@ -261,7 +270,12 @@ pub(crate) fn rounding(
     let mut impls = Vec::new();
     for ty in lists {
         impls.push(overload(
-            vec![req("value", &[], ParameterType::list_of(ty.clone()))],
+            vec![req(
+                "value",
+                &[],
+                ParameterType::list_of(ty.clone()),
+                value_desc,
+            )],
             ParameterType::list_of(ParameterType::Integer),
             errors.to_vec(),
             lower,
@@ -269,7 +283,7 @@ pub(crate) fn rounding(
     }
     for ty in scalars {
         impls.push(overload(
-            vec![req("value", &[], ty.clone())],
+            vec![req("value", &[], ty.clone(), value_desc)],
             ParameterType::Integer,
             errors.to_vec(),
             lower,
@@ -297,8 +311,8 @@ pub(crate) fn preserving_binary(
     desc: &'static str,
     example: &'static str,
     expected: &'static str,
-    p0: (&'static str, &'static [&'static str]),
-    p1: (&'static str, &'static [&'static str]),
+    p0: (&'static str, &'static [&'static str], &'static str),
+    p1: (&'static str, &'static [&'static str], &'static str),
     scalars: &[ParameterType],
     lists: &[ParameterType],
     errors: &[&'static str],
@@ -310,7 +324,10 @@ pub(crate) fn preserving_binary(
     for ty in lists {
         let list = ParameterType::list_of(ty.clone());
         impls.push(overload(
-            vec![req(p0.0, p0.1, list.clone()), req(p1.0, p1.1, list)],
+            vec![
+                req(p0.0, p0.1, list.clone(), p0.2),
+                req(p1.0, p1.1, list, p1.2),
+            ],
             ParameterType::Arg(0),
             errors.to_vec(),
             lower,
@@ -318,7 +335,10 @@ pub(crate) fn preserving_binary(
     }
     for ty in scalars {
         impls.push(overload(
-            vec![req(p0.0, p0.1, ty.clone()), req(p1.0, p1.1, ty.clone())],
+            vec![
+                req(p0.0, p0.1, ty.clone(), p0.2),
+                req(p1.0, p1.1, ty.clone(), p1.2),
+            ],
             ParameterType::Arg(0),
             errors.to_vec(),
             lower,
