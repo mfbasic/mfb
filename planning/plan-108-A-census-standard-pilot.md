@@ -600,19 +600,49 @@ the same list (one source — the script reads it or the doc quotes it).
 example / param-desc / types-entry fill, which is every field §2 of the
 standard requires; and the banned list has exactly one home
 (`BANNED_CORE` in the script, printed by `--banned-list`).
-Commit: (hash recorded in the following commit)
+Commit: 870b10e79
 
 ### Phase 2b — `mfb man variable`
 
-- [ ] Author `src/docs/man/variable/package.md` per §3 (4); wire it the way
+- [x] Author `src/docs/man/variable/package.md` per §3 (4); wire it the way
       the other nine topics are wired (`src/docs/man/mod.rs`).
-- [ ] Compile and run every code block in it.
-- [ ] Verify: `mfb man variable` renders; `mfb man` with no args lists it
-      alongside the other topics.
+      — **No wiring code was needed**: `build.rs` walks `src/docs/man` and any
+      directory holding a `package.md` becomes a topic named after the
+      directory (`src/docs/man/mod.rs:5-8`). Creating the file and rebuilding
+      is the whole of it.
+- [x] Compile and run every code block in it. — all six `basic` blocks built
+      and ran with `target/release/mfb`; each expected-output block on the
+      page is the program's actual stdout, pasted. Verified individually:
+      LET/MUT (`hello 2`), copy independence (`a = 1, b = 42`), pass-by-copy
+      (`inside bump, local = 107` / `after bump, n = 7`), collection copy
+      (`xs len = 3, ys len = 4` / `after growList, xs len = 3`), `WITH`
+      (`p.x = 1, q.x = 50`), the `RES` alias through a call, and scope-close.
+- [x] Verify: `mfb man variable` renders; `mfb man` with no args lists it
+      alongside the other topics. — renders; the Guide topics table now shows
+      ten rows with `variable` last.
 
 Acceptance: the page renders and contains no word from the (2a) banned
-list (`mfb man variable | grep -E '<banned>'` → 0).
-Commit: —
+list (`mfb man variable | grep -E '<banned>'` → 0). — **MET**:
+`./target/release/mfb man variable | grep -ciE "(^|[^A-Za-z])($(./scripts/man-census.sh --banned-list))([^A-Za-z]|$)"`
+→ **0**. (It was not 0 on the first draft: the opening paragraph said "there
+is no **allocator** to call", which the page's own ban forbids. Rewritten to
+"there is nothing to reserve, nothing to release".)
+Commit: (hash recorded in the following commit)
+
+**A bug was found while writing this page — filed as bug-467 (HIGH).** The
+section demonstrating that records are `WITH`-only needed a probe showing the
+non-`WITH` form failing. It does not fail: `p.x = 77` on a `MUT` record
+binding **compiles clean and silently does nothing**. The parser recognises
+only `ident =`, `ident.state =` and `ident.state.field =`
+(`src/ast/stmt.rs:228-320`); any other member falls through to
+`parse_expression` and `=` is consumed as the *equality* operator, producing a
+discarded `Boolean`. Proof: a type-incompatible right-hand side reports
+``Operator `=` requires compatible **comparable** operands``, not an
+assignment mismatch. Filed rather than fixed here — the repair is a parser
+change plus a new rules-table diagnostic and fixture, outside this plan's
+prose-only scope, and it carries a language-design question (reject vs.
+support). The page states the `WITH` rule positively and does not mention the
+broken form.
 
 ### Phase 3 — pilot: `bits` (verify-filled) + `thread` (author-empty)
 
