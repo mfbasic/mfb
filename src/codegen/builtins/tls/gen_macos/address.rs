@@ -294,7 +294,13 @@ pub(crate) fn lower_tls_listener_address_macos(
     platform: &dyn CodegenPlatform,
 ) -> Result<TlsBodyParts, String> {
     const FRAME_SIZE: usize = 128;
-    const REC: usize = 8; // the TLS listener record
+    // The TLS listener record. Parked for symmetry with `lower_tls_address_macos`
+    // and never read back: everything this body needs (the nw_listener, the bound
+    // host) is lifted out of the record in the prologue below, before anything can
+    // clobber x0. Kept rather than dropped so the two emitters in this file stay
+    // line-for-line comparable — they are read side by side, and the saved store
+    // is four bytes in a body that dlopens a framework.
+    const REC: usize = 8;
     const LISTENER: usize = 16; // its nw_listener
     const HANDLE: usize = 24; // dlopen handle for Network.framework
     const FNPTR: usize = 32; // scratch dlsym result
