@@ -879,9 +879,7 @@ pub(crate) const RESOURCE_TAG_PROCESS: &str = "10";
 // scene holds the id, never the record, so it has no opinion about the resource's
 // lifetime.
 pub(crate) const RESOURCE_TAG_IMAGE: &str = "11";
-// `12` is reserved for `canvas::Font`, which lands with the text path (plan-98-G):
-// a `Font` cannot be constructed without `canvas::loadFont`, and that needs the
-// font parser G vendors.
+pub(crate) const RESOURCE_TAG_FONT: &str = "12";
 pub(crate) const RESOURCE_TAG_NATIVE: &str = "255";
 
 /// The word at `RESOURCE_OFFSET_CLOSED` is a u64 flag set, not a boolean: bit 0

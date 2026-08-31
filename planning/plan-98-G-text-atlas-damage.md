@@ -188,13 +188,36 @@ the raster proves machine-variant, which it should not) and within tolerance on 
 
       Recorded in `.ai/canvas-threading.md` §12 so the next reader finds it without
       this plan.
-- [ ] **The `Font` RES resource itself** (moved from plan-98-B Phase 4): the record on
-      the canonical header (`tag@0`/`handle@8`/`closed@16`/`STATE@24`; tag `12` is
-      already reserved in `error_constants.rs`), `canvas::destroyFont`, and
-      `canvas::fontRef` — the `FontRef` value handle a `Text` item carries, mirroring
-      `canvas::imageRef`. B could not land these: without `loadFont` there is no way
-      to *construct* a `Font`, so declaring the type would have shipped surface no
-      program could reach.
+- [x] **The `Font` RES resource**, `canvas::destroyFont`, `canvas::fontRef` — **and
+      `canvas::loadFont` with them**, in one commit rather than two. B's reason for
+      deferring the type is still the operative one: without a constructor the type is
+      surface no program can reach, and splitting them across commits would have
+      recreated that state for as long as the split lasted. Landing them together also
+      keeps `RESOURCE_TAG_FONT` and `FONT_BYTES` from being dead constants — AGENTS.md
+      forbids the `#[allow(dead_code)]` that "a later phase consumes it" would need.
+
+      `Font` sits on the canonical header (`tag@0`/`handle@8`/`closed@16`/`STATE@24`)
+      with the file's bytes at `FONT_BYTES@32`, and tag `12` is now claimed rather than
+      reserved. `handle@8` is the record's own address, exactly as `createImage` does
+      it: unique and non-zero for the resource's lifetime, so a `FontRef` is a real
+      identity from the start.
+
+      `loadFont` is **MFBASIC** over an `internal_only` `canvas::fontFromBytes`
+      emitter — the read is `fs::readBytes`, the version check is
+      `collections::getOr`, and only the record stamping needs codegen. That keeps the
+      *rule* about which files are acceptable readable instead of spelled in loads and
+      compares. New error `ErrBadFontFile` (`77050022`), because "not a font I can
+      read" and "no such path" need different fixes (Correction 4).
+
+      Measured end to end on the host, not only in the harness: a real
+      `Andale Mono.ttf` loads and yields a non-zero handle, `Helvetica.ttc` is refused
+      `77050022`, and a missing path is `ErrNotFound` `77030001`.
+
+      `tests/rt_canvas_font.rs` is the regression gate — 2 tests, RED-checked by making
+      the version predicate always accept, which turns `otto` red. Its fixtures are
+      **written by the program under test**, so both spellings of TrueType and each
+      refused container (`OTTO`, `ttcf`, `wOFF`, and a too-short file) are exercised
+      exactly, with no font committed to the repository.
 - [ ] **`canvas::loadImage`** (moved from plan-98-B Phase 4): decode an image file to
       RGBA8 and hand it to the existing `canvas::createImage` path, which already owns
       the resource record, the CPU shadow and the pixel-count contract. It lands here
@@ -205,8 +228,9 @@ the raster proves machine-variant, which it should not) and within tolerance on 
       reader.
 - [ ] Build the chosen font rasteriser (hand-rolled, Correction 1); implement Text rendering: shape
       (positioning) + per-`(font,size,codepoint)` glyph raster into the atlas + tinted quads.
-- [ ] Implement `canvas::loadFont` (the `Font` resource declared above) and
-      `canvas::measureText` → `TextMetrics` (reserved API).
+- [~] `canvas::loadFont` **is done** — it landed with the resource above, for the
+      reason recorded there. `canvas::measureText` → `TextMetrics` remains, and needs
+      the `cmap`/`hmtx`/`hhea` reader that the render box below also needs.
 - [ ] Tests: a text scene renders exact-match on the software oracle (or documented text
       tolerance); `measureText` returns expected metrics; Text renders within tolerance on
       Metal + Vulkan.
@@ -368,3 +392,25 @@ evicting a live glyph; the named blocker was the vendored-dependency policy, res
 before code (Correction 1).
 With G landed, canvas mode is feature-complete for general 2D (images, shapes, text) on software +
 Metal + Vulkan; complex text shaping remains a deliberately-scoped future plan.
+
+**Correction 4 (Phase 1) — `ErrBadFontFile` is a new error code, and the reason is that
+`ErrNotFound` already existed.** `canvas::loadFont` can fail two ways a caller fixes
+differently: the path is wrong, or the file is not a font this build reads. Collapsing
+them into one code would send every reader to the wrong fix. `77050022` is the second
+row added to the `errorCode` table since the migration, and the table's own
+`ADDED_SINCE_MIGRATION` guard names it so the legacy-row count stays checkable.
+
+The accepted set is *TrueType outlines only* — sfnt `0x00010000`, or Apple's `true`
+tag — and each refusal is a real file with its own reason: `OTTO` is CFF outlines (a
+different curve type and a different rasteriser), `ttcf` is a collection so "the font"
+is ambiguous, and `wOFF`/`wOF2` are compressed wrappers. Measured on the development
+host: `Helvetica.ttc` is one of these, so the check is not hypothetical.
+
+**Correction 5 (Phase 1) — three backends had to be told about the new members.**
+`canvas.loadFont`, `canvas.fontFromBytes`, `canvas.destroyFont` and `canvas.fontRef`
+each needed adding to `SUPPORTED_RUNTIME_CALLS` in `macos_aarch64`, `linux_common` and
+`win_x86_64`, or `validate_capabilities` rejects the program with "native backend does
+not support runtime call" *before codegen*. Worth recording because the failure is at
+build time and names the call, so it is easy to fix and easy to forget: the list is
+per target, and a member added on one platform's say-so is invisible on the other two
+until someone builds for them.

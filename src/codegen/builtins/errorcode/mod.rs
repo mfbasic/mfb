@@ -64,7 +64,7 @@ fn constant(
 /// Register the `errorCode` package on the clean-room registry.
 ///
 /// A constants-only package: the migration's 45 `Integer` constants plus any added
-/// since (currently one, `ErrBadPixelCount`), and nothing else. Each legacy row is
+/// since (`ErrBadPixelCount`, `ErrBadFontFile`), and nothing else. Each legacy row is
 /// reproduced verbatim from the legacy `ERRORCODE_CONSTANTS` table — the values are
 /// decimal strings equal to the hyphen-stripped `G-SSS-EEEE` code, and several
 /// message symbols are historical/irregular, so they are copied exactly (byte-identity
@@ -123,7 +123,8 @@ pub(crate) fn register(r: &mut Registry) {
         // plan-98-B: an RGBA8 image is exactly `width * height * 4` bytes, so a
         // wrong-length pixel list is a distinct, actionable mistake rather than a
         // generic bad argument — the message can say what the count should have been.
-        .add_constant(constant("ErrBadPixelCount", "77050021", "Pixel list length does not match the image dimensions: an RGBA8 image needs exactly `width * height * 4` bytes.", "_mfb_str_error_bad_pixel_count"));
+        .add_constant(constant("ErrBadPixelCount", "77050021", "Pixel list length does not match the image dimensions: an RGBA8 image needs exactly `width * height * 4` bytes.", "_mfb_str_error_bad_pixel_count"))
+        .add_constant(constant("ErrBadFontFile", "77050022", "File is not a font this build can read: it must be TrueType outlines (sfnt `0x00010000` or `true`), not CFF/OpenType-PostScript, a collection, or WOFF.", "_mfb_str_error_bad_font_file"));
 
     r.add_package(pkg);
 }
@@ -269,8 +270,11 @@ mod tests {
         //   +1  ErrBadPixelCount (plan-98-B): an RGBA8 image is exactly
         //       `width * height * 4` bytes, so a wrong-length pixel list is a
         //       distinct, actionable mistake rather than a generic bad argument.
+        //   +1  ErrBadFontFile (plan-98-G): "this is not a font I can read" is a
+        //       different mistake from "this file is missing", and the two need
+        //       different fixes — one is a path typo, the other is the wrong format.
         const LEGACY_ROWS: usize = 45;
-        const ADDED_SINCE_MIGRATION: &[&str] = &["ErrBadPixelCount"];
+        const ADDED_SINCE_MIGRATION: &[&str] = &["ErrBadPixelCount", "ErrBadFontFile"];
         for added in ADDED_SINCE_MIGRATION {
             assert!(names.contains(added), "{added} is not in the table");
         }

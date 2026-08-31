@@ -141,6 +141,7 @@ registry order. [[src/codegen/builtins/errorcode/mod.rs:register]]
 | `7-703-0010` | `77030010` | `ErrNativeBufferOverrun`      | Native `LINK` `OUT CBuffer` callee wrote past its declared `SIZE` (buffer overrun detected). |
 | `7-708-0001` | `77080001` | `ErrSpawnFailed`              | Child process could not be spawned (fork/exec failed, or the program was not found). |
 | `7-705-0021` | `77050021` | `ErrBadPixelCount`            | Pixel list length does not match the image dimensions: an RGBA8 image needs exactly `width * height * 4` bytes (`canvas::createImage`, `canvas::setBytes`). |
+| `7-705-0022` | `77050022` | `ErrBadFontFile`             | File is not a font this build can read: `canvas::loadFont` takes TrueType outlines (sfnt version `0x00010000` or `true`) and refuses CFF/OpenType-PostScript, font collections and WOFF. Distinct from `ErrNotFound`, which is a path that does not exist. |
 
 ## Resolution API
 

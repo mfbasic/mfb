@@ -263,6 +263,22 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             push_string_value(&mut values, value);
         }
     }
+    // The font members, keyed the same way and for the same reason: a program that
+    // loads a font and measures text needs these whether or not it ever presents a
+    // scene. `ErrBadFontFile` rides with them because `loadFont` is the only member
+    // that can raise it.
+    if module_uses_any_call(
+        module,
+        &["canvas.loadFont", "canvas.fontFromBytes", "canvas.fontRef"],
+    ) {
+        for value in [
+            err_msg("ErrOutOfMemory"),
+            err_msg("ErrResourceClosed"),
+            err_msg("ErrBadFontFile"),
+        ] {
+            push_string_value(&mut values, value);
+        }
+    }
     if module_uses_any_call(
         module,
         &[

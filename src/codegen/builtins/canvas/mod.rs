@@ -36,15 +36,18 @@ use crate::types::ParameterType;
 
 mod func_blit_surface;
 mod func_create_image;
+mod func_destroy_font;
 mod func_destroy_image;
 mod func_fill;
 mod func_fill_stroke;
+mod func_font_ref;
 mod func_get_bytes;
 mod func_get_size;
 mod func_graphics;
 mod func_image_ref;
 mod func_installed_items;
 mod func_installed_layers;
+pub(crate) mod func_load_font;
 mod func_metal_draw;
 mod func_new_surface;
 mod func_present;
@@ -55,7 +58,8 @@ mod func_rgba;
 mod func_scene_hashes;
 mod func_set_bytes;
 mod func_stroke;
-pub(crate) mod gen_image;
+mod gen_font;
+mod gen_image;
 mod gen_present;
 mod helper_clamp_byte;
 mod helper_color;
@@ -74,6 +78,12 @@ pub(crate) const IMAGE_TYPE: &str = "Image";
 pub(crate) const IMAGE_TYPE_ID: &str = "canvas.Image";
 /// The close op the resource's scope-drop and `destroyImage` both route to.
 const DESTROY_IMAGE: &str = "canvas.destroyImage";
+
+/// The `Font` resource's bare type name, and the package-qualified id members use.
+pub(crate) const FONT_TYPE: &str = "Font";
+pub(crate) const FONT_TYPE_ID: &str = "canvas.Font";
+/// The close op the resource's scope-drop and `destroyFont` both route to.
+const DESTROY_FONT: &str = "canvas.destroyFont";
 
 const MODULE_INTRO: &str = r#"2D drawing for `Mode.Canvas` — a retained scene of `DrawItem`s"#;
 const MODULE_DESC: &str = r#"The `canvas` package draws 2D graphics on the surface `app::setMode(Mode.Canvas)`
@@ -693,10 +703,9 @@ pub(crate) fn register(r: &mut Registry) {
 
     // ---- Resources --------------------------------------------------------
 
-    // The `Image` and `Font` RES resources are declared in Phase 4, alongside the
-    // `canvas::destroyImage`/`destroyFont` members that close them. They cannot come
-    // earlier: `add_resource` **derives a runtime call from the close op**
-    // (`registry::runtime_specs`), so declaring the resource without its close
+    // Both RES resources are declared with the `destroy*` member that closes them, and
+    // that pairing is not stylistic: `add_resource` **derives a runtime call from the
+    // close op** (`registry::runtime_specs`), so a resource declared without its close
     // member leaves a call the catalog cannot route
     // (`catalog_is_consistent`: "canvas.destroyImage: None (expected Some(Canvas))").
     //
@@ -721,6 +730,24 @@ pub(crate) fn register(r: &mut Registry) {
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });
 
+    pkg.add_resource(RegistryResource {
+        name: FONT_TYPE,
+        export: true,
+        description: "An opaque, owned handle to a loaded font, released \
+                      automatically when it leaves scope. A scene names one through a \
+                      `FontRef`, never directly, so releasing a font whose text a \
+                      scene still draws is safe — that text simply draws as empty.",
+        close_function: DESTROY_FONT,
+        // A font belongs to the drawing surface's thread, like an image; it does not
+        // cross a thread boundary in v1.
+        sendable: false,
+        // `destroyFont` sets the closed flag and returns. The font's bytes are
+        // arena-owned, so unlike a file there is no OS handle to hand back and nothing
+        // here that can fail.
+        close_may_fail: false,
+        kind: crate::codegen::resource::ResourceKind::Builtin,
+    });
+
     func_rgb::register(&mut pkg);
     func_rgba::register(&mut pkg);
     func_fill::register(&mut pkg);
@@ -739,6 +766,9 @@ pub(crate) fn register(r: &mut Registry) {
     func_create_image::register(&mut pkg);
     func_destroy_image::register(&mut pkg);
     func_image_ref::register(&mut pkg);
+    func_load_font::register(&mut pkg);
+    func_destroy_font::register(&mut pkg);
+    func_font_ref::register(&mut pkg);
     func_get_size::register(&mut pkg);
     func_get_bytes::register(&mut pkg);
     func_set_bytes::register(&mut pkg);
