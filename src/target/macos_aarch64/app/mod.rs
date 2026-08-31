@@ -1487,10 +1487,18 @@ mod canvas_reconcile_tests {
     // --- plan-98-A Phase 4: canvas keyboard input ---
 
     /// The canvas surface is a synthesized `MFBCanvasView : NSView`, not a bare
-    /// `NSView`, for exactly one reason: a plain `NSView` returns NO from
-    /// `acceptsFirstResponder` and never receives `keyDown:`, so window keys would
-    /// go nowhere and `io::readByte` in canvas mode would block forever. Both
-    /// overrides must be installed, and the class registered.
+    /// `NSView`, and each override earns its place:
+    ///
+    /// * `acceptsFirstResponder` — a plain `NSView` returns NO and so never becomes
+    ///   first responder, and
+    /// * `keyDown:` — without it window keys go nowhere and `io::readByte` in canvas
+    ///   mode blocks forever. Those two are why the subclass exists at all.
+    /// * `setFrameSize:` — plan-98-D Phase 3: a user drag becomes a new surface size
+    ///   here.
+    ///
+    /// Asserted by **selector**, not by counting `class_addMethod`: a count says
+    /// nothing about *which* methods were installed, and it forces an unrelated edit
+    /// every time a fourth one is added.
     #[test]
     fn canvas_view_overrides_the_two_methods_that_deliver_keys() {
         let func = emit_reconcile_canvas_helper(true);
@@ -1499,10 +1507,27 @@ mod canvas_reconcile_tests {
             1,
             "the canvas view must be a synthesized subclass, not a bare NSView"
         );
+        let referenced: Vec<&str> = func.relocations.iter().map(|r| r.to.as_str()).collect();
+        for (selector, why) in [
+            (
+                SEL_ACCEPTS_FIRST_RESPONDER.0,
+                "a plain NSView returns NO and never becomes first responder",
+            ),
+            (SEL_KEY_DOWN.0, "without it window keys reach nothing"),
+            (
+                SEL_SET_FRAME_SIZE.0,
+                "without it a resize never reaches the renderer",
+            ),
+        ] {
+            assert!(
+                referenced.contains(&selector),
+                "the canvas view must override {selector}: {why}"
+            );
+        }
         assert_eq!(
             calls_external(&func, "_class_addMethod"),
-            2,
-            "exactly acceptsFirstResponder + keyDown: are overridden"
+            3,
+            "one class_addMethod per override, and no more"
         );
         assert_eq!(
             calls_external(&func, "_objc_registerClassPair"),

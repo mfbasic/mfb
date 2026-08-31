@@ -112,16 +112,18 @@ fn gtk_state_sizes_the_char_grid_at_four_bytes_per_cell() {
     // term::didResize() reads, added between ST_TERM_CELL_H and ST_TERM_CHARS),
     // then chars/fg/bg live + snapshot at 4B, then the plan-70-E EGC pool live +
     // snapshot at GTK_POOL_BYTES=32B/cell, then one u64 `ST_HELD` flag (plan-62-D:
-    // the windowless-mode hold tracker), then two u64 for the plan-98-A canvas
-    // surface (`ST_CANVAS_AREA`, the ref-sunk GtkDrawingArea, and
-    // `ST_CANVAS_SURFACE`, the window's GdkSurface while canvas mode is presented).
+    // the windowless-mode hold tracker), then THREE u64 for the canvas surface:
+    // `ST_CANVAS_AREA` (the ref-sunk GtkDrawingArea) and `ST_CANVAS_SURFACE` (the
+    // window's GdkSurface while canvas mode is presented) from plan-98-A, plus
+    // `ST_CANVAS_PIXELS` from plan-98-C Phase 3 — the committed frame, one malloc
+    // block carrying its own width and height ahead of the pixels.
     //
     // The list is enumerated rather than read from the compiler so that ADDING a
     // member is a deliberate edit here — which is the whole point, and why the
     // per-cell terms must be re-checked whenever it changes. The char grid is still
-    // 4 bytes/cell (bug-203); didResize, held and the two canvas slots are separate
+    // 4 bytes/cell (bug-203); didResize, held and the three canvas slots are separate
     // scalars, and the pools separate per-cell arrays.
-    let expected = 11 * 8 + 1024 + 14 * 8 + 6 * CELLS * 4 + 2 * CELLS * 32 + 8 + 2 * 8;
+    let expected = 11 * 8 + 1024 + 14 * 8 + 6 * CELLS * 4 + 2 * CELLS * 32 + 8 + 3 * 8;
     assert_eq!(
         size, expected,
         "the char grid should be 4 bytes/cell like fg/bg (bug-203); \

@@ -278,6 +278,6 @@ mod tests {
                 helper.name()
             );
         }
-        assert_eq!(families.len(), 15, "unexpected extra catalogued family");
+        assert_eq!(families.len(), 16, "unexpected extra catalogued family");
     }
 }

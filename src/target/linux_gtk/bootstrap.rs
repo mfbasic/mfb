@@ -1463,8 +1463,14 @@ pub(super) fn emit_canvas_draw_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[2]));
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
-    asm.push(abi::signed_convert_to_float_d("d0", abi::SCRATCH[0]));
-    asm.push(abi::signed_convert_to_float_d("d1", abi::SCRATCH[0]));
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[0],
+        abi::SCRATCH[0],
+    ));
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[1],
+        abi::SCRATCH[0],
+    ));
     asm.call_external("cairo_set_source_surface");
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.call_external("cairo_paint");
