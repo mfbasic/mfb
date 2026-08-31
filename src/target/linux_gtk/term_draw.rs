@@ -182,14 +182,14 @@ fn emit_gtk_pool_append(asm: &mut Asm, charoff: &str, mark: &str, marklen: &str,
     let write = format!("{tag}_write");
     let skip = format!("{tag}_skip");
     // pool slot addr (x11) = ST_TERM_POOL + charoff*8; base char addr (x12).
-    asm.state_array("x11", ST_TERM_POOL);
+    asm.state_array(abi::SCRATCH[2], ST_TERM_POOL);
     asm.push(abi::shift_left_immediate(abi::SCRATCH[8], charoff, 3));
     asm.push(abi::add_registers(
         abi::SCRATCH[2],
         abi::SCRATCH[2],
         abi::SCRATCH[8],
     ));
-    asm.state_array("x12", ST_TERM_CHARS);
+    asm.state_array(abi::SCRATCH[3], ST_TERM_CHARS);
     asm.push(abi::add_registers(
         abi::SCRATCH[3],
         abi::SCRATCH[3],
@@ -321,15 +321,15 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     let (off_fg, off_bg, off_buf) = (80usize, 88usize, 96usize);
     let (off_layout, off_desc) = (104usize, 112usize);
     let saved = [
-        ("x19", 8),
-        ("x20", 16),
-        ("x21", 24),
-        ("x22", 32),
-        ("x23", 40),
-        ("x24", 48),
-        ("x25", 56),
-        ("x26", 64),
-        ("x27", 72),
+        (abi::LOCAL[0], 8),
+        (abi::LOCAL[1], 16),
+        (abi::LOCAL[2], 24),
+        (abi::LOCAL[3], 32),
+        (abi::LOCAL[4], 40),
+        (abi::LOCAL[5], 48),
+        (abi::LOCAL[6], 56),
+        (abi::LOCAL[7], 64),
+        (abi::LOCAL[8], 72),
     ];
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
@@ -386,11 +386,11 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     // worker arrays here on the main loop before queue_draw, so this callback never
     // reads a half-written frame. The active extent (cols/rows) + cursor are read
     // live — a torn single u64 there is benign and self-corrects next present.
-    asm.state_array("x23", ST_TERM_SNAP_CHARS);
-    asm.state_array("x24", ST_TERM_SNAP_FG);
-    asm.state_array("x25", ST_TERM_SNAP_BG);
-    asm.load_state("x26", ST_TERM_COLS);
-    asm.load_state("x27", ST_TERM_ROWS);
+    asm.state_array(abi::LOCAL[4], ST_TERM_SNAP_CHARS);
+    asm.state_array(abi::LOCAL[5], ST_TERM_SNAP_FG);
+    asm.state_array(abi::LOCAL[6], ST_TERM_SNAP_BG);
+    asm.load_state(abi::LOCAL[7], ST_TERM_COLS);
+    asm.load_state(abi::LOCAL[8], ST_TERM_ROWS);
 
     asm.push(abi::move_immediate(abi::LOCAL[1], "Integer", "0")); // row
     asm.push(abi::label("d_row"));
@@ -402,7 +402,7 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.push(abi::branch_ge("d_row_next"));
     // idx = row*MAX_COLS + col (fixed backing stride)
     asm.push(abi::move_immediate(
-        "x9",
+        abi::SCRATCH[0],
         "Integer",
         &TERM_MAX_COLS.to_string(),
     ));
@@ -480,10 +480,10 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq("d_no_bg"));
-    emit_cairo_color(&mut asm, "x19", "x14");
+    emit_cairo_color(&mut asm, abi::LOCAL[0], abi::SCRATCH[5]);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0])); // rectangle(cr, col*W, row*H, W, H)
-    emit_cell_dim_to_d(&mut asm, "d0", "x21", ST_TERM_CELL_W);
-    emit_cell_dim_to_d(&mut asm, "d1", "x20", ST_TERM_CELL_H);
+    emit_cell_dim_to_d(&mut asm, "d0", abi::LOCAL[2], ST_TERM_CELL_W);
+    emit_cell_dim_to_d(&mut asm, "d1", abi::LOCAL[1], ST_TERM_CELL_H);
     emit_cell_to_d(&mut asm, "d2", ST_TERM_CELL_W);
     emit_cell_to_d(&mut asm, "d3", ST_TERM_CELL_H);
     asm.call_external("cairo_rectangle");
@@ -560,7 +560,7 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq("d_fg_white"));
-    emit_cairo_color(&mut asm, "x19", "x14");
+    emit_cairo_color(&mut asm, abi::LOCAL[0], abi::SCRATCH[5]);
     asm.push(abi::branch("d_fg_done"));
     asm.push(abi::label("d_fg_white"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
@@ -597,7 +597,7 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.push(abi::compare_registers(abi::SCRATCH[4], abi::SCRATCH[0]));
     asm.push(abi::branch_ne("d_inline_text"));
     asm.push(abi::move_immediate(
-        "x11",
+        abi::SCRATCH[2],
         "Integer",
         &TERM_MAX_COLS.to_string(),
     ));
@@ -616,7 +616,7 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
         abi::SCRATCH[3],
         5,
     )); // idx*32 (pool stride)
-    asm.state_array("x9", ST_TERM_SNAP_POOL);
+    asm.state_array(abi::SCRATCH[0], ST_TERM_SNAP_POOL);
     asm.push(abi::add_registers(
         abi::SCRATCH[0],
         abi::SCRATCH[0],
@@ -641,8 +641,8 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     ));
     asm.call_external("pango_layout_set_text");
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    emit_cell_dim_to_d(&mut asm, "d0", "x21", ST_TERM_CELL_W); // x = col*cellW
-    emit_cell_dim_to_d(&mut asm, "d1", "x20", ST_TERM_CELL_H); // y = row*cellH (top)
+    emit_cell_dim_to_d(&mut asm, "d0", abi::LOCAL[2], ST_TERM_CELL_W); // x = col*cellW
+    emit_cell_dim_to_d(&mut asm, "d1", abi::LOCAL[1], ST_TERM_CELL_H); // y = row*cellH (top)
     asm.call_external("cairo_move_to");
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.push(abi::load_u64(
@@ -654,7 +654,7 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     // Underline: a 2px rect at the cell bottom in the (already-set) fg color.
     asm.push(abi::load_u64(abi::SCRATCH[5], abi::stack_pointer(), off_fg));
     asm.push(abi::move_immediate(
-        "x9",
+        abi::SCRATCH[0],
         "Integer",
         &UNDERLINE_FLAG.to_string(),
     ));
@@ -665,7 +665,7 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq("d_next"));
-    emit_term_cell_rect(&mut asm, "x19", "x21", "x20");
+    emit_term_cell_rect(&mut asm, abi::LOCAL[0], abi::LOCAL[2], abi::LOCAL[1]);
 
     asm.push(abi::label("d_next"));
     asm.push(abi::add_immediate(abi::LOCAL[2], abi::LOCAL[2], 1));
@@ -676,7 +676,7 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
 
     asm.push(abi::label("d_done"));
     // Cursor caret: a 2px bar at the cursor cell bottom in white, if visible.
-    asm.load_state("x9", ST_TERM_CURSOR_VISIBLE);
+    asm.load_state(abi::SCRATCH[0], ST_TERM_CURSOR_VISIBLE);
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq("d_no_cursor"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
@@ -694,9 +694,9 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
         abi::SCRATCH[0],
     ));
     asm.call_external("cairo_set_source_rgb");
-    asm.load_state("x20", ST_TERM_ROW);
-    asm.load_state("x21", ST_TERM_COL);
-    emit_term_cell_rect(&mut asm, "x19", "x21", "x20");
+    asm.load_state(abi::LOCAL[1], ST_TERM_ROW);
+    asm.load_state(abi::LOCAL[2], ST_TERM_COL);
+    emit_term_cell_rect(&mut asm, abi::LOCAL[0], abi::LOCAL[2], abi::LOCAL[1]);
     asm.push(abi::label("d_no_cursor"));
     // plan-70-E: release the per-frame Pango layout + font description.
     asm.push(abi::load_u64(
@@ -719,7 +719,7 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
 /// `dst (d-reg) = index * cellSize` as a double, where the cell size (px) is read
 /// from the runtime-state field `cell_off`. Clobbers x9.
 fn emit_cell_dim_to_d(asm: &mut Asm, dst: &str, index: &str, cell_off: usize) {
-    asm.load_state("x9", cell_off);
+    asm.load_state(abi::SCRATCH[0], cell_off);
     asm.push(abi::multiply_registers(
         abi::SCRATCH[0],
         index,
@@ -730,7 +730,7 @@ fn emit_cell_dim_to_d(asm: &mut Asm, dst: &str, index: &str, cell_off: usize) {
 
 /// `dst (d-reg) = the cell size (px) at runtime-state field `cell_off`.
 fn emit_cell_to_d(asm: &mut Asm, dst: &str, cell_off: usize) {
-    asm.load_state("x9", cell_off);
+    asm.load_state(abi::SCRATCH[0], cell_off);
     asm.push(abi::signed_convert_to_float_d(dst, abi::SCRATCH[0]));
 }
 
@@ -750,7 +750,7 @@ fn emit_term_cell_rect(asm: &mut Asm, cr: &str, col: &str, row: &str) {
     asm.push(abi::move_register(abi::c_arg(0), cr));
     emit_cell_dim_to_d(asm, "d0", col, ST_TERM_CELL_W); // x = col*cellW
                                                         // Load cellH before forming row+1 in x9 (load_state clobbers x9).
-    asm.load_state("x10", ST_TERM_CELL_H);
+    asm.load_state(abi::SCRATCH[1], ST_TERM_CELL_H);
     asm.push(abi::add_immediate(abi::SCRATCH[0], row, 1)); // y = (row+1)*cellH - 2
     asm.push(abi::multiply_registers(
         abi::SCRATCH[0],
@@ -786,10 +786,10 @@ pub(super) fn emit_term_scroll_helper() -> Result<CodeFunction, String> {
         0,
     ));
     asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
-    asm.load_state("x19", ST_TERM_ROWS);
+    asm.load_state(abi::LOCAL[0], ST_TERM_ROWS);
     asm.push(abi::subtract_immediate(abi::LOCAL[0], abi::LOCAL[0], 1)); // rows-1
     asm.push(abi::move_immediate(
-        "x9",
+        abi::SCRATCH[0],
         "Integer",
         &TERM_MAX_COLS.to_string(),
     ));
@@ -924,15 +924,15 @@ pub(super) fn emit_term_init_helper() -> Result<CodeFunction, String> {
     asm.push(abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), fe));
     asm.call_external("pango_layout_get_pixel_extents");
     asm.push(abi::load_u32(abi::SCRATCH[1], abi::stack_pointer(), fe + 8)); // logical.width
-    emit_clamp_low(&mut asm, "x10", 1, "cw");
-    asm.store_state("x10", ST_TERM_CELL_W);
+    emit_clamp_low(&mut asm, abi::SCRATCH[1], 1, "cw");
+    asm.store_state(abi::SCRATCH[1], ST_TERM_CELL_W);
     asm.push(abi::load_u32(
         abi::SCRATCH[1],
         abi::stack_pointer(),
         fe + 12,
     )); // logical.height
-    emit_clamp_low(&mut asm, "x10", 1, "ch");
-    asm.store_state("x10", ST_TERM_CELL_H);
+    emit_clamp_low(&mut asm, abi::SCRATCH[1], 1, "ch");
+    asm.store_state(abi::SCRATCH[1], ST_TERM_CELL_H);
     // Pango cleanup before the cairo teardown (the layout holds a ref on cr).
     asm.push(abi::load_u64(
         abi::c_arg(0),
@@ -948,9 +948,9 @@ pub(super) fn emit_term_init_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("cairo_surface_destroy");
     // cols = clamp(AREA_W / cell_w, 1, MAX_COLS); rows likewise.
-    asm.load_state("x10", ST_TERM_CELL_W);
+    asm.load_state(abi::SCRATCH[1], ST_TERM_CELL_W);
     asm.push(abi::move_immediate(
-        "x9",
+        abi::SCRATCH[0],
         "Integer",
         &TERM_AREA_W.to_string(),
     ));
@@ -959,11 +959,11 @@ pub(super) fn emit_term_init_helper() -> Result<CodeFunction, String> {
         abi::SCRATCH[0],
         abi::SCRATCH[1],
     ));
-    emit_clamp_range(&mut asm, "x11", 1, TERM_MAX_COLS, "cols");
-    asm.store_state("x11", ST_TERM_COLS);
-    asm.load_state("x10", ST_TERM_CELL_H);
+    emit_clamp_range(&mut asm, abi::SCRATCH[2], 1, TERM_MAX_COLS, "cols");
+    asm.store_state(abi::SCRATCH[2], ST_TERM_COLS);
+    asm.load_state(abi::SCRATCH[1], ST_TERM_CELL_H);
     asm.push(abi::move_immediate(
-        "x9",
+        abi::SCRATCH[0],
         "Integer",
         &TERM_AREA_H.to_string(),
     ));
@@ -972,8 +972,8 @@ pub(super) fn emit_term_init_helper() -> Result<CodeFunction, String> {
         abi::SCRATCH[0],
         abi::SCRATCH[1],
     ));
-    emit_clamp_range(&mut asm, "x11", 1, TERM_MAX_ROWS, "rows");
-    asm.store_state("x11", ST_TERM_ROWS);
+    emit_clamp_range(&mut asm, abi::SCRATCH[2], 1, TERM_MAX_ROWS, "rows");
+    asm.store_state(abi::SCRATCH[2], ST_TERM_ROWS);
     // Blank the whole char backing store (fg/bg stay 0 = defaults). Cells clear
     // to 0, not ' ' — see the scroll blank (bug-203).
     asm.state_array(abi::c_arg(0), ST_TERM_CHARS);
@@ -1145,36 +1145,36 @@ pub(super) fn emit_term_resize_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_register(abi::SCRATCH[2], abi::c_arg(1))); // width
     asm.push(abi::move_register(abi::SCRATCH[3], abi::c_arg(2))); // height
                                                                   // cols = clamp(width / cell_w, 1, MAX_COLS).
-    asm.load_state("x10", ST_TERM_CELL_W);
+    asm.load_state(abi::SCRATCH[1], ST_TERM_CELL_W);
     asm.push(abi::unsigned_divide_registers(
         abi::SCRATCH[2],
         abi::SCRATCH[2],
         abi::SCRATCH[1],
     ));
-    emit_clamp_range(&mut asm, "x11", 1, TERM_MAX_COLS, "rz_cols");
+    emit_clamp_range(&mut asm, abi::SCRATCH[2], 1, TERM_MAX_COLS, "rz_cols");
     // rows = clamp(height / cell_h, 1, MAX_ROWS).
-    asm.load_state("x10", ST_TERM_CELL_H);
+    asm.load_state(abi::SCRATCH[1], ST_TERM_CELL_H);
     asm.push(abi::unsigned_divide_registers(
         abi::SCRATCH[3],
         abi::SCRATCH[3],
         abi::SCRATCH[1],
     ));
-    emit_clamp_range(&mut asm, "x12", 1, TERM_MAX_ROWS, "rz_rows");
+    emit_clamp_range(&mut asm, abi::SCRATCH[3], 1, TERM_MAX_ROWS, "rz_rows");
     // planning/term.md #11: latch the resize flag only on a GENUINE extent change
     // (the "resize" signal also fires at initial allocation, where the freshly
     // clamped cols/rows equal the activate-computed values → no spurious flag).
     // Capture the old extent in x13/x14 before overwriting, compare, set 1 on diff.
-    asm.load_state("x13", ST_TERM_COLS); // old cols
-    asm.load_state("x14", ST_TERM_ROWS); // old rows
-    asm.store_state("x11", ST_TERM_COLS);
-    asm.store_state("x12", ST_TERM_ROWS);
+    asm.load_state(abi::SCRATCH[4], ST_TERM_COLS); // old cols
+    asm.load_state(abi::SCRATCH[5], ST_TERM_ROWS); // old rows
+    asm.store_state(abi::SCRATCH[2], ST_TERM_COLS);
+    asm.store_state(abi::SCRATCH[3], ST_TERM_ROWS);
     asm.push(abi::compare_registers(abi::SCRATCH[4], abi::SCRATCH[2]));
     asm.push(abi::branch_ne("rz_changed"));
     asm.push(abi::compare_registers(abi::SCRATCH[5], abi::SCRATCH[3]));
     asm.push(abi::branch_eq("rz_nochange"));
     asm.push(abi::label("rz_changed"));
     asm.push(abi::move_immediate(abi::SCRATCH[4], "Integer", "1"));
-    asm.store_state("x13", ST_TERM_DID_RESIZE);
+    asm.store_state(abi::SCRATCH[4], ST_TERM_DID_RESIZE);
     asm.push(abi::label("rz_nochange"));
     // Force a full redraw at the new extent.
     asm.load_state(abi::c_arg(0), ST_TERM_AREA);
@@ -1224,31 +1224,31 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
         0,
     ));
     for (reg, off) in [
-        ("x19", 96),
-        ("x20", 8),
-        ("x21", 16),
-        ("x22", 24),
-        ("x23", 32),
-        ("x24", 40),
-        ("x25", 48),
-        ("x26", 56),
-        ("x27", 64),
-        ("x28", 72),
+        (abi::LOCAL[0], 96),
+        (abi::LOCAL[1], 8),
+        (abi::LOCAL[2], 16),
+        (abi::LOCAL[3], 24),
+        (abi::LOCAL[4], 32),
+        (abi::LOCAL[5], 40),
+        (abi::LOCAL[6], 48),
+        (abi::LOCAL[7], 56),
+        (abi::LOCAL[8], 64),
+        (abi::LOCAL[9], 72),
     ] {
         asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
     }
     asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(1))); // newline flag
     asm.push(abi::load_u64(abi::LOCAL[3], abi::c_arg(0), 0)); // text len
     asm.push(abi::add_immediate(abi::LOCAL[4], abi::c_arg(0), 8)); // text ptr
-    asm.state_array("x24", ST_TERM_CHARS);
-    asm.state_array("x27", ST_TERM_FG);
-    asm.state_array("x28", ST_TERM_BG);
-    asm.load_state("x25", ST_TERM_ROW);
-    asm.load_state("x26", ST_TERM_COL);
+    asm.state_array(abi::LOCAL[5], ST_TERM_CHARS);
+    asm.state_array(abi::LOCAL[8], ST_TERM_FG);
+    asm.state_array(abi::LOCAL[9], ST_TERM_BG);
+    asm.load_state(abi::LOCAL[6], ST_TERM_ROW);
+    asm.load_state(abi::LOCAL[7], ST_TERM_COL);
     // fgval = cur_fg | (bold ? BOLD_FLAG : 0) | (underline ? UNDERLINE_FLAG : 0).
     // Hold cur_fg in x11 — load_state clobbers x9 as its address scratch.
-    asm.load_state("x11", ST_TERM_CUR_FG);
-    asm.load_state("x10", ST_TERM_CUR_BOLD);
+    asm.load_state(abi::SCRATCH[2], ST_TERM_CUR_FG);
+    asm.load_state(abi::SCRATCH[1], ST_TERM_CUR_BOLD);
     asm.push(abi::compare_immediate(abi::SCRATCH[1], "0"));
     asm.push(abi::branch_eq("tw_no_bold"));
     asm.push(abi::move_immediate(
@@ -1262,11 +1262,11 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
         abi::SCRATCH[0],
     ));
     asm.push(abi::label("tw_no_bold"));
-    asm.load_state("x10", ST_TERM_CUR_UNDERLINE);
+    asm.load_state(abi::SCRATCH[1], ST_TERM_CUR_UNDERLINE);
     asm.push(abi::compare_immediate(abi::SCRATCH[1], "0"));
     asm.push(abi::branch_eq("tw_no_ul"));
     asm.push(abi::move_immediate(
-        "x9",
+        abi::SCRATCH[0],
         "Integer",
         &UNDERLINE_FLAG.to_string(),
     ));
@@ -1281,7 +1281,7 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
         abi::stack_pointer(),
         off_fgval,
     ));
-    asm.load_state("x11", ST_TERM_CUR_BG);
+    asm.load_state(abi::SCRATCH[2], ST_TERM_CUR_BG);
     asm.push(abi::store_u64(
         abi::SCRATCH[2],
         abi::stack_pointer(),
@@ -1317,11 +1317,27 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     // A bare continuation byte (10xxxxxx) or a truncated tail is not a lead
     // byte; those fall through as length 1, so malformed input still advances
     // and renders per-byte rather than hanging or over-reading.
-    emit_utf8_decode_at(&mut asm, "x10", "x9", "x19", "x21", "x22");
+    emit_utf8_decode_at(
+        &mut asm,
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        abi::LOCAL[2],
+        abi::LOCAL[3],
+    );
     // plan-70-E: display width (0/1/2 -> 1/1/2) of this scalar, in x15. Gated on
     // uses_term so a non-term GTK app never references the property table.
     if uses_term {
-        emit_gtk_charwidth(&mut asm, "x10", "x19", "x15", "x16", "x17", "x14", "tw_cw");
+        emit_gtk_charwidth(
+            &mut asm,
+            abi::SCRATCH[1],
+            abi::LOCAL[0],
+            abi::SCRATCH[6],
+            abi::SCRATCH[7],
+            abi::SCRATCH[8],
+            abi::SCRATCH[5],
+            "tw_cw",
+        );
         // plan-70-E Phase 3: width 0 = combining mark. Fold it into the previous base
         // cell's EGC pool (so Pango composes the cluster), advancing i but not the
         // column. With no base to attach to, fall through as a lone width-1 cell.
@@ -1334,7 +1350,13 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
         ));
         asm.push(abi::compare_immediate(abi::SCRATCH[7], "0"));
         asm.push(abi::branch_lt("tw_lone_combine")); // -1 => no base
-        emit_gtk_pool_append(&mut asm, "x16", "x10", "x19", "tw_pa");
+        emit_gtk_pool_append(
+            &mut asm,
+            abi::SCRATCH[7],
+            abi::SCRATCH[1],
+            abi::LOCAL[0],
+            "tw_pa",
+        );
         asm.push(abi::branch("tw_next")); // fold complete; advance i, keep the column
         asm.push(abi::label("tw_lone_combine"));
         asm.push(abi::move_immediate(abi::SCRATCH[6], "Integer", "1"));
@@ -1347,7 +1369,7 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     asm.push(abi::compare_immediate(abi::SCRATCH[6], "2"));
     asm.push(abi::branch_ne("tw_edge_ok"));
     asm.push(abi::add_immediate(abi::SCRATCH[0], abi::LOCAL[7], 1));
-    asm.load_state("x11", ST_TERM_COLS);
+    asm.load_state(abi::SCRATCH[2], ST_TERM_COLS);
     asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[2]));
     asm.push(abi::branch_lt("tw_edge_ok"));
     asm.push(abi::store_u64(
@@ -1362,11 +1384,11 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     ));
     asm.push(abi::move_immediate(abi::LOCAL[7], "Integer", "0"));
     asm.push(abi::add_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
-    asm.load_state("x9", ST_TERM_ROWS);
+    asm.load_state(abi::SCRATCH[0], ST_TERM_ROWS);
     asm.push(abi::compare_registers(abi::LOCAL[6], abi::SCRATCH[0]));
     asm.push(abi::branch_lt("tw_edge_noscroll"));
     asm.call_internal(TERM_SCROLL_SYMBOL);
-    asm.load_state("x25", ST_TERM_ROWS);
+    asm.load_state(abi::LOCAL[6], ST_TERM_ROWS);
     asm.push(abi::subtract_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
     asm.push(abi::label("tw_edge_noscroll"));
     asm.push(abi::load_u64(
@@ -1382,7 +1404,7 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     asm.push(abi::label("tw_edge_ok"));
     // idx = row*MAX_COLS + col; chars[idx]=glyph; fg[idx]=fgval|(width<<27); bg=bgval.
     asm.push(abi::move_immediate(
-        "x11",
+        abi::SCRATCH[2],
         "Integer",
         &TERM_MAX_COLS.to_string(),
     ));
@@ -1490,7 +1512,7 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
         abi::LOCAL[7],
         abi::SCRATCH[6],
     ));
-    asm.load_state("x9", ST_TERM_COLS);
+    asm.load_state(abi::SCRATCH[0], ST_TERM_COLS);
     asm.push(abi::compare_registers(abi::LOCAL[7], abi::SCRATCH[0]));
     asm.push(abi::branch_lt("tw_next"));
     asm.push(abi::move_immediate(abi::LOCAL[7], "Integer", "0"));
@@ -1502,11 +1524,11 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     asm.push(abi::add_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
     asm.push(abi::label("tw_clamp"));
     // Scroll the grid up when the cursor passes the bottom (matches macOS).
-    asm.load_state("x9", ST_TERM_ROWS);
+    asm.load_state(abi::SCRATCH[0], ST_TERM_ROWS);
     asm.push(abi::compare_registers(abi::LOCAL[6], abi::SCRATCH[0]));
     asm.push(abi::branch_lt("tw_next"));
     asm.call_internal(TERM_SCROLL_SYMBOL);
-    asm.load_state("x25", ST_TERM_ROWS);
+    asm.load_state(abi::LOCAL[6], ST_TERM_ROWS);
     asm.push(abi::subtract_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
     asm.push(abi::label("tw_next"));
     // Advance by the code point's byte length (x19), set to 1 on the '\n' path
@@ -1524,30 +1546,30 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     asm.push(abi::branch_eq("tw_store"));
     asm.push(abi::move_immediate(abi::LOCAL[7], "Integer", "0"));
     asm.push(abi::add_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
-    asm.load_state("x9", ST_TERM_ROWS);
+    asm.load_state(abi::SCRATCH[0], ST_TERM_ROWS);
     asm.push(abi::compare_registers(abi::LOCAL[6], abi::SCRATCH[0]));
     asm.push(abi::branch_lt("tw_store"));
     asm.call_internal(TERM_SCROLL_SYMBOL);
-    asm.load_state("x25", ST_TERM_ROWS);
+    asm.load_state(abi::LOCAL[6], ST_TERM_ROWS);
     asm.push(abi::subtract_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
     asm.push(abi::label("tw_store"));
-    asm.store_state("x25", ST_TERM_ROW);
-    asm.store_state("x26", ST_TERM_COL);
+    asm.store_state(abi::LOCAL[6], ST_TERM_ROW);
+    asm.store_state(abi::LOCAL[7], ST_TERM_COL);
     // plan-35-E: NO per-write redraw. Writing only mutates the live grid; a present
     // (`term::sync`/`io::flush`/`term::off`) snapshots + queue_draws on the main loop.
 
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     for (reg, off) in [
-        ("x19", 96),
-        ("x20", 8),
-        ("x21", 16),
-        ("x22", 24),
-        ("x23", 32),
-        ("x24", 40),
-        ("x25", 48),
-        ("x26", 56),
-        ("x27", 64),
-        ("x28", 72),
+        (abi::LOCAL[0], 96),
+        (abi::LOCAL[1], 8),
+        (abi::LOCAL[2], 16),
+        (abi::LOCAL[3], 24),
+        (abi::LOCAL[4], 32),
+        (abi::LOCAL[5], 40),
+        (abi::LOCAL[6], 48),
+        (abi::LOCAL[7], 56),
+        (abi::LOCAL[8], 64),
+        (abi::LOCAL[9], 72),
     ] {
         asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
     }

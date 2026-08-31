@@ -167,7 +167,7 @@ fn emit_input_pipe_wiring(asm: &mut Asm) {
     asm.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 16));
     asm.call_external("pipe");
     asm.push(abi::load_u32(abi::SCRATCH[2], abi::stack_pointer(), 20)); // write fd
-    asm.store_state("x11", ST_PIPE_WRITE_FD);
+    asm.store_state(abi::SCRATCH[2], ST_PIPE_WRITE_FD);
 
     // Make the pipe write end non-blocking (bug-114): if the worker stops
     // draining stdin the 64 KiB pipe fills, and a blocking write() in the key
@@ -197,7 +197,7 @@ fn emit_input_pipe_wiring(asm: &mut Asm) {
     // Record the surviving read end (fd 0) in the runtime state. Use x10 for the
     // value because store_state materializes the state base into x9.
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
-    asm.store_state("x10", ST_PIPE_READ_FD);
+    asm.store_state(abi::SCRATCH[1], ST_PIPE_READ_FD);
 }
 
 pub(super) fn emit_activate_handler(
@@ -336,7 +336,7 @@ pub(super) fn emit_activate_handler(
         asm.call_external("g_application_hold");
         // Record that a hold is active so the reconcile balances it (Open Decision 1).
         asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "1"));
-        asm.store_state("x10", ST_HELD);
+        asm.store_state(abi::SCRATCH[1], ST_HELD);
         // plan-98-A Phase 4: wire the input pipe here too. A `None`-default program
         // is exactly one that references `app::setMode`, so it is the only kind that
         // can reach `Console` or `Canvas` through the reconcile — and in both the
@@ -508,7 +508,7 @@ fn emit_canvas_teardown(asm: &mut Asm, label: &str) {
     // survives on its ref_sink reference for the next entry.
     asm.call_external("gtk_window_set_child");
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
-    asm.store_state("x10", ST_CANVAS_SURFACE);
+    asm.store_state(abi::SCRATCH[1], ST_CANVAS_SURFACE);
     asm.push(abi::label(&done));
 }
 
@@ -584,7 +584,7 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
     asm.load_state(abi::c_arg(0), ST_APPLICATION);
     asm.call_external("g_application_release");
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
-    asm.store_state("x10", ST_HELD);
+    asm.store_state(abi::SCRATCH[1], ST_HELD);
     asm.push(abi::label(&release_skip));
     asm.push(abi::branch(&done));
 
@@ -632,7 +632,7 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
     // Clear the io-routing buffer: canvas mode has no transcript, so `io::` writes
     // degrade to the fd sink (stdout), matching the mode's I/O contract.
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
-    asm.store_state("x10", ST_TEXT_BUFFER);
+    asm.store_state(abi::SCRATCH[1], ST_TEXT_BUFFER);
     asm.load_state(abi::c_arg(0), ST_WINDOW);
     asm.call_external("gtk_window_present");
     // Read the native surface handle. Must come *after* `gtk_window_present`: an
@@ -648,7 +648,7 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
     asm.load_state(abi::c_arg(0), ST_APPLICATION);
     asm.call_external("g_application_release");
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
-    asm.store_state("x10", ST_HELD);
+    asm.store_state(abi::SCRATCH[1], ST_HELD);
     asm.push(abi::label(&canvas_release_skip));
     asm.push(abi::branch(&done));
 
@@ -665,7 +665,7 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
     asm.push(abi::label(&hide_skip));
     // clear the io-routing buffer → the write helper falls back to the fd (stdout)
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
-    asm.store_state("x10", ST_TEXT_BUFFER);
+    asm.store_state(abi::SCRATCH[1], ST_TEXT_BUFFER);
     // hold the application so it survives with no visible window (if not already).
     asm.load_state(abi::c_arg(0), ST_HELD);
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
@@ -673,7 +673,7 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
     asm.load_state(abi::c_arg(0), ST_APPLICATION);
     asm.call_external("g_application_hold");
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "1"));
-    asm.store_state("x10", ST_HELD);
+    asm.store_state(abi::SCRATCH[1], ST_HELD);
     asm.push(abi::label(&hold_skip));
 
     asm.push(abi::label(&done));
@@ -741,7 +741,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(1))); // keyval
 
     // Raw mode delivers the keystroke immediately, bypassing the line buffer.
-    asm.load_state("x9", ST_INPUT_MODE);
+    asm.load_state(abi::SCRATCH[0], ST_INPUT_MODE);
     asm.push(abi::compare_immediate(abi::SCRATCH[0], MODE_RAW));
     asm.push(abi::branch_eq("raw"));
 
@@ -775,7 +775,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     asm.push(abi::branch_eq("ignore"));
     asm.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), 24)); // unichar
                                                                           // oldlen = line_len; dst = &line_buf[oldlen]; count = g_unichar_to_utf8(unichar, dst)
-    asm.load_state("x9", ST_LINE_LEN);
+    asm.load_state(abi::SCRATCH[0], ST_LINE_LEN);
     // bug-50: cap the fixed 1024-byte line buffer. If the pending line can no
     // longer hold another maximum-width (6-byte) UTF-8 encoding, drop the key via
     // the existing `ignore` path so the g_unichar_to_utf8 store below never writes
@@ -784,12 +784,12 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     // which a full 6-byte encode still lands inside the buffer; compare unsigned
     // (a line length is never negative) and branch when strictly higher.
     asm.push(abi::compare_immediate(
-        "x9",
+        abi::SCRATCH[0],
         &(LINE_BUF_CAP - MAX_UTF8_LEN).to_string(),
     ));
     asm.push(abi::branch_hi("ignore"));
     asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 8)); // oldlen
-    asm.local_address("x10", STATE_SYMBOL);
+    asm.local_address(abi::SCRATCH[1], STATE_SYMBOL);
     asm.push(abi::add_immediate(
         abi::c_arg(1),
         abi::SCRATCH[1],
@@ -810,18 +810,18 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
         abi::SCRATCH[0],
         abi::c_return(0),
     ));
-    asm.local_address("x10", STATE_SYMBOL);
+    asm.local_address(abi::SCRATCH[1], STATE_SYMBOL);
     asm.push(abi::store_u64(
         abi::SCRATCH[0],
         abi::SCRATCH[1],
         ST_LINE_LEN,
     ));
     // Echo into the transcript only in LINE_ECHO mode.
-    asm.load_state("x9", ST_INPUT_MODE);
+    asm.load_state(abi::SCRATCH[0], ST_INPUT_MODE);
     asm.push(abi::compare_immediate(abi::SCRATCH[0], MODE_LINE_ECHO));
     asm.push(abi::branch_ne("consumed"));
     asm.load_state(abi::c_arg(0), ST_TEXT_BUFFER);
-    asm.local_address("x10", STATE_SYMBOL);
+    asm.local_address(abi::SCRATCH[1], STATE_SYMBOL);
     asm.push(abi::add_immediate(
         abi::c_arg(1),
         abi::SCRATCH[1],
@@ -840,7 +840,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     // Commit: write line + '\n' to the pipe; echo '\n' in LINE_ECHO; clear buffer.
     asm.push(abi::label("commit"));
     asm.load_state(abi::c_arg(0), ST_PIPE_WRITE_FD);
-    asm.local_address("x10", STATE_SYMBOL);
+    asm.local_address(abi::SCRATCH[1], STATE_SYMBOL);
     asm.push(abi::add_immediate(
         abi::c_arg(1),
         abi::SCRATCH[1],
@@ -860,7 +860,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
     asm.call_external("write");
     asm.push(abi::label("commit_echo"));
-    asm.load_state("x9", ST_INPUT_MODE);
+    asm.load_state(abi::SCRATCH[0], ST_INPUT_MODE);
     asm.push(abi::compare_immediate(abi::SCRATCH[0], MODE_LINE_ECHO));
     asm.push(abi::branch_ne("commit_clear"));
     asm.load_state(abi::c_arg(0), ST_TEXT_BUFFER);
@@ -869,7 +869,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     asm.call_internal(APPEND_SYMBOL);
     asm.push(abi::label("commit_clear"));
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
-    asm.local_address("x10", STATE_SYMBOL);
+    asm.local_address(abi::SCRATCH[1], STATE_SYMBOL);
     asm.push(abi::store_u64(
         abi::SCRATCH[0],
         abi::SCRATCH[1],
@@ -884,10 +884,10 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     // (`(b & 0xC0) == 0x80`) to the lead byte, so the whole character is dropped:
     //   do { len--; } while (len > 0 && (line_buf[len] & 0xC0) == 0x80);
     asm.push(abi::label("backspace"));
-    asm.load_state("x9", ST_LINE_LEN); // x9 = len
+    asm.load_state(abi::SCRATCH[0], ST_LINE_LEN); // x9 = len
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq("ignore"));
-    asm.local_address("x10", STATE_SYMBOL);
+    asm.local_address(abi::SCRATCH[1], STATE_SYMBOL);
     asm.push(abi::add_immediate(
         abi::SCRATCH[2],
         abi::SCRATCH[1],
@@ -912,7 +912,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     asm.push(abi::compare_immediate(abi::SCRATCH[3], "128")); // == 0x80 -> continuation byte
     asm.push(abi::branch_eq("bs_scan")); // keep scanning back to the lead byte
     asm.push(abi::label("bs_done"));
-    asm.local_address("x10", STATE_SYMBOL);
+    asm.local_address(abi::SCRATCH[1], STATE_SYMBOL);
     asm.push(abi::store_u64(
         abi::SCRATCH[0],
         abi::SCRATCH[1],
@@ -921,7 +921,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     // In LINE_ECHO mode, erase the just-removed glyph from the transcript so the
     // display matches the committed line. `_mfb_gtkapp_delete_last_char` removes one
     // whole code point (GtkTextIter char-granular), matching the buffer scan above.
-    asm.load_state("x9", ST_INPUT_MODE);
+    asm.load_state(abi::SCRATCH[0], ST_INPUT_MODE);
     asm.push(abi::compare_immediate(abi::SCRATCH[0], MODE_LINE_ECHO));
     asm.push(abi::branch_ne("consumed"));
     asm.load_state(abi::c_arg(0), ST_TEXT_BUFFER);
@@ -1000,7 +1000,7 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
 
     // Headless (no transcript): terminate the process with the exit code.
     // Both spellings must be the SAME one. `%scratch0` realizes to `x9`, so a load
-    // into raw `"x9"` and a compare of `abi::SCRATCH[0]` are one register on
+    // into raw `abi::SCRATCH[0]` and a compare of `abi::SCRATCH[0]` are one register on
     // AArch64 — but the x86-64 app wrap renames each *distinct token string* to its
     // own vreg, so there the load and the compare were two different registers and
     // this branch tested an uninitialized one. Headless then took the GUI arm,
@@ -1039,7 +1039,7 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
         abi::LOCAL[1],
         16 + prefix_len,
     )); // digit write ptr
-    emit_format_exit_code(&mut asm, "x19", "x13");
+    emit_format_exit_code(&mut asm, abi::LOCAL[0], abi::SCRATCH[4]);
     asm.push(abi::move_immediate(abi::SCRATCH[5], "Integer", "10"));
     asm.push(abi::store_u8(abi::SCRATCH[5], abi::SCRATCH[4], 0)); // trailing '\n'
     asm.push(abi::add_immediate(abi::SCRATCH[4], abi::SCRATCH[4], 1));
@@ -1578,7 +1578,7 @@ mod tests {
                 let cmp = &pair[0];
                 let br = &pair[1];
                 cmp.op == CodeOp::CmpImm
-                    && cmp.get("lhs").as_deref() == Some("x9")
+                    && cmp.get("lhs").as_deref() == Some(abi::SCRATCH[0])
                     && cmp.get("rhs").as_deref() == Some(expected_bound.as_str())
                     && br.op == CodeOp::BranchHi
                     && br.get("target").as_deref() == Some("ignore")
@@ -1598,7 +1598,7 @@ mod tests {
             CodeOp::LdrU64,
             "guard must follow the ST_LINE_LEN load"
         );
-        assert_eq!(ldr.get("dst").as_deref(), Some("x9"));
+        assert_eq!(ldr.get("dst").as_deref(), Some(abi::SCRATCH[0]));
         assert_eq!(
             ldr.get("offset").as_deref(),
             Some(ST_LINE_LEN.to_string().as_str())

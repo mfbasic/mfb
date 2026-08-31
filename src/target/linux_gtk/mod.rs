@@ -1335,6 +1335,49 @@ mod import_tests {
 mod canvas_reconcile_tests {
     use super::*;
 
+    /// No emitter in this backend spells a register as a raw `"xN"` string.
+    ///
+    /// These bodies are hand-written AArch64 assembly transpiled to x86 by
+    /// `finalize_x86_app_function`, which renames the scratch/parking space to virtual
+    /// registers **keyed by the token string**. So `"x10"` and `abi::SCRATCH[1]` are one
+    /// register on AArch64 and two different vregs on x86 — a body that writes through
+    /// one spelling and reads through the other is correct on the development host and
+    /// silently broken on Linux x86-64. plan-98-F Phase 1 found one instance in the
+    /// finish helper (`ST_TEXT_BUFFER` stored to `"x9"`, compared as `SCRATCH[0]`); a
+    /// census then found sixteen more functions mixing the two, including
+    /// `emit_term_resize_helper`, which divided by an uninitialized divisor.
+    ///
+    /// The rule `.ai/arch-abi.md` states is "never mix"; this asserts the stronger and
+    /// checkable form — never spell one at all — because "mixed" needs a def/use analysis
+    /// and "present" does not. Rewriting all 146 sites to tokens left the linux-aarch64
+    /// binary **byte-identical** (the two spellings were already the same register there)
+    /// and changed the x86-64 one, which is exactly the shape of the fix.
+    ///
+    /// `x0`–`x8` are excluded from the pattern only because they are already forbidden by
+    /// the residual-token `debug_assert` in `select_x86`, which reds a debug build.
+    #[test]
+    fn no_emitter_spells_a_register_as_a_raw_register_string() {
+        for (name, source) in [
+            ("bootstrap.rs", include_str!("bootstrap.rs")),
+            ("term_draw.rs", include_str!("term_draw.rs")),
+            ("app_io.rs", include_str!("app_io.rs")),
+        ] {
+            for (index, line) in source.lines().enumerate() {
+                for n in 9usize..=30 {
+                    assert!(
+                        !line.contains(&format!("\"x{n}\"")),
+                        "{name}:{} spells a register as \"x{n}\"; use abi::SCRATCH[{}] / \
+                         abi::LOCAL[{}] instead — the x86 app wrap renames by token string, \
+                         so the raw spelling is a different vreg there",
+                        index + 1,
+                        n.saturating_sub(9),
+                        n.saturating_sub(19),
+                    );
+                }
+            }
+        }
+    }
+
     fn externals(func: &CodeFunction, name: &str) -> usize {
         func.relocations
             .iter()
