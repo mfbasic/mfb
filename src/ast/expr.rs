@@ -43,8 +43,15 @@ impl<'a> FileParser<'a> {
         // type, and both registry probes below intern a `Symbol` from the name
         // before they can say so. This runs on every identifier expression in
         // every program, so the bare case must not pay for that.
+        //
+        // The one exception is a built-in package's own injected companion, where
+        // a BARE name may still be one of that package's value types: its members
+        // are local to it, so the rule says it writes them without a prefix. The
+        // declared identity is package-qualified all the same (bug-480 Phase 4b),
+        // so the prefix is supplied here rather than hand-written into every
+        // `builtins/<pkg>.mfb`.
         let Some((binding, leaf)) = qualified.split_once('.') else {
-            return qualified;
+            return self.qualify_own_builtin_type(qualified);
         };
         // `binding` is what the author wrote; the registry is keyed by package.
         // An unknown binding is left alone — it may be a LINK alias, an imported
@@ -58,6 +65,50 @@ impl<'a> FileParser<'a> {
             return resolved;
         }
         crate::codegen::builtins::qualified_builtin_type(&resolved).unwrap_or(qualified)
+    }
+
+    /// Inside `builtins/<pkg>.mfb`, qualify a BARE name that `<pkg>` declares as
+    /// one of its own value types; leave everything else alone.
+    ///
+    /// This is what lets the injected companion keep writing its own types the
+    /// way the governing rule says a local name is written — unprefixed — while
+    /// the namespace it lands in is package-scoped. User source gets no such
+    /// treatment: a bare imported type there is exactly what Phase 4b refuses.
+    pub(super) fn qualify_own_builtin_type(&self, name: String) -> String {
+        if self.builtin_package.is_none() {
+            return name;
+        }
+        let resolves = |candidate: &str| {
+            crate::codegen::builtins::is_qualified_builtin_resource(candidate)
+                || crate::codegen::builtins::qualified_builtin_type(candidate).is_some()
+        };
+        // The owning package first: its own members are what an injected companion
+        // names most, and it must win over an import when both declare the leaf.
+        if let Some(package) = self.builtin_package.as_deref() {
+            let candidate = format!("{package}.{name}");
+            if resolves(&candidate) {
+                return candidate;
+            }
+        }
+        // Then the packages this file IMPORTS. A cross-package helper chunk -- the
+        // `term`<->`astrings` bridge is the one in tree -- is authored as `term`'s
+        // source but names `astrings`' types, and names them bare because that is how
+        // the rule reads inside a package that imports them. Resolving through the
+        // import list qualifies those without hand-editing the chunk.
+        let mut candidates: Vec<String> = self
+            .import_bindings
+            .values()
+            .map(|package| format!("{package}.{name}"))
+            .filter(|candidate| resolves(candidate))
+            .collect();
+        candidates.sort();
+        candidates.dedup();
+        // Exactly one owner, or nothing: an ambiguous leaf is left bare rather than
+        // guessed at.
+        match candidates.as_slice() {
+            [only] => only.clone(),
+            _ => name,
+        }
     }
 
     /// Enter one expression-nesting level, reporting and returning `false` when

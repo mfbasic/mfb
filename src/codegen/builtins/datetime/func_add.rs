@@ -3,7 +3,8 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Shift a `datetime::Instant` forward along the UTC timeline by a `datetime::Duration`."#;
+const INTRO: &str =
+    r#"Shift a `datetime::Instant` forward along the UTC timeline by a `datetime::Duration`."#;
 const DESC: &str = r#"`datetime::add` returns the `datetime::Instant` reached by advancing `at` forward along
 the UTC timeline by the span `by`. It adds the two `seconds` fields and the two
 `nanos` fields independently, then normalizes the sum so the stored `nanos`

@@ -414,9 +414,109 @@ impl TypeModel {
         // packages are also present, from_module_and_packages re-derives them over
         // the combined set.
         model.recompute_canonical_variant_tags();
+        model.alias_bare_builtin_type_names();
         #[cfg(debug_assertions)]
         model.assert_type_keys_are_bijective();
         Ok(model)
+    }
+
+    /// Register the BARE leaf of every package-qualified builtin type as an alias
+    /// of the qualified entry (bug-480 Phase 4b).
+    ///
+    /// A builtin value type is declared `net.Url` now, so that is what the IR
+    /// carries and what source must spell. Codegen, however, is full of hand-written
+    /// type expressions that name the bare leaf -- `ParameterType::named("Url")`,
+    /// `type_.name() != "List OF AttrSpan"` -- because within the owning package that
+    /// IS its name. Those are string literals in ~560 places that no Rust check can
+    /// find; a missed one does not fail to build, it reports `native record type 'X'
+    /// does not resolve` at codegen time or silently mistypes a value.
+    ///
+    /// Aliasing here resolves all of them at one seam, and it is safe precisely
+    /// because it is INTERNAL: source-level resolution never consults this model, so
+    /// a bare imported type in user code is still refused by the resolver. The alias
+    /// only rescues lookups that have already passed name resolution.
+    ///
+    /// Only tables that are LOOKED UP by name are aliased. A set that is
+    /// ENUMERATED must not be: `union_variants`/`union_variant_unions` define union
+    /// membership and `variants_for_union` walks them, so aliasing made a
+    /// `UNION Handle` of `fs::File` | `tcp::Socket` report four variants -- the two
+    /// bare ones naming no resource -- and the owned-list resource drain refused the
+    /// union outright. `union_names`/`resource_names` are membership predicates for
+    /// the same reason.
+    ///
+    /// A leaf owned by two packages is NOT aliased -- `Stream` is both `http.Stream`
+    /// and `process.Stream`, and guessing which one a bare lookup meant is exactly
+    /// the ambiguity this migration exists to remove. Those sites must name the
+    /// package.
+    fn alias_bare_builtin_type_names(&mut self) {
+        fn bare_of(type_: &ParameterType) -> Option<(ParameterType, String)> {
+            let rendered = type_.name();
+            let (package, leaf) = rendered.split_once('.')?;
+            if package.is_empty() || leaf.is_empty() || leaf.contains('.') {
+                return None;
+            }
+            Some((ParameterType::declared(leaf), package.to_string()))
+        }
+
+        // Count owners per bare leaf first, so an ambiguous one can be skipped
+        // rather than resolved arbitrarily by iteration order.
+        let mut owners: HashMap<ParameterType, HashSet<String>> = HashMap::new();
+        let qualified_keys: Vec<ParameterType> = self
+            .record_fields
+            .keys()
+            .chain(self.union_names.iter())
+            .chain(self.union_variant_fields.keys())
+            .cloned()
+            .collect();
+        for key in &qualified_keys {
+            if let Some((bare, package)) = bare_of(key) {
+                owners.entry(bare).or_default().insert(package);
+            }
+        }
+        for (type_, member) in self.enum_members.keys().cloned().collect::<Vec<_>>() {
+            let _ = member;
+            if let Some((bare, package)) = bare_of(&type_) {
+                owners.entry(bare).or_default().insert(package);
+            }
+        }
+        let unambiguous =
+            |bare: &ParameterType| owners.get(bare).is_some_and(|packages| packages.len() == 1);
+
+        for (qualified, fields) in self.record_fields.clone() {
+            if let Some((bare, _)) = bare_of(&qualified) {
+                if unambiguous(&bare) {
+                    self.record_fields.entry(bare).or_insert(fields);
+                }
+            }
+        }
+        for (qualified, tag) in self.union_variant_tags.clone() {
+            if let Some((bare, _)) = bare_of(&qualified) {
+                if unambiguous(&bare) {
+                    self.union_variant_tags.entry(bare).or_insert(tag);
+                }
+            }
+        }
+        for (qualified, fields) in self.union_variant_fields.clone() {
+            if let Some((bare, _)) = bare_of(&qualified) {
+                if unambiguous(&bare) {
+                    self.union_variant_fields.entry(bare).or_insert(fields);
+                }
+            }
+        }
+        for ((qualified, member), index) in self.enum_members.clone() {
+            if let Some((bare, _)) = bare_of(&qualified) {
+                if unambiguous(&bare) {
+                    self.enum_members.entry((bare, member)).or_insert(index);
+                }
+            }
+        }
+        for (qualified, closer) in self.resource_closers.clone() {
+            if let Some((bare, _)) = bare_of(&qualified) {
+                if unambiguous(&bare) {
+                    self.resource_closers.entry(bare).or_insert(closer);
+                }
+            }
+        }
     }
 
     pub(crate) fn from_module_and_packages(
@@ -489,6 +589,10 @@ impl TypeModel {
         // imported package union), so a variant shared across the boundary gets one
         // globally-consistent tag regardless of registration order (bug-80).
         model.recompute_canonical_variant_tags();
+        // AFTER the recompute, never before: an alias shares its qualified entry's
+        // tag, and aliasing first would make the recompute count one variant twice
+        // and renumber the tag space.
+        model.alias_bare_builtin_type_names();
         #[cfg(debug_assertions)]
         model.assert_type_keys_are_bijective();
         Ok(model)

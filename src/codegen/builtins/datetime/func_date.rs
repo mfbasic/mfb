@@ -3,7 +3,8 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Validate and build a calendar `datetime::Date` from year, month, and day components."#;
+const INTRO: &str =
+    r#"Validate and build a calendar `datetime::Date` from year, month, and day components."#;
 const DESC: &str = r#"`datetime::date` builds a calendar `datetime::Date` on the proleptic-Gregorian calendar
 from its `year`, `month`, and `day` components. The calendar is *proleptic*: the
 Gregorian rules are extended uniformly to every year, including those before the

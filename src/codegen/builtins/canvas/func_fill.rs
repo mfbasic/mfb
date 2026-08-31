@@ -5,7 +5,8 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Build a `canvas::Paint` that fills an item with one colour and draws no outline."#;
+const INTRO: &str =
+    r#"Build a `canvas::Paint` that fills an item with one colour and draws no outline."#;
 
 const DESC: &str = r#"`fill` is the common case: a solid shape with no outline. Every other `canvas::Paint`
 field is left at its no-op value — a transparent stroke, zero stroke width,

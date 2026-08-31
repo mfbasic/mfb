@@ -3,7 +3,8 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Add two `datetime::Duration` spans into their combined `datetime::Duration`."#;
+const INTRO: &str =
+    r#"Add two `datetime::Duration` spans into their combined `datetime::Duration`."#;
 const DESC: &str = r#"`datetime::plus` returns the `datetime::Duration` `a + b`, the signed span that results
 from combining two spans of elapsed physical time. It adds the two `seconds`
 fields and the two `nanos` fields independently, then normalizes the sum so the

@@ -3,7 +3,8 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Collapse a civil `datetime::DateTime` back to the absolute `datetime::Instant` it names."#;
+const INTRO: &str =
+    r#"Collapse a civil `datetime::DateTime` back to the absolute `datetime::Instant` it names."#;
 const DESC: &str = r#"`datetime::resolve` is the inverse of `datetime::inZone`: where `inZone` projects
 an absolute instant onto the wall-clock fields an observer in a zone reads,
 `resolve` collapses those wall-clock fields — together with the UTC offset already

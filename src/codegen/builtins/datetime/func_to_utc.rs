@@ -3,7 +3,8 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Project an absolute `datetime::Instant` into UTC to produce a civil `datetime::DateTime`."#;
+const INTRO: &str =
+    r#"Project an absolute `datetime::Instant` into UTC to produce a civil `datetime::DateTime`."#;
 const DESC: &str = r#"`datetime::toUtc` projects the absolute instant `at` into the UTC zone, yielding
 the calendar date and wall-clock time that an observer reading UTC sees at that
 moment. It is exactly shorthand for `datetime::inZone(at, datetime::utc())`: the

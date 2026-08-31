@@ -33,7 +33,8 @@ r#"FUNC __datetime_instant5(days AS Integer, hours AS Integer, mins AS Integer, 
   RETURN __datetime_normInstant(days * 86400 + hours * 3600 + mins * 60 + seconds, nanos)
 END FUNC"#;
 
-const INTRO: &str = r#"Build a `datetime::Instant` from seconds, nanoseconds, or larger time components."#;
+const INTRO: &str =
+    r#"Build a `datetime::Instant` from seconds, nanoseconds, or larger time components."#;
 const DESC: &str = r#"`datetime::instant` builds a `datetime::Instant` on the UTC timeline (the Unix epoch,
 without leap seconds) at a given offset after `1970-01-01T00:00:00Z`. The result
 carries whole seconds since the epoch in its `seconds` field and a sub-second

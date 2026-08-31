@@ -3,7 +3,8 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Shift a `datetime::Instant` backward along the UTC timeline by a `datetime::Duration`."#;
+const INTRO: &str =
+    r#"Shift a `datetime::Instant` backward along the UTC timeline by a `datetime::Duration`."#;
 const DESC: &str = r#"`datetime::subtract` returns the `datetime::Instant` reached by moving `at` backward along
 the UTC timeline by the span `by`. It subtracts the `seconds` field of `by` from
 the `seconds` field of `at` and the `nanos` field of `by` from the `nanos` field

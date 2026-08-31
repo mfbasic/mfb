@@ -74,7 +74,8 @@ pub(crate) const IMAGE_TYPE_ID: &str = "canvas.Image";
 /// The close op the resource's scope-drop and `destroyImage` both route to.
 const DESTROY_IMAGE: &str = "canvas.destroyImage";
 
-const MODULE_INTRO: &str = r#"2D drawing for `app::Mode.Canvas` — a retained scene of `canvas::DrawItem`s"#;
+const MODULE_INTRO: &str =
+    r#"2D drawing for `app::Mode.Canvas` — a retained scene of `canvas::DrawItem`s"#;
 const MODULE_DESC: &str = r#"The `canvas` package draws 2D graphics on the surface `app::setMode(app::Mode.Canvas)`
 presents. Like `app`, it is importable **only** in `--app` builds, and every call
 that touches the surface requires `app::Mode.Canvas` — outside it they raise the

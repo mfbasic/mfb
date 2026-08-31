@@ -3,7 +3,8 @@
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Build a `http::Route` binding a validated path pattern to a request handler."#;
+const INTRO: &str =
+    r#"Build a `http::Route` binding a validated path pattern to a request handler."#;
 
 const DESC: &str = r#"`route` pairs a path `pattern` with a `handler` and returns a `http::Route` — a
 two-field record holding exactly that `pattern` and `handler`.

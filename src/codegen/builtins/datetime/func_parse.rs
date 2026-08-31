@@ -15,7 +15,8 @@ r#"FUNC __datetime_parse3(value AS String, pattern AS String, zone AS Zone) AS D
   RETURN __datetime_buildFromFields(__datetime_parseFields(value, pattern), zone)
 END FUNC"#;
 
-const INTRO: &str = r#"Parse text into a `datetime::DateTime` using the format pattern mini-language."#;
+const INTRO: &str =
+    r#"Parse text into a `datetime::DateTime` using the format pattern mini-language."#;
 const DESC: &str = r#"`datetime::parse` reads `value` against `pattern` and returns the `datetime::DateTime` it
 describes. `pattern` uses the same token mini-language as `datetime::format`, and
 `parse` is the approximate inverse of `format`: it walks `pattern` and `value`

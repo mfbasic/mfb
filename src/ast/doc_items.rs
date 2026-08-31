@@ -44,7 +44,16 @@ impl<'a> FileParser<'a> {
         let (header_name, header_params) = if callable {
             self.parse_header_signature(head_rest.trim(), header_line)
         } else {
-            (head_rest.trim().to_string(), None)
+            // bug-480 Phase 4b: a TYPE/UNION/ENUM/RESOURCE doc header names a
+            // DECLARATION, so inside a built-in package's injected companion it
+            // has to be qualified exactly as that declaration now is. The header
+            // is written bare (`DOC` / `TYPE Response`) like the declaration it
+            // documents; without this it stops resolving and every documented
+            // builtin type reports DOC_UNRESOLVED.
+            (
+                self.qualify_own_builtin_type(head_rest.trim().to_string()),
+                None,
+            )
         };
         if header_kind == DocHeaderKind::Package {
             if !header_name.is_empty() {

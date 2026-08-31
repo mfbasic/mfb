@@ -22,6 +22,28 @@ pub const SYNTHETIC_TRAP_BINDING: &str = "#err";
 /// bindings have to be known before parsing starts. `IMPORT p` binds `p` to
 /// itself; `IMPORT p AS b` binds `b`. A malformed import contributes nothing —
 /// the parser proper reports it.
+/// The built-in package a compiler-injected file belongs to, recovered from the
+/// synthetic path label `Registry::synthetic_files` stamps on it
+/// (`<builtin-net>` -> `net`). `None` for ordinary user source.
+///
+/// bug-480 Phase 4b: a package's OWN value types are declared locally, so its
+/// injected companion writes them bare (`EXPORT ENUM PingStatus`, `AS Url`) —
+/// the governing rule says a local name needs no prefix, and hand-qualifying
+/// every reference inside `builtins/<pkg>.mfb` would contradict it. But the
+/// DECLARED name has to carry its package once the namespace is package-scoped,
+/// or `http.Stream` and `process.Stream` collide again. Knowing the owning
+/// package here lets the parser qualify both the declaration and the
+/// package-internal references, so the injected source stays written the way
+/// the rule says it should be.
+pub(super) fn builtin_package_of(path: &Path) -> Option<String> {
+    let label = path.to_str()?;
+    let inner = label.strip_prefix("<builtin-")?.strip_suffix('>')?;
+    if inner.is_empty() {
+        return None;
+    }
+    Some(inner.to_string())
+}
+
 fn scan_import_bindings(tokens: &[Token]) -> HashMap<String, String> {
     let mut bindings = HashMap::new();
     let mut i = 0;
@@ -89,6 +111,9 @@ pub(super) struct FileParser<'a> {
     /// parsed, because the grammar permits an `IMPORT` after the first item and
     /// a name may be written before the line that binds it.
     pub(super) import_bindings: HashMap<String, String>,
+    /// The built-in package this file is the injected companion of, or `None` for
+    /// user source. See [`builtin_package_of`].
+    pub(super) builtin_package: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -115,6 +140,7 @@ impl<'a> FileParser<'a> {
             "FileParser requires an Eof-terminated token stream"
         );
         let import_bindings = scan_import_bindings(&tokens);
+        let builtin_package = builtin_package_of(path);
         Self {
             path,
             tokens,
@@ -125,6 +151,7 @@ impl<'a> FileParser<'a> {
             type_depth: 0,
             depth_exceeded: false,
             import_bindings,
+            builtin_package,
         }
     }
 

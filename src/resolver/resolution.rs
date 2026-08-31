@@ -1440,6 +1440,21 @@ impl Resolver<'_> {
         imports: &HashMap<String, String>,
     ) {
         let root = name.split('.').next().unwrap_or(name);
+        // bug-480 Phase 4b: a built-in package's injected companion refers to its
+        // OWN package-qualified types (`http.Response` inside `builtins/http.mfb`).
+        // That is a self-reference, not an import — the file IS the package — so it
+        // neither needs nor can have an `IMPORT http` line. Same rule `IMPORT self`
+        // encodes for a source package; without it every companion that names one
+        // of its own value types reports SYMBOL_UNKNOWN_IMPORT against a file the
+        // developer never wrote.
+        if file
+            .path
+            .strip_prefix("builtins/")
+            .and_then(|rest| rest.strip_suffix(".mfb"))
+            == Some(root)
+        {
+            return;
+        }
         // A LINK alias is a package-local namespace, not an import: resolve its
         // members against the block's native functions (plan-link-update.md §5b).
         if let Some(link) = self.link_functions.get(root) {

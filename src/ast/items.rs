@@ -233,6 +233,14 @@ impl<'a> FileParser<'a> {
             self.synchronize();
             return None;
         };
+        // bug-480 Phase 4b: inside a built-in package's injected companion the
+        // DECLARED identity of a value type is package-qualified (`net.PingStatus`),
+        // the same way a RESOURCE has been addressed since plan-97. The companion
+        // still writes it bare, because the package's own members are local to it
+        // and the governing rule says a local name carries no prefix; the prefix
+        // is supplied here. User source is untouched -- a project's own
+        // `TYPE Account` stays `Account`.
+        let name = self.qualify_own_builtin_type(name);
         let template_params = if matches!(kind, TypeDeclKind::Enum) {
             Vec::new()
         } else {
@@ -364,6 +372,12 @@ impl<'a> FileParser<'a> {
     pub(super) fn parse_union_variant(&mut self) -> Option<UnionVariant> {
         let line = self.peek().line;
         let name = self.parse_qualified_name("Union member type must be a type name.")?;
+        // A union variant NAMES another declared type, so it is normalized like any
+        // other type reference: a qualified spelling maps to the declared id, and
+        // inside a built-in companion a bare sibling (`JsonBool` within `json`)
+        // picks up its package (bug-480 Phase 4b). `parse_qualified_name` does not
+        // normalize on its own -- it also serves function and constant references.
+        let name = self.normalize_qualified_builtin_type(name);
         self.consume_statement_end("Expected end of statement after union member type.");
         Some(UnionVariant { name, line })
     }

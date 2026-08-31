@@ -3,7 +3,8 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Render a `datetime::Duration` as a human-readable `[-][Nd ]HH:MM:SS.mmm` span."#;
+const INTRO: &str =
+    r#"Render a `datetime::Duration` as a human-readable `[-][Nd ]HH:MM:SS.mmm` span."#;
 const DESC: &str = r#"`datetime::formatDuration` renders the signed span `d` as a fixed-shape string of
 the form `[-][Nd ]HH:MM:SS.mmm`. The hour, minute, and second fields are always
 two digits and the millisecond field always three; the day field and its trailing

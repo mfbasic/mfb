@@ -3,8 +3,7 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str =
-    r#"Project an absolute `datetime::Instant` into the host's local zone to produce a civil `datetime::DateTime`."#;
+const INTRO: &str = r#"Project an absolute `datetime::Instant` into the host's local zone to produce a civil `datetime::DateTime`."#;
 const DESC: &str = r#"`datetime::toLocal` projects the absolute instant `at` into the host's local
 time zone, yielding the calendar date and wall-clock time that an observer
 reading the local clock sees at that moment. It is exactly shorthand for

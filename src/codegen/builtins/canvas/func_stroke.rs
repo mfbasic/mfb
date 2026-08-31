@@ -5,7 +5,8 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Build a `canvas::Paint` that outlines an item and leaves its interior empty."#;
+const INTRO: &str =
+    r#"Build a `canvas::Paint` that outlines an item and leaves its interior empty."#;
 
 const DESC: &str = r#"`stroke` is the outline-only case — an unfilled shape, and the only sensible
 `canvas::Paint` for the two items that have no interior at all, `canvas::Line` and `canvas::Arc`. Every

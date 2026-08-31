@@ -3,8 +3,7 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str =
-    r#"Subtract one `datetime::Duration` span from another and return the resulting `datetime::Duration`."#;
+const INTRO: &str = r#"Subtract one `datetime::Duration` span from another and return the resulting `datetime::Duration`."#;
 const DESC: &str = r#"`datetime::minus` returns the `datetime::Duration` `a - b`, the signed span left after
 removing one span of elapsed physical time from another. It subtracts the
 `seconds` field of `b` from the `seconds` field of `a` and the `nanos` field of

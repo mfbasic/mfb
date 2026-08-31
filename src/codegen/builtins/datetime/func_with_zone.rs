@@ -3,8 +3,7 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str =
-    r#"Re-project a `datetime::DateTime` into a different `datetime::Zone`, preserving the absolute instant."#;
+const INTRO: &str = r#"Re-project a `datetime::DateTime` into a different `datetime::Zone`, preserving the absolute instant."#;
 const DESC: &str = r#"`datetime::withZone` returns the civil `datetime::DateTime` that an observer in `zone`
 reads at the very same absolute moment named by `dt`. The underlying point on the
 UTC timeline is unchanged; only the wall-clock fields, the carried `zone`, and the
