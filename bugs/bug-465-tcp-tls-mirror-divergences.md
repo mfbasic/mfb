@@ -5,8 +5,10 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (documentation) + Footgun (API asymmetry) + one functional gap
 
-Status: Open
-Regression Test: `tests/rt-behavior/tcp/tcp-read-eof-raises-rt/` (new), `tests/rt-behavior/tls/tls-listener-local-address-rt/` (new)
+Status: Closed
+Regression Test: `tests/rt-behavior/tcp/tcp-read-eof-raises-rt/` (new),
+`tests/rt-behavior/tls/tls-read-eof-raises-rt/` (new),
+`tests/rt_tls_listener_local_address.rs` (new)
 
 `tcp` and `tls` expose the same 11 function names — `accept`, `close`, `connect`,
 `listen`, `localAddress`, `poll`, `read`, `remoteAddress`, `setReadTimeout`,
@@ -191,34 +193,35 @@ existing `getsockname` path pointed at the listener record.
 
 ### Phase 1 — failing tests + audit (no behavior change)
 
-- [ ] Add `tests/rt-behavior/tcp/tcp-read-eof-raises-rt/` pinning `ErrConnectionClosed` on a clean EOF (reproduction 1). This passes immediately — it is a **characterization** test locking in the true contract before the docs are rewritten around it. Note that in the fixture comment.
-- [ ] Add the `tls` counterpart to the same fixture family so both contracts are pinned side by side.
-- [ ] Add `tests/rt-behavior/tls/tls-listener-local-address-rt/` — bind port 0, read back the port, connect to it. **Fails to build today** (no overload). This is the RED test.
-- [ ] Confirm the matrix above against the registry entries (not just the man prose) for all 11 pairs, and record any correction here.
+- [x] Add `tests/rt-behavior/tcp/tcp-read-eof-raises-rt/` pinning `ErrConnectionClosed` on a clean EOF (reproduction 1). This passes immediately — it is a **characterization** test locking in the true contract before the docs are rewritten around it. Note that in the fixture comment.
+- [x] Add the `tls` counterpart to the same fixture family so both contracts are pinned side by side. Landed as `tests/rt-behavior/tls/tls-read-eof-raises-rt/`, network-gated on 8.8.8.8:443 with the gate `tls-connect-google-rt` already carries.
+- [x] ~~Add `tests/rt-behavior/tls/tls-listener-local-address-rt/`~~ — **deviation**: landed as the Rust integration test `tests/rt_tls_listener_local_address.rs` instead. A static golden fixture cannot carry a TLS identity (an expiring certificate and a committed private key), so the cert is generated at run time exactly as `rt_macos_tls_write_capacity.rs` does. RED as documented (`TYPE_CALL_ARGUMENT_MISMATCH`).
+- [x] Confirm the matrix above against the registry entries (not just the man prose) for all 11 pairs, and record any correction here. Done via `grep -n "expected_arguments" src/codegen/builtins/{tcp,tls}/func_*.rs`; see Corrections.
 
-Acceptance: the `tls` localAddress test fails for the documented reason; both EOF tests pass and pin the current behavior; the matrix is confirmed against the registry.
-Commit: —
+Acceptance: the `tls` localAddress test fails for the documented reason; both EOF tests pass and pin the current behavior; the matrix is confirmed against the registry. **Met.**
+Commit: `4da71f02f`
 
 ### Phase 2 — the fixes
 
-- [ ] Rewrite `tcp::read`'s EOF prose and replace the non-terminating drain example with a `TRAP`-terminated one (`func_read.rs`).
-- [ ] Correct the same claim in `func_poll.rs:39` and the `tcp` MODULE_DESC.
-- [ ] Add the `Listener` overload to `tls::localAddress`.
-- [ ] Repair the `readText`/`writeText` residue in `tls::accept` and `tls::write` prose.
-- [ ] Add the missing `tcp::write` empty-list and peer-closed notes for parity with `tls::write`.
+- [x] Rewrite `tcp::read`'s EOF prose and replace the non-terminating drain example with a `TRAP`-terminated one (`func_read.rs`). The replacement example was compiled before shipping — the first draft used a `RAISE err` re-raise, which is not MFBASIC syntax.
+- [x] Correct the same claim in `func_poll.rs:39` ~~and the `tcp` MODULE_DESC~~ — **correction**: the MODULE_DESC does not carry it (see Corrections). A fourth site that does, and that the report missed, is `func_read.rs`'s `maxBytes` parameter description.
+- [x] Add the `Listener` overload to `tls::localAddress`.
+- [x] Repair the `readText`/`writeText` residue in `tls::accept` and `tls::write` prose — plus a third site in `tls::read` ("use `tls::read` when the peer sends UTF-8 text"), self-referential the same way.
+- [x] Add the missing `tcp::write` empty-list ~~and peer-closed~~ notes for parity with `tls::write`. **Deviation**: the empty-payload note landed (measured true for both the list and String overloads). The peer-closed note did not — `tcp::write` does **not** raise on a departed peer, it dies of SIGPIPE, which is bug-467. `tcp::write`'s existing false claim was corrected rather than copied to `tls`.
+- [x] Beyond the listed tasks, per the Goal's "either aligned or documented as deliberate, with the reason stated in the prose": both Open Decision asymmetries (close idempotency, backlog default) are now stated on **both** sides with their reason and a note that neither will move without a decision; `tls::connect` gains `tcp::connect`'s positional caveat (Open Decision 3, recommended and taken); `tls::listen` documents port 0 + the read-back and that macOS ignores `backlog`.
 
-Acceptance: `mfb man tcp read|poll`, `mfb man tcp`, `mfb man tls accept|write` render corrected text; the `tls` localAddress test passes; the EOF tests still pass unchanged.
-Commit: —
+Acceptance: `mfb man tcp read|poll`, `mfb man tls accept|write|read|localAddress` render corrected text (verified by rendering); the `tls` localAddress test passes; the EOF tests still pass unchanged. **Met.**
+Commit: `1eb5049f8` (the overload), `4f0c49138` (the prose), `a97d83805` (rustfmt)
 
 ### Phase 3 — regenerate, validate, resync the downstream note
 
-- [ ] Regenerate any drifted `.ncodesum` (the `tls::localAddress` overload is a real codegen change) and gate with `artifact-gate.sh all`; prove the delta is only ours.
-- [ ] `cargo test --release --no-fail-fast` plus `test-accept.sh` (goldens are not in the cargo suite).
-- [ ] **Correct `planning/todo.md`'s websockets section**: delete the "stream-shape trap" paragraph asserting the EOF divergence, and drop the transport-shim recommendation founded on it.
-- [ ] Re-run all three reproductions.
+- [x] Regenerate any drifted `.ncodesum` (the `tls::localAddress` overload is a real codegen change) and gate with `artifact-gate.sh all`; prove the delta is only ours.
+- [x] `cargo test --release --no-fail-fast` plus `test-accept.sh` (goldens are not in the cargo suite).
+- [x] **Correct `planning/todo.md`'s websockets section** — **correction**: the false "stream-shape trap" paragraph had already been removed by `52d60054d` before this fix started, and the section already cited bug-465. What remained was the stale "`mfb man tcp read` *currently* claims…" wording, now updated, plus a new note about the write-side asymmetry (bug-467), which is the one a WebSocket server must actually design around.
+- [x] Re-run all three reproductions.
 
-Acceptance: full suite green; gate at 0 unexplained diffs; todo.md no longer records the false divergence.
-Commit: —
+Acceptance: full suite green; gate at 0 unexplained diffs; todo.md no longer records the false divergence. **Met.**
+Commit: see the STATUS block.
 
 ## Validation Plan
 
@@ -227,11 +230,73 @@ Commit: —
 - Doc sync: `tcp` read/poll/MODULE_DESC, `tls` accept/write/localAddress, `planning/todo.md`.
 - Full suite: `cargo test --release --no-fail-fast`, `test-accept.sh`, `artifact-gate.sh all`.
 
+## Corrections to this report (found while fixing it)
+
+Every item below was measured, not recalled; the command or probe is named.
+
+1. **The `tcp` MODULE_DESC does not carry the empty-list claim.** The report lists
+   it as the third site. `grep -rn "empty" src/codegen/builtins/tcp/*.rs` returns
+   only `func_poll.rs` (two hits, one of them the unrelated empty-*list*-argument
+   rule), `func_read.rs:17`, and `func_read.rs:107`. The MODULE_DESC's `read`
+   paragraph is about `readText`, not about EOF. Nothing to fix there.
+
+2. **A fourth site the report missed:** `func_read.rs`'s `maxBytes` **parameter
+   description** — "the result may be shorter, and is empty when the peer has
+   closed" — which is rendered in the parameter table of `mfb man tcp read`, i.e.
+   the most-read part of the page. Fixed.
+
+3. **A fifth site, in `tls`:** `tls::read`'s DESC opened with "Unlike a plain
+   stream read that signals end of stream with a zero-length result…". `tls`'s
+   own page therefore asserted the divergence this bug disproves, and the report
+   recorded `tls::read` as "already correct". Fixed.
+
+4. **A third `readText`/`writeText` residue site:** `tls::read` ended with "Use
+   `tls::read` when the peer sends UTF-8 text and a `String` is more convenient
+   than raw bytes" — the same self-reference as `tls::write`'s. The report lists
+   only `accept` and `write`. Fixed.
+
+5. **Finding 3's fix design was wrong about macOS.** The report says the lowering
+   is "the existing `getsockname` path pointed at the listener record", because
+   "the listener record holds its fd at `TLS_LISTENER_OFFSET_FD`". That is true
+   on Linux and Windows only. On macOS the handle slot holds an `nw_listener`
+   (`gen_macos/server.rs`, `REC_CONN ← LISTENER`), which has no descriptor, and
+   Network.framework exposes exactly one address accessor for it:
+   `nw_listener_get_port` — a port, no address (checked against the SDK header,
+   `Network.framework/Headers/listener.h:387-402`; the full `nw_listener_*`
+   surface has no `copy_parameters` or `copy_endpoint`). macOS therefore needed a
+   dedicated body plus a new listener-record slot holding the bound host. This is
+   most of the work in the fix and none of it was anticipated.
+
+6. **`tcp::write`'s peer-closed claim is false, and the truth is worse than a doc
+   bug.** The report treats the missing `tls::write` peer-closed note as doc
+   parity. Probing it showed `tcp::write` does not raise on a departed peer at
+   all: the first write succeeds and the second terminates the process with
+   SIGPIPE (exit 141; `lldb -b -o run` reports "Terminated due to signal 13").
+   Filed as **bug-467** — a remote peer can kill any MFBASIC server — and out of
+   scope here. The false sentence was corrected rather than mirrored into `tls`.
+
+7. **The `planning/todo.md` task was already done.** Commit `52d60054d` (the day
+   this bug was written) had already replaced the "stream-shape trap" paragraph
+   and the transport-shim recommendation with a correct note citing bug-465. Only
+   its "`mfb man tcp read` *currently* claims…" wording needed updating.
+
+8. **The matrix is otherwise confirmed** against the registry — not the prose —
+   by `grep -n "expected_arguments" src/codegen/builtins/{tcp,tls}/func_*.rs`:
+   rows 1/3/6/8/9/10/11 have identical argument shapes; row 2 is the gap
+   (`Socket or Listener` vs `Socket`); rows 4 and 5 differ as described. No row
+   needed revision.
+
 ## Open Decisions
 
 - **`close` on an already-closed handle (matrix row 4).** `tcp` errors, `tls` succeeds. Recommended: **align on `tls`'s idempotent-success**, because closing-then-dropping is the common shape and both packages already auto-close by lexical drop; erroring makes the safe idiom hazardous. But this is a behavior change with an existing `TYPE_USE_AFTER_MOVE`/`ErrResourceClosed` contract and existing goldens — it needs its own bug, not this one. Alternative: keep both and document each as deliberate.
 - **`listen` backlog default (matrix row 5).** `tcp` = 128, `tls` = 0/host-default. Recommended: **align on 128**, the explicit and predictable value, since a TLS server has no reason to want a shallower queue than a plaintext one. Also a behavior change; same caveat.
-- **Whether `tcp::connect`'s per-overload positional caveat should be added to `tls::connect`.** Recommended: yes, doc-only, fold into Phase 2.
+- **Whether `tcp::connect`'s per-overload positional caveat should be added to `tls::connect`.** Recommended: yes, doc-only, fold into Phase 2. **Taken** — `tls::connect` has the same shift (`timeoutMs`/`serverName` are parameters 2/3 in the host/port form and 1/2 in the `Address` form) and now carries the caveat.
+
+Rows 4 and 5 were **not** decided here, per the Non-goals: both are behavior
+changes with existing callers. Both are now documented on **both** sides as
+deliberate, with the reason and an explicit note that neither package moves
+without a decision — which is what the Goal asked for. Each still needs its own
+bug to actually align.
 
 ## Summary
 
