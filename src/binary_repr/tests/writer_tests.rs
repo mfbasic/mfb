@@ -3,8 +3,8 @@
 // ---------------------------------------------------------------------------
 
 use super::fixtures::*;
-use crate::types::ParameterType;
 use super::*;
+use crate::types::ParameterType;
 
 #[test]
 fn lower_project_populates_all_tables() {

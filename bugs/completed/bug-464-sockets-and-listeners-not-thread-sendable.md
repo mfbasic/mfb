@@ -417,6 +417,83 @@ the phantom entry disappearing — on `thread_res_sink.mfp`, 2041 → 2013 bytes
 the only string-pool change being the removal of `File`. Verified by attribution:
 `scripts/sync-package-mfp.sh` updates **1** file on clean main and **45** here.
 
+## STATUS: FIXED (2026-08-31)
+
+Worked in `.claude/worktrees/464` on `worktree-B-464`, forked from `fc5c8a6db`
+and merged up to `ab66ed781` (bug-463) before landing.
+
+**All three thread shapes compile, and all three are proven at RUNTIME on the
+receiving thread — not merely at compile time:**
+
+| Goal | Proof | Result |
+| --- | --- | --- |
+| `Thread OF RES tcp::Listener` accepts on the receiver | `tests/rt-behavior/threads/thread-transfer-tcp-listener-rt` — bind + read the port on main, transfer, dial it; the worker accepts the real connection | `reply=pong:ping` / `worker=1` |
+| `Thread OF RES tls::Socket` reads/writes on the receiver | `tests/rt-behavior/threads/thread-transfer-tls-socket-rt` — handshake on main, whole exchange on the worker over the same session, against 8.8.8.8:443 | `moved=TRUE` |
+| `Thread OF RES tls::Listener` accepts on the receiver | `tests/rt_tls_listener_thread_transfer.rs` — bind + load the identity on main, transfer, `openssl s_client` completes a real handshake against the worker | `test result: ok` |
+
+The listener test was **RED-checked against the mechanism, not the flag**: with
+`tls::Listener`'s `live_slots` temporarily emptied and everything else identical
+it fails (`s_client saw ""`), so it gates the carried server context rather than
+the registry bit. A test that only gated the bit would have passed either way.
+
+**Gates (post-merge, all uncontended):**
+
+```
+cargo test --release --no-fail-fast   80 x `test result: ok`, 0 failed, exit=0
+scripts/test-accept.sh                acceptance tests passed (1319 tests ran)
+scripts/artifact-gate.sh all          1303 tests, 1465 builds, 1799 goldens, 0 diffs
+scripts/sync-package-mfp.sh           updated 0 (no drift after the merge)
+```
+
+Reproduction re-run verbatim: `mfb build` on the doc's three-declaration project
+now writes an executable, where it previously emitted three `2-203-0063`.
+
+**Golden delta, fully accounted for:**
+
+* 5 `.ncodesum` (`tests/byte-identity/thread`, every target) — its
+  `thread_cover_worker.mfp` was regenerated. **No other fixture's sums moved**,
+  which is the evidence that the widened copy is inert for a resource with no
+  declared slots.
+* ~45 `.mfp` — the phantom type entry removed (F3 below);
+  `thread_res_sink.mfp` 2041 → 2013 bytes, sole string-pool change `File`.
+  Attribution: `sync-package-mfp.sh` updates **1** file on clean main, 45 here.
+* `package_cleanup_audit.info` — `types: 1` → `types: 0` (that package declares
+  no types; the 1 was the phantom). `resources: 1` unchanged.
+* 5 new `.ncodesum` for the new cross-target fixture.
+
+**Deviations from the plan, and one thing it got wrong:**
+
+1. **The doc's Layer-2 mechanism was wrong.** It claimed offsets 32–95 are never
+   written, so a naive flip yields poisoned bytes and a wild `SSL*` dereference.
+   The copy **zeroes** 32–80 unconditionally, so the naive flip yields a NULL
+   session: broken, not memory-unsafe. Corrected in Root Cause. Phase ordering
+   and the Non-goal stand.
+2. **`SlotBackend` has no "every backend" variant.** The doc's flat live-slot
+   descriptor could not express that `tls::Socket`+40 is a foreign-heap `SSL*` on
+   OpenSSL but an ARENA block on Schannel — same offset, different ownership. The
+   descriptor is backend-tagged instead.
+3. **A bug I introduced and caught:** the first draft declared macOS
+   `REC_LHOST`@48 live on `tls::Socket`. It is listener-only, so word 48 on a
+   socket is uninitialised and the copy ran `strlen` over it — SIGSEGV on the
+   first transfer. Rule now written at the site: only declare a slot the
+   resource's own constructors write.
+4. **Three PRE-EXISTING `.mfp` defects** had to be fixed to land this at all —
+   see the Fallout section. F1 blocked bug-464 outright.
+5. **Not done, deliberately:** `audio`/`process`/`canvas` stay `sendable: false`
+   with `live_slots: &[]` and a comment saying that means *unaudited*, per the
+   doc's Non-goals.
+
+**Coverage limit, stated plainly.** Only the **macOS / Network.framework** path
+is proven at runtime. The OpenSSL and Schannel paths — including the Schannel
+`ArenaBlock` deep-copy, the single most delicate piece — have never *executed*:
+this host runs no Windows binary, and the Linux TLS server path is not exercised
+here. `tests/byte-identity/resource-xfer-slots` closes as much of that gap as is
+reachable locally, lowering the live-slot copy for all five targets and pinning
+it with five `.ncodesum` goldens, but **that proves emission, not correctness.**
+The doc's Phase 3 asked for per-backend runtime proof on all three TLS backends;
+that item is met for one of three, and a green gate here must not be read as
+Windows or Linux runtime proof.
+
 ## Summary
 
 The real engineering risk is **not** the registry bits — it is
