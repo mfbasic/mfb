@@ -1250,6 +1250,27 @@ mod tests {
             "Thread OF Thread OF Integer RES fs.File TO String TO Boolean",
             "Thread OF Unknown TO String",
             "Thread OF Nothing TO String",
+            // bug-463: the crossing cases — a message plane whose type has to be
+            // MEASURED (`type_prefix_len`) past a `RES` marker, a `Set`, a
+            // `FUNC(...)` or a user generic. Byte-exactness alone does NOT guard
+            // these: with the bug present every one of them still round-tripped,
+            // because the whole spelling collapsed to a `Named` and `Named(s).name()`
+            // echoes `s` back verbatim. The tests that actually see it are
+            // `res_collection_on_thread_plane_parses_structurally` and
+            // `type_prefix_len_measures_every_parse_constructor`.
+            "Thread OF List OF RES fs.File TO Integer",
+            "Thread OF Map OF String TO RES fs.File TO Integer",
+            "ThreadWorker OF List OF RES fs.File TO Integer",
+            "Thread OF List OF RES fs.File STATE Cursor TO Integer",
+            "Thread OF List OF RES fs.File RES fs.File TO Integer",
+            "Thread OF Map OF RES fs.File TO Integer TO Integer",
+            "Thread OF Set OF Integer TO Integer",
+            "Thread OF Set OF RES fs.File TO Integer",
+            "Thread OF FUNC(Integer) AS String TO Integer",
+            "Thread OF ISOLATED FUNC(Integer) AS String TO Integer",
+            "Thread OF Pair OF Integer, String TO Integer",
+            "Thread OF List OF Set OF Integer TO Integer",
+            "Thread OF Map OF Set OF Integer TO Integer TO Integer",
         ] {
             round_trip(spelling);
         }
@@ -1908,8 +1929,219 @@ mod tests {
             "Map OF String TO RES fs.File",
             "Map OF RES fs.File TO Integer",
             "List OF List OF RES fs.File",
+            // bug-463: a `RES` collection nested inside a thread plane. Same caveat
+            // as in `thread_handle_round_trips_byte_exact` — round-tripping is
+            // necessary but NOT sufficient; these passed with the bug present.
+            "Thread OF List OF RES fs.File TO Integer",
+            "Map OF Thread OF List OF RES fs.File TO Integer TO Integer",
         ] {
             round_trip(spelling);
         }
+    }
+
+    /// bug-463: a `RES`-marked collection on a thread's MESSAGE plane must decompose
+    /// structurally, exactly as it already does on the OUTPUT plane.
+    ///
+    /// The output plane is not measured — `split_thread_types` takes "everything after
+    /// the last ` TO `" — but the message plane must be measured to find where it ends,
+    /// and `type_prefix_len` had no `RES ` arm. It therefore stopped inside the element
+    /// (`List OF RES` = 11 bytes), the ` TO ` split failed, and the ENTIRE spelling
+    /// survived as one opaque `Named` through the whole front end: the
+    /// thread-sendability rule that governs the program (`ir::verify::resources`,
+    /// `ParameterType::Res(_) => false`) never ran, and the resolver rejected the junk
+    /// name for an unrelated reason instead.
+    ///
+    /// This asserts the parsed VARIANT, not the round trip, because a round trip cannot
+    /// see this class of bug at all: `Named(s).name() == s` echoes the garbage back.
+    #[test]
+    fn res_collection_on_thread_plane_parses_structurally() {
+        for spelling in [
+            "Thread OF List OF RES fs.File TO Integer",
+            "Thread OF Map OF String TO RES fs.File TO Integer",
+            "ThreadWorker OF List OF RES fs.File TO Integer",
+            "Thread OF List OF RES fs.File STATE Cursor TO Integer",
+            "Thread OF List OF RES fs.File RES fs.File TO Integer",
+            "Thread OF Map OF RES fs.File TO Integer TO Integer",
+            "Thread OF Set OF RES fs.File TO Integer",
+            // The contrast cases, which already worked: they must keep working.
+            "Thread OF List OF Integer TO Integer",
+            "Thread OF Integer RES fs.File TO Integer",
+            "Thread OF Integer TO List OF RES fs.File",
+        ] {
+            assert!(
+                matches!(
+                    ParameterType::parse(spelling),
+                    ParameterType::ThreadHandle { .. }
+                ),
+                "`{spelling}` did not parse into ThreadHandle; got {:?}",
+                ParameterType::parse(spelling),
+            );
+        }
+        // The message plane is intact, not merely non-`Named`.
+        assert_eq!(
+            ParameterType::parse("Thread OF List OF RES fs.File TO Integer"),
+            ParameterType::thread_handle(
+                false,
+                ParameterType::list_of(ParameterType::res(ParameterType::named("fs.File"))),
+                ParameterType::Nothing,
+                ParameterType::Integer,
+            ),
+        );
+        // A nested thread type inside a `Map` key is measured by the same helper.
+        assert_eq!(
+            ParameterType::parse("Map OF Thread OF List OF RES fs.File TO Integer TO Integer"),
+            ParameterType::map_of(
+                ParameterType::thread_handle(
+                    false,
+                    ParameterType::list_of(ParameterType::res(ParameterType::named("fs.File"))),
+                    ParameterType::Nothing,
+                    ParameterType::Integer,
+                ),
+                ParameterType::Integer,
+            ),
+        );
+    }
+
+    /// bug-463 (widened): `type_prefix_len` must measure every constructor
+    /// [`ParameterType::parse`] can decompose. It is the ONLY thing standing between a
+    /// nested position — a thread message plane, a `Map` key, a generic argument — and
+    /// a silent collapse to an opaque `Named`.
+    ///
+    /// Beyond the `RES` marker the bug report documented, the measurement was also
+    /// missing `Set`, `FUNC(...)`/`ISOLATED FUNC(...)` and user generics. Those gaps
+    /// were worse than the `RES` one: `Thread OF Set OF Integer TO Integer` is a
+    /// perfectly sendable, VALID program, and it was rejected outright with
+    /// `SYMBOL_UNKNOWN_TYPE`.
+    ///
+    /// The property asserted is the one that makes a measurement correct: a spelling
+    /// that IS one complete type measures to its own full length.
+    #[test]
+    fn type_prefix_len_measures_every_parse_constructor() {
+        for spelling in [
+            // Leaves and the `(T)` group.
+            "Integer",
+            "fs.File",
+            "(Integer)",
+            "(Map OF String TO Integer)",
+            // The `RES` ownership marker, at top level and nested, with `STATE`.
+            "RES fs.File",
+            "RES File STATE Cursor",
+            "List OF RES fs.File",
+            "List OF RES File STATE Cursor",
+            "Set OF RES fs.File",
+            "Map OF String TO RES fs.File",
+            "Map OF RES fs.File TO Integer",
+            "Result OF RES fs.File",
+            "MapEntry OF String TO RES fs.File",
+            // `Set`, which the measurement never descended into at all.
+            "Set OF Integer",
+            "Set OF List OF Integer",
+            "List OF Set OF Integer",
+            "Map OF Set OF Integer TO Integer",
+            // Function types.
+            "FUNC(Integer) AS String",
+            "FUNC() AS Nothing",
+            "FUNC(FUNC(Integer) AS String, Integer) AS Boolean",
+            "ISOLATED FUNC(Integer) AS String",
+            "List OF FUNC(Integer) AS String",
+            // User generics, including a nested one and a generic argument list.
+            "Pair OF Integer, String",
+            "Holder OF Integer",
+            "Holder OF Pair OF Integer, String",
+            "Pair OF Integer, Map OF String TO Integer",
+            "List OF Pair OF Integer, String",
+            // The builtin containers and threads, which already worked.
+            "List OF Integer",
+            "Map OF String TO Integer",
+            "MapEntry OF String TO Integer",
+            "Result OF Integer",
+            "Thread OF Integer TO String",
+            "Thread OF RES fs.File STATE Cursor TO Integer",
+            "Thread OF List OF RES fs.File TO Integer",
+            "ThreadWorker OF Set OF Integer RES fs.File TO Integer",
+        ] {
+            assert_eq!(
+                type_prefix_len(spelling),
+                Some(spelling.len()),
+                "`{spelling}` is one complete type but did not measure to its own length"
+            );
+        }
+
+        // A measured prefix stops exactly where the type ends — the property the thread
+        // message plane and the `Map` key depend on. Each pair is (input, its prefix).
+        for (input, prefix) in [
+            ("List OF RES fs.File TO Integer", "List OF RES fs.File"),
+            ("Set OF Integer TO Integer", "Set OF Integer"),
+            ("FUNC(Integer) AS String TO Integer", "FUNC(Integer) AS String"),
+            (
+                "Pair OF Integer, String TO Integer",
+                "Pair OF Integer, String",
+            ),
+            ("RES File STATE Cursor TO Integer", "RES File STATE Cursor"),
+            (
+                "Map OF RES fs.File TO Integer TO Integer",
+                "Map OF RES fs.File TO Integer",
+            ),
+        ] {
+            assert_eq!(
+                type_prefix_len(input),
+                Some(prefix.len()),
+                "measuring `{input}` should stop after `{prefix}`"
+            );
+        }
+    }
+
+    /// bug-463: the thread message plane decomposes for every constructor, so the rule
+    /// that governs the program is the one that gets to reject (or accept) it — not an
+    /// accident of spelling in the resolver.
+    #[test]
+    fn thread_message_plane_measures_every_parse_constructor() {
+        for spelling in [
+            "Thread OF Set OF Integer TO Integer",
+            "Thread OF List OF Set OF Integer TO Integer",
+            "Thread OF Map OF Set OF Integer TO Integer TO Integer",
+            "Thread OF FUNC(Integer) AS String TO Integer",
+            "Thread OF ISOLATED FUNC(Integer) AS String TO Integer",
+            "Thread OF Pair OF Integer, String TO Integer",
+        ] {
+            assert!(
+                matches!(
+                    ParameterType::parse(spelling),
+                    ParameterType::ThreadHandle { .. }
+                ),
+                "`{spelling}` did not parse into ThreadHandle; got {:?}",
+                ParameterType::parse(spelling),
+            );
+        }
+        assert_eq!(
+            ParameterType::parse("Thread OF Set OF Integer TO Integer"),
+            ParameterType::thread_handle(
+                false,
+                ParameterType::set_of(ParameterType::Integer),
+                ParameterType::Nothing,
+                ParameterType::Integer,
+            ),
+        );
+        assert_eq!(
+            ParameterType::parse("Thread OF FUNC(Integer) AS String TO Integer"),
+            ParameterType::thread_handle(
+                false,
+                ParameterType::func(vec![ParameterType::Integer], ParameterType::String),
+                ParameterType::Nothing,
+                ParameterType::Integer,
+            ),
+        );
+        assert_eq!(
+            ParameterType::parse("Thread OF Pair OF Integer, String TO Integer"),
+            ParameterType::thread_handle(
+                false,
+                ParameterType::user_of(
+                    "Pair",
+                    vec![ParameterType::Integer, ParameterType::String],
+                ),
+                ParameterType::Nothing,
+                ParameterType::Integer,
+            ),
+        );
     }
 }

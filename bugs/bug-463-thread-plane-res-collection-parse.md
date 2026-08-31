@@ -218,6 +218,33 @@ checker's `types::split_map_body`): **audit task in Phase 1** — confirm whethe
 surviving copy has the same missing-`RES` arm, and record the verdict here. If one
 does and is live, it is in scope; if it is dead, say so.
 
+**Audit verdict (2026-08-31): no live sibling copy survives. `src/types.rs` holds
+the only type-grammar cascade.** Measured with
+
+```
+grep -rn 'strip_prefix("List OF \|strip_prefix("Map OF \|strip_prefix("Set OF \|strip_prefix("RES \|strip_prefix("Result OF \|strip_prefix("MapEntry OF \|strip_prefix("Thread' src/ --include='*.rs'
+grep -rn "type_prefix_len" src/ --include='*.rs'
+```
+
+Per site:
+
+- `src/types.rs` — the live grammar (`parse`, `type_prefix_len`, `split_thread_types`,
+  `thread_body_len`, `resource_element_len`, `split_top_level_to`). **In scope; fixed.**
+- `monomorph/helpers.rs`, `monomorph/lower.rs`, `resolver/resolution.rs`,
+  `ir/lower.rs`, `ir/verify/{mod,compat,resources}.rs` — **dead**. Every remaining hit
+  is a doc comment recording what plan-106-A/B/D *replaced* (e.g.
+  `src/ir/lower.rs:2268` "the `strip_prefix("List OF ")` / `strip_prefix("Set OF ")` /
+  `parse_map_type`…"). No executable copy remains; `type_prefix_len` has no caller
+  outside `src/types.rs`.
+- `src/ast/expr.rs:595-763` — a **token**-level parser over the lexer, not a
+  length-measuring string cascade. It cannot have this defect (there is nothing to
+  mis-measure), and it is the real acceptance gate: `Set OF RES …` and a `Map` *key*
+  `RES` marker are rejected there. **Not in scope, correctly.**
+- `src/resolver/resolution.rs:1489-1495` — an **orphaned doc comment**: the
+  `split_map_body` it documents was deleted, and the `///` block silently reattached
+  to the `#[cfg(test)] mod tests` that follows it. Harmless to behavior, actively
+  misleading to a reader. **Fixed in passing** (comment deleted).
+
 `src/resolver/resolution.rs:1443` (`resolve_package_qualified_name`'s
 `name.split('.').next()`) — **latent, out of scope.** It is only ever reached with a
 junk composite `Named` because some *other* grammar arm failed; hardening it would

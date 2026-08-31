@@ -1487,13 +1487,6 @@ impl Resolver<'_> {
     }
 }
 
-/// Split a `Map`/`MapEntry` body `K TO V` on the top-level ` TO ` separating the
-/// outer key from its value. A leftmost `split_once(" TO ")` mis-parses a key
-/// that itself carries a top-level ` TO ` (a nested `Map`/`Thread`/`FUNC`-typed
-/// key, bug-108.2). Mirrors the former source checker's `types::split_map_body`: separators
-/// inside parenthesized / `FUNC(...)` groups and those owned by nested
-/// `Map`/`MapEntry`/`Thread`/`ThreadWorker` sub-types are skipped.
-
 #[cfg(test)]
 mod tests {
     use crate::manifest::validate_project_manifest;
