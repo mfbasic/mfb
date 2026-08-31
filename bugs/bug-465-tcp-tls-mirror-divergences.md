@@ -217,7 +217,7 @@ Commit: `1eb5049f8` (the overload), `4f0c49138` (the prose), `a97d83805` (rustfm
 ### Phase 3 — regenerate, validate, resync the downstream note
 
 - [x] Regenerate any drifted `.ncodesum` (the `tls::localAddress` overload is a real codegen change) and gate with `artifact-gate.sh all`; prove the delta is only ours. **Done, and the audit found a coverage gap first**: the `tls` byte-identity fixture is a codegen-*cover* fixture that never called `tls::localAddress`, so neither the new listener body nor the pre-existing socket body had any drift sentinel. Both are now exercised in the fixture. Regenerated set: **6 `.ncodesum`** — 5 `tls` (every target) and `http`'s macos-aarch64 row (http drives the TLS server path); `tcp`, `net` and `udp` are byte-identical, which is what proves the shared `net::Address` builder refactor changed no emitted instruction on the four packages already using it. Attribution against a merge-base binary (`git archive 52d60054d | tar -x -C /tmp/base465`, which reproduces the committed golden hash `c7355a41…` exactly): with the fixture source held fixed on both sides, the `tls` `.ncode` diff is **39 lines** — one new data object (`_mfb_tls_sym_nw_listener_get_port`), four instructions storing the bound host at record offset 48, and the label renumbering those four cause. `http`'s diff is byte-for-byte the same shape. Nothing unexplained.
-- [x] `cargo test --release --no-fail-fast`. Run *after* the golden regeneration, not before. **69 suites, every one `test result: ok`, 4087 passed, 0 failed** — a real result line per suite, not an inferred green. Its `golden.rs` step re-ran `artifact-gate all` against the freshly built binary (the standalone run earlier used a binary predating the rustfmt commit): **1293 tests, 1450 builds, 1784 goldens, 0 diffs**.
+- [x] `cargo test --release --no-fail-fast`. Run *after* the golden regeneration, not before, and re-run **after the main merge** — the pre-merge green (69 suites / 4087 passed) is superseded and does not count, because main advanced 33 commits under it. Post-merge: **78 suites, every one `test result: ok`, 4189 passed, 0 failed**, `exit=0`. A real result line per suite, not an inferred green. Its `golden.rs` step ran `artifact-gate all` on the merged tree and genuinely held the lock (260.28s, not a sub-second refusal): **1293 tests, 1450 builds, 1784 goldens, 0 diffs**.
 - [ ] `test-accept.sh` (goldens are not in the cargo suite, and the artifact gate is execution-free — it never runs a fixture or compares a `build.log`, so it says nothing about the two new runtime EOF fixtures). **Blocked**: `test-accept.sh` holds a cross-worktree lock and refuses with `exit 98` while a peer session's sweep is running. Not a thing to work around — the script is enforcing it. Interim evidence, run by hand against the final binary: both new fixtures produce output byte-identical to their `golden/build.log` (`eof raised=TRUE` / `drained 11`, and `eof raised=TRUE readSomething=TRUE`), and an earlier partial sweep reached 536 fixtures with zero failures.
 - [x] **Correct `planning/todo.md`'s websockets section** — **correction**: the false "stream-shape trap" paragraph had already been removed by `52d60054d` before this fix started, and the section already cited bug-465. What remained was the stale "`mfb man tcp read` *currently* claims…" wording, now updated, plus a new note about the write-side asymmetry (bug-467), which is the one a WebSocket server must actually design around.
 - [x] Re-run all three reproductions — against the FINAL binary (rebuilt 21:32, after every source commit), not the build each fix landed on:
@@ -345,6 +345,31 @@ rows and plan-98's `http`/`fs`/`thread` rows were each already correct after the
 merge. The two changes are genuinely disjoint apart from this file. The other
 seven conflicting source files auto-merged (both sides append rows to shared
 tables). Merge commit `b10fb4bde`, regeneration `bd672c693`.
+
+## A watchdog set from the wrong question
+
+`tests/rt_tls_listener_local_address.rs` originally carried a 30s deadline on
+each blocking interaction with the server. A peer session then measured its
+sibling `rt_macos_tls_write_capacity` — same 30s shape, same TLS-server-plus-peer
+structure — **failing that bound purely from CPU starvation** with three heavy
+jobs on one machine, and **passing in 67s** when re-run alone.
+
+That flake is worse than a slow test, because a starved timeout and a genuine TLS
+stall print the identical message, and the harness reports that it killed the
+server, which reads as a real hang. On CI (linux, debug, shared runners) the
+contended case is the normal case.
+
+Widened to a 120s outer deadline with a 90s mfb-side `tls::accept` bound, the
+inner kept under the outer so a server that gives up surfaces `ErrTimeout`
+through the program rather than tripping the harness kill. The measurement is
+recorded in the constant's doc comment so the numbers are not later "tidied"
+back down to something that merely looks reasonable.
+
+The general point, worth more than this test: **a watchdog exists to turn a hang
+into a named failure, so it should be set clear of the worst contended case, not
+close to the observed-good one.** Every second is free unless something is
+already broken. The original 30s came from asking "how long should this take?",
+which is the wrong question for a watchdog.
 
 ## Accepted tradeoff
 
