@@ -47,7 +47,9 @@ fn mfb() -> Command {
 /// `outer`/`two`, and a `note` that prints so evaluation order is observable.
 const PRELUDE: &str = concat!(
     "IMPORT io\n",
-    "IMPORT strings\n\n",
+    "IMPORT strings\n",
+    "IMPORT encoding\n",
+    "IMPORT fs\n\n",
     "FUNC inner(n AS Integer) AS Integer\n",
     "  IF n < 0 THEN FAIL error(90000001, \"inner failed\")\n",
     "  RETURN n * 2\n",
@@ -588,4 +590,47 @@ fn a_nested_conversion_whose_handler_ignores_the_error() {
     );
     let stdout = run(&exe);
     assert_eq!(stdout, "handled\nn=0\n");
+}
+
+/// The shape that FOUND this bug, pinned. plan-110-D's `26e5d057c` rewrote
+/// `tests/rt-behavior/tls/tls-poll-rt` from a bound read into
+///
+///     LET chunk = encoding::utf8Decode(tls::read(conn, 4096)) TRAP(e) ...
+///
+/// -- a decode wrapping a fallible read -- and the read's `ErrConnectionClosed`
+/// then escaped the handler, so the drain loop never terminated. That fixture
+/// was worked around by binding the read again, which left the composition
+/// itself unpinned; this pins it.
+///
+/// Deliberately offline. The failure was in the desugar, not in TLS, so a live
+/// peer would buy a capability gate and a server dependency for no extra
+/// coverage of THIS bug: `encoding::utf8Decode` over any fallible
+/// byte-producing read lowers to the identical IR (infallible-decode root,
+/// fallible nested call, handler reading `e`). `fs::readBytes` on a missing path
+/// is that shape, deterministically, everywhere.
+#[test]
+fn a_decode_wrapping_a_fallible_read_reaches_the_handler() {
+    let root = unique_root("decode_read");
+    let missing = root.join("no-such-file.bin");
+    let exe = build(
+        &root,
+        &format!(
+            concat!(
+                "FUNC main() AS Integer\n",
+                "  LET text = encoding::utf8Decode(fs::readBytes(\"{}\")) TRAP(e)\n",
+                "    io::print(\"caught read code=\" & toString(e.code))\n",
+                "    RECOVER \"fallback\"\n",
+                "  END TRAP\n",
+                "  io::print(\"text=\" & text)\n",
+                "  RETURN 0\n",
+                "END FUNC\n",
+            ),
+            missing.display()
+        ),
+    );
+    let stdout = run(&exe);
+    assert!(
+        stdout.starts_with("caught read code=") && stdout.ends_with("text=fallback\n"),
+        "the read's error must reach the handler, not escape it:\n{stdout}"
+    );
 }
