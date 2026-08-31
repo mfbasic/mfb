@@ -1,0 +1,67 @@
+' bug-467: writing to a socket whose peer has gone away must RAISE, and the
+' process must survive to run the TRAP.
+'
+' Before the fix this fixture could not exist: the second `tcp::write` after the
+' peer's close was delivered SIGPIPE, whose default disposition terminates, so
+' the process died with signal 13 (exit 141) before `write` returned `EPIPE`.
+' The TRAP never ran, the scope drops never ran, and `main` never returned --
+' which made this a remote denial of service, since a server's peer is untrusted
+' input and any client that connects and immediately disconnects ended the whole
+' server. The program entry now installs `signal(SIGPIPE, SIG_IGN)` on every
+' POSIX target, so the write fails with `EPIPE` and `tcp/gen_io.rs`'s existing
+' errno classification names it `ErrConnectionClosed`.
+'
+' The loop writes MANY times on purpose. A single write after the peer's close
+' SUCCEEDS -- it is accepted by the local stack, and only the peer's RST makes a
+' later one fail -- so a one-write probe passes against the broken compiler and
+' proves nothing. Which iteration raises is timing-dependent, so the output
+' reports only that it raised and with which code, never a count.
+'
+' The mirror of `rt-behavior/tcp/tcp-read-eof-raises-rt`: both directions of a
+' departed peer now report the same `ErrConnectionClosed`, and `tls` agrees.
+IMPORT errorCode
+IMPORT io
+IMPORT net
+IMPORT tcp
+
+' Connect a loopback pair, close the client outright (not a shutdown -- the
+' socket goes away, so data arriving for it is answered with an RST), then write
+' until the failure surfaces.
+FUNC writeAfterPeerClose AS String
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound = tcp::localAddress(server)
+  RES client = tcp::connect("127.0.0.1", bound.port)
+  RES conn = tcp::accept(server)
+  tcp::close(client)
+  FOR i = 1 TO 200
+    tcp::write(conn, "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+  NEXT
+  RETURN "completed=TRUE"
+  TRAP(err)
+    RETURN "raised=" & toString(err.code = errorCode::ErrConnectionClosed)
+  END TRAP
+END FUNC
+
+' An empty write is a no-op that never reaches a syscall, so it stays successful
+' even when the peer is gone -- pinned here so the fix above cannot be "improved"
+' into raising on a call that sends nothing.
+FUNC emptyWriteAfterPeerClose AS String
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound = tcp::localAddress(server)
+  RES client = tcp::connect("127.0.0.1", bound.port)
+  RES conn = tcp::accept(server)
+  tcp::close(client)
+  LET noBytes AS List OF Byte = []
+  tcp::write(conn, noBytes)
+  tcp::write(conn, "")
+  RETURN "emptyWritesSucceeded=TRUE"
+  TRAP(err)
+    RETURN "emptyWriteRaised=" & toString(err.code)
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  io::print("write " & writeAfterPeerClose())
+  io::print("empty " & emptyWriteAfterPeerClose())
+  RETURN 0
+END FUNC

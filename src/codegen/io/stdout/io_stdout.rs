@@ -127,7 +127,9 @@ pub(crate) fn lower_stdout_drain(
         abi::return_(),
     ]);
     // bug-467: EPIPE on the stdout drain means the reader of `prog | head` is
-    // gone. `raise` does not return, so this block needs no exit.
+    // gone. `raise` with SIGPIPE back at `SIG_DFL` cannot return, but this block
+    // sits at the very end of the function, so it branches to the ordinary error
+    // exit rather than leaving an edge that would fall off into the next body.
     if let Some(epipe) = stdout_epipe_label(platform, platform_imports, &epipe) {
         emit_sigpipe_restore_and_raise(
             &mut EmitCtx {
@@ -139,6 +141,7 @@ pub(crate) fn lower_stdout_drain(
             },
             epipe,
         )?;
+        instructions.push(abi::branch(&err));
     }
     Ok(finalize_vreg_helper(
         "runtime.io.stdout_drain",
