@@ -396,7 +396,7 @@ Commit: bc93ab44d, 91fb5f8f0, 2448ddb29, 07819645a
 | Where | Why it stays |
 |---|---|
 | `AGENTS.md:105,108` | narrative guide topics genuinely still live there (`src/docs/man/mod.rs` embeds them) |
-| `.ai/testing-gates.md:244,248,252,254,296` | the `man_citations_resolve` test still walks `src/docs/man/**` and still fails `cargo test` on a broken `[[path:symbol]]` |
+| `.ai/testing-gates.md:244,248,252,254,296` | **corrected — the claim was stale.** It described `man_citations_resolve` as a live gate in five places; that test no longer exists (`grep -rn citations_resolve src/ --include='*.rs'` → one hit, `src/docs/spec/mod.rs:226`). It was removed with the `src/docs/man/builtins/**` tree the registry migration retired. The doc now says so, and adds the consequence: **a private helper named in a built-in page's prose is no longer caught by any test**, because those pages are `&'static str` — `scripts/man-census.sh --scope`'s `__pkg_` pattern is the only thing that will notice. |
 | `.ai/man-content.md:16` | names the retired `src/docs/man/builtins` tree *as retired* — the sentence exists to stop someone going back to it |
 
       `cargo fmt --all` run over the worktree; the separate `repository/`
@@ -509,7 +509,16 @@ Commit: bc93ab44d
    not reach a grandchild. Check `lsof -nP -iTCP:<port> -sTCP:LISTEN` before
    believing a bind failure.
 
-7. **`mfb man variable`'s own examples were never checked by anything.** The
+7. **The `variable` topic was missing from the one test that lists the
+   topics.** `src/docs/man/mod.rs`'s `the_documented_guide_topics_are_discovered`
+   enumerates the guide topics and asserts each resolves — and it named eight of
+   the ten that exist, omitting `optimizations` (pre-existing) and `variable`
+   (added by plan-108-A). Both added, so the list now matches
+   `ls src/docs/man/` exactly. This is the one test change in the whole plan,
+   and it is not a new gate: it keeps an existing test honest about a topic this
+   plan created.
+
+8. **`mfb man variable`'s own examples were never checked by anything.** The
    harness enumerates registry *packages*, and `variable` is a narrative topic
    — so the one page every other page links to had unverified examples. All
    **7** of its blocks were extracted, compiled and run here; every one runs and

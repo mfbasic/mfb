@@ -241,17 +241,17 @@ A pure file split can leave the **release build + artifact-gate + acceptance all
 
 ## Splits must sweep man AND spec citations
 
-When splitting/moving a file, OR removing/renaming a stdlib symbol, sweep `[[path:Symbol]]` provenance citations in **both** `src/docs/spec/` AND `src/docs/man/`, then run **both** `spec_citations_resolve` and `man_citations_resolve` (`cargo test -p mfb --bins citations_resolve`).
+When splitting/moving a file, OR removing/renaming a stdlib symbol, sweep `[[path:Symbol]]` provenance citations in `src/docs/spec/` and run `spec_citations_resolve` (`cargo test -p mfb --bins citations_resolve`). **`man_citations_resolve` no longer exists** — the per-builtin `src/docs/man/builtins/**` tree it guarded was retired by the registry migration, and built-in pages are now prose fields on the descriptors with no citations in them. `src/docs/man/**` still holds the narrative guide topics, which carry no `[[path:symbol]]` markers.
 
 **Why:** the two guard tests differ in strictness and it bites you.
 - `spec_citations_resolve` (src/docs/spec/mod.rs) is **file-level only** — it passes as long as the cited file exists, even if the symbol moved out of it.
-- `man_citations_resolve` (src/docs/man/mod.rs) is **symbol-level** — it fails if the symbol isn't actually defined in the cited file, and FAILS the whole `cargo test` (not just acceptance).
+- `man_citations_resolve` (src/docs/man/mod.rs) **was** symbol-level and failed the whole `cargo test`. It is gone with the tree it guarded; `src/docs/man/mod.rs` now only tests topic discovery. Verified 2026-08-31: `grep -rn citations_resolve src/ --include='*.rs'` returns one hit, `src/docs/spec/mod.rs:226`.
 
 So a split that only sweeps spec/ leaves man/ citations broken, and the file-level spec test won't warn you. The tooling `scripts/fix_citations.py` is **broken** (its `SPEC_DIR` resolves to `src/spec`, but the spec lives at `src/docs/spec`), so it finds zero citations — do the repoint by hand.
 
 **How to apply:** after a move, `grep -rn "\[\[.*<oldfile>" src/docs/spec src/docs/man`, map each symbol to its new file (grep the actual definition — a symbol can land in a different file than the doc's suggested name, e.g. crypto `ed25519Sign` ended up in `crypto_ecdsa.mfb`), repoint, rebuild (docs are embedded), run both tests. Citations are stripped at render time so repointing them changes no golden.
 
-**Not just file moves — REMOVALS/RENAMES too.** Deleting or renaming a *private* stdlib helper (`__crypto_*`, `__http_*`, `__csv_*`, …) breaks any man/spec page that cites it by symbol, and `man_citations_resolve` FAILS the whole `cargo test`. E.g. removing `__crypto_bytePrefix`, `__crypto_pbkdf2Block256/512`, `__csv_crChar`, `__http_crlf` — each was cited from `src/docs/man/builtins/crypto/{generateP*,pbkdf2Sha*}.md` and `src/docs/spec/stdlib/`; the acceptance suite stayed green, only `cargo test` caught it. So after ANY stdlib `.mfb` dedup/inline, `grep -rn "__<pkg>_" src/docs/` for every symbol you removed and repoint to the surviving one, then run the citation tests.
+**Not just file moves — REMOVALS/RENAMES too.** Deleting or renaming a *private* stdlib helper (`__crypto_*`, `__http_*`, `__csv_*`, …) breaks any spec page that cites it by symbol. E.g. removing `__crypto_bytePrefix`, `__crypto_pbkdf2Block256/512`, `__csv_crChar`, `__http_crlf` — each was cited from `src/docs/spec/stdlib/` and, at the time, from the retired `src/docs/man/builtins/**` tree; the acceptance suite stayed green, only `cargo test` caught it. So after ANY stdlib `.mfb` dedup/inline, `grep -rn "__<pkg>_" src/docs/` for every symbol you removed and repoint to the surviving one, then run `spec_citations_resolve`. **A private helper named in a BUILT-IN page's prose is no longer caught by any test** — those pages are `&'static str` the compiler never reads. `scripts/man-census.sh --scope` greps the rendered output for `__pkg_` and is the only thing that will notice.
 
 ## Concurrent test-accept clobbers actuals
 
