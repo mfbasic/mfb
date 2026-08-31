@@ -301,6 +301,28 @@ Every item below was measured, not recalled; the command or probe is named.
    (`Socket or Listener` vs `Socket`); rows 4 and 5 differ as described. No row
    needed revision.
 
+## Merge hazard: one golden collides with plan-98
+
+`tests/byte-identity/http/golden/http_codegen_cover_rt.macos-aarch64.ncodesum`
+is moved by **two** in-flight changes for unrelated reasons:
+
+- this bug, because the one new always-emitted macOS data object
+  (`_mfb_tls_sym_nw_listener_get_port`) lands in any program driving the TLS
+  server path, and `http` does; and
+- plan-98, because it grew the `ErrWrongMode` message, which shifts embedded
+  `ErrorLoc` lines in every importer.
+
+plan-98 lands first. **Whoever merges second must regenerate that golden on the
+merged tree** — not `--ours`, not `--theirs`, not hand-picked. Each side's hash
+is correct only for a tree containing that side's change alone; the merged tree's
+true hash is a third value neither side has computed, so resolving the conflict
+by choosing either one produces a golden that matches no build and reds the gate
+for the next person. Resolution here: take the conflict, re-run
+`scripts/regen-ncodesum.sh`, re-gate before pushing.
+
+The other five regenerated rows (`tls`, all targets) do not collide as far as
+plan-98's author knows; confirm before merging rather than assuming.
+
 ## Accepted tradeoff
 
 On Linux and Windows the two `tls::localAddress` overloads emit **two
