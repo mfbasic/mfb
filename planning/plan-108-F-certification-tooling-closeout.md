@@ -153,34 +153,193 @@ None to codegen/wire.
 
 ### Phase 1 — the certification sweeps
 
-- [ ] Fill sweep (census) — paste output here; fix stragglers.
-- [ ] Scope sweep (rendered grep + spot-check reviewer) — paste results +
-      classifications here.
-- [ ] Memory-vocabulary sweep (§1) — paste the per-word counts; every hit
-      outside the datetime arithmetic carve-out fixed in this letter, not
-      classified. Include `mfb man variable` in the swept surface.
-- [ ] Permitted-vocabulary read-through of the five resource pages named in
-      §1: each still states what happens to the handle, in MFBASIC terms.
+- [x] Fill sweep (census) — `./scripts/man-census.sh --fill`, whole surface:
+
+```
+TOTAL            502    502    502      502     831/831
+pages with neither Description nor Examples: 0
+```
+
+**502 pages; every one has an intro, a description and an example; 831 of 831
+parameters described; every package's overview intro and desc non-empty
+(PKGDOC `11` on every row); every types page 100%.** No stragglers.
+
+The 502 is itself a correction: the census used to over-count, because it
+scraped every `│ pkg::name` cell in an overview and `math`'s new Constants
+table put `math::pi` … `math::ln10` among them — seven "pages" that do not
+exist (`mfb man math pi` → `error: unknown math function 'pi'`). Fixed in
+plan-108-D; see that letter's Corrections item 2.
+- [x] Scope sweep — `./scripts/man-census.sh --scope`, whole surface:
+
+```
+internals-vocabulary hits: 0
+```
+
+Two hits were found and fixed rather than classified:
+
+- `vector::perpendicular` named its own private helpers: "**separate functions
+  with separate implementations** in the companion source —
+  `__vector_perpendicular_float2` and `__vector_cross_float2` — rather than one
+  delegating to the other; the call dispatches to whichever name you wrote." →
+  "They are nevertheless two separate functions, and neither is a shorthand for
+  the other: prefer `vector::perpendicular` when you mean a quarter turn, and
+  `vector::cross` when you mean the generalized product."
+- `audio::close` described its own lowering: "IR lowering routes each operand to
+  a distinct per-direction internal body (`audio.closeInput` /
+  `audio.closeOutput`), because their teardown sequences differ." → "It accepts
+  either direction, and does the right thing for each — a capture stream and a
+  playback stream shut down differently."
+
+Also swept out by hand, because the pattern list could not see them: bug
+numbers in prose (`tls::listen` cited `(bug-465)`) and a host-API paragraph on
+`tcp::accept` ("the listener is temporarily switched into non-blocking mode and
+its original file-status flags are restored") — rewritten as the behaviour a
+developer observes: "A bounded `accept` never overruns its `timeoutMs`, even in
+the awkward case…"
+
+**Citations:** `grep -cE '\[\[[A-Za-z_][A-Za-z_/.]*:'` over the whole rendered
+surface → **0**.
+- [x] Memory-vocabulary sweep — `./scripts/man-census.sh --memory-scope`,
+      whole surface:
+
+```
+unclassified memory-vocabulary hits: 0
+carve-out 1 (datetime arithmetic borrow): 15
+carve-out 2 (derived Errors-table row): 20
+```
+
+Per-word, over the rendered surface split three ways (the banned list taken
+from `--banned-list` so the sweep and the gate cannot drift apart):
+
+| Surface | Word | Count |
+|---|---|---|
+| **registry package pages** (50,744 lines) | borrow / borrows / borrowed / borrowing | 6 / 5 / 1 / 3 |
+| | allocation | 20 |
+| | **everything else in the banned list** | **0** |
+| **`mfb man variable`** (228 lines) | — | **0** |
+| other narrative topics (out of scope per §1 non-goals) | borrow 4, pointer 4, ownership 6, owned 13, owner 3, consume/consumes/consuming 1 each, frees 1, lifetime 1, lifetimes 1, by value 2, lexical drop 2, allocates 1, allocation 4 | 45 |
+
+The 15 borrow-family and 20 `allocation` hits on package pages are **exactly**
+the two carve-outs, and the raw grep total (35) reconciles with the census's
+`15 + 20` classification with nothing left over. Carve-out 1 is `datetime`'s
+arithmetic borrow ("a negative nanos value borrows a second"). Carve-out 2 is
+new to this plan and is recorded in plan-108-E's Corrections item 3: an
+Errors-table row is **derived** from the `errorCode` constant descriptors, and
+`ErrOutOfMemory`'s message is the string the runtime prints when the error is
+raised, so "Allocation failed." appears in a cell no page author can edit and
+that this plan is barred from changing.
+
+Against the baseline in §1 — 94 memory-sense hits across 15 packages, 79
+`borrow` / 15 `ownership` / 10 `owns` / 5 `heap` / 2 `pointer` / 1 `deep copy`
+/ 1 `by reference` — **every one is gone**, none classified away.
+
+The 45 hits in the other narrative topics are recorded, not fixed: §1's
+non-goals put `src/docs/man/**` prose guides out of scope. They are a
+well-defined follow-up (`mfb man types`, `mfb man flow` and friends still
+explain ownership in C terms, which now *contradicts* `mfb man variable`).
+- [x] Permitted-vocabulary read-through of the five pages named in §1. Each
+      was read end to end; none had the contract deleted to pass a grep:
+
+| Page | What it now says about the handle |
+|---|---|
+| `mfb man tcp accept` | "The listener stays open — you still close it." + "The returned `Socket` is a fully independent resource: it stays usable after the listener is closed, and closing it does not affect the listener." |
+| `mfb man udp receive` | no handle-lifetime claim to make (it returns a `Datagram`, a value) — and it correctly says so rather than inventing one |
+| `mfb man tls accept` | "The listener stays open — you still close it — and is available for the next accept" + "The accepted socket shares the listener's server TLS settings; closing the socket leaves them intact" |
+| `mfb man process spawn` | "The returned `Process` is a resource handle that cannot be copied. It closes itself when its binding goes out of scope" |
+| `mfb man audio play` | "The `output` stream stays open — you still close it." |
+
+The three network pages were the sharpest test, because C settled their
+sentences and E's `tls` was required to copy them. They now carry the same
+sentence. One divergence was found and fixed: `tcp::accept` said "The listener
+stays open **and usable** — you still close it", which is C's sentence plus two
+words. Aligned.
 - [ ] Ledger completeness check — paste the union-vs-census result here.
-- [ ] Cross-package consistency: shared concepts (scalar vs grapheme
-      indexing, raise-vs-clamp phrasing, resource lifetime wording) use one
-      consistent explanation; fix divergences found by the spot-check.
+- [x] Cross-package consistency. Swept mechanically over the whole rendered
+      surface rather than spot-checked, which is what found the one real
+      divergence:
+
+- **Resource lifetime wording — a real divergence, fixed.** One rule was being
+  stated **seven different ways**: "closed automatically when it leaves scope",
+  "closed automatically at scope exit", "closed automatically by itself when its
+  binding goes out of scope", "closed exactly once when it leaves scope",
+  "closes itself at scope exit", "still closes each of its members exactly once
+  at scope exit", and — worst — "**released** automatically when it leaves
+  scope" (`fs::File` and both `audio` stream types). `released` is memory
+  vocabulary that the banned list happens not to name, so no gate would ever
+  have caught it. All eleven converged on C's settled form, "closes itself when
+  its binding goes out of scope".
+- **Scalar vs grapheme indexing — consistent.** Every page that indexes text
+  says "Unicode scalar index — never a byte offset and never a grapheme-cluster
+  index"; no competing phrasing exists.
+- **Raise vs clamp — consistent and, more importantly, always stated.** Every
+  instance takes the form "raises X rather than Y", naming what it does *not*
+  do (`ErrMessageTooLarge` "rather than being truncated", `ErrOverflow` "rather
+  than wrapping silently", `ErrBadPixelCount` "rather than reading past the end
+  or silently…"). `collections::take`/`drop` are the deliberate exception and
+  say "clamps rather than failing".
+- **Timeout convention — consistent.** Seven pages say "follows the language
+  timeout convention" and each then spells out omitted / `0` / positive /
+  negative, rather than only pointing at the spec.
 
 Acceptance: all sweeps recorded in this file with 0 unclassified hits.
 Commit: —
 
 ### Phase 2 — tooling + guidance retirement
 
-- [ ] Execute the Open Decision on `update_man*.sh` + templates; rewrite
-      `AGENTS.md`'s man-page section around `.ai/man-content.md`, and add a
-      one-line statement of the memory ban (permitted: copy / mutate /
-      value / alias-for-`RES`; everything else → `mfb man variable` or
-      `mfb spec`) so it is visible without opening the standard.
-- [ ] Add the `variable` topic to AGENTS.md's narrative-topic list (nine →
-      ten).
-- [ ] Memory sync per §1.
-- [ ] Verify: `rg -n 'src/docs/man\|update_man' AGENTS.md .ai/ scripts/`
-      output matches the Goal's residue rule; fmt at session end.
+- [x] Open Decision executed as recommended — **delete**. The three
+      `.ai/man_*template*.md` files are gone (`man_template.md`,
+      `man_package_template.md`, `man_type_template.md`); nothing in them
+      survived the registry migration, because the renderer now derives every
+      section they specified (Synopsis, Package, Imports, Parameters, Return
+      value, Errors, See also) and a page author writes only `intro`, `desc`
+      and `example` — which `.ai/man-content.md` §2 covers. `update_man.sh`
+      and `update_man_package.sh` were already absent from `scripts/`.
+
+      `AGENTS.md`'s man section rewritten around `.ai/man-content.md`, with the
+      memory ban stated inline so it is visible without opening the standard:
+
+      > **No C/Rust memory vocabulary on a man page.** The only permitted words
+      > are **copy**, **mutate**, **value**, and **alias** (the last for a `RES`
+      > handle only). Not: borrow, ownership, move, consume, free, heap,
+      > refcount, lifetime, dangling, allocate, deep/shallow copy, by reference,
+      > drop. Say what a developer observes — "the handle stays open — you still
+      > close it", "you get a copy" — and link `mfb man variable` for the model
+      > itself; the precise contract lives in `mfb spec` §14.
+
+      The section also now names the verification instruments, which it never
+      did: `scripts/man-census.sh` (`--fill`, `--memory-scope`, `--scope`,
+      `--banned-list`) and `scripts/man-run-examples.sh <pkg> --run`.
+- [x] `variable` added to AGENTS.md's narrative-topic list — nine → ten
+      (`errors`, `flow`, `lambda`, `link`, `optimizations`, `tooling`, `tour`,
+      `types`, `unicode`, `variable`), matching `ls src/docs/man/` exactly.
+- [x] Memory sync. Three entries added and one corrected:
+
+- **`man-content-standard`** (new) — `.ai/man-content.md` is the standard; the
+  permitted four words and the settled handle sentences as a table; the
+  templates are deleted; the census/example instruments are the only
+  verification, because prose fields are `&'static str` no compiler gate reads.
+- **`example-harness-cwd-and-timeout`** (new) — the two ways a doc-example
+  runner reports success on broken examples (repo-root cwd; no per-example
+  timeout), both learned the hard way in D and F.
+- **`man-page-count-scrape-overcounts`** (new) — scraping `│ pkg::name` from a
+  whole overview counts non-pages; `math`'s constants have no page.
+- **`resources-in-collections-yes-records-no`** (corrected) — its "the
+  `mfb man process` blurb is WRONG" clause described a defect this plan fixed.
+  Rewritten to record the durable lesson instead: don't trust a package man's
+  resource blurb, compile the two-line probe — and note that the compiler hands
+  you the right spelling (`TYPE_RESOURCE_REQUIRES_RES` names the `RES` marker).
+- [x] Verified. `grep -rn 'update_man\|man_template\|man_package_template\|man_type_template' AGENTS.md .ai/ scripts/`
+      → **no output**. `grep -rn 'src/docs/man' AGENTS.md .ai/ scripts/` → 6
+      hits, every one intentionally historical or still-live and checked:
+
+| Where | Why it stays |
+|---|---|
+| `AGENTS.md:105,108` | narrative guide topics genuinely still live there (`src/docs/man/mod.rs` embeds them) |
+| `.ai/testing-gates.md:244,248,252,254,296` | the `man_citations_resolve` test still walks `src/docs/man/**` and still fails `cargo test` on a broken `[[path:symbol]]` |
+| `.ai/man-content.md:16` | names the retired `src/docs/man/builtins` tree *as retired* — the sentence exists to stop someone going back to it |
+
+      `cargo fmt --all` run over the worktree; the separate `repository/`
+      workspace has no changes this plan touched.
 
 Acceptance: no live doc/script directs authors at the retired tree.
 Commit: —

@@ -102,6 +102,11 @@ FUNC parseOrNull(text AS String) AS json::Json
     RETURN JsonNull[NOTHING]
   END TRAP
 END FUNC
+
+SUB main
+  io::print(json::stringify(parseOrNull("[1,2]")))
+  io::print(json::stringify(parseOrNull("not json")))
+END SUB
 ```"#;
 
 #[rustfmt::skip]

@@ -36,14 +36,21 @@ RUN_TIMEOUT=${RUN_TIMEOUT:-60}
 # `timeout`/`gtimeout` are not on a stock macOS, so bound the run by hand: start
 # the example, start a killer, and take whichever finishes first. Exit 124 marks
 # a timeout, matching coreutils `timeout`.
+#
+# The killer's stdout MUST go to /dev/null. This whole function runs inside a
+# `$(...)`, and a command substitution does not return until every process
+# holding the pipe's write end has exited — so a killer that inherits stdout
+# makes each example take the full timeout even when it finished instantly.
+# Killing the subshell is likewise not enough: `sleep` is its own process and
+# keeps the pipe, so kill the process GROUP.
 run_bounded() {
 	"$@" &
 	run_pid=$!
-	( sleep "$RUN_TIMEOUT"; kill -9 "$run_pid" 2>/dev/null ) &
+	{ sleep "$RUN_TIMEOUT"; kill -9 "$run_pid" 2>/dev/null; } >/dev/null 2>&1 &
 	killer_pid=$!
 	wait "$run_pid" 2>/dev/null
 	run_rc=$?
-	kill "$killer_pid" 2>/dev/null
+	kill -- "-$killer_pid" 2>/dev/null || kill "$killer_pid" 2>/dev/null
 	wait "$killer_pid" 2>/dev/null
 	# kill -9 surfaces as 137 (128 + SIGKILL).
 	[ "$run_rc" = 137 ] && return 124
@@ -97,7 +104,8 @@ prepare_project() {
 	fi
 	rm -rf "$SCRATCH"
 	"$MFB" init "$SCRATCH" >/dev/null 2>&1 || return 1
-	install_workers_package "$SCRATCH"
+	[ "$needs_workers" = 1 ] && install_workers_package "$SCRATCH"
+	return 0
 }
 
 # `thread` (and `os::sleep`'s worker example) call into a companion package
@@ -195,7 +203,13 @@ install_workers_package() {
 	PY
 }
 
-build_workers_package || true
+# The companion package costs a full package build, so only pay for it when
+# this package's pages actually import it.
+needs_workers=0
+if "$MFB" man "$pkg" --all 2>/dev/null | grep -q '^  IMPORT workers'; then
+	needs_workers=1
+	build_workers_package || true
+fi
 
 total=0
 built=0
@@ -256,10 +270,19 @@ for fn in $(functions "$@"); do
 			continue
 		fi
 
-		if out=$("$MFB" build "$SCRATCH" 2>&1); then
+		build_flags=""
+		case $pkg in app|canvas) build_flags="--app" ;; esac
+		if out=$("$MFB" build "$SCRATCH" $build_flags 2>&1); then
 			built=$((built + 1))
 			if [ "$run" = 1 ]; then
 				bin=$(find "$SCRATCH/build" -name '*.out' -type f 2>/dev/null | head -1)
+				if [ -z "$bin" ]; then
+					bin=$(find "$SCRATCH/build" -path '*.app/Contents/MacOS/*' \
+						-type f -perm +111 2>/dev/null | head -1)
+					# An app-mode program has no stdout: io::print goes to the
+					# application transcript. Running still proves it starts.
+					export MFB_MACAPP_HEADLESS=1 MFB_GTKAPP_HEADLESS=1
+				fi
 				# STDIN_FILE feeds real input to examples that read stdin, so an
 				# io/term page is verified by running rather than written off as
 				# compile-only.
