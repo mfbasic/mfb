@@ -8,6 +8,5 @@ Wrote executable to tests/rt-behavior/tcp/tcp-bounded-accept-blocking-rt/build/t
 $ tests/rt-behavior/tcp/tcp-bounded-accept-blocking-rt/build/tcp_bounded_accept_blocking_rt.out
 bounded  = hello64
 blocking = hello64
-Error: 7-705-0008
-Operation did not complete before its deadline.
-[exit 255]
+explicit read timeout still fires
+[exit 0]
