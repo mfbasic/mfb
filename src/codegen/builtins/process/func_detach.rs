@@ -158,6 +158,17 @@ pub(crate) fn lower_process_detach_helper_posix(
     // is still blocked in `waitpid`. `tid` is pre-zeroed and `pthread_create`'s
     // return checked, so a failed create never hands garbage to `pthread_detach`
     // (the child is then left for the program's exit to reparent, never killed).
+    //
+    // One thread per detached child, so the thread count tracks the number of *live*
+    // detached children — each reaper exits the moment its child does. That is the
+    // price of a per-child reap: the alternatives (a `SIGCHLD` handler, or a swept
+    // pid list) both need a process-wide signal disposition or a fixed-capacity
+    // global table, which is what made this a whole-program defect in the first
+    // place. The threads are cheap (default stack, no arena, one blocking libc call
+    // — see `gen_unix::lower_process_reaper_helper`) and the failure mode is
+    // graceful: at the thread limit `pthread_create` returns `EAGAIN`, the `b.ne`
+    // below skips the detach, and the child is simply left for the program's exit to
+    // reparent. `detach` still succeeds and no other child's exit status is touched.
     instructions.extend([
         abi::load_u64(&pid, &file, RESOURCE_OFFSET_HANDLE),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), TID_SLOT),
