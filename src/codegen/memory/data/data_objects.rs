@@ -220,6 +220,7 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "canvas.startGraphics",
             "canvas.signalRedraw",
             "canvas.waitForRedraw",
+            "canvas.newSurface",
             "canvas.installedItems",
             "canvas.installedLayers",
             "canvas.publishHashes",

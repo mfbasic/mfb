@@ -29,6 +29,7 @@ pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool 
             "canvas.startGraphics",
             "canvas.signalRedraw",
             "canvas.waitForRedraw",
+            "canvas.newSurface",
             "canvas.installedItems",
             "canvas.installedLayers",
             "canvas.publishHashes",

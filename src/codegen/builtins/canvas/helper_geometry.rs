@@ -422,17 +422,24 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
   LET tail AS List OF Float = __canvas_tailFor(item)
   __CANVAS_GEO_GENERATIONS = __CANVAS_GEO_GENERATIONS + 1
   LET offset AS Integer = len(__CANVAS_GEO_DATA)
+  ' Append into a LOCAL and write the global back once. `collections::append` is
+  ' in-place only for a local of the function doing the write, so appending straight
+  ' into the global copies the whole buffer per element — 27 copies per new item
+  ' instead of two, and enough allocation churn to grow a 200-frame animation by
+  ' ~0.6 MB a frame. See the `collections::set` note in `.ai/collections.md`.
+  MUT buffer AS List OF Float = __CANVAS_GEO_DATA
   MUT i AS Integer = 0
   WHILE i < __CANVAS_GEO_HEADER
-    __CANVAS_GEO_DATA = collections::append(__CANVAS_GEO_DATA, collections::getOr(header, i, 0.0))
+    buffer = collections::append(buffer, collections::getOr(header, i, 0.0))
     i = i + 1
   END WHILE
   MUT j AS Integer = 0
   LET tailCount AS Integer = len(tail)
   WHILE j < tailCount
-    __CANVAS_GEO_DATA = collections::append(__CANVAS_GEO_DATA, collections::getOr(tail, j, 0.0))
+    buffer = collections::append(buffer, collections::getOr(tail, j, 0.0))
     j = j + 1
   END WHILE
+  __CANVAS_GEO_DATA = buffer
   __CANVAS_GEO_HASHES = collections::append(__CANVAS_GEO_HASHES, hash)
   __CANVAS_GEO_OFFSETS = collections::append(__CANVAS_GEO_OFFSETS, offset)
   __CANVAS_GEO_COUNTS = collections::append(__CANVAS_GEO_COUNTS, __CANVAS_GEO_HEADER + tailCount)

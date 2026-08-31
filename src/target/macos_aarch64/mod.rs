@@ -48,6 +48,7 @@ impl NativeBackend for Backend {
                 "canvas.startGraphics",
                 "canvas.signalRedraw",
                 "canvas.waitForRedraw",
+                "canvas.newSurface",
                 "canvas.installedItems",
                 "canvas.installedLayers",
                 "canvas.publishHashes",

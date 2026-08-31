@@ -45,6 +45,7 @@ mod func_graphics;
 mod func_image_ref;
 mod func_installed_items;
 mod func_installed_layers;
+mod func_new_surface;
 mod func_present;
 mod func_present_layers;
 mod func_publish_scene;
@@ -724,6 +725,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_fill::register(&mut pkg);
     func_stroke::register(&mut pkg);
     func_fill_stroke::register(&mut pkg);
+    func_new_surface::register(&mut pkg);
     func_present::register(&mut pkg);
     func_publish_scene::register(&mut pkg);
     func_blit_surface::register(&mut pkg);

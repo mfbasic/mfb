@@ -28,7 +28,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 const RENDER_SCENE: &str =
 r#"FUNC __canvas_renderScene() AS Nothing
   LET size AS Size = __canvas_surfaceSize()
-  MUT buffer AS List OF Byte = __canvas_newSurface(size.width, size.height)
+  MUT buffer AS List OF Byte = canvas::newSurface(size.width, size.height)
   LET hashes AS List OF Integer = canvas::installedHashes()
   MUT index AS Integer = 0
   FOR EACH item IN canvas::installedItems()
@@ -74,27 +74,6 @@ FUNC __canvas_hashLayers(layers AS List OF DrawLayer) AS List OF Integer
   RETURN out
 END FUNC"#;
 
-/// An opaque-black RGBA8 surface of `width * height` pixels.
-///
-/// Opaque black rather than transparent: the canvas is a window's whole content, so
-/// there is nothing behind it to show through, and a transparent clear would make
-/// every unpainted pixel depend on whatever the compositor put there.
-#[rustfmt::skip]
-const NEW_SURFACE: &str =
-r#"FUNC __canvas_newSurface(width AS Integer, height AS Integer) AS List OF Byte
-  MUT out AS List OF Byte = []
-  LET total AS Integer = width * height
-  MUT i AS Integer = 0
-  WHILE i < total
-    out = collections::append(out, toByte(0))
-    out = collections::append(out, toByte(0))
-    out = collections::append(out, toByte(0))
-    out = collections::append(out, toByte(255))
-    i = i + 1
-  END WHILE
-  RETURN out
-END FUNC"#;
-
 /// Start the graphics thread on the first present, and settle sync mode with it.
 ///
 /// The guard makes this one `os::getEnvOr` per program rather than per frame, and it
@@ -137,5 +116,4 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_renderLoop", RENDER_LOOP));
     pkg.add_helper(RegistryHelper::always("canvas_hashScene", HASH_SCENE));
     pkg.add_helper(RegistryHelper::always("canvas_renderScene", RENDER_SCENE));
-    pkg.add_helper(RegistryHelper::always("canvas_newSurface", NEW_SURFACE));
 }
