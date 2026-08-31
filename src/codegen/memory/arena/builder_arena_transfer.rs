@@ -7,6 +7,16 @@ use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 use std::collections::HashMap;
+
+/// How much to copy for a resource live slot that points into the sender's arena
+/// (bug-464): a size the descriptor knows at compile time, or a NUL-terminated
+/// string measured at run time.
+#[derive(Clone, Copy)]
+enum BlockLength {
+    Fixed(usize),
+    CString,
+}
+
 impl CodeBuilder<'_> {
     /// Build a flat `Result` value `{tag @0, size @8, payload @16}` (plan-02
     /// §4.3): a scalar payload occupies the 8-byte word at +16 (total 24 bytes); a
@@ -487,12 +497,28 @@ impl CodeBuilder<'_> {
         Ok(result)
     }
 
-    /// Materialize a thread-sendable resource handle (e.g. `File`) into the
-    /// current arena. The handle is a two-word struct (a host resource word
-    /// such as a file descriptor, followed by a closed flag); moving it copies
-    /// both words so the receiver owns the underlying OS resource. The sender's
-    /// lexical cleanup is deactivated on the successful-transfer path, so the
-    /// resource is closed exactly once by the receiver.
+    /// Materialize a thread-sendable resource handle (e.g. `File`, `tls::Socket`)
+    /// into the current arena, so the receiver owns the underlying OS resource.
+    /// The sender's lexical cleanup is deactivated on the successful-transfer
+    /// path, so the resource is closed exactly once by the receiver.
+    ///
+    /// A record is the **canonical header** — tag @0, handle @8, closed @16,
+    /// STATE @24 — followed by a **type-specific tail** from 32. The header and
+    /// STATE are handled below; the tail is described by the resource's registry
+    /// [`live_slots`] and carried by `emit_copy_resource_live_slots`.
+    ///
+    /// This doc comment used to claim "the handle is a two-word struct (a host
+    /// resource word such as a file descriptor, followed by a closed flag)".
+    /// That was true of `fs::File`/`tcp::Socket`/`udp::Socket` and of nothing
+    /// else, and believing it is what fenced `tls::Socket`, `tls::Listener` and
+    /// (needlessly) `tcp::Listener` off behind `sendable: false` (bug-464). The
+    /// routine is type-agnostic and reached for *every* resource kind, so the
+    /// `fs::File` buffer/cache zeroing below silently truncated any record with
+    /// live state in its tail — a transferred TLS socket arrived with a NULL
+    /// `SSL*`, not with garbage. The zeroing is still the right default for an
+    /// **undeclared** slot; a declared one is copied over it.
+    ///
+    /// [`live_slots`]: crate::codegen::registry::RegistryResource::live_slots
     ///
     /// When the resource carries a `STATE` payload (plan-54, `type_` spells `File
     /// STATE Cursor`), the STATE record is **deep-copied** into the current
@@ -659,6 +685,11 @@ impl CodeBuilder<'_> {
             abi::mfb_return(1),
             FILE_OFFSET_READ_AT_EOF,
         ));
+        // The type-specific tail (bug-464). MUST come after the zeroing above,
+        // which covers 32..80 unconditionally and would otherwise clobber every
+        // slot carried here. Reads the source record, so it must also come
+        // before the source is tombstoned below.
+        self.emit_copy_resource_live_slots(type_, source_slot, result_slot)?;
         // The source record's contents now live in the destination, so the source
         // is dead: flag it `moved|closed` (plan-52-B §3b). This MUST come after
         // the flag-word copy above — flagging first would hand the destination an
@@ -693,6 +724,218 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
+    }
+
+    /// Carry `type_`'s declared live slots — the type-specific record tail past
+    /// the canonical header — from the source record into the freshly-allocated
+    /// destination (bug-464).
+    ///
+    /// `source_slot` and `result_slot` are SP-relative stack slots holding the
+    /// two record pointers. They are re-loaded around every `arena_alloc`, which
+    /// clobbers the argument/return registers; nothing is kept live across one.
+    ///
+    /// Emits nothing at all when the resource declares no slots, which is every
+    /// resource that was already sendable — so their transfer codegen is
+    /// byte-identical to before this existed.
+    fn emit_copy_resource_live_slots(
+        &mut self,
+        type_: &ParameterType,
+        source_slot: usize,
+        result_slot: usize,
+    ) -> Result<(), String> {
+        use crate::codegen::engine::types::PlatformFamily;
+        use crate::codegen::registry::{SlotBackend, SlotTransfer};
+
+        let family = self.platform.family();
+        let slots: Vec<_> = crate::codegen::resource::builtin_resource_live_slots(type_)
+            .iter()
+            .filter(|slot| match slot.backend {
+                SlotBackend::OpenSsl => family == PlatformFamily::Linux,
+                SlotBackend::Schannel => family == PlatformFamily::Windows,
+                SlotBackend::NetworkFramework => family == PlatformFamily::MacOS,
+            })
+            .copied()
+            .collect();
+        if slots.is_empty() {
+            return Ok(());
+        }
+        // Every declared slot must live wholly inside the shared record
+        // envelope and past the header the caller already copied. A descriptor
+        // that violates either would corrupt a neighbouring record or re-copy
+        // the header, so it is a compiler bug, not a user error.
+        for slot in &slots {
+            if slot.offset < RESOURCE_OFFSET_STATE + 8 {
+                return Err(format!(
+                    "resource `{}` declares a live slot at offset {} inside the canonical header \
+                     (tag/handle/closed/STATE end at {}): {}",
+                    type_.name(),
+                    slot.offset,
+                    RESOURCE_OFFSET_STATE + 8,
+                    slot.what
+                ));
+            }
+            if slot.offset + 8 > RESOURCE_RECORD_SIZE_BYTES {
+                return Err(format!(
+                    "resource `{}` declares a live slot at offset {} past the {}-byte record: {}",
+                    type_.name(),
+                    slot.offset,
+                    RESOURCE_RECORD_SIZE_BYTES,
+                    slot.what
+                ));
+            }
+        }
+        for (index, slot) in slots.iter().enumerate() {
+            let prefix = format!("thread_copy_res_slot{index}");
+            match slot.transfer {
+                // A foreign-heap pointer, a refcounted handle, or an inert
+                // scalar: nothing in the receiver's arena depends on it, so the
+                // word moves as-is -- exactly like the fd in the header.
+                SlotTransfer::Verbatim => {
+                    let src = self.temporary_vreg();
+                    let word = self.temporary_vreg();
+                    self.emit(abi::load_u64(&src, abi::stack_pointer(), source_slot));
+                    self.emit(abi::load_u64(&word, &src, slot.offset));
+                    self.emit(abi::load_u64(
+                        abi::mfb_return(1),
+                        abi::stack_pointer(),
+                        result_slot,
+                    ));
+                    self.emit(abi::store_u64(&word, abi::mfb_return(1), slot.offset));
+                }
+                // A block in the SENDER's arena. Arena state is per-thread and no
+                // thread may free another's block, so the receiver gets its own
+                // copy. A byte copy is sound because a transfer MOVES: any OS
+                // handle duplicated inside the block is released exactly once, by
+                // the receiver, since the sender is tombstoned and its cleanup
+                // deactivated.
+                SlotTransfer::ArenaBlock { size } => {
+                    self.emit_copy_resource_arena_block(
+                        source_slot,
+                        result_slot,
+                        slot.offset,
+                        BlockLength::Fixed(size),
+                        &prefix,
+                    )?;
+                }
+                // A NUL-terminated string in the sender's arena: same ownership
+                // problem, length measured at run time.
+                SlotTransfer::ArenaCString => {
+                    self.emit_copy_resource_arena_block(
+                        source_slot,
+                        result_slot,
+                        slot.offset,
+                        BlockLength::CString,
+                        &prefix,
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Copy the arena block the source record's `offset` word points at into the
+    /// current (receiver) arena and store the fresh pointer in the destination
+    /// record (bug-464). A **null** source pointer stays null — an unset slot is
+    /// not an error, and the receiver's lazy init must still see zero.
+    ///
+    /// `length` is either a compile-time block size or "measure the C string".
+    fn emit_copy_resource_arena_block(
+        &mut self,
+        source_slot: usize,
+        result_slot: usize,
+        offset: usize,
+        length: BlockLength,
+        prefix: &str,
+    ) -> Result<(), String> {
+        let src_slot = self.allocate_stack_object(&format!("{prefix}_src"), 8);
+        let len_slot = self.allocate_stack_object(&format!("{prefix}_len"), 8);
+        let new_slot = self.allocate_stack_object(&format!("{prefix}_new"), 8);
+        let have = self.label(&format!("{prefix}_have"));
+        let done = self.label(&format!("{prefix}_done"));
+        let alloc_ok = self.label(&format!("{prefix}_alloc_ok"));
+
+        let src = self.temporary_vreg();
+        let word = self.temporary_vreg();
+        self.emit(abi::load_u64(&src, abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64(&word, &src, offset));
+        self.emit(abi::compare_immediate(&word, "0"));
+        self.emit(abi::branch_ne(&have));
+        // Null source: leave the receiver's slot null. The zeroing pass already
+        // wrote 0 for slots under 88, but a declared slot may sit in the
+        // headroom the pass does not reach, so this is written explicitly.
+        self.emit(abi::load_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            result_slot,
+        ));
+        self.emit(abi::store_u64(abi::ZERO, abi::mfb_return(1), offset));
+        self.emit(abi::branch(&done));
+
+        self.emit(abi::label(&have));
+        self.emit(abi::store_u64(&word, abi::stack_pointer(), src_slot));
+        match length {
+            BlockLength::Fixed(size) => {
+                let len = self.temporary_vreg();
+                self.emit(abi::move_immediate(&len, "Integer", &size.to_string()));
+                self.emit(abi::store_u64(&len, abi::stack_pointer(), len_slot));
+            }
+            // strlen, then +1 so the NUL is copied too.
+            BlockLength::CString => {
+                let scan = self.temporary_vreg();
+                let byte = self.temporary_vreg();
+                let len = self.temporary_vreg();
+                let scan_loop = self.label(&format!("{prefix}_strlen"));
+                let scan_done = self.label(&format!("{prefix}_strlen_done"));
+                self.emit(abi::load_u64(&scan, abi::stack_pointer(), src_slot));
+                self.emit(abi::move_immediate(&len, "Integer", "0"));
+                self.emit(abi::label(&scan_loop));
+                self.emit(abi::load_u8(&byte, &scan, 0));
+                self.emit(abi::compare_immediate(&byte, "0"));
+                self.emit(abi::branch_eq(&scan_done));
+                self.emit(abi::add_immediate(&scan, &scan, 1));
+                self.emit(abi::add_immediate(&len, &len, 1));
+                self.emit(abi::branch(&scan_loop));
+                self.emit(abi::label(&scan_done));
+                self.emit(abi::add_immediate(&len, &len, 1));
+                self.emit(abi::store_u64(&len, abi::stack_pointer(), len_slot));
+            }
+        }
+        // `arena_alloc(size, align)` clobbers the argument/return registers, so
+        // every pointer is reloaded from its stack slot afterwards.
+        self.emit(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            len_slot,
+        ));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit_arena_alloc_call();
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.raise_error_bare("ErrOutOfMemory")?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            new_slot,
+        ));
+        // `emit_copy_bytes` ADVANCES both pointers, so it gets scratch copies and
+        // the destination pointer is re-read from its slot afterwards.
+        let dst_p = self.temporary_vreg();
+        let src_p = self.temporary_vreg();
+        let len_p = self.temporary_vreg();
+        self.emit(abi::load_u64(&dst_p, abi::stack_pointer(), new_slot));
+        self.emit(abi::load_u64(&src_p, abi::stack_pointer(), src_slot));
+        self.emit(abi::load_u64(&len_p, abi::stack_pointer(), len_slot));
+        self.emit_copy_bytes(&dst_p, &src_p, &len_p, prefix);
+        let fresh = self.temporary_vreg();
+        self.emit(abi::load_u64(&fresh, abi::stack_pointer(), new_slot));
+        self.emit(abi::load_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            result_slot,
+        ));
+        self.emit(abi::store_u64(&fresh, abi::mfb_return(1), offset));
+        self.emit(abi::label(&done));
+        Ok(())
     }
 
     /// Flag the resource record at the pointer held in `source_slot` (a stack slot,

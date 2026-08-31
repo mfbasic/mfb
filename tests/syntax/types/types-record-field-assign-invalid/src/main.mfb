@@ -1,0 +1,25 @@
+' bug-468: `record.field = value` must be REFUSED, not parsed as an equality
+' comparison whose Boolean result is computed and discarded. Records are
+' `WITH`-only (spec §4), and before the fix each of the writes below compiled
+' clean and silently did nothing.
+
+TYPE Inner
+  x AS Integer
+END TYPE
+
+TYPE Outer
+  inner AS Inner
+  tag AS String
+END TYPE
+
+FUNC main AS Integer
+  MUT o AS Outer = Outer[inner := Inner[x := 1], tag := "t"]
+  ' Plain field write — types match, so the old parse produced no diagnostic
+  ' at all and the write was lost.
+  o.tag = "changed"
+  ' Nested field write.
+  o.inner.x = 77
+  ' Inline-IF branch: statement position inside `THEN`.
+  IF o.inner.x > 0 THEN o.inner.x = 5
+  RETURN o.inner.x
+END FUNC

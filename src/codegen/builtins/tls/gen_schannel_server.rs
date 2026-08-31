@@ -38,6 +38,12 @@ mod stl {
     pub const SIZE: usize = 288;
 }
 
+/// The size of the arena WORK block a `tls::Listener`'s
+/// `TLS_SCHANNEL_OFFSET_BLOCK` points at, re-exported for the registry's
+/// live-slot descriptor (bug-464). Arena-allocated, so a thread transfer copies
+/// it rather than aliasing the sender's arena.
+pub(crate) const LISTENER_BLOCK_SIZE: usize = stl::SIZE;
+
 /// A Win64 external call that does NOT sign-extend its return — for the pointer-
 /// and BOOL-returning CryptoAPI/file calls (a `sign_extend_word` on a 64-bit
 /// HANDLE/pointer return would corrupt any value with bit 31 set). Args 0..=3 are

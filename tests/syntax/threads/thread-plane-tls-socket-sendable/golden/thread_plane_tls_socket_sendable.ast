@@ -1,0 +1,113 @@
+{
+  "project": "thread_plane_tls_socket_sendable",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "tls", "line": 19 },
+    { "module": "tcp", "line": 20 },
+    { "module": "udp", "line": 21 },
+    { "module": "fs", "line": 22 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useTlsSocket",
+      "line": 24,
+      "params": [
+      { "name": "t", "type": "Thread OF RES tls.Socket TO Integer", "default": null, "line": 24 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 25 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useTlsListener",
+      "line": 28,
+      "params": [
+      { "name": "t", "type": "Thread OF RES tls.Listener TO Integer", "default": null, "line": 28 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 29 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useTcpListener",
+      "line": 32,
+      "params": [
+      { "name": "t", "type": "Thread OF RES tcp.Listener TO Integer", "default": null, "line": 32 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 33 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useTcpSocket",
+      "line": 37,
+      "params": [
+      { "name": "t", "type": "Thread OF RES tcp.Socket TO Integer", "default": null, "line": 37 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 38 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useUdpSocket",
+      "line": 41,
+      "params": [
+      { "name": "t", "type": "Thread OF RES udp.Socket TO Integer", "default": null, "line": 41 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 42 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useFile",
+      "line": 45,
+      "params": [
+      { "name": "t", "type": "Thread OF RES fs.File TO Integer", "default": null, "line": 45 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 46 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 49,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 50 }
+      ]
+    }
+    ]
+  }
+  ]
+}

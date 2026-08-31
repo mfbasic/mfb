@@ -15,7 +15,7 @@ pub(super) fn package_resource_exports(
         {
             Some(string_at(&package.project.strings.values, entry.close_function_id)?.to_string())
         } else {
-            resolve_resource_close_name(package, entry.close_function_id)?
+            resolve_resource_close_name(package, entry.close_function_id, &type_name)?
         };
         exports.push(BinaryReprResourceExport {
             type_name,
@@ -28,12 +28,15 @@ pub(super) fn package_resource_exports(
     Ok(exports)
 }
 
-/// Resolve a `RESOURCE_TABLE` close-function id to a call name. The two built-in
-/// sentinels map to the standard `fs.close`/`net.close` ops; any other id is a
-/// `functionId` index into the package's function table.
+/// Resolve a `RESOURCE_TABLE` close-function id to a call name. The two legacy
+/// built-in sentinels map to the standard `fs.close`/`tcp.close` ops;
+/// [`BUILTIN_RESOURCE_CLOSE_BY_TYPE`] resolves from the registry by the entry's
+/// own `type_name`; any other id is a `functionId` index into the package's
+/// function table.
 pub(super) fn resolve_resource_close_name(
     package: &PackageBinaryRepr,
     close_function_id: u32,
+    type_name: &str,
 ) -> Result<Option<String>, String> {
     match close_function_id {
         BUILTIN_FS_CLOSE_FUNCTION_ID => Ok(builtins::resource_close_function(
@@ -42,6 +45,13 @@ pub(super) fn resolve_resource_close_name(
         .map(str::to_string)),
         BUILTIN_STREAM_CLOSE_FUNCTION_ID => Ok(builtins::resource_close_function(
             &crate::types::ParameterType::named(crate::codegen::builtins::tcp::SOCKET_TYPE_ID),
+        )
+        .map(str::to_string)),
+        // Every other built-in resource (bug-464 fallout). The entry already
+        // carries the type, so the close op is derivable and no new sentinel is
+        // needed per resource.
+        BUILTIN_RESOURCE_CLOSE_BY_TYPE => Ok(builtins::resource_close_function(
+            &crate::types::ParameterType::named(type_name),
         )
         .map(str::to_string)),
         id => match package.project.functions.get(id as usize) {

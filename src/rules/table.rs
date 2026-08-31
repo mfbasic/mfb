@@ -183,6 +183,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "statement block nesting is too deep",
     },
     Rule {
+        code: "1-102-0013",
+        name: "MFB_PARSE_RECORD_FIELD_ASSIGNMENT",
+        severity: Severity::Error,
+        message: "record field assignment is not supported",
+    },
+    Rule {
         code: "2-201-0001",
         name: "IMPORT_PACKAGE_INVALID",
         severity: Severity::Error,

@@ -1,0 +1,27 @@
+IMPORT thread
+IMPORT tls
+IMPORT strings
+IMPORT encoding
+
+' bug-464: a `tls::Socket` whose handshake completed on the sending thread
+' completes a request/response on the RECEIVING thread.
+'
+' This is the case the widened transfer copy exists for. The TLS record carries
+' live session state in its type-specific tail past offset 24 -- OpenSSL keeps
+' `SSL_CTX*`@32 and `SSL*`@40, Schannel an SSPI block ptr@40, and macOS's
+' Network.framework backend a connection ctx@32, a dispatch queue@40 and a local
+' address@48. `copy_resource_to_current_arena` used to ZERO that whole tail, so a
+' naively-opted-in socket arrived here with a NULL session and the first
+' `tls::write` below would fail rather than talk to the peer.
+'
+' Reduced to a Boolean so the golden does not depend on the remote's response
+' bytes -- only on the fact that a real reply came back over the moved session.
+EXPORT ISOLATED FUNC talkOnTransferredSocket(t AS ThreadWorker OF RES tls::Socket TO Boolean, host AS String) AS Boolean
+  RES conn AS tls::Socket = thread::accept(t, 5000)
+  LET crlfBytes AS List OF Byte = [toByte(13), toByte(10)]
+  LET crlf AS String = toString(crlfBytes)
+  tls::write(conn, "HEAD / HTTP/1.0" & crlf & "Host: " & host & crlf & crlf)
+  LET reply AS String = encoding::utf8Decode(tls::read(conn, 4096))
+  tls::close(conn)
+  RETURN strings::startsWith(reply, "HTTP/")
+END FUNC

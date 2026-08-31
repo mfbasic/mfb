@@ -1,0 +1,23 @@
+IMPORT thread
+IMPORT tls
+
+' bug-464: a `tls::Listener` bound and loaded with its identity on one thread
+' completes `tls::accept` on ANOTHER -- the server shape the bug exists for.
+'
+' The listener owns the server TLS context, which lives in the record tail past
+' the canonical header: `SSL_CTX*`@32 on OpenSSL, an arena SSPI WORK block@40 on
+' Schannel, and ctx@32 / queue@40 / bound-host@48 on macOS's Network.framework.
+' The transfer copy zeroed all of that before bug-464, so an opted-in listener
+' would have reached this worker with no context to hand the handshake.
+'
+' Closing the accepted socket and then the listener here is the close-obligation
+' half: after `thread::transfer` the sender's record is tombstoned moved|closed,
+' so the receiver closes each exactly once.
+EXPORT ISOLATED FUNC serveOnTransferredTlsListener(t AS ThreadWorker OF RES tls::Listener TO Integer, payload AS String) AS Integer
+  RES server AS tls::Listener = thread::accept(t, 5000)
+  RES conn AS tls::Socket = tls::accept(server, 90000)
+  tls::write(conn, payload)
+  tls::close(conn)
+  tls::close(server)
+  RETURN 1
+END FUNC

@@ -233,6 +233,7 @@ severity is `error`.
 | `1-102-0010` | `MFB_PARSE_TESTING_EXPECTED_TGROUP` | error | a TESTING block may contain only TGROUP groups |
 | `1-102-0011` | `MFB_PARSE_TESTING_EXPECTED_TCASE` | error | a TGROUP may contain only TCASE cases and nested TGROUP groups |
 | `1-102-0012` | `MFB_PARSE_TESTING_DESCRIPTION` | error | a TGROUP/TCASE requires a string-literal description |
+| `1-102-0013` | `MFB_PARSE_RECORD_FIELD_ASSIGNMENT` | error | record field assignment is not supported |
 
 ### `1-103` — DOC block structure (lexer/parser)
 

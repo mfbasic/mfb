@@ -1,0 +1,5 @@
+$ mfb build -ast -ir tests/byte-identity/resource-xfer-slots
+uses xfer_tls_worker - [Unsigned]
+Wrote AST to tests/byte-identity/resource-xfer-slots/resource_xfer_slots_cover_rt.ast
+Wrote IR to tests/byte-identity/resource-xfer-slots/resource_xfer_slots_cover_rt.ir
+[exit 0]
