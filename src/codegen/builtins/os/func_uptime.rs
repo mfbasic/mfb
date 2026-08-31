@@ -21,7 +21,27 @@ pub(crate) fn lower_uptime(
     let seconds = vregs.next();
     match ctx.platform.family() {
         PlatformFamily::Linux => {
-            // struct sysinfo starts with long uptime at offset 0.
+            // sysinfo(struct sysinfo *info) fills the caller's buffer; `struct
+            // sysinfo` starts with `long uptime` at offset 0, which is what the
+            // load below reads back. The buffer is this frame (128 bytes reserved
+            // for it), so its address MUST be staged into ARG[0] first — like the
+            // macOS arm does for every `sysctl` argument.
+            //
+            // Without it, `sysinfo` was called with whatever the caller happened
+            // to leave in ARG[0], and both outcomes were wrong: an unmapped value
+            // returned -1/EFAULT, so the non-zero check raised ErrUnsupported and
+            // `os::uptime` looked unimplemented on Linux; a *writable* one let
+            // sysinfo scribble a 112-byte struct over an arbitrary address and
+            // return 0, after which the load read a frame slot nothing had written
+            // and reported a garbage uptime.
+            //
+            // `add_immediate` from the stack pointer is the right way to form it:
+            // `finalize_frame` shifts sp-relative accesses up past the callee-saved
+            // area, and it shifts this instruction with the load, so the pointer
+            // passed and the slot read stay the same address.
+            builder
+                .instructions
+                .push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0));
             ctx.platform.emit_external_call(
                 "sysinfo",
                 &symbol,
