@@ -10,9 +10,21 @@ fn standard_flags_set_sendable_bit_for_movable_resources() {
         socket & RESOURCE_FLAG_SENDABLE != 0,
         "Socket must be sendable"
     );
+    // bug-464: the Listener is sendable too. It was this test's negative
+    // exemplar until then, on plan-03-net.md §4.4's v1 policy deferral rather
+    // than any property of its record (which is the canonical header alone).
     assert!(
-        listener & RESOURCE_FLAG_SENDABLE == 0,
-        "Listener must not be sendable"
+        listener & RESOURCE_FLAG_SENDABLE != 0,
+        "Listener must be sendable"
+    );
+    // A resource that is still deliberately not sendable, so this test keeps
+    // proving the bit can be clear and not merely that it is always set.
+    // `process::Process` drives waitpid from its owning thread (plan-90-A);
+    // bug-464 explicitly left it, and the audio handles, out of scope.
+    let process = standard_resource_flags(crate::codegen::builtins::process::PROCESS_TYPE_ID);
+    assert!(
+        process & RESOURCE_FLAG_SENDABLE == 0,
+        "Process must not be sendable"
     );
     // The other standard flags remain set.
     for flags in [file, socket, listener] {
