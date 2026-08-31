@@ -155,6 +155,18 @@ simpler here and avoids a translation layer; Vulkan is Linux/Windows only.
       compiled **at runtime** via `newLibraryWithSource:` rather than at build time —
       a build-time `xcrun metal` step would make compiling a user's program depend on
       an installed Xcode toolchain. Implementation pending with the pipeline below.
+- [x] **The renderer seam itself** — added as Correction 1 found it missing.
+      `__canvas_renderFrame` is the single dispatch point, with `canvas::useMetal`
+      (opt-in, `MFB_CANVAS_METAL`) and `canvas::metalAvailable` as its discriminants.
+      One arm today and no Metal branch: a branch falling back to software would make
+      the selector report success while rendering in software. Software stays the
+      default — it is the exact-match oracle (Correction 3).
+- [x] **Metal framework plumbing, proved device-first.** `Metal.framework` and
+      `QuartzCore.framework` install names in the object plan and the linker table,
+      plus the `MTLCreateSystemDefaultDevice` import row. Measured on this host:
+      `metal=TRUE`. Done before the pipeline on purpose — a device that cannot be
+      created is a dylib/import/binding fault, and a one-call probe reports it far
+      more cheaply than a blank window does (Correction 4).
 - [ ] Create `CAMetalLayer`, device, queue, single pipeline; render one textured tinted quad;
       assert it matches the C software golden within tolerance headless (where macOS headless
       Metal is available; else on a window-server CI lane).
@@ -242,6 +254,31 @@ Two consequences the design did not name:
   generates the `__CANVAS_GEO_NONE` kind and `createImage` keeps its pixels in the
   resource's CPU shadow; images first *draw* in plan-98-G. Those rows are moot here
   for the same reason plan-98-D's dirty-upload rows were, and for the same evidence.
+
+**Correction 3 (Phase 1) — the software renderer stays the default; Metal is
+opt-in.** The plan says the software backend "remains available"; it has to be more
+than available, it has to stay *selected by default*. Its goldens are exact-match
+because it is the oracle the GPU path is measured against (invariant 7). If Metal
+became the default the moment it worked, every exact-match golden would silently
+become a tolerance test against a reference that no longer existed.
+`MFB_CANVAS_METAL=1` selects Metal; plan-98-E's own tests set it.
+
+**Correction 4 (Phase 1) — built device-first, and the seam ships without its Metal
+branch.** Two sequencing choices worth recording because both are about keeping
+failures cheap and the tree honest:
+
+* The first thing built was a one-call `canvas::metalAvailable` probe, not the
+  pipeline. A device that cannot be created is a dylib-path, import-table or
+  symbol-binding fault; reading that off a probe costs one build, reading it off a
+  blank window costs several hundred lines of pipeline setup first.
+* `__canvas_renderFrame` currently has one arm. Wiring the Metal branch to fall back
+  to the software renderer would have compiled, passed every test, and made
+  `MFB_CANVAS_METAL=1` report success while rendering in software. The branch lands
+  in the same change as the renderer.
+
+Both members are `internal_only`, so a program cannot call them and a test could not
+read them; the selection is surfaced through the existing `MFB_CANVAS_STATS` line
+rather than by adding public surface for a test to poke.
 
 **Correction 2 (Phase 1) — shader Open Decision resolved: hand-written MSL, compiled
 at runtime.** The decision was "hand-write vs a glslang→SPIRV-Cross build step", with
