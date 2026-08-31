@@ -5,7 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (documentation) + Footgun (API asymmetry) + one functional gap
 
-Status: Closed
+Status: Open — Phases 1 and 2 landed; Phase 3 (golden regeneration, full suite,
+merge to main) in progress.
 Regression Test: `tests/rt-behavior/tcp/tcp-read-eof-raises-rt/` (new),
 `tests/rt-behavior/tls/tls-read-eof-raises-rt/` (new),
 `tests/rt_tls_listener_local_address.rs` (new)
@@ -215,13 +216,13 @@ Commit: `1eb5049f8` (the overload), `4f0c49138` (the prose), `a97d83805` (rustfm
 
 ### Phase 3 — regenerate, validate, resync the downstream note
 
-- [x] Regenerate any drifted `.ncodesum` (the `tls::localAddress` overload is a real codegen change) and gate with `artifact-gate.sh all`; prove the delta is only ours.
-- [x] `cargo test --release --no-fail-fast` plus `test-accept.sh` (goldens are not in the cargo suite).
+- [x] Regenerate any drifted `.ncodesum` (the `tls::localAddress` overload is a real codegen change) and gate with `artifact-gate.sh all`; prove the delta is only ours. **Done, and the audit found a coverage gap first**: the `tls` byte-identity fixture is a codegen-*cover* fixture that never called `tls::localAddress`, so neither the new listener body nor the pre-existing socket body had any drift sentinel. Both are now exercised in the fixture. Regenerated set: **6 `.ncodesum`** — 5 `tls` (every target) and `http`'s macos-aarch64 row (http drives the TLS server path); `tcp`, `net` and `udp` are byte-identical, which is what proves the shared `net::Address` builder refactor changed no emitted instruction on the four packages already using it. Attribution against a merge-base binary (`git archive 52d60054d | tar -x -C /tmp/base465`, which reproduces the committed golden hash `c7355a41…` exactly): with the fixture source held fixed on both sides, the `tls` `.ncode` diff is **39 lines** — one new data object (`_mfb_tls_sym_nw_listener_get_port`), four instructions storing the bound host at record offset 48, and the label renumbering those four cause. `http`'s diff is byte-for-byte the same shape. Nothing unexplained.
+- [ ] `cargo test --release --no-fail-fast` plus `test-accept.sh` (goldens are not in the cargo suite). **In progress**; must be re-run *after* the goldens are regenerated, not before.
 - [x] **Correct `planning/todo.md`'s websockets section** — **correction**: the false "stream-shape trap" paragraph had already been removed by `52d60054d` before this fix started, and the section already cited bug-465. What remained was the stale "`mfb man tcp read` *currently* claims…" wording, now updated, plus a new note about the write-side asymmetry (bug-467), which is the one a WebSocket server must actually design around.
 - [x] Re-run all three reproductions.
 
-Acceptance: full suite green; gate at 0 unexplained diffs; todo.md no longer records the false divergence. **Met.**
-Commit: see the STATUS block.
+Acceptance: full suite green; gate at 0 unexplained diffs; todo.md no longer records the false divergence.
+Commit: —
 
 ## Validation Plan
 
@@ -280,7 +281,16 @@ Every item below was measured, not recalled; the command or probe is named.
    and the transport-shim recommendation with a correct note citing bug-465. Only
    its "`mfb man tcp read` *currently* claims…" wording needed updating.
 
-8. **The matrix is otherwise confirmed** against the registry — not the prose —
+8. **The `tls` byte-identity fixture never covered `localAddress`.** It is named
+   `tls_codegen_cover_rt` and covers `connect`/`read`/`write`/`poll`/`listen`/
+   `accept`/`close`, but neither address query, nor either timeout setter. So
+   the drift sentinel was blind to the member this bug changes — and would have
+   stayed blind to the body it adds. `localAddress` (both overloads) is now
+   exercised there. The `remoteAddress` / `setReadTimeout` / `setWriteTimeout`
+   gaps are pre-existing, unrelated to this bug, and left as-is rather than
+   widened into scope creep — but they are real, and worth a follow-up.
+
+9. **The matrix is otherwise confirmed** against the registry — not the prose —
    by `grep -n "expected_arguments" src/codegen/builtins/{tcp,tls}/func_*.rs`:
    rows 1/3/6/8/9/10/11 have identical argument shapes; row 2 is the gap
    (`Socket or Listener` vs `Socket`); rows 4 and 5 differ as described. No row
