@@ -51,12 +51,21 @@ impl CodeBuilder<'_> {
         // no physical register. Tokens realize in `backend.select` below and
         // colors are assigned by `regalloc::allocate`; a physical name arriving
         // here is a shared-lowering regression.
-        if let Some(offense) = regalloc::find_physical_operand(&self.instructions) {
-            return Err(format!(
-                "shared lowering for '{}' violated the zero-physical-register \
-                 invariant (plan-34-D): {offense}",
-                self.current_symbol
-            ));
+        // `-vv` spans (`crate::trace`) split this function into the four stages
+        // it actually runs — the invariant scan, instruction selection, the Opt2
+        // pass pipeline, and the coloring itself. Together they are the largest
+        // single cost in a native build, and the split is what says which of the
+        // four is responsible.
+        let _span = crate::trace::span("register allocation");
+        {
+            let _span = crate::trace::span("physical-operand scan");
+            if let Some(offense) = regalloc::find_physical_operand(&self.instructions) {
+                return Err(format!(
+                    "shared lowering for '{}' violated the zero-physical-register \
+                     invariant (plan-34-D): {offense}",
+                    self.current_symbol
+                ));
+            }
         }
         // MIR seam (plan-00-A): the fully-lowered, pre-allocation stream is the
         // point where the neutral MIR layer sits (`NIR → MIR → select → alloc`,
@@ -73,7 +82,10 @@ impl CodeBuilder<'_> {
         // so each `fields` Vec is carried, not re-cloned (plan-84 Phase 2). The
         // capture above (rare, `-mir` only) already took its own borrowing copy.
         let neutral = mir::lower_to_mir_owned(std::mem::take(&mut self.instructions));
-        self.instructions = backend.select(neutral);
+        self.instructions = {
+            let _span = crate::trace::span("instruction selection");
+            backend.select(neutral)
+        };
         // plan-100 §3: the Opt2 seam — between selection and register
         // allocation, the last point where the stream is still in virtual
         // registers. Runs the Level-1 MIR constant folder today; the future
@@ -88,12 +100,15 @@ impl CodeBuilder<'_> {
         // 16-aligned so FP spill slots hit `str q`'s alignment requirement (the
         // slot stride is `spill_slot_bytes()` = 16 on every backend).
         let spill_base = type_utils::align(self.stack_size, 16);
-        let outcome = regalloc::allocate(
-            &mut self.instructions,
-            backend.register_model(),
-            spill_base,
-            &[],
-        );
+        let outcome = {
+            let _span = crate::trace::span("coloring");
+            regalloc::allocate(
+                &mut self.instructions,
+                backend.register_model(),
+                spill_base,
+                &[],
+            )
+        };
         for offset in &outcome.spill_slots {
             self.stack_slots.push(CodeStackSlot {
                 name: format!("spill_{}", self.stack_slots.len()),

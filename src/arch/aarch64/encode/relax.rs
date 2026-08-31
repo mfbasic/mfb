@@ -66,6 +66,11 @@ fn is_conditional_branch(op: CodeOp) -> bool {
 /// the instruction stream byte-for-byte unchanged) when every conditional branch
 /// already fits — the case for every program that compiled before bug-445.
 pub(crate) fn relax_conditional_branches(plan: &mut NativeCodePlan) -> Result<(), String> {
+    // `-vv` (`crate::trace`): the pass rewrites nothing for a normal program but
+    // still relaxes each function to a fixpoint, so its cost is a scan of every
+    // instruction in the plan — worth a row of its own rather than hiding in the
+    // "emitting native code" stage's self time.
+    let _span = crate::trace::span("relax branches");
     // A single monotonic counter across the whole plan keeps every synthesized
     // trampoline/continuation label globally unique (labels are function-local,
     // but a shared counter is simplest and still unique).
