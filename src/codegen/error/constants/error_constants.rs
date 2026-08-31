@@ -368,8 +368,26 @@ pub(crate) const CANVAS_SCENE_HASHES_OFFSET: usize = 24;
 pub(crate) const CANVAS_SCENE_LAYERS_OFFSET: usize = 32;
 /// Byte offset of the layer count.
 pub(crate) const CANVAS_SCENE_LAYER_COUNT_OFFSET: usize = 40;
+/// The scene block a publish displaced, held until the renderer is provably done
+/// with it, and the frame number at which it was retired.
+///
+/// This is plan-98-D Phase 3's ring, in the shape a **variable-size** scene allows.
+/// The plan describes three fixed slots the producer and consumer rotate through,
+/// which presumes a slot is a reusable buffer. An MFBASIC collection is a value: each
+/// publish deep-copies into a freshly sized block, so a "slot" can only ever be a
+/// pointer, and three of them degenerate to exactly this — the one being built, the
+/// one published, and the one just displaced.
+///
+/// Retiring rather than freeing immediately is the whole point: the renderer may be
+/// mid-copy of the block a publish is replacing. The free waits until the frame
+/// counter has passed `RETIRED_FRAME`, which means a frame has *completed* since the
+/// retirement, so no render still holds it.
+pub(crate) const CANVAS_SCENE_RETIRED_ITEMS_OFFSET: usize = 48;
+pub(crate) const CANVAS_SCENE_RETIRED_HASHES_OFFSET: usize = 56;
+pub(crate) const CANVAS_SCENE_RETIRED_LAYERS_OFFSET: usize = 64;
+pub(crate) const CANVAS_SCENE_RETIRED_FRAME_OFFSET: usize = 72;
 /// Total slots in the canvas scene region.
-pub(crate) const CANVAS_SCENE_SLOTS: usize = (CANVAS_SCENE_LAYER_COUNT_OFFSET + 8) / 8;
+pub(crate) const CANVAS_SCENE_SLOTS: usize = (CANVAS_SCENE_RETIRED_FRAME_OFFSET + 8) / 8;
 
 /// The canvas scene region itself: one writable **process-global** block, not part of
 /// any thread's arena state.

@@ -4,15 +4,14 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 /// The canvas surface's pixel dimensions.
 ///
-/// The three platform surfaces plan-98-A builds are all created at 900x640
-/// (`emit_reconcile_canvas_helper`, `RECONCILE_BUILD_SYMBOL`, the Win32
-/// `CreateWindowExW`), so that is genuinely the size — not a placeholder. Live
-/// resize is plan-98-D's, which is also where this stops being a constant and
-/// becomes a query against the presented surface.
+/// Read from the graphics state, which the platform's resize event publishes
+/// (plan-98-D Phase 3). Unpublished reads as the startup size — the three platform
+/// surfaces are all created 900x640 — so a program that never resizes sees exactly
+/// what it saw when this was a constant.
 #[rustfmt::skip]
 const SURFACE_SIZE: &str =
 r#"FUNC __canvas_surfaceSize() AS Size
-  RETURN Size[width := 900, height := 640]
+  RETURN Size[width := canvas::surfaceWidth(), height := canvas::surfaceHeight()]
 END FUNC"#;
 
 /// Hand a finished frame to the surface.

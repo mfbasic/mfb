@@ -550,6 +550,106 @@ PY
   fi
 fi
 
+# Case 3g (plan-98-D Phase 3, GUI): a window resize re-renders at the new size,
+# with zero program involvement.
+#
+# The distinguishing measurement is a **fixed-size** rectangle. The program draws a
+# 100x100 red square at the origin and then blocks forever — it never presents again.
+# The window is resized from 900x640 to 1200x800 by System Events:
+#
+#   * if the surface really resized, the square is still 100 px and now covers a
+#     SMALLER fraction of the window (100/1200 instead of 100/900);
+#   * if the old frame were merely stretched to fill the larger layer — which is what
+#     `CALayer`'s default `contentsGravity` does, and is exactly the failure this must
+#     rule out — the square would cover the SAME fraction.
+#
+# So the check is on the square's right edge as a fraction of the window width, and
+# the two hypotheses are 8.3% versus 11.1% apart. It also proves "repaints with the
+# program blocked", since the program is parked in io::pollInput throughout.
+proj="$work/canvasresize"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "canvasresize", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT canvas
+IMPORT io
+SUB main()
+  app::setMode(Mode.Canvas)
+  LET mark AS DrawItem = Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
+  canvas::present([mark])
+  io::print("RESIZE_READY")
+  io::flush()
+  LET ready AS Boolean = io::pollInput()
+END SUB
+MFB
+if ! gui_enabled; then
+  echo "skip: canvas resize GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app canvasresize"
+else
+  bundle_path=$(bundle "$proj" canvasresize)
+  "$bundle_path/Contents/MacOS/canvasresize" >/dev/null 2>&1 &
+  app_pid=$!
+  sleep 3
+  osascript -e 'tell application "System Events" to tell (first process whose unix id is '"$app_pid"') to set size of front window to {1200, 800}' >/dev/null 2>&1
+  sleep 3
+  shot="$work/canvasresize"
+  if ! python3 "$ROOT/scripts/snap-macos.py" "$bundle_path" "$shot" >/dev/null 2>&1; then
+    kill "$app_pid" 2>/dev/null
+    fail "canvas resize screenshot (grant Screen Recording permission)"
+  else
+    kill "$app_pid" 2>/dev/null
+    verdict=$(python3 - "$shot.png" <<'PY'
+import sys
+
+from PIL import Image
+
+image = Image.open(sys.argv[1]).convert("RGB")
+w, h = image.size
+# Find the red square's bounding box rather than guessing a row: the square is at the
+# canvas origin, which sits below a title bar whose height is not ours to predict.
+right = 0
+found = False
+for y in range(h):
+    for x in range(w):
+        r, g, b = image.getpixel((x, y))
+        if r > 180 and g < 80 and b < 80:
+            found = True
+            right = max(right, x)
+    if found and right > 0 and y > 0:
+        # Once past the square there is no more red; stop as soon as a row after the
+        # first red row has none.
+        row_has_red = any(
+            image.getpixel((x, y))[0] > 180
+            and image.getpixel((x, y))[1] < 80
+            and image.getpixel((x, y))[2] < 80
+            for x in range(0, min(w, right + 40))
+        )
+        if not row_has_red:
+            break
+fraction = (right + 1) / w
+# 100/1200 = 0.083 if the surface resized; 100/900 = 0.111 if the frame was
+# stretched to fill the bigger layer. Midpoint 0.097 separates them.
+if not found:
+    print("no red found anywhere in the capture")
+elif fraction < 0.097:
+    print("ok")
+else:
+    print(f"square covers {fraction:.3f} of the width — the old frame was stretched")
+PY
+)
+    if [ "$verdict" = "ok" ]; then
+      pass "a window resize re-renders at the new surface size"
+    else
+      fail "canvas resize: $verdict"
+    fi
+  fi
+fi
+
 # Case 4 (GUI): keep window open after completion (plan §5.7). Launched WITHOUT
 # the headless gate so the real window + event loop run; a program whose main
 # returns immediately must leave the process alive (window open) rather than

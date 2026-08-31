@@ -11,9 +11,11 @@ use super::scene_base::scene_base;
 use crate::codegen::app::hook::app::{prepend_wrong_mode_gate, ModeRequirement};
 use crate::codegen::collection::layout::list_entry_stride;
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::operand::{Operand, VirtualRegister};
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::data::push_symbol_address;
 use crate::codegen::registry::AbiCtx;
+use crate::codegen::runtime::canvas::{GRAPHICS_OFFSET_FRAMES, GRAPHICS_STATE_SYMBOL};
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
@@ -236,6 +238,42 @@ pub(crate) fn emit_publish(
     builder.emit(abi::return_());
     builder.emit(abi::label(&publish));
 
+    // ---- Reclaim, then retire (plan-98-D Phase 3) -----------------------------
+    //
+    // A publish displaces the block the renderer may be *reading right now*, so it
+    // cannot be freed here. It is retired instead, stamped with the frame counter,
+    // and reclaimed by a **later** publish once a frame has completed since — at
+    // which point no render can still hold it.
+    //
+    // Without this every publish abandoned its predecessor: a 200-frame animation
+    // grew by ~0.11 MB a frame with nothing ever reclaiming it.
+    //
+    // The free happens on the worker, which is also what allocated the block. An
+    // arena is per-thread, so the graphics thread must never do it.
+    emit_reclaim_retired(builder, &scene, &symbol)?;
+    for (retired, live) in [
+        (CANVAS_SCENE_RETIRED_ITEMS_OFFSET, CANVAS_SCENE_ITEMS_OFFSET),
+        (
+            CANVAS_SCENE_RETIRED_HASHES_OFFSET,
+            CANVAS_SCENE_HASHES_OFFSET,
+        ),
+        (
+            CANVAS_SCENE_RETIRED_LAYERS_OFFSET,
+            CANVAS_SCENE_LAYERS_OFFSET,
+        ),
+    ] {
+        let displaced = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&displaced, &scene, live));
+        builder.emit(abi::store_u64(&displaced, &scene, retired));
+    }
+    let frame_now = builder.temporary_vreg();
+    emit_load_frame_counter(builder, &frame_now, &symbol);
+    builder.emit(abi::store_u64(
+        &frame_now,
+        &scene,
+        CANVAS_SCENE_RETIRED_FRAME_OFFSET,
+    ));
+
     // Publish: this shape's pointer and count, the other shape's pair cleared, then
     // the revision. The revision is written LAST and is what a reader gates on, so a
     // reader can never observe a bumped revision alongside a half-written scene.
@@ -282,4 +320,83 @@ pub(crate) fn emit_publish(
         location: Operand::from("void"),
         text: symbol,
     })
+}
+
+/// Load the graphics thread's completed-frame counter.
+///
+/// Read without the mutex, and that is sound: it is a single aligned word, it only
+/// ever increases, and the retirement gate is a `>` comparison. A stale read makes
+/// the free happen one publish later than it could — never earlier, which is the only
+/// direction that would be a use-after-free.
+fn emit_load_frame_counter(builder: &mut CodeBuilder, dst: &VirtualRegister, symbol: &str) {
+    let base = builder.temporary_vreg();
+    push_symbol_address(
+        symbol,
+        GRAPHICS_STATE_SYMBOL,
+        &base,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    builder.emit(abi::load_u64(dst, &base, GRAPHICS_OFFSET_FRAMES));
+}
+
+/// Free the retired blocks if a frame has completed since they were retired.
+///
+/// Each is a collection block, so its size comes from its own header — the same
+/// computation `copy_flat_block` used to allocate it. Getting that size wrong frees
+/// the wrong number of bytes and corrupts the arena free list, which is why it is
+/// derived rather than remembered.
+fn emit_reclaim_retired(
+    builder: &mut CodeBuilder,
+    scene: &VirtualRegister,
+    symbol: &str,
+) -> Result<(), String> {
+    let done = builder.label("canvas_reclaim_done");
+    let retired_frame = builder.temporary_vreg();
+    let frame_now = builder.temporary_vreg();
+    builder.emit(abi::load_u64(
+        &retired_frame,
+        scene,
+        CANVAS_SCENE_RETIRED_FRAME_OFFSET,
+    ));
+    emit_load_frame_counter(builder, &frame_now, symbol);
+    builder.emit(abi::compare_registers(&frame_now, &retired_frame));
+    builder.emit(abi::branch_ls(&done));
+
+    for (offset, type_) in [
+        (
+            CANVAS_SCENE_RETIRED_ITEMS_OFFSET,
+            ParameterType::list_of(ParameterType::named("DrawItem")),
+        ),
+        (
+            CANVAS_SCENE_RETIRED_HASHES_OFFSET,
+            ParameterType::list_of(ParameterType::Integer),
+        ),
+        (
+            CANVAS_SCENE_RETIRED_LAYERS_OFFSET,
+            ParameterType::list_of(ParameterType::named("DrawLayer")),
+        ),
+    ] {
+        let skip = builder.label("canvas_reclaim_skip");
+        let block = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&block, scene, offset));
+        builder.emit(abi::compare_immediate(&block, "0"));
+        builder.emit(abi::branch_eq(&skip));
+
+        let slot = builder.allocate_stack_object("canvas_reclaim_block", 8);
+        let size_slot = builder.allocate_stack_object("canvas_reclaim_size", 8);
+        builder.emit(abi::store_u64(&block, abi::stack_pointer(), slot));
+        builder.emit_inlined_block_size_from_ptr_slot(&type_, slot, size_slot)?;
+        builder.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), slot));
+        builder.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            size_slot,
+        ));
+        emit_arena_free(symbol, &mut builder.instructions, &mut builder.relocations);
+        builder.emit(abi::store_u64(abi::ZERO, scene, offset));
+        builder.emit(abi::label(&skip));
+    }
+    builder.emit(abi::label(&done));
+    Ok(())
 }

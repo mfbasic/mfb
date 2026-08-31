@@ -451,7 +451,9 @@ impl NativePlanPlatform for Platform {
             | "canvas.waitForRedraw"
             | "canvas.frameDone"
             | "canvas.syncFrame"
-            | "canvas.setSyncMode" => vec![
+            | "canvas.setSyncMode"
+            | "canvas.surfaceWidth"
+            | "canvas.surfaceHeight" => vec![
                 import("CreateThread", KERNEL32, required_by),
                 import("WaitForSingleObject", KERNEL32, required_by),
                 import("InitializeSRWLock", KERNEL32, required_by),

@@ -60,6 +60,8 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "canvas.frameDone",
     "canvas.syncFrame",
     "canvas.setSyncMode",
+    "canvas.surfaceWidth",
+    "canvas.surfaceHeight",
     "canvas.startGraphics",
     "canvas.signalRedraw",
     "canvas.waitForRedraw",

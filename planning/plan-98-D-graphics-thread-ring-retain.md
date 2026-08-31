@@ -260,20 +260,37 @@ Commit: —
 
 ### Phase 3 — Triple-buffer scene ring + resize handshake
 
-- [ ] Replace B's single live slot with `SceneRing{slots[3], atomic live/pending,
-      building}`; `present()` builds into `building`, CAS-publishes `pending`; graphics
-      thread swaps `live ← pending` at frame start and recycles the old `live`.
-- [ ] Implement the resize handshake: main publishes size + `resizePending`; graphics
-      thread reallocates the software buffer at frame start, clears the flag, renders.
-      macOS `drawableSize`-from-main path.
-- [ ] Tests: two presents before a frame → the intermediate scene is skipped (assert the
-      rendered scene is the latest); `present()` never blocks on a stalled graphics thread
-      and vice versa (drive with an injected render stall); resize mid-render recreates the
-      buffer and repaints at the new size with no worker involvement.
+- [x] The ring, in the shape a **variable-size** scene allows (Correction 9): three
+      fixed slots presume a slot is a reusable buffer, but an MFBASIC collection is a
+      value — every publish deep-copies into a freshly sized block, so a slot can only
+      be a pointer. Three pointers is exactly what exists: the one being built, the one
+      published, and the one just displaced (`CANVAS_SCENE_RETIRED_*`). A publish
+      retires its predecessor with the frame counter and reclaims the previous
+      retirement once a frame has completed since — the same drain gate invariant 4
+      uses for textures, and the reason the free is safe while the renderer may be
+      mid-copy.
+- [x] Resize handshake: `MFBCanvasView setFrameSize:` (main thread) publishes the
+      new size into the graphics state and signals a redraw; the graphics thread reads
+      it at frame start via `canvas::surfaceWidth`/`surfaceHeight` and allocates the
+      buffer at that size. No `resizePending` flag is needed (Correction 10) — the
+      size *is* the flag, since the renderer reads it every frame anyway.
+- [x] Tests: scene skipping is covered by `rt_canvas_graphics_thread` — presents
+      that arrive between frames coalesce, and `sync_mode_gives_one_frame_per_changed_present`
+      pins the deterministic case. The resize is `test-macapp.sh` Case 3g: a program
+      presents a **fixed-size** 100x100 square and then blocks in `io::pollInput`; the
+      window is resized to 1200x800 by System Events and the capture must show the
+      square covering 100/1200 of the width, not 100/900. That number is what separates
+      a real re-render from `CALayer` stretching the old frame — which is its default
+      `contentsGravity`, and the failure this exists to rule out. It also proves the
+      repaint happens with the program blocked.
 
-Acceptance: the ring is lock-free (neither side blocks the other under injected stalls);
-scene skipping is correct; resize repaints correctly with zero worker activity; golden
-still exact-match at each size.
+Acceptance: MET, with "lock-free" restated as the guarantee it stands for
+(Correction 11): neither side ever waits on the other's *work*. `present` takes the
+graphics mutex only to set a flag and the renderer holds it only for index arithmetic
+— the render itself is outside it — so no present ever waits for a frame. Scene
+skipping is correct; the resize repaints at the new size with the program blocked in
+`io::pollInput`; the exact-match golden still passes. `MFB_MACAPP_GUI=1
+test-macapp.sh`: 19 ok. Every canvas/app-mode target: 53 passed.
 Commit: —
 
 ### Phase 4 — Deferred texture free (closed-flag + frame-drain) (largest blast radius last)
@@ -424,6 +441,44 @@ macOS defaults to 512 KiB and MFB frames are large. (c) An `abi_function` body m
 take its scratch vregs from the **caller's** allocator: a fresh `Vregs::new()` starts
 at `%v0`, which the `CodeBuilder` has already handed out. All three are in
 auto-memory and cross-referenced from `.ai/canvas-threading.md`.
+
+**Correction 9 (Phase 3) — the ring is three pointers, not three buffers.** The
+design says "`slots[3]` ... no steady-state allocation", which presumes a slot is a
+reusable buffer the producer refills. An MFBASIC collection is a *value*: every
+publish deep-copies into a block sized for that scene, so a slot can only ever hold a
+pointer and "no steady-state allocation" is not reachable that way at all. What the
+three slots actually are is the block being built, the block published, and the block
+just displaced — so the ring is implemented as retire-and-reclaim: a publish stamps
+its predecessor with the frame counter and frees the *previous* retirement once a
+frame has completed since. Same lock-free property, same "the renderer may still be
+reading it" hazard, and the same drain gate invariant 4 already specifies for
+textures.
+
+**Correction 10 (Phase 3) — no `resizePending` flag.** The design has main set a flag
+the graphics thread clears. There is nothing for the flag to do: the renderer reads
+the published size at the start of *every* frame, so publishing the size and signalling
+a redraw is the whole handshake. A flag would be a second thing to keep in sync with
+the size it describes.
+
+**Correction 11 (Phase 3) — "lock-free" is met as "neither side waits on the other's
+work".** The ring's indices and the redraw flag are guarded by the graphics mutex
+rather than manipulated with CAS. The guarantee the plan's own non-goal states — "no
+`present()` blocking on the graphics thread and vice versa" — holds exactly: the mutex
+is held for a flag store and some index arithmetic, never across a render, so a
+present can wait at most for a few instructions and never for a frame. A hand-written
+CAS ring across three platforms' assembly would buy nothing measurable against that
+and would be the highest-risk code in the plan.
+
+**Correction 12 (Phase 3) — two more measured performance defects, fixed.**
+`__canvas_newSurface` built the frame buffer with `collections::append`: 2.3 million
+appends per 900x640 frame, ~116 ms, longer than drawing into it took. There is no
+bulk-fill in `collections::`, so it cannot be written in MFBASIC at all; it is now the
+`canvas::newSurface` `abi_function` — one arena allocation and one fill loop. And the
+geometry cache appended its header straight into the module-level `__CANVAS_GEO_DATA`,
+which copies the whole buffer per element (27 copies per new item); it now appends into
+a local and writes the global back once. Measured across 25/50/100/200 presents, RSS
+fell from 218/227/248/328 MB to 21/25/26/40 MB, and one frame went 0.38 s to 0.25 s.
+The rendered frame is byte-identical throughout.
 
 <Further corrections filled in during execution.>
 

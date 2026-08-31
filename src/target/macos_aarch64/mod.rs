@@ -45,6 +45,8 @@ impl NativeBackend for Backend {
                 "canvas.frameDone",
                 "canvas.syncFrame",
                 "canvas.setSyncMode",
+                "canvas.surfaceWidth",
+                "canvas.surfaceHeight",
                 "canvas.startGraphics",
                 "canvas.signalRedraw",
                 "canvas.waitForRedraw",

@@ -217,6 +217,8 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "canvas.frameDone",
             "canvas.syncFrame",
             "canvas.setSyncMode",
+            "canvas.surfaceWidth",
+            "canvas.surfaceHeight",
             "canvas.startGraphics",
             "canvas.signalRedraw",
             "canvas.waitForRedraw",

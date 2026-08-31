@@ -154,8 +154,15 @@ fn scene_stores(ins: &[Value]) -> Vec<i64> {
         .iter()
         .filter(|i| i["op"].as_str() == Some("str_u64") && i["base"].as_str() != Some("sp"))
         .filter_map(|i| i["offset"].as_str().and_then(|o| o.parse::<i64>().ok()))
+        // Only the LIVE scene fields. The publish path also writes the retirement
+        // bookkeeping (48..72, plan-98-D Phase 3), which is not part of the scene a
+        // reader sees and has no ordering requirement against the revision.
+        .filter(|offset| PUBLISHED_OFFSETS.contains(offset))
         .collect()
 }
+
+/// The scene fields a reader observes: revision, count, items, layers, layerCount.
+const PUBLISHED_OFFSETS: &[i64] = &[0, 8, 16, 32, 40];
 
 /// The index of the first `label` instruction whose name contains `needle`.
 fn label_at(ins: &[Value], needle: &str) -> Option<usize> {
@@ -200,9 +207,14 @@ fn an_identical_re_present_skips_the_publish() {
     );
     // And nothing writes it between the skip label and the publish label — that span
     // is the early return.
-    let stray = ins[skip..publish]
-        .iter()
-        .any(|i| i["op"].as_str() == Some("str_u64") && i["base"].as_str() != Some("sp"));
+    let stray = ins[skip..publish].iter().any(|i| {
+        i["op"].as_str() == Some("str_u64")
+            && i["base"].as_str() != Some("sp")
+            && i["offset"]
+                .as_str()
+                .and_then(|o| o.parse::<i64>().ok())
+                .is_some_and(|offset| PUBLISHED_OFFSETS.contains(&offset))
+    });
     assert!(
         !stray,
         "the skip path must not touch the scene region at all"

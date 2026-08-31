@@ -453,7 +453,9 @@ impl LinuxPlan<'_> {
             | "canvas.waitForRedraw"
             | "canvas.frameDone"
             | "canvas.syncFrame"
-            | "canvas.setSyncMode" => [
+            | "canvas.setSyncMode"
+            | "canvas.surfaceWidth"
+            | "canvas.surfaceHeight" => [
                 "pthread_create",
                 "pthread_attr_init",
                 "pthread_attr_setstacksize",

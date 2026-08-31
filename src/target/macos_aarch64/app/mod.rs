@@ -392,6 +392,11 @@ const DELEGATE_GLOBAL_SYM: &str = "_mfb_macapp_delegate";
 /// IMP for the delegate's `mfbBlit:` — runs on the main thread and sets the boxed
 /// `CGImage` as the canvas layer's contents.
 const CANVAS_BLIT_APPLY_SYMBOL: &str = "_mfb_macapp_canvas_blit_apply";
+/// IMP for `MFBCanvasView setFrameSize:` — publishes the new surface size and asks
+/// for a repaint (plan-98-D Phase 3).
+const CANVAS_SET_FRAME_SIZE_SYMBOL: &str = "_mfb_macapp_canvas_setFrameSize";
+/// The emitted `canvas::signalRedraw` runtime helper, by its derived symbol name.
+const CANVAS_SIGNAL_REDRAW_SYMBOL: &str = "_mfb_rt_canvas_canvas_signalRedraw";
 const LIB_COREGRAPHICS: &str = "CoreGraphics";
 /// Main-thread helper the reconcile IMP calls to build a fresh transcript window
 /// on the first `None`→`Console` switch (a `None`-start program has no startup
@@ -784,7 +789,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         // the other reconcile helpers rather than behind a "does this program use
         // canvas mode?" test — the mode is a runtime value, so there is no static
         // answer to that question.
-        functions.push(emit_reconcile_canvas_helper());
+        functions.push(emit_reconcile_canvas_helper(spec.uses_canvas));
         // plan-98-A Phase 4: the canvas view's two method IMPs. Referenced by
         // `class_addMethod` inside the canvas builder, so they are emitted with it.
         functions.push(emit_canvas_accepts_first_responder());
@@ -799,6 +804,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
     if spec.uses_canvas {
         functions.push(emit_canvas_blit_helper());
         functions.push(emit_canvas_blit_apply_helper());
+        functions.push(emit_canvas_set_frame_size_helper());
     }
     Ok(functions)
 }
@@ -1366,7 +1372,7 @@ mod canvas_reconcile_tests {
     /// eagerly, so the handle is retrievable the moment `setMode` returns.
     #[test]
     fn canvas_helper_makes_the_view_layer_backed() {
-        let func = emit_reconcile_canvas_helper();
+        let func = emit_reconcile_canvas_helper(true);
         assert_eq!(
             selector_send_count(&func.relocations, SEL_SET_WANTS_LAYER.0),
             1,
@@ -1392,7 +1398,7 @@ mod canvas_reconcile_tests {
     /// the stash dangle on the first exit.
     #[test]
     fn canvas_view_is_not_released_so_the_assign_stash_cannot_dangle() {
-        let func = emit_reconcile_canvas_helper();
+        let func = emit_reconcile_canvas_helper(true);
         assert_eq!(
             selector_send_count(&func.relocations, SEL_RELEASE.0),
             0,
@@ -1405,7 +1411,7 @@ mod canvas_reconcile_tests {
     /// yet — the canvas arm must be able to build one rather than messaging nil.
     #[test]
     fn canvas_helper_builds_a_window_when_none_exists() {
-        let func = emit_reconcile_canvas_helper();
+        let func = emit_reconcile_canvas_helper(true);
         assert_eq!(
             calls(&func.relocations, RECONCILE_BUILD_SYMBOL),
             1,
@@ -1487,7 +1493,7 @@ mod canvas_reconcile_tests {
     /// overrides must be installed, and the class registered.
     #[test]
     fn canvas_view_overrides_the_two_methods_that_deliver_keys() {
-        let func = emit_reconcile_canvas_helper();
+        let func = emit_reconcile_canvas_helper(true);
         assert_eq!(
             calls_external(&func, "_objc_allocateClassPair"),
             1,
@@ -1518,7 +1524,7 @@ mod canvas_reconcile_tests {
     /// — so the send sits after the have-view join, outside the build-once branch.
     #[test]
     fn canvas_entry_makes_the_view_first_responder() {
-        let func = emit_reconcile_canvas_helper();
+        let func = emit_reconcile_canvas_helper(true);
         assert_eq!(
             selector_send_count(&func.relocations, SEL_MAKE_FIRST_RESPONDER.0),
             1,

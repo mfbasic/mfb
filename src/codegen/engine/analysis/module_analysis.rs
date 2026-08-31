@@ -26,6 +26,8 @@ pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool 
             "canvas.frameDone",
             "canvas.syncFrame",
             "canvas.setSyncMode",
+            "canvas.surfaceWidth",
+            "canvas.surfaceHeight",
             "canvas.startGraphics",
             "canvas.signalRedraw",
             "canvas.waitForRedraw",

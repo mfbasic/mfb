@@ -944,6 +944,136 @@ pub(super) fn emit_canvas_blit_helper() -> CodeFunction {
     reconcile_code_function(CANVAS_BLIT_SYMBOL, asm)
 }
 
+/// plan-98-D Phase 3 (main thread): `MFBCanvasView setFrameSize:`.
+///
+/// The window's content view is resized by AppKit, so this is where a user drag
+/// becomes a new surface size. It calls `super` to actually resize the view, then
+/// publishes the size and signals a redraw — after which the graphics thread renders
+/// at the new size with **no program involvement at all**. That is the guarantee
+/// `term::` cannot give, and it holds even while the program is blocked in
+/// `io::input`.
+///
+/// The size arrives as two doubles in `d0`/`d1` and is truncated to whole pixels: a
+/// surface is an integer number of pixels, and the fractional part of a backing-scaled
+/// size has nowhere to go.
+pub(super) fn emit_canvas_set_frame_size_helper() -> CodeFunction {
+    let mut asm = Asm::new(CANVAS_SET_FRAME_SIZE_SYMBOL);
+    // lr@0, x19@8, x20@16, x21@24, x22@32, width bits@40, height bits@48,
+    // objc_super{receiver@56, super_class@64}.
+    let frame = 80;
+    let (off_w, off_h) = (40, 48);
+    let (off_super_recv, off_super_cls) = (56, 64);
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    for (reg, off) in [
+        (abi::LOCAL[0], 8usize),
+        (abi::LOCAL[1], 16),
+        (abi::LOCAL[2], 24),
+        (abi::LOCAL[3], 32),
+    ] {
+        asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // self
+
+    // Spill the NSSize args; the super call clobbers them.
+    asm.push(abi::float_move_x_from_d(
+        abi::SCRATCH[0],
+        abi::FP_SCRATCH[0],
+    ));
+    asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), off_w));
+    asm.push(abi::float_move_x_from_d(
+        abi::SCRATCH[0],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), off_h));
+
+    // [super setFrameSize:newSize]
+    asm.push(abi::store_u64(
+        abi::LOCAL[0],
+        abi::stack_pointer(),
+        off_super_recv,
+    ));
+    asm.external_data(abi::SCRATCH[0], CLASS_NS_VIEW, LIB_APPKIT);
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_super_cls,
+    ));
+    asm.load_selector(SEL_SET_FRAME_SIZE.0);
+    asm.push(abi::add_immediate(
+        "x0",
+        abi::stack_pointer(),
+        off_super_recv,
+    ));
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_w));
+    asm.push(abi::float_move_d_from_x(
+        abi::FP_SCRATCH[0],
+        abi::SCRATCH[0],
+    ));
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_h));
+    asm.push(abi::float_move_d_from_x(
+        abi::FP_SCRATCH[1],
+        abi::SCRATCH[0],
+    ));
+    asm.call_external("_objc_msgSendSuper", LIB_OBJC);
+
+    // width/height as whole pixels, into callee-saved registers the publish reads.
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_w));
+    asm.push(abi::float_move_d_from_x(
+        abi::FP_SCRATCH[0],
+        abi::SCRATCH[0],
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::LOCAL[1],
+        abi::FP_SCRATCH[0],
+    ));
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), off_h));
+    asm.push(abi::float_move_d_from_x(
+        abi::FP_SCRATCH[0],
+        abi::SCRATCH[0],
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::LOCAL[2],
+        abi::FP_SCRATCH[0],
+    ));
+
+    // Publish the size, then ask for the repaint that uses it. Publishing without
+    // signalling would leave the new size sitting unread until something else
+    // happened to want a frame.
+    crate::codegen::runtime::canvas::emit_publish_surface_size(
+        CANVAS_SET_FRAME_SIZE_SYMBOL,
+        abi::LOCAL[3],
+        abi::LOCAL[1],
+        abi::LOCAL[2],
+        &mut asm.ins,
+        &mut asm.rel,
+    );
+    // Call the emitted `canvas::signalRedraw` helper rather than re-emitting its
+    // body: this is physical-register bootstrap code and that emitter expects a vreg
+    // allocator. The symbol is the registry's derived name; a rename breaks the link
+    // step loudly ("internal relocation target ... is not defined") rather than
+    // silently dropping the repaint.
+    asm.call_internal(CANVAS_SIGNAL_REDRAW_SYMBOL);
+
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in [
+        (abi::LOCAL[0], 8usize),
+        (abi::LOCAL[1], 16),
+        (abi::LOCAL[2], 24),
+        (abi::LOCAL[3], 32),
+    ] {
+        asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    reconcile_code_function(CANVAS_SET_FRAME_SIZE_SYMBOL, asm)
+}
+
 /// plan-98-C Phase 3 (main thread): the `mfbBlit:` IMP. `x2` = the boxed
 /// `CGImageRef`.
 ///
@@ -1133,7 +1263,7 @@ pub(super) fn emit_reconcile_build_helper() -> CodeFunction {
 /// while in canvas mode — a canvas surface has no transcript to append to. That is
 /// the write half of the mode's I/O contract; the read half (window key events) is
 /// Phase 4.
-pub(super) fn emit_reconcile_canvas_helper() -> CodeFunction {
+pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool) -> CodeFunction {
     let mut asm = Asm::new(RECONCILE_CANVAS_SYMBOL);
     let frame = 48;
     let have_window = format!("{RECONCILE_CANVAS_SYMBOL}_have_window");
@@ -1197,6 +1327,19 @@ pub(super) fn emit_reconcile_canvas_helper() -> CodeFunction {
     asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
     asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(setFrameSize:), imp, "v@:{CGSize=dd}") —
+    // plan-98-D Phase 3: a user drag becomes a new surface size here.
+    //
+    // Gated on the program *drawing*, like `mfbBlit:`: the IMP calls the emitted
+    // `canvas::signalRedraw`, which only exists for a canvas program, so installing
+    // it for every `None`-default program named an IMP that was never emitted.
+    if uses_canvas {
+        asm.load_selector(SEL_SET_FRAME_SIZE.0);
+        asm.local_address("x2", CANVAS_SET_FRAME_SIZE_SYMBOL);
+        asm.local_address("x3", STR_SET_FRAME_SIZE_TYPES.0);
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+    }
     // objc_registerClassPair(cls)
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
     asm.call_external("_objc_registerClassPair", LIB_OBJC);

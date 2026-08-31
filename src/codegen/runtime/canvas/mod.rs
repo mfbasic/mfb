@@ -108,12 +108,20 @@ pub(crate) const GRAPHICS_OFFSET_WANTED: usize = 208;
 /// detail — which makes any frame-level assertion a flake without this. It is read
 /// once, at spawn, rather than per present.
 pub(crate) const GRAPHICS_OFFSET_SYNC: usize = 216;
+/// The surface's current pixel dimensions, published by the **main** thread on a
+/// resize and read by the graphics thread at frame start.
+///
+/// Zero means "not yet published", which reads as the startup size — the three
+/// platform surfaces are all created 900x640, so a program that never resizes sees
+/// exactly what it saw before this existed.
+pub(crate) const GRAPHICS_OFFSET_WIDTH: usize = 224;
+pub(crate) const GRAPHICS_OFFSET_HEIGHT: usize = 232;
 /// Scratch for the `pthread_attr_t` the spawn configures. 64 bytes covers macOS
 /// (64) and musl/glibc (56). It lives here rather than on the spawner's stack
 /// because there is exactly one spawn and the block is already process-global.
-pub(crate) const GRAPHICS_OFFSET_ATTR: usize = 224;
+pub(crate) const GRAPHICS_OFFSET_ATTR: usize = 240;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 288;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 304;
 
 /// The trampoline `pthread_create` starts: establishes the MFB context, then loops.
 pub(crate) const GRAPHICS_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_canvas_graphics_entry";
@@ -932,4 +940,59 @@ pub(crate) fn emit_set_sync_mode(
 ) {
     state_base(symbol, &scratch.base, instructions, relocations);
     instructions.push(abi::store_u64(value, &scratch.base, GRAPHICS_OFFSET_SYNC));
+}
+
+/// The surface's startup size, and the value a zero field reads as.
+///
+/// Matches what all three platform surfaces are created at
+/// (`emit_reconcile_canvas_helper`, `RECONCILE_BUILD_SYMBOL`, the Win32
+/// `CreateWindowExW`), so a program that never resizes is unaffected by the resize
+/// path existing.
+pub(crate) const DEFAULT_SURFACE_WIDTH: usize = 900;
+pub(crate) const DEFAULT_SURFACE_HEIGHT: usize = 640;
+
+/// Read one published surface dimension, falling back to the startup size.
+pub(crate) fn emit_surface_dimension(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    offset: usize,
+    default: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let ready = format!("{symbol}_dim_ready_{offset}");
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::load_u64(&scratch.scratch, &scratch.base, offset));
+    instructions.push(abi::compare_immediate(&scratch.scratch, "0"));
+    instructions.push(abi::branch_ne(&ready));
+    instructions.push(abi::move_immediate(
+        &scratch.scratch,
+        "Integer",
+        &default.to_string(),
+    ));
+    instructions.push(abi::label(&ready));
+    instructions.push(abi::move_register(RESULT_VALUE_REGISTER, &scratch.scratch));
+}
+
+/// Publish a new surface size from the platform's resize event.
+///
+/// Called on the **main** thread with the new dimensions already in the two given
+/// registers. Two plain aligned stores, no lock: the graphics thread reads them at
+/// frame start and a torn pair would at worst render one frame at a mixed size,
+/// which the next frame corrects — whereas taking the render mutex from a resize
+/// callback would block the UI thread behind a frame.
+///
+/// The caller signals a redraw afterwards; publishing without signalling would leave
+/// the new size unused until something else asked for a frame.
+pub(crate) fn emit_publish_surface_size(
+    symbol: &str,
+    base: &str,
+    width: &str,
+    height: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    state_base(symbol, base, instructions, relocations);
+    instructions.push(abi::store_u64(width, base, GRAPHICS_OFFSET_WIDTH));
+    instructions.push(abi::store_u64(height, base, GRAPHICS_OFFSET_HEIGHT));
 }

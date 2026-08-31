@@ -672,7 +672,9 @@ impl plan::NativePlanPlatform for Platform {
             | "canvas.waitForRedraw"
             | "canvas.frameDone"
             | "canvas.syncFrame"
-            | "canvas.setSyncMode" => [
+            | "canvas.setSyncMode"
+            | "canvas.surfaceWidth"
+            | "canvas.surfaceHeight" => [
                 "_pthread_create",
                 "_pthread_attr_init",
                 "_pthread_attr_setstacksize",
