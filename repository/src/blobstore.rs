@@ -632,17 +632,30 @@ mod tests {
     #[test]
     fn blob_ref_and_name_are_content_addressed() {
         let store = BlobStore::local("/data");
+        // The contract is the content-addressed *name* and that a local
+        // `blob_ref` is that name inside the store directory. The separator is
+        // NOT part of it: for the local backend `blob_ref` is a host filesystem
+        // path (documented in `store.rs` as informational — the collector
+        // addresses objects by hash + kind), so it is `\` on Windows, and a
+        // Windows deployment rooted at `C:\data` wants exactly that. Asserting a
+        // literal `/data/abc123.mfp` failed there on `/data\abc123.mfp`.
+        let expected = |name: &str| {
+            std::path::Path::new("/data")
+                .join(name)
+                .to_string_lossy()
+                .into_owned()
+        };
         // Package blobs keep the historical `.mfp` name — byte-for-byte
         // unchanged, so existing blobs need no migration.
         assert_eq!(
             store.blob_ref("abc123", BlobKind::Package),
-            "/data/abc123.mfp"
+            expected("abc123.mfp")
         );
         assert_eq!(blob_name("abc123", BlobKind::Package), "abc123.mfp");
         // Native library blobs land in a new `.bin` namespace.
         assert_eq!(
             store.blob_ref("abc123", BlobKind::Native),
-            "/data/abc123.bin"
+            expected("abc123.bin")
         );
         assert_eq!(blob_name("abc123", BlobKind::Native), "abc123.bin");
     }
@@ -862,11 +875,10 @@ mod tests {
 
     #[tokio::test]
     async fn size_surfaces_non_not_found_stat_errors() {
-        // Rooting the store at a regular file makes `<file>/<hash>.mfp` stat
-        // with ENOTDIR, which is not `NotFound` and so must be reported as an
-        // error rather than being mistaken for "no such blob".
-        let (_guard, root) = not_a_directory_root();
-        let store = BlobStore::local(root);
+        // An unusable root makes `<root>/<hash>.mfp` stat with `InvalidInput`,
+        // which is not `NotFound` and so must be reported as an error rather
+        // than being mistaken for "no such blob".
+        let store = BlobStore::local(unusable_root());
         let err = expect_err(store.size(&"a".repeat(64), BlobKind::Package).await);
         assert!(
             err.contains("failed to stat package blob"),
@@ -893,8 +905,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_surfaces_non_not_found_errors() {
-        let (_guard, root) = not_a_directory_root();
-        let store = BlobStore::local(root);
+        let store = BlobStore::local(unusable_root());
         let err = expect_err(store.delete(&"a".repeat(64), BlobKind::Package).await);
         assert!(
             err.contains("failed to delete package blob"),
@@ -904,8 +915,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_surfaces_non_not_found_read_errors() {
-        let (_guard, root) = not_a_directory_root();
-        let store = BlobStore::local(root);
+        let store = BlobStore::local(unusable_root());
         let err = expect_err(store.get(&"a".repeat(64), BlobKind::Package).await);
         assert!(
             err.contains("failed to read package blob"),
@@ -922,15 +932,22 @@ mod tests {
         }
     }
 
-    /// A store root that is a regular file, so every `<root>/<name>` path
-    /// operation fails with `ENOTDIR` — an io error that is *not* `NotFound`,
-    /// which is what distinguishes the "real failure" arms of `size`/`delete`/
-    /// `get` from their "blob is absent" arms.
-    /// The returned `TempDir` guard must be held for the duration of the test.
-    fn not_a_directory_root() -> (tempfile::TempDir, PathBuf) {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("root-is-a-file");
-        std::fs::write(&file, b"x").unwrap();
-        (dir, file)
+    /// A store root whose path contains an interior NUL, so every
+    /// `<root>/<name>` operation fails with `InvalidInput` — an io error that is
+    /// *not* `NotFound`, which is what distinguishes the "real failure" arms of
+    /// `size`/`delete`/`get` from their "blob is absent" arms.
+    ///
+    /// This replaces rooting the store at a regular file (POSIX `ENOTDIR`).
+    /// That is not portable: Windows reports a path whose interior component is
+    /// a file as `ERROR_PATH_NOT_FOUND`, which Rust maps to `NotFound` — so the
+    /// three operations took their "absent" arm and returned `Ok`, and the tests
+    /// failed with "expected an error, got Ok". Measured alternatives that also
+    /// do not work: a directory standing in for the blob fails `read`/
+    /// `remove_file` on both platforms but `metadata` *succeeds* on both, and a
+    /// share-locked file still stats fine on Windows. The interior NUL is
+    /// rejected before the path reaches the OS at all, so it is identical on
+    /// every platform and needs no filesystem setup.
+    fn unusable_root() -> PathBuf {
+        PathBuf::from("blob\u{0}root")
     }
 }

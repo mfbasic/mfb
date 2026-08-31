@@ -401,6 +401,20 @@ mod tests {
 
     const DAY: i64 = 86_400;
 
+    /// A blob hash whose derived object path (`<data>/<hash>.bin`) cannot be
+    /// stat'd on any platform: the interior NUL is rejected before the path
+    /// reaches the OS, so `metadata` returns `InvalidInput`. That is neither
+    /// success nor `NotFound`, which is exactly the third "broken reachable
+    /// blob" kind — the collector must report it and still list the candidate.
+    ///
+    /// This replaces planting a regular file where the path needed a directory
+    /// (POSIX `ENOTDIR`). Windows reports that as `ERROR_PATH_NOT_FOUND` →
+    /// `NotFound`, so the blob looked merely absent and the stat-failure arm
+    /// never ran. No portable filesystem shape produces a failing `metadata`:
+    /// a directory standing in for the blob stats fine on both platforms, as
+    /// does a share-locked file on Windows.
+    const UNSTATTABLE_HASH: &str = "unstattable\u{0}blob";
+
     /// A store plus a local blob backend sharing one temp dir.
     fn fixture() -> (tempfile::TempDir, Store, BlobStore) {
         let temp = tempfile::tempdir().unwrap();
@@ -757,12 +771,11 @@ mod tests {
     #[tokio::test]
     async fn a_stat_failure_is_reported_and_the_candidate_is_still_listed() {
         let (temp, store, blobs) = fixture();
-        // A *file* standing where the object's path needs a directory, so
-        // `stat`ing `data/wall/blocked.bin` fails with ENOTDIR — neither
-        // success nor "no such object".
-        std::fs::write(temp.path().join("data").join("wall"), b"not a directory").unwrap();
+        // A hash whose derived object path is rejected before it reaches the
+        // OS, so `stat`ing it fails with `InvalidInput` — neither success nor
+        // "no such object". See `unstattable_hash`.
         store
-            .record_native_blob("wall/blocked", "data/wall/blocked.bin")
+            .record_native_blob(UNSTATTABLE_HASH, "data/unstattable.bin")
             .unwrap();
 
         let report = run(&store, &blobs, &GcOptions::default(), now_unix() + 2 * DAY)
@@ -772,7 +785,7 @@ mod tests {
         assert!(report.failed());
         assert_eq!(report.errors.len(), 1, "{:?}", report.errors);
         assert!(
-            report.errors[0].starts_with("failed to stat blob wall/blocked:"),
+            report.errors[0].starts_with(&format!("failed to stat blob {UNSTATTABLE_HASH}:")),
             "{:?}",
             report.errors
         );
@@ -783,7 +796,7 @@ mod tests {
             "a blob we could not stat contributes no reclaimable bytes"
         );
         assert!(!report.unreachable[0].deleted);
-        assert!(store.blob_kind("wall/blocked").unwrap().is_some());
+        assert!(store.blob_kind(UNSTATTABLE_HASH).unwrap().is_some());
     }
 
     /// When the backing object cannot be removed, the DB row must stay put.
@@ -986,10 +999,9 @@ mod tests {
         store
             .record_native_blob("gonehash", "data/gonehash.bin")
             .unwrap();
-        // A referenced blob the backend cannot stat at all (ENOTDIR).
-        std::fs::write(temp.path().join("data").join("wall"), b"not a directory").unwrap();
+        // A referenced blob the backend cannot stat at all.
         store
-            .record_native_blob("wall/blocked", "data/wall/blocked.bin")
+            .record_native_blob(UNSTATTABLE_HASH, "data/unstattable.bin")
             .unwrap();
 
         publish(
@@ -1000,7 +1012,7 @@ mod tests {
             &[
                 "weirdhash".to_string(),
                 "gonehash".to_string(),
-                "wall/blocked".to_string(),
+                UNSTATTABLE_HASH.to_string(),
             ],
         );
         put_object(&blobs, "livehash", BlobKind::Package, b"0123456789").await;
@@ -1035,7 +1047,9 @@ mod tests {
             "{errors}"
         );
         assert!(
-            errors.contains("failed to stat reachable blob wall/blocked:"),
+            errors.contains(&format!(
+                "failed to stat reachable blob {UNSTATTABLE_HASH}:"
+            )),
             "{errors}"
         );
 
