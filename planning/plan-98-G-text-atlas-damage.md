@@ -382,6 +382,14 @@ Commit: 77efa718e (the cache, the eviction pass and its test), f7d9b81b1 (GPU te
       that wake cannot be produced from a program at all, because `publishScene` refuses an
       unchanged scene before it signals a redraw, and macOS has no scripted-resize
       affordance (Correction 26).
+- [x] **Ships behind `MFB_CANVAS_DAMAGE`, off by default**, which is what "optional" in
+      this phase's own goal means. The output is proven byte-identical on the two scene
+      shapes tested — unchanged, and one item moved — and that is exactly two shapes. A
+      partial redraw is only ever as correct as every kind's bounds, and turning it on for
+      every canvas program on that evidence would be trading a measured saving for an
+      unmeasured risk. The flag is documented in `.ai/canvas-threading.md` beside the
+      other affordances; widening the evidence and flipping the default is a later,
+      separable step.
 
 Acceptance: damage produces **byte-identical** output to full-frame on the software path —
 strengthened from "visibly identical", because there is no reason for a partial redraw to
@@ -397,24 +405,45 @@ This is the **end of the whole plan** (A–G), and the only place plan-98 runs t
 suite (A's invariant 8). Everything before this point ran targeted tests only, so this
 phase is where accumulated cross-letter breakage surfaces — budget for it.
 
-- [ ] `cargo test --no-fail-fast` — **not** plain `cargo test`, which stops at the first
+- [x] `cargo test --no-fail-fast` — **not** plain `cargo test`, which stops at the first
       failing target and silently skips every `rt_*` runtime/codegen test that sorts
-      after it.
-- [ ] The acceptance golden harness, which is **not** part of `cargo test`:
+      after it. Run as `cargo test --release --no-fail-fast`: the profile is not what the
+      row is about (the `rt_*` tests execute `target/release/mfb` either way), and
+      `--no-fail-fast` is. **4234 passed, 0 failed, across 81 targets, cargo exit 0.**
+- [x] The acceptance golden harness, which is **not** part of `cargo test`:
       `scripts/test-accept.sh` with a session-unique scratch dir (never `tests/` — the
       second argument is `rm -rf`'d). Watch the `N ran` count between runs; a silent drop
       means fixtures were skipped, not that they passed.
-- [ ] Triage anything red: fix it, or — if it is genuinely pre-existing — prove that
+      **`acceptance tests passed (1307 test(s) ran)`.**
+- [x] Triage anything red: fix it, or — if it is genuinely pre-existing — prove that
       against the merge-base binary (`git archive <merge-base> | tar -x -C /tmp/base98`
       + `cargo build --release`) before setting it aside. Pre-existing is not
       not-a-bug.
-- [ ] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`
-      — the root `--all` does not reach the `repository/` path dependency.
-- [ ] Move `planning/plan-98-*.md` to `planning/completed/` with the verification
-      evidence, per the archive convention.
 
-Acceptance: `cargo test --no-fail-fast` green; `test-accept.sh` green with no drop in the
-`N ran` count; fmt clean; plan archived.
+      Nothing was red at the end. The merge-base build was used once and it mattered:
+      an intermediate version of the bug-478 fix regressed the Windows *console* entry
+      from `rc=0` to `0xC0000005`, and building the same source with
+      `/tmp/base98/target/release/mfb` is what proved the regression was mine rather
+      than a pre-existing Windows fault. `artifact-gate.sh all` also reported 26 diffs
+      after that fix, all `windows-x86_64`; diffing one `.ncode` against the merge-base
+      build showed the delta was exactly the `sub_sp`/`add_sp` pair and the label
+      renumbering two inserted instructions cause, so they were regenerated rather than
+      investigated further — and the gate is back to 0.
+- [x] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`
+      — the root `--all` does not reach the `repository/` path dependency. Clean: no
+      churn (`git status --short` shows only this plan document).
+- [~] Move `planning/plan-98-*.md` to `planning/completed/` with the verification
+      evidence, per the archive convention. **G is archived; F is not, and cannot be.**
+      plan-98-F Phase 3 (Windows Vulkan) is blocked on two Prerequisites rows recorded
+      there with their check commands: bug-479 (Windows canvas mode faults on the
+      graphics thread) and the fact that box 2230 has the Vulkan loader but **no ICD**,
+      so a Windows Vulkan render cannot be verified there at all. The second needs an
+      install decision that is not this plan's to make. A split plan archives each
+      letter as it completes, which is what this does.
+
+Acceptance: `cargo test --no-fail-fast` green (4234/0 across 81 targets); `test-accept.sh`
+green with no drop in the `N ran` count (1307); fmt clean; **this letter** archived, with
+plan-98-F's remaining phase left open behind two recorded prerequisites.
 Commit: —
 
 ## Validation Plan

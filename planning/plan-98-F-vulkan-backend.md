@@ -683,3 +683,48 @@ reverted: the finish helper `ExitThread`s from *inside* the program body, so the
 restore is unreachable and the change would have been dead code.
 
 Phases 1 and 2 are Linux and are unaffected by any of this.
+
+**Correction 16 (Phase 3) — bug-478 was two bugs, and the second is a Win64 rule this
+repository had backwards.** The report's hypothesis 1 was right about
+`emit_random_bytes`: it emitted no frame at all, so `BCryptGenRandom` spilled its four
+register arguments over 32 bytes of the caller's locals. Shadow space is the *caller's*
+job on Win64 and it lands **above** the caller's `rsp`, in its own frame — every other
+external-call emitter in `win_x86_64/code.rs` reserves one.
+
+The second was not in the report. `emit_worker` reserved `0x28`, an odd multiple of 8,
+which is exactly right for an ordinary prologue — a function reached by `call` arrives
+at `rsp % 16 == 8`. **A thread start routine does not**: `BaseThreadInitThunk` enters it
+already aligned. And because the program body's alignment simply *is* its caller's call
+site, that 8-byte skew was inherited by every Win32 call the program would ever make.
+
+The two paths therefore disagreed by exactly 8 — the console entry comes from the PE
+loader, whose skew `entry_stack_misaligned_on_entry` already shaves — so a frame size
+measured on one *broke* the other. An intermediate version of this fix took the empty
+console program from `rc=0` to `0xC0000005`, caught by rebuilding the same source with
+the merge-base binary rather than by any test. Neither TEB hypothesis was needed: the
+read of `0xFFFFFFFFFFFFFFFF` in ntdll's activation-context path was downstream of the
+misalignment, not a cause. Written up in `.ai/arch-abi.md`, because it is a property of
+the convention rather than of these two seams.
+
+**Correction 17 (Phase 3) — the missing Windows test was the bug.** Five Windows
+defects in one sitting, every one of them shipped, every one invisible to a green
+`cargo test` on a macOS host: `fs` writes, `CreateThread`'s handle, the WNDPROC return,
+`GetEnvironmentVariableW` in three places, and bug-478. `scripts/test-winapp.sh` now
+runs an app-mode program on box 2230 and asserts the three things those defects each
+broke. It is three assertions and it would have caught four of the five on the day they
+landed. `scripts/` had `test-appimage.sh` and `test-macapp.sh` and nothing for Windows;
+that gap, not any single emitter, is what let this accumulate.
+
+**Correction 18 (Phase 3) — the phase has a blocker no amount of code can clear.** Box
+2230 has the Vulkan **loader** and no **ICD**: `reg query
+HKLM\SOFTWARE\Khronos\Vulkan\Drivers` reports the key does not exist. `vulkanReady`
+can therefore only ever answer FALSE there, and Phase 3's acceptance — a tolerance match
+against the Windows software render — is unverifiable no matter how correct a
+`VK_KHR_win32_surface` backend is.
+
+The Linux boxes hit the same wall and `--icd auto` solved it by downloading Mesa's
+`lavapipe` from the Alpine mirror. The Windows equivalent is fetching a third-party
+driver binary onto the box, and that is an install decision for the repository's owner,
+not something this plan should take unasked. Recorded as a Prerequisites row with its
+check command so the next reader inherits the question rather than rediscovering it.
+
