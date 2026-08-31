@@ -455,7 +455,7 @@ if a pinned summary is itself corrected.
 
 Acceptance: census table in this file; memory-scope baseline table in this
 file; anomaly resolved in writing. — **MET**.
-Commit: (hash recorded in the following commit)
+Commit: e30c538de
 
 #### The census (measured 2026-08-30, `./scripts/man-census.sh`)
 
@@ -574,21 +574,33 @@ re-derives them:
 
 ### Phase 2 — the standard
 
-- [ ] Author `.ai/man-content.md` per §3 (2), including the intro policy
-      (Open Decision below) so the census can enforce it.
-- [ ] Write §3 (2a) into it verbatim: permitted four, banned list, rewrite
+- [x] Author `.ai/man-content.md` per §3 (2), including the intro policy
+      (Open Decision below) so the census can enforce it. **Intro policy
+      DECIDED: REQUIRED** — one sentence, distinct from `desc`'s first line;
+      477 of 489 pages already comply, only `thread`'s 12 do not, so the
+      policy costs 12 pages rather than 489.
+- [x] Write §3 (2a) into it verbatim: permitted four, banned list, rewrite
       table, both carve-outs, and the "link `mfb man variable`, do not
-      re-explain" rule.
-- [ ] Confirm the `consume`/`consumed` ban survives contact with the
+      re-explain" rule. — §4 of the standard. The banned list is **not**
+      re-typed there: the doc points at `./scripts/man-census.sh
+      --banned-list`, so there is exactly one source and no second copy to
+      drift (this is what the acceptance criterion asks for).
+- [x] Confirm the `consume`/`consumed` ban survives contact with the
       pilot's pages and that the two replacement sentences ("stays open —
       the caller still closes it" / "closed by this call; the handle cannot
       be used again") cover every one of the 25 parameter descriptions;
       amend the rewrite table if a third case exists.
+      — **A third case exists, and the count was 32, not 25.** See
+      Corrections; six rewrite-table rows added.
 
 Acceptance: standard committed; census script checks every field the
 standard requires; `--memory-scope` banned list and the standard's list are
 the same list (one source — the script reads it or the doc quotes it).
-Commit: —
+— **MET**: `.ai/man-content.md` committed; the census reports intro / desc /
+example / param-desc / types-entry fill, which is every field §2 of the
+standard requires; and the banned list has exactly one home
+(`BANNED_CORE` in the script, printed by `--banned-list`).
+Commit: (hash recorded in the following commit)
 
 ### Phase 2b — `mfb man variable`
 
@@ -658,10 +670,22 @@ Commit: —
   `mfb spec` too, that is a separate plan with a different risk profile
   (the spec's words carry normative weight) — confirm the boundary at
   kickoff and record it here.
-- **Function-level `intro` policy**: the one-line intro under the title is
-  empty nearly everywhere; recommend REQUIRED (one sentence, distinct from
-  desc's first line) — decide in Phase 2 when writing the standard; the
-  census then reports it.
+- **Function-level `intro` policy** — **DECIDED 2026-08-30 (Phase 2):
+  REQUIRED**, one sentence, distinct from `desc`'s first line
+  (`.ai/man-content.md` §2). The premise behind the recommendation was
+  wrong in the plan's favour: the intro is not "empty nearly everywhere" —
+  the census measures **477 of 489** pages already carrying one, with the
+  only gap being `thread`'s 12. Requiring it therefore costs 12 pages of
+  authoring, not 489, and `scripts/man-census.sh`'s INTRO column reports
+  compliance per package.
+
+- **`mfb spec` boundary** — **CONFIRMED 2026-08-30 at kickoff: the ban stops
+  at `mfb man`.** No plan-108 letter edits any file under `src/docs/spec/**`.
+  The spec's §14 ownership/move vocabulary is the normative language contract
+  and is correct where it is; `.ai/man-content.md` §4.4 carve-out 2 records
+  this, and adds the operational rule that follows from it — if a man page
+  needs that much precision, cut the sentence and link `mfb man variable`
+  rather than importing the spec's words.
 
 ## Corrections
 
@@ -703,6 +727,34 @@ Two populations §2 never measured, now measured and assigned:
   so these are D's and C's work, not a cosmetic gap.
 - **5 missing types-page entries**, all in `term` (`TermColor.r/g/b`,
   `TermSize.columns/rows`) — B's.
+
+**2026-08-30 (Phase 2) — the handle-parameter rewrite has THREE cases, not
+two, and there are 32 of them, not 25.** §3 (2a) predicted that two
+replacement sentences would cover every "Borrowed, not consumed" parameter
+description. Auditing the actual strings
+(`grep -rn "Borrowed, not consumed" --include='*.rs' src/codegen/builtins/ |
+wc -l` → **32**, and
+`grep -rhoE '"[^"]*(onsume|orrow)[^"]*"' --include='*.rs'
+src/codegen/builtins/ | sort | uniq -c`) shows otherwise:
+
+- The count is **32**, not 25 (process 8, tcp/udp 12, audio 6, tls 3, net 3).
+- A **third case** exists that neither sentence covers: `http`'s four
+  `startRead` stream parameters say *"Passed by reference; `pump` mutates its
+  STATE (`raw`/`closed`/`err`) and neither consumes nor closes it."* The call
+  is handed the handle, **updates it in place**, and neither closes nor takes
+  it. "Stays open — the caller still closes it" silently drops the in-place
+  update, which is the whole point of `pump`. Its current wording also leaks
+  the separately banned `by reference`.
+- Three more one-off phrasings need their own rows rather than being forced
+  into the two: "Borrowed and inspected for readiness only; no data is read"
+  (`process`), "Borrowed — it remains open and usable after the call"
+  (`tcp::accept`), and "Consumed by the call — the handle is moved and
+  unusable afterward" (`audio::close`).
+
+`.ai/man-content.md` §4.2 now states the three cases explicitly and §4.3
+carries six added rewrite rows. This is exactly the failure mode §3 (2a)'s
+risk note named — "the ban being applied as find-and-replace, losing a TRUE
+contract" — caught before any letter applied it.
 
 **2026-08-30 (Phase 1) — the memory-vocabulary baseline is 402 rendered
 lines, not 94.** §2 and F both quote "94 memory-sense hits". That figure was
