@@ -12,7 +12,7 @@
     "kind": "enum",
     "line": 1,
     "visibility": "export",
-    "name": "Rounding",
+    "name": "money.Rounding",
     "members": [
     { "name": "Commercial" },
     { "name": "Banker" }
@@ -29,13 +29,13 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "money.setRounding", "args": [{ "kind": "memberAccess", "type": "Rounding", "target": { "kind": "local", "name": "Rounding" }, "member": "Commercial" }] } },
-    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "money.setRounding", "args": [{ "kind": "memberAccess", "type": "Rounding", "target": { "kind": "local", "name": "Rounding" }, "member": "Banker" }] } },
-    { "op": "bind", "line": 11, "mutable": false, "name": "mode", "type": "Rounding", "value": { "kind": "call", "type": "Rounding", "target": "money.getRounding", "args": [] } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "money.setRounding", "args": [{ "kind": "memberAccess", "type": "money.Rounding", "target": { "kind": "local", "name": "money.Rounding" }, "member": "Commercial" }] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "money.setRounding", "args": [{ "kind": "memberAccess", "type": "money.Rounding", "target": { "kind": "local", "name": "money.Rounding" }, "member": "Banker" }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "mode", "type": "money.Rounding", "value": { "kind": "call", "type": "money.Rounding", "target": "money.getRounding", "args": [] } },
     {
       "op": "if",
       "line": 12,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "mode" }, "right": { "kind": "memberAccess", "type": "Rounding", "target": { "kind": "local", "name": "Rounding" }, "member": "Banker" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "mode" }, "right": { "kind": "memberAccess", "type": "money.Rounding", "target": { "kind": "local", "name": "money.Rounding" }, "member": "Banker" } },
       "then": [
       { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "banker" }] } }
       ],

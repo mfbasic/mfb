@@ -19,7 +19,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "d", "type": "Date", "value": { "kind": "call", "callee": "datetime.date", "arguments": [{ "kind": "number", "value": "2026" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "29" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "d", "type": "datetime.Date", "value": { "kind": "call", "callee": "datetime.date", "arguments": [{ "kind": "number", "value": "2026" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "29" }] }, "line": 6 },
       { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "day" }, "line": 7 }
       ],
       "trap": {
@@ -41,7 +41,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "d", "type": "Date", "value": { "kind": "call", "callee": "datetime.date", "arguments": [{ "kind": "number", "value": "2026" }, { "kind": "number", "value": "13" }, { "kind": "number", "value": "1" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "d", "type": "datetime.Date", "value": { "kind": "call", "callee": "datetime.date", "arguments": [{ "kind": "number", "value": "2026" }, { "kind": "number", "value": "13" }, { "kind": "number", "value": "1" }] }, "line": 15 },
       { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "month" }, "line": 16 }
       ],
       "trap": {
@@ -63,7 +63,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Time", "value": { "kind": "call", "callee": "datetime.time", "arguments": [{ "kind": "number", "value": "24" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "t", "type": "datetime.Time", "value": { "kind": "call", "callee": "datetime.time", "arguments": [{ "kind": "number", "value": "24" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 24 },
       { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "hour" }, "line": 25 }
       ],
       "trap": {
@@ -85,7 +85,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "z", "type": "Zone", "value": { "kind": "call", "callee": "datetime.fixedOffset", "arguments": [{ "kind": "number", "value": "30" }, { "kind": "number", "value": "0" }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "name": "z", "type": "datetime.Zone", "value": { "kind": "call", "callee": "datetime.fixedOffset", "arguments": [{ "kind": "number", "value": "30" }, { "kind": "number", "value": "0" }] }, "line": 33 },
       { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "z" }, "member": "offsetSeconds" }, "line": 34 }
       ],
       "trap": {
@@ -107,7 +107,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "dt", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "string", "value": "not-a-date" }, { "kind": "string", "value": "yyyy-MM-dd" }] }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "dt", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "string", "value": "not-a-date" }, { "kind": "string", "value": "yyyy-MM-dd" }] }, "line": 42 },
       { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "dt" }, "member": "date" }, "member": "year" }, "line": 43 }
       ],
       "trap": {
@@ -129,7 +129,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "dt", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parseIso", "arguments": [{ "kind": "string", "value": "2026/06/25" }] }, "line": 51 },
+      { "kind": "binding", "mutable": false, "name": "dt", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.parseIso", "arguments": [{ "kind": "string", "value": "2026/06/25" }] }, "line": 51 },
       { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "dt" }, "member": "date" }, "member": "year" }, "line": 52 }
       ],
       "trap": {

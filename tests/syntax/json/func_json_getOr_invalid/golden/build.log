@@ -16,7 +16,7 @@ tests/syntax/json/func_json_getOr_invalid/src/main.mfb:5 error[2-203-0043 TYPE_U
    6 |   LET wrongPath AS json::Json = json::getOr(value, TRUE, value)
      | ^
 tests/syntax/json/func_json_getOr_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `json.getOr` has argument type(s) (Json, Boolean, Json), expected Json, List OF String, Json.
+               Call to `json.getOr` has argument type(s) (json.Json, Boolean, json.Json), expected json.Json, List OF String, json.Json.
    4 |   LET value AS json::Json = json::JsonNull[NOTHING]
    5 |   LET missing AS json::Json = json::getOr()
    6 |   LET wrongPath AS json::Json = json::getOr(value, TRUE, value)
@@ -28,7 +28,7 @@ tests/syntax/json/func_json_getOr_invalid/src/main.mfb:6 error[2-203-0043 TYPE_U
    7 |   LET wrongDefault AS json::Json = json::getOr(value, ["x"], "bad")
      | ^
 tests/syntax/json/func_json_getOr_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `json.getOr` has argument type(s) (Json, List OF String, String), expected Json, List OF String, Json.
+               Call to `json.getOr` has argument type(s) (json.Json, List OF String, String), expected json.Json, List OF String, json.Json.
    5 |   LET missing AS json::Json = json::getOr()
    6 |   LET wrongPath AS json::Json = json::getOr(value, TRUE, value)
    7 |   LET wrongDefault AS json::Json = json::getOr(value, ["x"], "bad")

@@ -19,9 +19,9 @@
       ],
       "returnType": "Nothing",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "first", "type": "Url", "value": { "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "identifier", "value": "href" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "first", "type": "net.Url", "value": { "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "identifier", "value": "href" }] }, "line": 7 },
       { "kind": "binding", "mutable": false, "name": "rendered", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "first" }] }, "line": 8 },
-      { "kind": "binding", "mutable": false, "name": "second", "type": "Url", "value": { "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "identifier", "value": "rendered" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "second", "type": "net.Url", "value": { "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "identifier", "value": "rendered" }] }, "line": 9 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "render=" }, "right": { "kind": "identifier", "value": "rendered" } }] }, "line": 10 },
       {
         "kind": "if",

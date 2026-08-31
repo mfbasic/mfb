@@ -12,7 +12,7 @@
     "kind": "enum",
     "line": 1,
     "visibility": "export",
-    "name": "Rounding",
+    "name": "money.Rounding",
     "members": [
     { "name": "Commercial" },
     { "name": "Banker" }

@@ -42,7 +42,7 @@
             "line": 17,
             "cases": [
             {
-              "pattern": { "kind": "union", "type": "AttrFlag", "binding": "f" },
+              "pattern": { "kind": "union", "type": "astrings.AttrFlag", "binding": "f" },
               "guard": null,
               "line": 18,
               "body": [

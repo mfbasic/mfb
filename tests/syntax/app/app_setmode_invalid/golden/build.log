@@ -10,7 +10,7 @@ tests/syntax/app/app_setmode_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_A
    8 |   app::setMode(1)
      | ^
 tests/syntax/app/app_setmode_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `app.setMode` has argument type(s) (Integer), expected Mode.
+               Call to `app.setMode` has argument type(s) (Integer), expected app.Mode.
    8 |   app::setMode(1)
    9 |   ' getMode takes no arguments (wrong arity: one).
   10 |   LET m AS app::Mode = app::getMode(app::Mode.None)

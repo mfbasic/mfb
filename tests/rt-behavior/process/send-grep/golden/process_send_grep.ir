@@ -12,7 +12,7 @@
     "kind": "enum",
     "line": 1,
     "visibility": "export",
-    "name": "Stream",
+    "name": "process.Stream",
     "members": [
     { "name": "StdOut" },
     { "name": "StdErr" }
@@ -22,7 +22,7 @@
     "kind": "enum",
     "line": 6,
     "visibility": "export",
-    "name": "Signal",
+    "name": "process.Signal",
     "members": [
     { "name": "None" },
     { "name": "Kill" },

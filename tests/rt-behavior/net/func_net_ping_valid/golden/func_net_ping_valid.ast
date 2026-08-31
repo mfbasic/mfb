@@ -16,7 +16,7 @@
       "name": "statusName",
       "line": 20,
       "params": [
-      { "name": "r", "type": "PingResult", "default": null, "line": 20 }
+      { "name": "r", "type": "net.PingResult", "default": null, "line": 20 }
       ],
       "returnType": "String",
       "body": [
@@ -27,7 +27,7 @@
         "line": 22,
         "cases": [
         {
-          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "PingStatus" }, "member": "Ok" } },
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "net.PingStatus" }, "member": "Ok" } },
           "guard": null,
           "line": 23,
           "body": [
@@ -35,7 +35,7 @@
           ]
         },
         {
-          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "PingStatus" }, "member": "Timeout" } },
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "net.PingStatus" }, "member": "Timeout" } },
           "guard": null,
           "line": 25,
           "body": [
@@ -43,7 +43,7 @@
           ]
         },
         {
-          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "PingStatus" }, "member": "Unreachable" } },
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "net.PingStatus" }, "member": "Unreachable" } },
           "guard": null,
           "line": 27,
           "body": [
@@ -51,7 +51,7 @@
           ]
         },
         {
-          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "PingStatus" }, "member": "TtlExceeded" } },
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "net.PingStatus" }, "member": "TtlExceeded" } },
           "guard": null,
           "line": 29,
           "body": [

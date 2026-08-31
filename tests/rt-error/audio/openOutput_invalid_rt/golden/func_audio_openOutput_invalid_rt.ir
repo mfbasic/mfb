@@ -12,7 +12,7 @@
     "kind": "type",
     "line": 7,
     "visibility": "export",
-    "name": "AudioDevice",
+    "name": "audio.AudioDevice",
     "fields": [
     { "visibility": null, "line": 8, "name": "id", "type": "String" },
     { "visibility": null, "line": 9, "name": "name", "type": "String" },
@@ -26,7 +26,7 @@
     "kind": "type",
     "line": 16,
     "visibility": "export",
-    "name": "AudioEnvelope",
+    "name": "audio.AudioEnvelope",
     "fields": [
     { "visibility": null, "line": 17, "name": "attackFrames", "type": "Integer" },
     { "visibility": null, "line": 18, "name": "decayFrames", "type": "Integer" },
@@ -39,11 +39,11 @@
     "kind": "type",
     "line": 24,
     "visibility": "export",
-    "name": "AudioNote",
+    "name": "audio.AudioNote",
     "fields": [
     { "visibility": null, "line": 25, "name": "frequencyHz", "type": "Float" },
     { "visibility": null, "line": 26, "name": "noteFrames", "type": "Integer" },
-    { "visibility": null, "line": 27, "name": "envelope", "type": "AudioEnvelope" },
+    { "visibility": null, "line": 27, "name": "envelope", "type": "audio.AudioEnvelope" },
     { "visibility": null, "line": 28, "name": "gainOverall", "type": "Float" }
     ]
   },
@@ -1490,17 +1490,17 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "note", "line": 523, "type": "AudioNote", "default": null }
+    { "name": "note", "line": 523, "type": "audio.AudioNote", "default": null }
     ],
     "returns": "List OF Byte",
     "body": [
     { "op": "bind", "line": 524, "mutable": true, "name": "pcm", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
     { "op": "bind", "line": 525, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "note" }, "member": "noteFrames" } },
-    { "op": "bind", "line": 526, "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "attackFrames" } },
-    { "op": "bind", "line": 527, "mutable": false, "name": "d", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "decayFrames" } },
-    { "op": "bind", "line": 528, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "releaseFrames" } },
+    { "op": "bind", "line": 526, "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "audio.AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "attackFrames" } },
+    { "op": "bind", "line": 527, "mutable": false, "name": "d", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "audio.AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "decayFrames" } },
+    { "op": "bind", "line": 528, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "audio.AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "releaseFrames" } },
     { "op": "bind", "line": 529, "mutable": false, "name": "peak", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "32767.0" } },
-    { "op": "bind", "line": 530, "mutable": false, "name": "sustain", "type": "Float", "value": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "sustainLevel" }] } },
+    { "op": "bind", "line": 530, "mutable": false, "name": "sustain", "type": "Float", "value": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "audio.AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "sustainLevel" }] } },
     { "op": "bind", "line": 531, "mutable": false, "name": "releaseStart", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "n" }, "right": { "kind": "local", "name": "r" } } },
     { "op": "bind", "line": 532, "mutable": false, "name": "$for_end21", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
     { "op": "bind", "line": 532, "mutable": false, "name": "$for_step22", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },

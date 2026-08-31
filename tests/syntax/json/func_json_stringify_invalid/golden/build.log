@@ -16,7 +16,7 @@ tests/syntax/json/func_json_stringify_invalid/src/main.mfb:4 error[2-203-0043 TY
    5 |   LET wrongType AS String = json::stringify("x")
      | ^
 tests/syntax/json/func_json_stringify_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `json.stringify` has argument type(s) (String), expected Json.
+               Call to `json.stringify` has argument type(s) (String), expected json.Json.
    3 | FUNC main AS Integer
    4 |   LET missing AS String = json::stringify()
    5 |   LET wrongType AS String = json::stringify("x")
@@ -40,5 +40,5 @@ tests/syntax/json/func_json_stringify_invalid/src/main.mfb:6 error[2-203-0043 TY
    7 |   LET oldNullShape AS json::Json = json::JsonNull[]
      | ^
 tests/syntax/json/func_json_stringify_invalid/src/main.mfb:7 error[2-203-0024 TYPE_CONSTRUCTOR_ARITY_MISMATCH]: constructor has the wrong number of arguments
-               Constructor `JsonNull` has 0 argument(s), expected 1.
+               Constructor `json.JsonNull` has 0 argument(s), expected 1.
 [exit 1]

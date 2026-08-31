@@ -12,7 +12,7 @@
     "kind": "type",
     "line": 7,
     "visibility": "export",
-    "name": "AudioDevice",
+    "name": "audio.AudioDevice",
     "fields": [
     { "visibility": null, "line": 8, "name": "id", "type": "String" },
     { "visibility": null, "line": 9, "name": "name", "type": "String" },
@@ -26,7 +26,7 @@
     "kind": "type",
     "line": 16,
     "visibility": "export",
-    "name": "AudioEnvelope",
+    "name": "audio.AudioEnvelope",
     "fields": [
     { "visibility": null, "line": 17, "name": "attackFrames", "type": "Integer" },
     { "visibility": null, "line": 18, "name": "decayFrames", "type": "Integer" },
@@ -39,11 +39,11 @@
     "kind": "type",
     "line": 24,
     "visibility": "export",
-    "name": "AudioNote",
+    "name": "audio.AudioNote",
     "fields": [
     { "visibility": null, "line": 25, "name": "frequencyHz", "type": "Float" },
     { "visibility": null, "line": 26, "name": "noteFrames", "type": "Integer" },
-    { "visibility": null, "line": 27, "name": "envelope", "type": "AudioEnvelope" },
+    { "visibility": null, "line": 27, "name": "envelope", "type": "audio.AudioEnvelope" },
     { "visibility": null, "line": 28, "name": "gainOverall", "type": "Float" }
     ]
   },
@@ -82,9 +82,9 @@
     { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "audio.poll", "args": [{ "kind": "local", "name": "mic" }] }] }] } },
     { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "audio.pollTimeout", "args": [{ "kind": "local", "name": "mic" }, { "kind": "const", "type": "Integer", "value": "50" }] }] }] } },
     { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "audio.xruns", "args": [{ "kind": "local", "name": "mic" }] }] }] } },
-    { "op": "bind", "line": 22, "mutable": false, "name": "devs", "type": "List OF AudioDevice", "value": { "kind": "call", "type": "List OF AudioDevice", "target": "audio.devices", "args": [] } },
+    { "op": "bind", "line": 22, "mutable": false, "name": "devs", "type": "List OF audio.AudioDevice", "value": { "kind": "call", "type": "List OF audio.AudioDevice", "target": "audio.devices", "args": [] } },
     { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "devs" }] }] }] } },
-    { "op": "bind", "line": 24, "mutable": false, "name": "dev", "type": "AudioDevice", "value": { "kind": "call", "type": "AudioDevice", "target": "collections.get", "args": [{ "kind": "local", "name": "devs" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "dev", "type": "audio.AudioDevice", "value": { "kind": "call", "type": "audio.AudioDevice", "target": "collections.get", "args": [{ "kind": "local", "name": "devs" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "bind", "line": 25, "mutable": false, "name": "mic2", "type": "audio.AudioInput", "value": { "kind": "call", "type": "audio.AudioInput", "target": "audio.openInputDevice", "args": [{ "kind": "local", "name": "dev" }, { "kind": "const", "type": "Integer", "value": "48000" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "512" }] } },
     { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "audio.closeInput", "args": [{ "kind": "local", "name": "mic2" }] } },
     { "op": "bind", "line": 28, "mutable": false, "name": "spk", "type": "audio.AudioOutput", "value": { "kind": "call", "type": "audio.AudioOutput", "target": "audio.openOutput", "args": [{ "kind": "const", "type": "Integer", "value": "48000" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "512" }] } },
@@ -98,8 +98,8 @@
     { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "#audio_playTracks", "args": [{ "kind": "local", "name": "spk" }, { "kind": "local", "name": "tracks" }] } },
     { "op": "bind", "line": 42, "mutable": false, "name": "spk2", "type": "audio.AudioOutput", "value": { "kind": "call", "type": "audio.AudioOutput", "target": "audio.openOutputDevice", "args": [{ "kind": "local", "name": "dev" }, { "kind": "const", "type": "Integer", "value": "48000" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "512" }] } },
     { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "audio.closeOutput", "args": [{ "kind": "local", "name": "spk2" }] } },
-    { "op": "bind", "line": 46, "mutable": false, "name": "env", "type": "AudioEnvelope", "value": { "kind": "constructor", "type": "AudioEnvelope", "args": [{ "kind": "const", "type": "Integer", "value": "2400" }, { "kind": "const", "type": "Integer", "value": "4800" }, { "kind": "const", "type": "Integer", "value": "31200" }, { "kind": "const", "type": "Integer", "value": "9600" }, { "kind": "const", "type": "Integer", "value": "12000" }] } },
-    { "op": "bind", "line": 47, "mutable": false, "name": "note", "type": "AudioNote", "value": { "kind": "constructor", "type": "AudioNote", "args": [{ "kind": "const", "type": "Float", "value": "440.0" }, { "kind": "const", "type": "Integer", "value": "48000" }, { "kind": "local", "name": "env" }, { "kind": "const", "type": "Float", "value": "0.8" }] } },
+    { "op": "bind", "line": 46, "mutable": false, "name": "env", "type": "audio.AudioEnvelope", "value": { "kind": "constructor", "type": "audio.AudioEnvelope", "args": [{ "kind": "const", "type": "Integer", "value": "2400" }, { "kind": "const", "type": "Integer", "value": "4800" }, { "kind": "const", "type": "Integer", "value": "31200" }, { "kind": "const", "type": "Integer", "value": "9600" }, { "kind": "const", "type": "Integer", "value": "12000" }] } },
+    { "op": "bind", "line": 47, "mutable": false, "name": "note", "type": "audio.AudioNote", "value": { "kind": "constructor", "type": "audio.AudioNote", "args": [{ "kind": "const", "type": "Float", "value": "440.0" }, { "kind": "const", "type": "Integer", "value": "48000" }, { "kind": "local", "name": "env" }, { "kind": "const", "type": "Float", "value": "0.8" }] } },
     { "op": "bind", "line": 48, "mutable": false, "name": "tone", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#audio_render", "args": [{ "kind": "local", "name": "note" }] } },
     { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "tone" }] }] }] } },
     { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "audio.closeInput", "args": [{ "kind": "local", "name": "mic" }] } },
@@ -1519,17 +1519,17 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "note", "line": 523, "type": "AudioNote", "default": null }
+    { "name": "note", "line": 523, "type": "audio.AudioNote", "default": null }
     ],
     "returns": "List OF Byte",
     "body": [
     { "op": "bind", "line": 524, "mutable": true, "name": "pcm", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
     { "op": "bind", "line": 525, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "note" }, "member": "noteFrames" } },
-    { "op": "bind", "line": 526, "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "attackFrames" } },
-    { "op": "bind", "line": 527, "mutable": false, "name": "d", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "decayFrames" } },
-    { "op": "bind", "line": 528, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "releaseFrames" } },
+    { "op": "bind", "line": 526, "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "audio.AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "attackFrames" } },
+    { "op": "bind", "line": 527, "mutable": false, "name": "d", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "audio.AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "decayFrames" } },
+    { "op": "bind", "line": 528, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "audio.AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "releaseFrames" } },
     { "op": "bind", "line": 529, "mutable": false, "name": "peak", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "32767.0" } },
-    { "op": "bind", "line": 530, "mutable": false, "name": "sustain", "type": "Float", "value": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "sustainLevel" }] } },
+    { "op": "bind", "line": 530, "mutable": false, "name": "sustain", "type": "Float", "value": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "audio.AudioEnvelope", "target": { "kind": "local", "name": "note" }, "member": "envelope" }, "member": "sustainLevel" }] } },
     { "op": "bind", "line": 531, "mutable": false, "name": "releaseStart", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "n" }, "right": { "kind": "local", "name": "r" } } },
     { "op": "bind", "line": 532, "mutable": false, "name": "$for_end21", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
     { "op": "bind", "line": 532, "mutable": false, "name": "$for_step22", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },

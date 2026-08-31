@@ -4,7 +4,7 @@ $ mfb build -ast -ir tests/syntax/crypto/hash-removed-spellings-invalid
   14 |   LET e AS List OF Byte = crypto::hash(crypto::Hash.SHA1, 42)
      | ^
 tests/syntax/crypto/hash-removed-spellings-invalid/src/main.mfb:14 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `crypto.hash` has argument type(s) (Hash, Integer), expected crypto::Hash, List OF Byte or String.
+               Call to `crypto.hash` has argument type(s) (crypto.Hash, Integer), expected crypto::Hash, List OF Byte or String.
   12 |   LET c AS List OF Byte = crypto::hash(crypto::Hash.SHA384, "abc")
   13 |   LET d AS List OF Byte = crypto::hash(crypto::Hash.SHA512, "abc")
   14 |   LET e AS List OF Byte = crypto::hash(crypto::Hash.SHA1, 42)
@@ -16,7 +16,7 @@ tests/syntax/crypto/hash-removed-spellings-invalid/src/main.mfb:14 error[2-203-0
   15 |   LET f AS List OF Byte = crypto::hmac(crypto::Hash.SHA2_256, "key", "data")
      | ^
 tests/syntax/crypto/hash-removed-spellings-invalid/src/main.mfb:15 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `crypto.hmac` has argument type(s) (Hash, String, String), expected crypto::Hash, List OF Byte, (List OF Byte or String).
+               Call to `crypto.hmac` has argument type(s) (crypto.Hash, String, String), expected crypto::Hash, List OF Byte, (List OF Byte or String).
   13 |   LET d AS List OF Byte = crypto::hash(crypto::Hash.SHA512, "abc")
   14 |   LET e AS List OF Byte = crypto::hash(crypto::Hash.SHA1, 42)
   15 |   LET f AS List OF Byte = crypto::hmac(crypto::Hash.SHA2_256, "key", "data")
@@ -28,25 +28,25 @@ tests/syntax/crypto/hash-removed-spellings-invalid/src/main.mfb:15 error[2-203-0
   10 |   LET a AS List OF Byte = crypto::hash(crypto::Hash.SHA224, "abc")
      | ^
 tests/syntax/crypto/hash-removed-spellings-invalid/src/main.mfb:10 error[2-203-0044 TYPE_UNKNOWN_ENUM_MEMBER]: enum member does not exist
-               ENUM `Hash` has no member `SHA224`.
+               ENUM `crypto.Hash` has no member `SHA224`.
    9 | FUNC main AS Integer
   10 |   LET a AS List OF Byte = crypto::hash(crypto::Hash.SHA224, "abc")
   11 |   LET b AS List OF Byte = crypto::hash(crypto::Hash.SHA256, "abc")
      | ^
 tests/syntax/crypto/hash-removed-spellings-invalid/src/main.mfb:11 error[2-203-0044 TYPE_UNKNOWN_ENUM_MEMBER]: enum member does not exist
-               ENUM `Hash` has no member `SHA256`.
+               ENUM `crypto.Hash` has no member `SHA256`.
   10 |   LET a AS List OF Byte = crypto::hash(crypto::Hash.SHA224, "abc")
   11 |   LET b AS List OF Byte = crypto::hash(crypto::Hash.SHA256, "abc")
   12 |   LET c AS List OF Byte = crypto::hash(crypto::Hash.SHA384, "abc")
      | ^
 tests/syntax/crypto/hash-removed-spellings-invalid/src/main.mfb:12 error[2-203-0044 TYPE_UNKNOWN_ENUM_MEMBER]: enum member does not exist
-               ENUM `Hash` has no member `SHA384`.
+               ENUM `crypto.Hash` has no member `SHA384`.
   11 |   LET b AS List OF Byte = crypto::hash(crypto::Hash.SHA256, "abc")
   12 |   LET c AS List OF Byte = crypto::hash(crypto::Hash.SHA384, "abc")
   13 |   LET d AS List OF Byte = crypto::hash(crypto::Hash.SHA512, "abc")
      | ^
 tests/syntax/crypto/hash-removed-spellings-invalid/src/main.mfb:13 error[2-203-0044 TYPE_UNKNOWN_ENUM_MEMBER]: enum member does not exist
-               ENUM `Hash` has no member `SHA512`.
+               ENUM `crypto.Hash` has no member `SHA512`.
   12 |   LET c AS List OF Byte = crypto::hash(crypto::Hash.SHA384, "abc")
   13 |   LET d AS List OF Byte = crypto::hash(crypto::Hash.SHA512, "abc")
   14 |   LET e AS List OF Byte = crypto::hash(crypto::Hash.SHA1, 42)

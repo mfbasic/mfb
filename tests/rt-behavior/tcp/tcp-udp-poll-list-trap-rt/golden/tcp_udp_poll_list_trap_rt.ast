@@ -23,7 +23,7 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": null, "value": { "kind": "call", "callee": "tcp.listen", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 22 },
-      { "kind": "binding", "mutable": false, "name": "bound", "type": "Address", "value": { "kind": "call", "callee": "tcp.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "bound", "type": "net.Address", "value": { "kind": "call", "callee": "tcp.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 23 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "c1", "type": null, "value": { "kind": "call", "callee": "tcp.connect", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, "line": 24 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "c2", "type": null, "value": { "kind": "call", "callee": "tcp.connect", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, "line": 25 },
       { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES tcp.Socket", "value": { "kind": "list", "values": [] }, "line": 26 },

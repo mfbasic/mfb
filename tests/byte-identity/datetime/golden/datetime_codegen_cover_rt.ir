@@ -12,7 +12,7 @@
     "kind": "type",
     "line": 11,
     "visibility": "export",
-    "name": "Instant",
+    "name": "datetime.Instant",
     "fields": [
     { "visibility": null, "line": 12, "name": "seconds", "type": "Integer" },
     { "visibility": null, "line": 13, "name": "nanos", "type": "Integer" }
@@ -22,7 +22,7 @@
     "kind": "type",
     "line": 22,
     "visibility": "export",
-    "name": "Duration",
+    "name": "datetime.Duration",
     "fields": [
     { "visibility": null, "line": 23, "name": "seconds", "type": "Integer" },
     { "visibility": null, "line": 24, "name": "nanos", "type": "Integer" }
@@ -32,7 +32,7 @@
     "kind": "type",
     "line": 34,
     "visibility": "export",
-    "name": "Date",
+    "name": "datetime.Date",
     "fields": [
     { "visibility": null, "line": 35, "name": "year", "type": "Integer" },
     { "visibility": null, "line": 36, "name": "month", "type": "Integer" },
@@ -43,7 +43,7 @@
     "kind": "type",
     "line": 48,
     "visibility": "export",
-    "name": "Time",
+    "name": "datetime.Time",
     "fields": [
     { "visibility": null, "line": 49, "name": "hour", "type": "Integer" },
     { "visibility": null, "line": 50, "name": "minute", "type": "Integer" },
@@ -55,7 +55,7 @@
     "kind": "type",
     "line": 62,
     "visibility": "export",
-    "name": "Zone",
+    "name": "datetime.Zone",
     "fields": [
     { "visibility": null, "line": 63, "name": "offsetSeconds", "type": "Integer" },
     { "visibility": null, "line": 64, "name": "kind", "type": "Integer" },
@@ -66,11 +66,11 @@
     "kind": "type",
     "line": 76,
     "visibility": "export",
-    "name": "DateTime",
+    "name": "datetime.DateTime",
     "fields": [
-    { "visibility": null, "line": 77, "name": "date", "type": "Date" },
-    { "visibility": null, "line": 78, "name": "time", "type": "Time" },
-    { "visibility": null, "line": 79, "name": "zone", "type": "Zone" },
+    { "visibility": null, "line": 77, "name": "date", "type": "datetime.Date" },
+    { "visibility": null, "line": 78, "name": "time", "type": "datetime.Time" },
+    { "visibility": null, "line": 79, "name": "zone", "type": "datetime.Zone" },
     { "visibility": null, "line": 80, "name": "offset", "type": "Integer" }
     ]
   },
@@ -109,7 +109,7 @@
     "kind": "enum",
     "line": 104,
     "visibility": "export",
-    "name": "ZoneKind",
+    "name": "datetime.ZoneKind",
     "members": [
     { "name": "Utc" },
     { "name": "FixedOffset" },
@@ -120,7 +120,7 @@
     "kind": "enum",
     "line": 110,
     "visibility": "export",
-    "name": "Weekday",
+    "name": "datetime.Weekday",
     "members": [
     { "name": "Monday" },
     { "name": "Tuesday" },
@@ -135,7 +135,7 @@
     "kind": "enum",
     "line": 120,
     "visibility": "export",
-    "name": "Month",
+    "name": "datetime.Month",
     "members": [
     { "name": "January" },
     { "name": "February" },
@@ -208,7 +208,7 @@
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "v", "line": 24, "type": "Instant", "default": null }
+    { "name": "v", "line": 24, "type": "datetime.Instant", "default": null }
     ],
     "returns": "Nothing",
     "body": [
@@ -221,7 +221,7 @@
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "v", "line": 28, "type": "Duration", "default": null }
+    { "name": "v", "line": 28, "type": "datetime.Duration", "default": null }
     ],
     "returns": "Nothing",
     "body": [
@@ -234,7 +234,7 @@
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "v", "line": 32, "type": "Date", "default": null }
+    { "name": "v", "line": 32, "type": "datetime.Date", "default": null }
     ],
     "returns": "Nothing",
     "body": [
@@ -247,7 +247,7 @@
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "v", "line": 36, "type": "Time", "default": null }
+    { "name": "v", "line": 36, "type": "datetime.Time", "default": null }
     ],
     "returns": "Nothing",
     "body": [
@@ -260,7 +260,7 @@
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "v", "line": 40, "type": "Zone", "default": null }
+    { "name": "v", "line": 40, "type": "datetime.Zone", "default": null }
     ],
     "returns": "Nothing",
     "body": [
@@ -274,13 +274,13 @@
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "v", "line": 45, "type": "DateTime", "default": null }
+    { "name": "v", "line": 45, "type": "datetime.DateTime", "default": null }
     ],
     "returns": "Nothing",
     "body": [
     { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "useI", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "v" }, "member": "offset" }] } },
-    { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "useDate", "args": [{ "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "v" }, "member": "date" }] } },
-    { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "useTime", "args": [{ "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "v" }, "member": "time" }] } }
+    { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "useDate", "args": [{ "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "v" }, "member": "date" }] } },
+    { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "useTime", "args": [{ "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "v" }, "member": "time" }] } }
     ]
   },
   {
@@ -289,11 +289,11 @@
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "v", "line": 51, "type": "Weekday", "default": null }
+    { "name": "v", "line": 51, "type": "datetime.Weekday", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "useB", "args": [{ "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "v" }, "right": { "kind": "memberAccess", "type": "Weekday", "target": { "kind": "local", "name": "Weekday" }, "member": "Monday" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "v" }, "right": { "kind": "memberAccess", "type": "Weekday", "target": { "kind": "local", "name": "Weekday" }, "member": "Sunday" } } }] } }
+    { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "useB", "args": [{ "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "v" }, "right": { "kind": "memberAccess", "type": "datetime.Weekday", "target": { "kind": "local", "name": "datetime.Weekday" }, "member": "Monday" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "v" }, "right": { "kind": "memberAccess", "type": "datetime.Weekday", "target": { "kind": "local", "name": "datetime.Weekday" }, "member": "Sunday" } } }] } }
     ]
   },
   {
@@ -305,59 +305,59 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 57, "mutable": false, "name": "nowI", "type": "Instant", "value": { "kind": "call", "type": "Instant", "target": "#datetime_now", "args": [] } },
+    { "op": "bind", "line": 57, "mutable": false, "name": "nowI", "type": "datetime.Instant", "value": { "kind": "call", "type": "datetime.Instant", "target": "#datetime_now", "args": [] } },
     { "op": "eval", "line": 58, "value": { "kind": "call", "type": "Nothing", "target": "useInstant", "args": [{ "kind": "local", "name": "nowI" }] } },
     { "op": "eval", "line": 59, "value": { "kind": "call", "type": "Nothing", "target": "useI", "args": [{ "kind": "call", "type": "Integer", "target": "datetime.nowNanos", "args": [] }] } },
-    { "op": "eval", "line": 60, "value": { "kind": "call", "type": "Nothing", "target": "useDuration", "args": [{ "kind": "call", "type": "Duration", "target": "#datetime_monotonic", "args": [] }] } },
+    { "op": "eval", "line": 60, "value": { "kind": "call", "type": "Nothing", "target": "useDuration", "args": [{ "kind": "call", "type": "datetime.Duration", "target": "#datetime_monotonic", "args": [] }] } },
     { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "useI", "args": [{ "kind": "call", "type": "Integer", "target": "datetime.monotonicNanos", "args": [] }] } },
-    { "op": "bind", "line": 64, "mutable": false, "name": "i1", "type": "Instant", "value": { "kind": "call", "type": "Instant", "target": "#datetime_instant1", "args": [{ "kind": "const", "type": "Integer", "value": "1000" }] } },
-    { "op": "bind", "line": 65, "mutable": false, "name": "i2", "type": "Instant", "value": { "kind": "call", "type": "Instant", "target": "#datetime_instant2", "args": [{ "kind": "const", "type": "Integer", "value": "1000" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
-    { "op": "bind", "line": 66, "mutable": false, "name": "i3", "type": "Instant", "value": { "kind": "call", "type": "Instant", "target": "#datetime_instant3", "args": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
-    { "op": "bind", "line": 67, "mutable": false, "name": "i4", "type": "Instant", "value": { "kind": "call", "type": "Instant", "target": "#datetime_instant4", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
-    { "op": "bind", "line": 68, "mutable": false, "name": "i5", "type": "Instant", "value": { "kind": "call", "type": "Instant", "target": "#datetime_instant5", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
+    { "op": "bind", "line": 64, "mutable": false, "name": "i1", "type": "datetime.Instant", "value": { "kind": "call", "type": "datetime.Instant", "target": "#datetime_instant1", "args": [{ "kind": "const", "type": "Integer", "value": "1000" }] } },
+    { "op": "bind", "line": 65, "mutable": false, "name": "i2", "type": "datetime.Instant", "value": { "kind": "call", "type": "datetime.Instant", "target": "#datetime_instant2", "args": [{ "kind": "const", "type": "Integer", "value": "1000" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
+    { "op": "bind", "line": 66, "mutable": false, "name": "i3", "type": "datetime.Instant", "value": { "kind": "call", "type": "datetime.Instant", "target": "#datetime_instant3", "args": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
+    { "op": "bind", "line": 67, "mutable": false, "name": "i4", "type": "datetime.Instant", "value": { "kind": "call", "type": "datetime.Instant", "target": "#datetime_instant4", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
+    { "op": "bind", "line": 68, "mutable": false, "name": "i5", "type": "datetime.Instant", "value": { "kind": "call", "type": "datetime.Instant", "target": "#datetime_instant5", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
     { "op": "eval", "line": 69, "value": { "kind": "call", "type": "Nothing", "target": "useInstant", "args": [{ "kind": "local", "name": "i1" }] } },
     { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "useInstant", "args": [{ "kind": "local", "name": "i2" }] } },
     { "op": "eval", "line": 71, "value": { "kind": "call", "type": "Nothing", "target": "useInstant", "args": [{ "kind": "local", "name": "i3" }] } },
     { "op": "eval", "line": 72, "value": { "kind": "call", "type": "Nothing", "target": "useInstant", "args": [{ "kind": "local", "name": "i4" }] } },
     { "op": "eval", "line": 73, "value": { "kind": "call", "type": "Nothing", "target": "useInstant", "args": [{ "kind": "local", "name": "i5" }] } },
-    { "op": "eval", "line": 74, "value": { "kind": "call", "type": "Nothing", "target": "useInstant", "args": [{ "kind": "call", "type": "Instant", "target": "#datetime_fromMillis", "args": [{ "kind": "const", "type": "Integer", "value": "1700000000000" }] }] } },
-    { "op": "bind", "line": 77, "mutable": false, "name": "d1", "type": "Duration", "value": { "kind": "call", "type": "Duration", "target": "#datetime_duration1", "args": [{ "kind": "const", "type": "Integer", "value": "60" }] } },
-    { "op": "bind", "line": 78, "mutable": false, "name": "d2", "type": "Duration", "value": { "kind": "call", "type": "Duration", "target": "#datetime_duration2", "args": [{ "kind": "const", "type": "Integer", "value": "60" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
-    { "op": "bind", "line": 79, "mutable": false, "name": "d3", "type": "Duration", "value": { "kind": "call", "type": "Duration", "target": "#datetime_duration3", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "30" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
-    { "op": "bind", "line": 80, "mutable": false, "name": "d4", "type": "Duration", "value": { "kind": "call", "type": "Duration", "target": "#datetime_duration4", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "30" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
-    { "op": "bind", "line": 81, "mutable": false, "name": "d5", "type": "Duration", "value": { "kind": "call", "type": "Duration", "target": "#datetime_duration5", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "30" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
+    { "op": "eval", "line": 74, "value": { "kind": "call", "type": "Nothing", "target": "useInstant", "args": [{ "kind": "call", "type": "datetime.Instant", "target": "#datetime_fromMillis", "args": [{ "kind": "const", "type": "Integer", "value": "1700000000000" }] }] } },
+    { "op": "bind", "line": 77, "mutable": false, "name": "d1", "type": "datetime.Duration", "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_duration1", "args": [{ "kind": "const", "type": "Integer", "value": "60" }] } },
+    { "op": "bind", "line": 78, "mutable": false, "name": "d2", "type": "datetime.Duration", "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_duration2", "args": [{ "kind": "const", "type": "Integer", "value": "60" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
+    { "op": "bind", "line": 79, "mutable": false, "name": "d3", "type": "datetime.Duration", "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_duration3", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "30" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
+    { "op": "bind", "line": 80, "mutable": false, "name": "d4", "type": "datetime.Duration", "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_duration4", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "30" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
+    { "op": "bind", "line": 81, "mutable": false, "name": "d5", "type": "datetime.Duration", "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_duration5", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "30" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
     { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "useDuration", "args": [{ "kind": "local", "name": "d1" }] } },
     { "op": "eval", "line": 83, "value": { "kind": "call", "type": "Nothing", "target": "useDuration", "args": [{ "kind": "local", "name": "d2" }] } },
     { "op": "eval", "line": 84, "value": { "kind": "call", "type": "Nothing", "target": "useDuration", "args": [{ "kind": "local", "name": "d3" }] } },
     { "op": "eval", "line": 85, "value": { "kind": "call", "type": "Nothing", "target": "useDuration", "args": [{ "kind": "local", "name": "d4" }] } },
     { "op": "eval", "line": 86, "value": { "kind": "call", "type": "Nothing", "target": "useDuration", "args": [{ "kind": "local", "name": "d5" }] } },
-    { "op": "bind", "line": 89, "mutable": false, "name": "zu", "type": "Zone", "value": { "kind": "call", "type": "Zone", "target": "#datetime_utc", "args": [] } },
-    { "op": "bind", "line": 90, "mutable": false, "name": "zl", "type": "Zone", "value": { "kind": "call", "type": "Zone", "target": "#datetime_local", "args": [] } },
-    { "op": "bind", "line": 91, "mutable": false, "name": "zf1", "type": "Zone", "value": { "kind": "call", "type": "Zone", "target": "#datetime_fixedOffset1", "args": [{ "kind": "const", "type": "Integer", "value": "19800" }] } },
-    { "op": "bind", "line": 92, "mutable": false, "name": "zf2", "type": "Zone", "value": { "kind": "call", "type": "Zone", "target": "#datetime_fixedOffset2", "args": [{ "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "30" }] } },
+    { "op": "bind", "line": 89, "mutable": false, "name": "zu", "type": "datetime.Zone", "value": { "kind": "call", "type": "datetime.Zone", "target": "#datetime_utc", "args": [] } },
+    { "op": "bind", "line": 90, "mutable": false, "name": "zl", "type": "datetime.Zone", "value": { "kind": "call", "type": "datetime.Zone", "target": "#datetime_local", "args": [] } },
+    { "op": "bind", "line": 91, "mutable": false, "name": "zf1", "type": "datetime.Zone", "value": { "kind": "call", "type": "datetime.Zone", "target": "#datetime_fixedOffset1", "args": [{ "kind": "const", "type": "Integer", "value": "19800" }] } },
+    { "op": "bind", "line": 92, "mutable": false, "name": "zf2", "type": "datetime.Zone", "value": { "kind": "call", "type": "datetime.Zone", "target": "#datetime_fixedOffset2", "args": [{ "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "30" }] } },
     { "op": "eval", "line": 93, "value": { "kind": "call", "type": "Nothing", "target": "useZone", "args": [{ "kind": "local", "name": "zu" }] } },
     { "op": "eval", "line": 94, "value": { "kind": "call", "type": "Nothing", "target": "useZone", "args": [{ "kind": "local", "name": "zl" }] } },
     { "op": "eval", "line": 95, "value": { "kind": "call", "type": "Nothing", "target": "useZone", "args": [{ "kind": "local", "name": "zf1" }] } },
     { "op": "eval", "line": 96, "value": { "kind": "call", "type": "Nothing", "target": "useZone", "args": [{ "kind": "local", "name": "zf2" }] } },
-    { "op": "bind", "line": 99, "mutable": false, "name": "dd", "type": "Date", "value": { "kind": "call", "type": "Date", "target": "#datetime_date", "args": [{ "kind": "const", "type": "Integer", "value": "2026" }, { "kind": "const", "type": "Integer", "value": "6" }, { "kind": "const", "type": "Integer", "value": "26" }] } },
-    { "op": "bind", "line": 100, "mutable": false, "name": "t2", "type": "Time", "value": { "kind": "call", "type": "Time", "target": "#datetime_time", "args": [{ "kind": "const", "type": "Integer", "value": "9" }, { "kind": "const", "type": "Integer", "value": "30" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "line": 101, "mutable": false, "name": "t3", "type": "Time", "value": { "kind": "call", "type": "Time", "target": "#datetime_time", "args": [{ "kind": "const", "type": "Integer", "value": "9" }, { "kind": "const", "type": "Integer", "value": "30" }, { "kind": "const", "type": "Integer", "value": "15" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "line": 102, "mutable": false, "name": "t4", "type": "Time", "value": { "kind": "call", "type": "Time", "target": "#datetime_time", "args": [{ "kind": "const", "type": "Integer", "value": "9" }, { "kind": "const", "type": "Integer", "value": "30" }, { "kind": "const", "type": "Integer", "value": "15" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
+    { "op": "bind", "line": 99, "mutable": false, "name": "dd", "type": "datetime.Date", "value": { "kind": "call", "type": "datetime.Date", "target": "#datetime_date", "args": [{ "kind": "const", "type": "Integer", "value": "2026" }, { "kind": "const", "type": "Integer", "value": "6" }, { "kind": "const", "type": "Integer", "value": "26" }] } },
+    { "op": "bind", "line": 100, "mutable": false, "name": "t2", "type": "datetime.Time", "value": { "kind": "call", "type": "datetime.Time", "target": "#datetime_time", "args": [{ "kind": "const", "type": "Integer", "value": "9" }, { "kind": "const", "type": "Integer", "value": "30" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 101, "mutable": false, "name": "t3", "type": "datetime.Time", "value": { "kind": "call", "type": "datetime.Time", "target": "#datetime_time", "args": [{ "kind": "const", "type": "Integer", "value": "9" }, { "kind": "const", "type": "Integer", "value": "30" }, { "kind": "const", "type": "Integer", "value": "15" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 102, "mutable": false, "name": "t4", "type": "datetime.Time", "value": { "kind": "call", "type": "datetime.Time", "target": "#datetime_time", "args": [{ "kind": "const", "type": "Integer", "value": "9" }, { "kind": "const", "type": "Integer", "value": "30" }, { "kind": "const", "type": "Integer", "value": "15" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
     { "op": "eval", "line": 103, "value": { "kind": "call", "type": "Nothing", "target": "useDate", "args": [{ "kind": "local", "name": "dd" }] } },
     { "op": "eval", "line": 104, "value": { "kind": "call", "type": "Nothing", "target": "useTime", "args": [{ "kind": "local", "name": "t2" }] } },
     { "op": "eval", "line": 105, "value": { "kind": "call", "type": "Nothing", "target": "useTime", "args": [{ "kind": "local", "name": "t3" }] } },
     { "op": "eval", "line": 106, "value": { "kind": "call", "type": "Nothing", "target": "useTime", "args": [{ "kind": "local", "name": "t4" }] } },
-    { "op": "bind", "line": 109, "mutable": false, "name": "civ", "type": "DateTime", "value": { "kind": "call", "type": "DateTime", "target": "#datetime_civil", "args": [{ "kind": "local", "name": "dd" }, { "kind": "local", "name": "t4" }, { "kind": "local", "name": "zu" }] } },
-    { "op": "bind", "line": 110, "mutable": false, "name": "dtz", "type": "DateTime", "value": { "kind": "call", "type": "DateTime", "target": "#datetime_inZone", "args": [{ "kind": "local", "name": "nowI" }, { "kind": "local", "name": "zf1" }] } },
-    { "op": "bind", "line": 111, "mutable": false, "name": "dtu", "type": "DateTime", "value": { "kind": "call", "type": "DateTime", "target": "#datetime_toUtc", "args": [{ "kind": "local", "name": "nowI" }] } },
-    { "op": "bind", "line": 112, "mutable": false, "name": "dtl", "type": "DateTime", "value": { "kind": "call", "type": "DateTime", "target": "#datetime_toLocal", "args": [{ "kind": "local", "name": "nowI" }] } },
-    { "op": "bind", "line": 113, "mutable": false, "name": "dtw", "type": "DateTime", "value": { "kind": "call", "type": "DateTime", "target": "#datetime_withZone", "args": [{ "kind": "local", "name": "civ" }, { "kind": "local", "name": "zl" }] } },
-    { "op": "bind", "line": 114, "mutable": false, "name": "dtd", "type": "DateTime", "value": { "kind": "call", "type": "DateTime", "target": "#datetime_addDays", "args": [{ "kind": "local", "name": "civ" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
-    { "op": "bind", "line": 115, "mutable": false, "name": "dtm", "type": "DateTime", "value": { "kind": "call", "type": "DateTime", "target": "#datetime_addMonths", "args": [{ "kind": "local", "name": "civ" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
-    { "op": "bind", "line": 116, "mutable": false, "name": "dts", "type": "DateTime", "value": { "kind": "call", "type": "DateTime", "target": "#datetime_startOfDay", "args": [{ "kind": "local", "name": "civ" }] } },
-    { "op": "bind", "line": 117, "mutable": false, "name": "dtp", "type": "DateTime", "value": { "kind": "call", "type": "DateTime", "target": "#datetime_parse2", "args": [{ "kind": "const", "type": "String", "value": "2026-06-26 09:30" }, { "kind": "const", "type": "String", "value": "yyyy-MM-dd HH:mm" }] } },
-    { "op": "bind", "line": 118, "mutable": false, "name": "dtp2", "type": "DateTime", "value": { "kind": "call", "type": "DateTime", "target": "#datetime_parse3", "args": [{ "kind": "const", "type": "String", "value": "2026-06-26 09:30" }, { "kind": "const", "type": "String", "value": "yyyy-MM-dd HH:mm" }, { "kind": "local", "name": "zf1" }] } },
-    { "op": "bind", "line": 119, "mutable": false, "name": "dti", "type": "DateTime", "value": { "kind": "call", "type": "DateTime", "target": "#datetime_parseIso", "args": [{ "kind": "const", "type": "String", "value": "2026-06-26T09:30:00+00:00" }] } },
+    { "op": "bind", "line": 109, "mutable": false, "name": "civ", "type": "datetime.DateTime", "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_civil", "args": [{ "kind": "local", "name": "dd" }, { "kind": "local", "name": "t4" }, { "kind": "local", "name": "zu" }] } },
+    { "op": "bind", "line": 110, "mutable": false, "name": "dtz", "type": "datetime.DateTime", "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_inZone", "args": [{ "kind": "local", "name": "nowI" }, { "kind": "local", "name": "zf1" }] } },
+    { "op": "bind", "line": 111, "mutable": false, "name": "dtu", "type": "datetime.DateTime", "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_toUtc", "args": [{ "kind": "local", "name": "nowI" }] } },
+    { "op": "bind", "line": 112, "mutable": false, "name": "dtl", "type": "datetime.DateTime", "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_toLocal", "args": [{ "kind": "local", "name": "nowI" }] } },
+    { "op": "bind", "line": 113, "mutable": false, "name": "dtw", "type": "datetime.DateTime", "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_withZone", "args": [{ "kind": "local", "name": "civ" }, { "kind": "local", "name": "zl" }] } },
+    { "op": "bind", "line": 114, "mutable": false, "name": "dtd", "type": "datetime.DateTime", "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_addDays", "args": [{ "kind": "local", "name": "civ" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "bind", "line": 115, "mutable": false, "name": "dtm", "type": "datetime.DateTime", "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_addMonths", "args": [{ "kind": "local", "name": "civ" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "line": 116, "mutable": false, "name": "dts", "type": "datetime.DateTime", "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_startOfDay", "args": [{ "kind": "local", "name": "civ" }] } },
+    { "op": "bind", "line": 117, "mutable": false, "name": "dtp", "type": "datetime.DateTime", "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_parse2", "args": [{ "kind": "const", "type": "String", "value": "2026-06-26 09:30" }, { "kind": "const", "type": "String", "value": "yyyy-MM-dd HH:mm" }] } },
+    { "op": "bind", "line": 118, "mutable": false, "name": "dtp2", "type": "datetime.DateTime", "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_parse3", "args": [{ "kind": "const", "type": "String", "value": "2026-06-26 09:30" }, { "kind": "const", "type": "String", "value": "yyyy-MM-dd HH:mm" }, { "kind": "local", "name": "zf1" }] } },
+    { "op": "bind", "line": 119, "mutable": false, "name": "dti", "type": "datetime.DateTime", "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_parseIso", "args": [{ "kind": "const", "type": "String", "value": "2026-06-26T09:30:00+00:00" }] } },
     { "op": "eval", "line": 120, "value": { "kind": "call", "type": "Nothing", "target": "useDateTime", "args": [{ "kind": "local", "name": "civ" }] } },
     { "op": "eval", "line": 121, "value": { "kind": "call", "type": "Nothing", "target": "useDateTime", "args": [{ "kind": "local", "name": "dtz" }] } },
     { "op": "eval", "line": 122, "value": { "kind": "call", "type": "Nothing", "target": "useDateTime", "args": [{ "kind": "local", "name": "dtu" }] } },
@@ -369,13 +369,13 @@
     { "op": "eval", "line": 128, "value": { "kind": "call", "type": "Nothing", "target": "useDateTime", "args": [{ "kind": "local", "name": "dtp" }] } },
     { "op": "eval", "line": 129, "value": { "kind": "call", "type": "Nothing", "target": "useDateTime", "args": [{ "kind": "local", "name": "dtp2" }] } },
     { "op": "eval", "line": 130, "value": { "kind": "call", "type": "Nothing", "target": "useDateTime", "args": [{ "kind": "local", "name": "dti" }] } },
-    { "op": "eval", "line": 133, "value": { "kind": "call", "type": "Nothing", "target": "useInstant", "args": [{ "kind": "call", "type": "Instant", "target": "#datetime_add", "args": [{ "kind": "local", "name": "nowI" }, { "kind": "local", "name": "d1" }] }] } },
-    { "op": "eval", "line": 134, "value": { "kind": "call", "type": "Nothing", "target": "useInstant", "args": [{ "kind": "call", "type": "Instant", "target": "#datetime_subtract", "args": [{ "kind": "local", "name": "nowI" }, { "kind": "local", "name": "d1" }] }] } },
-    { "op": "eval", "line": 135, "value": { "kind": "call", "type": "Nothing", "target": "useInstant", "args": [{ "kind": "call", "type": "Instant", "target": "#datetime_resolve", "args": [{ "kind": "local", "name": "civ" }] }] } },
-    { "op": "eval", "line": 136, "value": { "kind": "call", "type": "Nothing", "target": "useDuration", "args": [{ "kind": "call", "type": "Duration", "target": "#datetime_between", "args": [{ "kind": "local", "name": "i1" }, { "kind": "local", "name": "i2" }] }] } },
-    { "op": "eval", "line": 139, "value": { "kind": "call", "type": "Nothing", "target": "useDuration", "args": [{ "kind": "call", "type": "Duration", "target": "#datetime_plus", "args": [{ "kind": "local", "name": "d1" }, { "kind": "local", "name": "d2" }] }] } },
-    { "op": "eval", "line": 140, "value": { "kind": "call", "type": "Nothing", "target": "useDuration", "args": [{ "kind": "call", "type": "Duration", "target": "#datetime_minus", "args": [{ "kind": "local", "name": "d2" }, { "kind": "local", "name": "d1" }] }] } },
-    { "op": "eval", "line": 141, "value": { "kind": "call", "type": "Nothing", "target": "useDuration", "args": [{ "kind": "call", "type": "Duration", "target": "#datetime_negate", "args": [{ "kind": "local", "name": "d1" }] }] } },
+    { "op": "eval", "line": 133, "value": { "kind": "call", "type": "Nothing", "target": "useInstant", "args": [{ "kind": "call", "type": "datetime.Instant", "target": "#datetime_add", "args": [{ "kind": "local", "name": "nowI" }, { "kind": "local", "name": "d1" }] }] } },
+    { "op": "eval", "line": 134, "value": { "kind": "call", "type": "Nothing", "target": "useInstant", "args": [{ "kind": "call", "type": "datetime.Instant", "target": "#datetime_subtract", "args": [{ "kind": "local", "name": "nowI" }, { "kind": "local", "name": "d1" }] }] } },
+    { "op": "eval", "line": 135, "value": { "kind": "call", "type": "Nothing", "target": "useInstant", "args": [{ "kind": "call", "type": "datetime.Instant", "target": "#datetime_resolve", "args": [{ "kind": "local", "name": "civ" }] }] } },
+    { "op": "eval", "line": 136, "value": { "kind": "call", "type": "Nothing", "target": "useDuration", "args": [{ "kind": "call", "type": "datetime.Duration", "target": "#datetime_between", "args": [{ "kind": "local", "name": "i1" }, { "kind": "local", "name": "i2" }] }] } },
+    { "op": "eval", "line": 139, "value": { "kind": "call", "type": "Nothing", "target": "useDuration", "args": [{ "kind": "call", "type": "datetime.Duration", "target": "#datetime_plus", "args": [{ "kind": "local", "name": "d1" }, { "kind": "local", "name": "d2" }] }] } },
+    { "op": "eval", "line": 140, "value": { "kind": "call", "type": "Nothing", "target": "useDuration", "args": [{ "kind": "call", "type": "datetime.Duration", "target": "#datetime_minus", "args": [{ "kind": "local", "name": "d2" }, { "kind": "local", "name": "d1" }] }] } },
+    { "op": "eval", "line": 141, "value": { "kind": "call", "type": "Nothing", "target": "useDuration", "args": [{ "kind": "call", "type": "datetime.Duration", "target": "#datetime_negate", "args": [{ "kind": "local", "name": "d1" }] }] } },
     { "op": "eval", "line": 144, "value": { "kind": "call", "type": "Nothing", "target": "useI", "args": [{ "kind": "call", "type": "Integer", "target": "#datetime_compare", "args": [{ "kind": "local", "name": "i1" }, { "kind": "local", "name": "i2" }] }] } },
     { "op": "eval", "line": 145, "value": { "kind": "call", "type": "Nothing", "target": "useB", "args": [{ "kind": "call", "type": "Boolean", "target": "#datetime_equals", "args": [{ "kind": "local", "name": "i1" }, { "kind": "local", "name": "i2" }] }] } },
     { "op": "eval", "line": 146, "value": { "kind": "call", "type": "Nothing", "target": "useB", "args": [{ "kind": "call", "type": "Boolean", "target": "#datetime_isAfter", "args": [{ "kind": "local", "name": "i2" }, { "kind": "local", "name": "i1" }] }] } },
@@ -387,7 +387,7 @@
     { "op": "eval", "line": 154, "value": { "kind": "call", "type": "Nothing", "target": "useB", "args": [{ "kind": "call", "type": "Boolean", "target": "#datetime_isLeapYear", "args": [{ "kind": "const", "type": "Integer", "value": "2024" }] }] } },
     { "op": "eval", "line": 155, "value": { "kind": "call", "type": "Nothing", "target": "useI", "args": [{ "kind": "call", "type": "Integer", "target": "datetime.localOffset", "args": [{ "kind": "const", "type": "Integer", "value": "1700000000" }] }] } },
     { "op": "eval", "line": 156, "value": { "kind": "call", "type": "Nothing", "target": "useI", "args": [{ "kind": "call", "type": "Integer", "target": "#datetime_offsetAt", "args": [{ "kind": "local", "name": "zf1" }, { "kind": "local", "name": "nowI" }] }] } },
-    { "op": "eval", "line": 157, "value": { "kind": "call", "type": "Nothing", "target": "useWeekday", "args": [{ "kind": "call", "type": "Weekday", "target": "#datetime_weekday", "args": [{ "kind": "local", "name": "civ" }] }] } },
+    { "op": "eval", "line": 157, "value": { "kind": "call", "type": "Nothing", "target": "useWeekday", "args": [{ "kind": "call", "type": "datetime.Weekday", "target": "#datetime_weekday", "args": [{ "kind": "local", "name": "civ" }] }] } },
     { "op": "eval", "line": 160, "value": { "kind": "call", "type": "Nothing", "target": "useS", "args": [{ "kind": "call", "type": "String", "target": "#datetime_format", "args": [{ "kind": "local", "name": "civ" }, { "kind": "const", "type": "String", "value": "yyyy-MM-dd'T'HH:mm:ss Z" }] }] } },
     { "op": "eval", "line": 161, "value": { "kind": "call", "type": "Nothing", "target": "useS", "args": [{ "kind": "call", "type": "String", "target": "#datetime_formatDuration", "args": [{ "kind": "local", "name": "d5" }] }] } },
     { "op": "eval", "line": 162, "value": { "kind": "call", "type": "Nothing", "target": "useS", "args": [{ "kind": "call", "type": "String", "target": "#datetime_toIso", "args": [{ "kind": "local", "name": "civ" }] }] } },
@@ -403,7 +403,7 @@
     { "name": "seconds", "line": 135, "type": "Integer", "default": null },
     { "name": "nanos", "line": 135, "type": "Integer", "default": null }
     ],
-    "returns": "Instant",
+    "returns": "datetime.Instant",
     "body": [
     { "op": "bind", "line": 136, "mutable": true, "name": "q", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "nanos" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000" } } },
     { "op": "bind", "line": 137, "mutable": true, "name": "r", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "nanos" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000" } } },
@@ -418,7 +418,7 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 142, "value": { "kind": "constructor", "type": "Instant", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "seconds" }, "right": { "kind": "local", "name": "q" } }, { "kind": "local", "name": "r" }] } }
+    { "op": "return", "line": 142, "value": { "kind": "constructor", "type": "datetime.Instant", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "seconds" }, "right": { "kind": "local", "name": "q" } }, { "kind": "local", "name": "r" }] } }
     ]
   },
   {
@@ -430,7 +430,7 @@
     { "name": "seconds", "line": 145, "type": "Integer", "default": null },
     { "name": "nanos", "line": 145, "type": "Integer", "default": null }
     ],
-    "returns": "Duration",
+    "returns": "datetime.Duration",
     "body": [
     { "op": "bind", "line": 146, "mutable": true, "name": "q", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "nanos" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000" } } },
     { "op": "bind", "line": 147, "mutable": true, "name": "r", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "nanos" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000" } } },
@@ -445,7 +445,7 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 152, "value": { "kind": "constructor", "type": "Duration", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "seconds" }, "right": { "kind": "local", "name": "q" } }, { "kind": "local", "name": "r" }] } }
+    { "op": "return", "line": 152, "value": { "kind": "constructor", "type": "datetime.Duration", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "seconds" }, "right": { "kind": "local", "name": "q" } }, { "kind": "local", "name": "r" }] } }
     ]
   },
   {
@@ -559,7 +559,7 @@
     "params": [
     { "name": "z0", "line": 193, "type": "Integer", "default": null }
     ],
-    "returns": "Date",
+    "returns": "datetime.Date",
     "body": [
     { "op": "bind", "line": 194, "mutable": false, "name": "z", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "z0" }, "right": { "kind": "const", "type": "Integer", "value": "719468" } } },
     { "op": "bind", "line": 195, "mutable": true, "name": "era", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
@@ -602,7 +602,7 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 215, "value": { "kind": "constructor", "type": "Date", "args": [{ "kind": "local", "name": "yFinal" }, { "kind": "local", "name": "m" }, { "kind": "local", "name": "d" }] } }
+    { "op": "return", "line": 215, "value": { "kind": "constructor", "type": "datetime.Date", "args": [{ "kind": "local", "name": "yFinal" }, { "kind": "local", "name": "m" }, { "kind": "local", "name": "d" }] } }
     ]
   },
   {
@@ -677,12 +677,12 @@
     "kind": "func",
     "params": [
     { "name": "localSeconds", "line": 249, "type": "Integer", "default": null },
-    { "name": "z", "line": 249, "type": "Zone", "default": null }
+    { "name": "z", "line": 249, "type": "datetime.Zone", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 250, "mutable": false, "name": "offEarly", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_offsetAt", "args": [{ "kind": "local", "name": "z" }, { "kind": "constructor", "type": "Instant", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "localSeconds" }, "right": { "kind": "const", "type": "Integer", "value": "86400" } }, { "kind": "const", "type": "Integer", "value": "0" }] }] } },
-    { "op": "bind", "line": 251, "mutable": false, "name": "offLate", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_offsetAt", "args": [{ "kind": "local", "name": "z" }, { "kind": "constructor", "type": "Instant", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "localSeconds" }, "right": { "kind": "const", "type": "Integer", "value": "86400" } }, { "kind": "const", "type": "Integer", "value": "0" }] }] } },
+    { "op": "bind", "line": 250, "mutable": false, "name": "offEarly", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_offsetAt", "args": [{ "kind": "local", "name": "z" }, { "kind": "constructor", "type": "datetime.Instant", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "localSeconds" }, "right": { "kind": "const", "type": "Integer", "value": "86400" } }, { "kind": "const", "type": "Integer", "value": "0" }] }] } },
+    { "op": "bind", "line": 251, "mutable": false, "name": "offLate", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_offsetAt", "args": [{ "kind": "local", "name": "z" }, { "kind": "constructor", "type": "datetime.Instant", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "localSeconds" }, "right": { "kind": "const", "type": "Integer", "value": "86400" } }, { "kind": "const", "type": "Integer", "value": "0" }] }] } },
     { "op": "bind", "line": 252, "mutable": false, "name": "candEarly", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "localSeconds" }, "right": { "kind": "local", "name": "offEarly" } } },
     {
       "op": "if",
@@ -695,8 +695,8 @@
       ]
     },
     { "op": "bind", "line": 256, "mutable": false, "name": "candLate", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "localSeconds" }, "right": { "kind": "local", "name": "offLate" } } },
-    { "op": "bind", "line": 257, "mutable": false, "name": "earlyOk", "type": "Boolean", "value": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "#datetime_offsetAt", "args": [{ "kind": "local", "name": "z" }, { "kind": "constructor", "type": "Instant", "args": [{ "kind": "local", "name": "candEarly" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }, "right": { "kind": "local", "name": "offEarly" } } },
-    { "op": "bind", "line": 258, "mutable": false, "name": "lateOk", "type": "Boolean", "value": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "#datetime_offsetAt", "args": [{ "kind": "local", "name": "z" }, { "kind": "constructor", "type": "Instant", "args": [{ "kind": "local", "name": "candLate" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }, "right": { "kind": "local", "name": "offLate" } } },
+    { "op": "bind", "line": 257, "mutable": false, "name": "earlyOk", "type": "Boolean", "value": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "#datetime_offsetAt", "args": [{ "kind": "local", "name": "z" }, { "kind": "constructor", "type": "datetime.Instant", "args": [{ "kind": "local", "name": "candEarly" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }, "right": { "kind": "local", "name": "offEarly" } } },
+    { "op": "bind", "line": 258, "mutable": false, "name": "lateOk", "type": "Boolean", "value": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "#datetime_offsetAt", "args": [{ "kind": "local", "name": "z" }, { "kind": "constructor", "type": "datetime.Instant", "args": [{ "kind": "local", "name": "candLate" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }, "right": { "kind": "local", "name": "offLate" } } },
     {
       "op": "if",
       "line": 259,
@@ -743,11 +743,11 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "dt", "line": 273, "type": "DateTime", "default": null }
+    { "name": "dt", "line": 273, "type": "datetime.DateTime", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 274, "mutable": false, "name": "days", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_daysFromCivil", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] } },
+    { "op": "bind", "line": 274, "mutable": false, "name": "days", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_daysFromCivil", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] } },
     { "op": "return", "line": 275, "value": { "kind": "call", "type": "Integer", "target": "#datetime_floorMod", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "days" }, "right": { "kind": "const", "type": "Integer", "value": "3" } }, { "kind": "const", "type": "Integer", "value": "7" }] } }
     ]
   },
@@ -846,7 +846,7 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "dt", "line": 310, "type": "DateTime", "default": null },
+    { "name": "dt", "line": 310, "type": "datetime.DateTime", "default": null },
     { "name": "ch", "line": 310, "type": "String", "default": null },
     { "name": "runLen", "line": 310, "type": "Integer", "default": null }
     ],
@@ -862,12 +862,12 @@
         "line": 312,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "runLen" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
         "then": [
-        { "op": "return", "line": 313, "value": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "call", "type": "Integer", "target": "#datetime_floorMod", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "const", "type": "Integer", "value": "100" }] }] } }
+        { "op": "return", "line": 313, "value": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "call", "type": "Integer", "target": "#datetime_floorMod", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "const", "type": "Integer", "value": "100" }] }] } }
         ],
         "else": [
         ]
       },
-      { "op": "return", "line": 315, "value": { "kind": "call", "type": "String", "target": "#datetime_padN", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "local", "name": "runLen" }] } }
+      { "op": "return", "line": 315, "value": { "kind": "call", "type": "String", "target": "#datetime_padN", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "local", "name": "runLen" }] } }
       ],
       "else": [
       ]
@@ -882,7 +882,7 @@
         "line": 318,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "runLen" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
         "then": [
-        { "op": "return", "line": 318, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }] } }
+        { "op": "return", "line": 318, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }] } }
         ],
         "else": [
         ]
@@ -892,7 +892,7 @@
         "line": 319,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "runLen" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
         "then": [
-        { "op": "return", "line": 319, "value": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }] } }
+        { "op": "return", "line": 319, "value": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }] } }
         ],
         "else": [
         ]
@@ -902,12 +902,12 @@
         "line": 320,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "runLen" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
         "then": [
-        { "op": "return", "line": 320, "value": { "kind": "call", "type": "String", "target": "#datetime_monthName", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, { "kind": "const", "type": "Boolean", "value": "false" }] } }
+        { "op": "return", "line": 320, "value": { "kind": "call", "type": "String", "target": "#datetime_monthName", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, { "kind": "const", "type": "Boolean", "value": "false" }] } }
         ],
         "else": [
         ]
       },
-      { "op": "return", "line": 321, "value": { "kind": "call", "type": "String", "target": "#datetime_monthName", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, { "kind": "const", "type": "Boolean", "value": "true" }] } }
+      { "op": "return", "line": 321, "value": { "kind": "call", "type": "String", "target": "#datetime_monthName", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, { "kind": "const", "type": "Boolean", "value": "true" }] } }
       ],
       "else": [
       ]
@@ -922,12 +922,12 @@
         "line": 324,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "runLen" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
         "then": [
-        { "op": "return", "line": 324, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] } }
+        { "op": "return", "line": 324, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] } }
         ],
         "else": [
         ]
       },
-      { "op": "return", "line": 325, "value": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] } }
+      { "op": "return", "line": 325, "value": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] } }
       ],
       "else": [
       ]
@@ -942,12 +942,12 @@
         "line": 328,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "runLen" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
         "then": [
-        { "op": "return", "line": 328, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "hour" }] } }
+        { "op": "return", "line": 328, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "hour" }] } }
         ],
         "else": [
         ]
       },
-      { "op": "return", "line": 329, "value": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "hour" }] } }
+      { "op": "return", "line": 329, "value": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "hour" }] } }
       ],
       "else": [
       ]
@@ -957,7 +957,7 @@
       "line": 331,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "h" } },
       "then": [
-      { "op": "bind", "line": 332, "mutable": false, "name": "h12", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_hour12", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "hour" }] } },
+      { "op": "bind", "line": 332, "mutable": false, "name": "h12", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_hour12", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "hour" }] } },
       {
         "op": "if",
         "line": 333,
@@ -983,12 +983,12 @@
         "line": 337,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "runLen" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
         "then": [
-        { "op": "return", "line": 337, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "minute" }] } }
+        { "op": "return", "line": 337, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "minute" }] } }
         ],
         "else": [
         ]
       },
-      { "op": "return", "line": 338, "value": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "minute" }] } }
+      { "op": "return", "line": 338, "value": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "minute" }] } }
       ],
       "else": [
       ]
@@ -1003,12 +1003,12 @@
         "line": 341,
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "runLen" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
         "then": [
-        { "op": "return", "line": 341, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "second" }] } }
+        { "op": "return", "line": 341, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "second" }] } }
         ],
         "else": [
         ]
       },
-      { "op": "return", "line": 342, "value": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "second" }] } }
+      { "op": "return", "line": 342, "value": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "second" }] } }
       ],
       "else": [
       ]
@@ -1018,7 +1018,7 @@
       "line": 344,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "f" } },
       "then": [
-      { "op": "return", "line": 345, "value": { "kind": "call", "type": "String", "target": "strings.left", "args": [{ "kind": "call", "type": "String", "target": "#datetime_padN", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "nanos" }, { "kind": "const", "type": "Integer", "value": "9" }] }, { "kind": "local", "name": "runLen" }] } }
+      { "op": "return", "line": 345, "value": { "kind": "call", "type": "String", "target": "strings.left", "args": [{ "kind": "call", "type": "String", "target": "#datetime_padN", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "nanos" }, { "kind": "const", "type": "Integer", "value": "9" }] }, { "kind": "local", "name": "runLen" }] } }
       ],
       "else": [
       ]
@@ -1031,7 +1031,7 @@
       {
         "op": "if",
         "line": 348,
-        "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "hour" }, "right": { "kind": "const", "type": "Integer", "value": "12" } },
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "hour" }, "right": { "kind": "const", "type": "Integer", "value": "12" } },
         "then": [
         { "op": "return", "line": 348, "value": { "kind": "const", "type": "String", "value": "AM" } }
         ],
@@ -1656,9 +1656,9 @@
     "kind": "func",
     "params": [
     { "name": "f", "line": 591, "type": "#datetime_Fields", "default": null },
-    { "name": "zone", "line": 591, "type": "Zone", "default": null }
+    { "name": "zone", "line": 591, "type": "datetime.Zone", "default": null }
     ],
-    "returns": "DateTime",
+    "returns": "datetime.DateTime",
     "body": [
     { "op": "bind", "line": 592, "mutable": true, "name": "hour", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "hour" } },
     {
@@ -1690,19 +1690,19 @@
       "else": [
       ]
     },
-    { "op": "bind", "line": 600, "mutable": false, "name": "d", "type": "Date", "value": { "kind": "constructor", "type": "Date", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "year" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "month" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "day" }] } },
-    { "op": "bind", "line": 601, "mutable": false, "name": "t", "type": "Time", "value": { "kind": "constructor", "type": "Time", "args": [{ "kind": "local", "name": "hour" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "minute" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "second" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "nanos" }] } },
+    { "op": "bind", "line": 600, "mutable": false, "name": "d", "type": "datetime.Date", "value": { "kind": "constructor", "type": "datetime.Date", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "year" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "month" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "day" }] } },
+    { "op": "bind", "line": 601, "mutable": false, "name": "t", "type": "datetime.Time", "value": { "kind": "constructor", "type": "datetime.Time", "args": [{ "kind": "local", "name": "hour" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "minute" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "second" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "nanos" }] } },
     {
       "op": "if",
       "line": 602,
       "condition": { "kind": "memberAccess", "type": "Boolean", "target": { "kind": "local", "name": "f" }, "member": "hasOff" },
       "then": [
-      { "op": "return", "line": 603, "value": { "kind": "constructor", "type": "DateTime", "args": [{ "kind": "local", "name": "d" }, { "kind": "local", "name": "t" }, { "kind": "call", "type": "Zone", "target": "#datetime_fixedOffset1", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "offset" }] }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "offset" }] } }
+      { "op": "return", "line": 603, "value": { "kind": "constructor", "type": "datetime.DateTime", "args": [{ "kind": "local", "name": "d" }, { "kind": "local", "name": "t" }, { "kind": "call", "type": "datetime.Zone", "target": "#datetime_fixedOffset1", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "offset" }] }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "f" }, "member": "offset" }] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 605, "value": { "kind": "call", "type": "DateTime", "target": "#datetime_civil", "args": [{ "kind": "local", "name": "d" }, { "kind": "local", "name": "t" }, { "kind": "local", "name": "zone" }] } }
+    { "op": "return", "line": 605, "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_civil", "args": [{ "kind": "local", "name": "d" }, { "kind": "local", "name": "t" }, { "kind": "local", "name": "zone" }] } }
     ]
   },
   {
@@ -1760,10 +1760,10 @@
     "kind": "func",
     "params": [
     ],
-    "returns": "Instant",
+    "returns": "datetime.Instant",
     "body": [
     { "op": "bind", "line": 628, "mutable": false, "name": "ns", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "datetime.nowNanos", "args": [] } },
-    { "op": "return", "line": 629, "value": { "kind": "call", "type": "Instant", "target": "#datetime_normInstant", "args": [{ "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "ns" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000" } }, { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "ns" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000" } }] } }
+    { "op": "return", "line": 629, "value": { "kind": "call", "type": "datetime.Instant", "target": "#datetime_normInstant", "args": [{ "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "ns" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000" } }, { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "ns" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000" } }] } }
     ]
   },
   {
@@ -1773,10 +1773,10 @@
     "kind": "func",
     "params": [
     ],
-    "returns": "Duration",
+    "returns": "datetime.Duration",
     "body": [
     { "op": "bind", "line": 633, "mutable": false, "name": "ns", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "datetime.monotonicNanos", "args": [] } },
-    { "op": "return", "line": 634, "value": { "kind": "call", "type": "Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "ns" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000" } }, { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "ns" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000" } }] } }
+    { "op": "return", "line": 634, "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "ns" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000" } }, { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "ns" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000" } }] } }
     ]
   },
   {
@@ -1787,9 +1787,9 @@
     "params": [
     { "name": "seconds", "line": 637, "type": "Integer", "default": null }
     ],
-    "returns": "Instant",
+    "returns": "datetime.Instant",
     "body": [
-    { "op": "return", "line": 638, "value": { "kind": "constructor", "type": "Instant", "args": [{ "kind": "local", "name": "seconds" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+    { "op": "return", "line": 638, "value": { "kind": "constructor", "type": "datetime.Instant", "args": [{ "kind": "local", "name": "seconds" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
     ]
   },
   {
@@ -1801,9 +1801,9 @@
     { "name": "seconds", "line": 641, "type": "Integer", "default": null },
     { "name": "nanos", "line": 641, "type": "Integer", "default": null }
     ],
-    "returns": "Instant",
+    "returns": "datetime.Instant",
     "body": [
-    { "op": "return", "line": 642, "value": { "kind": "call", "type": "Instant", "target": "#datetime_normInstant", "args": [{ "kind": "local", "name": "seconds" }, { "kind": "local", "name": "nanos" }] } }
+    { "op": "return", "line": 642, "value": { "kind": "call", "type": "datetime.Instant", "target": "#datetime_normInstant", "args": [{ "kind": "local", "name": "seconds" }, { "kind": "local", "name": "nanos" }] } }
     ]
   },
   {
@@ -1816,9 +1816,9 @@
     { "name": "seconds", "line": 645, "type": "Integer", "default": null },
     { "name": "nanos", "line": 645, "type": "Integer", "default": null }
     ],
-    "returns": "Instant",
+    "returns": "datetime.Instant",
     "body": [
-    { "op": "return", "line": 646, "value": { "kind": "call", "type": "Instant", "target": "#datetime_normInstant", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "mins" }, "right": { "kind": "const", "type": "Integer", "value": "60" } }, "right": { "kind": "local", "name": "seconds" } }, { "kind": "local", "name": "nanos" }] } }
+    { "op": "return", "line": 646, "value": { "kind": "call", "type": "datetime.Instant", "target": "#datetime_normInstant", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "mins" }, "right": { "kind": "const", "type": "Integer", "value": "60" } }, "right": { "kind": "local", "name": "seconds" } }, { "kind": "local", "name": "nanos" }] } }
     ]
   },
   {
@@ -1832,9 +1832,9 @@
     { "name": "seconds", "line": 649, "type": "Integer", "default": null },
     { "name": "nanos", "line": 649, "type": "Integer", "default": null }
     ],
-    "returns": "Instant",
+    "returns": "datetime.Instant",
     "body": [
-    { "op": "return", "line": 650, "value": { "kind": "call", "type": "Instant", "target": "#datetime_normInstant", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "hours" }, "right": { "kind": "const", "type": "Integer", "value": "3600" } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "mins" }, "right": { "kind": "const", "type": "Integer", "value": "60" } } }, "right": { "kind": "local", "name": "seconds" } }, { "kind": "local", "name": "nanos" }] } }
+    { "op": "return", "line": 650, "value": { "kind": "call", "type": "datetime.Instant", "target": "#datetime_normInstant", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "hours" }, "right": { "kind": "const", "type": "Integer", "value": "3600" } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "mins" }, "right": { "kind": "const", "type": "Integer", "value": "60" } } }, "right": { "kind": "local", "name": "seconds" } }, { "kind": "local", "name": "nanos" }] } }
     ]
   },
   {
@@ -1849,9 +1849,9 @@
     { "name": "seconds", "line": 653, "type": "Integer", "default": null },
     { "name": "nanos", "line": 653, "type": "Integer", "default": null }
     ],
-    "returns": "Instant",
+    "returns": "datetime.Instant",
     "body": [
-    { "op": "return", "line": 654, "value": { "kind": "call", "type": "Instant", "target": "#datetime_normInstant", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "days" }, "right": { "kind": "const", "type": "Integer", "value": "86400" } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "hours" }, "right": { "kind": "const", "type": "Integer", "value": "3600" } } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "mins" }, "right": { "kind": "const", "type": "Integer", "value": "60" } } }, "right": { "kind": "local", "name": "seconds" } }, { "kind": "local", "name": "nanos" }] } }
+    { "op": "return", "line": 654, "value": { "kind": "call", "type": "datetime.Instant", "target": "#datetime_normInstant", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "days" }, "right": { "kind": "const", "type": "Integer", "value": "86400" } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "hours" }, "right": { "kind": "const", "type": "Integer", "value": "3600" } } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "mins" }, "right": { "kind": "const", "type": "Integer", "value": "60" } } }, "right": { "kind": "local", "name": "seconds" } }, { "kind": "local", "name": "nanos" }] } }
     ]
   },
   {
@@ -1864,7 +1864,7 @@
     { "name": "month", "line": 657, "type": "Integer", "default": null },
     { "name": "day", "line": 657, "type": "Integer", "default": null }
     ],
-    "returns": "Date",
+    "returns": "datetime.Date",
     "body": [
     {
       "op": "if",
@@ -1886,7 +1886,7 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 664, "value": { "kind": "constructor", "type": "Date", "args": [{ "kind": "local", "name": "year" }, { "kind": "local", "name": "month" }, { "kind": "local", "name": "day" }] } }
+    { "op": "return", "line": 664, "value": { "kind": "constructor", "type": "datetime.Date", "args": [{ "kind": "local", "name": "year" }, { "kind": "local", "name": "month" }, { "kind": "local", "name": "day" }] } }
     ]
   },
   {
@@ -1900,7 +1900,7 @@
     { "name": "second", "line": 667, "type": "Integer", "default": null },
     { "name": "nanos", "line": 667, "type": "Integer", "default": null }
     ],
-    "returns": "Time",
+    "returns": "datetime.Time",
     "body": [
     {
       "op": "if",
@@ -1942,7 +1942,7 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 680, "value": { "kind": "constructor", "type": "Time", "args": [{ "kind": "local", "name": "hour" }, { "kind": "local", "name": "minute" }, { "kind": "local", "name": "second" }, { "kind": "local", "name": "nanos" }] } }
+    { "op": "return", "line": 680, "value": { "kind": "constructor", "type": "datetime.Time", "args": [{ "kind": "local", "name": "hour" }, { "kind": "local", "name": "minute" }, { "kind": "local", "name": "second" }, { "kind": "local", "name": "nanos" }] } }
     ]
   },
   {
@@ -1953,9 +1953,9 @@
     "params": [
     { "name": "seconds", "line": 683, "type": "Integer", "default": null }
     ],
-    "returns": "Duration",
+    "returns": "datetime.Duration",
     "body": [
-    { "op": "return", "line": 684, "value": { "kind": "constructor", "type": "Duration", "args": [{ "kind": "local", "name": "seconds" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+    { "op": "return", "line": 684, "value": { "kind": "constructor", "type": "datetime.Duration", "args": [{ "kind": "local", "name": "seconds" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
     ]
   },
   {
@@ -1967,9 +1967,9 @@
     { "name": "seconds", "line": 687, "type": "Integer", "default": null },
     { "name": "nanos", "line": 687, "type": "Integer", "default": null }
     ],
-    "returns": "Duration",
+    "returns": "datetime.Duration",
     "body": [
-    { "op": "return", "line": 688, "value": { "kind": "call", "type": "Duration", "target": "#datetime_normDuration", "args": [{ "kind": "local", "name": "seconds" }, { "kind": "local", "name": "nanos" }] } }
+    { "op": "return", "line": 688, "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_normDuration", "args": [{ "kind": "local", "name": "seconds" }, { "kind": "local", "name": "nanos" }] } }
     ]
   },
   {
@@ -1982,9 +1982,9 @@
     { "name": "seconds", "line": 691, "type": "Integer", "default": null },
     { "name": "nanos", "line": 691, "type": "Integer", "default": null }
     ],
-    "returns": "Duration",
+    "returns": "datetime.Duration",
     "body": [
-    { "op": "return", "line": 692, "value": { "kind": "call", "type": "Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "mins" }, "right": { "kind": "const", "type": "Integer", "value": "60" } }, "right": { "kind": "local", "name": "seconds" } }, { "kind": "local", "name": "nanos" }] } }
+    { "op": "return", "line": 692, "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "mins" }, "right": { "kind": "const", "type": "Integer", "value": "60" } }, "right": { "kind": "local", "name": "seconds" } }, { "kind": "local", "name": "nanos" }] } }
     ]
   },
   {
@@ -1998,9 +1998,9 @@
     { "name": "seconds", "line": 695, "type": "Integer", "default": null },
     { "name": "nanos", "line": 695, "type": "Integer", "default": null }
     ],
-    "returns": "Duration",
+    "returns": "datetime.Duration",
     "body": [
-    { "op": "return", "line": 696, "value": { "kind": "call", "type": "Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "hours" }, "right": { "kind": "const", "type": "Integer", "value": "3600" } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "mins" }, "right": { "kind": "const", "type": "Integer", "value": "60" } } }, "right": { "kind": "local", "name": "seconds" } }, { "kind": "local", "name": "nanos" }] } }
+    { "op": "return", "line": 696, "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "hours" }, "right": { "kind": "const", "type": "Integer", "value": "3600" } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "mins" }, "right": { "kind": "const", "type": "Integer", "value": "60" } } }, "right": { "kind": "local", "name": "seconds" } }, { "kind": "local", "name": "nanos" }] } }
     ]
   },
   {
@@ -2015,9 +2015,9 @@
     { "name": "seconds", "line": 699, "type": "Integer", "default": null },
     { "name": "nanos", "line": 699, "type": "Integer", "default": null }
     ],
-    "returns": "Duration",
+    "returns": "datetime.Duration",
     "body": [
-    { "op": "return", "line": 700, "value": { "kind": "call", "type": "Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "days" }, "right": { "kind": "const", "type": "Integer", "value": "86400" } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "hours" }, "right": { "kind": "const", "type": "Integer", "value": "3600" } } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "mins" }, "right": { "kind": "const", "type": "Integer", "value": "60" } } }, "right": { "kind": "local", "name": "seconds" } }, { "kind": "local", "name": "nanos" }] } }
+    { "op": "return", "line": 700, "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "days" }, "right": { "kind": "const", "type": "Integer", "value": "86400" } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "hours" }, "right": { "kind": "const", "type": "Integer", "value": "3600" } } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "mins" }, "right": { "kind": "const", "type": "Integer", "value": "60" } } }, "right": { "kind": "local", "name": "seconds" } }, { "kind": "local", "name": "nanos" }] } }
     ]
   },
   {
@@ -2027,9 +2027,9 @@
     "kind": "func",
     "params": [
     ],
-    "returns": "Zone",
+    "returns": "datetime.Zone",
     "body": [
-    { "op": "return", "line": 704, "value": { "kind": "constructor", "type": "Zone", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "String", "value": "UTC" }] } }
+    { "op": "return", "line": 704, "value": { "kind": "constructor", "type": "datetime.Zone", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "String", "value": "UTC" }] } }
     ]
   },
   {
@@ -2039,9 +2039,9 @@
     "kind": "func",
     "params": [
     ],
-    "returns": "Zone",
+    "returns": "datetime.Zone",
     "body": [
-    { "op": "return", "line": 708, "value": { "kind": "constructor", "type": "Zone", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "String", "value": "Local" }] } }
+    { "op": "return", "line": 708, "value": { "kind": "constructor", "type": "datetime.Zone", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "String", "value": "Local" }] } }
     ]
   },
   {
@@ -2052,7 +2052,7 @@
     "params": [
     { "name": "offsetSeconds", "line": 711, "type": "Integer", "default": null }
     ],
-    "returns": "Zone",
+    "returns": "datetime.Zone",
     "body": [
     {
       "op": "if",
@@ -2064,7 +2064,7 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 715, "value": { "kind": "constructor", "type": "Zone", "args": [{ "kind": "local", "name": "offsetSeconds" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "call", "type": "String", "target": "#datetime_offsetLabel", "args": [{ "kind": "local", "name": "offsetSeconds" }] }] } }
+    { "op": "return", "line": 715, "value": { "kind": "constructor", "type": "datetime.Zone", "args": [{ "kind": "local", "name": "offsetSeconds" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "call", "type": "String", "target": "#datetime_offsetLabel", "args": [{ "kind": "local", "name": "offsetSeconds" }] }] } }
     ]
   },
   {
@@ -2076,7 +2076,7 @@
     { "name": "hours", "line": 718, "type": "Integer", "default": null },
     { "name": "mins", "line": 718, "type": "Integer", "default": null }
     ],
-    "returns": "Zone",
+    "returns": "datetime.Zone",
     "body": [
     {
       "op": "if",
@@ -2112,7 +2112,7 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 732, "value": { "kind": "call", "type": "Zone", "target": "#datetime_fixedOffset1", "args": [{ "kind": "local", "name": "total" }] } }
+    { "op": "return", "line": 732, "value": { "kind": "call", "type": "datetime.Zone", "target": "#datetime_fixedOffset1", "args": [{ "kind": "local", "name": "total" }] } }
     ]
   },
   {
@@ -2121,8 +2121,8 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "z", "line": 735, "type": "Zone", "default": null },
-    { "name": "at", "line": 735, "type": "Instant", "default": null }
+    { "name": "z", "line": 735, "type": "datetime.Zone", "default": null },
+    { "name": "at", "line": 735, "type": "datetime.Instant", "default": null }
     ],
     "returns": "Integer",
     "body": [
@@ -2145,18 +2145,18 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "at", "line": 742, "type": "Instant", "default": null },
-    { "name": "z", "line": 742, "type": "Zone", "default": null }
+    { "name": "at", "line": 742, "type": "datetime.Instant", "default": null },
+    { "name": "z", "line": 742, "type": "datetime.Zone", "default": null }
     ],
-    "returns": "DateTime",
+    "returns": "datetime.DateTime",
     "body": [
     { "op": "bind", "line": 743, "mutable": false, "name": "off", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_offsetAt", "args": [{ "kind": "local", "name": "z" }, { "kind": "local", "name": "at" }] } },
     { "op": "bind", "line": 744, "mutable": false, "name": "localSeconds", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "at" }, "member": "seconds" }, "right": { "kind": "local", "name": "off" } } },
     { "op": "bind", "line": 745, "mutable": false, "name": "days", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_floorDiv", "args": [{ "kind": "local", "name": "localSeconds" }, { "kind": "const", "type": "Integer", "value": "86400" }] } },
     { "op": "bind", "line": 746, "mutable": false, "name": "secOfDay", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_floorMod", "args": [{ "kind": "local", "name": "localSeconds" }, { "kind": "const", "type": "Integer", "value": "86400" }] } },
-    { "op": "bind", "line": 747, "mutable": false, "name": "date", "type": "Date", "value": { "kind": "call", "type": "Date", "target": "#datetime_civilFromDays", "args": [{ "kind": "local", "name": "days" }] } },
-    { "op": "bind", "line": 748, "mutable": false, "name": "time", "type": "Time", "value": { "kind": "constructor", "type": "Time", "args": [{ "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "secOfDay" }, "right": { "kind": "const", "type": "Integer", "value": "3600" } }, { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "secOfDay" }, "right": { "kind": "const", "type": "Integer", "value": "60" } }, "right": { "kind": "const", "type": "Integer", "value": "60" } }, { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "secOfDay" }, "right": { "kind": "const", "type": "Integer", "value": "60" } }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "at" }, "member": "nanos" }] } },
-    { "op": "return", "line": 749, "value": { "kind": "constructor", "type": "DateTime", "args": [{ "kind": "local", "name": "date" }, { "kind": "local", "name": "time" }, { "kind": "local", "name": "z" }, { "kind": "local", "name": "off" }] } }
+    { "op": "bind", "line": 747, "mutable": false, "name": "date", "type": "datetime.Date", "value": { "kind": "call", "type": "datetime.Date", "target": "#datetime_civilFromDays", "args": [{ "kind": "local", "name": "days" }] } },
+    { "op": "bind", "line": 748, "mutable": false, "name": "time", "type": "datetime.Time", "value": { "kind": "constructor", "type": "datetime.Time", "args": [{ "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "secOfDay" }, "right": { "kind": "const", "type": "Integer", "value": "3600" } }, { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "secOfDay" }, "right": { "kind": "const", "type": "Integer", "value": "60" } }, "right": { "kind": "const", "type": "Integer", "value": "60" } }, { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "secOfDay" }, "right": { "kind": "const", "type": "Integer", "value": "60" } }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "at" }, "member": "nanos" }] } },
+    { "op": "return", "line": 749, "value": { "kind": "constructor", "type": "datetime.DateTime", "args": [{ "kind": "local", "name": "date" }, { "kind": "local", "name": "time" }, { "kind": "local", "name": "z" }, { "kind": "local", "name": "off" }] } }
     ]
   },
   {
@@ -2165,11 +2165,11 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "at", "line": 752, "type": "Instant", "default": null }
+    { "name": "at", "line": 752, "type": "datetime.Instant", "default": null }
     ],
-    "returns": "DateTime",
+    "returns": "datetime.DateTime",
     "body": [
-    { "op": "return", "line": 753, "value": { "kind": "call", "type": "DateTime", "target": "#datetime_inZone", "args": [{ "kind": "local", "name": "at" }, { "kind": "call", "type": "Zone", "target": "#datetime_utc", "args": [] }] } }
+    { "op": "return", "line": 753, "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_inZone", "args": [{ "kind": "local", "name": "at" }, { "kind": "call", "type": "datetime.Zone", "target": "#datetime_utc", "args": [] }] } }
     ]
   },
   {
@@ -2178,11 +2178,11 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "at", "line": 756, "type": "Instant", "default": null }
+    { "name": "at", "line": 756, "type": "datetime.Instant", "default": null }
     ],
-    "returns": "DateTime",
+    "returns": "datetime.DateTime",
     "body": [
-    { "op": "return", "line": 757, "value": { "kind": "call", "type": "DateTime", "target": "#datetime_inZone", "args": [{ "kind": "local", "name": "at" }, { "kind": "call", "type": "Zone", "target": "#datetime_local", "args": [] }] } }
+    { "op": "return", "line": 757, "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_inZone", "args": [{ "kind": "local", "name": "at" }, { "kind": "call", "type": "datetime.Zone", "target": "#datetime_local", "args": [] }] } }
     ]
   },
   {
@@ -2191,12 +2191,12 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "dt", "line": 760, "type": "DateTime", "default": null }
+    { "name": "dt", "line": 760, "type": "datetime.DateTime", "default": null }
     ],
-    "returns": "Instant",
+    "returns": "datetime.Instant",
     "body": [
-    { "op": "bind", "line": 761, "mutable": false, "name": "localSeconds", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "call", "type": "Integer", "target": "#datetime_daysFromCivil", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] }, "right": { "kind": "const", "type": "Integer", "value": "86400" } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "hour" }, "right": { "kind": "const", "type": "Integer", "value": "3600" } } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "minute" }, "right": { "kind": "const", "type": "Integer", "value": "60" } } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "second" } } },
-    { "op": "return", "line": 762, "value": { "kind": "constructor", "type": "Instant", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "localSeconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dt" }, "member": "offset" } }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "nanos" }] } }
+    { "op": "bind", "line": 761, "mutable": false, "name": "localSeconds", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "call", "type": "Integer", "target": "#datetime_daysFromCivil", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] }, "right": { "kind": "const", "type": "Integer", "value": "86400" } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "hour" }, "right": { "kind": "const", "type": "Integer", "value": "3600" } } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "minute" }, "right": { "kind": "const", "type": "Integer", "value": "60" } } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "second" } } },
+    { "op": "return", "line": 762, "value": { "kind": "constructor", "type": "datetime.Instant", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "localSeconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dt" }, "member": "offset" } }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "nanos" }] } }
     ]
   },
   {
@@ -2205,15 +2205,15 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "d", "line": 765, "type": "Date", "default": null },
-    { "name": "t", "line": 765, "type": "Time", "default": null },
-    { "name": "z", "line": 765, "type": "Zone", "default": null }
+    { "name": "d", "line": 765, "type": "datetime.Date", "default": null },
+    { "name": "t", "line": 765, "type": "datetime.Time", "default": null },
+    { "name": "z", "line": 765, "type": "datetime.Zone", "default": null }
     ],
-    "returns": "DateTime",
+    "returns": "datetime.DateTime",
     "body": [
     { "op": "bind", "line": 766, "mutable": false, "name": "localSeconds", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "call", "type": "Integer", "target": "#datetime_daysFromCivil", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "d" }, "member": "year" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "d" }, "member": "month" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "d" }, "member": "day" }] }, "right": { "kind": "const", "type": "Integer", "value": "86400" } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t" }, "member": "hour" }, "right": { "kind": "const", "type": "Integer", "value": "3600" } } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t" }, "member": "minute" }, "right": { "kind": "const", "type": "Integer", "value": "60" } } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t" }, "member": "second" } } },
     { "op": "bind", "line": 767, "mutable": false, "name": "epochSeconds", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_resolveLocal", "args": [{ "kind": "local", "name": "localSeconds" }, { "kind": "local", "name": "z" }] } },
-    { "op": "return", "line": 768, "value": { "kind": "call", "type": "DateTime", "target": "#datetime_inZone", "args": [{ "kind": "constructor", "type": "Instant", "args": [{ "kind": "local", "name": "epochSeconds" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t" }, "member": "nanos" }] }, { "kind": "local", "name": "z" }] } }
+    { "op": "return", "line": 768, "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_inZone", "args": [{ "kind": "constructor", "type": "datetime.Instant", "args": [{ "kind": "local", "name": "epochSeconds" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t" }, "member": "nanos" }] }, { "kind": "local", "name": "z" }] } }
     ]
   },
   {
@@ -2222,12 +2222,12 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "dt", "line": 771, "type": "DateTime", "default": null },
-    { "name": "z", "line": 771, "type": "Zone", "default": null }
+    { "name": "dt", "line": 771, "type": "datetime.DateTime", "default": null },
+    { "name": "z", "line": 771, "type": "datetime.Zone", "default": null }
     ],
-    "returns": "DateTime",
+    "returns": "datetime.DateTime",
     "body": [
-    { "op": "return", "line": 772, "value": { "kind": "call", "type": "DateTime", "target": "#datetime_inZone", "args": [{ "kind": "call", "type": "Instant", "target": "#datetime_resolve", "args": [{ "kind": "local", "name": "dt" }] }, { "kind": "local", "name": "z" }] } }
+    { "op": "return", "line": 772, "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_inZone", "args": [{ "kind": "call", "type": "datetime.Instant", "target": "#datetime_resolve", "args": [{ "kind": "local", "name": "dt" }] }, { "kind": "local", "name": "z" }] } }
     ]
   },
   {
@@ -2236,12 +2236,12 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "at", "line": 775, "type": "Instant", "default": null },
-    { "name": "by", "line": 775, "type": "Duration", "default": null }
+    { "name": "at", "line": 775, "type": "datetime.Instant", "default": null },
+    { "name": "by", "line": 775, "type": "datetime.Duration", "default": null }
     ],
-    "returns": "Instant",
+    "returns": "datetime.Instant",
     "body": [
-    { "op": "return", "line": 776, "value": { "kind": "call", "type": "Instant", "target": "#datetime_normInstant", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "at" }, "member": "seconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "by" }, "member": "seconds" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "at" }, "member": "nanos" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "by" }, "member": "nanos" } }] } }
+    { "op": "return", "line": 776, "value": { "kind": "call", "type": "datetime.Instant", "target": "#datetime_normInstant", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "at" }, "member": "seconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "by" }, "member": "seconds" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "at" }, "member": "nanos" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "by" }, "member": "nanos" } }] } }
     ]
   },
   {
@@ -2250,12 +2250,12 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "at", "line": 779, "type": "Instant", "default": null },
-    { "name": "by", "line": 779, "type": "Duration", "default": null }
+    { "name": "at", "line": 779, "type": "datetime.Instant", "default": null },
+    { "name": "by", "line": 779, "type": "datetime.Duration", "default": null }
     ],
-    "returns": "Instant",
+    "returns": "datetime.Instant",
     "body": [
-    { "op": "return", "line": 780, "value": { "kind": "call", "type": "Instant", "target": "#datetime_normInstant", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "at" }, "member": "seconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "by" }, "member": "seconds" } }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "at" }, "member": "nanos" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "by" }, "member": "nanos" } }] } }
+    { "op": "return", "line": 780, "value": { "kind": "call", "type": "datetime.Instant", "target": "#datetime_normInstant", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "at" }, "member": "seconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "by" }, "member": "seconds" } }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "at" }, "member": "nanos" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "by" }, "member": "nanos" } }] } }
     ]
   },
   {
@@ -2264,12 +2264,12 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "start", "line": 783, "type": "Instant", "default": null },
-    { "name": "finish", "line": 783, "type": "Instant", "default": null }
+    { "name": "start", "line": 783, "type": "datetime.Instant", "default": null },
+    { "name": "finish", "line": 783, "type": "datetime.Instant", "default": null }
     ],
-    "returns": "Duration",
+    "returns": "datetime.Duration",
     "body": [
-    { "op": "return", "line": 784, "value": { "kind": "call", "type": "Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "finish" }, "member": "seconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "start" }, "member": "seconds" } }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "finish" }, "member": "nanos" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "start" }, "member": "nanos" } }] } }
+    { "op": "return", "line": 784, "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "finish" }, "member": "seconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "start" }, "member": "seconds" } }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "finish" }, "member": "nanos" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "start" }, "member": "nanos" } }] } }
     ]
   },
   {
@@ -2278,23 +2278,23 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "dt", "line": 787, "type": "DateTime", "default": null },
+    { "name": "dt", "line": 787, "type": "datetime.DateTime", "default": null },
     { "name": "days", "line": 787, "type": "Integer", "default": null }
     ],
-    "returns": "DateTime",
+    "returns": "datetime.DateTime",
     "body": [
-    { "op": "bind", "line": 788, "mutable": false, "name": "newDays", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "#datetime_daysFromCivil", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] }, "right": { "kind": "local", "name": "days" } } },
+    { "op": "bind", "line": 788, "mutable": false, "name": "newDays", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "#datetime_daysFromCivil", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] }, "right": { "kind": "local", "name": "days" } } },
     {
       "op": "if",
       "line": 796,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Zone", "target": { "kind": "local", "name": "dt" }, "member": "zone" }, "member": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Zone", "target": { "kind": "local", "name": "dt" }, "member": "zone" }, "member": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
       "then": [
-      { "op": "return", "line": 797, "value": { "kind": "constructor", "type": "DateTime", "args": [{ "kind": "call", "type": "Date", "target": "#datetime_civilFromDays", "args": [{ "kind": "local", "name": "newDays" }] }, { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, { "kind": "memberAccess", "type": "Zone", "target": { "kind": "local", "name": "dt" }, "member": "zone" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dt" }, "member": "offset" }] } }
+      { "op": "return", "line": 797, "value": { "kind": "constructor", "type": "datetime.DateTime", "args": [{ "kind": "call", "type": "datetime.Date", "target": "#datetime_civilFromDays", "args": [{ "kind": "local", "name": "newDays" }] }, { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, { "kind": "memberAccess", "type": "datetime.Zone", "target": { "kind": "local", "name": "dt" }, "member": "zone" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dt" }, "member": "offset" }] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 799, "value": { "kind": "call", "type": "DateTime", "target": "#datetime_civil", "args": [{ "kind": "call", "type": "Date", "target": "#datetime_civilFromDays", "args": [{ "kind": "local", "name": "newDays" }] }, { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, { "kind": "memberAccess", "type": "Zone", "target": { "kind": "local", "name": "dt" }, "member": "zone" }] } }
+    { "op": "return", "line": 799, "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_civil", "args": [{ "kind": "call", "type": "datetime.Date", "target": "#datetime_civilFromDays", "args": [{ "kind": "local", "name": "newDays" }] }, { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, { "kind": "memberAccess", "type": "datetime.Zone", "target": { "kind": "local", "name": "dt" }, "member": "zone" }] } }
     ]
   },
   {
@@ -2303,15 +2303,15 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "dt", "line": 802, "type": "DateTime", "default": null },
+    { "name": "dt", "line": 802, "type": "datetime.DateTime", "default": null },
     { "name": "months", "line": 802, "type": "Integer", "default": null }
     ],
-    "returns": "DateTime",
+    "returns": "datetime.DateTime",
     "body": [
-    { "op": "bind", "line": 803, "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, "right": { "kind": "const", "type": "Integer", "value": "12" } }, "right": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }, "right": { "kind": "local", "name": "months" } } },
+    { "op": "bind", "line": 803, "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, "right": { "kind": "const", "type": "Integer", "value": "12" } }, "right": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }, "right": { "kind": "local", "name": "months" } } },
     { "op": "bind", "line": 804, "mutable": false, "name": "y", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_floorDiv", "args": [{ "kind": "local", "name": "total" }, { "kind": "const", "type": "Integer", "value": "12" }] } },
     { "op": "bind", "line": 805, "mutable": false, "name": "m", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "#datetime_floorMod", "args": [{ "kind": "local", "name": "total" }, { "kind": "const", "type": "Integer", "value": "12" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-    { "op": "bind", "line": 806, "mutable": true, "name": "day", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" } },
+    { "op": "bind", "line": 806, "mutable": true, "name": "day", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" } },
     { "op": "bind", "line": 807, "mutable": false, "name": "dim", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_daysInMonth", "args": [{ "kind": "local", "name": "y" }, { "kind": "local", "name": "m" }] } },
     {
       "op": "if",
@@ -2326,14 +2326,14 @@
     {
       "op": "if",
       "line": 814,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Zone", "target": { "kind": "local", "name": "dt" }, "member": "zone" }, "member": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Zone", "target": { "kind": "local", "name": "dt" }, "member": "zone" }, "member": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
       "then": [
-      { "op": "return", "line": 815, "value": { "kind": "constructor", "type": "DateTime", "args": [{ "kind": "constructor", "type": "Date", "args": [{ "kind": "local", "name": "y" }, { "kind": "local", "name": "m" }, { "kind": "local", "name": "day" }] }, { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, { "kind": "memberAccess", "type": "Zone", "target": { "kind": "local", "name": "dt" }, "member": "zone" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dt" }, "member": "offset" }] } }
+      { "op": "return", "line": 815, "value": { "kind": "constructor", "type": "datetime.DateTime", "args": [{ "kind": "constructor", "type": "datetime.Date", "args": [{ "kind": "local", "name": "y" }, { "kind": "local", "name": "m" }, { "kind": "local", "name": "day" }] }, { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, { "kind": "memberAccess", "type": "datetime.Zone", "target": { "kind": "local", "name": "dt" }, "member": "zone" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dt" }, "member": "offset" }] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 817, "value": { "kind": "call", "type": "DateTime", "target": "#datetime_civil", "args": [{ "kind": "constructor", "type": "Date", "args": [{ "kind": "local", "name": "y" }, { "kind": "local", "name": "m" }, { "kind": "local", "name": "day" }] }, { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, { "kind": "memberAccess", "type": "Zone", "target": { "kind": "local", "name": "dt" }, "member": "zone" }] } }
+    { "op": "return", "line": 817, "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_civil", "args": [{ "kind": "constructor", "type": "datetime.Date", "args": [{ "kind": "local", "name": "y" }, { "kind": "local", "name": "m" }, { "kind": "local", "name": "day" }] }, { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, { "kind": "memberAccess", "type": "datetime.Zone", "target": { "kind": "local", "name": "dt" }, "member": "zone" }] } }
     ]
   },
   {
@@ -2342,8 +2342,8 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "a", "line": 820, "type": "Instant", "default": null },
-    { "name": "b", "line": 820, "type": "Instant", "default": null }
+    { "name": "a", "line": 820, "type": "datetime.Instant", "default": null },
+    { "name": "b", "line": 820, "type": "datetime.Instant", "default": null }
     ],
     "returns": "Integer",
     "body": [
@@ -2396,8 +2396,8 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "a", "line": 828, "type": "Instant", "default": null },
-    { "name": "b", "line": 828, "type": "Instant", "default": null }
+    { "name": "a", "line": 828, "type": "datetime.Instant", "default": null },
+    { "name": "b", "line": 828, "type": "datetime.Instant", "default": null }
     ],
     "returns": "Boolean",
     "body": [
@@ -2410,8 +2410,8 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "a", "line": 832, "type": "Instant", "default": null },
-    { "name": "b", "line": 832, "type": "Instant", "default": null }
+    { "name": "a", "line": 832, "type": "datetime.Instant", "default": null },
+    { "name": "b", "line": 832, "type": "datetime.Instant", "default": null }
     ],
     "returns": "Boolean",
     "body": [
@@ -2424,8 +2424,8 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "a", "line": 836, "type": "Instant", "default": null },
-    { "name": "b", "line": 836, "type": "Instant", "default": null }
+    { "name": "a", "line": 836, "type": "datetime.Instant", "default": null },
+    { "name": "b", "line": 836, "type": "datetime.Instant", "default": null }
     ],
     "returns": "Boolean",
     "body": [
@@ -2438,11 +2438,11 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "d", "line": 840, "type": "Duration", "default": null }
+    { "name": "d", "line": 840, "type": "datetime.Duration", "default": null }
     ],
-    "returns": "Duration",
+    "returns": "datetime.Duration",
     "body": [
-    { "op": "return", "line": 841, "value": { "kind": "call", "type": "Duration", "target": "#datetime_normDuration", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "d" }, "member": "seconds" } }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "d" }, "member": "nanos" } }] } }
+    { "op": "return", "line": 841, "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_normDuration", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "d" }, "member": "seconds" } }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "d" }, "member": "nanos" } }] } }
     ]
   },
   {
@@ -2451,12 +2451,12 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "a", "line": 844, "type": "Duration", "default": null },
-    { "name": "b", "line": 844, "type": "Duration", "default": null }
+    { "name": "a", "line": 844, "type": "datetime.Duration", "default": null },
+    { "name": "b", "line": 844, "type": "datetime.Duration", "default": null }
     ],
-    "returns": "Duration",
+    "returns": "datetime.Duration",
     "body": [
-    { "op": "return", "line": 845, "value": { "kind": "call", "type": "Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "seconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "seconds" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "nanos" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "nanos" } }] } }
+    { "op": "return", "line": 845, "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "seconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "seconds" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "nanos" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "nanos" } }] } }
     ]
   },
   {
@@ -2465,12 +2465,12 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "a", "line": 848, "type": "Duration", "default": null },
-    { "name": "b", "line": 848, "type": "Duration", "default": null }
+    { "name": "a", "line": 848, "type": "datetime.Duration", "default": null },
+    { "name": "b", "line": 848, "type": "datetime.Duration", "default": null }
     ],
-    "returns": "Duration",
+    "returns": "datetime.Duration",
     "body": [
-    { "op": "return", "line": 849, "value": { "kind": "call", "type": "Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "seconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "seconds" } }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "nanos" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "nanos" } }] } }
+    { "op": "return", "line": 849, "value": { "kind": "call", "type": "datetime.Duration", "target": "#datetime_normDuration", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "seconds" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "seconds" } }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "nanos" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "nanos" } }] } }
     ]
   },
   {
@@ -2479,18 +2479,18 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "dt", "line": 852, "type": "DateTime", "default": null }
+    { "name": "dt", "line": 852, "type": "datetime.DateTime", "default": null }
     ],
-    "returns": "Weekday",
+    "returns": "datetime.Weekday",
     "body": [
-    { "op": "bind", "line": 853, "mutable": false, "name": "days", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_daysFromCivil", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] } },
+    { "op": "bind", "line": 853, "mutable": false, "name": "days", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_daysFromCivil", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] } },
     { "op": "bind", "line": 854, "mutable": false, "name": "idx", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_floorMod", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "days" }, "right": { "kind": "const", "type": "Integer", "value": "3" } }, { "kind": "const", "type": "Integer", "value": "7" }] } },
     {
       "op": "if",
       "line": 855,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "return", "line": 855, "value": { "kind": "memberAccess", "type": "Weekday", "target": { "kind": "local", "name": "Weekday" }, "member": "Monday" } }
+      { "op": "return", "line": 855, "value": { "kind": "memberAccess", "type": "datetime.Weekday", "target": { "kind": "local", "name": "datetime.Weekday" }, "member": "Monday" } }
       ],
       "else": [
       ]
@@ -2500,7 +2500,7 @@
       "line": 856,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
       "then": [
-      { "op": "return", "line": 856, "value": { "kind": "memberAccess", "type": "Weekday", "target": { "kind": "local", "name": "Weekday" }, "member": "Tuesday" } }
+      { "op": "return", "line": 856, "value": { "kind": "memberAccess", "type": "datetime.Weekday", "target": { "kind": "local", "name": "datetime.Weekday" }, "member": "Tuesday" } }
       ],
       "else": [
       ]
@@ -2510,7 +2510,7 @@
       "line": 857,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
       "then": [
-      { "op": "return", "line": 857, "value": { "kind": "memberAccess", "type": "Weekday", "target": { "kind": "local", "name": "Weekday" }, "member": "Wednesday" } }
+      { "op": "return", "line": 857, "value": { "kind": "memberAccess", "type": "datetime.Weekday", "target": { "kind": "local", "name": "datetime.Weekday" }, "member": "Wednesday" } }
       ],
       "else": [
       ]
@@ -2520,7 +2520,7 @@
       "line": 858,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
       "then": [
-      { "op": "return", "line": 858, "value": { "kind": "memberAccess", "type": "Weekday", "target": { "kind": "local", "name": "Weekday" }, "member": "Thursday" } }
+      { "op": "return", "line": 858, "value": { "kind": "memberAccess", "type": "datetime.Weekday", "target": { "kind": "local", "name": "datetime.Weekday" }, "member": "Thursday" } }
       ],
       "else": [
       ]
@@ -2530,7 +2530,7 @@
       "line": 859,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "4" } },
       "then": [
-      { "op": "return", "line": 859, "value": { "kind": "memberAccess", "type": "Weekday", "target": { "kind": "local", "name": "Weekday" }, "member": "Friday" } }
+      { "op": "return", "line": 859, "value": { "kind": "memberAccess", "type": "datetime.Weekday", "target": { "kind": "local", "name": "datetime.Weekday" }, "member": "Friday" } }
       ],
       "else": [
       ]
@@ -2540,12 +2540,12 @@
       "line": 860,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "5" } },
       "then": [
-      { "op": "return", "line": 860, "value": { "kind": "memberAccess", "type": "Weekday", "target": { "kind": "local", "name": "Weekday" }, "member": "Saturday" } }
+      { "op": "return", "line": 860, "value": { "kind": "memberAccess", "type": "datetime.Weekday", "target": { "kind": "local", "name": "datetime.Weekday" }, "member": "Saturday" } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 861, "value": { "kind": "memberAccess", "type": "Weekday", "target": { "kind": "local", "name": "Weekday" }, "member": "Sunday" } }
+    { "op": "return", "line": 861, "value": { "kind": "memberAccess", "type": "datetime.Weekday", "target": { "kind": "local", "name": "datetime.Weekday" }, "member": "Sunday" } }
     ]
   },
   {
@@ -2554,12 +2554,12 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "dt", "line": 864, "type": "DateTime", "default": null }
+    { "name": "dt", "line": 864, "type": "datetime.DateTime", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 865, "mutable": false, "name": "here", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_daysFromCivil", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] } },
-    { "op": "bind", "line": 866, "mutable": false, "name": "start", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_daysFromCivil", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 865, "mutable": false, "name": "here", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_daysFromCivil", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] } },
+    { "op": "bind", "line": 866, "mutable": false, "name": "start", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#datetime_daysFromCivil", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
     { "op": "return", "line": 867, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "here" }, "right": { "kind": "local", "name": "start" } }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
     ]
   },
@@ -2626,11 +2626,11 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "dt", "line": 887, "type": "DateTime", "default": null }
+    { "name": "dt", "line": 887, "type": "datetime.DateTime", "default": null }
     ],
-    "returns": "DateTime",
+    "returns": "datetime.DateTime",
     "body": [
-    { "op": "return", "line": 888, "value": { "kind": "call", "type": "DateTime", "target": "#datetime_civil", "args": [{ "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, { "kind": "constructor", "type": "Time", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "memberAccess", "type": "Zone", "target": { "kind": "local", "name": "dt" }, "member": "zone" }] } }
+    { "op": "return", "line": 888, "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_civil", "args": [{ "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, { "kind": "constructor", "type": "datetime.Time", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "memberAccess", "type": "datetime.Zone", "target": { "kind": "local", "name": "dt" }, "member": "zone" }] } }
     ]
   },
   {
@@ -2639,7 +2639,7 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "at", "line": 891, "type": "Instant", "default": null }
+    { "name": "at", "line": 891, "type": "datetime.Instant", "default": null }
     ],
     "returns": "Integer",
     "body": [
@@ -2652,7 +2652,7 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "at", "line": 895, "type": "Instant", "default": null }
+    { "name": "at", "line": 895, "type": "datetime.Instant", "default": null }
     ],
     "returns": "Integer",
     "body": [
@@ -2667,7 +2667,7 @@
     "params": [
     { "name": "millis", "line": 899, "type": "Integer", "default": null }
     ],
-    "returns": "Instant",
+    "returns": "datetime.Instant",
     "body": [
     { "op": "bind", "line": 900, "mutable": true, "name": "q", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "millis" }, "right": { "kind": "const", "type": "Integer", "value": "1000" } } },
     { "op": "bind", "line": 901, "mutable": true, "name": "r", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "millis" }, "right": { "kind": "const", "type": "Integer", "value": "1000" } } },
@@ -2682,7 +2682,7 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 906, "value": { "kind": "constructor", "type": "Instant", "args": [{ "kind": "local", "name": "q" }, { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "r" }, "right": { "kind": "const", "type": "Integer", "value": "1000000" } }] } }
+    { "op": "return", "line": 906, "value": { "kind": "constructor", "type": "datetime.Instant", "args": [{ "kind": "local", "name": "q" }, { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "r" }, "right": { "kind": "const", "type": "Integer", "value": "1000000" } }] } }
     ]
   },
   {
@@ -2691,7 +2691,7 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "dt", "line": 909, "type": "DateTime", "default": null },
+    { "name": "dt", "line": 909, "type": "datetime.DateTime", "default": null },
     { "name": "pattern", "line": 909, "type": "String", "default": null }
     ],
     "returns": "String",
@@ -2775,9 +2775,9 @@
     { "name": "value", "line": 942, "type": "String", "default": null },
     { "name": "pattern", "line": 942, "type": "String", "default": null }
     ],
-    "returns": "DateTime",
+    "returns": "datetime.DateTime",
     "body": [
-    { "op": "return", "line": 943, "value": { "kind": "call", "type": "DateTime", "target": "#datetime_parse3", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pattern" }, { "kind": "call", "type": "Zone", "target": "#datetime_utc", "args": [] }] } }
+    { "op": "return", "line": 943, "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_parse3", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pattern" }, { "kind": "call", "type": "datetime.Zone", "target": "#datetime_utc", "args": [] }] } }
     ]
   },
   {
@@ -2788,11 +2788,11 @@
     "params": [
     { "name": "value", "line": 946, "type": "String", "default": null },
     { "name": "pattern", "line": 946, "type": "String", "default": null },
-    { "name": "zone", "line": 946, "type": "Zone", "default": null }
+    { "name": "zone", "line": 946, "type": "datetime.Zone", "default": null }
     ],
-    "returns": "DateTime",
+    "returns": "datetime.DateTime",
     "body": [
-    { "op": "return", "line": 947, "value": { "kind": "call", "type": "DateTime", "target": "#datetime_buildFromFields", "args": [{ "kind": "call", "type": "#datetime_Fields", "target": "#datetime_parseFields", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pattern" }] }, { "kind": "local", "name": "zone" }] } }
+    { "op": "return", "line": 947, "value": { "kind": "call", "type": "datetime.DateTime", "target": "#datetime_buildFromFields", "args": [{ "kind": "call", "type": "#datetime_Fields", "target": "#datetime_parseFields", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pattern" }] }, { "kind": "local", "name": "zone" }] } }
     ]
   },
   {
@@ -2801,11 +2801,11 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "dt", "line": 950, "type": "DateTime", "default": null }
+    { "name": "dt", "line": 950, "type": "datetime.DateTime", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "return", "line": 951, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "#datetime_padN", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "const", "type": "Integer", "value": "4" }] }, "right": { "kind": "const", "type": "String", "value": "-" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }] } }, "right": { "kind": "const", "type": "String", "value": "-" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] } }, "right": { "kind": "const", "type": "String", "value": "T" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "hour" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "minute" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "second" }] } }, "right": { "kind": "const", "type": "String", "value": "." } }, "right": { "kind": "call", "type": "String", "target": "strings.left", "args": [{ "kind": "call", "type": "String", "target": "#datetime_padN", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "nanos" }, { "kind": "const", "type": "Integer", "value": "9" }] }, { "kind": "const", "type": "Integer", "value": "3" }] } }, "right": { "kind": "call", "type": "String", "target": "#datetime_isoZone", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dt" }, "member": "offset" }] } } }
+    { "op": "return", "line": 951, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "#datetime_padN", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "const", "type": "Integer", "value": "4" }] }, "right": { "kind": "const", "type": "String", "value": "-" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }] } }, "right": { "kind": "const", "type": "String", "value": "-" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] } }, "right": { "kind": "const", "type": "String", "value": "T" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "hour" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "minute" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "second" }] } }, "right": { "kind": "const", "type": "String", "value": "." } }, "right": { "kind": "call", "type": "String", "target": "strings.left", "args": [{ "kind": "call", "type": "String", "target": "#datetime_padN", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "nanos" }, { "kind": "const", "type": "Integer", "value": "9" }] }, { "kind": "const", "type": "Integer", "value": "3" }] } }, "right": { "kind": "call", "type": "String", "target": "#datetime_isoZone", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dt" }, "member": "offset" }] } } }
     ]
   },
   {
@@ -2816,7 +2816,7 @@
     "params": [
     { "name": "value", "line": 954, "type": "String", "default": null }
     ],
-    "returns": "DateTime",
+    "returns": "datetime.DateTime",
     "body": [
     { "op": "bind", "line": 955, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
     { "op": "bind", "line": 956, "mutable": false, "name": "yr", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readNum", "args": [{ "kind": "local", "name": "value" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "4" }] } },
@@ -2889,9 +2889,9 @@
       ]
     },
     { "op": "bind", "line": 993, "mutable": false, "name": "off", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readOffset", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }] } },
-    { "op": "bind", "line": 994, "mutable": false, "name": "d", "type": "Date", "value": { "kind": "constructor", "type": "Date", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "yr" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mo" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dy" }, "member": "value" }] } },
-    { "op": "bind", "line": 995, "mutable": false, "name": "t", "type": "Time", "value": { "kind": "constructor", "type": "Time", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "hh" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mm" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ss" }, "member": "value" }, { "kind": "local", "name": "nanos" }] } },
-    { "op": "return", "line": 996, "value": { "kind": "constructor", "type": "DateTime", "args": [{ "kind": "local", "name": "d" }, { "kind": "local", "name": "t" }, { "kind": "call", "type": "Zone", "target": "#datetime_fixedOffset1", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "off" }, "member": "value" }] }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "off" }, "member": "value" }] } }
+    { "op": "bind", "line": 994, "mutable": false, "name": "d", "type": "datetime.Date", "value": { "kind": "constructor", "type": "datetime.Date", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "yr" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mo" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dy" }, "member": "value" }] } },
+    { "op": "bind", "line": 995, "mutable": false, "name": "t", "type": "datetime.Time", "value": { "kind": "constructor", "type": "datetime.Time", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "hh" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mm" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ss" }, "member": "value" }, { "kind": "local", "name": "nanos" }] } },
+    { "op": "return", "line": 996, "value": { "kind": "constructor", "type": "datetime.DateTime", "args": [{ "kind": "local", "name": "d" }, { "kind": "local", "name": "t" }, { "kind": "call", "type": "datetime.Zone", "target": "#datetime_fixedOffset1", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "off" }, "member": "value" }] }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "off" }, "member": "value" }] } }
     ]
   },
   {
@@ -2900,7 +2900,7 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "d", "line": 999, "type": "Duration", "default": null }
+    { "name": "d", "line": 999, "type": "datetime.Duration", "default": null }
     ],
     "returns": "String",
     "body": [

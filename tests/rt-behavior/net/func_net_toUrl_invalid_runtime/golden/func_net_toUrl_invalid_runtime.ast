@@ -19,7 +19,7 @@
       ],
       "returnType": "String",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "u", "type": "Url", "value": { "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "identifier", "value": "href" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "u", "type": "net.Url", "value": { "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "identifier", "value": "href" }] }, "line": 7 },
       { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ok:" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "u" }, "member": "host" } }, "line": 8 }
       ],
       "trap": {

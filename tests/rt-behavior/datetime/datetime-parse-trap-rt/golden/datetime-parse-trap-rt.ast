@@ -20,7 +20,7 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": false, "name": "keep", "type": "String", "value": { "kind": "string", "value": "preTrapLocal" }, "line": 15 },
-      { "kind": "binding", "mutable": false, "name": "dt", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "string", "value": "nope" }, { "kind": "string", "value": "yyyy-MM-dd" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "dt", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "string", "value": "nope" }, { "kind": "string", "value": "yyyy-MM-dd" }] }, "line": 16 },
       { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "dt" }, "member": "date" }, "member": "year" }, "line": 17 }
       ],
       "trap": {
@@ -43,7 +43,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "dt", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "string", "value": "nope" }, { "kind": "string", "value": "yyyy-MM-dd" }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "dt", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "string", "value": "nope" }, { "kind": "string", "value": "yyyy-MM-dd" }] }, "line": 29 },
       { "kind": "binding", "mutable": false, "name": "after", "type": "String", "value": { "kind": "string", "value": "neverInitialized" }, "line": 30 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "after" }] }, "line": 31 },
       { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "dt" }, "member": "date" }, "member": "year" }, "line": 32 }
@@ -74,7 +74,7 @@
         "line": 43,
         "then": [
         { "kind": "binding", "mutable": false, "name": "inner", "type": "String", "value": { "kind": "string", "value": "innerBlock" }, "line": 44 },
-        { "kind": "binding", "mutable": false, "name": "dt", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "string", "value": "nope" }, { "kind": "string", "value": "yyyy-MM-dd" }] }, "line": 45 },
+        { "kind": "binding", "mutable": false, "name": "dt", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "string", "value": "nope" }, { "kind": "string", "value": "yyyy-MM-dd" }] }, "line": 45 },
         { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "inner" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "dt" }, "member": "date" }, "member": "year" }] } }] }, "line": 46 }
         ],
         "else": [

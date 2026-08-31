@@ -16,11 +16,11 @@ tests/syntax/term/func_term_fillRect_invalid/src/main.mfb:5 error[2-203-0021 TYP
    6 |   term::fillRect(term::LineStyle.Light, 0, 0, 0, 0)
      | ^
 tests/syntax/term/func_term_fillRect_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `term.fillRect` has argument type(s) (LineStyle, Integer, Integer, Integer, Integer), expected FillStyle, Integer, Integer, Integer, Integer.
+               Call to `term.fillRect` has argument type(s) (term.LineStyle, Integer, Integer, Integer, Integer), expected FillStyle, Integer, Integer, Integer, Integer.
    5 |   term::fillRect(0, 0, 0, 0, 0)
    6 |   term::fillRect(term::LineStyle.Light, 0, 0, 0, 0)
    7 |   term::fillRect(term::FillStyle.Filled, "a", 0, 0, 0)
      | ^
 tests/syntax/term/func_term_fillRect_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `term.fillRect` has argument type(s) (FillStyle, String, Integer, Integer, Integer), expected FillStyle, Integer, Integer, Integer, Integer.
+               Call to `term.fillRect` has argument type(s) (term.FillStyle, String, Integer, Integer, Integer), expected FillStyle, Integer, Integer, Integer, Integer.
 [exit 1]

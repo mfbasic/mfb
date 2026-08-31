@@ -15,7 +15,7 @@
     "kind": "type",
     "line": 5,
     "visibility": "export",
-    "name": "JsonNull",
+    "name": "json.JsonNull",
     "fields": [
     { "visibility": null, "line": 6, "name": "value", "type": "Nothing" }
     ]
@@ -24,7 +24,7 @@
     "kind": "type",
     "line": 9,
     "visibility": "export",
-    "name": "JsonBool",
+    "name": "json.JsonBool",
     "fields": [
     { "visibility": null, "line": 10, "name": "value", "type": "Boolean" }
     ]
@@ -33,7 +33,7 @@
     "kind": "type",
     "line": 13,
     "visibility": "export",
-    "name": "JsonNum",
+    "name": "json.JsonNum",
     "fields": [
     { "visibility": null, "line": 14, "name": "value", "type": "Float" }
     ]
@@ -42,7 +42,7 @@
     "kind": "type",
     "line": 17,
     "visibility": "export",
-    "name": "JsonStr",
+    "name": "json.JsonStr",
     "fields": [
     { "visibility": null, "line": 18, "name": "value", "type": "String" }
     ]
@@ -51,18 +51,18 @@
     "kind": "type",
     "line": 21,
     "visibility": "export",
-    "name": "JsonArr",
+    "name": "json.JsonArr",
     "fields": [
-    { "visibility": null, "line": 22, "name": "items", "type": "List OF Json" }
+    { "visibility": null, "line": 22, "name": "items", "type": "List OF json.Json" }
     ]
   },
   {
     "kind": "type",
     "line": 25,
     "visibility": "export",
-    "name": "JsonObj",
+    "name": "json.JsonObj",
     "fields": [
-    { "visibility": null, "line": 26, "name": "fields", "type": "Map OF String TO Json" }
+    { "visibility": null, "line": 26, "name": "fields", "type": "Map OF String TO json.Json" }
     ]
   },
   {
@@ -71,7 +71,7 @@
     "visibility": "public",
     "name": "#json_Node",
     "fields": [
-    { "visibility": null, "line": 30, "name": "value", "type": "Json" },
+    { "visibility": null, "line": 30, "name": "value", "type": "json.Json" },
     { "visibility": null, "line": 31, "name": "index", "type": "Integer" }
     ]
   },
@@ -89,49 +89,49 @@
     "kind": "union",
     "line": 39,
     "visibility": "export",
-    "name": "Json",
+    "name": "json.Json",
     "includes": [],
     "variants": [
     {
-      "name": "JsonNull",
+      "name": "json.JsonNull",
       "line": 40,
       "fields": [
       { "visibility": null, "line": 6, "name": "value", "type": "Nothing" }
       ]
     },
     {
-      "name": "JsonBool",
+      "name": "json.JsonBool",
       "line": 41,
       "fields": [
       { "visibility": null, "line": 10, "name": "value", "type": "Boolean" }
       ]
     },
     {
-      "name": "JsonNum",
+      "name": "json.JsonNum",
       "line": 42,
       "fields": [
       { "visibility": null, "line": 14, "name": "value", "type": "Float" }
       ]
     },
     {
-      "name": "JsonStr",
+      "name": "json.JsonStr",
       "line": 43,
       "fields": [
       { "visibility": null, "line": 18, "name": "value", "type": "String" }
       ]
     },
     {
-      "name": "JsonArr",
+      "name": "json.JsonArr",
       "line": 44,
       "fields": [
-      { "visibility": null, "line": 22, "name": "items", "type": "List OF Json" }
+      { "visibility": null, "line": 22, "name": "items", "type": "List OF json.Json" }
       ]
     },
     {
-      "name": "JsonObj",
+      "name": "json.JsonObj",
       "line": 45,
       "fields": [
-      { "visibility": null, "line": 26, "name": "fields", "type": "Map OF String TO Json" }
+      { "visibility": null, "line": 26, "name": "fields", "type": "Map OF String TO json.Json" }
       ]
     }
     ]
@@ -148,12 +148,12 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 18, "mutable": false, "name": "pad", "type": "String", "value": { "kind": "call", "type": "String", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": " " }, { "kind": "const", "type": "Integer", "value": "1000000" }] } },
-    { "op": "bind", "line": 19, "mutable": false, "name": "v", "type": "Json", "value": { "kind": "call", "type": "Json", "target": "#json_parse", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "pad" }, "right": { "kind": "const", "type": "String", "value": "1" } }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "v", "type": "json.Json", "value": { "kind": "call", "type": "json.Json", "target": "#json_parse", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "pad" }, "right": { "kind": "const", "type": "String", "value": "1" } }] } },
     { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "whitespace ok" }] } },
     { "op": "bind", "line": 23, "mutable": false, "name": "frac", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "0." }, "right": { "kind": "call", "type": "String", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": "1" }, { "kind": "const", "type": "Integer", "value": "4000" }] } } },
-    { "op": "bind", "line": 24, "mutable": false, "name": "n", "type": "Json", "value": { "kind": "call", "type": "Json", "target": "#json_parse", "args": [{ "kind": "local", "name": "frac" }] } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "n", "type": "json.Json", "value": { "kind": "call", "type": "json.Json", "target": "#json_parse", "args": [{ "kind": "local", "name": "frac" }] } },
     { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "long number ok" }] } },
-    { "op": "bind", "line": 29, "mutable": false, "name": "obj", "type": "Json", "value": { "kind": "call", "type": "Json", "target": "#json_parse", "args": [{ "kind": "const", "type": "String", "value": "{\"a\": [1, 2.5, true, null], \"b\": \"x\"}" }] } },
+    { "op": "bind", "line": 29, "mutable": false, "name": "obj", "type": "json.Json", "value": { "kind": "call", "type": "json.Json", "target": "#json_parse", "args": [{ "kind": "const", "type": "String", "value": "{\"a\": [1, 2.5, true, null], \"b\": \"x\"}" }] } },
     { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "roundtrip=" }, "right": { "kind": "call", "type": "String", "target": "#json_stringify", "args": [{ "kind": "local", "name": "obj" }] } }] } },
     { "op": "return", "line": 31, "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
@@ -633,7 +633,7 @@
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "n" } },
       "then": [
       { "op": "bind", "line": 224, "mutable": false, "name": "endIndex", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#json_expectLiteral", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }, { "kind": "const", "type": "String", "value": "null" }] } },
-      { "op": "bind", "line": 225, "mutable": false, "name": "value", "type": "Json", "value": { "kind": "unionWrap", "union": "Json", "member": "JsonNull", "value": { "kind": "constructor", "type": "JsonNull", "args": [{ "kind": "const", "type": "Nothing", "value": "NOTHING" }] } } },
+      { "op": "bind", "line": 225, "mutable": false, "name": "value", "type": "json.Json", "value": { "kind": "unionWrap", "union": "json.Json", "member": "json.JsonNull", "value": { "kind": "constructor", "type": "json.JsonNull", "args": [{ "kind": "const", "type": "Nothing", "value": "NOTHING" }] } } },
       { "op": "return", "line": 226, "value": { "kind": "constructor", "type": "#json_Node", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "endIndex" }] } }
       ],
       "else": [
@@ -643,7 +643,7 @@
         "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "t" } },
         "then": [
         { "op": "bind", "line": 228, "mutable": false, "name": "endIndex", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#json_expectLiteral", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }, { "kind": "const", "type": "String", "value": "true" }] } },
-        { "op": "bind", "line": 229, "mutable": false, "name": "value", "type": "Json", "value": { "kind": "unionWrap", "union": "Json", "member": "JsonBool", "value": { "kind": "constructor", "type": "JsonBool", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } } },
+        { "op": "bind", "line": 229, "mutable": false, "name": "value", "type": "json.Json", "value": { "kind": "unionWrap", "union": "json.Json", "member": "json.JsonBool", "value": { "kind": "constructor", "type": "json.JsonBool", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } } },
         { "op": "return", "line": 230, "value": { "kind": "constructor", "type": "#json_Node", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "endIndex" }] } }
         ],
         "else": [
@@ -653,7 +653,7 @@
           "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "f" } },
           "then": [
           { "op": "bind", "line": 232, "mutable": false, "name": "endIndex", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#json_expectLiteral", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }, { "kind": "const", "type": "String", "value": "false" }] } },
-          { "op": "bind", "line": 233, "mutable": false, "name": "value", "type": "Json", "value": { "kind": "unionWrap", "union": "Json", "member": "JsonBool", "value": { "kind": "constructor", "type": "JsonBool", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } } },
+          { "op": "bind", "line": 233, "mutable": false, "name": "value", "type": "json.Json", "value": { "kind": "unionWrap", "union": "json.Json", "member": "json.JsonBool", "value": { "kind": "constructor", "type": "json.JsonBool", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } } },
           { "op": "return", "line": 234, "value": { "kind": "constructor", "type": "#json_Node", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "endIndex" }] } }
           ],
           "else": [
@@ -663,7 +663,7 @@
             "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\"" } },
             "then": [
             { "op": "bind", "line": 236, "mutable": false, "name": "parsed", "type": "#json_StringNode", "value": { "kind": "call", "type": "#json_StringNode", "target": "#json_parseString", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "const", "type": "String", "value": "" }] } },
-            { "op": "bind", "line": 237, "mutable": false, "name": "value", "type": "Json", "value": { "kind": "unionWrap", "union": "Json", "member": "JsonStr", "value": { "kind": "constructor", "type": "JsonStr", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "parsed" }, "member": "value" }] } } },
+            { "op": "bind", "line": 237, "mutable": false, "name": "value", "type": "json.Json", "value": { "kind": "unionWrap", "union": "json.Json", "member": "json.JsonStr", "value": { "kind": "constructor", "type": "json.JsonStr", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "parsed" }, "member": "value" }] } } },
             { "op": "return", "line": 238, "value": { "kind": "constructor", "type": "#json_Node", "args": [{ "kind": "local", "name": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "parsed" }, "member": "index" }] } }
             ],
             "else": [
@@ -726,14 +726,14 @@
       "line": 253,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }] }, "right": { "kind": "const", "type": "String", "value": "]" } },
       "then": [
-      { "op": "bind", "line": 254, "mutable": false, "name": "emptyItems", "type": "List OF Json", "value": { "kind": "list", "type": "List OF Json", "values": [] } },
-      { "op": "bind", "line": 255, "mutable": false, "name": "value", "type": "Json", "value": { "kind": "unionWrap", "union": "Json", "member": "JsonArr", "value": { "kind": "constructor", "type": "JsonArr", "args": [{ "kind": "local", "name": "emptyItems" }] } } },
+      { "op": "bind", "line": 254, "mutable": false, "name": "emptyItems", "type": "List OF json.Json", "value": { "kind": "list", "type": "List OF json.Json", "values": [] } },
+      { "op": "bind", "line": 255, "mutable": false, "name": "value", "type": "json.Json", "value": { "kind": "unionWrap", "union": "json.Json", "member": "json.JsonArr", "value": { "kind": "constructor", "type": "json.JsonArr", "args": [{ "kind": "local", "name": "emptyItems" }] } } },
       { "op": "return", "line": 256, "value": { "kind": "constructor", "type": "#json_Node", "args": [{ "kind": "local", "name": "value" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 258, "value": { "kind": "call", "type": "#json_Node", "target": "#json_parseArrayItems", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }, { "kind": "list", "type": "List OF Json", "values": [] }, { "kind": "local", "name": "depth" }] } }
+    { "op": "return", "line": 258, "value": { "kind": "call", "type": "#json_Node", "target": "#json_parseArrayItems", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }, { "kind": "list", "type": "List OF json.Json", "values": [] }, { "kind": "local", "name": "depth" }] } }
     ]
   },
   {
@@ -744,12 +744,12 @@
     "params": [
     { "name": "chars", "line": 261, "type": "List OF String", "default": null },
     { "name": "index", "line": 261, "type": "Integer", "default": null },
-    { "name": "items", "line": 261, "type": "List OF Json", "default": null },
+    { "name": "items", "line": 261, "type": "List OF json.Json", "default": null },
     { "name": "depth", "line": 261, "type": "Integer", "default": null }
     ],
     "returns": "#json_Node",
     "body": [
-    { "op": "bind", "line": 266, "mutable": true, "name": "acc", "type": "List OF Json", "value": { "kind": "local", "name": "items" } },
+    { "op": "bind", "line": 266, "mutable": true, "name": "acc", "type": "List OF json.Json", "value": { "kind": "local", "name": "items" } },
     { "op": "bind", "line": 267, "mutable": true, "name": "idx", "type": "Integer", "value": { "kind": "local", "name": "index" } },
     { "op": "bind", "line": 268, "mutable": true, "name": "finished", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 269, "mutable": true, "name": "endIndex", "type": "Integer", "value": { "kind": "local", "name": "index" } },
@@ -760,8 +760,8 @@
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "finished" }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
       "body": [
       { "op": "bind", "line": 271, "mutable": false, "name": "parsed", "type": "#json_Node", "value": { "kind": "call", "type": "#json_Node", "target": "#json_parseValue", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "idx" }, { "kind": "local", "name": "depth" }] } },
-      { "op": "bind", "line": 272, "mutable": false, "name": "item", "type": "Json", "value": { "kind": "memberAccess", "type": "Json", "target": { "kind": "local", "name": "parsed" }, "member": "value" } },
-      { "op": "assign", "line": 273, "name": "acc", "value": { "kind": "call", "type": "List OF Json", "target": "collections.append", "args": [{ "kind": "local", "name": "acc" }, { "kind": "local", "name": "item" }] } },
+      { "op": "bind", "line": 272, "mutable": false, "name": "item", "type": "json.Json", "value": { "kind": "memberAccess", "type": "json.Json", "target": { "kind": "local", "name": "parsed" }, "member": "value" } },
+      { "op": "assign", "line": 273, "name": "acc", "value": { "kind": "call", "type": "List OF json.Json", "target": "collections.append", "args": [{ "kind": "local", "name": "acc" }, { "kind": "local", "name": "item" }] } },
       { "op": "bind", "line": 274, "mutable": false, "name": "nextIndex", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#json_skipWhitespace", "args": [{ "kind": "local", "name": "chars" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "parsed" }, "member": "index" }] } },
       {
         "op": "if",
@@ -798,7 +798,7 @@
       }
       ]
     },
-    { "op": "bind", "line": 288, "mutable": false, "name": "value", "type": "Json", "value": { "kind": "unionWrap", "union": "Json", "member": "JsonArr", "value": { "kind": "constructor", "type": "JsonArr", "args": [{ "kind": "local", "name": "acc" }] } } },
+    { "op": "bind", "line": 288, "mutable": false, "name": "value", "type": "json.Json", "value": { "kind": "unionWrap", "union": "json.Json", "member": "json.JsonArr", "value": { "kind": "constructor", "type": "json.JsonArr", "args": [{ "kind": "local", "name": "acc" }] } } },
     { "op": "return", "line": 289, "value": { "kind": "constructor", "type": "#json_Node", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "endIndex" }] } }
     ]
   },
@@ -830,14 +830,14 @@
       "line": 297,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }] }, "right": { "kind": "const", "type": "String", "value": "}" } },
       "then": [
-      { "op": "bind", "line": 298, "mutable": false, "name": "emptyFields", "type": "Map OF String TO Json", "value": { "kind": "map", "type": "Map OF String TO Json", "entries": [] } },
-      { "op": "bind", "line": 299, "mutable": false, "name": "value", "type": "Json", "value": { "kind": "unionWrap", "union": "Json", "member": "JsonObj", "value": { "kind": "constructor", "type": "JsonObj", "args": [{ "kind": "local", "name": "emptyFields" }] } } },
+      { "op": "bind", "line": 298, "mutable": false, "name": "emptyFields", "type": "Map OF String TO json.Json", "value": { "kind": "map", "type": "Map OF String TO json.Json", "entries": [] } },
+      { "op": "bind", "line": 299, "mutable": false, "name": "value", "type": "json.Json", "value": { "kind": "unionWrap", "union": "json.Json", "member": "json.JsonObj", "value": { "kind": "constructor", "type": "json.JsonObj", "args": [{ "kind": "local", "name": "emptyFields" }] } } },
       { "op": "return", "line": 300, "value": { "kind": "constructor", "type": "#json_Node", "args": [{ "kind": "local", "name": "value" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 302, "value": { "kind": "call", "type": "#json_Node", "target": "#json_parseObjectItems", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }, { "kind": "map", "type": "Map OF String TO Json", "entries": [] }, { "kind": "local", "name": "depth" }] } }
+    { "op": "return", "line": 302, "value": { "kind": "call", "type": "#json_Node", "target": "#json_parseObjectItems", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }, { "kind": "map", "type": "Map OF String TO json.Json", "entries": [] }, { "kind": "local", "name": "depth" }] } }
     ]
   },
   {
@@ -848,12 +848,12 @@
     "params": [
     { "name": "chars", "line": 305, "type": "List OF String", "default": null },
     { "name": "index", "line": 305, "type": "Integer", "default": null },
-    { "name": "fields", "line": 305, "type": "Map OF String TO Json", "default": null },
+    { "name": "fields", "line": 305, "type": "Map OF String TO json.Json", "default": null },
     { "name": "depth", "line": 305, "type": "Integer", "default": null }
     ],
     "returns": "#json_Node",
     "body": [
-    { "op": "bind", "line": 310, "mutable": true, "name": "acc", "type": "Map OF String TO Json", "value": { "kind": "local", "name": "fields" } },
+    { "op": "bind", "line": 310, "mutable": true, "name": "acc", "type": "Map OF String TO json.Json", "value": { "kind": "local", "name": "fields" } },
     { "op": "bind", "line": 311, "mutable": true, "name": "idx", "type": "Integer", "value": { "kind": "local", "name": "index" } },
     { "op": "bind", "line": 312, "mutable": true, "name": "finished", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 313, "mutable": true, "name": "endIndex", "type": "Integer", "value": { "kind": "local", "name": "index" } },
@@ -910,8 +910,8 @@
       },
       { "op": "bind", "line": 332, "mutable": false, "name": "valueState", "type": "#json_Node", "value": { "kind": "call", "type": "#json_Node", "target": "#json_parseValue", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "colonIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "local", "name": "depth" }] } },
       { "op": "bind", "line": 333, "mutable": false, "name": "key", "type": "String", "value": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "keyState" }, "member": "value" } },
-      { "op": "bind", "line": 334, "mutable": false, "name": "val", "type": "Json", "value": { "kind": "memberAccess", "type": "Json", "target": { "kind": "local", "name": "valueState" }, "member": "value" } },
-      { "op": "assign", "line": 335, "name": "acc", "value": { "kind": "call", "type": "Map OF String TO Json", "target": "collections.set", "args": [{ "kind": "local", "name": "acc" }, { "kind": "local", "name": "key" }, { "kind": "local", "name": "val" }] } },
+      { "op": "bind", "line": 334, "mutable": false, "name": "val", "type": "json.Json", "value": { "kind": "memberAccess", "type": "json.Json", "target": { "kind": "local", "name": "valueState" }, "member": "value" } },
+      { "op": "assign", "line": 335, "name": "acc", "value": { "kind": "call", "type": "Map OF String TO json.Json", "target": "collections.set", "args": [{ "kind": "local", "name": "acc" }, { "kind": "local", "name": "key" }, { "kind": "local", "name": "val" }] } },
       { "op": "bind", "line": 336, "mutable": false, "name": "afterValue", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#json_skipWhitespace", "args": [{ "kind": "local", "name": "chars" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "valueState" }, "member": "index" }] } },
       {
         "op": "if",
@@ -948,7 +948,7 @@
       }
       ]
     },
-    { "op": "bind", "line": 350, "mutable": false, "name": "value", "type": "Json", "value": { "kind": "unionWrap", "union": "Json", "member": "JsonObj", "value": { "kind": "constructor", "type": "JsonObj", "args": [{ "kind": "local", "name": "acc" }] } } },
+    { "op": "bind", "line": 350, "mutable": false, "name": "value", "type": "json.Json", "value": { "kind": "unionWrap", "union": "json.Json", "member": "json.JsonObj", "value": { "kind": "constructor", "type": "json.JsonObj", "args": [{ "kind": "local", "name": "acc" }] } } },
     { "op": "return", "line": 351, "value": { "kind": "constructor", "type": "#json_Node", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "endIndex" }] } }
     ]
   },
@@ -1396,7 +1396,7 @@
       ]
     },
     { "op": "bind", "line": 503, "mutable": false, "name": "numberValue", "type": "Float", "value": { "kind": "call", "type": "Float", "target": "#json_toNumber", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "token" }, "member": "value" }] } },
-    { "op": "bind", "line": 504, "mutable": false, "name": "value", "type": "Json", "value": { "kind": "unionWrap", "union": "Json", "member": "JsonNum", "value": { "kind": "constructor", "type": "JsonNum", "args": [{ "kind": "local", "name": "numberValue" }] } } },
+    { "op": "bind", "line": 504, "mutable": false, "name": "value", "type": "json.Json", "value": { "kind": "unionWrap", "union": "json.Json", "member": "json.JsonNum", "value": { "kind": "constructor", "type": "json.JsonNum", "args": [{ "kind": "local", "name": "numberValue" }] } } },
     { "op": "return", "line": 505, "value": { "kind": "constructor", "type": "#json_Node", "args": [{ "kind": "local", "name": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "token" }, "member": "index" }] } }
     ]
   },
@@ -1951,12 +1951,12 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 707, "type": "Json", "default": null },
+    { "name": "value", "line": 707, "type": "json.Json", "default": null },
     { "name": "path", "line": 707, "type": "List OF String", "default": null }
     ],
-    "returns": "Json",
+    "returns": "json.Json",
     "body": [
-    { "op": "bind", "line": 708, "mutable": true, "name": "current", "type": "Json", "value": { "kind": "local", "name": "value" } },
+    { "op": "bind", "line": 708, "mutable": true, "name": "current", "type": "json.Json", "value": { "kind": "local", "name": "value" } },
     {
       "op": "forEach",
       "line": 709,
@@ -1964,9 +1964,9 @@
       "type": "String",
       "iterable": { "kind": "local", "name": "path" },
       "body": [
-      { "op": "bind", "line": 710, "mutable": true, "name": "nextValue", "type": "Json", "value": { "kind": "local", "name": "current" } },
-      { "op": "bind", "line": 711, "mutable": false, "name": "currentValue", "type": "Json", "value": { "kind": "local", "name": "current" } },
-      { "op": "bind", "line": 712, "mutable": false, "name": "$match2", "type": "Json", "value": { "kind": "local", "name": "currentValue" } },
+      { "op": "bind", "line": 710, "mutable": true, "name": "nextValue", "type": "json.Json", "value": { "kind": "local", "name": "current" } },
+      { "op": "bind", "line": 711, "mutable": false, "name": "currentValue", "type": "json.Json", "value": { "kind": "local", "name": "current" } },
+      { "op": "bind", "line": 712, "mutable": false, "name": "$match2", "type": "json.Json", "value": { "kind": "local", "name": "currentValue" } },
       {
         "op": "match",
         "line": 712,
@@ -1974,11 +1974,11 @@
         "cases": [
         {
           "line": 713,
-          "pattern": { "kind": "value", "value": { "kind": "local", "name": "JsonObj" } },
+          "pattern": { "kind": "value", "value": { "kind": "local", "name": "json.JsonObj" } },
           "guard": null,
           "body": [
-          { "op": "bind", "line": 713, "mutable": false, "name": "obj", "type": "JsonObj", "value": { "kind": "unionExtract", "type": "JsonObj", "value": { "kind": "local", "name": "$match2" } } },
-          { "op": "assign", "line": 714, "name": "nextValue", "value": { "kind": "call", "type": "Json", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "Map OF String TO Json", "target": { "kind": "local", "name": "obj" }, "member": "fields" }, { "kind": "local", "name": "key" }] } }
+          { "op": "bind", "line": 713, "mutable": false, "name": "obj", "type": "json.JsonObj", "value": { "kind": "unionExtract", "type": "json.JsonObj", "value": { "kind": "local", "name": "$match2" } } },
+          { "op": "assign", "line": 714, "name": "nextValue", "value": { "kind": "call", "type": "json.Json", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "Map OF String TO json.Json", "target": { "kind": "local", "name": "obj" }, "member": "fields" }, { "kind": "local", "name": "key" }] } }
           ]
         },
         {
@@ -2003,13 +2003,13 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 723, "type": "Json", "default": null },
+    { "name": "value", "line": 723, "type": "json.Json", "default": null },
     { "name": "path", "line": 723, "type": "List OF String", "default": null },
-    { "name": "defaultValue", "line": 723, "type": "Json", "default": null }
+    { "name": "defaultValue", "line": 723, "type": "json.Json", "default": null }
     ],
-    "returns": "Json",
+    "returns": "json.Json",
     "body": [
-    { "op": "bind", "line": 724, "mutable": true, "name": "current", "type": "Json", "value": { "kind": "local", "name": "value" } },
+    { "op": "bind", "line": 724, "mutable": true, "name": "current", "type": "json.Json", "value": { "kind": "local", "name": "value" } },
     {
       "op": "forEach",
       "line": 725,
@@ -2017,9 +2017,9 @@
       "type": "String",
       "iterable": { "kind": "local", "name": "path" },
       "body": [
-      { "op": "bind", "line": 726, "mutable": true, "name": "nextValue", "type": "Json", "value": { "kind": "local", "name": "current" } },
-      { "op": "bind", "line": 727, "mutable": false, "name": "currentValue", "type": "Json", "value": { "kind": "local", "name": "current" } },
-      { "op": "bind", "line": 728, "mutable": false, "name": "$match3", "type": "Json", "value": { "kind": "local", "name": "currentValue" } },
+      { "op": "bind", "line": 726, "mutable": true, "name": "nextValue", "type": "json.Json", "value": { "kind": "local", "name": "current" } },
+      { "op": "bind", "line": 727, "mutable": false, "name": "currentValue", "type": "json.Json", "value": { "kind": "local", "name": "current" } },
+      { "op": "bind", "line": 728, "mutable": false, "name": "$match3", "type": "json.Json", "value": { "kind": "local", "name": "currentValue" } },
       {
         "op": "match",
         "line": 728,
@@ -2027,16 +2027,16 @@
         "cases": [
         {
           "line": 729,
-          "pattern": { "kind": "value", "value": { "kind": "local", "name": "JsonObj" } },
+          "pattern": { "kind": "value", "value": { "kind": "local", "name": "json.JsonObj" } },
           "guard": null,
           "body": [
-          { "op": "bind", "line": 729, "mutable": false, "name": "obj", "type": "JsonObj", "value": { "kind": "unionExtract", "type": "JsonObj", "value": { "kind": "local", "name": "$match3" } } },
+          { "op": "bind", "line": 729, "mutable": false, "name": "obj", "type": "json.JsonObj", "value": { "kind": "unionExtract", "type": "json.JsonObj", "value": { "kind": "local", "name": "$match3" } } },
           {
             "op": "if",
             "line": 730,
-            "condition": { "kind": "call", "type": "Boolean", "target": "collections.hasKey", "args": [{ "kind": "memberAccess", "type": "Map OF String TO Json", "target": { "kind": "local", "name": "obj" }, "member": "fields" }, { "kind": "local", "name": "key" }] },
+            "condition": { "kind": "call", "type": "Boolean", "target": "collections.hasKey", "args": [{ "kind": "memberAccess", "type": "Map OF String TO json.Json", "target": { "kind": "local", "name": "obj" }, "member": "fields" }, { "kind": "local", "name": "key" }] },
             "then": [
-            { "op": "assign", "line": 731, "name": "nextValue", "value": { "kind": "call", "type": "Json", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "Map OF String TO Json", "target": { "kind": "local", "name": "obj" }, "member": "fields" }, { "kind": "local", "name": "key" }] } }
+            { "op": "assign", "line": 731, "name": "nextValue", "value": { "kind": "call", "type": "json.Json", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "Map OF String TO json.Json", "target": { "kind": "local", "name": "obj" }, "member": "fields" }, { "kind": "local", "name": "key" }] } }
             ],
             "else": [
             { "op": "return", "line": 733, "value": { "kind": "local", "name": "defaultValue" } }
@@ -2068,7 +2068,7 @@
     "params": [
     { "name": "value", "line": 743, "type": "String", "default": null }
     ],
-    "returns": "Json",
+    "returns": "json.Json",
     "body": [
     { "op": "bind", "line": 744, "mutable": false, "name": "chars", "type": "List OF String", "value": { "kind": "call", "type": "List OF String", "target": "strings.graphemes", "args": [{ "kind": "local", "name": "value" }] } },
     { "op": "bind", "line": 747, "mutable": false, "name": "parsed", "type": "#json_Node", "value": { "kind": "call", "type": "#json_Node", "target": "#json_parseValue", "args": [{ "kind": "local", "name": "chars" }, { "kind": "call", "type": "Integer", "target": "#json_skipWhitespace", "args": [{ "kind": "local", "name": "chars" }, { "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "const", "type": "Integer", "value": "0" }] } },
@@ -2083,7 +2083,7 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 752, "value": { "kind": "memberAccess", "type": "Json", "target": { "kind": "local", "name": "parsed" }, "member": "value" } }
+    { "op": "return", "line": 752, "value": { "kind": "memberAccess", "type": "json.Json", "target": { "kind": "local", "name": "parsed" }, "member": "value" } }
     ]
   },
   {
@@ -2092,11 +2092,11 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 755, "type": "Json", "default": null }
+    { "name": "value", "line": 755, "type": "json.Json", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 756, "mutable": false, "name": "$match4", "type": "Json", "value": { "kind": "local", "name": "value" } },
+    { "op": "bind", "line": 756, "mutable": false, "name": "$match4", "type": "json.Json", "value": { "kind": "local", "name": "value" } },
     {
       "op": "match",
       "line": 756,
@@ -2104,19 +2104,19 @@
       "cases": [
       {
         "line": 757,
-        "pattern": { "kind": "value", "value": { "kind": "local", "name": "JsonNull" } },
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "json.JsonNull" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 757, "mutable": false, "name": "nullValue", "type": "JsonNull", "value": { "kind": "unionExtract", "type": "JsonNull", "value": { "kind": "local", "name": "$match4" } } },
+        { "op": "bind", "line": 757, "mutable": false, "name": "nullValue", "type": "json.JsonNull", "value": { "kind": "unionExtract", "type": "json.JsonNull", "value": { "kind": "local", "name": "$match4" } } },
         { "op": "return", "line": 758, "value": { "kind": "const", "type": "String", "value": "null" } }
         ]
       },
       {
         "line": 759,
-        "pattern": { "kind": "value", "value": { "kind": "local", "name": "JsonBool" } },
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "json.JsonBool" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 759, "mutable": false, "name": "boolValue", "type": "JsonBool", "value": { "kind": "unionExtract", "type": "JsonBool", "value": { "kind": "local", "name": "$match4" } } },
+        { "op": "bind", "line": 759, "mutable": false, "name": "boolValue", "type": "json.JsonBool", "value": { "kind": "unionExtract", "type": "json.JsonBool", "value": { "kind": "local", "name": "$match4" } } },
         {
           "op": "if",
           "line": 760,
@@ -2132,19 +2132,19 @@
       },
       {
         "line": 764,
-        "pattern": { "kind": "value", "value": { "kind": "local", "name": "JsonNum" } },
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "json.JsonNum" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 764, "mutable": false, "name": "numValue", "type": "JsonNum", "value": { "kind": "unionExtract", "type": "JsonNum", "value": { "kind": "local", "name": "$match4" } } },
+        { "op": "bind", "line": 764, "mutable": false, "name": "numValue", "type": "json.JsonNum", "value": { "kind": "unionExtract", "type": "json.JsonNum", "value": { "kind": "local", "name": "$match4" } } },
         { "op": "return", "line": 765, "value": { "kind": "call", "type": "String", "target": "#json_stringifyNumber", "args": [{ "kind": "memberAccess", "type": "Float", "target": { "kind": "local", "name": "numValue" }, "member": "value" }] } }
         ]
       },
       {
         "line": 766,
-        "pattern": { "kind": "value", "value": { "kind": "local", "name": "JsonStr" } },
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "json.JsonStr" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 766, "mutable": false, "name": "strValue", "type": "JsonStr", "value": { "kind": "unionExtract", "type": "JsonStr", "value": { "kind": "local", "name": "$match4" } } },
+        { "op": "bind", "line": 766, "mutable": false, "name": "strValue", "type": "json.JsonStr", "value": { "kind": "unionExtract", "type": "json.JsonStr", "value": { "kind": "local", "name": "$match4" } } },
         { "op": "bind", "line": 767, "mutable": false, "name": "escaped", "type": "String", "value": { "kind": "call", "type": "String", "target": "#json_escapeString", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "strValue" }, "member": "value" }] } },
         { "op": "bind", "line": 768, "mutable": false, "name": "withOpen", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "\"" }, "right": { "kind": "local", "name": "escaped" } } },
         { "op": "return", "line": 769, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "withOpen" }, "right": { "kind": "const", "type": "String", "value": "\"" } } }
@@ -2152,18 +2152,18 @@
       },
       {
         "line": 770,
-        "pattern": { "kind": "value", "value": { "kind": "local", "name": "JsonArr" } },
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "json.JsonArr" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 770, "mutable": false, "name": "arrValue", "type": "JsonArr", "value": { "kind": "unionExtract", "type": "JsonArr", "value": { "kind": "local", "name": "$match4" } } },
+        { "op": "bind", "line": 770, "mutable": false, "name": "arrValue", "type": "json.JsonArr", "value": { "kind": "unionExtract", "type": "json.JsonArr", "value": { "kind": "local", "name": "$match4" } } },
         { "op": "bind", "line": 771, "mutable": true, "name": "text", "type": "String", "value": { "kind": "const", "type": "String", "value": "[" } },
         { "op": "bind", "line": 772, "mutable": true, "name": "first", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
         {
           "op": "forEach",
           "line": 773,
           "name": "item",
-          "type": "Json",
-          "iterable": { "kind": "memberAccess", "type": "List OF Json", "target": { "kind": "local", "name": "arrValue" }, "member": "items" },
+          "type": "json.Json",
+          "iterable": { "kind": "memberAccess", "type": "List OF json.Json", "target": { "kind": "local", "name": "arrValue" }, "member": "items" },
           "body": [
           {
             "op": "if",
@@ -2184,18 +2184,18 @@
       },
       {
         "line": 782,
-        "pattern": { "kind": "value", "value": { "kind": "local", "name": "JsonObj" } },
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "json.JsonObj" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 782, "mutable": false, "name": "objValue", "type": "JsonObj", "value": { "kind": "unionExtract", "type": "JsonObj", "value": { "kind": "local", "name": "$match4" } } },
+        { "op": "bind", "line": 782, "mutable": false, "name": "objValue", "type": "json.JsonObj", "value": { "kind": "unionExtract", "type": "json.JsonObj", "value": { "kind": "local", "name": "$match4" } } },
         { "op": "bind", "line": 783, "mutable": true, "name": "text", "type": "String", "value": { "kind": "const", "type": "String", "value": "{" } },
         { "op": "bind", "line": 784, "mutable": true, "name": "first", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
         {
           "op": "forEach",
           "line": 785,
           "name": "entry",
-          "type": "MapEntry OF String TO Json",
-          "iterable": { "kind": "memberAccess", "type": "Map OF String TO Json", "target": { "kind": "local", "name": "objValue" }, "member": "fields" },
+          "type": "MapEntry OF String TO json.Json",
+          "iterable": { "kind": "memberAccess", "type": "Map OF String TO json.Json", "target": { "kind": "local", "name": "objValue" }, "member": "fields" },
           "body": [
           {
             "op": "if",
@@ -2211,7 +2211,7 @@
           { "op": "bind", "line": 791, "mutable": false, "name": "escapedKey", "type": "String", "value": { "kind": "call", "type": "String", "target": "#json_escapeString", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "entry" }, "member": "key" }] } },
           { "op": "bind", "line": 792, "mutable": false, "name": "keyText", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "\"" }, "right": { "kind": "local", "name": "escapedKey" } } },
           { "op": "bind", "line": 793, "mutable": false, "name": "labelText", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "keyText" }, "right": { "kind": "const", "type": "String", "value": "\":" } } },
-          { "op": "bind", "line": 794, "mutable": false, "name": "valueText", "type": "String", "value": { "kind": "call", "type": "String", "target": "#json_stringify", "args": [{ "kind": "memberAccess", "type": "Json", "target": { "kind": "local", "name": "entry" }, "member": "value" }] } },
+          { "op": "bind", "line": 794, "mutable": false, "name": "valueText", "type": "String", "value": { "kind": "call", "type": "String", "target": "#json_stringify", "args": [{ "kind": "memberAccess", "type": "json.Json", "target": { "kind": "local", "name": "entry" }, "member": "value" }] } },
           { "op": "assign", "line": 795, "name": "text", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "text" }, "right": { "kind": "local", "name": "labelText" } }, "right": { "kind": "local", "name": "valueText" } } }
           ]
         },
