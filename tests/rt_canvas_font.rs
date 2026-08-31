@@ -15,6 +15,7 @@
 
 mod common;
 
+use common::canvas_image::{compare_within_tolerance, Frame, Tolerance};
 use std::process::Command;
 
 /// Build a `--app` program, run it headless, and return its stdout lines.
@@ -446,6 +447,11 @@ const WIDTH: usize = 900;
 
 /// Build a project with the fixture font, render one frame headless, return the pixels.
 fn render(name: &str, source: &str) -> Vec<u8> {
+    render_with(name, source, false)
+}
+
+/// The same, with `MFB_CANVAS_GPU` optionally on.
+fn render_with(name: &str, source: &str, gpu: bool) -> Vec<u8> {
     let project = common::temp_project(name, source);
     std::fs::write(project.join("fixture.ttf"), minimal_truetype()).expect("write the font");
     let build = Command::new(common::mfb_exe())
@@ -462,13 +468,20 @@ fn render(name: &str, source: &str) -> Vec<u8> {
     );
     let frame = project.join("frame.rgba");
     let binary = app_binary(&project, name);
-    let run = Command::new(&binary)
+    let stats = project.join("stats.txt");
+    let mut command = Command::new(&binary);
+    command
         .current_dir(&project)
         .env("MFB_MACAPP_HEADLESS", "1")
         .env("MFB_WINAPP_HEADLESS", "1")
         .env("MFB_GTKAPP_HEADLESS", "1")
         .env("MFB_CANVAS_DUMP", &frame)
-        .env("MFB_CANVAS_SYNC", "1")
+        .env("MFB_CANVAS_STATS", &stats)
+        .env("MFB_CANVAS_SYNC", "1");
+    if gpu {
+        command.env("MFB_CANVAS_GPU", "1");
+    }
+    let run = command
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
     assert!(
@@ -479,7 +492,16 @@ fn render(name: &str, source: &str) -> Vec<u8> {
         String::from_utf8_lossy(&run.stderr),
     );
     let pixels = std::fs::read(&frame).expect("canvas dump written");
+    let selected = std::fs::read_to_string(&stats)
+        .unwrap_or_default()
+        .contains("metalReady=TRUE");
     let _ = std::fs::remove_dir_all(&project);
+    if gpu && !selected {
+        // A host with no Metal device is a real configuration, not a failure. The skip
+        // gates on the flag the *renderer* gates on, so the test and the runtime can
+        // never disagree about whether the GPU path was taken.
+        return Vec::new();
+    }
     pixels
 }
 
@@ -595,4 +617,61 @@ END SUB
         frame.chunks(4).all(|p| p[0] == 0 && p[1] == 0 && p[2] == 0),
         "text in an unresolvable font drew something",
     );
+}
+
+/// A text scene with enough glyphs to be worth comparing, but few enough to stay under
+/// Metal's per-polygon edge cap.
+///
+/// That cap is the reason this scene is four squares rather than a sentence. `MAX_EDGES`
+/// is 256 because a Metal `setFragmentBytes:` payload is 4 KB, and a *curved* glyph
+/// costs about 160 flattened edges — measured, in Andale Mono: `Sog@` is 688 edges and
+/// `Sogsogsogsog` is 1899. So on Metal the cap is exceeded by the **second** curved
+/// character, and real text falls back to software today (plan-98-G Correction 12).
+///
+/// The fixture's glyph is a square, so four of them are sixteen edges and this
+/// comparison is about the pixels rather than about the cap.
+const GPU_TEXT: &str = r#"IMPORT app
+IMPORT canvas
+
+SUB main()
+  app::setMode(Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    EXIT SUB
+  END TRAP
+  LET label AS DrawItem = Text[x := 100.0, y := 300.0, text := "AAAA", font := canvas::fontRef(face), size := 120.0, paint := canvas::fill(canvas::rgb(220, 40, 160))]
+  canvas::present([label])
+END SUB
+"#;
+
+#[test]
+fn text_on_the_gpu_matches_the_software_oracle() {
+    let software = render_with("canvas_text_gpu_sw", GPU_TEXT, false);
+    let gpu = render_with("canvas_text_gpu_hw", GPU_TEXT, true);
+    if gpu.is_empty() {
+        eprintln!("skip: this host reports no Metal device");
+        return;
+    }
+    assert!(
+        software.iter().any(|&b| b != 0),
+        "the software render drew nothing, so the comparison would be vacuous",
+    );
+
+    let height = (software.len() / 4 / WIDTH) as u32;
+    let want = Frame {
+        width: WIDTH as u32,
+        height,
+        pixels: software,
+    };
+    let got = Frame {
+        width: WIDTH as u32,
+        height,
+        pixels: gpu,
+    };
+    // The same gate every other GPU comparison uses. Text is not a special case for the
+    // backends — it arrives as a polygon — so anything but agreement here would mean
+    // the *polygon* path had diverged, which the plan-98-F scenes would also have
+    // caught. Running it anyway is cheap and it is the box's own wording.
+    if let Err(diff) = compare_within_tolerance(&got, &want, Tolerance::GPU_DEFAULT) {
+        panic!("GPU text differs from the software oracle: {diff:?}");
+    }
 }

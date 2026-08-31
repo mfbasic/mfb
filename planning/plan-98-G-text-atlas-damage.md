@@ -273,11 +273,20 @@ the raster proves machine-variant, which it should not) and within tolerance on 
       is zero wide and still a full line tall. Also measured on a real font — Andale
       Mono, `unitsPerEm` 2048 — where "hello" at 24 px is 72.01, which is five
       monospaced advances.
-- [~] `tests/rt_canvas_font.rs` is 7 tests over a synthesized font: the container
+- [x] `tests/rt_canvas_font.rs` is 8 tests over a synthesized font: the container
       rules, the metrics, the descent sign, the glyph's own coordinates, the pen
-      advance, and the unresolvable-font case. What remains is the **GPU** half — Text
-      within tolerance on Metal and Vulkan — which needs a font on the box and in the
-      macOS harness, and is the last thing in this phase.
+      advance, the unresolvable-font case, and **Text on the GPU within
+      `Tolerance::GPU_DEFAULT`**. The GPU one is not vacuous — checked by hand that the
+      two frames *differ* before they agree, which is the tell that would otherwise hide
+      a silent fallback (the trap plan-98-F Correction 4 was caught by).
+
+      Software is exact-match by construction rather than by tolerance: the expected
+      pixels are computed from the fixture glyph's own coordinates.
+
+      The Metal comparison uses four square glyphs deliberately. A curved glyph costs
+      ~160 edges and `MAX_EDGES` is 256, so real text does not reach the Metal GPU path
+      at all today — measured and recorded in Correction 12, which is Phase 2's
+      motivation rather than something this box can assert around.
 
 Acceptance: Text `DrawItem`s render on all backends (software exact-match/documented-tolerance, GPU
 within tolerance); `measureText` works and its API is shaper-independent; a `Font`
@@ -523,8 +532,41 @@ cache would save nothing. Text therefore probes on the hash alone and builds its
 from the tail on a miss — a narrower collision guard for the one kind that cannot afford
 the wide one, rather than a slower cache for every kind.
 
-The same fact re-scopes **Phase 2**. An LRU glyph atlas is what a *bitmap* rasteriser
-needs; an outline rasteriser caches the flattened string in the geometry cache that
-already exists, and adding a glyph atlas on top would mean rasterising twice. Phase 2's
-row is re-read as "the geometry cache's eviction must be correct under text pressure",
-which is a real thing to test and a much smaller thing to build.
+~~The same fact re-scopes **Phase 2**...~~ — **withdrawn, see Correction 12.** That
+paragraph argued a glyph atlas was redundant because the geometry cache already caches a
+flattened string. It is wrong, and measuring is what showed it.
+
+**Correction 12 (Phase 1, and it withdraws half of Correction 11) — "text is a polygon"
+is correct and, on its own, unusably slow.** Correction 11 concluded that Phase 2's
+glyph atlas was redundant because the geometry cache already caches a flattened string.
+That reasoning only accounts for the cost of *building* the outline. It ignores the cost
+of *evaluating* it, and `__canvas_edgeDistance` is `O(edges)` **per pixel**:
+
+    Andale Mono, size 120           edges   floats
+      "Sog@"          4 chars         688     3462
+      "Sogsog"        6 chars         949     4767
+      "Sogsogsog"     9 chars        1424     7142
+      "Sogsogsogsog" 12 chars        1899     9517
+
+About 160 edges per curved glyph. The last row's bounding box is roughly 800x150, so one
+frame is ~228 million segment-distance evaluations — and one headless render of it takes
+**8.1 seconds** measured on this host. That is not a tuning problem, it is the wrong
+shape: a string's cost grows with (its length) x (its area), where a real text renderer's
+grows with its length alone.
+
+It also puts text out of reach of the GPU on Metal. `MAX_EDGES` is 256 because a
+`setFragmentBytes:` payload is 4 KB, so at ~160 edges a glyph the cap is exceeded by the
+**second** curved character and `__canvas_metalRenderable` declines. Vulkan's storage
+buffer holds 16384 edges a frame, so it does not hit this — which is itself the argument
+for giving Metal a buffer rather than a payload.
+
+So **Phase 2 is the letter's load-bearing phase, not its tidying phase**, and its row
+stands as written: rasterise each `(font, size, glyphId)` once into a coverage bitmap,
+cache it, and draw a glyph as a blit rather than as a distance field over its own area.
+Twelve characters becomes twelve blits instead of 228 million evaluations, and the
+per-polygon edge cap stops mattering because a glyph stops being a polygon at draw time.
+Phase 1's outline reader is not wasted — it is what fills the cache.
+
+Recorded as its own correction rather than by editing Correction 11, because the
+sequence is the point: the re-scope was a plausible inference from a real fact, and the
+thing that refuted it was a stopwatch.
