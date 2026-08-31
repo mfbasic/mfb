@@ -60,53 +60,209 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 14, "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 16, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "compute", "args": [{ "kind": "call", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "arg1-value" }, { "kind": "const", "type": "Integer", "value": "3" }] }, { "kind": "call", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-extra" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "call", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-multiplier" }, { "kind": "const", "type": "Integer", "value": "5" }] }] } },
-    { "op": "bind", "line": 16, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
+    { "op": "bind", "line": 16, "mutable": true, "name": "$trap_failed8", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 16, "mutable": true, "name": "$trap_err9", "type": "Error", "value": null },
+    { "op": "bind", "line": 16, "mutable": true, "name": "$trap_val7", "type": "Integer", "value": null },
+    { "op": "bind", "line": 16, "mutable": false, "name": "$trap_res1", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "arg1-value" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
     {
       "op": "if",
       "line": 16,
-      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res1" } },
       "then": [
-      { "op": "assign", "line": 16, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res0" } } }
+      { "op": "bind", "line": 16, "mutable": false, "name": "$trap_arg0", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res1" } } },
+      { "op": "bind", "line": 8, "mutable": false, "name": "$trap_res3", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-extra" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+      {
+        "op": "if",
+        "line": 8,
+        "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res3" } },
+        "then": [
+        { "op": "bind", "line": 8, "mutable": false, "name": "$trap_arg2", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res3" } } },
+        { "op": "bind", "line": 8, "mutable": false, "name": "$trap_res5", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-multiplier" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+        {
+          "op": "if",
+          "line": 8,
+          "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res5" } },
+          "then": [
+          { "op": "bind", "line": 8, "mutable": false, "name": "$trap_arg4", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res5" } } },
+          { "op": "bind", "line": 16, "mutable": false, "name": "$trap_res6", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "compute", "args": [{ "kind": "local", "name": "$trap_arg0" }, { "kind": "local", "name": "$trap_arg2" }, { "kind": "local", "name": "$trap_arg4" }] } },
+          {
+            "op": "if",
+            "line": 16,
+            "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res6" } },
+            "then": [
+            { "op": "assign", "line": 16, "name": "$trap_val7", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res6" } } }
+            ],
+            "else": [
+            { "op": "assign", "line": 16, "name": "$trap_failed8", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+            { "op": "assign", "line": 16, "name": "$trap_err9", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res6" } } }
+            ]
+          }
+          ],
+          "else": [
+          { "op": "assign", "line": 16, "name": "$trap_failed8", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+          { "op": "assign", "line": 16, "name": "$trap_err9", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res5" } } }
+          ]
+        }
+        ],
+        "else": [
+        { "op": "assign", "line": 16, "name": "$trap_failed8", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+        { "op": "assign", "line": 16, "name": "$trap_err9", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res3" } } }
+        ]
+      }
       ],
       "else": [
-      { "op": "bind", "line": 16, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
-      { "op": "assign", "line": 17, "name": "$trap_val1", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+      { "op": "assign", "line": 16, "name": "$trap_failed8", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+      { "op": "assign", "line": 16, "name": "$trap_err9", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res1" } } }
       ]
     },
-    { "op": "bind", "line": 16, "mutable": false, "name": "first", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
+    {
+      "op": "if",
+      "line": 16,
+      "condition": { "kind": "local", "name": "$trap_failed8" },
+      "then": [
+      { "op": "bind", "line": 16, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "local", "name": "$trap_err9" } },
+      { "op": "assign", "line": 17, "name": "$trap_val7", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 16, "mutable": false, "name": "first", "type": "Integer", "value": { "kind": "local", "name": "$trap_val7" } },
     { "op": "assign", "line": 19, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "first" } } },
-    { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "compute", "args": [{ "kind": "call", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "arg2-value" }, { "kind": "const", "type": "Integer", "value": "1" }] }, { "kind": "call", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-extra" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "call", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "arg2-multiplier" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } },
-    { "op": "bind", "line": 21, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
+    { "op": "bind", "line": 21, "mutable": true, "name": "$trap_failed18", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 21, "mutable": true, "name": "$trap_err19", "type": "Error", "value": null },
+    { "op": "bind", "line": 21, "mutable": true, "name": "$trap_val17", "type": "Integer", "value": null },
+    { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res11", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "arg2-value" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
     {
       "op": "if",
       "line": 21,
-      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res11" } },
       "then": [
-      { "op": "assign", "line": 21, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res2" } } }
+      { "op": "bind", "line": 21, "mutable": false, "name": "$trap_arg10", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res11" } } },
+      { "op": "bind", "line": 8, "mutable": false, "name": "$trap_res13", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-extra" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+      {
+        "op": "if",
+        "line": 8,
+        "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res13" } },
+        "then": [
+        { "op": "bind", "line": 8, "mutable": false, "name": "$trap_arg12", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res13" } } },
+        { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res15", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "arg2-multiplier" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+        {
+          "op": "if",
+          "line": 21,
+          "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res15" } },
+          "then": [
+          { "op": "bind", "line": 21, "mutable": false, "name": "$trap_arg14", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res15" } } },
+          { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res16", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "compute", "args": [{ "kind": "local", "name": "$trap_arg10" }, { "kind": "local", "name": "$trap_arg12" }, { "kind": "local", "name": "$trap_arg14" }] } },
+          {
+            "op": "if",
+            "line": 21,
+            "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res16" } },
+            "then": [
+            { "op": "assign", "line": 21, "name": "$trap_val17", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res16" } } }
+            ],
+            "else": [
+            { "op": "assign", "line": 21, "name": "$trap_failed18", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+            { "op": "assign", "line": 21, "name": "$trap_err19", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res16" } } }
+            ]
+          }
+          ],
+          "else": [
+          { "op": "assign", "line": 21, "name": "$trap_failed18", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+          { "op": "assign", "line": 21, "name": "$trap_err19", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res15" } } }
+          ]
+        }
+        ],
+        "else": [
+        { "op": "assign", "line": 21, "name": "$trap_failed18", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+        { "op": "assign", "line": 21, "name": "$trap_err19", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res13" } } }
+        ]
+      }
       ],
       "else": [
-      { "op": "bind", "line": 21, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
-      { "op": "assign", "line": 22, "name": "$trap_val3", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+      { "op": "assign", "line": 21, "name": "$trap_failed18", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+      { "op": "assign", "line": 21, "name": "$trap_err19", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res11" } } }
       ]
     },
-    { "op": "bind", "line": 21, "mutable": false, "name": "second", "type": "Integer", "value": { "kind": "local", "name": "$trap_val3" } },
+    {
+      "op": "if",
+      "line": 21,
+      "condition": { "kind": "local", "name": "$trap_failed18" },
+      "then": [
+      { "op": "bind", "line": 21, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "local", "name": "$trap_err19" } },
+      { "op": "assign", "line": 22, "name": "$trap_val17", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 21, "mutable": false, "name": "second", "type": "Integer", "value": { "kind": "local", "name": "$trap_val17" } },
     { "op": "assign", "line": 24, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "second" } } },
-    { "op": "bind", "line": 26, "mutable": false, "name": "$trap_res4", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "compute", "args": [{ "kind": "call", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "arg3-value" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] }, { "kind": "call", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-extra" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "call", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-multiplier" }, { "kind": "const", "type": "Integer", "value": "5" }] }] } },
-    { "op": "bind", "line": 26, "mutable": true, "name": "$trap_val5", "type": "Integer", "value": null },
+    { "op": "bind", "line": 26, "mutable": true, "name": "$trap_failed28", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 26, "mutable": true, "name": "$trap_err29", "type": "Error", "value": null },
+    { "op": "bind", "line": 26, "mutable": true, "name": "$trap_val27", "type": "Integer", "value": null },
+    { "op": "bind", "line": 26, "mutable": false, "name": "$trap_res21", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "arg3-value" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
     {
       "op": "if",
       "line": 26,
-      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res4" } },
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res21" } },
       "then": [
-      { "op": "assign", "line": 26, "name": "$trap_val5", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res4" } } }
+      { "op": "bind", "line": 26, "mutable": false, "name": "$trap_arg20", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res21" } } },
+      { "op": "bind", "line": 8, "mutable": false, "name": "$trap_res23", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-extra" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+      {
+        "op": "if",
+        "line": 8,
+        "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res23" } },
+        "then": [
+        { "op": "bind", "line": 8, "mutable": false, "name": "$trap_arg22", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res23" } } },
+        { "op": "bind", "line": 8, "mutable": false, "name": "$trap_res25", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "mark", "args": [{ "kind": "const", "type": "String", "value": "default-multiplier" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+        {
+          "op": "if",
+          "line": 8,
+          "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res25" } },
+          "then": [
+          { "op": "bind", "line": 8, "mutable": false, "name": "$trap_arg24", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res25" } } },
+          { "op": "bind", "line": 26, "mutable": false, "name": "$trap_res26", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "compute", "args": [{ "kind": "local", "name": "$trap_arg20" }, { "kind": "local", "name": "$trap_arg22" }, { "kind": "local", "name": "$trap_arg24" }] } },
+          {
+            "op": "if",
+            "line": 26,
+            "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res26" } },
+            "then": [
+            { "op": "assign", "line": 26, "name": "$trap_val27", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res26" } } }
+            ],
+            "else": [
+            { "op": "assign", "line": 26, "name": "$trap_failed28", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+            { "op": "assign", "line": 26, "name": "$trap_err29", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res26" } } }
+            ]
+          }
+          ],
+          "else": [
+          { "op": "assign", "line": 26, "name": "$trap_failed28", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+          { "op": "assign", "line": 26, "name": "$trap_err29", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res25" } } }
+          ]
+        }
+        ],
+        "else": [
+        { "op": "assign", "line": 26, "name": "$trap_failed28", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+        { "op": "assign", "line": 26, "name": "$trap_err29", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res23" } } }
+        ]
+      }
       ],
       "else": [
-      { "op": "bind", "line": 26, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res4" } } },
-      { "op": "assign", "line": 27, "name": "$trap_val5", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+      { "op": "assign", "line": 26, "name": "$trap_failed28", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+      { "op": "assign", "line": 26, "name": "$trap_err29", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res21" } } }
       ]
     },
-    { "op": "bind", "line": 26, "mutable": false, "name": "third", "type": "Integer", "value": { "kind": "local", "name": "$trap_val5" } },
+    {
+      "op": "if",
+      "line": 26,
+      "condition": { "kind": "local", "name": "$trap_failed28" },
+      "then": [
+      { "op": "bind", "line": 26, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "local", "name": "$trap_err29" } },
+      { "op": "assign", "line": 27, "name": "$trap_val27", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 26, "mutable": false, "name": "third", "type": "Integer", "value": { "kind": "local", "name": "$trap_val27" } },
     { "op": "assign", "line": 29, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "third" } } },
     { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] }] } },
     { "op": "return", "line": 32, "value": { "kind": "const", "type": "Integer", "value": "0" } }

@@ -1233,6 +1233,7 @@ impl<'a> Walker<'a> {
                         _ => success_type,
                     };
                     self.walk_expression(expression, locals);
+                    self.check_trap_short_circuit(expression, *trap_line);
                     let trapped_type = self.type_of(expression, locals);
                     self.walk_handler(binding, handler, locals, trapped_type, *trap_line);
                     // The checker typed the binding by the trapped call.
@@ -1502,11 +1503,136 @@ impl<'a> Walker<'a> {
         } = value
         {
             self.walk_expression(expression, locals);
+            self.check_trap_short_circuit(expression, *line);
             let trapped_type = self.type_of(expression, locals);
             self.walk_handler(binding, handler, locals, trapped_type, *line);
             return;
         }
         self.walk_expression(value, locals);
+    }
+
+    /// TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL (bug-457): a fallible call in a
+    /// **short-circuited** operand of the trapped expression.
+    ///
+    /// `lower_inline_trap` covers a nested fallible call by lifting it into its
+    /// own `CallResult` check ahead of the residual expression. That is sound
+    /// only where the call is evaluated unconditionally: `AND`/`OR` evaluate
+    /// their right operand only when the left one does not already decide the
+    /// result (`mfb spec language operators`), so lifting a call out of one
+    /// would call it every time. Reporting is the alternative to leaving the
+    /// error to escape the handler unnoticed, which is the bug this rule closes
+    /// the last corner of; the author binds the call to its own `LET … TRAP`
+    /// first, which is what the desugar would have had to do anyway.
+    ///
+    /// Lowering erases the evidence — the operand structure is gone by the time
+    /// `ir::verify` sees the lifted chain — so the rule lives here.
+    fn check_trap_short_circuit(&mut self, expression: &HirExpression, line: usize) {
+        let mut offender = None;
+        self.find_short_circuited_call(expression, false, &mut offender);
+        if let Some(callee) = offender {
+            self.emit(
+                "TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL",
+                format!(
+                    "Inline TRAP cannot cover `{callee}`: AND/OR evaluate their right operand \
+                     only conditionally, so the call cannot be lifted ahead of the expression. \
+                     Bind it to its own LET with a TRAP first, then use that value here."
+                ),
+                line,
+            );
+        }
+    }
+
+    /// Records the first fallible call reached through a short-circuited operand.
+    /// `conditional` is true once the walk has entered the right side of an
+    /// `AND`/`OR`; a lambda body is skipped because it runs at the callback's
+    /// call site, not in this expression.
+    fn find_short_circuited_call(
+        &self,
+        expression: &HirExpression,
+        conditional: bool,
+        offender: &mut Option<String>,
+    ) {
+        if offender.is_some() {
+            return;
+        }
+        match expression {
+            HirExpression::String(_)
+            | HirExpression::Number(_)
+            | HirExpression::Scalar(_)
+            | HirExpression::Boolean(_)
+            | HirExpression::Identifier(_)
+            | HirExpression::Lambda { .. } => {}
+            HirExpression::Binary {
+                left,
+                operator,
+                right,
+                ..
+            } => {
+                self.find_short_circuited_call(left, conditional, offender);
+                let short_circuit = lower::is_short_circuit_operator(operator);
+                self.find_short_circuited_call(right, conditional || short_circuit, offender);
+            }
+            HirExpression::Unary { operand, .. } => {
+                self.find_short_circuited_call(operand, conditional, offender)
+            }
+            HirExpression::Call {
+                callee, arguments, ..
+            } => {
+                for argument in arguments {
+                    match argument {
+                        HirCallArg::Positional(value) | HirCallArg::Named { value, .. } => {
+                            self.find_short_circuited_call(value, conditional, offender)
+                        }
+                    }
+                }
+                if offender.is_none()
+                    && conditional
+                    && self
+                        .context
+                        .call_is_fallible(&self.canonical_callee(callee))
+                {
+                    *offender = Some(callee.replace('.', "::"));
+                }
+            }
+            HirExpression::Constructor { arguments, .. } => {
+                for argument in arguments {
+                    match argument {
+                        HirConstructorArg::Positional(value)
+                        | HirConstructorArg::Named { value, .. } => {
+                            self.find_short_circuited_call(value, conditional, offender)
+                        }
+                    }
+                }
+            }
+            HirExpression::WithUpdate { target, updates } => {
+                self.find_short_circuited_call(target, conditional, offender);
+                for update in updates {
+                    self.find_short_circuited_call(&update.value, conditional, offender);
+                }
+            }
+            HirExpression::ListLiteral(values) => {
+                for value in values {
+                    self.find_short_circuited_call(value, conditional, offender);
+                }
+            }
+            HirExpression::SetLiteral { elements, .. } => {
+                for element in elements {
+                    self.find_short_circuited_call(element, conditional, offender);
+                }
+            }
+            HirExpression::MapLiteral { entries, .. } => {
+                for (key, value) in entries {
+                    self.find_short_circuited_call(key, conditional, offender);
+                    self.find_short_circuited_call(value, conditional, offender);
+                }
+            }
+            HirExpression::MemberAccess { target, .. } => {
+                self.find_short_circuited_call(target, conditional, offender)
+            }
+            // A nested inline TRAP routes its own expression's errors to its own
+            // handler, so nothing inside it escapes into this one.
+            HirExpression::Trapped { .. } => {}
+        }
     }
 
     /// An inline-TRAP handler block: the error binding is an `Error` local
