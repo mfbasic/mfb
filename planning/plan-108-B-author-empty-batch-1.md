@@ -1,6 +1,6 @@
 # plan-108-B: Author the empty packages, batch 1 — strings, term, testing
 
-Last updated: 2026-08-24
+Last updated: 2026-08-30
 Effort: large (3h–1d)
 Depends on: plan-108-A (census script, `.ai/man-content.md` standard, and the
 pilot-calibrated four-step workflow all exist; A's Prerequisites and no-test
@@ -25,6 +25,22 @@ See plan-108-A §3 for the workflow and the standard. Per A: verification is
 
 References:
 
+- **plan-108-A §3 (2a) — the memory-vocabulary hard ban.** Permitted:
+  **copy**, **mutate**, **value**, **alias** (`RES` handles only).
+  Banned from rendered output: `borrow`, `pointer`, `ownership`/`owns`,
+  `move`, `free`, `heap`, `refcount`, `lifetime`, `deep/shallow copy`,
+  `by reference`, `drop` (memory sense) — use A's rewrite table, and link
+  `mfb man variable` instead of re-explaining the model on a package page.
+  Run `scripts/man-census.sh --memory-scope <pkg>` before closing each
+  package; record before/after counts in the ledger.
+  Rendered baseline for this letter's packages (2026-08-30,
+  `mfb man <pkg> --all | grep -cEi 'borrow|ownership|\bowns\b|pointer|deep
+  copy|shallow copy|by reference|heap|refcount|dangling'`): strings 1,
+  term 0, testing 0. Low — but these packages are being AUTHORED, so the
+  risk is importing the vocabulary from `planning/old_man/**`, which
+  predates the ban: strip it on port, do not carry it across. `term`
+  pages describe a handle-free surface; if one needs to say a `RES` is
+  shared, say **alias** and link `mfb man variable`.
 - `src/codegen/builtins/strings/`, `…/term/`, `…/testing/` — the descriptor
   prose fields being filled.
 - `planning/old_man/builtins/strings/` etc. — source material (claims
@@ -52,6 +68,12 @@ References:
 - Every claim behavior-verified (probe programs against the release binary
   or descriptor-table-derived); zero internals leakage per
   `.ai/man-content.md`.
+- **`scripts/man-census.sh --memory-scope` reports 0** for every package in
+  this letter (plan-108-A §3 (2a)): no `borrow`, `pointer`, `ownership`,
+  `move`, `free`, `heap`, `lifetime` in rendered output. Where a `RES`
+  handle's behavior must be stated, it is stated with **alias** and
+  MFBASIC's own verbs (open / close / stays open); anything longer links
+  `mfb man variable`.
 - Every example compiled and run while authoring; term members that need a
   tty are compile-verified only, noted per function in this letter's
   ledger.
@@ -61,6 +83,9 @@ References:
 
 ### Non-goals (explicit constraints)
 
+- **No new inline explanation of the memory model.** Any page that needs
+  more than one sentence about copies or handles links `mfb man variable`
+  (authored in A) — it does not re-explain, and never in C/Rust terms.
 - Per plan-108-A: no compiler testing (rendering is the verification);
   prose string fields only (never a body, descriptor type, or error table —
   `git diff` per commit shows string-literal prose changes only); no
