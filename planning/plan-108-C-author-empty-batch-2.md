@@ -73,7 +73,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-108-B complete | B's boxes ticked; census 100% for strings/term/testing | NOT MET until B lands |
+| plan-108-B complete | B's boxes ticked; census 100% for strings/term/testing | **MET** 2026-08-30 — every box in B's three phases resolved; `./scripts/man-census.sh strings term testing` reports 75/75 on intro, desc and example, 121/121 parameter descriptions, term's types page at 18/18, and 0 memory-scope hits across all three. Commits `ce95ab5c5`, `7c9fc359a`, `36dd9b04e`. |
 
 ## 1. Goal
 
@@ -194,25 +194,56 @@ corrected.
 
 ## Phases
 
-### Phase 1 — general, astrings, vector
+> **Re-scoped 2026-08-30 at kickoff — see Corrections.** Five of this
+> letter's seven packages are already filled; only `general` is empty.
+> Measured with `./scripts/man-census.sh net http general astrings vector
+> tcp udp`:
+>
+> ```
+> net                5      5      5        5       10/10     11  19/19
+> http              19     19     19       19       38/38     11  25/25
+> general           18     18      0        0        0/21     11      -
+> astrings          15     15     15       15       23/23     11  17/17
+> vector            19     19     19       19        0/38     11  27/27
+> tcp               11     11     11       11       24/24     11    2/2
+> udp                8      8      8        8       17/17     11    3/3
+> ```
+>
+> So **18 pages are authored here and 77 are verified.** Two populations
+> the phases did not name: **59 missing parameter descriptions** (vector
+> 0/38, general 0/21) and **77 memory-vocabulary hits**, not the 33 the
+> letter's §2 predicted.
 
-- [ ] Author 18+18+17 pages + overviews + types pages; every example
-      compiled and run.
-- [ ] Memory-scope: astrings 1 (`deep copy` → "its own copy"), vector 1,
-      general 0 — drive to 0.
+### Phase 1 — general (author), astrings and vector (verify)
+
+- [ ] `general`: author 18 pages + overview; every example compiled and
+      run. This is the only empty package in the letter. Its members are
+      unqualified globals (`len`, `toString`, `typeName`, the `is*`
+      predicates), so the pages must be written as bare names with no
+      `general::` spelling — the package is deliberately absent from the
+      `mfb man` index for that reason (A's Phase 1).
+- [ ] `general`: author its **21 missing parameter descriptions** (0/21).
+- [ ] `astrings`: verify 15 pages + overview + types page; examples run.
+- [ ] `vector`: verify 19 pages + overview + types page; examples run, and
+      author its **38 missing parameter descriptions** (0/38) — the single
+      largest parameter gap in the letter.
+- [ ] Memory-scope for the three — drive to 0.
 - [ ] Cross-model review per package + apply; ledgers here.
 - [ ] Verify: rendering reads clean; census 100% each.
 
-Acceptance: three packages fully authored and reviewed; memory-scope 0.
+Acceptance: three packages fully authored/verified and reviewed;
+memory-scope 0; every parameter described.
 Commit: —
 
 ### Phase 2 — the network family: net, tcp, udp, http
 
-Done as one unit (§3). Memory-vocabulary baseline for the phase: 31 hits
-(tcp 14, udp 11, http 5, net 1).
+Done as one unit (§3). Memory-vocabulary baseline **measured at kickoff:
+75 hits** (tcp 28, http 23, udp 21, net 3) — not the 31 this section
+predicted, for the reason A's Corrections give. `net` and `http` are
+already filled, so both are verified rather than authored.
 
-- [ ] Author net (23) + http (19) pages + overviews + types pages;
-      per-function run-vs-compile verification recorded (no
+- [ ] Verify net (**5** pages, not 23) + http (19) pages + overviews +
+      types pages; per-function run-vs-compile verification recorded (no
       external-endpoint dependence).
 - [ ] Verify tcp (11) + udp (8) pages + overviews + types pages: every
       existing claim checked against behavior, every example compiled and
@@ -234,11 +265,20 @@ Commit: —
 
 ### Phase 3 — stragglers
 
-- [ ] Fill the ~10 straggler pages (exact list recorded here at kickoff)
-      inside their filled packages, to standard, examples compiled/run;
-      their packages' full review rides with D/E's sweep.
+**Kickoff finding: there are no straggler pages.** A's Phase 1 census over
+all 29 censusable packages shows every function page outside `general`,
+`testing` and `thread` already carrying desc + example — the "~10
+stragglers spread across filled packages" this section was written for do
+not exist. B authored `testing` and A authored `thread`, so once Phase 1
+here lands `general`, the tree-wide desc+example count is complete.
+
+- [ ] ~~Fill the ~10 straggler pages inside their filled packages~~ —
+      **moot: the census finds none.** `./scripts/man-census.sh` reports
+      "pages with neither Description nor Examples: 42" tree-wide at A's
+      kickoff, and those 42 are exactly general 18 + testing 12 + thread
+      12, all of which are owned by a phase. There is no residue.
 - [ ] Verify: census shows **0 pages without desc+example tree-wide**
-      across all 30 packages.
+      across all 29 censusable packages.
 
 Acceptance: census-wide authoring complete — every function page carries
 desc+example (denominator per A's Phase 1 census, which covers tcp/udp;
