@@ -276,12 +276,24 @@ Three consequences for anything added here later:
   pops its own. This is not a leak-avoidance nicety: an unpooled autorelease on this
   thread aborts it in libmalloc at thread exit, with none of your frames in the trace.
 
-The Vulkan backend (plan-98-F) sits behind the same branch with its own pair,
-`canvas::vulkanAvailable` / `canvas::vulkanReady`, and the same offscreen shape: it
-renders into an image and reads it back so the frame leaves through
-`canvas::blitSurface` like every other. It needs no `VkSurfaceKHR` and no swapchain,
-which is what lets it be tested on a box with no display server — and no reachable
-Linux box has one.
+The Vulkan backend (plan-98-F) sits behind the same branch, gated on the single
+`canvas::vulkanReady` — there is deliberately no second "is Vulkan present" probe, because
+two probes of overlapping facts can disagree and one of them did. It has the same offscreen
+shape: it renders into an image and reads it back so the frame leaves through
+`canvas::blitSurface` like every other. It needs no `VkSurfaceKHR` and no swapchain, which
+is what lets it be tested on a box with no display server — and no reachable Linux box has
+one.
+
+**The two predicates are not the same predicate.** `__canvas_metalRenderable` declines a
+*polygon* past `MAX_EDGES`, because Metal's edges cross as a `setFragmentBytes:` payload,
+which is per-item and small. `__canvas_vulkanRenderable` has no per-item limit at all — the
+edges live in a descriptor-bound storage buffer — but it declines a *frame* whose polygons
+sum past `VULKAN_MAX_FRAME_EDGES`, because one buffer serves the whole frame. That
+asymmetry is forced by the APIs: a Vulkan command buffer is recorded once and executed
+once, so rewriting or re-binding one buffer per item would give every polygon the *last*
+one's edges. Each polygon instead takes a slice and carries its start index in the item
+block (`ITEM_ARC_EDGE_BASE`), which is a push constant and so genuinely per-item. A scene
+can therefore be GPU-renderable on one backend and not the other, and that is correct.
 
 ## 11. Test affordances
 

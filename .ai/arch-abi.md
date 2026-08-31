@@ -50,6 +50,54 @@ the function's `sub rsp,imm` says whether the frame is wrong or its caller is.
 Windows x86-64 has the same `frame_call_padding()`, so the fix moves its app-mode
 `.ncodesum` goldens too; macOS AArch64's is 0 and does not move.
 
+### `c_arg(6)`/`c_arg(7)` are NOT arguments on SysV, and staging into them is the damage
+
+`abi::c_arg(n)` is slot `n` of the **aligned call bank**, which is longer than the ABI's
+register-argument list: SysV `CALL_ARGS` is `[rdi, rsi, rdx, rcx, r8, r9, rax, rbp]` but
+only the first six carry arguments (bug-296; the register model says so —
+`X86SysVRegisterModel::external_int_argument_registers() == 6`). So a hand-written emitter
+that stages an 8-argument C call entirely in `c_arg(0..8)` puts argument 7 in `rax`,
+argument 8 in **`rbp`** — the frame pointer, which the allocator excludes precisely because
+it is one — and the callee reads two stack slots nothing wrote. AArch64 and riscv64 pass
+eight in registers, so the identical code is correct there: **this is invisible on a Mac
+host and on every AArch64 box.**
+
+Spilling *after* staging does not fix it. `emit_external_int_call` gets away with
+`outgoing_stack_arg_store(c_arg(n), …)` only because the indices it spills on Win64 land on
+caller-saved `rdi`/`rsi`; at index 7 the staging write itself has already destroyed `rbp`.
+For an overflow argument, **write the value straight to the outgoing area** and never touch
+`c_arg(n)` for `n >= external_int_argument_registers()` — see
+`runtime/canvas/vulkan.rs:emit_int_arg_zero`, which branches on the register model so the
+bytes are unchanged wherever the target's registers cover the call.
+
+Symptom when it happens: every API call reports success and the frame comes back blank.
+
+### The x86 scratch pool aliases the SysV argument bank — mid-staging, that corrupts an argument
+
+`map_scratch_register` folds `x9`–`x30` onto an 11-entry pool: `SCRATCH[1]`→`rsi`,
+`SCRATCH[2]`→`rdi`, `SCRATCH[3]`→**`r8`**, `SCRATCH[4]`→`r9`, `SCRATCH[9]`→`rcx`. Those are
+`c_arg(1)`, `c_arg(0)`, `c_arg(4)`, `c_arg(5)` and `c_arg(3)`. On AArch64 the two banks are
+disjoint (`x9+` vs `x0`–`x7`), so a helper that uses a fixed `SCRATCH[k]` as a temporary is
+correct there and silently overwrites an already-staged argument on x86-64.
+
+The trap needs three ingredients, which is why it is rare and why it bites hard: a helper
+with a fixed scratch, called *between* two argument stagings, on a call with enough
+arguments to reach the aliased index. `canvas`'s `emit_state_load` used `SCRATCH[3]`, so
+`vkCmdBindDescriptorSets` received the graphics-state block pointer as its
+`descriptorSetCount` and walked a one-element array for a dozen entries.
+
+**Rule: a helper that may be called between argument stagings takes its temporary from
+`builder.temporary_vreg()`, never a fixed `SCRATCH[k]`.** The allocator then cannot pick a
+live argument register. (Same rule, different reason, as calling through a resolved function
+pointer.)
+
+Vulkan validation layers are the fastest way to see this class on Linux — they are not
+installed on the test boxes but `apt-get download vulkan-validationlayers` + `dpkg -x` into
+a scratch dir works as a plain user, then
+`VK_LAYER_PATH=<dir>/usr/share/vulkan/explicit_layer.d
+LD_LIBRARY_PATH=<dir>/usr/lib/x86_64-linux-gnu
+VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation`.
+
 ### Never mix a raw `xN` with its role token in one x86 app body
 
 `finalize_x86_app_function` (`src/target/linux_gtk/mod.rs`) renames each **distinct
@@ -57,8 +105,17 @@ token string** to its own vreg. `%scratch0` realizes to `x9`, so a body that loa
 into raw `"x9"` and compares `abi::SCRATCH[0]` uses one register on AArch64 and
 **two** on x86-64 — the compare then tests an uninitialized register. The GTK finish
 helper did exactly this on its "is there a transcript" test, so a headless run took
-the GUI arm and formatted into a chunk it had not allocated. Pick one spelling per
-value.
+the GUI arm and formatted into a chunk it had not allocated.
+
+**The enforced rule is stronger than "pick one spelling per value": there are now no raw
+`xN` register strings in `src/target/linux_gtk/` at all**, and
+`no_emitter_spells_a_register_as_a_raw_register_string` keeps it that way. The finish
+helper was not the only site — a census found sixteen functions mixing, including
+`emit_term_resize_helper`, which loaded the cell width into `"x10"` and divided by
+`abi::SCRATCH[1]`. Rewriting all 146 sites to tokens left the linux-aarch64 binary
+byte-identical (the spellings already named one register there) and changed the x86-64
+one, which is what the fix *is*. "Mixed" needs a def/use analysis; "present" is a
+substring search, which is why the test asserts the stronger form.
 
 ### remap_x86_abi: linear vs CFG
 

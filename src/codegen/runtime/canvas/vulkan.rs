@@ -41,8 +41,11 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 use crate::codegen::runtime::canvas::{
-    push_symbol_address, FIXED_POINT_SCALE, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
-    GRAPHICS_OFFSET_VULKAN_COMMAND_POOL, GRAPHICS_OFFSET_VULKAN_DEVICE,
+    push_symbol_address, EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON,
+    GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER, GRAPHICS_OFFSET_VULKAN_COMMAND_POOL,
+    GRAPHICS_OFFSET_VULKAN_DESC_POOL, GRAPHICS_OFFSET_VULKAN_DESC_SET,
+    GRAPHICS_OFFSET_VULKAN_DEVICE, GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER,
+    GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED, GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY,
     GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER, GRAPHICS_OFFSET_VULKAN_IMAGE,
     GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY, GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW,
     GRAPHICS_OFFSET_VULKAN_INSTANCE, GRAPHICS_OFFSET_VULKAN_LIB, GRAPHICS_OFFSET_VULKAN_MAPPED,
@@ -50,11 +53,13 @@ use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT, GRAPHICS_OFFSET_VULKAN_QUEUE,
     GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY, GRAPHICS_OFFSET_VULKAN_READY,
     GRAPHICS_OFFSET_VULKAN_READ_BUFFER, GRAPHICS_OFFSET_VULKAN_READ_MEMORY,
-    GRAPHICS_OFFSET_VULKAN_RENDER_PASS, GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT,
-    GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, HEADER_AUX0, HEADER_AUX1,
-    HEADER_BOUNDS, HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_STROKE_HALF,
-    HEADER_STROKE_R, ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC,
-    ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
+    GRAPHICS_OFFSET_VULKAN_RENDER_PASS, GRAPHICS_OFFSET_VULKAN_SET_LAYOUT,
+    GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT, GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL,
+    HEADER_AUX0, HEADER_AUX1, HEADER_BOUNDS, HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS,
+    HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R, ITEM_ARC_EDGE_BASE,
+    ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD,
+    ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, VULKAN_EDGE_BYTES,
+    VULKAN_MAX_FRAME_EDGES,
 };
 use crate::codegen::string::util::hex_encode_cstring;
 use crate::target::shared::abi;
@@ -97,11 +102,16 @@ const VK_PROBE_ENTRY_POINTS: &[&str] = &[
     "vkGetBufferMemoryRequirements",
     "vkBindBufferMemory",
     "vkMapMemory",
+    "vkCreateDescriptorSetLayout",
+    "vkCreateDescriptorPool",
+    "vkAllocateDescriptorSets",
+    "vkUpdateDescriptorSets",
     "vkCreateCommandPool",
     "vkAllocateCommandBuffers",
     "vkBeginCommandBuffer",
     "vkCmdBeginRenderPass",
     "vkCmdBindPipeline",
+    "vkCmdBindDescriptorSets",
     "vkCmdSetViewport",
     "vkCmdSetScissor",
     "vkCmdPushConstants",
@@ -346,6 +356,59 @@ fn emit_struct(builder: &mut CodeBuilder, base: usize, size: usize, fields: &[(u
     }
 }
 
+// --- the descriptor set that binds the polygon edge buffer -----------------------
+
+/// `VkDescriptorSetLayoutBinding`, 24 bytes.
+const BINDING_SIZE: usize = 24;
+const BINDING_INDEX: usize = 0;
+const BINDING_TYPE: usize = 4;
+const BINDING_COUNT: usize = 8;
+const BINDING_STAGES: usize = 12;
+
+/// `VkDescriptorSetLayoutCreateInfo`, 32 bytes.
+const SET_LAYOUT_INFO_SIZE: usize = 32;
+const SET_LAYOUT_BINDING_COUNT: usize = 20;
+const SET_LAYOUT_BINDINGS: usize = 24;
+
+/// `VkDescriptorPoolSize`, 8 bytes.
+const POOL_SIZE_SIZE: usize = 8;
+const POOL_SIZE_TYPE: usize = 0;
+const POOL_SIZE_COUNT: usize = 4;
+
+/// `VkDescriptorPoolCreateInfo`, 40 bytes.
+const DESC_POOL_INFO_SIZE: usize = 40;
+const DESC_POOL_MAX_SETS: usize = 20;
+const DESC_POOL_SIZE_COUNT: usize = 24;
+const DESC_POOL_SIZES: usize = 32;
+
+/// `VkDescriptorSetAllocateInfo`, 40 bytes.
+const DESC_ALLOC_INFO_SIZE: usize = 40;
+const DESC_ALLOC_POOL: usize = 16;
+const DESC_ALLOC_SET_COUNT: usize = 24;
+const DESC_ALLOC_LAYOUTS: usize = 32;
+
+/// `VkDescriptorBufferInfo`, 24 bytes.
+const DESC_BUFFER_INFO_SIZE: usize = 24;
+const DESC_BUFFER_INFO_BUFFER: usize = 0;
+const DESC_BUFFER_INFO_RANGE: usize = 16;
+
+/// `VkWriteDescriptorSet`, 64 bytes.
+const WRITE_SET_SIZE: usize = 64;
+const WRITE_SET_DST: usize = 16;
+const WRITE_SET_BINDING: usize = 24;
+const WRITE_SET_COUNT: usize = 32;
+const WRITE_SET_TYPE: usize = 36;
+const WRITE_SET_BUFFER_INFO: usize = 48;
+
+const ST_DESCRIPTOR_SET_LAYOUT_CREATE_INFO: &str = "32";
+const ST_DESCRIPTOR_POOL_CREATE_INFO: &str = "33";
+const ST_DESCRIPTOR_SET_ALLOCATE_INFO: &str = "34";
+const ST_WRITE_DESCRIPTOR_SET: &str = "35";
+
+/// `VK_DESCRIPTOR_TYPE_STORAGE_BUFFER`.
+const DESCRIPTOR_TYPE_STORAGE_BUFFER: &str = "7";
+/// `VK_BUFFER_USAGE_STORAGE_BUFFER_BIT`.
+const BUFFER_USAGE_STORAGE: &str = "32";
 /// `VkDeviceQueueCreateInfo`, 40 bytes.
 const QUEUE_INFO_SIZE: usize = 40;
 const QUEUE_INFO_STYPE: usize = 0;
@@ -390,6 +453,8 @@ const PUSH_RANGE_BYTES: usize = 8;
 /// `VkPipelineLayoutCreateInfo`, 48 bytes.
 const LAYOUT_INFO_SIZE: usize = 48;
 const LAYOUT_INFO_STYPE: usize = 0;
+const LAYOUT_INFO_SET_COUNT: usize = 20;
+const LAYOUT_INFO_SETS: usize = 24;
 const LAYOUT_INFO_RANGE_COUNT: usize = 32;
 const LAYOUT_INFO_RANGES: usize = 40;
 
@@ -938,6 +1003,16 @@ pub(crate) fn emit_vulkan_ready(
 
     // The render pass, layout and pipeline, built once alongside the device — there
     // is no point reporting "ready" for a device that cannot record a frame.
+    emit_vulkan_descriptors(
+        builder,
+        platform,
+        platform_imports,
+        off_handle,
+        off_fn,
+        off_state,
+        off_out,
+        &unavailable,
+    )?;
     emit_vulkan_pipeline(
         builder,
         platform,
@@ -985,6 +1060,401 @@ pub(crate) fn emit_vulkan_ready(
     Ok(())
 }
 
+/// Create the descriptor set that binds the polygon edge buffer, and the buffer.
+///
+/// One binding, one set, one descriptor — a `readonly buffer` the fragment shader
+/// walks when `kind` is `Polygon`. It exists only because a polygon carries an
+/// unbounded number of edges: everything else about an item fits the 112-byte push
+/// constant block, and the guaranteed push-constant range is 128.
+///
+/// This runs *before* `emit_vulkan_pipeline`, not after, because the pipeline
+/// **layout** names the set layout. It is also here rather than in
+/// `emit_vulkan_target` because none of it depends on the surface size, so a resize
+/// must not tear it down and rebuild it.
+///
+/// The buffer is host-visible and mapped once for its lifetime, the same way the
+/// readback buffer is: it is rewritten every frame, so a map/unmap pair per frame
+/// would cost more than the writes it brackets.
+#[allow(clippy::too_many_arguments)]
+fn emit_vulkan_descriptors(
+    builder: &mut CodeBuilder,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &std::collections::HashMap<String, String>,
+    off_handle: usize,
+    off_fn: usize,
+    off_state: usize,
+    off_out: usize,
+    unavailable: &str,
+) -> Result<(), String> {
+    let off_binding = builder.allocate_stack_object("vk_binding", BINDING_SIZE);
+    let off_set_layout_info =
+        builder.allocate_stack_object("vk_set_layout_info", SET_LAYOUT_INFO_SIZE);
+    let off_pool_size = builder.allocate_stack_object("vk_pool_size", POOL_SIZE_SIZE);
+    let off_desc_pool_info =
+        builder.allocate_stack_object("vk_desc_pool_info", DESC_POOL_INFO_SIZE);
+    let off_desc_alloc = builder.allocate_stack_object("vk_desc_alloc", DESC_ALLOC_INFO_SIZE);
+    let off_layout_handle = builder.allocate_stack_object("vk_layout_handle", 8);
+    let off_edge_info = builder.allocate_stack_object("vk_edge_info", BUFFER_INFO_SIZE);
+    let off_reqs = builder.allocate_stack_object("vk_edge_reqs", MEMORY_REQS_SIZE);
+    let off_alloc_info = builder.allocate_stack_object("vk_edge_alloc", ALLOC_INFO_SIZE);
+    let off_properties =
+        builder.allocate_stack_object("vk_edge_properties", MEMORY_PROPERTIES_SIZE);
+    let off_type_index = builder.allocate_stack_object("vk_edge_type_index", 8);
+    let off_type_bits = builder.allocate_stack_object("vk_edge_type_bits", 8);
+    let off_desc_buffer = builder.allocate_stack_object("vk_desc_buffer", DESC_BUFFER_INFO_SIZE);
+    let off_write_set = builder.allocate_stack_object("vk_write_set", WRITE_SET_SIZE);
+
+    // --- the set layout -----------------------------------------------------------
+    emit_struct(
+        builder,
+        off_binding,
+        BINDING_SIZE,
+        &[
+            (BINDING_INDEX, Field::U32("0")),
+            (BINDING_TYPE, Field::U32(DESCRIPTOR_TYPE_STORAGE_BUFFER)),
+            (BINDING_COUNT, Field::U32("1")),
+            (BINDING_STAGES, Field::U32(SHADER_STAGE_FRAGMENT)),
+        ],
+    );
+    emit_struct(
+        builder,
+        off_set_layout_info,
+        SET_LAYOUT_INFO_SIZE,
+        &[
+            (0, Field::U32(ST_DESCRIPTOR_SET_LAYOUT_CREATE_INFO)),
+            (SET_LAYOUT_BINDING_COUNT, Field::U32("1")),
+            (SET_LAYOUT_BINDINGS, Field::Addr(off_binding)),
+        ],
+    );
+    emit_create_call(
+        builder,
+        platform,
+        platform_imports,
+        "vkCreateDescriptorSetLayout",
+        off_handle,
+        off_fn,
+        off_state,
+        off_set_layout_info,
+        off_out,
+        GRAPHICS_OFFSET_VULKAN_SET_LAYOUT,
+        unavailable,
+    )?;
+
+    // --- the pool, and the one set allocated from it -------------------------------
+    emit_struct(
+        builder,
+        off_pool_size,
+        POOL_SIZE_SIZE,
+        &[
+            (POOL_SIZE_TYPE, Field::U32(DESCRIPTOR_TYPE_STORAGE_BUFFER)),
+            (POOL_SIZE_COUNT, Field::U32("1")),
+        ],
+    );
+    emit_struct(
+        builder,
+        off_desc_pool_info,
+        DESC_POOL_INFO_SIZE,
+        &[
+            (0, Field::U32(ST_DESCRIPTOR_POOL_CREATE_INFO)),
+            (DESC_POOL_MAX_SETS, Field::U32("1")),
+            (DESC_POOL_SIZE_COUNT, Field::U32("1")),
+            (DESC_POOL_SIZES, Field::Addr(off_pool_size)),
+        ],
+    );
+    emit_create_call(
+        builder,
+        platform,
+        platform_imports,
+        "vkCreateDescriptorPool",
+        off_handle,
+        off_fn,
+        off_state,
+        off_desc_pool_info,
+        off_out,
+        GRAPHICS_OFFSET_VULKAN_DESC_POOL,
+        unavailable,
+    )?;
+
+    // `pSetLayouts` is an *array* of set-layout handles, so the handle has to be in
+    // memory to be pointed at — it cannot be inlined into the struct.
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_SET_LAYOUT,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_layout_handle,
+    ));
+    emit_struct(
+        builder,
+        off_desc_alloc,
+        DESC_ALLOC_INFO_SIZE,
+        &[
+            (0, Field::U32(ST_DESCRIPTOR_SET_ALLOCATE_INFO)),
+            (DESC_ALLOC_SET_COUNT, Field::U32("1")),
+            (DESC_ALLOC_LAYOUTS, Field::Addr(off_layout_handle)),
+        ],
+    );
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DESC_POOL,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_desc_alloc + DESC_ALLOC_POOL,
+    ));
+    // Not `emit_create_call`: `vkAllocateDescriptorSets` is (device, &info, &out) —
+    // it has no allocator parameter, because the set comes from the pool.
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkAllocateDescriptorSets",
+        off_handle,
+        off_fn,
+        unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DEVICE,
+        abi::c_arg(0),
+    );
+    builder.emit(abi::add_immediate(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        off_desc_alloc,
+    ));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        off_out,
+    ));
+    emit_call_fn(builder, off_fn);
+    builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
+    builder.emit(abi::branch_ne(unavailable));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_out,
+    ));
+    emit_state_store(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DESC_SET,
+        abi::SCRATCH[0],
+    );
+
+    // --- the edge buffer itself ----------------------------------------------------
+    emit_struct(
+        builder,
+        off_edge_info,
+        BUFFER_INFO_SIZE,
+        &[
+            (0, Field::U32(ST_BUFFER_CREATE_INFO)),
+            (BUFFER_INFO_USAGE, Field::U32(BUFFER_USAGE_STORAGE)),
+        ],
+    );
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        &VULKAN_EDGE_BYTES.to_string(),
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_edge_info + BUFFER_INFO_BYTES,
+    ));
+    emit_create_call(
+        builder,
+        platform,
+        platform_imports,
+        "vkCreateBuffer",
+        off_handle,
+        off_fn,
+        off_state,
+        off_edge_info,
+        off_out,
+        GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER,
+        unavailable,
+    )?;
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkGetBufferMemoryRequirements",
+        off_handle,
+        off_fn,
+        unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DEVICE,
+        abi::c_arg(0),
+    );
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER,
+        abi::c_arg(1),
+    );
+    builder.emit(abi::add_immediate(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        off_reqs,
+    ));
+    emit_call_fn(builder, off_fn);
+    emit_allocate_and_bind(
+        builder,
+        platform,
+        platform_imports,
+        off_handle,
+        off_fn,
+        off_state,
+        off_reqs,
+        off_alloc_info,
+        off_properties,
+        off_type_index,
+        off_type_bits,
+        off_out,
+        MEMORY_HOST_VISIBLE_COHERENT,
+        GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY,
+        "vkBindBufferMemory",
+        GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER,
+        unavailable,
+    )?;
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkMapMemory",
+        off_handle,
+        off_fn,
+        unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DEVICE,
+        abi::c_arg(0),
+    );
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY,
+        abi::c_arg(1),
+    );
+    builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // offset
+    builder.emit(abi::move_immediate(
+        abi::c_arg(3),
+        "Integer",
+        &VULKAN_EDGE_BYTES.to_string(),
+    ));
+    builder.emit(abi::move_immediate(abi::c_arg(4), "Integer", "0")); // flags
+    builder.emit(abi::add_immediate(
+        abi::c_arg(5),
+        abi::stack_pointer(),
+        off_out,
+    ));
+    emit_call_fn(builder, off_fn);
+    builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
+    builder.emit(abi::branch_ne(unavailable));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_out,
+    ));
+    emit_state_store(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
+        abi::SCRATCH[0],
+    );
+
+    // --- point the set at the buffer, once -----------------------------------------
+    // Zero it first. `offset` sits between `buffer` and `range` and is not written
+    // below, and a storage buffer's offset must be a multiple of
+    // `minStorageBufferOffsetAlignment` — so leftover stack garbage there is not a
+    // wrong picture, it is a rejected descriptor write and a blank frame.
+    emit_struct(builder, off_desc_buffer, DESC_BUFFER_INFO_SIZE, &[]);
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_desc_buffer + DESC_BUFFER_INFO_BUFFER,
+    ));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        &VULKAN_EDGE_BYTES.to_string(),
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_desc_buffer + DESC_BUFFER_INFO_RANGE,
+    ));
+    emit_struct(
+        builder,
+        off_write_set,
+        WRITE_SET_SIZE,
+        &[
+            (0, Field::U32(ST_WRITE_DESCRIPTOR_SET)),
+            (WRITE_SET_BINDING, Field::U32("0")),
+            (WRITE_SET_COUNT, Field::U32("1")),
+            (WRITE_SET_TYPE, Field::U32(DESCRIPTOR_TYPE_STORAGE_BUFFER)),
+            (WRITE_SET_BUFFER_INFO, Field::Addr(off_desc_buffer)),
+        ],
+    );
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DESC_SET,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_write_set + WRITE_SET_DST,
+    ));
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkUpdateDescriptorSets",
+        off_handle,
+        off_fn,
+        unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DEVICE,
+        abi::c_arg(0),
+    );
+    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "1"));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        off_write_set,
+    ));
+    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    builder.emit(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+    emit_call_fn(builder, off_fn);
+    Ok(())
+}
+
 /// Build the render pass, pipeline layout and graphics pipeline.
 ///
 /// One pipeline, as on Metal, and the same shape: no vertex buffer (the vertex stage
@@ -1018,6 +1488,7 @@ fn emit_vulkan_pipeline(
     let off_frag_module = builder.allocate_stack_object("vk_frag_module", 8);
     let off_push_range = builder.allocate_stack_object("vk_push_range", PUSH_RANGE_SIZE);
     let off_layout_info = builder.allocate_stack_object("vk_layout_info", LAYOUT_INFO_SIZE);
+    let off_set_layout_handle = builder.allocate_stack_object("vk_set_layout_handle", 8);
     let off_attachment = builder.allocate_stack_object("vk_attachment", ATTACHMENT_SIZE);
     let off_attachment_ref =
         builder.allocate_stack_object("vk_attachment_ref", ATTACHMENT_REF_SIZE);
@@ -1125,6 +1596,19 @@ fn emit_vulkan_pipeline(
             (PUSH_RANGE_BYTES, Field::U32(&ITEM_BLOCK_SIZE.to_string())),
         ],
     );
+    // `pSetLayouts` is an array, so the set-layout handle has to be somewhere
+    // addressable — the same reason `vkAllocateDescriptorSets` parks it.
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_SET_LAYOUT,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_set_layout_handle,
+    ));
     emit_struct(
         builder,
         off_layout_info,
@@ -1134,6 +1618,8 @@ fn emit_vulkan_pipeline(
                 LAYOUT_INFO_STYPE,
                 Field::U32(ST_PIPELINE_LAYOUT_CREATE_INFO),
             ),
+            (LAYOUT_INFO_SET_COUNT, Field::U32("1")),
+            (LAYOUT_INFO_SETS, Field::Addr(off_set_layout_handle)),
             (LAYOUT_INFO_RANGE_COUNT, Field::U32("1")),
             (LAYOUT_INFO_RANGES, Field::Addr(off_push_range)),
         ],
@@ -2705,6 +3191,159 @@ fn emit_item_block(
     }
 }
 
+/// Append this item's polygon edges to the frame's edge buffer and record where they
+/// landed.
+///
+/// **Why an offset rather than a rebind.** A Vulkan command buffer is recorded now
+/// and executed later, all at once. There is one edge buffer for the frame, so
+/// rewriting it per item — or rebinding the same buffer per item — would give every
+/// polygon whatever the *last* one wrote. Each polygon therefore takes a slice and
+/// carries its start index in the item block, which is a per-draw push constant and
+/// so really is per-item. Metal has the opposite property and needs none of this:
+/// `setFragmentBytes:` copies the bytes into the command buffer at record time.
+///
+/// The geometry cache stores each edge as `x0, y0, dx, dy, invLenSq` doubles; the
+/// shader wants the two endpoints in 16.16, and recomputes the rest. `invLenSq` is
+/// the one quantity fixed point represents badly — a 100-px edge gives 1e-4, which
+/// is 6 in 16.16 — and a GPU has the divide for free, so dropping it from the
+/// payload is both smaller and more accurate.
+fn emit_edge_upload(
+    builder: &mut CodeBuilder,
+    off_state: usize,
+    off_item: usize,
+    off_header: usize,
+    off_edge_cursor: usize,
+) {
+    let head = builder.label("vk_edge_head");
+    let done = builder.label("vk_edge_done");
+    let empty = builder.label("vk_edge_empty");
+    let copy = builder.label("vk_edge_copy");
+
+    let count = abi::SCRATCH[2];
+    let index = abi::SCRATCH[3];
+    let source = abi::SCRATCH[4];
+    let target = abi::SCRATCH[5];
+    let scale = abi::FP_SCRATCH[0];
+
+    // Only a polygon has edges. Every other kind leaves `misc.w` holding whatever
+    // `HEADER_AUX0` meant for it — an arc's start angle — which is harmless because
+    // the shader reads `misc.w` only in the polygon arm, but zeroing it keeps the
+    // block meaning one thing at a time.
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_MISC,
+    ));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], GEO_KIND_POLYGON));
+    builder.emit(abi::branch_ne(&empty));
+
+    builder.emit(abi::load_u32(
+        count,
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_MISC + 12,
+    ));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_edge_cursor,
+    ));
+    builder.emit(abi::add_registers(abi::SCRATCH[1], abi::SCRATCH[0], count));
+    builder.emit(abi::compare_immediate(
+        abi::SCRATCH[1],
+        &VULKAN_MAX_FRAME_EDGES.to_string(),
+    ));
+    builder.emit(abi::branch_le(&copy));
+    // Unreachable: `__canvas_vulkanRenderable` already declined any scene whose
+    // polygon edges do not fit, so the whole frame went to the software rasteriser.
+    // Kept because the alternative to declining is writing past the buffer, and
+    // truncating the polygon would draw a *different shape* — the same reason Metal's
+    // `emit_edge_buffer` refuses rather than clamps.
+    builder.emit(abi::branch(&empty));
+
+    builder.emit(abi::label(&copy));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ));
+    // target = mapped + cursor * 16
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+        4,
+    ));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
+        target,
+    );
+    builder.emit(abi::add_registers(target, target, abi::SCRATCH[1]));
+    // The cursor moves on now, while the pre-advance value is still the one written
+    // into the item block above.
+    builder.emit(abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], count));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_edge_cursor,
+    ));
+
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        FIXED_POINT_SCALE,
+    ));
+    builder.emit(abi::signed_convert_to_float_d(scale, abi::SCRATCH[0]));
+    builder.emit(abi::load_u64(source, abi::stack_pointer(), off_header));
+    builder.emit(abi::add_immediate(source, source, HEADER_SLOTS * 8));
+    builder.emit(abi::move_immediate(index, "Integer", "0"));
+
+    builder.emit(abi::label(&head));
+    builder.emit(abi::compare_registers(index, count));
+    builder.emit(abi::branch_ge(&done));
+    // out[0..1] = (x0, y0); out[2..3] = (x0 + dx, y0 + dy)
+    for (slot, delta) in [(0usize, None), (1, None), (0, Some(2usize)), (1, Some(3))] {
+        builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
+        if let Some(delta) = delta {
+            builder.emit(abi::load_double(abi::FP_SCRATCH[2], source, delta * 8));
+            builder.emit(abi::float_add_d(
+                abi::FP_SCRATCH[1],
+                abi::FP_SCRATCH[1],
+                abi::FP_SCRATCH[2],
+            ));
+        }
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            scale,
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[0],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
+        builder.emit(abi::add_immediate(target, target, 4));
+    }
+    builder.emit(abi::add_immediate(source, source, EDGE_SLOTS * 8));
+    builder.emit(abi::add_immediate(index, index, 1));
+    builder.emit(abi::branch(&head));
+
+    builder.emit(abi::label(&empty));
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_MISC + 12,
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ));
+
+    builder.emit(abi::label(&done));
+}
+
 /// `canvas::vulkanDrawScene(surface, width, height, geometry, offsets)` — render one
 /// frame on the GPU and read it back into `surface`.
 ///
@@ -2760,6 +3399,9 @@ pub(crate) fn emit_vulkan_draw_scene(
     let off_copy = builder.allocate_stack_object("vk_copy", COPY_SIZE);
     let off_submit = builder.allocate_stack_object("vk_submit", SUBMIT_INFO_SIZE);
     let off_cmd_handle = builder.allocate_stack_object("vk_cmd_handle", 8);
+    let off_desc_set_handle = builder.allocate_stack_object("vk_desc_set_handle", 8);
+    let off_edge_cursor = builder.allocate_stack_object("vk_edge_cursor", 8);
+    let off_header = builder.allocate_stack_object("vk_header", 8);
 
     // Park the arguments before anything calls.
     builder.emit(abi::add_immediate(
@@ -2986,6 +3628,59 @@ pub(crate) fn emit_vulkan_draw_scene(
     );
     emit_call_fn(builder, off_fn);
 
+    // The polygon edge buffer, bound once for the whole frame. Every polygon in the
+    // scene reads from this one buffer at its own offset (`ITEM_ARC_EDGE_BASE`),
+    // which is why it can be bound here rather than re-bound per item: a Vulkan
+    // command buffer is *recorded* now and *executed* later, so a per-item rebind of
+    // one shared buffer would not give each item its own view of it — every polygon
+    // would see whatever the last one wrote.
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkCmdBindDescriptorSets",
+        off_handle,
+        off_fn,
+        &unavailable,
+    )?;
+    builder.emit(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_cmd_handle,
+    ));
+    builder.emit(abi::move_immediate(
+        abi::c_arg(1),
+        "Integer",
+        PIPELINE_BIND_POINT_GRAPHICS,
+    ));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT,
+        abi::c_arg(2),
+    );
+    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // firstSet
+    builder.emit(abi::move_immediate(abi::c_arg(4), "Integer", "1")); // setCount
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DESC_SET,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_desc_set_handle,
+    ));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(5),
+        abi::stack_pointer(),
+        off_desc_set_handle,
+    ));
+    emit_int_arg_zero(builder, platform, 6); // dynamicOffsetCount
+    emit_int_arg_zero(builder, platform, 7); // pDynamicOffsets
+    emit_call_fn(builder, off_fn);
+
     // Viewport and scissor are dynamic state, so they are set per frame — which is
     // exactly what lets a resize reuse the pipeline.
     emit_struct(
@@ -3042,6 +3737,14 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::stack_pointer(),
         off_index,
     ));
+    // The frame's running edge cursor: each polygon appends its edges here and
+    // records where they started in its own item block.
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_edge_cursor,
+    ));
     builder.emit(abi::label(&item_head));
     builder.emit(abi::load_u64(
         abi::SCRATCH[0],
@@ -3088,7 +3791,13 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::SCRATCH[1],
         abi::SCRATCH[0],
     ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_header,
+    ));
     emit_item_block(builder, off_item, off_width, off_height);
+    emit_edge_upload(builder, off_state, off_item, off_header, off_edge_cursor);
 
     emit_dlsym(
         builder,
@@ -3398,12 +4107,17 @@ fn emit_state_load(
     offset: usize,
     dst: impl Into<Operand>,
 ) {
-    builder.emit(abi::load_u64(
-        abi::SCRATCH[3],
-        abi::stack_pointer(),
-        state_slot,
-    ));
-    builder.emit(abi::load_u64(dst, abi::SCRATCH[3], offset));
+    // A fresh vreg, not a fixed `SCRATCH[k]` — the same rule `emit_call_fn` follows,
+    // and for a sharper reason here. On x86-64 the scratch pool aliases the C argument
+    // bank (`map_scratch_register`): `SCRATCH[3]` is `r8`, which is `c_arg(4)`. This
+    // helper is called *between* argument stagings, so a fixed scratch silently
+    // overwrote an argument already in place — `vkCmdBindDescriptorSets` received the
+    // graphics-state pointer as its `descriptorSetCount` and walked a one-element
+    // array for a dozen entries. On AArch64 the two banks are disjoint, so the fault
+    // does not exist on the development host.
+    let base = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&base, abi::stack_pointer(), state_slot));
+    builder.emit(abi::load_u64(dst, &base, offset));
 }
 
 /// Store `value` (a whole number in a GPR) as an IEEE-754 **single** at
@@ -3459,6 +4173,40 @@ fn emit_store_f32_from_integer(
 /// Call the function pointer parked at `off_fn`.
 ///
 /// Through a **fresh vreg** — see the module doc. Never a fixed `abi::SCRATCH[k]`.
+/// Stage a zero as the `n`-th integer C argument, wherever this target passes it.
+///
+/// **`c_arg(n)` is not "argument n" — it is slot n of the aligned call bank**, and
+/// the bank is longer than the ABI's register argument list. On x86-64 SysV the bank
+/// runs `[rdi, rsi, rdx, rcx, r8, r9, rax, rbp]` but only the first six carry
+/// arguments, so `c_arg(6)` writes `rax` and `c_arg(7)` writes **`rbp`** — the frame
+/// pointer — while the callee reads two stack slots nothing wrote. Staging into them
+/// and spilling afterwards does not help: the damage is the write itself. AArch64 and
+/// riscv64 pass eight in registers, so there the same indices are exactly right, which
+/// is why this is invisible on the development host.
+///
+/// It cost a blank frame to find. `vkCmdBindDescriptorSets` is this backend's only
+/// eight-argument call; validation reported a `descriptorSetCount` in the dozens and
+/// a dozen "invalid VkDescriptorSet" handles read past the end of a one-element array,
+/// all of it downstream of a zeroed `rbp`.
+///
+/// Routed through the register model rather than a hardcoded six, so on a target whose
+/// registers cover `n` the emitted bytes are the plain `c_arg(n)` staging.
+fn emit_int_arg_zero(builder: &mut CodeBuilder, platform: &dyn CodegenPlatform, n: usize) {
+    let register_args = platform
+        .backend()
+        .register_model()
+        .external_int_argument_registers();
+    if n < register_args {
+        builder.emit(abi::move_immediate(abi::c_arg(n), "Integer", "0"));
+        return;
+    }
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    builder.emit(abi::outgoing_stack_arg_store(
+        abi::SCRATCH[0],
+        n - register_args,
+    ));
+}
+
 fn emit_call_fn(builder: &mut CodeBuilder, off_fn: usize) {
     let callee = builder.temporary_vreg();
     builder.emit(abi::load_u64(&callee, abi::stack_pointer(), off_fn));

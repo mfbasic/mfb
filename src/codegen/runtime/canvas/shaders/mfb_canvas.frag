@@ -17,10 +17,30 @@ layout(push_constant) uniform Item {
     ivec4 shape;
     ivec4 fill;
     ivec4 stroke;
-    ivec4 misc;
-    ivec4 arc;
+    ivec4 misc;    // kind, radius (16.16), strokeHalf (16.16), edgeCount
+    ivec4 arc;     // startAngle, endAngle (16.16 rad), edgeBase, unused
     ivec4 surface;
 } item;
+
+// The polygon edge buffer: four 16.16 ints per edge, the two endpoints. It is a
+// storage buffer rather than more push constants because a polygon carries an
+// unbounded number of edges and the guaranteed push-constant range is 128 bytes,
+// which the item block already fills. This is the only reason the pipeline needs a
+// descriptor set at all.
+//
+// One buffer serves the whole frame — a command buffer is recorded once and executed
+// once, so per-item rebinding would give every polygon the last one's edges. Each
+// polygon reads from `item.arc.z` instead. (Metal has no such problem:
+// `setFragmentBytes:` copies each item's edges into the command buffer at record
+// time, so its edge base is always zero.)
+//
+// `dx`, `dy` and `invLenSq` are recomputed here rather than carried. The software
+// cache stores them to keep a reciprocal off its per-pixel path; a GPU has the divide
+// for free, and `invLenSq` is the one header quantity 16.16 represents badly — a
+// 100-px edge gives 1e-4, which is 6 in 16.16.
+layout(std430, set = 0, binding = 0) readonly buffer Edges {
+    int values[];
+} edges;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -48,6 +68,27 @@ bool arcInSweep(vec2 d, vec2 s, vec2 e, bool reflex) {
     return reflex ? (afterStart || beforeEnd) : (afterStart && beforeEnd);
 }
 
+// Nearest edge for the magnitude, a crossing count for the sign — the same shape
+// `__canvas_edgeDistance` has, so the polygon shares the fill, the stroke and the
+// antialiasing rather than needing its own coverage rule. A scanline filler and an
+// SDF filler would disagree about edge pixels, and that is exactly the disagreement
+// an oracle cannot have.
+float edgeDistance(int base, int count, vec2 p) {
+    float best = 1.0e6;
+    bool inside = false;
+    for (int e = 0; e < count; ++e) {
+        int i = (base + e) * 4;
+        vec2 a = vec2(fx(edges.values[i]), fx(edges.values[i + 1]));
+        vec2 b = vec2(fx(edges.values[i + 2]), fx(edges.values[i + 3]));
+        best = min(best, segmentDistance(p, a, b));
+        if ((a.y > p.y) != (b.y > p.y)) {
+            float u = (p.y - a.y) / (b.y - a.y);
+            if (p.x < a.x + u * (b.x - a.x)) { inside = !inside; }
+        }
+    }
+    return inside ? -best : best;
+}
+
 float geoDistance(vec2 p) {
     float radius = fx(item.misc.y);
     vec2 c = vec2(fx(item.shape.x), fx(item.shape.y));
@@ -69,9 +110,11 @@ float geoDistance(vec2 p) {
         if (!arcInSweep(d, s, e, (a1 - a0) > PI)) { return 1.0e6; }
         return abs(length(d) - fx(item.shape.z)) - radius;
     }
-    // Polygon (kind 4) and the empty kind (5) draw nothing until plan-98-F Phase 2
-    // adds the edge buffer, which needs a descriptor set — push constants cannot
-    // carry 4 KB of edges.
+    if (item.misc.x == 4) {
+        return edgeDistance(item.arc.z, item.misc.w, p);
+    }
+    // The empty kind (5) — `Text` and `Picture`, which draw nothing until
+    // plan-98-G — and anything unknown.
     return 1.0e6;
 }
 
@@ -93,6 +136,9 @@ void main() {
     vec4 colour = premultiplied(item.fill, d);
     float halfWidth = fx(item.misc.z);
     if (halfWidth > 0.0) {
+        // Stroke over fill, then the hardware puts that over the destination — which
+        // is what makes this one fragment equal to the software path's two sequential
+        // writes, since `over` is associative.
         vec4 s = premultiplied(item.stroke, abs(d) - halfWidth);
         colour = s + colour * (1.0 - s.w);
     }

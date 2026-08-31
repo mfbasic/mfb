@@ -201,8 +201,26 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT: usize = 568;
 /// The command pool and the single command buffer the frame is recorded into.
 pub(crate) const GRAPHICS_OFFSET_VULKAN_COMMAND_POOL: usize = 576;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER: usize = 584;
+/// The polygon edge buffer and the descriptor machinery that binds it.
+///
+/// A polygon carries an unbounded number of edges and the guaranteed push-constant
+/// range is 128 bytes, which the 112-byte item block already fills — so the edges
+/// need a storage buffer, and a storage buffer needs a descriptor set. This is the
+/// only reason the Vulkan pipeline has one; every other kind rides the push
+/// constants alone.
+///
+/// The buffer is host-visible and stays mapped, exactly like the readback buffer:
+/// it is rewritten every frame, so a map/unmap pair per frame would cost more than
+/// the writes. It is created once with the device rather than with the target,
+/// because its size does not depend on the surface.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SET_LAYOUT: usize = 592;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_DESC_POOL: usize = 600;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_DESC_SET: usize = 608;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER: usize = 616;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY: usize = 624;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED: usize = 632;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 592;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 640;
 
 /// The per-item parameter block both GPU backends push to their shaders.
 ///
@@ -227,10 +245,31 @@ pub(crate) const ITEM_OFFSET_FILL: usize = 32;
 pub(crate) const ITEM_OFFSET_STROKE: usize = 48;
 /// `kind`, `radius` (16.16), `strokeHalf` (16.16), `edgeCount`.
 pub(crate) const ITEM_OFFSET_MISC: usize = 64;
-/// The arc's `startAngle`, `endAngle` (16.16 radians), then two unused words.
+/// The arc's `startAngle`, `endAngle` (16.16 radians), then the polygon's first-edge
+/// index into the Vulkan edge buffer, then one unused word.
+///
+/// Slots 2 and 3 are per-kind the same way `HEADER_AUX0` is: an arc never reads the
+/// edge base and a polygon never reads the angles, so one `ivec4` carries both and
+/// the block stays at 112 bytes. Metal leaves the edge base zero — its
+/// `setFragmentBytes:` copies each item's edges into the command buffer, so every
+/// polygon's array starts at 0. Vulkan cannot do that: one storage buffer serves the
+/// whole frame, so each polygon gets a slice of it and this is where the offset
+/// travels.
 pub(crate) const ITEM_OFFSET_ARC: usize = 80;
+/// The word inside `ITEM_OFFSET_ARC` holding the polygon's first-edge index.
+pub(crate) const ITEM_ARC_EDGE_BASE: usize = 8;
 /// The surface's width and height, in whole pixels.
 pub(crate) const ITEM_OFFSET_SURFACE: usize = 96;
+
+/// `__CANVAS_GEO_POLYGON` — the one geometry kind whose payload does not fit in the
+/// item block, so both backends have to test for it by hand.
+///
+/// The rest of the dispatch happens inside the shaders, which read `misc.x`; this is
+/// here because the *emitters* branch on it too, to decide whether to build an edge
+/// payload at all. Spelled once so a renumbering in `helper_geometry.rs`'s
+/// `__CANVAS_GEO_POLYGON` cannot leave two backends disagreeing with the source of
+/// truth in different ways.
+pub(crate) const GEO_KIND_POLYGON: &str = "4";
 
 /// 16.16 fixed point: the scale both shaders divide positions by.
 ///
@@ -260,13 +299,28 @@ pub(crate) const HEADER_AUX1: usize = 21;
 pub(crate) const HEADER_SLOTS: usize = 22;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
-/// The most edges one polygon may carry on a GPU path.
+/// The most edges one polygon may carry on the **Metal** path.
 ///
-/// Metal's `setFragmentBytes:` and Vulkan's push constants are both small, so the
-/// edges ride a bounded payload; `__canvas_metalRenderable` declines a polygon past
-/// this rather than truncating it, because a truncated polygon renders as a
-/// *different shape* and would read as a geometry bug.
+/// `setFragmentBytes:` copies into the command buffer and is small, so Metal's edges
+/// ride a bounded payload sized at compile time. `__canvas_metalRenderable` declines
+/// a polygon past this rather than truncating it, because a truncated polygon
+/// renders as a *different shape* and would read as a geometry bug.
 pub(crate) const MAX_EDGES: usize = 256;
+
+/// The most edges one **frame** may carry on the Vulkan path.
+///
+/// Vulkan has no per-item limit — the edges live in a storage buffer, not in the
+/// push constants — so the real constraint is the buffer, and it is a whole-frame
+/// one: every polygon in the scene takes a slice. `__canvas_vulkanRenderable` sums
+/// the scene's polygon edges against this and declines the frame to software if the
+/// total does not fit, so the emitter's own bound check is unreachable.
+///
+/// 16384 edges is 256 KiB. It is generous rather than tuned: the fragment shader
+/// walks every edge of a polygon per covered pixel, so a scene anywhere near this
+/// bound is already too slow to want, on either backend.
+pub(crate) const VULKAN_MAX_FRAME_EDGES: usize = 16384;
+/// Four 16.16 words per edge — the two endpoints.
+pub(crate) const VULKAN_EDGE_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16;
 
 /// The trampoline `pthread_create` starts: establishes the MFB context, then loops.
 pub(crate) const GRAPHICS_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_canvas_graphics_entry";
@@ -1159,7 +1213,7 @@ pub(crate) fn emit_publish_surface_size(
     instructions.push(abi::store_u64(height, base, GRAPHICS_OFFSET_HEIGHT));
 }
 
-/// `canvas::setGpuMode(on)` — record whether the Metal renderer is selected.
+/// `canvas::setGpuMode(on)` — record whether a GPU renderer was asked for.
 ///
 /// Read from MFBASIC at first present, next to `setSyncMode`, for the same reason:
 /// the environment is portably readable there.
@@ -1174,10 +1228,14 @@ pub(crate) fn emit_set_gpu_mode(
     instructions.push(abi::store_u64(value, &scratch.base, GRAPHICS_OFFSET_GPU));
 }
 
-/// `canvas::useGpu()` — is the Metal renderer selected?
+/// `canvas::useGpu()` — did the program ask for a GPU renderer?
 ///
-/// Always FALSE on a non-macOS target: the flag exists everywhere so the renderer
-/// seam has one shape, but only macOS has a Metal path behind it.
+/// The flag and nothing else, on every target. It used to hard-return FALSE off
+/// macOS, back when it was named `useMetal` and meant "is Metal selected"; by the
+/// time a second backend existed that early return silently made `MFB_CANVAS_GPU=1`
+/// a no-op on Linux (plan-98-F Correction 4). "Was a GPU asked for" and "is one
+/// usable here" are different questions, and `canvas::metalReady` /
+/// `canvas::vulkanReady` answer the second.
 pub(crate) fn emit_use_gpu(
     symbol: &str,
     scratch: &GraphicsScratch,

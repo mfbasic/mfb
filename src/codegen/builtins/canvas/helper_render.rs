@@ -72,13 +72,19 @@ END FUNC"#;
 /// what the header is for: a fixed 22-float layout both backends index directly
 /// (`__canvas_headerFor`).
 ///
-/// `__canvas_vulkanRenderable` is the Vulkan predicate, and it is *stricter*: that
-/// shader draws every kind except `Polygon`, whose per-edge array does not fit a
-/// push-constant block and needs a descriptor-bound buffer. Sharing the Metal
-/// predicate would have been the tempting shortcut and would have rendered polygons
-/// as nothing while reporting success — the same lie both predicates exist to
-/// prevent. It is measured, not assumed: the scene that found it differed from the
-/// oracle on 4,610 pixels, all of them the one triangle.
+/// `__canvas_vulkanRenderable` is the Vulkan predicate, and it declines a *different*
+/// set — which is why it is a second function rather than a share of the first.
+/// Vulkan's edges live in a descriptor-bound storage buffer, so there is no per-item
+/// limit at all; the limit is the buffer, and the buffer serves the whole frame,
+/// because a command buffer is recorded once and executed once. So Metal caps each
+/// polygon and Vulkan caps their sum. The two really are different conditions, and a
+/// scene can be GPU-renderable on one backend and not the other.
+///
+/// Sharing the Metal predicate was the tempting shortcut when this shader still
+/// declined every polygon, and it would have rendered them as nothing while reporting
+/// success — the same lie both predicates exist to prevent. It was measured, not
+/// assumed: the scene that found it differed from the oracle on 4,610 pixels, all of
+/// them the one triangle.
 #[rustfmt::skip]
 const RENDER_METAL: &str =
 r#"FUNC __canvas_sceneOffsets() AS List OF Integer
@@ -123,13 +129,16 @@ FUNC __canvas_renderMetal() AS Boolean
   RETURN TRUE
 END FUNC
 
+LET __CANVAS_VULKAN_MAX_FRAME_EDGES AS Integer = 16384
+
 FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
+  MUT total AS Integer = 0
   FOR EACH offset IN offsets
     IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0)) = __CANVAS_GEO_POLYGON THEN
-      RETURN FALSE
+      total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
   NEXT
-  RETURN TRUE
+  RETURN total <= __CANVAS_VULKAN_MAX_FRAME_EDGES
 END FUNC
 
 FUNC __canvas_renderVulkan() AS Boolean
@@ -252,4 +261,60 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_hashScene", HASH_SCENE));
     pkg.add_helper(RegistryHelper::always("canvas_renderScene", RENDER_SCENE));
     pkg.add_helper(RegistryHelper::always("canvas_renderMetal", RENDER_METAL));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codegen::runtime::canvas::{
+        GEO_KIND_POLYGON, HEADER_AUX0, MAX_EDGES, VULKAN_MAX_FRAME_EDGES,
+    };
+
+    /// Find `LET <name> AS Integer = <n>` in the injected MFBASIC source.
+    fn declared(name: &str) -> usize {
+        let needle = format!("LET {name} AS Integer = ");
+        let start = RENDER_METAL
+            .find(&needle)
+            .unwrap_or_else(|| panic!("{name} is not declared in RENDER_METAL"))
+            + needle.len();
+        let rest = &RENDER_METAL[start..];
+        let end = rest.find('\n').unwrap_or(rest.len());
+        rest[..end].trim().parse().expect("a decimal literal")
+    }
+
+    /// The predicates are written in MFBASIC and the emitters in Rust, so the limits
+    /// exist twice — with no compiler between them. Drift is not a style problem: if
+    /// the MFBASIC cap ever exceeds the Rust one, the predicate admits a scene the
+    /// emitter's buffer cannot hold, and Metal's is a *stack* buffer.
+    #[test]
+    fn the_two_gpu_edge_budgets_match_the_emitters() {
+        assert_eq!(declared("__CANVAS_METAL_MAX_EDGES"), MAX_EDGES);
+        assert_eq!(
+            declared("__CANVAS_VULKAN_MAX_FRAME_EDGES"),
+            VULKAN_MAX_FRAME_EDGES
+        );
+    }
+
+    /// The predicates read the geometry header by slot. `offset + 20` is
+    /// `HEADER_AUX0` — the polygon's edge count — and a renumbered header would leave
+    /// them summing an arc's start angle instead, which is a plausible-looking number
+    /// rather than an error.
+    #[test]
+    fn the_predicates_read_the_edge_count_slot() {
+        assert_eq!(HEADER_AUX0, 20);
+        assert_eq!(
+            RENDER_METAL
+                .matches(&format!("offset + {HEADER_AUX0}"))
+                .count(),
+            2,
+            "both predicates should read the edge count from HEADER_AUX0"
+        );
+    }
+
+    /// Both predicates test the same kind the emitters and the shaders branch on.
+    #[test]
+    fn the_polygon_kind_is_spelled_once() {
+        assert_eq!(GEO_KIND_POLYGON, "4");
+        assert!(RENDER_METAL.contains("= __CANVAS_GEO_POLYGON THEN"));
+    }
 }

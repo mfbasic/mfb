@@ -132,7 +132,7 @@ GTK4/Win32 already own windowing; F only needs a Vulkan surface from their handl
 ### Phase 1 — Vulkan loader + Linux surface (xcb/wayland) + one-quad tolerance match
 
 - [x] Runtime `dlopen` libvulkan + entry points, **measured on box 2228**:
-      `canvas::vulkanAvailable()` reports TRUE after `dlopen("libvulkan.so.1")`,
+      `canvas::vulkanReady()` reports TRUE after `dlopen("libvulkan.so.1")`,
       `dlsym` of the entry points, `vkCreateInstance` from hand-written
       `VkApplicationInfo`/`VkInstanceCreateInfo`, `vkEnumeratePhysicalDevices`
       finding the llvmpipe device, and `vkDestroyInstance`. Nothing is linked — the
@@ -177,10 +177,37 @@ Commit: 6b82f873949299e19e8734c8f386bc63bea00315
 
 ### Phase 2 — Linux full scene + resize/out-of-date + texture free
 
-- [ ] Full primitive set (incl. Circle/Arc SDF) from the `live` vertex buffer; atlas upload.
-- [ ] Dynamic-texture upload for `canvas::setBytes` (D's dirty flag): staging-buffer upload
-      at frame start via a per-texture ring or a transfer barrier, so uploading never races
-      an in-flight frame sampling the texture. Coalesce multiple `setBytes` to one upload.
+- [x] Full primitive set (incl. Circle/Arc SDF), **measured on two boxes**. Circle,
+      Arc, Rect, RoundedRect and Line landed in Phase 1; Phase 2 adds the one kind
+      that was missing, `Polygon`, whose edges cross in a descriptor-bound storage
+      buffer rather than the push constants. `scripts/test-canvas-vulkan.sh`'s scene
+      now carries two polygons — a convex triangle and a **concave** arrow with both
+      fill and stroke, because the crossing-count sign test and the nearest-edge
+      magnitude only disagree on a shape that is not convex:
+
+      * box 2228 (Ubuntu glibc, llvmpipe): worst channel delta **1**, 0.0335% differing;
+      * box 2227 (Alpine musl): worst delta **0** — byte-identical.
+
+      Two polygons, not one, so the per-item edge base is exercised: with a single
+      polygon a base of zero would pass whether or not it was ever written.
+      `__canvas_vulkanRenderable` now declines only a *frame* whose polygon edges sum
+      past `VULKAN_MAX_FRAME_EDGES` (Correction 8).
+
+      The atlas half of this box is **moot** — see the `setBytes` row below, which the
+      same audit covers.
+- [x] ~~Dynamic-texture upload for `canvas::setBytes` (D's dirty flag)~~ — moot: **there
+      is no texture to upload to, on either backend.** Re-audited at this commit rather
+      than inherited from plan-98-E's identical row:
+      `grep -n 'CASE Picture' -A 3 src/codegen/builtins/canvas/helper_geometry.rs` shows
+      `Picture` returning `__canvas_emptyHeader()` from the header builder and `[]` from
+      the tail builder, so no scene ever carries an image;
+      `grep -rn IMAGE_DIRTY src/` returns four hits, all **writes**
+      (`func_create_image.rs:163`, `func_set_bytes.rs:116`, plus the constant and its
+      import) — nothing reads the flag; and `grep -rn 'upload|atlas'` across
+      `builtins/canvas/` and `runtime/canvas/` finds only prose plus this phase's own
+      polygon `emit_edge_upload`. The staging ring and the transfer barrier are real
+      work, and they are plan-98-G's, alongside the images that would use them. Same
+      conclusion for the "atlas upload" clause of the row above.
 - [ ] Resize handshake: `resizePending` → `vkDeviceWaitIdle` + recreate swapchain; handle
       out-of-date/suboptimal (trigger 4).
 - [ ] Vulkan submit fence advances D's `lastCompletedFrame` (drives the closed-flag texture free).
@@ -343,14 +370,17 @@ is told how much room it has) and then read the count without checking the call'
 `VkResult`. A failed enumerate leaves the capacity there, so a machine with no devices
 reads as eight — and the renderer would take stack garbage for a `VkPhysicalDevice`.
 
-**Correction 6 (Phase 1) — the Vulkan predicate is stricter than the Metal one.**
-`__canvas_vulkanRenderable` declines any scene containing a `Polygon`, because a
-polygon's per-edge array does not fit a push-constant block and needs a
-descriptor-bound buffer (Phase 2). Reusing `__canvas_metalRenderable`, which accepts
-polygons because the Metal shader draws them, was the tempting shortcut and would have
-rendered polygons as nothing while reporting success — the same lie both predicates
-exist to prevent. Measured before it was fixed: the scene differed from the oracle on
-4,610 pixels, every one of them the single triangle.
+**Correction 6 (Phase 1) — the Vulkan predicate is not the Metal one.** As written in
+Phase 1, `__canvas_vulkanRenderable` declined any scene containing a `Polygon`, because
+that shader had no way to receive a polygon's per-edge array. Reusing
+`__canvas_metalRenderable`, which accepts polygons because the Metal shader draws them,
+was the tempting shortcut and would have rendered polygons as nothing while reporting
+success — the same lie both predicates exist to prevent. Measured before it was fixed:
+the scene differed from the oracle on 4,610 pixels, every one of them the single
+triangle.
+
+Phase 2 relaxed the condition but kept the separate predicate, and Correction 8 records
+why the two conditions stay genuinely different.
 
 **Correction 7 (Phase 1) — `TRIANGLE_STRIP` is 4, and this is the second time.**
 `VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP` is 4; 5 is `TRIANGLE_FAN`. A fan over
@@ -359,3 +389,91 @@ quad — and came out as a shape missing its lower-right corner, 4.44% of pixels
 plan-98-E Correction 8 records the identical mistake in Metal's enum
 (`MTLPrimitiveTypeTriangleStrip` is 4, and 3 is the triangle *list*). Two GPU APIs,
 two different enums, the same off-by-one, both found only by looking at pixels.
+
+
+**Correction 8 (Phase 2) — Metal caps a polygon, Vulkan caps a frame.** The plan's
+Phase 2 line treats "the full primitive set" as one item, but the two backends reach it
+by different routes and the predicates cannot be merged. Metal's edges cross as a
+`setFragmentBytes:` payload, which is copied into the command buffer per draw and is
+small — so the limit is per polygon (`MAX_EDGES`). Vulkan's live in a storage buffer
+with no per-item limit at all, but a Vulkan command buffer is **recorded once and
+executed once**, so one buffer serves the whole frame and rewriting or re-binding it per
+item would give every polygon the last one's edges. Each polygon therefore takes a slice
+of the buffer and carries its start index in the item block (`ITEM_ARC_EDGE_BASE`, a push
+constant, genuinely per-item), and the limit is the frame's sum
+(`VULKAN_MAX_FRAME_EDGES`). A scene can be GPU-renderable on one backend and not the
+other, and that is correct rather than a wart.
+
+The two limits now live in Rust and in MFBASIC — `helper_render.rs`'s predicates are
+MFBASIC source with no compiler between them and the emitters' constants — so
+`the_two_gpu_edge_budgets_match_the_emitters` pins the literals. That is not tidiness: if
+the MFBASIC cap ever exceeds the Rust one, the predicate admits a scene the emitter's
+buffer cannot hold, and Metal's is a *stack* buffer.
+
+**Correction 9 (Phase 2) — `c_arg(6)`/`c_arg(7)` are not arguments on x86-64, and the
+staging write is itself the damage.** `abi::c_arg(n)` is slot `n` of the aligned call
+bank, which is longer than the ABI's register-argument list: SysV `CALL_ARGS` is
+`[rdi, rsi, rdx, rcx, r8, r9, rax, rbp]` and only the first six carry arguments (bug-296,
+recorded on `X86SysVRegisterModel::external_int_argument_registers`). `vkCmdBindDescriptorSets`
+is this backend's only eight-argument call, so staging it the obvious way put argument 7
+in `rax` and argument 8 in **`rbp`** — the frame pointer. Spilling afterwards through
+`outgoing_stack_arg_store` does not repair it, because `rbp` is already gone; the value
+has to go straight to the outgoing area (`emit_int_arg_zero`, which branches on the
+register model so a target whose registers cover the call emits the same bytes as before).
+
+AArch64 and riscv64 pass eight integer arguments in registers, so the identical code is
+correct there. This whole class is invisible on the development host.
+
+**Correction 10 (Phase 2) — a fixed `SCRATCH[k]` between two argument stagings corrupts
+an argument on x86-64.** `map_scratch_register` folds the scratch pool onto eleven
+registers, and `SCRATCH[3]` lands on `r8` — which is `c_arg(4)`. `emit_state_load` used
+`SCRATCH[3]` as its temporary and is called *between* argument stagings, so
+`vkCmdBindDescriptorSets` received the graphics-state block pointer as its
+`descriptorSetCount` and walked a one-element array for a dozen entries. It now takes a
+fresh `builder.temporary_vreg()`, the same rule `emit_call_fn` already followed for
+calling through a resolved pointer — and for the same underlying reason. Disjoint banks
+on AArch64 again hid it.
+
+**Correction 11 (Phase 2) — `VkDescriptorBufferInfo::offset` has to be written even
+though it is zero.** The struct is `{ buffer, offset, range }`; writing only `buffer` and
+`range` left `offset` holding stack garbage, and a storage buffer's offset must be a
+multiple of `minStorageBufferOffsetAlignment`. The descriptor write was rejected, so the
+binding never happened. Every one of these three faults presented identically — every API
+call reporting success and a completely blank frame — which is the argument for the tool
+rather than for more staring: **Vulkan validation layers named all three in one run.**
+They are not installed on the test boxes, but `apt-get download vulkan-validationlayers` +
+`dpkg -x` into a scratch dir works as a plain user, the same trick `.ai/remote_systems.md`
+documents for qemu-user. `.ai/arch-abi.md` now records the invocation.
+
+**Correction 12 (Phase 2) — the raw-`xN` mixing bug is a class, not the one instance
+Phase 1 fixed.** Phase 1 found the GTK finish helper storing `ST_TEXT_BUFFER` through
+raw `"x9"` and comparing `abi::SCRATCH[0]` — one register on AArch64, two vregs after
+`finalize_x86_app_function`, which renames the scratch/parking space **keyed by the
+token string**. Fixing it as a one-off was the mistake; a census found **sixteen**
+functions in `src/target/linux_gtk/` mixing a raw `xN` with the token that realizes to
+it, including `emit_term_resize_helper`, which loads the cell width into raw `"x10"` and
+then divides by `abi::SCRATCH[1]` — an uninitialized divisor on Linux x86-64.
+
+All 146 raw register strings in `bootstrap.rs` and `term_draw.rs` are now token
+spellings. The rewrite is safe *because* of the property that made the bug invisible:
+where the two spellings named the same AArch64 register they still do, so
+
+    linux-aarch64  78344ca726959b23232e81554ae3fec75a6be5f953407c147a978a5a66e4831f
+                   (byte-identical, 3,328,520 bytes, before and after)
+    linux-x86_64   26f6dbb… → 48b1ee6…  (changed — that is the fix landing)
+
+and AArch64 is the reference semantics, since that is where these bodies were written
+and where they have always worked. `test-appimage.sh` passes all ten checks on 2228
+(glibc) and 2227 (musl) after the rewrite, and both Vulkan canvas runs still match the
+oracle.
+
+`no_emitter_spells_a_register_as_a_raw_register_string` is the guard, and it asserts the
+*stronger* rule than `.ai/arch-abi.md` states: not "never mix" but "never spell one at
+all", because "mixed" needs a def/use analysis and "present" is a substring search.
+RED-checked by reverting a single site.
+
+Most of the sixteen are the **terminal** path, not canvas, and are reachable only
+through a real window resize or keystroke on a Linux x86-64 GTK display — which no
+reachable box has. They are fixed here rather than filed because the fix is mechanical
+and its neutrality is provable on the arch that works; leaving them would have meant
+shipping a known-wrong divisor behind an untestable door.

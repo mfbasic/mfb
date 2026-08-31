@@ -486,7 +486,7 @@ impl LinuxPlan<'_> {
                 // a DT_NEEDED on libvulkan — a canvas program must still exec on a
                 // machine with no Vulkan installed, the same rule `audio` follows for
                 // libasound (plan-33-C §3.1). Declared for the whole canvas-graphics
-                // set rather than only for `vulkanAvailable`: the merged table dedups,
+                // set rather than only for `vulkanReady`: the merged table dedups,
                 // and scoping it tighter would mean re-deriving which member reaches
                 // the loader every time the renderer grows.
                 ["dlopen", "dlsym"]

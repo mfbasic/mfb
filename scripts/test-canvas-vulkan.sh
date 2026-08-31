@@ -59,10 +59,14 @@ cat > "$proj/project.json" <<'JSON'
   "entry": "main", "targets": ["native"] }
 JSON
 
-# Every primitive the Vulkan shader claims to draw. No Polygon: its per-edge array
-# does not fit a push-constant block, so `__canvas_vulkanRenderable` declines a scene
-# containing one and the software path renders it — which the fallback case below is
-# what checks.
+# Every primitive the Vulkan shader claims to draw, including `Polygon` — whose edges
+# reach the shader through the descriptor-bound storage buffer rather than the push
+# constants (Phase 2). Two of them, so the per-item edge base is actually exercised:
+# with one polygon a base of zero would pass whether or not it was ever written.
+#
+# The convex triangle and the concave arrow are deliberate: the crossing-count sign
+# test and the nearest-edge magnitude only disagree on a shape that is not convex, so
+# a triangle alone cannot tell a correct fill rule from a wrong one.
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
@@ -78,7 +82,9 @@ SUB main()
   LET rounded AS DrawItem = RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(canvas::rgb(0, 0, 255), canvas::rgb(255, 255, 255), 4.0)]
   LET line AS DrawItem = Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, paint := canvas::stroke(canvas::rgb(255, 128, 0), 9.0)]
   LET faint AS DrawItem = Rectangle[x := 600.0, y := 40.0, w := 120.0, h := 80.0, paint := canvas::fill(canvas::rgba(0, 200, 255, 180))]
-  canvas::present([box, rounded, line, faint, face, eyeL, eyeR, smile])
+  LET tri AS DrawItem = Polygon[points := [Point[x := 620.0, y := 200.0], Point[x := 740.0, y := 200.0], Point[x := 680.0, y := 300.0]], paint := canvas::fill(canvas::rgb(200, 0, 200))]
+  LET arrow AS DrawItem = Polygon[points := [Point[x := 60.0, y := 400.0], Point[x := 160.0, y := 400.0], Point[x := 160.0, y := 360.0], Point[x := 230.0, y := 430.0], Point[x := 160.0, y := 500.0], Point[x := 160.0, y := 460.0], Point[x := 60.0, y := 460.0]], paint := canvas::fillStroke(canvas::rgb(0, 180, 180), canvas::rgb(20, 20, 20), 6.0)]
+  canvas::present([box, rounded, line, faint, face, eyeL, eyeR, smile, tri, arrow])
 END SUB
 MFB
 
