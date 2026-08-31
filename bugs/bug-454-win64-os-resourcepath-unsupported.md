@@ -30,14 +30,50 @@ References:
 
 ## Failing Reproduction
 
+> **Repro updated 2026-08-31.** The original command named
+> `examples/tls-server`, which no longer exists — it was replaced by
+> `examples/network-server` (`cb44b95b8`), and that example does not call
+> `os::resourcePath`, so the old command now *passes* for the wrong reason.
+> Use the self-contained project below instead.
+
 ```
-target/release/mfb build --target windows-x86_64 -q examples/tls-server
+mkdir -p /tmp/r454/src /tmp/r454/resources && : > /tmp/r454/resources/data.txt
+cat > /tmp/r454/project.json <<'EOF'
+{ "name": "r454", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [ { "root": "src", "role": "main", "include": ["**/*.mfb"] } ],
+  "entry": "main", "targets": ["native"] }
+EOF
+cat > /tmp/r454/src/main.mfb <<'EOF'
+IMPORT os
+IMPORT io
+
+FUNC main AS Integer
+  io::print(os::resourcePath("data.txt"))
+  RETURN 0
+END FUNC
+EOF
+target/release/mfb build --target windows-x86_64 -q /tmp/r454
 ```
 
 - Observed: `error: native backend does not support runtime call
   'os.resourcePath'`, exit 1.
 - Expected: a windows-x86_64 executable, as produced for
   macos-aarch64 / linux-x86_64 / linux-aarch64 / linux-riscv64.
+
+**Re-verified 2026-08-31** at `ba1c1750b` with a freshly built
+`target/release/mfb`: the project above builds for `native` (macos-aarch64) and
+`linux-x86_64` and fails for `windows-x86_64` with exactly the error above.
+
+**Partially fixed since this was filed — scope is now narrower.** The sibling
+call `os.executablePath`, which this document treats as sharing the acquisition,
+**has** landed on Windows: it is in the win64 supported list
+(`src/target/win_x86_64/mod.rs:55`) and has a lowering
+(`src/target/win_x86_64/plan.rs:229`). Only `os.resourcePath` is missing —
+`grep -n 'os.resourcePath' src/target/win_x86_64/mod.rs` returns nothing, while
+`src/target/linux_common/mod.rs:98` and `src/target/macos_aarch64/mod.rs:83`
+both list it. So the remaining work is to route `os.resourcePath` to the
+exe-path acquisition that Windows already has, not to build that acquisition
+from scratch as the References section implies.
 
 | Environment | Details | Result |
 | --- | --- | --- |
