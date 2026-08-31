@@ -269,3 +269,96 @@ fn no_cross_member_os_seam_dispatcher() {
         offenders.join("\n")
     );
 }
+
+// --- 3. Golden tiers: only tests/syntax/ may pin a compiler diagnostic --------
+//
+// bug-466. `tests/rt-behavior/tls/tls-timeout-convention-rt` spent months dead:
+// plan-110-E Phase 2 migrated it from `net::` to `tcp::` and dropped `IMPORT
+// net` while the body still read `bound.port` off the returned `net::Address`,
+// so the build failed -- with bug-466's unlocated `native plan has no storage
+// class for type 'Unknown'` -- and the golden was regenerated ONTO that
+// failure. From then on the harness compared a build failure against a build
+// failure and reported PASS, while none of the plan-73-D assertions the fixture
+// exists to prove had run since. Its `.run` marker says it was meant to execute.
+//
+// The tiers already encode the intent, so the invariant is just never checked:
+// a `tests/syntax/` fixture exists to pin a DIAGNOSTIC, and everything else --
+// `rt-behavior` (build + run), `rt-error` (build, then fail at RUNTIME),
+// `byte-identity` (build, compare bytes) -- must COMPILE. A golden build.log
+// outside `tests/syntax/` that carries a compiler error is therefore a dead
+// fixture, whatever the harness says about it.
+//
+// Both diagnostic spellings are matched: the bare `error:` of an unlocated
+// internal failure (what killed this one) and the located
+// `path:line error[CODE NAME]` form. Runtime failures are unaffected -- those
+// print `Error: 7-703-0001` from the program, not a compiler diagnostic, and
+// several fixtures assert them deliberately.
+//
+// LIMIT, stated because a green result here is easy to over-read: this checks
+// the diagnostic TEXT, so a build that fails without emitting one (a watchdog
+// kill, a link failure) is not caught. It is the class that actually occurred.
+
+/// Every `golden/build.log` under `tests/`, with its repo-relative path.
+fn golden_build_logs(tests_root: &Path) -> Vec<(PathBuf, String)> {
+    let mut out = Vec::new();
+    let mut stack = vec![tests_root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries {
+            let path = entry.expect("dir entry").path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.file_name().and_then(|n| n.to_str()) == Some("build.log")
+                && path.parent().is_some_and(|p| p.ends_with("golden"))
+            {
+                let rel = path
+                    .strip_prefix(tests_root)
+                    .expect("under tests/")
+                    .to_string_lossy()
+                    .into_owned();
+                out.push((path, rel));
+            }
+        }
+    }
+    out.sort_by(|a, b| a.1.cmp(&b.1));
+    out
+}
+
+/// A line that is a COMPILER diagnostic: the unlocated `error: …` form, or the
+/// located `…:N error[2-203-0043 NAME]: …` form. Deliberately not `Error:`,
+/// which is a runtime failure several fixtures assert on purpose.
+fn is_compiler_diagnostic(line: &str) -> bool {
+    line.starts_with("error:") || line.contains(" error[")
+}
+
+#[test]
+fn only_syntax_goldens_may_pin_a_compiler_diagnostic() {
+    let tests_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let mut offenders: Vec<String> = Vec::new();
+
+    for (path, rel) in golden_build_logs(&tests_root) {
+        // `tests/syntax/**` is the diagnostic tier: pinning an error IS its job.
+        if rel.starts_with("syntax/") {
+            continue;
+        }
+        let src = std::fs::read_to_string(&path).expect("read golden build.log");
+        for (n, line) in src.lines().enumerate() {
+            if is_compiler_diagnostic(line) {
+                offenders.push(format!("  tests/{rel}:{} — {line}", n + 1));
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "bug-466: a golden build.log outside tests/syntax/ pins a COMPILER \
+         diagnostic, which means the fixture no longer builds and none of its \
+         assertions run -- the harness compares failure against failure and \
+         reports PASS. Fix the fixture (or move it under tests/syntax/ if \
+         pinning the diagnostic is genuinely the point); do NOT rebaseline the \
+         golden onto the failure. Offenders:\n{}",
+        offenders.join("\n")
+    );
+}
