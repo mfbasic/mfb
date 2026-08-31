@@ -95,7 +95,8 @@ resource-directory derivation shared with the other targets.
 
 ## Goal
 
-- `mfb build --target windows-x86_64 examples/tls-server` succeeds, and
+- `mfb build --target windows-x86_64 /tmp/r454` (the Failing Reproduction
+  project) succeeds, and
   `os::resourcePath` on a Windows host returns the executable-adjacent
   resource path with the same joining semantics as macOS/Linux.
 
@@ -131,7 +132,7 @@ handling; PE import bookkeeping for kernel32 already exists.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Fixture (or reuse tls-server) cross-built to windows-x86_64 in a test
+- [ ] Fixture cross-built to windows-x86_64 in a test
       asserting today's rejection message.
 - [ ] Audit: diff Win64's supported `os.*` set against macOS/Linux; verdict
       per missing call.
