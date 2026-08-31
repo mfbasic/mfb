@@ -1,18 +1,19 @@
 # plan-98-G: Canvas text, atlas eviction, measureText, damage-rect present
 
 Last updated: 2026-08-30
-Effort: large (3h–1d) — the stb path only; a real shaper (HarfBuzz) is a separate future plan
+Effort: x-large — a hand-rolled TrueType reader + contour rasteriser in MFBASIC
+(Correction 1); a real shaper (HarfBuzz) is a separate future plan
 Depends on: plan-98-F (Vulkan backend — all three GPU backends + software render text)
 
-This sub-plan adds **text rendering** (stb_truetype path), glyph-atlas LRU eviction,
+This sub-plan adds **text rendering** (a hand-rolled TrueType path), glyph-atlas LRU eviction,
 `measureText`/`TextMetrics` from day one, and optional damage-rect presentation. After it
 lands, Text `DrawItem`s render on all backends (software exact-match golden, GPU within
 tolerance), glyphs are packed into the shared atlas on demand and evicted under pressure,
 and `canvas::measureText` returns metrics whose API is shaper-independent so a future
 HarfBuzz/FreeType upgrade doesn't change the surface.
 
-This is **build step 7** of the A–G sequence — text, the hard part. It ships the *minimum viable*
-stb path, not full shaping.
+This is **build step 7** of the A–G sequence — text, the hard part. It ships the *minimum
+viable* path — glyph positioning and per-glyph rasterisation — not full shaping.
 
 References:
 
@@ -30,21 +31,21 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-98-F complete (all GPU backends render the non-text scene) | `ls planning/completed/plan-98-F-*` → hit | NOT MET |
-| The shared atlas exists (white pixel + images) | plan-98-C/E/F atlas in place | NOT MET |
-| The vendored-dependency policy is decided | see Open Decisions / this feature's blocker | UNVERIFIED (resolve first) |
-| Working tree builds | `cargo build` → pass | UNVERIFIED (run before starting) |
+| plan-98-F's **backends** render the non-text scene | `scripts/test-canvas-vulkan.sh <exe> --box 2228 --libc glibc` and `--box 2227 --libc musl --icd auto`; `cargo test --test rt_canvas_metal` | **MET** — software, Metal and Linux Vulkan all render the full primitive set within tolerance. The row used to read "plan-98-F complete", which is a *different* claim: F Phase 3 (Windows Vulkan) is blocked on bug-477 and G does not touch it. Corrected in place rather than waived — see Correction 2. |
+| ~~The shared atlas exists (white pixel + images)~~ | — | **Corrected: the row asked G to require its own output.** There is no atlas: plan-98-E and plan-98-F each audited this and marked their atlas rows moot *pointing at G*. `grep -n 'CASE Picture' -A 3 src/codegen/builtins/canvas/helper_geometry.rs` shows `Picture` returning `__canvas_emptyHeader()` and `[]`, and all four `IMAGE_DIRTY` hits are writes. Building the atlas is Phase 1's work, not its precondition (Correction 3). |
+| The vendored-dependency policy is decided | this letter's Open Decisions | **MET** — hand-roll in MFBASIC, decided 2026-08-31 (Correction 1). |
+| Working tree builds | `cargo build` → pass | **MET** (`Finished \`dev\` profile`). |
 
 > Per A's invariant 8: no "full suite green at HEAD" row and no byte-identity
 > obligation.
 
-> The **vendored-single-header policy** is a real gate: it decides stb_truetype vs a
-> hand-rolled rasteriser vs MSDF. Resolve it before Phase 1 (it is this feature's named open
-> question). Treated as a precondition, not scope.
+> The **vendored-single-header policy** was this feature's named open question and is now
+> settled: **hand-roll, in MFBASIC** (Correction 1). It was a real gate — it decided the
+> shape of the whole letter — and it is recorded rather than assumed.
 
 ## 1. Goal
 
-- Render Text `DrawItem`s: shape (stb: positioning only, no complex shaping) and rasterise
+- Render Text `DrawItem`s: shape (positioning only, no complex shaping) and rasterise
   glyphs into the shared atlas, cached by `(font, size, codepoint)` with LRU eviction; emit
   tinted textured quads through the existing single pipeline.
 - `canvas::loadFont` returns a `Font` RES resource (from B); `canvas::measureText` returns
@@ -58,56 +59,62 @@ References:
 
 ### Non-goals (explicit constraints)
 
-- **No complex text shaping.** stb path only: no kerning, ligatures, bidi, Arabic/Indic shaping,
-  emoji, or subpixel positioning — all explicitly out of scope for the stb path. A real
+- **No complex text shaping.** Advance-width positioning only: no kerning, ligatures, bidi,
+  Arabic/Indic shaping, emoji, or subpixel positioning — all explicitly out of scope. A real
   shaper (HarfBuzz + FreeType) or MSDF is a separate future plan; the `measureText`/`TextMetrics`
   API is designed so that upgrade is non-breaking.
 - **No API change** to the frozen `DrawItem` set — Text is already a variant (B).
 - **Damage-rect present is optional** and must degrade to full-frame where the platform lacks it;
   it never changes visible output, only present efficiency.
-- Software backend stays exact-match for text goldens (deterministic stb raster).
+- Software backend stays exact-match for text goldens — which is *why* the rasteriser is
+  hand-rolled (Correction 1), not a hope about someone else's library.
 
 ## 2. Current State
 
 - **B** froze Text as a `DrawItem` variant and reserved the `measureText`/`TextMetrics` and
-  `canvas::loadFont` signatures; **C/E/F** built the shared atlas (white pixel + images) and left
-  Text rendering stubbed. **D** computes positional-diff damage but has no consumer (deferred here).
+  `canvas::loadFont` signatures. **C/E/F did *not* build the atlas** — each of them audited
+  the claim and marked its own atlas row moot, pointing here (Correction 3). **D** computes
+  positional-diff damage but has no consumer (deferred here).
 - **Font is a RES resource** (from B): a `Font` id with closed-flag lifetime, freed by the same
   closed + frame-drain rule as Image — no refcount. Same lifetime machinery as Image.
-- **The no-dependency bar is unresolved** (see this letter's Open Decisions): "vendorable single-header
-  public-domain C" (stb_truetype) vs "not one line of third-party code" (hand-rolled) vs a
-  build-time MSDF step (msdfgen). This decides Phase 1's approach and must be settled first.
+- **The no-dependency bar is settled** (Correction 1): hand-rolled, in MFBASIC. The
+  alternatives — a vendored per-platform library reached through `LINK`, or compiling
+  `stb_truetype` into `mfb` — are recorded with why each was rejected, so the question is
+  not reopened by accident.
 
 ### Measured populations
 
 | What | Count | Command |
 |---|---|---|
 | Glyph cache key | `(font, size, codepoint)` | this plan's §3 — a decision, not a measurement |
-| Text features in scope (stb) | positioning + per-glyph raster only | this letter's Non-goals list above |
+| Text features in scope | positioning + per-glyph raster only | this letter's Non-goals list above |
 | Damage consumers to wire | 2 (Vulkan incremental present, Metal dirty rects) | this plan's Phase 3 — one per GPU backend (E, F) |
 
 ### Verified properties
 
-- **stb_truetype is single-header, public-domain, vendorable** — this is a claim about
-  the upstream library, **UNVERIFIED here**: Phase 1 must check the actual header's
-  licence and self-containedness before vendoring anything. Whether it clears *this
-  project's* no-dependency bar is a separate, unresolved policy question (Prerequisite).
+- ~~**stb_truetype is single-header, public-domain, vendorable**~~ — **moot**: nothing is
+  vendored (Correction 1). The licence and self-containedness questions this row reserved
+  do not arise.
 - **`measureText` from day one makes the shaper swappable** — a design decision of this
-  plan set, not a verified property. G ships the API even though stb underlies it, so a
-  later HarfBuzz swap is non-breaking. It is only true if `TextMetrics` stays
-  shaper-independent; Phase 1 must keep stb-specific fields out of it.
-- UNVERIFIED: that stb glyph rasterisation is deterministic enough for exact-match software
-  goldens across machines. Phase task pins it (fixed hinting/rounding) or documents a text-golden
-  tolerance for the software path too.
+  plan set, not a verified property. G ships the API even though a minimal positioner
+  underlies it, so a later HarfBuzz swap is non-breaking. It is only true if `TextMetrics`
+  stays shaper-independent; Phase 1 must keep rasteriser-specific fields out of it.
+- Determinism is no longer a question to be *discovered* — it is the property the
+  hand-rolled path is chosen for. The rasteriser runs the same MFBASIC on every target,
+  the same code path plan-98-F Phase 1 measured byte-identical across two ISAs and two
+  operating systems, so text goldens stay **exact-match** on the software oracle. The
+  standing risk moves from "is stb deterministic" to "does the contour rasteriser use
+  anything width- or order-dependent" — which is a thing to *not do*, and the same
+  byte-identity comparison catches it.
 
 ## 3. Design Overview
 
-- **Glyph pipeline (in `present()`, invariant 1).** stb shape (positioning) + rasterise each
+- **Glyph pipeline (in `present()`, invariant 1).** Position by advance width + rasterise each
   needed `(font,size,codepoint)` into the atlas on demand; cache with LRU; emit tinted quads.
   Shaping is per-string, per-`present()` — so a per-frame-changing string re-shapes each present
   (charged to the worker budget, invariant 2); the glyph *raster* cache absorbs the per-glyph
   cost.
-- **`measureText`/`TextMetrics`.** Compute metrics via the same stb path; return the reserved
+- **`measureText`/`TextMetrics`.** Compute metrics via the same reader; return the reserved
   `TextMetrics` record — API frozen, implementation swappable.
 - **Atlas eviction.** LRU by last-used revision under atlas pressure, mirroring the geometry
   cache; a live scene's glyphs are pinned.
@@ -120,19 +127,20 @@ references). Land text rendering + metrics first, eviction next, optional damage
 an efficiency-only change behind a capability check).
 
 **Gate:** text renders exact-match on the software oracle (or within a documented text tolerance if
-stb raster proves machine-variant) and within tolerance on GPU. Damage-rect present must produce
+the raster proves machine-variant, which it should not) and within tolerance on GPU. Damage-rect present must produce
 **identical visible output** to full-frame (verified by golden equality with damage on vs off).
 
 **Rejected alternatives (for this sub-plan):**
-- *HarfBuzz + FreeType now.* Deferred: months of work; the design ships stb first with a
-  shaper-independent `measureText` API so the upgrade is non-breaking later.
+- *HarfBuzz + FreeType now.* Deferred: months of work; the design ships a minimal
+  positioner first with a shaper-independent `measureText` API so the upgrade is
+  non-breaking later.
 - *MSDF now.* Deferred: kills the per-size cache explosion but needs a build-time msdfgen step;
   revisit when text scale demands it. The `measureText` API is unaffected by the choice.
 
 ## Compatibility / Format Impact
 
 - **Changes:** Text rendering + glyph atlas + `measureText`; optional damage-rect present. New
-  text-golden corpus. A vendored single-header font library (pending the policy decision).
+  text-golden corpus. **No new dependency** (Correction 1).
 - **Unchanged:** the frozen `DrawItem` set, the scene model, thread/ring/retirement, the GPU
   backends' pipeline, and visible output under damage-rect present (efficiency only).
 
@@ -150,15 +158,36 @@ stb raster proves machine-variant) and within tolerance on GPU. Damage-rect pres
 
 ## Phases
 
-### Phase 1 — Resolve the dependency policy; stb text render + measureText
+### Phase 1 — Resolve the dependency policy; text render + measureText
 
 > **Three tasks moved here** (plan-98-B Corrections 20–21), all blocked on the
 > vendoring decision this phase's first task settles. Nothing is deferred out of the
 > plan; they land in the phase that owns their mechanism.
 
-- [ ] Resolve the vendored-single-header policy (Prerequisite/Open Decision) and record it.
-      It now gates **images as well as fonts**: `canvas::loadImage` needs the same
-      answer, so the decision is one decision, not two.
+- [x] Vendored-single-header policy **resolved: hand-roll, in MFBASIC** (Correction 1),
+      decided by the author on 2026-08-31 after the three options were laid out with
+      what each costs. It is one decision for fonts *and* images, as the row says.
+
+      The deciding property is the oracle. plan-98-F Phase 1 measured the software
+      render **byte-identical across macOS/Linux and aarch64/x86-64** — 2,304,000 bytes,
+      two ISAs, two operating systems — and every GPU backend is gated against it. A
+      per-platform vendored library would end that: the same string would rasterise
+      differently on each target and the text goldens would need a tolerance instead of
+      exact match, weakening the one gate this feature set is built on.
+
+      The third option — compile `stb_truetype` into `mfb` itself — was **rejected on
+      inspection, not on taste**: glyph rasterisation has to happen at *program run
+      time* for arbitrary strings, and an emitted program has no C toolchain and no CRT.
+      The compiler can only bake glyphs it already knows, which text rendering is not.
+
+      It is also the option that fits what is already here: the canvas rasteriser *is*
+      MFBASIC (`__canvas_edgeDistance`, `__canvas_geoDistance`), a TrueType glyph is a
+      set of quadratic contours, and coverage-from-a-signed-distance is the machinery
+      those helpers already implement. The new code is a `cmap`/`loca`/`glyf` reader and
+      a contour rasteriser; the fill, the antialiasing and the blend are shared.
+
+      Recorded in `.ai/canvas-threading.md` §12 so the next reader finds it without
+      this plan.
 - [ ] **The `Font` RES resource itself** (moved from plan-98-B Phase 4): the record on
       the canonical header (`tag@0`/`handle@8`/`closed@16`/`STATE@24`; tag `12` is
       already reserved in `error_constants.rs`), `canvas::destroyFont`, and
@@ -171,9 +200,10 @@ stb raster proves machine-variant) and within tolerance on GPU. Damage-rect pres
       the resource record, the CPU shadow and the pixel-count contract. It lands here
       because decoding needs inflate, which does not exist —
       `grep -rn "inflate\|deflate" src/codegen/builtins/` returns nothing, and it is
-      plan-93-A's scope — so `loadImage` rides the same vendored single-header
-      decision as the font path (`stb_image` beside `stb_truetype`).
-- [ ] Integrate the chosen font rasteriser (stb path); implement Text rendering: shape
+      plan-93-A's scope — so `loadImage` rides the same decision as the font path
+      (Correction 1): an inflate and a PNG unfilter, hand-rolled beside the TrueType
+      reader.
+- [ ] Build the chosen font rasteriser (hand-rolled, Correction 1); implement Text rendering: shape
       (positioning) + per-`(font,size,codepoint)` glyph raster into the atlas + tinted quads.
 - [ ] Implement `canvas::loadFont` (the `Font` resource declared above) and
       `canvas::measureText` → `TextMetrics` (reserved API).
@@ -248,7 +278,7 @@ Commit: —
   in-process tests; the render runs in the headless/real subprocess.
 - Runtime proof: a canvas program renders changing text (a clock/counter), presents per frame,
   and the atlas/eviction/damage counters show glyph reuse and region-limited present.
-- Doc sync: `src/docs/spec/app/` canvas text section (stb scope + limits, `TextMetrics`, the
+- Doc sync: `src/docs/spec/app/` canvas text section (scope + limits, `TextMetrics`, the
   shaper-swap note); man content for `canvas::measureText`, `canvas::loadFont`,
   `canvas::destroyFont` — authored as registry descriptors + Rust doc comments per
   `RegistryFunction` `intro`/`desc`/`example` + `Parameter.desc` on the new members in
@@ -262,13 +292,17 @@ Commit: —
 
 ## Open Decisions
 
-- **The no-dependency bar (this feature's named blocker)** — recommended: **allow vendored
-  single-header public-domain C** (stb_truetype), documenting the distinction from "zero
-  third-party code". This unblocks minimum-viable text without a package manager or shared lib.
-  Resolve before Phase 1. (§Prerequisites)
-- **stb software-golden determinism** — recommended: pin stb hinting/rounding for exact-match
-  text goldens; if machine-variant, document a small text-golden tolerance for the software path.
-  (§Phase 1)
+- ~~**The no-dependency bar (this feature's named blocker)**~~ — **RESOLVED 2026-08-31:
+  hand-roll, in MFBASIC** (Correction 1). The pre-execution recommendation here was to
+  vendor single-header public-domain C; it was not taken, and the reason is recorded on
+  the Phase 1 box: a vendored library would have to be per-platform, and that ends the
+  cross-target byte-identity of the software render that every GPU backend is gated
+  against.
+- ~~**stb software-golden determinism**~~ — **moot** with the row above. Determinism is now
+  a property of code this repo owns rather than a question about someone else's library:
+  the same MFBASIC runs on every target. The residual risk is only that the contour
+  rasteriser might use something width- or order-dependent, which the existing
+  cross-target byte-identity comparison catches.
 - **Damage-rect present at all** — recommended: ship it only if it's cheap on top of D's already-
   computed damage; otherwise leave full-frame (correctness is identical either way). (§Phase 3)
 - **Future shaper** — HarfBuzz + FreeType (or MSDF) is a separate future plan; G's `measureText`
@@ -286,14 +320,51 @@ drift gate. No design decision changed. This letter cited no paths that moved in
 2026-08-16/17 restructurings, so no remap was needed. G additionally gains a Phase 4 closeout that
 owns the plan's single full-suite + acceptance-harness run.
 
-<Further corrections filled in during execution — especially the resolved dependency
-policy and any text-golden determinism findings.>
+**Correction 1 (Phase 1) — the dependency bar: hand-roll, in MFBASIC.** Decided by the
+author on 2026-08-31, against this plan's own pre-execution recommendation to vendor
+`stb_truetype`. Three options were put with what each costs; the deciding property is the
+oracle. plan-98-F Phase 1 measured the software render **byte-identical across
+macOS/Linux and aarch64/x86-64**, and every GPU backend is gated against it — a
+per-platform vendored library would end that and force a tolerance onto the text goldens,
+weakening the gate the whole feature set rests on.
+
+The third option — compiling `stb_truetype` into `mfb` — was rejected on inspection
+rather than on taste: glyph rasterisation happens at *program run time* for arbitrary
+strings, and an emitted program has no C toolchain and no CRT, so the compiler could only
+bake glyphs it already knows. That is not text rendering.
+
+It is also the option that fits what exists. The canvas rasteriser already *is* MFBASIC:
+`__canvas_edgeDistance` walks a polygon's edges for a signed distance and
+`__canvas_geoDistance` dispatches the kinds. A TrueType glyph is a set of quadratic
+contours, and coverage-from-a-signed-distance is exactly that machinery. The new code is a
+`cmap`/`loca`/`glyf` reader and a contour rasteriser; fill, antialiasing and blending are
+shared with every other primitive. `canvas::loadImage` rides the same decision — an
+inflate and a PNG unfilter, hand-rolled beside the font reader.
+
+**Correction 2 (Prerequisites) — "plan-98-F complete" was the wrong condition.** F Phase 3
+(Windows Vulkan) is blocked on **bug-477** — a Windows `--app` program faults before
+`main`'s first statement — and G does not touch the Windows Vulkan path. The row now names
+what G actually depends on: that F's *backends* render the non-text scene, which software,
+Metal and Linux Vulkan all do, each with a command to check it. Corrected rather than
+waived: the distinction matters, because a row that cannot be satisfied invites being
+ignored.
+
+**Correction 3 (Prerequisites, §2) — the atlas row asked G to require its own output.**
+"The shared atlas exists (white pixel + images)" is listed as a precondition and §2 said
+"C/E/F built the shared atlas". Neither is true, and both plan-98-E and plan-98-F audited
+it and marked *their* atlas rows moot pointing at G. Re-audited at this commit:
+`grep -n 'CASE Picture' -A 3 src/codegen/builtins/canvas/helper_geometry.rs` shows
+`Picture` returning `__canvas_emptyHeader()` from the header builder and `[]` from the
+tail builder, and all four `IMAGE_DIRTY` hits are writes with no reader. Building the
+atlas is Phase 1's work.
 
 ## Summary
 
-G ships minimum-viable text on the stb path across all backends, with a shaper-independent
+G ships minimum-viable text on a hand-rolled TrueType path across all backends, with a
+shaper-independent
 `measureText` so a future HarfBuzz/MSDF upgrade is non-breaking, plus glyph-atlas LRU eviction and
 optional damage-rect present. The real risks are software-text-golden determinism and never
-evicting a live glyph; the named blocker is the vendored-dependency policy, resolved before code.
+evicting a live glyph; the named blocker was the vendored-dependency policy, resolved
+before code (Correction 1).
 With G landed, canvas mode is feature-complete for general 2D (images, shapes, text) on software +
 Metal + Vulkan; complex text shaping remains a deliberately-scoped future plan.

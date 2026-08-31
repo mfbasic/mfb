@@ -351,6 +351,42 @@ observable on Linux:
   `MFB_CANVAS_DUMP` still sees every frame — the dump is written by
   `__canvas_presentSurface`, before and independently of the blit.
 
+## 12. Why the font rasteriser is hand-rolled
+
+Canvas rasterises glyphs with a TrueType reader and a contour rasteriser written in
+**MFBASIC**, in the same helpers as every other primitive — not a vendored library.
+That was plan-98-G's named open question, decided 2026-08-31, and it is recorded here
+because the reasoning is not obvious from the code and the question will be asked again.
+
+**The oracle is the reason.** The software renderer is not one renderer among three; it
+is the reference every GPU backend is measured against (`Tolerance::GPU_DEFAULT`), and
+plan-98-F Phase 1 measured it **byte-identical across macOS/Linux and
+aarch64/x86-64** — 2,304,000 bytes, two ISAs, two operating systems. A vendored font
+library would have to ship per platform and architecture, so the same string would
+rasterise differently on each target, and the text goldens would need a tolerance
+instead of exact match. That trades away the gate the whole feature set rests on, to
+save writing a `glyf` parser.
+
+**Compiling a font library into `mfb` does not work**, and is worth stating so it is not
+re-proposed: rasterisation happens at *program run time* for arbitrary strings, and an
+emitted program has no C toolchain and no CRT. The compiler can only bake glyphs it
+already knows, which text rendering is not.
+
+**It also fits what is here.** `__canvas_edgeDistance` already walks a polygon's edges
+for a signed distance and `__canvas_geoDistance` dispatches the kinds; a glyph is a set
+of quadratic contours, and coverage-from-a-signed-distance is that same machinery. The
+font-specific code is a `cmap`/`loca`/`glyf` reader plus contour flattening — fill,
+antialiasing and blending are shared with rectangles and circles, which is also what
+keeps a glyph's edge pixels consistent with everything else on the surface.
+
+`canvas::loadImage` rides the same decision: an inflate and a PNG unfilter beside the
+font reader, rather than a second vendored library.
+
+The residual risk moved rather than vanished. It is no longer "is the third-party
+rasteriser deterministic" but "does the contour rasteriser use anything width- or
+order-dependent" — a thing to not do, caught by the same cross-target byte-identity
+comparison.
+
 ## See also
 
 * `planning/completed/plan-98-A-*` — cross-cutting invariants 1, 2, 4, 5, 7, 8.
