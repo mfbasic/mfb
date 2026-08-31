@@ -5,9 +5,54 @@ Effort: x-large (multi-day; four phases, two independently landable)
 Severity: HIGH (was MEDIUM; raised when Defect B absorbed bug-473 and bug-481's build failure)
 Class: Correctness
 
-Status: Open
-Regression Test: `tests/rt-behavior/packages/source-package-dependency-rt/` (new, Phase 1);
-`tests/syntax/net/qualified-enum-name-accepted/` (new, Phase 3)
+Status: **OPEN — Defect A FIXED, Defect B1 FIXED, Defect B2 (and bug-481) NOT FIXED**
+Regression Test: `tests/rt-behavior/packages/source-package-dependency-rt/` and
+`tests/rt-behavior/packages/source-package-isolated-rt/` (Defect A);
+`tests/rt-behavior/net/qualified-enum-member-rt/` and
+`tests/rt-behavior/json/qualified-union-variant-rt/` (Defect B1);
+`tests/rt-behavior/packages/http-process-coexist-rt/` (bug-481 — still RED, and
+deliberately left so: it is the gate Phase 4b has to turn green)
+
+## STATUS
+
+**Landed** (Phases 1, 2, 3, 4a):
+
+| | |
+|---|---|
+| Defect A | FIXED. A source-directory dependency compiles and its exports resolve. `42` / `hello, world`. |
+| Defect B1 | FIXED. `net::PingStatus.Ok` and `CASE json::JsonBool` resolve in every expression position, through an import ALIAS too. No source program can reach `NIR local reference … does not resolve`. |
+| Phase 4a | LANDED. 1751 lines across 244 files migrated to the qualified spelling; golden-neutral for every compiled artifact. |
+
+**Not landed** (Phase 4b): Defect B2 — a bare imported value type is still
+accepted, and **bug-481 is still broken**. Prototyped end to end and measured;
+see Phase 4 for the working design and the 665-site reason it is its own plan.
+This document therefore stays OPEN: its Goal requires `IMPORT http` and
+`IMPORT process` to coexist, and they do not.
+
+**Two defects found and fixed in passing**, neither previously filed:
+
+- `scripts/sync-goldens.sh` swallowed `test-accept.sh`'s exit 98 (lock refused)
+  along with every other non-zero status, so a refused run reported
+  `synced 0 golden file(s)` and exit 0 — indistinguishable from "every golden was
+  already current". A caller would commit a sweep believing its goldens were
+  regenerated when the harness never ran.
+- The parser read `FUNC name AS pkg::X` as a function ALIAS unconditionally, so a
+  parameterless function with a qualified RETURN type was parsed as an alias and
+  its body fell out into the top level. Latent because nothing had ever written
+  that spelling; Phase 4a's sweep wrote the first four. Caught by REVIEWING the
+  regenerated goldens rather than trusting them.
+
+**Pre-existing defects surfaced, not fixed** (each reproduced at base):
+
+1. Transitive package dependencies do not link: `app → pa → pb` fails with the
+   unlocated `error: NIR call target 'pb.two' does not resolve`, on the `.mfp`
+   path too. Another instance of this bug's "nothing unresolved reaches NIR" goal.
+2. An importer cannot read an imported package's `EXPORT MUT`/`EXPORT LET`; the
+   name escapes to NIR. `13_modules-and-packages.md:36` says such state IS
+   visible to importers — a spec/implementation mismatch.
+3. `mfb audit` is broken for any project importing a record-exporting package:
+   `src/audit/mod.rs:122` passes `&[]` for `imported_types`, producing a bogus
+   `PACKAGE_INVALID … references unknown type`.
 
 Two defects, one namespace. Names that cross a package boundary are resolved
 through a flat, package-blind table, and it fails in both directions:
