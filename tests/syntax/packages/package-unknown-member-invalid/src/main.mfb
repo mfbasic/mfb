@@ -1,0 +1,18 @@
+IMPORT io
+IMPORT package_import_as AS worker
+
+' bug-480. `noSuchMember` and `NoSuchType` are not exported by
+' `package_import_as`. Before the fix each typed as `Unknown` and was reported
+' hundreds of lines away against whatever consumed it — `toString` got
+' `TYPE_CALL_ARGUMENT_MISMATCH ... argument type(s) (Unknown)` and the binding
+' got `TYPE_UNKNOWN_VALUE`, neither naming the package or the member. Both must
+' now be refused at the line that writes them, naming both.
+'
+' `byteLenAlias` on the last line IS exported, and must keep resolving: the gate
+' rejects only a name the package positively does not export.
+FUNC main AS Integer
+  LET missing = worker::noSuchMember(1)
+  LET wrongType AS worker::NoSuchType = worker::noSuchMember(2)
+  io::print(toString(worker::byteLenAlias("ok")))
+  RETURN 0
+END FUNC

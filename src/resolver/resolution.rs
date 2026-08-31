@@ -1483,7 +1483,39 @@ impl Resolver<'_> {
                     line,
                 );
             }
+            return;
         }
+
+        // bug-480: the same gate for an imported USER package. Without it a
+        // `pkg::member` naming nothing the package exports typed as `Unknown` and
+        // was reported hundreds of lines away as `TYPE_CALL_ARGUMENT_MISMATCH ...
+        // argument type(s) (Unknown)` against whatever consumed it, naming
+        // neither the package nor the member.
+        //
+        // Only a package whose interface was READ contributes an entry, so an
+        // unreadable or not-yet-installed dependency still resolves silently here
+        // and is reported by the import gate that saw the real reason. `IMPORT
+        // self` never records one either: a package's own members are ordinary
+        // top-level declarations, resolved by the bare-name path.
+        let Some(exports) = self.package_exports.get(package) else {
+            return;
+        };
+        let Some((_, member)) = name.split_once('.') else {
+            return;
+        };
+        // The rule governs the HEAD of a path, not field selection: `pkg::rec.field`
+        // resolves `rec` against the package and leaves `.field` to the type
+        // checker.
+        let head = member.split('.').next().unwrap_or(member);
+        if exports.contains(member) || exports.contains(head) {
+            return;
+        }
+        self.report(
+            "SYMBOL_UNKNOWN_IDENTIFIER",
+            &format!("Package `{package}` does not export `{head}`."),
+            file,
+            line,
+        );
     }
 }
 

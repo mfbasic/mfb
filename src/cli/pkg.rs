@@ -120,6 +120,7 @@ pub(crate) fn publish_package_project(owner: &str, project_dir: &Path) -> Result
     build_project(&BuildOptions {
         location: project_dir.to_path_buf(),
         outputs: Vec::new(),
+        package_output_dir: None,
         target: target::BuildTarget::host(),
         sign_owner: Some(owner.to_string()),
         app_mode: false,
@@ -413,6 +414,7 @@ pub(crate) fn check_abi(project_dir: &Path) -> Result<(), String> {
     build_project(&BuildOptions {
         location: project_dir.to_path_buf(),
         outputs: Vec::new(),
+        package_output_dir: None,
         target: target::BuildTarget::host(),
         sign_owner: None,
         app_mode: false,

@@ -1,0 +1,14 @@
+IMPORT io
+IMPORT thread
+IMPORT source_pkg_worker
+
+' bug-480 Defect A, second export kind. Before the fix the source-directory
+' dependency contributed no signatures at all, so `source_pkg_worker::multiply`
+' was `Unknown` and `thread::start` could not type-check the entry. Both the
+' plain FUNC and the ISOLATED thread entry must resolve.
+FUNC main AS Integer
+  io::print(toString(source_pkg_worker::scale(3)))
+  LET t AS Thread OF Nothing TO Integer = thread::start(source_pkg_worker::multiply, 6)
+  io::print(toString(thread::waitFor(t)))
+  RETURN 0
+END FUNC

@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/rt-behavior/packages/source-package-isolated-rt
+Wrote package to tests/rt-behavior/packages/source-package-isolated-rt/build/packages/source_pkg_worker.mfp
+uses source_pkg_worker - [Unsigned]
+Wrote AST to tests/rt-behavior/packages/source-package-isolated-rt/source_package_isolated_rt.ast
+Wrote IR to tests/rt-behavior/packages/source-package-isolated-rt/source_package_isolated_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/packages/source-package-isolated-rt
+Wrote package to tests/rt-behavior/packages/source-package-isolated-rt/build/packages/source_pkg_worker.mfp
+uses source_pkg_worker - [Unsigned]
+Wrote executable to tests/rt-behavior/packages/source-package-isolated-rt/build/source_package_isolated_rt.out
+[exit 0]
+$ tests/rt-behavior/packages/source-package-isolated-rt/build/source_package_isolated_rt.out
+21
+42
+[exit 0]

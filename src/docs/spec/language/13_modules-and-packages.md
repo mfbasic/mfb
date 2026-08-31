@@ -145,6 +145,17 @@ may import a source package or an `.mfp` package; imported `.mfp` packages must
 carry a compatible package-format version, compatible public API metadata, and a
 language version the compiler supports.
 
+A **source package** is a dependency named by directory rather than by compiled
+artifact — `"source": "file:<project-relative-dir>"`, `"source":
+"local:///absolute/dir"`, or no `source` at all, which means
+`packages/<name>/`. The build compiles it before resolving any import against
+it, so both dependency forms present the identical exported interface to the
+importer: the same signatures, exported types, resource types, isolated thread
+entries and overload sets.[[src/cli/build/source_packages.rs:build_source_dependencies]]
+An installed `packages/<name>.mfp` always wins over the sources beside it. A
+package may not be part of its own dependency
+graph.[[src/manifest/package.rs:resolved_package_file]]
+
 An **isolated function** is an exported top-level `FUNC` declared with `ISOLATED`. When an isolated function is used as a thread entry point, the runtime starts it in a fresh instance of its package. Starting isolated functions from the same package multiple times creates multiple independent instances; their top-level `MUT` bindings are not shared with each other or with the importing package.
 
 ## See Also

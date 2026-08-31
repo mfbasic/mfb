@@ -743,13 +743,15 @@ impl<'a> Walker<'a> {
                 {
                     continue;
                 }
-                let package_file = self
-                    .project_dir
-                    .join("packages")
-                    .join(format!("{package}.mfp"));
-                if !package_file.is_file() {
+                // bug-480: resolve the compiled interface through the shared
+                // resolver, so a dependency declared by source directory (whose
+                // `.mfp` this build compiled into `build/packages/`) is walked
+                // exactly like an installed one instead of being skipped.
+                let Some(package_file) =
+                    crate::manifest::package::resolved_package_file(self.project_dir, package)
+                else {
                     continue;
-                }
+                };
                 match crate::binary_repr::read_package_type_exports(&package_file) {
                     Ok(type_exports) => {
                         for export in &type_exports {
@@ -802,13 +804,15 @@ impl<'a> Walker<'a> {
                 {
                     continue;
                 }
-                let package_file = self
-                    .project_dir
-                    .join("packages")
-                    .join(format!("{package}.mfp"));
-                if !package_file.is_file() {
+                // bug-480: resolve the compiled interface through the shared
+                // resolver, so a dependency declared by source directory (whose
+                // `.mfp` this build compiled into `build/packages/`) is walked
+                // exactly like an installed one instead of being skipped.
+                let Some(package_file) =
+                    crate::manifest::package::resolved_package_file(self.project_dir, package)
+                else {
                     continue;
-                }
+                };
                 match crate::binary_repr::read_package_exports(&package_file) {
                     Ok(exports) => {
                         for export in &exports {
