@@ -1,0 +1,282 @@
+# bug-464: three of the five socket/listener resources are not thread-sendable, and the resource-transfer copy cannot carry them
+
+Last updated: 2026-08-30
+Effort: x-large (1d–3d)
+Severity: MEDIUM
+Class: Footgun (feature gap guarding a latent memory-safety hazard)
+
+Status: Open
+Regression Test: `tests/rt-behavior/threads/thread-transfer-tls-socket-rt/` (new), `tests/rt-behavior/threads/thread-transfer-tcp-listener-rt/` (new), `tests/syntax/threads/thread-plane-tls-socket-sendable/` (new)
+
+Every socket and listener resource should be movable to another thread, so that a
+server can accept on one thread and hand each connection to a worker. Today only
+two of five are: `tcp::Socket` and `udp::Socket` are `sendable: true`, while
+`tcp::Listener`, `tls::Socket` and `tls::Listener` are `sendable: false`. Declaring
+the thread shape is refused outright:
+
+```
+error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+               Thread resource type requires a thread-sendable type, got `tls.Socket`.
+```
+
+**The single correct behavior a fix produces:** `Thread OF RES tls::Socket TO T`,
+`Thread OF RES tls::Listener TO T` and `Thread OF RES tcp::Listener TO T` all
+compile, and `thread::transfer` moves the handle such that the receiving thread
+can perform every operation the sending thread could (`tls::read`/`tls::write` on
+a transferred socket, `tls::accept`/`tcp::accept` on a transferred listener), with
+the resource closed exactly once, by the receiver.
+
+**This is not a one-line flag flip, and the naive fix is memory-unsafe.** The
+`sendable` bit is not merely a policy label — it is load-bearing for a copy routine
+that only knows how to move a 4-slot resource header. Flipping the bit without
+generalizing that copy produces a receiver-side TLS socket whose `SSL*` slot holds
+**uninitialized arena bytes**, which the next `tls::read` dereferences. See Root
+Cause. An implementer who reads only the registry comments ("not thread-sendable
+in v1") will conclude the bit is a leftover scope decision and flip it; it is
+that *and* a guard.
+
+References:
+
+- `src/docs/spec/language/15_resource-management.md:24` — "A concrete resource handle may be sent to a thread only when that resource type is thread-sendable."
+- `src/docs/spec/language/17_native-libraries.md:43` — sendability is an explicit per-resource opt-in (`THREAD_SENDABLE`), not a default.
+- `src/docs/spec/memory/04_arenas.md:140-150` — `arena_alloc` contract; the block-grow path calls `arena_fill_random` to poison freshly mapped memory.
+- `planning/completed/plan-03-net.md:280-283` — the original deferral: "**`sendable = false` for v1** — sending a TLS session across threads adds bridge/state-ownership complexity with no spec requirement … do not opt in here yet."
+- `planning/completed/plan-06-tls-server.md:61-63` — the same deferral for the server handles: "`TlsListener` and the server-accepted `TlsSocket` are **not** thread-sendable in V1".
+- bug-463 (`bugs/bug-463-thread-plane-res-collection-parse.md`) — adjacent: a `RES` collection on a thread plane fails to parse before this rule is reached. Independent, but both land in the thread-plane sendability path.
+- Memory: `arena-state-is-per-thread` — a spawned thread sees its own zeroed `x19`; no thread may free another's block. Governs the close-obligation half of this fix.
+- Found during: the 2026-08-30 review of the `websockets` section of `planning/todo.md`, which this bug's resolution would materially change (a threaded `wss://` server is currently impossible).
+
+## Failing Reproduction
+
+Minimal project; single file. `project.json` is the standard executable shape.
+
+```
+$ cat src/main.mfb
+IMPORT tls
+IMPORT tcp
+
+FUNC useTlsSocket(t AS Thread OF RES tls::Socket TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC useTlsListener(t AS Thread OF RES tls::Listener TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC useTcpListener(t AS Thread OF RES tcp::Listener TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+$ mfb build
+```
+
+- Observed: all three are refused in one build (verbatim, `target/release/mfb build`, macos-aarch64):
+
+  ```
+  ./src/main.mfb:4 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+                 Thread resource type requires a thread-sendable type, got `tls.Socket`.
+  ./src/main.mfb:8 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+                 Thread resource type requires a thread-sendable type, got `tls.Listener`.
+  ./src/main.mfb:12 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+                 Thread resource type requires a thread-sendable type, got `tcp.Listener`.
+  ```
+
+  The diagnostic fires on each **type declaration**, before any `thread::transfer` call is reached — note there is no `thread::transfer` anywhere in the reproduction.
+- Expected: builds clean, as the `tcp::Socket` form already does.
+
+Contrast case that works today (same file shape, `tcp::Socket` substituted) —
+this is the regression guard that must keep passing:
+
+```
+$ cat src/main.mfb
+IMPORT tcp
+FUNC useTcp(t AS Thread OF RES tcp::Socket TO Integer) AS Integer
+  RETURN 0
+END FUNC
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+$ mfb build
+Building ws_send_probe (executable) for macos-aarch64
+Wrote executable to ./build/ws_send_probe.out
+```
+
+Both probes were run on macos-aarch64 with `target/release/mfb`. The check is in
+the target-independent IR verifier (`src/ir/verify/resources.rs`), so the
+rejection is platform-independent; the *runtime* half of the fix is not (see the
+matrix in Fix Design).
+
+## Root Cause
+
+Two layers, and only the first is obvious.
+
+**Layer 1 — the registry bit.** `is_resource_sendable`
+(`src/ir/verify/resources.rs:310`) consults the project's own
+`RESOURCE … THREAD_SENDABLE` opt-in, else the builtin registry's `sendable` field
+via `is_builtin_sendable_resource_type` (`src/codegen/resource/mod.rs:107`).
+`require_thread_sendable("Thread resource type", …)`
+(`src/ir/verify/resources.rs:544`) runs it over the `Thread OF … RES T TO …`
+plane. `tls::Socket`/`tls::Listener` are `sendable: false`
+(`src/codegen/builtins/tls/mod.rs:162,174`) and `tcp::Listener` is `sendable: false`
+(`src/codegen/builtins/tcp/mod.rs:180`). Per plan-03-net.md §4.4 and
+plan-06-tls-server.md §1 these were **v1 scope deferrals**, never revisited.
+
+**Layer 2 — the copy the bit is really gating.** `copy_resource_to_current_arena`
+(`src/codegen/memory/arena/builder_arena_transfer.rs:506`) is the routine that
+materializes a transferred handle in the receiver's arena. Its own doc comment
+states the assumption: *"The handle is a two-word struct (a host resource word
+such as a file descriptor, followed by a closed flag)."* It allocates
+`RESOURCE_RECORD_SIZE` = **96 bytes**
+(`src/codegen/error/constants/error_constants.rs:743`) and then copies exactly
+four slots:
+
+| slot | offset | copied? |
+| --- | --- | --- |
+| tag | 0 | yes, verbatim |
+| handle / fd | 8 | yes, verbatim |
+| closed flag | 16 | yes, verbatim |
+| STATE | 24 | yes — deep-copied into the receiver arena (bug-257) |
+| **everything from 32 to 95** | 32–95 | **never written** |
+
+The `sendable: true` resources are exactly the ones that fit that shape.
+`tcp::Socket` uses only `FILE_OFFSET_FD`/`FILE_OFFSET_CLOSED` in its record
+(`src/codegen/builtins/tcp/gen_io.rs` — its other `*_OFFSET` constants are stack-frame
+slots, not record slots), and its read/write deadlines live in the **kernel** via
+`SO_RCVTIMEO`/`SO_SNDTIMEO` setsockopt, so they ride the fd across the move for free.
+
+The `sendable: false` resources are exactly the ones that do not:
+
+- `tls::Socket` — `TLS_OFFSET_CTX = 32` (`SSL_CTX*`), `TLS_OFFSET_SSL = 40` (`SSL*`); on Windows `TLS_SCHANNEL_OFFSET_BLOCK = 40` (`src/codegen/builtins/tls/gen_shared.rs:38,39,47`).
+- `tls::Listener` — `TLS_LISTENER_OFFSET_CTX = 32` (`gen_shared.rs:54`).
+- `audio` resources — live slots at 32/40/48 (`gen_alsa_shared.rs:142,144` (offsets 32/48), `gen_macos_shared.rs:40,42,44` and `:128,130,132`), and also `sendable: false`.
+
+So the bit is currently doing double duty: it records a v1 product decision *and*
+it keeps a resource whose record extends past offset 24 away from a copy routine
+that would silently truncate it. **Flipping the bit alone is a memory-safety
+regression**, not a partial fix: the receiver's record is fresh arena memory,
+which is not guaranteed zero — the block-grow path deliberately poisons it with
+`arena_fill_random` (`src/docs/spec/memory/04_arenas.md:150`) — so
+`TLS_OFFSET_SSL` would hold an arbitrary non-null word that the receiver's first
+`tls::read` passes to `SSL_read`. That is a wild pointer dereference inside
+libssl, not a clean null crash.
+
+`tcp::Listener` is the one case where layer 2 does *not* apply — its record is
+plain fd + closed, identical in shape to `tcp::Socket`. Its `sendable: false` is
+pure policy ("a listener accepts on its owning thread",
+`src/codegen/builtins/tcp/mod.rs:178`) and is genuinely a one-line change plus tests.
+
+## Goal
+
+- `Thread OF RES tcp::Listener TO T` compiles, and a transferred listener accepts on the receiving thread.
+- `Thread OF RES tls::Socket TO T` compiles, and a transferred socket completes `tls::read`/`tls::write` on the receiving thread against a real peer, on all of OpenSSL / Schannel / Network.framework.
+- `Thread OF RES tls::Listener TO T` compiles, and a transferred listener completes `tls::accept` on the receiving thread.
+- `copy_resource_to_current_arena` carries the whole 96-byte record (or a per-resource-declared live-slot set), so no resource can be added later that silently truncates on transfer.
+- The close obligation still fires exactly once, on the receiver, for every case above.
+
+### Non-goals (must NOT change)
+
+- **The `sendable` bit must not be flipped ahead of the copy fix.** Phase order is load-bearing; a commit that flips `tls::Socket` to `true` without Phase 2 lands a wild-pointer dereference. This is the tempting wrong fix — do not take it, and do not "temporarily" flip it to see a test go green.
+- **No concurrent use of one handle from two threads.** This bug is about *moving* ownership, not sharing. `thread::transfer` moves; the sender's cleanup is deactivated. OpenSSL `SSL*` objects tolerate use from a different thread but not simultaneous use from two, and nothing here should imply otherwise.
+- **`ParameterType::Res(_) => false`** (`src/ir/verify/resources.rs:439`) stays — sharing a resource *collection* across threads remains out of scope per spec §15.6. This bug moves single handles only. (bug-463 covers the parse defect on that same path.)
+- No change to any resource record layout, `RESOURCE_RECORD_SIZE`, or the tag/fd/closed/STATE offsets. The fix widens what the copy carries; it must not move what is carried today.
+- No change to `fs::File`, `tcp::Socket`, `udp::Socket` transfer behavior — they are already correct and their goldens must not drift.
+- No mutual TLS, ALPN, SNI, or session resumption — out of scope, unchanged from plan-06.
+
+## Blast Radius
+
+Found by `grep -rn -B6 "sendable: \(true\|false\)" src/codegen/builtins/*/mod.rs` (the
+full builtin-resource census) plus reading `copy_resource_to_current_arena`.
+
+- `src/codegen/builtins/tcp/mod.rs:180` (`tcp::Listener`) — **fixed by this bug.** Record is fd+closed only; policy-only restriction.
+- `src/codegen/builtins/tls/mod.rs:162` (`tls::Socket`) — **fixed by this bug.** Needs the widened copy (CTX@32, SSL@40 / Schannel BLOCK@40).
+- `src/codegen/builtins/tls/mod.rs:174` (`tls::Listener`) — **fixed by this bug.** Needs the widened copy (CTX@32).
+- `src/codegen/memory/arena/builder_arena_transfer.rs:506` `copy_resource_to_current_arena` — **fixed by this bug**; the shared mechanism. Its doc comment ("two-word struct") must be corrected too, or the next reader re-derives the same wrong assumption.
+- `src/codegen/builtins/audio/mod.rs:397,409` (2 audio resources) — **latent, same hazard, out of scope.** They share the >@24 record shape, so once Phase 2 widens the copy they *become* mechanically transferable, but audio handles carry backend callbacks bound to a device thread and need their own audit. Do not opportunistically flip them here; file separately if wanted.
+- `src/codegen/builtins/process/mod.rs:207` (1 process resource) — **latent, out of scope.** Same reasoning; a child-process handle's waitpid semantics are per-thread on some platforms and need their own analysis.
+- `src/codegen/builtins/fs/mod.rs:167` (`fs::File`), `tcp/mod.rs:169` (`tcp::Socket`), `udp/mod.rs:167` (`udp::Socket`) — **unaffected.** Already `sendable: true` and already within the 4-slot shape; they are the regression guards that must not drift.
+- macOS `tls::setReadTimeout`/`setWriteTimeout` (`gen_shared.rs:492` → `macos::lower_tls_set_timeout_macos`) — **must be audited in Phase 1.** Linux/Windows route to the shared socket-level `setsockopt` helper (`gen_shared.rs:494`), so their deadlines are kernel-side and ride the fd. Network.framework has no fd, so macOS may hold the deadline in the record; if it lives past offset 24 it is another slot the copy must carry.
+
+## Fix Design
+
+**Phase 2's core change is to stop hardcoding the copied slot set.** Two options
+considered:
+
+1. *(rejected)* Copy all 96 bytes blindly with a fixed-size block move. Simple, but it would copy the STATE pointer verbatim into the receiver — re-introducing exactly the sender-arena aliasing that bug-257 fixed. Any blind copy must still special-case @24, at which point the "blind" framing is a lie that invites a later regression.
+2. *(recommended)* Give `RegistryResource` a declared **live-slot descriptor**: the byte offsets past the canonical header that hold owned/borrowed words, and for each, whether it moves verbatim (a pointer into a foreign heap, e.g. `SSL*`, `SSL_CTX*`) or needs deep-copy (an arena pointer, like STATE). `copy_resource_to_current_arena` then copies header + STATE (unchanged) + each declared slot. This makes the truncation hazard structurally impossible for future resources instead of relying on a matching `sendable` bit, and it turns "is this resource sendable" back into an honest product decision.
+
+The correctness risk concentrates in the **backend session state**, not the copy:
+
+- **OpenSSL (Linux).** `SSL*` and `SSL_CTX*` are malloc-heap objects, not arena objects, so moving the words is sound. `SSL_CTX` is refcounted and shared with the listener; confirm the accepted socket's borrow (per `tls/mod.rs` — closing an accepted socket never frees the shared context) still holds when socket and listener end up on different threads. OpenSSL 1.1.1+ is thread-safe for *distinct* objects; verify no per-thread error-queue assumption leaks (`ERR_get_error` is per-thread — a handshake error raised on one thread and read on another would report nothing).
+- **Schannel (Windows).** `TLS_SCHANNEL_OFFSET_BLOCK = 40` points at a heap block. Determine whether it is arena- or malloc-allocated. **If arena-allocated it must be deep-copied**, per the `arena-state-is-per-thread` memory note — no thread may free another thread's block, so a verbatim pointer move would have the receiver free into the sender's arena at close.
+- **Network.framework (macOS).** The listener owns a `dispatch_queue_create("mfb.tls")` serial queue (`gen_macos/server.rs:931`) and connections are bound to it via `nw_connection_set_queue` (`server.rs:1543`). Dispatch queues are refcounted and thread-safe, so a move is expected to be sound, but the synchronous bridge uses `dispatch_semaphore_wait(…, DISPATCH_TIME_FOREVER)` (`server.rs:1152`) — confirm a wait entered on the receiving thread is serviced, and that the queue outlives a socket transferred away from its listener's thread.
+
+Expected output shift: `.ncodesum` drift is expected and intended wherever the
+copy routine is emitted, plus new fixtures. Per `AGENTS.md` these are drift
+sentinels — regenerate, then prove the delta is only ours.
+
+## Phases
+
+### Phase 1 — failing tests + audit (no behavior change)
+
+- [ ] Add `tests/syntax/threads/thread-plane-tls-socket-sendable/` reproducing the three rejected thread shapes (`tls::Socket`, `tls::Listener`, `tcp::Listener`) with the current `TYPE_THREAD_NOT_SENDABLE` golden. This is the RED test: its golden inverts in Phase 2.
+- [ ] Add `tests/rt-behavior/threads/thread-transfer-tcp-listener-rt/` — transfer a listener, accept on the worker. Fails to build today.
+- [ ] Add `tests/rt-behavior/threads/thread-transfer-tls-socket-rt/` — transfer a connected TLS socket, read/write on the worker. Fails to build today.
+- [ ] Audit the macOS TLS timeout storage (Blast Radius, last item); record whether it occupies a slot past offset 24 and write the verdict into this file.
+- [ ] Determine whether the Schannel block at offset 40 is arena- or malloc-allocated; write the verdict into this file. This decides verbatim-move vs. deep-copy.
+- [ ] Confirm the full live-slot set for each of the three resources on each of the five targets, and write the table into this file.
+
+Acceptance: the three new tests fail for the documented reason (`2-203-0063`, not an unrelated parse/resolve error); the slot table and both backend verdicts are recorded here.
+Commit: —
+
+### Phase 2 — generalize the transfer copy, then opt the resources in
+
+- [ ] Add the live-slot descriptor to `RegistryResource` and populate it for every builtin resource (empty for the already-sendable ones — that is the assertion that they fit the header shape).
+- [ ] Rewrite `copy_resource_to_current_arena` (`src/codegen/memory/arena/builder_arena_transfer.rs:506`) to copy header + STATE + each declared slot, honoring verbatim vs. deep-copy per slot. Correct its "two-word struct" doc comment.
+- [ ] Only then flip `sendable: true` on `tcp::Listener`, `tls::Socket`, `tls::Listener`, replacing the stale "not thread-sendable in v1" comments with the real rationale.
+- [ ] Verify the close obligation fires exactly once on the receiver for each, including the accepted-socket-borrows-listener-context case.
+
+Acceptance: Phase 1's three tests pass; `fs::File`/`tcp::Socket`/`udp::Socket` transfer behavior is byte-unchanged except for intended copy-routine drift; Non-goals hold.
+Commit: —
+
+### Phase 3 — regenerate, validate every target, sync docs
+
+- [ ] Regenerate `.ncodesum` via `regen-ncodesum.sh` and gate to 0 unexplained diffs with `artifact-gate.sh all`; prove the delta is only the copy routine + new fixtures.
+- [ ] `cargo test --release --no-fail-fast` (full, not filtered) plus the acceptance harness (`test-accept.sh`) — the latter is not in `cargo test`.
+- [ ] Re-run the reproduction and the two rt fixtures on all five targets; TLS especially must be exercised on OpenSSL, Schannel and Network.framework, since the session-state risk is per-backend and a macOS-only pass proves nothing about the other two.
+- [ ] Update `mfb man tls` / `mfb man tcp` prose: both currently state the handles are not thread-sendable (`tls/mod.rs` MODULE_DESC, `tcp/mod.rs:11`).
+- [ ] Update the `websockets` section of `planning/todo.md` — its `wss://` verdict and its "make `tls::Socket` thread-sendable" recommendation both resolve.
+
+Acceptance: full suite green; artifact gate at 0 unexplained diffs; the reproduction builds and runs on every target it previously failed on; docs no longer claim the old restriction.
+Commit: —
+
+## Validation Plan
+
+- Regression tests: the syntax fixture (compile-time acceptance of all three thread shapes) and the two rt-behavior fixtures (runtime proof the transferred handle actually works on the receiver).
+- Runtime proof: a transferred `tls::Socket` completes a real request/response on the worker thread, and a transferred listener accepts a real connection — black-box rt fixtures are sufficient here because the failure mode (wild `SSL*`) is loud, but per the `register-slot-import-bugs-need-codegen-inspection` memory note, add a `.ncode` inspection over the copy routine to prove all declared slots are emitted.
+- Doc sync: `mfb man tls`, `mfb man tcp` (both assert non-sendability today), `planning/todo.md` websockets section, and the `copy_resource_to_current_arena` doc comment.
+- Full suite: `cargo test --release --no-fail-fast`, `test-accept.sh`, `artifact-gate.sh all`.
+
+## Open Decisions
+
+- **Live-slot descriptor vs. per-resource copy hook.** Recommended: the declarative descriptor (Fix Design option 2) — a hook per resource re-scatters the knowledge the descriptor centralizes. (§Fix Design)
+- **Should `tcp::Listener` land first, separately?** It needs no copy change and is a genuinely small fix. Recommended: yes — land it as its own commit inside Phase 2, so the risky TLS work is not blocking an independently correct one-line improvement. It also gives the new syntax fixture a partial green early.
+- **Audio/process resources.** Recommended: leave `sendable: false` and file separately; they gain the *mechanism* from Phase 2 but need their own device-thread/waitpid analysis. (§Blast Radius)
+
+## Summary
+
+The real engineering risk is **not** the registry bits — it is
+`copy_resource_to_current_arena`, which silently truncates any resource record
+past offset 24 and is the actual reason these three handles were fenced off. The
+bug is filed as MEDIUM rather than HIGH because the compiler currently refuses the
+program: no user can reach the unsafe path today. It becomes HIGH the moment
+someone flips a `sendable` bit without Phase 2, which is exactly what the stale
+"not thread-sendable in v1" comments invite. `tcp::Listener` is separable and
+cheap; the TLS pair carries the per-backend session-state risk and must be proven
+on OpenSSL, Schannel and Network.framework independently. Untouched: record
+layouts, the resource-collection thread rule (§15.6), and the three resources that
+already transfer correctly.
