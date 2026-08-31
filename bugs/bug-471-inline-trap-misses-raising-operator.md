@@ -6,7 +6,7 @@ Severity: MEDIUM (miscompile class; narrower shape than bug-457)
 Class: Miscompile (error handling silently defeated; no diagnostic)
 
 Status: FIXED (see the STATUS block at the bottom)
-Regression Test: `tests/rt_inline_trap_raising_operator.rs` (18 cases). **12
+Regression Test: `tests/rt_inline_trap_raising_operator.rs` (20 cases). **12
 measured RED** against this tree before the fix — division by zero, integer
 multiply overflow, `MOD` by zero, `Float` overflow, unary-negation overflow, an
 operator inside a fallible call, `RECOVER` skipping the rest, left-to-right
@@ -14,7 +14,9 @@ order, first-failure-wins, an `Assign` target, an error-ignoring handler, and th
 short-circuit rejection — and **5 controls** green throughout (a successful
 operator, a preceding call failure, a bare-operator scrutinee still rejected,
 bug-457's nested-call shape, and an operator outside any trap still propagating).
-The 18th pins the negative-literal carve-out (§ below).
+Of the remaining three: one pins the negative-literal carve-out by IR shape, and
+two pin the fallibility-oracle defect below — both measured RED here and one of
+them **on the merge-base compiler**, which dates that defect before this fix.
 
 An inline `TRAP` covers every fallible **call** in the trapped expression
 (bug-457, fixed in `daa6c8d35`). It does **not** cover an *operator* in that same
@@ -235,12 +237,48 @@ lockstep with a growing census is what silently loses an arm. Over-approximating
 costs one always-`Ok` check inside a trapped expression, under-approximating is
 the miscompile.
 
-**A second bug fell out.** `two(1 / z, inner(-1))` reported `inner`'s
-`9-000-0001`, not the division's `7-705-0002`: bug-457's lift moved the fallible
-call ahead of an operator that preceded it in source order, so left-to-right
-evaluation (`mfb spec language error-model` §8.1) was violated. Lifting the
-operator too restores it; pinned by
-`the_first_failure_in_evaluation_order_wins`.
+**Two more bugs fell out, both pre-existing.**
+
+*Evaluation order.* `two(1 / z, inner(-1))` reported `inner`'s `9-000-0001`, not
+the division's `7-705-0002`: bug-457's lift moved the fallible call ahead of an
+operator that preceded it in source order, violating left-to-right evaluation
+(`mfb spec language error-model` §8.1). Lifting the operator too restores it;
+pinned by `the_first_failure_in_evaluation_order_wins`.
+
+*The fallibility oracle never looked at operators.* `fallible::analyze` marked a
+function fallible only if its body could `FAIL`, `PROPAGATE`, or call something
+fallible — so `FUNC fltDiv(a AS Float, b AS Float) AS Float / RETURN a / b` was
+recorded **infallible** despite raising `ErrFloatOverflow` on every zero divisor.
+`check_root` consults that verdict whenever anything in the trapped expression
+was lifted, so the ROOT call was left unchecked and its real error propagated
+past the handler.
+
+This is **not** collateral from this fix; it predates it. Measured on a release
+compiler built from the merge-base (`5815262c4`) with bug-457's lift triggered by
+a fallible call rather than an operator:
+
+```basic
+LET y = fltDiv(toFloat(inner(1)), 0.0) TRAP(e)   ' merge-base: exit 255,
+  io::print("caught=" & toString(e.code))        ' uncaught 7-705-0015
+  RECOVER 0.0
+END TRAP
+```
+
+bug-471 only widened its *reach* — a lifted operator became another way to fill
+`hoists` — which is how it surfaced: `tests/acceptance` went 730/732, failing
+exactly the two float cases whose arguments spell `0.0 - 1.0`
+(`arithmetic.mfb:329`, `:337`). The fix teaches `expression_escapes` that an
+arithmetic operator escapes, judged by spelling alone (the walk has no types, and
+arithmetic only type-checks on numeric operands, so the spelling implies the
+type), with the same negative-literal exemption so `RETURN -1` does not make a
+function fallible. Pinned by
+`a_callee_that_raises_only_through_an_operator_is_still_checked` and
+`bug457s_lift_also_keeps_an_operator_raising_root_checked`.
+
+The lesson generalizes past this bug: `fallible.rs`'s own header promises a
+"safe over-approximation … under-approximating would silently drop the error on
+the floor", and it was under-approximating for an entire category of raise site
+because the analysis was written when only calls could reach a handler.
 
 **Deliberately NOT changed: what may *be* a scrutinee.** `LET d = 1 / z TRAP(e)`
 is still `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` — a compile error, not a silent

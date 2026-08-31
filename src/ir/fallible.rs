@@ -281,10 +281,35 @@ fn expression_escapes(expression: &HirExpression, verdicts: &Fallibility) -> boo
         | HirExpression::Scalar(_)
         | HirExpression::Boolean(_)
         | HirExpression::Identifier(_) => false,
-        HirExpression::Binary { left, right, .. } => {
-            expression_escapes(left, verdicts) || expression_escapes(right, verdicts)
+        // bug-471: a RAISING OPERATOR lets an error escape exactly as a failing
+        // call does — `FUNC fltDiv(a AS Float, b AS Float) AS Float / RETURN a / b`
+        // fails with `ErrFloatOverflow`, and every caller must be told so. Judged
+        // by the operator spelling alone: this walk has no types, and an
+        // arithmetic operator only type-checks on numeric operands, so the
+        // spelling already implies the type (`AND`/`OR`/`XOR` are `Boolean`-only,
+        // `&` is `String`-only, comparisons yield `Boolean` — none are listed).
+        //
+        // The `Unary` arm keeps the negative-literal exemption for the same
+        // reason `lower::trap_hoist_kind` does: `RETURN -1` must not make a
+        // function fallible. Its `Number` operand is the parser's spelling of the
+        // literal, not a computed negation
+        // (see `is_total_literal_negation`).
+        HirExpression::Binary {
+            left,
+            operator,
+            right,
+            ..
+        } => {
+            ARITHMETIC_OPERATORS.contains(&operator.as_str())
+                || expression_escapes(left, verdicts)
+                || expression_escapes(right, verdicts)
         }
-        HirExpression::Unary { operand, .. } => expression_escapes(operand, verdicts),
+        HirExpression::Unary {
+            operand, operator, ..
+        } => {
+            (operator == "-" && !matches!(operand.as_ref(), HirExpression::Number(_)))
+                || expression_escapes(operand, verdicts)
+        }
         HirExpression::Call {
             callee, arguments, ..
         } => {

@@ -425,6 +425,81 @@ fn a_handler_that_ignores_the_error_still_recovers() {
     assert_eq!(run(&exe), "d=8\n");
 }
 
+/// A callee whose body raises **only** through an operator is fallible, and the
+/// desugar has to know it (bug-471, second defect).
+///
+/// `fallible::analyze` decided a function could fail only if its body could
+/// `FAIL`, `PROPAGATE`, or call something fallible — it never looked at the
+/// operators, so `FUNC fltDiv(a, b) / RETURN a / b` was recorded **infallible**.
+/// Once anything in the trapped expression is lifted, `check_root` consults that
+/// verdict and leaves the root call unchecked, and the callee's real error
+/// auto-propagates past the handler.
+///
+/// **This predates bug-471.** Measured on a release compiler built from the
+/// merge-base (`5815262c4`) with bug-457's lift triggered by a fallible call
+/// instead of an operator — `fltDiv(toFloat(inner(1)), 0.0) TRAP(e)` exits 255
+/// with an uncaught `7-705-0015` there too. bug-471 only widened its reach, by
+/// making a raising operator another thing that fills `hoists`.
+#[test]
+fn a_callee_that_raises_only_through_an_operator_is_still_checked() {
+    let root = unique_root("calleeop");
+    let exe = build(
+        &root,
+        concat!(
+            "FUNC fltDiv(a AS Float, b AS Float) AS Float\n",
+            "  RETURN a / b\n",
+            "END FUNC\n",
+            "FUNC main() AS Integer\n",
+            // Nothing is lifted here, so the root is checked unconditionally:
+            // this arm worked before the fix and is the control.
+            "  LET x = fltDiv(1.0, 0.0) TRAP(e)\n",
+            "    io::print(\"plain=\" & toString(e.code))\n",
+            "    RECOVER 0.0\n",
+            "  END TRAP\n",
+            // `0.0 - 1.0` is lifted, so `check_root` asks the oracle whether
+            // `fltDiv` can fail. It can.
+            "  LET y = fltDiv(0.0 - 1.0, 0.0) TRAP(e)\n",
+            "    io::print(\"hoisted=\" & toString(e.code))\n",
+            "    RECOVER 0.0\n",
+            "  END TRAP\n",
+            "  io::print(\"x=\" & toString(x) & \" y=\" & toString(y))\n",
+            "  RETURN 0\n",
+            "END FUNC\n",
+        ),
+    );
+    assert_eq!(
+        run(&exe),
+        "plain=77050015\nhoisted=77050015\nx=0.00 y=0.00\n",
+        "the root call must stay checked when its callee raises through an operator"
+    );
+}
+
+/// The same hole reached the way it existed *before* bug-471: bug-457's lift is
+/// triggered by a nested fallible **call**, and the root callee raises only
+/// through an operator. This is the shape that reproduces on the merge-base
+/// compiler, so it dates the defect independently of the operator lift.
+#[test]
+fn bug457s_lift_also_keeps_an_operator_raising_root_checked() {
+    let root = unique_root("calleeop457");
+    let exe = build(
+        &root,
+        concat!(
+            "FUNC fltDiv(a AS Float, b AS Float) AS Float\n",
+            "  RETURN a / b\n",
+            "END FUNC\n",
+            "FUNC main() AS Integer\n",
+            "  LET y = fltDiv(toFloat(inner(1)), 0.0) TRAP(e)\n",
+            "    io::print(\"caught=\" & toString(e.code))\n",
+            "    RECOVER 0.0\n",
+            "  END TRAP\n",
+            "  io::print(\"y=\" & toString(y))\n",
+            "  RETURN 0\n",
+            "END FUNC\n",
+        ),
+    );
+    assert_eq!(run(&exe), "caught=77050015\ny=0.00\n");
+}
+
 /// Build the project with `--ir` and return the emitted IR JSON.
 fn build_ir(root: &Path, source: &str) -> String {
     fs::create_dir_all(root.join("src")).expect("src dir");
