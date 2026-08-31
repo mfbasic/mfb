@@ -301,6 +301,19 @@ Every item below was measured, not recalled; the command or probe is named.
    (`Socket or Listener` vs `Socket`); rows 4 and 5 differ as described. No row
    needed revision.
 
+## Merge: main advanced by 33 commits (plan-98 A–E) mid-verification
+
+plan-98's canvas subsystem landed while this bug's standalone sweep was running,
+so the worktree's green does not stand on its own — main has to be merged in and
+the full suite re-run before this can land.
+
+Conflict surface, measured with `comm -12` over the two `--name-only` diffs from
+the merge base: **8 files**. Seven are shared tables where both sides append rows
+(`codegen/engine/builder/mod.rs`'s force-emit pairs, `data_objects.rs`'s error
+gate, and the three targets' runtime-call lists plus two plan import branches) —
+additive on both sides, so resolution is "keep both", not "pick one". The eighth
+is the golden below.
+
 ## Merge hazard: one golden collides with plan-98
 
 `tests/byte-identity/http/golden/http_codegen_cover_rt.macos-aarch64.ncodesum`
