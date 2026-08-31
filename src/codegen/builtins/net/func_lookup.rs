@@ -89,7 +89,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::req("host", "The host name or textual IP address to resolve. Passed to the host resolver as written; a malformed or unresolvable value raises an error.", &[], ParameterType::String),
                 super::opt("port", "Optional, defaulting to `0`. The port recorded on every returned `net::Address`. It is stored on the results and does not influence resolution.", ParameterType::Integer),
             ],
-            return_type: ParameterType::list_of(ParameterType::named(super::ADDRESS_TYPE)),
+            return_type: ParameterType::list_of(ParameterType::named(super::ADDRESS_TYPE_ID)),
             errors: vec![],
             body: super::native_body(lower_lookup, &[]),
         }],

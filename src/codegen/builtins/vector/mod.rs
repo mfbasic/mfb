@@ -612,8 +612,8 @@ mod tests {
         assert_eq!(pkg.functions().len(), 19);
         assert_eq!(pkg.records().len(), 9);
         // The nine records are visible to the generic type query.
-        assert!(registry().is_builtin_type("Float3"));
-        assert!(registry().is_builtin_type("Integer2"));
+        assert!(registry().is_builtin_type("vector.Float3"));
+        assert!(registry().is_builtin_type("vector.Integer2"));
         assert!(!registry().is_builtin_type("Float5"));
         // `vector` imports the intrinsic `math` package.
         assert_eq!(pkg.imports(), &["math"]);
@@ -627,72 +627,72 @@ mod tests {
             super::resolve_return_type(name, &types(args)).map(|t| t.name().into_owned())
         };
         // Scalar-returning members echo the element type.
-        assert_eq!(r("vector.length", &["Float3"]).as_deref(), Some("Float"));
+        assert_eq!(r("vector.length", &["vector.Float3"]).as_deref(), Some("Float"));
         assert_eq!(
-            r("vector.length", &["Integer2"]).as_deref(),
+            r("vector.length", &["vector.Integer2"]).as_deref(),
             Some("Integer")
         );
         assert_eq!(
-            r("vector.dot", &["Fixed4", "Fixed4"]).as_deref(),
+            r("vector.dot", &["vector.Fixed4", "vector.Fixed4"]).as_deref(),
             Some("Fixed")
         );
         // Vector-returning members echo the argument type.
         assert_eq!(
-            r("vector.normalize", &["Float3"]).as_deref(),
-            Some("Float3")
+            r("vector.normalize", &["vector.Float3"]).as_deref(),
+            Some("vector.Float3")
         );
         assert_eq!(
-            r("vector.reflect", &["Float3", "Float3"]).as_deref(),
-            Some("Float3")
+            r("vector.reflect", &["vector.Float3", "vector.Float3"]).as_deref(),
+            Some("vector.Float3")
         );
         // cross by dimension/arity.
-        assert_eq!(r("vector.cross", &["Float2"]).as_deref(), Some("Float2"));
+        assert_eq!(r("vector.cross", &["vector.Float2"]).as_deref(), Some("vector.Float2"));
         assert_eq!(
-            r("vector.cross", &["Float3", "Float3"]).as_deref(),
-            Some("Float3")
+            r("vector.cross", &["vector.Float3", "vector.Float3"]).as_deref(),
+            Some("vector.Float3")
         );
         assert_eq!(
-            r("vector.cross", &["Float4", "Float4", "Float4"]).as_deref(),
-            Some("Float4")
+            r("vector.cross", &["vector.Float4", "vector.Float4", "vector.Float4"]).as_deref(),
+            Some("vector.Float4")
         );
-        assert_eq!(r("vector.cross", &["Float3"]), None);
+        assert_eq!(r("vector.cross", &["vector.Float3"]), None);
         // clamp_length: the scalar max is the element type.
         assert_eq!(
-            r("vector.clamp_length", &["Float3", "Float"]).as_deref(),
-            Some("Float3")
+            r("vector.clamp_length", &["vector.Float3", "Float"]).as_deref(),
+            Some("vector.Float3")
         );
-        assert_eq!(r("vector.clamp_length", &["Fixed2", "Float"]), None);
+        assert_eq!(r("vector.clamp_length", &["vector.Fixed2", "Float"]), None);
         // 2D-only members.
         assert_eq!(
-            r("vector.perpendicular", &["Float2"]).as_deref(),
-            Some("Float2")
+            r("vector.perpendicular", &["vector.Float2"]).as_deref(),
+            Some("vector.Float2")
         );
-        assert_eq!(r("vector.perpendicular", &["Float3"]), None);
+        assert_eq!(r("vector.perpendicular", &["vector.Float3"]), None);
         assert_eq!(
-            r("vector.rotate_2d", &["Float2", "Float"]).as_deref(),
-            Some("Float2")
+            r("vector.rotate_2d", &["vector.Float2", "Float"]).as_deref(),
+            Some("vector.Float2")
         );
         // Mismatched vector types / scalar args are rejected.
-        assert_eq!(r("vector.distance", &["Float3", "Float2"]), None);
+        assert_eq!(r("vector.distance", &["vector.Float3", "vector.Float2"]), None);
         assert_eq!(r("vector.abs", &["String"]), None);
     }
 
     #[test]
     fn rewrite_targets_are_type_specific() {
         assert_eq!(
-            super::rewrite_target("vector.length", &strings(&["Float3"])),
+            super::rewrite_target("vector.length", &strings(&["vector.Float3"])),
             Some("__vector_length_float3")
         );
         assert_eq!(
-            super::rewrite_target("vector.length", &strings(&["Integer2"])),
+            super::rewrite_target("vector.length", &strings(&["vector.Integer2"])),
             Some("__vector_length_integer2")
         );
         assert_eq!(
-            super::rewrite_target("vector.cross", &strings(&["Float2"])),
+            super::rewrite_target("vector.cross", &strings(&["vector.Float2"])),
             Some("__vector_cross_float2")
         );
         assert_eq!(
-            super::rewrite_target("vector.angle", &strings(&["Integer2", "Integer2"])),
+            super::rewrite_target("vector.angle", &strings(&["vector.Integer2", "vector.Integer2"])),
             Some("__vector_angle_integer2")
         );
     }
@@ -720,7 +720,7 @@ mod tests {
             registry::constant_type_name("vector.upFloat3")
                 .map(|t| t.name().into_owned())
                 .as_deref(),
-            Some("Float3")
+            Some("vector.Float3")
         );
         assert_eq!(
             registry::constant_components("vector.upFloat3"),
@@ -740,14 +740,14 @@ mod tests {
         assert_eq!(
             registry::general_override_target(
                 "toString",
-                &crate::types::ParameterType::parse("Float2")
+                &crate::types::ParameterType::parse("vector.Float2")
             ),
             Some("__vector_toString_float2")
         );
         assert_eq!(
             registry::general_override_target(
                 "toString",
-                &crate::types::ParameterType::parse("Integer4")
+                &crate::types::ParameterType::parse("vector.Integer4")
             ),
             Some("__vector_toString_integer4")
         );

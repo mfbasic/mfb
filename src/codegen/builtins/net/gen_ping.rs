@@ -1873,7 +1873,7 @@ mod tests {
             .find(|f| f.name == "ping")
             .expect("ping member");
         assert_eq!(ping.implementations.len(), 2);
-        let expected = crate::types::ParameterType::named(super::super::PING_RESULT_TYPE);
+        let expected = crate::types::ParameterType::named(super::super::PING_RESULT_TYPE_ID);
         for implementation in &ping.implementations {
             assert_eq!(implementation.return_type, expected);
             // One required parameter plus three optional ones, on both overloads.
@@ -1885,7 +1885,7 @@ mod tests {
         );
         assert_eq!(
             ping.implementations[1].params[0].ty,
-            crate::types::ParameterType::named(super::super::ADDRESS_TYPE)
+            crate::types::ParameterType::named(super::super::ADDRESS_TYPE_ID)
         );
     }
 }

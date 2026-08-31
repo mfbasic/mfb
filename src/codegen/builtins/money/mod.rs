@@ -139,7 +139,7 @@ mod tests {
             registry::call_return_type_typed(GET_ROUNDING)
                 .map(|t| t.name().into_owned())
                 .as_deref(),
-            Some("Rounding")
+            Some("money.Rounding")
         );
         assert_eq!(
             registry::call_return_type_typed(ROUND)
@@ -174,7 +174,7 @@ mod tests {
         );
         assert_eq!(
             registry::argument_types(SET_ROUNDING),
-            Some(vec!["Rounding".to_string()])
+            Some(vec!["money.Rounding".to_string()])
         );
         // getRounding takes no arguments -> an empty positional signature.
         assert_eq!(registry::argument_types(GET_ROUNDING), Some(vec![]));

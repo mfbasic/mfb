@@ -96,11 +96,22 @@ mod gen_ping;
 /// (the `RegistryResource`/`RegistryRecord` name, the `type` half of a qualified
 /// id). Used for registry-internal lookups and by the code layer.
 pub(crate) const ADDRESS_TYPE: &str = "Address";
+
+/// The `Address` record's **package-qualified type identity** — what a value of it
+/// is spelled as once the value-type namespace is package-scoped (bug-480 Phase
+/// 4b), the same `*_TYPE` / `*_TYPE_ID` split plan-97 established for resources.
+/// `ADDRESS_TYPE` stays the bare member id the registry row declares.
+pub(crate) const ADDRESS_TYPE_ID: &str = "net.Address";
 /// The `PingStatus` enum and `PingResult` record `net::ping` reports through
 /// (plan-110-A). `PingStatus`'s variant ORDER is its wire contract: a variant's
 /// ordinal is its declaration index, and `gen_ping` emits those ordinals directly.
 pub(crate) const PING_STATUS_TYPE: &str = "PingStatus";
 pub(crate) const PING_RESULT_TYPE: &str = "PingResult";
+
+/// `PingResult`'s package-qualified type identity (bug-480 Phase 4b), the
+/// `*_TYPE` / `*_TYPE_ID` split plan-97 established for resources. The bare
+/// constant stays the registry row's member id.
+pub(crate) const PING_RESULT_TYPE_ID: &str = "net.PingResult";
 /// The `Url` value record's name — registry-modeled (`add_record`, DOC
 /// round-tripped via `description`).
 pub(crate) const URL_TYPE: &str = "Url";

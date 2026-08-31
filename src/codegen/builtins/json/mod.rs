@@ -276,8 +276,8 @@ mod tests {
         let pkg = registry().resolve_package("json").expect("json package");
         assert_eq!(pkg.functions().len(), 4);
         // The Json union and its member records are visible to the generic type query.
-        assert!(registry().is_builtin_type("Json"));
-        assert!(registry().is_builtin_type("JsonObj"));
+        assert!(registry().is_builtin_type("json.Json"));
+        assert!(registry().is_builtin_type("json.JsonObj"));
         assert!(!registry().is_builtin_type("Nope"));
     }
 
@@ -297,7 +297,7 @@ mod tests {
             registry::call_return_type_typed("json.parse")
                 .map(|t| t.name().into_owned())
                 .as_deref(),
-            Some("Json")
+            Some("json.Json")
         );
         assert_eq!(
             registry::call_return_type_typed("json.stringify")

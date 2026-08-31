@@ -1609,12 +1609,32 @@ impl Registry {
             _ => None,
         };
         let head = head_owned.as_deref();
+        // bug-480 Phase 4b: a builtin value type is named `crypto.Sealed` now, while
+        // a registry row still carries the bare member id it declares. Accept both --
+        // callers hand this whatever the type system holds, which is the qualified
+        // form, and matching only the bare id made every such probe answer `false`.
+        let matches = |package: &RegistryPackage, row: &str| {
+            row == name
+                || name
+                    .strip_prefix(package.import_name())
+                    .and_then(|rest| rest.strip_prefix('.'))
+                    .is_some_and(|leaf| leaf == row)
+        };
         self.packages().iter().any(|package| {
-            package.records().iter().any(|record| record.name == name)
-                || package.unions().iter().any(|union| union.name == name)
-                || package.enums().iter().any(|r#enum| r#enum.name == name)
+            package
+                .records()
+                .iter()
+                .any(|record| matches(package, record.name))
+                || package.unions().iter().any(|union| matches(package, union.name))
+                || package
+                    .enums()
+                    .iter()
+                    .any(|r#enum| matches(package, r#enum.name))
                 // `datetime`'s value records/enums live in its injected companion source.
-                || package.source_types().contains(&name)
+                || package
+                    .source_types()
+                    .iter()
+                    .any(|source| matches(package, source))
                 || head.is_some_and(|head| package.source_types().contains(&head))
         })
     }
@@ -1972,7 +1992,25 @@ pub(crate) fn constant_type_name(qualified: &str) -> Option<ParameterType> {
     // applied to it — callers stay typed instead of each classifying the
     // spelling themselves. Storing a `ParameterType` in the descriptor directly
     // is a const-context change, not this plan's.
-    find_constant(qualified).map(|constant| ParameterType::declared(constant.type_name))
+    find_constant(qualified).map(|constant| {
+        // bug-480 Phase 4b: `type_name` is a `&'static str` descriptor literal and
+        // stays the bare member id, but a constant's TYPE has to be the qualified
+        // identity or a folded record constant (`vector::zeroFloat3`) denotes a
+        // type that no longer exists. Qualify with the constant's own package,
+        // which is the head of `qualified`.
+        let declared = ParameterType::declared(constant.type_name);
+        match qualified.split_once('.') {
+            Some((package, _)) if !constant.type_name.contains('.') => {
+                let candidate = format!("{package}.{}", constant.type_name);
+                if registry().is_builtin_type(&candidate) {
+                    ParameterType::declared(&candidate)
+                } else {
+                    declared
+                }
+            }
+            _ => declared,
+        }
+    })
 }
 
 /// The literal a migrated **scalar** constant `qualified` folds to, or `None` (a record

@@ -100,7 +100,7 @@ pub(crate) const LISTENER_TYPE_ID: &str = "tcp.Listener";
 /// `net::Address` as this package refers to it. Endpoints are the shared `net`
 /// record, not a tcp-local copy.
 pub(crate) fn address() -> ParameterType {
-    ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE)
+    ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE_ID)
 }
 
 pub(crate) fn socket() -> ParameterType {
@@ -219,11 +219,11 @@ mod tests {
         // Qualified lookup resolves both handles...
         assert_eq!(
             registry().qualified_builtin_type(super::SOCKET_TYPE_ID),
-            Some(super::SOCKET_TYPE.to_string())
+            Some(super::SOCKET_TYPE_ID.to_string())
         );
         assert_eq!(
             registry().qualified_builtin_type(super::LISTENER_TYPE_ID),
-            Some(super::LISTENER_TYPE.to_string())
+            Some(super::LISTENER_TYPE_ID.to_string())
         );
         // ...and they are recognized as builtin resources with tcp's own close op,
         // not net's. If these ever came back as `net.close`, a tcp socket would be

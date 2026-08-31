@@ -703,49 +703,49 @@ mod tests {
             let types: Vec<String> = args.iter().map(|s| s.to_string()).collect();
             registry::resolve_call(call, &types, false)
         };
-        assert_eq!(r("datetime.now", &[]), Some("Instant".into()));
-        assert_eq!(r("datetime.monotonic", &[]), Some("Duration".into()));
-        assert_eq!(r("datetime.utc", &[]), Some("Zone".into()));
-        assert_eq!(r("datetime.instant", &["Integer"]), Some("Instant".into()));
+        assert_eq!(r("datetime.now", &[]), Some("datetime.Instant".into()));
+        assert_eq!(r("datetime.monotonic", &[]), Some("datetime.Duration".into()));
+        assert_eq!(r("datetime.utc", &[]), Some("datetime.Zone".into()));
+        assert_eq!(r("datetime.instant", &["Integer"]), Some("datetime.Instant".into()));
         assert_eq!(
             r(
                 "datetime.instant",
                 &["Integer", "Integer", "Integer", "Integer", "Integer"]
             ),
-            Some("Instant".into())
+            Some("datetime.Instant".into())
         );
         assert_eq!(
             r("datetime.duration", &["Integer", "Integer"]),
-            Some("Duration".into())
+            Some("datetime.Duration".into())
         );
         assert_eq!(
             r("datetime.date", &["Integer", "Integer", "Integer"]),
-            Some("Date".into())
+            Some("datetime.Date".into())
         );
         assert_eq!(
             r("datetime.time", &["Integer", "Integer"]),
-            Some("Time".into())
+            Some("datetime.Time".into())
         );
-        assert_eq!(r("datetime.fixedOffset", &["Integer"]), Some("Zone".into()));
+        assert_eq!(r("datetime.fixedOffset", &["Integer"]), Some("datetime.Zone".into()));
         assert_eq!(
-            r("datetime.inZone", &["Instant", "Zone"]),
-            Some("DateTime".into())
-        );
-        assert_eq!(
-            r("datetime.between", &["Instant", "Instant"]),
-            Some("Duration".into())
+            r("datetime.inZone", &["datetime.Instant", "datetime.Zone"]),
+            Some("datetime.DateTime".into())
         );
         assert_eq!(
-            r("datetime.isBefore", &["Instant", "Instant"]),
+            r("datetime.between", &["datetime.Instant", "datetime.Instant"]),
+            Some("datetime.Duration".into())
+        );
+        assert_eq!(
+            r("datetime.isBefore", &["datetime.Instant", "datetime.Instant"]),
             Some("Boolean".into())
         );
         assert_eq!(
             r("datetime.parse", &["String", "String"]),
-            Some("DateTime".into())
+            Some("datetime.DateTime".into())
         );
         assert_eq!(
-            r("datetime.parse", &["String", "String", "Zone"]),
-            Some("DateTime".into())
+            r("datetime.parse", &["String", "String", "datetime.Zone"]),
+            Some("datetime.DateTime".into())
         );
         assert_eq!(r("datetime.nowNanos", &[]), Some("Integer".into()));
         assert_eq!(
@@ -806,7 +806,7 @@ mod tests {
             Some("__datetime_parse2")
         );
         assert_eq!(
-            select_rewrite("parse", &["String", "String", "Zone"]),
+            select_rewrite("parse", &["String", "String", "datetime.Zone"]),
             Some("__datetime_parse3")
         );
     }
@@ -828,8 +828,8 @@ mod tests {
         // The value records/enums are registry-modeled and
         // recognized through the generic registry via `add_record`.
         for t in [
-            "Instant", "Duration", "Date", "Time", "Zone", "DateTime", "ZoneKind", "Weekday",
-            "Month",
+            "datetime.Instant", "datetime.Duration", "datetime.Date", "datetime.Time", "datetime.Zone", "datetime.DateTime", "datetime.ZoneKind", "datetime.Weekday",
+            "datetime.Month",
         ] {
             assert!(registry().is_builtin_type(t), "{t}");
         }

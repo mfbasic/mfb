@@ -158,7 +158,7 @@ mod tests {
             registry::call_return_type_typed(GET_MODE)
                 .map(|t| t.name().into_owned())
                 .as_deref(),
-            Some("Mode")
+            Some("app.Mode")
         );
         assert_eq!(
             registry::call_return_type_typed(SET_MODE)
@@ -186,7 +186,7 @@ mod tests {
         // `setMode` takes a single `Mode`; `getMode` takes no arguments.
         assert_eq!(
             registry::argument_types(SET_MODE),
-            Some(vec!["Mode".to_string()])
+            Some(vec!["app.Mode".to_string()])
         );
         assert_eq!(registry::argument_types(GET_MODE), Some(vec![]));
     }
