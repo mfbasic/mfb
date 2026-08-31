@@ -14,12 +14,16 @@
 //! (`_mfb_rt_process_reaper`, a `waitpid` on exactly that pid) and leaves the
 //! process-wide `SIGCHLD` disposition alone.
 //!
-//! Two halves, both runtime effects the golden harness cannot see:
+//! Three parts, all runtime effects the golden harness cannot see:
 //!   1. `first=7` — the real exit code of a child that was never detached,
 //!      observed after an unrelated `detach`. This is the bug.
 //!   2. `probe=.` — the detached child is still reaped, leaving no zombie.
 //!      `detach`'s other contract, which the fix must not trade away. (A zombie
 //!      renders as `probe=Z.`; verified by removing the `detach`.)
+//!   3. `done=3` / `after=5` — detaching a handle a `waitFor` already reaped
+//!      starts no reaper at all. That pid may already have been recycled onto a
+//!      later child, and a reaper waiting on it would eat that child's exit
+//!      status — bug-474 in miniature.
 //!
 //! Both children are identified by their own pids, never by "the only child",
 //! so the test is unaffected by anything else the suite runs concurrently.
@@ -51,6 +55,15 @@ FUNC main AS Integer
   os::sleep(1500)
   RES probe = process::shell("ps -o stat= -p " & toString(quickPid) & " | tr -d ' \n'; echo .")
   io::print("probe=" & process::receive(probe))
+
+  ' A `waitFor` before the `detach` already reaped the child, so `detach` must
+  ' start no reaper at all: that pid may already have been recycled onto a LATER
+  ' child, whose exit status the reaper would then eat.
+  RES done = process::shell("exit 3")
+  io::print("done=" & toString(process::waitFor(done)))
+  process::detach(done)
+  RES after = process::shell("exit 5")
+  io::print("after=" & toString(process::waitFor(after)))
   RETURN 0
 END FUNC
 "#;
@@ -79,6 +92,13 @@ fn detach_preserves_wait_for_exit_code_of_other_children() {
         "process::detach left the detached child unreaped (a zombie). Expected \
          `probe=.`, got:\n{stdout}"
     );
+    for expected in ["done=3", "after=5"] {
+        assert!(
+            stdout.contains(expected),
+            "detaching an ALREADY-reaped handle must start no reaper and must not \
+             disturb a later child's exit code. Expected `{expected}`, got:\n{stdout}"
+        );
+    }
 
     let _ = std::fs::remove_dir_all(&project);
 }

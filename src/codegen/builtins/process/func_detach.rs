@@ -169,7 +169,16 @@ pub(crate) fn lower_process_detach_helper_posix(
     // graceful: at the thread limit `pthread_create` returns `EAGAIN`, the `b.ne`
     // below skips the detach, and the child is simply left for the program's exit to
     // reparent. `detach` still succeeds and no other child's exit status is touched.
+    //
+    // Skip the whole thing when the child has ALREADY been reaped (a `waitFor` or
+    // `isRunning` before the `detach` sets `PROC_REAPED`). There is nothing left to
+    // wait for, and starting a reaper on a dead pid is not merely wasteful: the
+    // kernel may already have recycled that pid onto a LATER child of ours, and the
+    // reaper would then consume that child's exit status — bug-474 in miniature.
     instructions.extend([
+        abi::load_u64(&fd, &file, PROC_REAPED),
+        abi::compare_immediate(&fd, "0"),
+        abi::branch_ne(&no_reaper),
         abi::load_u64(&pid, &file, RESOURCE_OFFSET_HANDLE),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), TID_SLOT),
         abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), TID_SLOT),
