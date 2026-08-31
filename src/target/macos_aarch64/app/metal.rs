@@ -1492,6 +1492,40 @@ mod tests {
         }
     }
 
+    /// The frame is committed and then **waited on**, in that order, exactly once.
+    ///
+    /// This is what makes D's frame counter a real completion signal (plan-98-E
+    /// Phase 3). `__canvas_renderLoop` advances the counter by calling
+    /// `canvas::frameDone()` *after* `__canvas_renderFrame()` returns, so as long as
+    /// this function does not return until `waitUntilCompleted` has, the counter
+    /// cannot move before the GPU has finished — and every consumer D built on it
+    /// (the scene ring's retirement gate, `MFB_CANVAS_SYNC`) inherits that ordering
+    /// unchanged.
+    ///
+    /// It also underwrites the texture free. The offscreen target is released at the
+    /// *start* of a later frame, which is after this wait returned, so no GPU work
+    /// can still be reading it. Drop the wait — to make the present asynchronous, say
+    /// — and both properties go with it silently: frames would still render and the
+    /// tests that diff pixels would still pass, because the CPU would simply read a
+    /// texture the GPU had not finished writing *most* of the time.
+    #[test]
+    fn the_frame_is_committed_then_waited_on() {
+        let func = emit_metal_draw();
+        let order: Vec<&str> = func
+            .relocations
+            .iter()
+            .filter(|r| r.kind == RelocIntent::DataAddrHi)
+            .map(|r| r.to.as_str())
+            .filter(|name| *name == SEL_COMMIT.0 || *name == SEL_WAIT_UNTIL_COMPLETED.0)
+            .collect();
+        assert_eq!(
+            order,
+            vec![SEL_COMMIT.0, SEL_WAIT_UNTIL_COMPLETED.0],
+            "the frame renderer must -commit the command buffer and then \
+             -waitUntilCompleted it, once each and in that order; got {order:?}"
+        );
+    }
+
     /// A resize releases the outgoing texture before allocating its replacement.
     ///
     /// A leak here is a whole surface's worth of pixels per resize step — several

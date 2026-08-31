@@ -224,6 +224,87 @@ fn sync_mode_gives_one_frame_per_changed_present() {
     );
 }
 
+/// D's frame counter, driven through the Metal renderer, still advances once per
+/// changed present — and only after the GPU has finished the frame.
+///
+/// This is plan-98-E Phase 3's claim (Correction 12). The counter *is*
+/// `lastCompletedFrame`: `__canvas_renderLoop` calls `canvas::frameDone()` after
+/// `__canvas_renderFrame()` returns, and on the Metal path that return is behind
+/// `[commandBuffer waitUntilCompleted]` — the GPU has finished before the counter can
+/// move. Every consumer D built on it (the scene ring's retirement gate,
+/// `MFB_CANVAS_SYNC`) therefore sees GPU-completion ordering with no change of its
+/// own, which is exactly what "renderer-swappable frame-completion signal" was
+/// supposed to buy.
+///
+/// Counting frames is what makes that observable from outside: a counter that moved
+/// early would produce more frames than presents, and one that never moved would hang
+/// the sync wait.
+#[test]
+fn the_metal_path_gives_one_completed_frame_per_changed_present() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let body = format!(
+        "{ONE_BOX}  canvas::present([box])\n  \
+         LET two AS DrawItem = Rectangle[x := 80.0, y := 10.0, w := 50.0, h := 50.0, \
+         paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+         canvas::present([box, two])\n  \
+         LET three AS DrawItem = Rectangle[x := 150.0, y := 10.0, w := 50.0, h := 50.0, \
+         paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
+         canvas::present([box, two, three])\n  io::print(\"done\")\n"
+    );
+    let (out, frames) = run_with("canvas_gfx_sync_metal", &program(&body), true, true);
+    if !frames
+        .last()
+        .is_some_and(|line| line.contains("metalReady=TRUE"))
+    {
+        return; // no Metal device on this host
+    }
+    assert!(
+        out.contains("done"),
+        "the program must run to completion: {out}"
+    );
+    assert_eq!(
+        frames.len(),
+        3,
+        "each changed present must produce exactly one completed Metal frame: {frames:?}",
+    );
+}
+
+/// The scene ring's frame skip survives the Metal renderer.
+///
+/// The skip is decided in `canvas::present` on the *worker*, so it should be
+/// renderer-independent — but "should be" is the claim under test. If the Metal path
+/// advanced the frame counter differently the retirement gate would drain at a
+/// different rate, and three identical presents would stop collapsing to one frame.
+#[test]
+fn an_identical_re_present_draws_no_second_metal_frame() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let (_, frames) = run_with(
+        "canvas_gfx_skip_metal",
+        &program(&format!(
+            "{ONE_BOX}  canvas::present([box])\n  canvas::present([box])\n  \
+             canvas::present([box])\n  io::print(\"done\")\n"
+        )),
+        true,
+        true,
+    );
+    if !frames
+        .last()
+        .is_some_and(|line| line.contains("metalReady=TRUE"))
+    {
+        return;
+    }
+    assert_eq!(
+        frames.len(),
+        1,
+        "three identical presents must publish — and draw — once on Metal too: \
+         {frames:?}",
+    );
+}
+
 /// The renderer seam reports a real Metal device, and selecting it is opt-in.
 ///
 /// This is plan-98-E's first checkable claim, and it is deliberately about the

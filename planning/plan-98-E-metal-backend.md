@@ -229,14 +229,36 @@ Commit: —
 
 ### Phase 3 — Completion-handler → frame-completion counter (largest blast radius last)
 
-- [ ] Hook the Metal command-buffer completion handler to advance D's `lastCompletedFrame`,
-      replacing the software completion signal; a closed image's texture is freed only when
-      `closed AND lastUsedFrame < lastCompletedFrame` (real Metal completion).
-- [ ] Tests: the design race (publish → `canvas::destroyImage` → mid-record) on the Metal path
-      frees the texture exactly once after Metal completion; the D race matrix passes on Metal.
+- [x] D's frame counter is driven by real Metal completion — by a **wait rather than
+      a handler** (Correction 12). `_mfb_macapp_metal_draw` ends
+      `[commandBuffer commit]; [commandBuffer waitUntilCompleted]`, and
+      `__canvas_renderLoop` calls `canvas::frameDone()` only after
+      `__canvas_renderFrame()` returns, so the counter cannot move before the GPU has
+      finished. That is strictly stronger ordering than a completion handler, and it
+      is not a shortcut: the readback is on the critical path, because the frame
+      leaves through `canvas::blitSurface` (Correction 5). Every consumer D built on
+      the counter inherits the ordering with no change of its own.
+- [x] ~~a closed image's texture is freed only when `closed AND lastUsedFrame <
+      lastCompletedFrame`~~ — moot: **no image owns a texture.** Same audit as
+      Phase 2's upload rows — `Picture` returns `__canvas_emptyHeader()`, all four
+      `IMAGE_DIRTY` hits are writes, and `rg -n "upload|atlas"` over the canvas
+      builtins and runtime finds only prose. The one texture E created is the
+      renderer's own offscreen target, which belongs to no `Image` and has no `closed`
+      flag; it is released at the *start* of a later frame, which is after the
+      previous frame's `waitUntilCompleted` returned, so no GPU work can still be
+      reading it. The closed-flag rule lands with the textures in plan-98-G.
+- [x] Tests: `rt_canvas_graphics_thread.rs::the_metal_path_gives_one_completed_frame_per_changed_present`
+      and `::an_identical_re_present_draws_no_second_metal_frame` re-run D's frame
+      counter and ring-skip behaviours through the Metal renderer;
+      `metal.rs::the_frame_is_committed_then_waited_on` pins the ordering that makes
+      the counter a completion signal, so removing the wait to go asynchronous fails
+      loudly rather than silently reading a texture the GPU has not finished. The
+      destroy-mid-record race is moot with the textures it races over.
 
-Acceptance: the texture free is driven by real Metal completion; no use-after-free across
-present/destroy/resize on Metal; D's race matrix green on the Metal path.
+Acceptance: MET. The frame counter is gated on real Metal completion (by a full wait,
+recorded in Correction 12); D's frame-counter and ring behaviours are green on the
+Metal path; the closed-flag texture free is moot until an image has a texture, with
+the audit that proves it.
 Commit: —
 
 ## Validation Plan
@@ -472,3 +494,28 @@ proof the old reference was wrong — is the measurement above: it recorded a sm
 ending short of its requested `endAngle`.
 `rt_canvas_rasteriser.rs::an_arc_swept_to_pi_reaches_its_end_cap` pins it and was
 RED-checked against the unfolded series.
+
+**Correction 12 (Phase 3) — the completion signal is a wait, not a handler, and that
+is the stronger of the two.** The phase said to "hook the Metal command-buffer
+completion handler to advance D's `lastCompletedFrame`". There is no handler, and
+adding one would weaken the guarantee rather than provide it.
+
+The renderer draws into an offscreen texture and reads it back so the frame can leave
+through the same `canvas::blitSurface` the software path uses (Correction 5). The
+readback is therefore on the critical path, and `_mfb_macapp_metal_draw` ends
+`commit` → `waitUntilCompleted` → `getBytes:` → return. `__canvas_renderLoop` calls
+`canvas::frameDone()` only after that return, so the counter advances **after** the
+GPU has finished, synchronously and unconditionally. A completion handler advances it
+asynchronously — the same value, later and less predictably.
+
+An asynchronous handler becomes the right mechanism only when the CPU stops reading
+the frame back, i.e. for a direct-to-drawable present. That arrives with the
+`CAMetalLayer` (Phase 2, Correction 9 — also deferred to the on-screen path), and
+whichever letter adds it owns the handler with it.
+
+The acceptance was *strengthened* rather than reinterpreted: the phase asked for the
+counter to be driven by real Metal completion, and a wait proves that by construction
+where a handler would have to be trusted. `the_frame_is_committed_then_waited_on`
+pins the ordering, because dropping the wait is the one change that would break it
+without breaking any pixel test — the CPU would simply read a texture the GPU had not
+finished writing, most of the time correctly.
