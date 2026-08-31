@@ -90,7 +90,7 @@ handshake, returning a socket that is byte-for-byte interchangeable with a clien
 socket. `tls::read` receives decrypted data as bytes; `tls::write` sends data,
 accepting either bytes or a `String`; and `tls::close` tears down a socket or a
 listener.
-For plain unencrypted TCP and UDP, use `net`.
+For plain unencrypted TCP use `tcp`; for datagrams use `udp`.
 
 
 The package defines two built-in types. `Socket` is a connected TLS stream —
@@ -102,7 +102,10 @@ Each is closed automatically by lexical drop when its binding leaves scope, so
 `tls::close` is needed only to release a handle earlier; unlike `tcp::close`,
 `tls::close` consumes the handle and treats an already-closed handle as success
 rather than an error. Neither handle type is thread-sendable, and neither can be
-stored as a collection element or carried in a record.
+carried in a record. Both may be collection elements when the element type is
+spelled `RES` (a bare `List OF tls::Socket` is rejected with
+`TYPE_RESOURCE_REQUIRES_RES`); `List OF RES tls::Socket` is what the `tls::poll`
+multiplex form takes.
 
 
 The server's TLS context is owned by the `Listener` and borrowed by every

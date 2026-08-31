@@ -17,7 +17,7 @@ read whatever bytes are available, repeat until `http::done`, and parse with
 
 The transport is chosen from `url.scheme` exactly as `http::read` does: `https`
 connects over the `tls` package (default port 443), anything else over plaintext
-`net` (default port 80). The request is built by the same machinery as the
+`tcp` (default port 80). The request is built by the same machinery as the
 blocking client — `Connection: close` is always sent, `method` (default `GET`) is
 uppercased, and the same control-byte rejection applies to every header name,
 value, and the URL-derived request target and `Host`. The whole request is
