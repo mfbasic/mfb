@@ -669,11 +669,20 @@ impl<'a> Walker<'a> {
         let mut ambiguous: HashSet<ParameterType> = HashSet::new();
         for package in crate::codegen::registry::registry().packages() {
             for record in package.records() {
-                // `named`, not `declared`: a registry record's name is a bare
-                // `&'static str` nominal the descriptor already built this way
-                // (`ParameterType::named(net::ADDRESS_TYPE)`), so this is a
-                // constructor call, not a grammar entry.
-                let type_ = ParameterType::named(record.name);
+                // bug-480 Phase 4b: a builtin record's DECLARED identity is
+                // package-qualified (`net.Address`), so that is the type a value
+                // of it now carries and the key this map must use. Keyed bare, the
+                // lookup missed and bug-466's gate silently stopped firing --
+                // `tcp::localAddress(s).port` became readable without
+                // `IMPORT net`.
+                //
+                // `named`, not `declared`: this is a constructor call from a
+                // `&'static str`, not a grammar entry.
+                let type_ = ParameterType::named(&format!(
+                    "{}.{}",
+                    package.import_name(),
+                    record.name
+                ));
                 if shadowed.contains(&type_) {
                     continue;
                 }

@@ -615,9 +615,15 @@ impl TypeEnv {
         else {
             return;
         };
+        // bug-480 Phase 4b: the enum arrives package-qualified (`crypto.Hash`),
+        // but a registry enum row still carries the bare member id it declares
+        // (`Hash`) -- `name` is a `&'static str` descriptor literal. Strip the
+        // qualifier for the lookup, or every builtin enum advisory silently stops
+        // firing: `crypto::Hash.SHA1` lost its CRYPTO_SHA1_INSECURE warning.
+        let member_id = enum_name.rsplit_once('.').map_or(enum_name, |(_, id)| id);
         if let Some(advisory) = crate::codegen::registry::registry().enum_variant_advisory(
             import_name,
-            enum_name,
+            member_id,
             member,
         ) {
             self.emit(advisory.rule, advisory.detail.to_string());
