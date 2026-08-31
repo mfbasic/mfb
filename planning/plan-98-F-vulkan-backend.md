@@ -276,7 +276,8 @@ with the feature, as `.ai/canvas-threading.md` §8 already recorded.
 now that plus a frame-length assertion on the resize, a two-stats-line assertion that the
 repaint actually happened, and — after Correction 13 — a `vulkanReady` that cannot claim a
 device the box does not have.
-Commit: —
+Commit: `fdc69afca` (polygons) + `18a2cd759` (resize), with `c7f46ff5f` for the
+register-spelling sweep the second one uncovered.
 
 ### Phase 3 — Windows (win32 surface) — new GPU path (largest blast radius last)
 
