@@ -26,6 +26,49 @@ requires a package prefix today, so both land in the compiler's flat top-level
 type namespace under the bare name `Stream`, and the second one to be injected
 is rejected as a redeclaration.
 
+## Do not take the rename, added 2026-08-31 (coordinator, pre-dispatch)
+
+The header offers "small as a rename". Measured, that shortcut is a **breaking
+change to shipped public API that bug-480 Phase 4 then makes unnecessary** — so
+it costs users a migration and buys nothing durable.
+
+What a rename would touch:
+
+```
+$ grep -rn 'Stream\.StdOut\|Stream\.StdErr\|process::Stream' \
+    src/codegen/builtins/process/ tests/ src/docs/ | wc -l     ->  9
+$ grep -rn 'http::Stream' src/ tests/ | wc -l                  -> 15
+$ grep -rn '"Stream"' src/codegen/builtins/{process,http}/mod.rs
+  process/mod.rs:68:  pub(crate) const STREAM_TYPE: &str = "Stream";
+  http/mod.rs:424:    name: "Stream",
+```
+
+The count is small; the *kind* of breakage is not. `process::Stream` is an enum
+whose members users write **unprefixed** — `process::receive(p, from:
+Stream.StdOut)` is the spelling `func_receive.rs` DESC teaches. Renaming it
+breaks every program and every man example that reads a child's stderr, with no
+deprecation path. `http::Stream` is a union naming an exchange's transport and is
+less often written by hand, so if a rename were ever forced, that is the side to
+move — but it is still public surface.
+
+**And the rename is throwaway.** This document already identifies the real fix as
+bug-480 Phase 4 (package-scoped type names). Once a type resolves by
+`(package, name)`, `http::Stream` and `process::Stream` coexist untouched and the
+collision cannot recur for the *next* pair of packages either. A rename fixes one
+pair, permanently costs a public name, and leaves the mechanism in place.
+
+**Therefore: this bug is sequenced strictly after bug-480 Phase 4, and its fix is
+to add the regression fixture, not to rename anything.** If Phase 4 slips far
+enough that the collision must be unblocked sooner, raise it as a scheduling
+decision for the user rather than spending a public name — and if a rename is
+then chosen, move `http::Stream`, never `process::Stream`.
+
+The one piece of work that is *not* blocked and should land regardless: the
+diagnostic. It currently points at `builtins/http.mfb:93` — generated source the
+developer never wrote and cannot open — and names no package they imported nor
+any action they could take. That is a defect in its own right whichever way the
+collision is resolved.
+
 ## Failing Reproduction
 
 macos-aarch64, `target/release/mfb` at 744c7c175. A plain `mfb init` project.
