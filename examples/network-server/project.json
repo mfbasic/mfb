@@ -1,0 +1,26 @@
+{
+  "name": "network-server",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "name": "connworker",
+      "version": "0.1.0",
+      "source": "file:packages/connworker.mfp"
+    }
+  ],
+  "entry": "main",
+  "targets": [
+    "native"
+  ]
+}

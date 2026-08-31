@@ -1,5 +1,6 @@
 *.app
 *.out
 
-# backend package build artifact (the installed copy lives in app/packages/)
+# package build artifacts (the installed copy lives in the importer's packages/)
 browser/*/*.mfp
+network-server/worker/*.mfp

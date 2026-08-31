@@ -72,6 +72,22 @@ prepare_browser() {
 
 prepare_browser
 
+# network-server imports a `connworker` package for its --thread worker entries
+# (a thread entry must be an EXPORT ISOLATED FUNC of an imported package, and
+# `IMPORT self` is rejected in an executable). Build it to a .mfp and install it
+# at packages/ before the executable is built, exactly as the README documents.
+prepare_network_server() {
+  local n="$EXAMPLES_DIR/network-server"
+  [[ -d "$n/worker" ]] || return 0
+
+  echo "==> Preparing network-server package (connworker)"
+  "$MFB" build -q "$n/worker"
+  mkdir -p "$n/packages"
+  cp "$n/worker/connworker.mfp" "$n/packages/"
+}
+
+prepare_network_server
+
 # Fresh staging tree.
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR"

@@ -86,7 +86,8 @@ user-legible error at all:
 * `.port` without `IMPORT net` dies as **`native plan has no storage class for
   type 'Unknown'`** — no file, no line, no rule code. That is bug-466's class.
 * `net::PingStatus.Ok` dies as **`NIR local reference 'net.PingStatus' does not
-  resolve`** — likewise unlocated. Filed separately as bug-473.
+  resolve`** — likewise unlocated. Filed separately as bug-473, since retired
+  into `bugs/bug-480-package-name-resolution.md` (Defect B).
 
 So a gate over the examples is also a **generator of realistic ill-formed
 programs**, and it keeps finding places where the front end lets something reach
@@ -184,8 +185,9 @@ References: `src/cli/man.rs` (man rendering);
 `scripts/man-run-examples.sh` (plan-108 branch — the mechanism to reuse);
 `planning/completed/plan-108-A-census-standard-pilot.md` Rejected alternatives
 (the user decision quoted above);
-`bugs/bug-466-unknown-field-type-escapes-to-codegen.md` and `bug-473` (the two
-unlocated-diagnostic classes the examples exposed); `.ai/testing-gates.md`
+`bugs/bug-466-unknown-field-type-escapes-to-codegen.md` and `bug-473` (retired
+into `bugs/bug-480-package-name-resolution.md`) — the two unlocated-diagnostic
+classes the examples exposed; `.ai/testing-gates.md`
 (documents the other two no-gate content classes).
 
 Credit: every example failure listed here was found and measured by a peer

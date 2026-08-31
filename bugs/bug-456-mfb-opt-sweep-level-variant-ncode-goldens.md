@@ -34,6 +34,59 @@ syntax/lexical/parser-hello-world/…macos-aarch64.ncode
 syntax/match/control-flow-match/…macos-aarch64.ncode
 ```
 
+## Unresolved measurement, added 2026-08-31 (coordinator, pre-dispatch)
+
+**The dial-sensitive golden population is larger than the 7 this document
+names, and the gap is not explained.** Resolve it before writing the fix; a fix
+keyed to `.ncode` alone is either wrong or vacuous depending on the answer.
+
+Every golden kind currently in the tree:
+
+```
+$ find tests -path '*/golden/*' -type f | sed 's/.*\.//' | sort | uniq -c | sort -rn
+1305 log     811 ir      811 ast     651 run     140 ncodesum
+  21 nplan    21 nir      18 nobj      7 ncode      2 mir
+```
+
+`.ncode` is **7**, matching this document. But `.nir`, `.nplan`, `.nobj`, `.mir`
+and `.ncodesum` are all *native backend* dumps downstream of the `-O` dial, and
+together they are **202 files across 21 fixtures** — 14 fixtures more than the 7:
+
+```
+$ find tests -path '*/golden/*' \( -name '*.nir' -o -name '*.nplan' -o -name '*.mir' \) \
+    | sed 's#/golden/.*##' | sort -u | wc -l
+21
+```
+
+Five of the seven `.ncode` fixtures (`control-flow-if`, `macos-app-mode-io`,
+`macos-app-mode-plumbing`, `parser-hello-world`, `control-flow-match`) carry a
+`.nir`/`.nplan` golden **as well**. So for those five, the reported sweep saw
+`.ncode` mismatch while `.nir` did not — for the same fixture, same build. That
+is either a real and interesting fact about where the dial's effect first
+appears, or a sign the sweep did not compare those kinds at all.
+
+Three possibilities, and the fix differs under each:
+
+1. **The other native kinds genuinely do not drift at `-O3`** (the dial's effect
+   is confined to final code emission). Then keying the skip to `.ncode` is
+   correct — but say so, with the measurement, because it is surprising.
+2. **The sweep never compares them.** Then the "exactly 7 mismatches" figure is
+   an artifact of what the harness looks at, this document's premise is
+   incomplete, and the real fix is larger.
+3. **They do drift and the count of 7 was measured narrowly** (one fixture glob,
+   one target). Then the fix must cover all 202 files, not 7.
+
+**Do not resolve this by reading — run it.** Re-derive per this document's own
+instruction ("re-derive with the command below, never from this list"), and
+capture the *kinds* of every mismatch, not just the count. Note the run is
+expensive and contends the gate; see bug-470 for why a concurrent run can also
+report phantom diffs, and re-run uncontended before trusting any list.
+
+Whatever the answer, the fix must be keyed to a **derived predicate** ("is this
+kind downstream of the dial?") rather than a hard-coded list of seven paths, or
+the next fixture to gain a `.nir` golden silently reintroduces the bug this
+closes.
+
 References:
 
 - `scripts/test-accept.sh:148-162` — the `MFB_OPT` switch (plan-100) and its

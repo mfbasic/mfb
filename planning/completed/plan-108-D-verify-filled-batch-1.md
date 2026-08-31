@@ -62,7 +62,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-108-C complete | census shows every function page across all 30 packages carrying desc+example (denominator per A's Phase 1 census — the first draft's 466 excluded tcp/udp) | NOT MET until C lands |
+| plan-108-C complete | census shows every function page across all 30 packages carrying desc+example (denominator per A's Phase 1 census — the first draft's 466 excluded tcp/udp) | **MET** 2026-08-31 — re-run at close-out rather than trusted. C's boxes: `grep -c '^- \[ \]' plan-108-C-author-empty-batch-2.md` → `0`; C landed as `e358e4043`, `b1d575271`, `fd8e0473d`, `c5012ff2f`, `a97e6d8aa`, `db4124111`, `4a429d828`, `d15292163`. Census over the whole surface: `./scripts/man-census.sh --fill` → `TOTAL 502 502 502 502 831/831`, "pages with neither Description nor Examples: 0" — every function page across all **31** packages (not 30; `canvas` was missing from every letter's list, see E's Corrections 2) carries desc + example. |
 
 ## 1. Goal
 
