@@ -111,7 +111,10 @@ endpoint from `tls::listen` that holds the loaded server TLS settings; `tls::acc
 Each is closed automatically when its binding goes out of scope, so
 `tls::close` is needed only to release a handle earlier; unlike `tcp::close`,
 `tls::close` closes the handle and treats an already-closed handle as success
-rather than an error. Neither handle type is thread-sendable, and neither can be
+rather than an error. Either handle may be handed to another thread on a thread's
+resource plane, so a server can accept on one thread and give each connection to
+a worker. The thread that receives a handle is the one that closes it, and the
+sending thread can no longer use it. Neither can be
 carried in a record. Both may be collection elements when the element type is
 spelled `RES` (a bare `List OF tls::Socket` is rejected with
 `TYPE_RESOURCE_REQUIRES_RES`); `List OF RES tls::Socket` is what the `tls::poll`

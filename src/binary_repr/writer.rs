@@ -227,20 +227,35 @@ pub(super) fn lower_project_with_external_functions(
         // (fc5c8a6db) with `EXPORT FUNC useSock(RES s AS udp::Socket)`, so this
         // predates bug-464 -- the TLS work only made it unavoidable.
         //
-        // Sorted so the table order is deterministic: `used` is a HashSet, and an
-        // iteration-order-dependent table would make `.mfp` bytes vary run to
-        // run.
-        let mut others: Vec<&String> = used
+        // `used` holds the spellings as they appear in signatures, which for a
+        // plan-54 stateful handle is `fs.File STATE Cursor`, not `fs.File`. The
+        // table is keyed by the BASE resource type, so each name is normalised
+        // with `without_state()` before it is considered -- otherwise a stateful
+        // handle adds a second, bogus entry under its full spelling, which is
+        // exactly what drifted 45 committed `.mfp` files on the first attempt
+        // here. (The three branches above compare bare names for the same
+        // reason.)
+        //
+        // A BTreeSet both de-duplicates -- two params of `fs.File STATE A` and
+        // `fs.File STATE B` normalise to one entry -- and fixes the order.
+        // `used` is a HashSet, and an iteration-order-dependent table would make
+        // `.mfp` bytes vary from run to run.
+        let others: std::collections::BTreeSet<String> = used
             .iter()
-            .filter(|name| {
-                !matches!(name.as_str(), "fs.File" | "tcp.Socket" | "tcp.Listener")
+            .map(|name| {
+                crate::types::ParameterType::declared(name)
+                    .without_state()
+                    .name()
+                    .to_string()
+            })
+            .filter(|base| {
+                !matches!(base.as_str(), "fs.File" | "tcp.Socket" | "tcp.Listener")
                     && crate::codegen::resource::is_builtin_resource_type(
-                        &crate::types::ParameterType::declared(name),
+                        &crate::types::ParameterType::declared(base),
                     )
             })
             .collect();
-        others.sort();
-        for name in others {
+        for name in &others {
             resources.add_standard_other(&mut types, &mut strings, name);
         }
     }
@@ -1017,16 +1032,25 @@ pub(super) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
 
 /// The `RESOURCE_TABLE` flags for a standard built-in resource, including the
 /// "sendable to thread" bit (bit 2) when the registry marks the type sendable.
-pub(super) fn standard_resource_flags(type_name: &str) -> u32 {
-    let type_ = crate::types::ParameterType::declared(type_name);
+/// `RESOURCE_TABLE` flags for a built-in resource row.
+///
+/// **Takes the QUALIFIED id** (`fs.File`, `tcp.Socket`, `udp.Socket`) — every
+/// registry lookup here does `resolve_type`, which splits on `'.'` and answers
+/// `None` for a bare name. The three `add_standard_*` helpers used to pass the
+/// BARE `"File"`/`"Socket"`/`"Listener"` constants, so `sendable` silently
+/// answered `false` for all three and the bit was clear even for `fs::File`,
+/// which has always been sendable. The unit test passed the qualified id, so it
+/// never saw this (bug-464 fallout).
+///
+/// `close_may_fail` is registry-driven for the same reason the table is no
+/// longer three hardcoded types: `process::Process` is the one built-in whose
+/// close op cannot fail.
+pub(super) fn standard_resource_flags(qualified_type_id: &str) -> u32 {
+    let type_ = crate::types::ParameterType::declared(qualified_type_id);
     let mut flags = RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD;
     if crate::codegen::resource::is_builtin_sendable_resource_type(&type_) {
         flags |= RESOURCE_FLAG_SENDABLE;
     }
-    // Registry-driven since bug-464's fallout fix, because the table is no
-    // longer restricted to three types that all happen to share `true`. It stays
-    // `true` for `fs::File`/`tcp::Socket`/`tcp::Listener`, so their bytes do not
-    // move; `process::Process` is the one built-in that sets it `false`.
     if crate::codegen::resource::builtin_resource_close_may_fail(&type_) {
         flags |= RESOURCE_FLAG_CLOSE_MAY_FAIL;
     }
