@@ -92,7 +92,7 @@ END TRAP
 LET line = fs::readLine(f)
 ```
 
-An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an assignment, or a bare expression statement. It scopes to exactly **one** expression — to wrap several fallible calls, use the function-level `TRAP`. Every path through the handler must `RECOVER` or diverge; falling through to `END TRAP` is a compile error (there must be no path that leaves the binding unset). For a value-less trapped call (a `SUB`, or a fallible effect-only built-in), `RECOVER` takes no operand.
+An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an assignment, or a bare expression statement. It scopes to exactly **one** expression, and covers **every** fallible call inside that expression, not only its outermost one: in `LET b = outer(inner(x)) TRAP(e)` a failure of `inner` runs the handler, and a `RECOVER` there skips the rest of the expression, so `outer` is never called. It equally covers **every raising operator** in that expression — a division by zero, an arithmetic overflow, a `Float` that overflows to infinity: in `LET d = two(1 / z, 2) TRAP(e)` the division's failure runs the handler and `two` is never called. Which node raised makes no difference. The one exception is a fallible call *or* a raising operator in a **short-circuited** operand — the right side of `AND`/`OR`, evaluated only when the left side does not already decide the result. It cannot be lifted ahead of the expression the way the desugar (§8.8) requires, so it is rejected (`TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`); bind it to its own `TRAP` first. To wrap several *statements*, use the function-level `TRAP`. Every path through the handler must `RECOVER` or diverge; falling through to `END TRAP` is a compile error (there must be no path that leaves the binding unset). For a value-less trapped call (a `SUB`, or a fallible effect-only built-in), `RECOVER` takes no operand.
 
 The inline `(e)` binding is likewise **optional**: when the handler ignores the error, write a bare `TRAP` (e.g. `LET n = toInt(s) TRAP / RECOVER -1 / END TRAP`). As with the function-level form, the error stays internally bound, so a bare inline handler may still `PROPAGATE` it unchanged.
 
@@ -151,7 +151,7 @@ Because these names still appear in compiler-internal positions, two resolution 
 8. A `SUB` with no `TRAP` may fall through to `END SUB`, which succeeds (value-less).
 9. A `SUB` with a `TRAP` must end every normal path before the `TRAP` with `EXIT SUB` or `FAIL error`. Falling through from the normal body into the `TRAP` is a compile error.
 10. An executable entry point's uncaught failure terminates the process as an unhandled runtime error: the process exits with code `255`, and stderr receives `Code: <err.code> Message: <err.message>`. Give the entry point a `TRAP` for graceful handling.
-11. An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an assignment, or a bare expression statement, and traps exactly one expression. A `TRAP` is legal on **any call** — a built-in call is just a call. The only rejection is a scrutinee with no runtime call to trap: a non-call expression, or a **package constant** (`TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`). Trapping a provably-**infallible** inline-lowered built-in — `len`, `toString`, `typeName`, every total `bits::*` op (all except the variable shifts `sl`/`sr`/`sra`, which trap `ErrInvalidArgument` on an out-of-range count), and the pure-query / default-returning / growth-only members `collections::contains`/`hasKey`/`keys`/`values`/`sum`/`getOr`/`append`/`prepend`/`removeKey` and `strings::replace` — is **allowed** but the handler is dead code, flagged by the advisory warning `TYPE_INLINE_TRAP_DEAD_HANDLER` (the program still compiles and runs, returning the call's value; the handler never fires, exactly as a `TRAP` on an infallible user `FUNC` would behave).
+11. An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an assignment, or a bare expression statement, and traps exactly one expression — every fallible call **and every raising operator** in it, however deeply nested. A `TRAP` is legal on **any call** — a built-in call is just a call. Two rejections: a scrutinee with no runtime call to trap anywhere in it — a call-free expression, or a **package constant** (`TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`); and a fallible call or raising operator in a short-circuited `AND`/`OR` operand, which cannot be evaluated ahead of the expression (`TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`). A raising operator widens what an inline `TRAP` *covers*, not what may *be* one: the scrutinee must still contain a runtime call, so `LET d = 1 / z TRAP(e)` is rejected while `LET d = f(1 / z) TRAP(e)` catches the division. An expression whose outermost node is not a call but which does contain a fallible call is accepted and traps it, operators included (`LET c = inner(x) + 1 TRAP(e)` catches both `inner`'s failure and the `+`'s overflow). Trapping a provably-**infallible** inline-lowered built-in — `len`, `toString`, `typeName`, every total `bits::*` op (all except the variable shifts `sl`/`sr`/`sra`, which trap `ErrInvalidArgument` on an out-of-range count), and the pure-query / default-returning / growth-only members `collections::contains`/`hasKey`/`keys`/`values`/`sum`/`getOr`/`append`/`prepend`/`removeKey` and `strings::replace` — is **allowed** but the handler is dead code, flagged by the advisory warning `TYPE_INLINE_TRAP_DEAD_HANDLER` (the program still compiles and runs, returning the call's value; the handler never fires, exactly as a `TRAP` on an infallible user `FUNC` would behave).
 12. Every path through an inline `TRAP` handler must end in `RECOVER` or a diverging statement (`RETURN`, `FAIL`, `PROPAGATE`, or an `EXIT` form). Falling through to `END TRAP` is a compile error.
 13. `RECOVER` is valid only inside an inline `TRAP` handler; it is a compile error in a function-level `TRAP` or anywhere else (`TYPE_RECOVER_OUTSIDE_INLINE_TRAP`). `RECOVER`'s value must be assignable to the trapped expression's success type; it carries a value iff that type is not `Nothing`. Supplying the wrong type, omitting a value when one is required, or supplying a value for a value-less trapped expression is `TYPE_RECOVER_TYPE_MISMATCH`. The handler binding is scoped to the handler block only.
 14. An inline `TRAP` on a fallible inline-lowered member traps the real runtime
@@ -231,6 +231,32 @@ FUNC f(a AS A) AS T            =>   FUNC f(a AS A) AS Result OF T
                            ' RECOVER w  =>  bind x = w ; continue after END TRAP
                            ' PROPAGATE  =>  PROPAGATE to enclosing TRAP (else RETURN error carrying e)
                            ' RETURN/FAIL diverge as above
+
+  LET x = f(g(y)) TRAP(e)  =>  MATCH g(y)     ' a NESTED call is covered too:
+    <handler>                    CASE Ok(v1)   : MATCH f(v1)
+  END TRAP                                        CASE Ok(v)    : bind x = v
+                                                  CASE Error(e) : <handler>
+                                                END MATCH
+                                 CASE Error(e) : <handler>
+                               END MATCH
+                           ' the checks nest in evaluation order, so a handler
+                           ' that RECOVERs skips the rest of the expression
+                           ' (`f` is never called when `g` fails)
+
+  LET x = f(a / b) TRAP(e) =>  MATCH CHECKED(a / b)   ' a raising OPERATOR too:
+    <handler>                    CASE Ok(v1)   : MATCH f(v1)
+  END TRAP                                              CASE Ok(v)    : bind x = v
+                                                        CASE Error(e) : <handler>
+                                                      END MATCH
+                                   CASE Error(e) : <handler>
+                                 END MATCH
+                             ' CHECKED(expr) evaluates expr with its domain-error
+                             ' exits captured instead of propagating, so an
+                             ' overflow or a divide-by-zero yields Error(e) here
+                             ' exactly as a failing call does. It is the same
+                             ' lift, in the same evaluation order, and carries
+                             ' the same restriction: an operand AND/OR evaluates
+                             ' only conditionally cannot be lifted (§8.4).
 
   TRAP region (function-level bottom trap):
     PROPAGATE      =>  RETURN error result carrying the bound error

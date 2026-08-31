@@ -10,8 +10,8 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 const INTRO: &str = r#"Encode a `String` to its UTF-8 bytes."#;
-const DESC: &str = r#"`encoding::utf8Encode` returns the UTF-8 encoding of `value` — the exact bytes
-that make up the string's storage — one element per byte. Because MFBASIC strings
+const DESC: &str = r#"`encoding::utf8Encode` returns the UTF-8 encoding of `value`, one list element
+per byte. Because MFBASIC strings
 are always UTF-8 text, the result is the string's raw octets in order, with each
 element in the range `0..255`.
 
@@ -24,7 +24,7 @@ identical numeric values widened to `Integer`.
 either a `List OF Byte` or a `List OF Integer`, chosen by the expected
 (contextual) type at the call site. A call with no type context to select the
 overload is a compile-time `TYPE_OVERLOAD_AMBIGUOUS` error, not a runtime failure;
-the overload is resolved during monomorphization.
+the overload is settled once the argument type is known.
 
 The inverse operation is `encoding::utf8Decode`, which accepts either a
 `List OF Byte` or a `List OF Integer` and validates it as well-formed UTF-8."#;

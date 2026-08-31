@@ -17,8 +17,7 @@ quantity regardless of the high bits of `value`.
 
 `value` is treated as a raw two's-complement 64-bit `Integer` bit pattern;
 `bswap16` does not interpret sign. The operation is total — it is defined for
-every `Integer` and never raises — has no side effects, and lowers to native
-byte-reversal instructions inline rather than calling a runtime helper."#;
+every `Integer` and never raises — and has no side effects."#;
 const EX: &str = r#"Swap the two low bytes of a 16-bit value:
 
 ```

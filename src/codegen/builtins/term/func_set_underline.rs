@@ -23,7 +23,7 @@ surface, the change becomes visible only when `term::sync` presents the frame.
 
 Underlining is per cell, not global. Each cell of the grid records the foreground,
 background, bold, and underline that were current when its glyph was written, so
-this call affects text drawn *after* it; text already in the back buffer keeps the
+this call affects text drawn *after* it; text already on the surface keeps the
 attributes it was drawn with and is not restyled.
 
 The setting persists until the next `term::setUnderline` or the next `term::on`,

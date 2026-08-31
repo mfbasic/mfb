@@ -26,7 +26,7 @@ follow the weighted blend rather than tracking a sphere. For a clean directional
 interpolation, normalize both inputs first.
 
 The formula divides by `sin(omega)`, which approaches zero as the inputs become
-parallel or antiparallel. To stay stable there, the implementation tests
+parallel or antiparallel. To stay stable there, `slerp` tests
 `abs(s) < 0.000001` — the literal threshold, in the `Float` overloads, and its
 `toFixed` equivalent in the others — and when it is met **returns
 `vector::lerp_unclamped(a, b, t)` instead**, taking the straight-line result. This
@@ -253,6 +253,11 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             super::Shape::Lerp,
             &["ErrInvalidArgument"],
             body,
+            &[
+                "The start vector. Must not be zero-length — the interpolation is over directions.",
+                "The end vector. Must not be zero-length either.",
+                "How far along the arc to travel, 0 through 1.",
+            ],
         ),
     });
 }

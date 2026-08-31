@@ -1,0 +1,39 @@
+' A thread's MESSAGE plane accepts the same type constructors every other position
+' does. These are all valid, thread-sendable programs.
+'
+' bug-463 rejected each of them outright with SYMBOL_UNKNOWN_TYPE. Finding where the
+' message plane ends means MEASURING the type, and that measurement recognised only
+' `List`/`Result`/`Map`/`MapEntry`/`Thread`/`ThreadWorker`. `Set` was missing
+' entirely, as were the `RES` marker and user generics — so a `Set` message plane
+' failed to split at ` TO `, the whole spelling collapsed to one opaque nominal, and
+' a correct program was refused. This fixture is the guard that it is not refused
+' again: the companion `-invalid` fixture covers the rejection side of the same
+' measurement.
+
+IMPORT io
+
+TYPE Pairing OF A, B
+  first AS A
+  second AS B
+END TYPE
+
+FUNC viaSet(t AS Thread OF Set OF Integer TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC viaNestedSet(t AS Thread OF List OF Set OF Integer TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC viaMapOfSet(t AS Thread OF Map OF Set OF Integer TO Integer TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC viaGeneric(t AS Thread OF Pairing OF Integer, String TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  io::print("ok")
+  RETURN 0
+END FUNC

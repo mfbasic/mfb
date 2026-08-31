@@ -104,14 +104,15 @@ mod helper_validate_range;
 mod helper_window_spans;
 
 /// One-line package intro (ported from the archived `planning/old_man` page).
-const INTRO: &str = r#"Attributed (styled) text: an opaque, value-semantic `AttributedString`"#;
+const INTRO: &str = r#"Attributed (styled) text: an opaque `AttributedString` value"#;
 /// Package-overview description (ported from the archived `planning/old_man`
 /// page, citation markers stripped).
 const DESC: &str = r#"The `astrings` package works with `AttributedString`, an opaque built-in that
 pairs visible `String` text with an attribute overlay describing per-range style
-(bold, italic, font, size, foreground/background color, …). The type is
-**value-semantic**: it copies deeply,
-drops with its owning scope, and defaults to empty text with no attributes. It is
+(bold, italic, font, size, foreground/background color, …). It is an **ordinary
+value**: assigning or passing one copies it, text and attributes together, so
+changing one cannot change another, and a default one has empty text and no
+attributes. It is
 **opaque** — it exposes no user-visible fields (`a.text` does not compile), cannot
 be built with a record literal (`AttributedString[...]`), and cannot be
 `WITH`-updated. It is copyable and defaultable but **not** comparable, so it is

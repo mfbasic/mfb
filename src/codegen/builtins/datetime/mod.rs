@@ -29,28 +29,31 @@ const MODULE_INTRO: &str =
 const MODULE_DESC: &str = r#"The `datetime` package models time around a single source of truth: an `Instant`,
 an absolute point on the UTC timeline (Unix epoch, leap-second-free) carrying
 whole seconds and a nanosecond field in the range `0 .. 999_999_999`. Everything
-civil — `Date`, `Time`, and `DateTime` — is a projection of an instant through a
-`Zone`, and every projection records the resolved UTC offset, so a `DateTime`
-always knows its offset and round-trips back to its `Instant` without
-re-consulting the zone. `datetime` is a built-in package: `IMPORT datetime` needs
+civil — `Date`, `Time`, and `DateTime` — that this package *produces* is a
+projection of an instant through a `Zone`, and every projection records the
+resolved UTC offset, so a `DateTime` always knows its offset and round-trips
+back to its `Instant` without re-consulting the zone. (A `DateTime` you build
+yourself with the record constructor is not checked: if you supply an `offset`
+that does not match the civil fields, `datetime::resolve` believes the offset.) `datetime` is a built-in package: `IMPORT datetime` needs
 no manifest dependency.
 
 All public types are flat, copyable value records and enums — `Instant`,
 `Duration`, `Date`, `Time`, `Zone`, `DateTime`, and the enums `ZoneKind`,
 `Weekday`, and `Month`. There are no resources and no hidden global state, and the
 types are referenced bare (`Instant`, `Date`, …), not package-qualified. Calendar
-arithmetic is pure integer math (Howard Hinnant's civil ↔ epoch-day conversions)
-and produces identical results on every target. Only three operations touch the
-host: the wall clock (`now`), a monotonic counter (`monotonic`), and the local
-zone's DST-correct offset (`local`).
+arithmetic produces identical results on every target. The operations that read
+host state are the wall clock (`now` and `nowNanos`), the monotonic counter
+(`monotonic` and `monotonicNanos`), and local-zone offset resolution (`local`,
+`localOffset`, and any projection through a local zone); everything else is a
+pure function of its arguments.
 
 Zones come in three kinds. `datetime::utc()` is fixed at offset 0;
 `datetime::fixedOffset(...)` builds a constant offset rendered as `+HH:MM`; and
 `datetime::local()` resolves the host's zone per-instant, so it is DST-correct at
 the moment it projects. Named IANA zones are not supported in this version.
 `Instant.seconds` spans the full 64-bit `Integer`, so civil dates reach far beyond
-any practical need; `datetime::now()` is additionally bounded by its intrinsic
-(nanoseconds since the epoch), valid through year 2262. There are no leap seconds:
+any practical need; `datetime::now()` is additionally bounded by the nanosecond
+count it reads, valid through year 2262. There are no leap seconds:
 every day is 86400 seconds, the POSIX convention.
 
 Projection is the primary "to civil" operation: `inZone` maps an instant into a
@@ -178,7 +181,7 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "kind",
                 ty: ParameterType::Integer,
-                description: "The zone's kind as a `ZoneKind` discriminant (Utc, FixedOffset, or Local).",
+                description: "Which kind of zone this is: `ZoneKind.Utc`, `ZoneKind.FixedOffset`, or `ZoneKind.Local`.",
             },
             RecordProp {
                 name: "label",

@@ -5,18 +5,17 @@
 
 const INTRO: &str = r#"The `Zone` representing the host's local time."#;
 const DESC: &str = r#"`datetime::local` returns the `Zone` that represents the host's local time. The
-returned `Zone` carries a zone kind of `ZoneKind::Local` (the third `ZoneKind`
-variant, tag `2`), marking it as the platform-resolved local zone rather than the
-canonical UTC zone built by `datetime::utc` (kind `ZoneKind::Utc`, tag `0`) or an
-arbitrary fixed offset built by `datetime::fixedOffset` (kind
-`ZoneKind::FixedOffset`, tag `1`).
+returned `Zone` has kind `ZoneKind.Local`, marking it as the host-resolved local
+zone rather than the UTC zone built by `datetime::utc` (`ZoneKind.Utc`) or an
+arbitrary fixed offset built by `datetime::fixedOffset`
+(`ZoneKind.FixedOffset`).
 
 
 Unlike `datetime::utc` and `datetime::fixedOffset`, whose offsets are baked into
 the `Zone` at construction, the local zone holds no fixed offset of its own. The
-`Zone` returned here stores a placeholder offset of zero seconds and the label
-`"Local"`; the true offset is resolved per-instant from the platform's zone
-table when the zone is applied to a particular moment. Projecting an `Instant`
+`Zone` returned here carries the label `"Local"` and no offset of its own; the
+real offset is worked out per-instant from the host's time-zone rules when the
+zone is applied to a particular moment. Projecting an `Instant`
 through this zone with `datetime::inZone` consults that table for the instant
 being projected, so the result is DST-correct: the same local zone yields one
 offset for a summer instant and another for a winter instant when the host

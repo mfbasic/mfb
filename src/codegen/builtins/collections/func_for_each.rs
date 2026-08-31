@@ -13,11 +13,9 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 const INTO_FOR_EACH: &str = "Call an action once for each element of a list, in order";
 const DESC_FOR_EACH: &str = r#"`collections::forEach` walks `value` from the first element to the last and
-calls `action` once per element, passing the element as the single argument. It
-is a **native** member: the compiler emits the traversal loop directly rather
-than instantiating an MFBASIC generic.
+calls `action` once per element, passing the element as the single argument.
 
-The loop is a straight forward scan over the list's entry table with no
+The loop visits each element once, front to back, with no
 reordering and no skipping, so `action` observes exactly the elements of `value`
 in their stored order. `value` is neither copied nor modified; `forEach` builds
 no result collection at all and evaluates to `Nothing`.
@@ -41,7 +39,7 @@ because a failing `action` propagates: when the callback returns a non-`Ok`
 result, the loop stops immediately at that element, later elements are never
 visited, and the callback's own error is passed straight through — unchanged, so
 whatever code and message the callback raised is what the caller sees. Because
-`forEach` owns no accumulator, no cleanup runs on that path.
+`forEach` holds no accumulator, no cleanup runs on that path.
 
 An inline `TRAP` on a `forEach` call captures that propagated callback error at
 the call site rather than letting it auto-propagate.
@@ -95,14 +93,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to walk. Not modified.",
                     aliases: &["collection"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "action",
-                    desc: "",
+                    desc: "Called once per element, in order. Its result is discarded; an error it raises propagates and stops the walk.",
                     aliases: &[],
                     ty: ParameterType::func(vec![ParameterType::var("T")], ParameterType::Nothing),
                     default: DefaultValue::None,

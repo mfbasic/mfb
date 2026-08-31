@@ -15,8 +15,7 @@ const INTO_TRANSFORM: &str =
 const DESC_TRANSFORM: &str = r#"`collections::transform` walks `value` from the first element to the last,
 calls `f` once per element with that element as its only argument, and appends
 each returned value to a new list. The result therefore has exactly as many
-elements as `value`, in the same order. It is a **native** member: the compiler
-emits the mapping loop directly rather than instantiating an MFBASIC generic.
+elements as `value`, in the same order.
 
 The element type of the result is `f`'s success type `U`, so mapping a
 `List OF Integer` through a `FUNC(Integer) AS String` yields a `List OF String`.
@@ -32,10 +31,8 @@ ordinary callables and can be passed directly where their type fits.
 `SUB` — does not resolve, because there would be nothing to collect. Use
 `collections::forEach` to run a callback purely for its side effects.
 
-`value` is neither modified nor consumed; the result is a freshly allocated
-list. The output is pre-sized to the source list's working set, since
-`transform` emits exactly one entry per source element, and each mapped value is
-then appended in place.
+`value` is neither modified nor closed; the result is a new list with exactly
+one value per source element, in the same order.
 
 An empty `value` calls `f` zero times and yields an empty `List OF U`.
 
@@ -43,7 +40,7 @@ An empty `value` calls `f` zero times and yields an empty `List OF U`.
 because a failing `f` propagates: when the callback returns a non-`Ok` result,
 the loop stops immediately at that element, later elements are never visited, no
 result list is produced, and the callback's own error is passed through
-unchanged. The partially built output is freed on that path before the error
+unchanged. The partially built output is discarded on that path before the error
 leaves.
 
 An inline `TRAP` on a `transform` call captures that propagated callback error
@@ -109,14 +106,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to map over. Not modified — you get a new list back.",
                     aliases: &["collection"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "f",
-                    desc: "",
+                    desc: "Called once per element, in order; what it returns becomes the corresponding element of the result.",
                     aliases: &["transform"],
                     ty: ParameterType::func(vec![ParameterType::var("T")], ParameterType::var("U")),
                     default: DefaultValue::None,

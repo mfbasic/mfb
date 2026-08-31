@@ -13,21 +13,19 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 const INTO_SUM: &str = "Add up the elements of an Integer, Float, or Fixed list";
 const DESC_SUM: &str = r#"`collections::sum` walks `value` from the first element to the last and adds
-each element into a running total, returning that total. It is a **native**
-member: the compiler emits the accumulation loop directly rather than
-instantiating an MFBASIC generic.
+each element into a running total, returning that total.
 
 There are exactly **three** overloads — `List OF Integer`, `List OF Float`, and
 `List OF Fixed` — and the return type always matches the element type. There is
 no `List OF Byte`, no `List OF Money`, and no general "any numeric list" form:
-any other element type fails to resolve at compile time, and the lowering
+any other element type fails to resolve at compile time, and the call
 rejects it a second time.
 
 The accumulator is initialized to zero of the element type and the elements are
 added in list order, so an empty `value` yields `0`, `0.0`, or `0.0F`
 respectively without any addition being performed.
 
-`value` is neither modified nor consumed. `sum` takes no callback and has no
+`value` is neither modified nor closed. `sum` takes no callback and has no
 optional argument; it is a single-argument member.
 
 For the `Integer` and `Fixed` overloads each step is a **checked** 64-bit
@@ -38,7 +36,7 @@ double addition and never raises — an out-of-range total becomes `±Inf` in th
 usual floating-point way.
 
 Note a wrinkle worth knowing before writing a handler: the compiler's inline-
-built-in fallibility census classifies `sum` as **infallible**, so attaching an
+`sum` is treated as **infallible** for the purpose of inline `TRAP`, so attaching an
 inline `TRAP` to a `sum` call raises the `TYPE_INLINE_TRAP_DEAD_HANDLER`
 diagnostic and that handler does not receive the overflow. The overflow is still
 raised at run time and still propagates out of the enclosing function, where an
@@ -100,7 +98,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![Parameter {
                     name: "value",
-                    desc: "",
+                    desc:
+                        "The list of numbers to add up. Not modified. An empty list sums to zero.",
                     aliases: &["collection"],
                     ty: ParameterType::list_of(ParameterType::Integer),
                     default: DefaultValue::None,
@@ -112,7 +111,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![Parameter {
                     name: "value",
-                    desc: "",
+                    desc:
+                        "The list of numbers to add up. Not modified. An empty list sums to zero.",
                     aliases: &["collection"],
                     ty: ParameterType::list_of(ParameterType::Float),
                     default: DefaultValue::None,
@@ -124,7 +124,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![Parameter {
                     name: "value",
-                    desc: "",
+                    desc:
+                        "The list of numbers to add up. Not modified. An empty list sums to zero.",
                     aliases: &["collection"],
                     ty: ParameterType::list_of(ParameterType::Fixed),
                     default: DefaultValue::None,

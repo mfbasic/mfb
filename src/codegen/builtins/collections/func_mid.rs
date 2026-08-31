@@ -8,9 +8,7 @@ use crate::types::ParameterType;
 const INTO_MID: &str = "Return a new list holding a contiguous run of elements taken from a list";
 
 const DESC_MID: &str = r#"`collections::mid` returns a new list holding the `count` elements of `value`
-that begin at the zero-based index `start`, in their original order. It is a
-**native** member: the compiler emits the slice loop directly rather than
-instantiating an MFBASIC generic.
+that begin at the zero-based index `start`, in their original order.
 
 This page documents the `List` form only. `collections::mid` accepts nothing but
 a `List` as its first argument; the `String` slice of the same name lives in
@@ -19,8 +17,7 @@ a `List` as its first argument; the `String` slice of the same name lives in
 All three arguments are required — there is no two-argument "to the end" form —
 and `start` and `count` must both be exactly `Integer`.
 
-The range is **validated, not clamped**. Before any element is copied the
-lowering checks, in order, that `start` is not negative, that `count` is not
+The range is **validated, not clamped**. Before any element is copied the call checks, in order, that `start` is not negative, that `count` is not
 negative, that `start` is not greater than the length of `value`, that
 `start + count` does not wrap around, and that `start + count` is not greater
 than the length of `value`. Any of those failing raises `ErrIndexOutOfRange`.
@@ -31,9 +28,9 @@ Empty results are legal at the boundaries, since `start` may equal the length of
 `value` and `count` may be `0`: on a four-element list, `mid(value, 4, 0)`
 returns an empty list.
 
-The result is a freshly allocated, independently owned list of the same type as
-`value`; `value` itself is neither modified nor consumed, and element payloads
-are copied into the new list's own data region rather than shared.
+The result is a new, independent list of the same type as
+`value`; `value` itself is neither modified nor closed, and element payloads
+are copied into the new list rather than shared with `value`.
 
 `mid` copies the selected run using a fast contiguous path when the source
 entries covering the slice are stored in order and packed tightly, and falls
@@ -101,21 +98,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to take a run from. Not modified — you get a new list back.",
                     aliases: &["list"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "start",
-                    desc: "",
+                    desc: "The zero-based index of the first element to take.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "count",
-                    desc: "",
+                    desc: "How many elements to take. `start + count` must not exceed the length — this raises rather than clamping.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

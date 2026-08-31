@@ -27,7 +27,7 @@ unchanged. UTF-8 file names are therefore preserved exactly, and the function ne
 resolves symbolic links, accesses any file, or checks whether any path exists. To
 resolve a path against the real directory tree instead, use `fs::canonicalPath`. The
 normalized output is never longer than the input, and the function has no side
-effects other than allocating the returned `String`."#;
+effects."#;
 const EX: &str = r#"Redundant separators and `.` components are removed:
 
 ```

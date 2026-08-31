@@ -674,8 +674,9 @@ impl TypeEnv {
     /// the former source checker's TYPE_INLINE_TRAP_REQUIRES_FALLIBLE on the lowered
     /// inline-TRAP shape: `Bind $trap_resN = <scrutinee>` then
     /// `If ResultIsOk($trap_resN)`. The scrutinee survives as the temp's bind
-    /// value — a `CallResult` when the source trapped a call, anything else when
-    /// it did not — so the two source forms (a non-call; a package constant,
+    /// value — a `CallResult` when the source trapped a call, a `Checked` when
+    /// the desugar lifted a raising operator (bug-471), anything else when it
+    /// did neither — so the two source forms (a non-call; a package constant,
     /// which is not a runtime call) are both readable here.
     ///
     /// `expectTrap`/`expectNTrap` desugar (`testing::desugar`) into this same
@@ -709,6 +710,12 @@ impl TypeEnv {
             return;
         };
         match scrutinee {
+            // bug-471: a `Checked` scrutinee is a raising *operator* the desugar
+            // lifted out of the trapped expression. It is fallible by
+            // construction — `ir::lower` only builds one where
+            // `fallible::operator_can_raise` said so — so neither the
+            // requires-fallible nor the dead-handler rule applies.
+            IrValue::Checked { .. } => {}
             IrValue::CallResult { target, .. } | IrValue::Call { target, .. } => {
                 if builtins::is_package_constant(target) {
                     self.emit(

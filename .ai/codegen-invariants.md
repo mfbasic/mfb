@@ -202,6 +202,45 @@ Verified (macos-aarch64, target/release/mfb): a package `rec` defining `UNION Tr
 
 Consequence for the browser example: a DOM-transform pass (e.g. style resolution filling `ElementNode.style`) that lives inside `dom` may recurse over `Node` directly — no manual stack needed. Only `display`/`fetch`/`app` (which import `dom::Node`) must stay iterative.
 
+## The inline-TRAP region is built in `ir::lower`, NOT in codegen
+
+An inline `TRAP` has no backend op: `ir::lower::lower_inline_trap` desugars it into
+`Bind $trap_resN` / `If ResultIsOk` checks. Anything that must be *covered* by the
+handler therefore has to be lifted there — codegen has no notion of "the ops of this
+trap region". Two kinds of node are lifted, and they use different wrappers:
+
+* a fallible **call** becomes `IrValue::CallResult` (bug-457);
+* a raising **operator** becomes `IrValue::Checked { type_, value }` (bug-471) —
+  "evaluate `value` with its domain-error exits captured, yielding `Result OF type_`".
+
+`Checked` works because `emit_error_register_return` already consults
+`raw_result_capture` (the per-value redirect `lower_inline_conversion_raw` /
+`lower_inline_builtin_raw` set around ONE builtin); `lower_checked_value` just sets it
+around an arbitrary value instead. Three traps around it:
+
+* **A `Checked` operand must be call-free.** A callee's error return does not pass
+  through `emit_error_register_return` in *this* frame, so it would auto-propagate
+  straight past the capture. The desugar lifts every call out first, and
+  `ir::verify::check_checked_has_no_call` rejects the shape on the decoded-package path.
+* **`Checked` is the observation boundary for a `Float`.** plan-17 moved `+`/`-`/`*`/`/`'s
+  finiteness check from the operator to wherever the value is first consumed. Once
+  lifted, the operator feeds a `ResultValue` — not an arithmetic node — so nothing
+  downstream observes it: `lower_checked_value` must call `observe_float` INSIDE the
+  capture or an overflow to infinity is delivered as a finite-looking `Ok`.
+* **A negative literal is `Unary(-, Const)`, not a computed negation.** It is by far the
+  commonest operator inside a trapped expression (`f(-1) TRAP`), and lifting it costs a
+  whole `Result` materialization to check a negation that provably succeeds — it was the
+  ONLY thing that showed up in all 8 `.ir` golden diffs when bug-471 first landed without
+  the carve-out. `fallible::is_total_literal_negation` exempts it, excluding `Byte`
+  (whose negation raises `ErrUnderflow` for any non-zero operand). The i64::MIN spelling
+  is safe because lowering folds `-9223372036854775808` to a single `Const`.
+
+The scan and the rewrite (`scan_trap_call` / `rewrite_trap_call`) must agree, node for
+node, on which nodes are indexed — a position means `fallible[position]` to one and
+"lift or leave" to the other. Both ask the single `trap_hoist_kind` predicate; a
+`debug_assert_eq!` pins the agreement, so CI (which runs DEBUG) is where a desync
+surfaces.
+
 ## TRAP inside a MATCH CASE mis-types its temp as Unknown
 
 A trap-bound producer written directly inside a `MATCH CASE` body — `MUT x AS T = <call> TRAP(e) … RECOVER … END TRAP` inside `CASE Variant(v)` — passes `-ast -ir` but fails native codegen with:

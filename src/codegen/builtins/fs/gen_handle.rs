@@ -330,7 +330,7 @@ pub(crate) fn lower_fs_close_helper(
         &mut relocations,
     )?;
     instructions.extend([
-        // Mark the File closed regardless of the `close` result (bug-63). On Linux
+        // Mark the File closed regardless of the `close` result. On Linux
         // a failing `close` (EINTR/EIO) has still released the fd, so leaving CLOSED
         // at 0 would let a later `fs::close` drain again and close the same fd
         // number — which may by then name an unrelated open file. Set CLOSED before

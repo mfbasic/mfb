@@ -15,7 +15,7 @@ inspects the bytes of `path` and never consults the filesystem, resolves `.` or
 
 Trailing `/` separators are trimmed before the final component is located, so
 `"target/output/"` and `"target/output"` both yield `"output"`. Trimming stops
-once a single character remains, so it never consumes the whole string. After
+once a single character remains, so it never takes the whole string. After
 trimming, the remaining bytes are scanned backward for the last `/` separator and
 everything following it becomes the result, so the returned `String` carries no
 leading separator.
@@ -27,9 +27,8 @@ example `"//"` or `"///"`), `"/"` is returned. An empty `path` returns an empty
 
 The scan is byte-oriented (the separator is the single byte `47`), so UTF-8 file
 names are preserved unchanged and any embedded bytes are treated literally. A new
-`String` holding the final-component bytes is allocated for the result. The
-function reads no external state and has no side effects other than allocating the
-returned `String`."#;
+`String` holding the final-component bytes is built for the result. The
+function reads no external state and has no side effects."#;
 const EX: &str = r#"A directory and a file name yield the file name:
 
 ```

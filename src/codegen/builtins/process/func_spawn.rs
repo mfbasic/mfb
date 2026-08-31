@@ -26,7 +26,7 @@ use super::gen_windows::*;
 const INTRO: &str =
     r#"Run a program directly from an argument list, returning a handle to the child."#;
 const DESC: &str = r#"`process::spawn` starts a child process from an explicit argument vector and
-returns an owned `Process` handle to it. `args[0]` is the executable and is
+returns a `Process` handle to it. `args[0]` is the executable and is
 resolved on `PATH` (`execvp` on Unix); the remaining elements are passed as the
 child's arguments verbatim. **No shell is involved** — quoting, globbing, pipes,
 redirection, and environment-variable expansion are *not* interpreted, so an
@@ -41,8 +41,8 @@ is not found) is reported back to the parent over a close-on-exec self-pipe and
 surfaces as `ErrSpawnFailed`, not as a silently running child.
 
 
-The returned `Process` is an owned, non-copyable resource handle. It is closed by
-lexical drop when its binding leaves scope, which **force-kills and reaps** a
+The returned `Process` is a resource handle that cannot be copied. It closes
+itself when its binding goes out of scope, which **force-kills and reaps** a
 still-running child (`SIGKILL` + `waitpid` on Unix) so no runaway process or zombie
 is left; call `process::waitFor` first if the child should be allowed to finish, or
 `process::detach` to let it outlive the program.

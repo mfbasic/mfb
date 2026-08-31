@@ -14,8 +14,14 @@ const INTRO: &str = r#"Read up to a number of bytes from a connected TCP socket.
 const DESC: &str = r#"`tcp::read` reads from a connected `Socket` and returns what arrived as a
 `List OF Byte`. It is a **short read**: it returns as soon as any data is
 available, so the result may be shorter than `maxBytes` and a caller that needs a
-whole message loops until it has assembled one. An empty list means the peer
-closed its end of the connection — the normal end of a stream, not an error.
+whole message loops until it has assembled one. A successful read always returns
+at least one byte.
+
+**The end of the stream is a raise, not an empty list.** When the peer closes its
+end, `tcp::read` raises `ErrConnectionClosed`; there is no return value that
+means "nothing more is coming". So a drain loop ends in a `TRAP`, not on a
+zero-length chunk — see the second example. `tls::read` ends a stream the same
+way, so a protocol written against one transport reads the same on the other.
 
 `maxBytes` bounds the read and must be positive; `0` or negative raises
 `ErrInvalidArgument`.
@@ -27,13 +33,14 @@ closes.
 **There is no `readText`.** A stream read stops wherever the network happened to
 divide the data, which need not be a character boundary, so a decode at that
 point can split a multi-byte character in half. Assemble the whole message first,
-then decode it with `encoding::toUtf8Text`. `tcp::write` does accept a `String`
+then decode it with `encoding::utf8Decode`. `tcp::write` does accept a `String`
 directly, because sending is not subject to the same hazard."#;
 
 const EX: &str = r#"Read one chunk and decode it once it is whole:
 
 ```
 IMPORT tcp
+IMPORT net
 IMPORT encoding
 IMPORT io
 
@@ -44,31 +51,52 @@ FUNC main AS Integer
   RES conn = tcp::accept(server)
   tcp::write(client, "hello")
   LET bytes = tcp::read(conn, 64)
-  io::print(encoding::toUtf8Text(bytes))
+  io::print(encoding::utf8Decode(bytes))
   RETURN 0
 END FUNC
 ```
 
-Read until the peer closes:
+Read until the peer closes. The `TRAP` is what ends the loop — `tcp::read` never
+returns an empty list, so a `len(chunk) = 0` test would loop forever. Checking
+the code keeps a genuine read failure from being counted as a clean end:
 
 ```
-IMPORT collections
+IMPORT errorCode
 IMPORT tcp
+IMPORT net
 IMPORT io
 
-FUNC drain(sock AS tcp::Socket) AS Integer
+FUNC drain(RES sock AS tcp::Socket) AS Integer
   MUT total = 0
-  MUT reading = TRUE
-  WHILE reading
+  WHILE TRUE
     LET chunk = tcp::read(sock, 4096)
-    IF len(chunk) = 0 THEN
-      reading = FALSE
-    ELSE
-      total = total + len(chunk)
-    END IF
+    total = total + len(chunk)
   END WHILE
   RETURN total
+TRAP(err)
+  IF err.code = errorCode::ErrConnectionClosed THEN
+    RETURN total
+  END IF
+  RETURN -1
+END TRAP
 END FUNC
+
+FUNC main AS Integer
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound = tcp::localAddress(server)
+  RES client = tcp::connect("127.0.0.1", bound.port)
+  RES conn = tcp::accept(server)
+  tcp::write(client, "hello")
+  tcp::close(client)
+  io::print(toString(drain(conn)) & " bytes drained")
+  RETURN 0
+END FUNC
+```
+
+prints:
+
+```
+5 bytes drained
 ```"#;
 
 /// `abi_function` body for `tcp::read` — the byte form only (`text = false`).
@@ -98,13 +126,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 super::req(
                     "sock",
-                    "An open connected socket. Borrowed, not consumed.",
+                    "An open connected socket. The handle stays open — you still close it.",
                     &[],
                     super::socket(),
                 ),
                 super::req(
                     "maxBytes",
-                    "The maximum number of bytes to read. Must be positive; the result may be shorter, and is empty when the peer has closed.",
+                    "The maximum number of bytes to read. Must be positive; the result may be shorter, but is never empty — a closed peer raises `ErrConnectionClosed`.",
                     &[],
                     ParameterType::Integer,
                 ),

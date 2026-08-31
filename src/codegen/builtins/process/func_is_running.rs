@@ -31,9 +31,9 @@ When the check observes that the child has just exited, it decodes and **caches*
 the exit code and raw wait status in the handle, so a later `process::waitFor`
 returns without blocking and `process::didSignal` can report how the child died.
 Once the exit has been cached, further `isRunning` calls answer `FALSE` from the
-cache without another system call.
+cache without asking the operating system again.
 
-The handle is borrowed and left open. Calling `isRunning` on a handle that has
+The handle stays open. Calling `isRunning` on a handle that has
 already been dropped or detached raises `ErrResourceClosed`."#;
 const EX: &str = r#"Poll a child until it finishes:
 
@@ -87,7 +87,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "p",
-                desc: "The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`.",
+                desc: "The child process handle. The handle stays open — you still close it. Also accepts the alternate named-argument spelling `process`.",
                 aliases: &["process"],
                 ty: ParameterType::named(super::PROCESS_TYPE_ID),
                 default: DefaultValue::None,

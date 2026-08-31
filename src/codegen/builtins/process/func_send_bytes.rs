@@ -92,7 +92,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "p",
-                    desc: "The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`.",
+                    desc: "The child process handle. The handle stays open — you still close it. Also accepts the alternate named-argument spelling `process`.",
                     aliases: &["process"],
                     ty: ParameterType::named(super::PROCESS_TYPE_ID),
                     default: DefaultValue::None,

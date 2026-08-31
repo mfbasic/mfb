@@ -9,15 +9,12 @@ const INTRO: &str = r#"Accept one inbound connection and complete the server-sid
 const DESC: &str = r#"`accept` takes the next inbound TCP connection on a `Listener`, runs the
 **server side** of the TLS handshake using the listener's loaded certificate and
 key, and returns a connected `Socket`. The returned socket is
-indistinguishable from a client `Socket`: read and write it with `tls::read`,
-`tls::read`, `tls::write`, and `tls::write`, and close it with
-`tls::close` or by lexical drop.
+indistinguishable from a client `Socket`: read and write it with `tls::read` and
+`tls::write`, and close it with `tls::close`, or when its binding goes out of scope.
 
-The `listener` is **borrowed**, not consumed: it stays open for the next
+The `listener` stays open — you still close it — and is available for the next
 `accept`, so a server loops on one listener to serve many connections. The
-accepted socket borrows the listener's shared server TLS context; closing the
-socket never frees that context (the listener owns it and frees it once, when the
-listener closes), so accepted sockets may be closed in any order while the
+accepted socket shares the listener's server TLS settings; closing the socket leaves them intact, and the listener releases them once when it closes, so accepted sockets may be closed in any order while the
 listener and its siblings stay live.
 
 The optional `timeoutMs` bounds how long `accept` waits for both an inbound
@@ -81,7 +78,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "listener",
-                    desc: "A listening `Listener` from `tls::listen`. Borrowed, not consumed: it remains open for further `accept` calls.",
+                    desc: "A listening `Listener` from `tls::listen`. The handle stays open — you still close it: it remains open for further `accept` calls.",
                     aliases: &[],
                     ty: ParameterType::named(super::TLS_LISTENER_TYPE_ID),
                     default: DefaultValue::None,

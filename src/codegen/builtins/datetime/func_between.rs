@@ -86,14 +86,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "start",
-                    desc: "",
+                    desc: "The earlier instant. If it is actually the later one the result is negative.",
                     aliases: &[],
                     ty: super::ParameterType::named("Instant"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "finish",
-                    desc: "",
+                    desc: "The later instant. The result is `finish - start`.",
                     aliases: &[],
                     ty: super::ParameterType::named("Instant"),
                     default: super::DefaultValue::None,

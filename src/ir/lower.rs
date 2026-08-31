@@ -1,5 +1,6 @@
 use super::*;
 
+use super::fallible::{is_total_literal_negation, operator_can_raise, Fallibility};
 use super::lower_link::{link_aliases, link_cstructs, link_functions, native_resources};
 use crate::hir::{
     HirCallArg, HirConstructorArg, HirExpression, HirFunction, HirItem, HirMatchCase,
@@ -57,6 +58,10 @@ pub(super) struct LowerContext<'a> {
     /// at the same line the AST checker did (plan-20-A). Column is always 1,
     /// matching `show_diagnostic`'s statement-level reporting.
     current_loc: IrSourceLoc,
+    /// Which call targets can raise (bug-457). The inline-`TRAP` desugar needs
+    /// this to decide which *nested* calls in the trapped expression get their
+    /// own `CallResult` check; see [`super::fallible`].
+    fallible: &'a Fallibility,
 }
 
 /// A type an imported (non-builtin) package exports, decoded from its `.mfp` so
@@ -273,6 +278,9 @@ pub(super) struct LowerFacts {
     function_params: HashMap<String, Vec<CallParam>>,
     binding_types: HashMap<String, ParameterType>,
     type_index: TypeIndex,
+    /// Project-wide fallibility verdicts (bug-457), computed once here so both
+    /// lowering and the shape pass read the same answers.
+    fallible: Fallibility,
 }
 
 impl LowerContext<'_> {
@@ -280,6 +288,14 @@ impl LowerContext<'_> {
     /// pass's call rules (a global of FUNC type is callable like a local).
     pub(super) fn binding_type(&self, name: &str) -> Option<&ParameterType> {
         self.binding_types.get(name)
+    }
+
+    /// Whether a call to `target` can raise an error its caller must handle
+    /// (bug-457). The shape pass asks this to reject a fallible call in a
+    /// short-circuited operand of an inline-`TRAP` scrutinee, which is the one
+    /// nested-call shape [`lower_inline_trap`] cannot lift.
+    pub(super) fn call_is_fallible(&self, target: &str) -> bool {
+        self.fallible.call_is_fallible(target)
     }
 }
 
@@ -304,6 +320,7 @@ impl LowerFacts {
             mutable_locals: HashSet::new(),
             nonescaping_callback: false,
             current_loc: IrSourceLoc::default(),
+            fallible: &self.fallible,
         }
     }
 }
@@ -348,6 +365,7 @@ pub(super) fn lower_facts(
         function_params,
         binding_types,
         type_index,
+        fallible: super::fallible::analyze(hir),
     };
     // Inference reads the declared tables through a context and writes the
     // inferred binding types back; the throwaway context borrows `facts`, so the
@@ -1243,12 +1261,58 @@ fn ops_read_local(ops: &[IrOp], name: &str) -> bool {
 }
 
 /// Lowers an inline `TRAP` to existing IR primitives (no backend support is
-/// required). The trapped call is evaluated as a raw `Result`; on `Ok` its value
-/// flows to the target; on `Err` the handler runs with `e` bound. `RECOVER`
-/// stores its value into a shared slot and then falls through to the delivery of
-/// the target, while diverging handler paths (`RETURN`/`FAIL`/`PROPAGATE`) leave
-/// as usual. The handler is normalized so that statements following a `RECOVER`
-/// in a branch do not execute after recovery (see [`treeify_handler`]).
+/// required). Every fallible call in the trapped expression is evaluated as a
+/// raw `Result`; on `Ok` its value flows on, on `Err` the handler runs with `e`
+/// bound. `RECOVER` stores its value into a shared slot and then falls through
+/// to the delivery of the target, while diverging handler paths
+/// (`RETURN`/`FAIL`/`PROPAGATE`) leave as usual. The handler is normalized so
+/// that statements following a `RECOVER` in a branch do not execute after
+/// recovery (see [`treeify_handler`]).
+///
+/// Two shapes come out of here.
+///
+/// * **One check** — the scrutinee has no fallible call nested inside it, so
+///   only its outermost node is converted:
+///
+///   ```text
+///   Bind $trap_res0 = CallResult(g(x))
+///   Bind MUT $trap_val1 : T
+///   If ResultIsOk($trap_res0) { $trap_val1 = ResultValue($trap_res0) }
+///                        else { Bind e = ResultError($trap_res0); <handler> }
+///   Bind y = $trap_val1
+///   ```
+///
+///   This is the overwhelmingly common case and the shape `ir::verify`'s
+///   `check_inline_trap_scrutinee` reads to report
+///   `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` (a scrutinee that is not a call at
+///   all) and `TYPE_INLINE_TRAP_DEAD_HANDLER` (a provably-infallible built-in),
+///   so a non-call scrutinee still lands here unchanged.
+///
+/// * **A check chain** (bug-457) — the scrutinee *does* contain a fallible call
+///   nested inside it. Converting only the outermost node left the nested call a
+///   plain `Call`, which auto-propagated straight past the handler to the
+///   function-level trap: the handler never ran and nothing was reported. Each
+///   nested fallible call is now lifted into its own check ahead of the residual
+///   expression, nested so that a failure skips the rest of the expression:
+///
+///   ```text
+///   Bind MUT $trap_failed : Boolean = false
+///   Bind MUT $trap_err : Error
+///   Bind MUT $trap_val : T
+///   Bind $trap_res = CallResult(inner(-1))
+///   If ResultIsOk($trap_res) {
+///       Bind $trap_arg = ResultValue($trap_res)
+///       $trap_val = outer($trap_arg)
+///   } else { $trap_failed = true; $trap_err = ResultError($trap_res) }
+///   If $trap_failed { Bind e = $trap_err; <handler> }
+///   Bind y = $trap_val
+///   ```
+///
+///   The handler is emitted **once**, behind the shared `$trap_failed` flag,
+///   rather than cloned into every check's `else`: cloning would duplicate the
+///   handler's own diagnostics and its lowered temps, and the flag reproduces
+///   `RECOVER`'s fall-through (recovery assigns the slot and continues to the
+///   delivery below) with a single copy.
 fn lower_inline_trap(
     inner: &HirExpression,
     binding: &str,
@@ -1263,60 +1327,72 @@ fn lower_inline_trap(
     let stmt_loc = context.current_loc;
     let success_type = expression_type(inner, locals, context).unwrap_or(ParameterType::Unknown);
     let result_type = ParameterType::result_of(success_type.clone());
-    let raw = lower_expression(inner, locals, context);
-    let call_result = match raw {
-        IrValue::Call {
-            target, args, loc, ..
-        } => IrValue::CallResult {
-            target,
-            args,
-            // The fallible form's success type is the call's own result type.
-            type_: success_type.clone(),
-            loc,
-        },
-        other => other,
-    };
+    let mut root = lower_expression(inner, locals, context);
+    // bug-457: lift the fallible calls nested inside the scrutinee. With none to
+    // lift this is a no-op and the lowering below is byte-for-byte the one that
+    // shipped before.
+    let hoists = hoist_trap_calls(&mut root, locals, context);
 
+    // Whether the scrutinee's own outermost node still gets a `Result` check.
+    // With nothing lifted it always does, including when it is not a call —
+    // that bind is the evidence `ir::verify` reports the non-call scrutinee on.
+    // Once a nested call has been lifted the handler is demonstrably live, so an
+    // outermost node that cannot fail (`toString(parse(s))`, or no call at all)
+    // is left as a plain value instead of a needless always-`Ok` check.
+    // bug-471: with something already lifted, a raising *operator* at the root
+    // is checked too — `LET c = inner(x) + 1 TRAP(e)` (the shape `mfb spec
+    // language error-model` §8.6 rule 11 explicitly blesses) must catch the
+    // `+`'s overflow, not just `inner`'s failure. With nothing lifted the root
+    // is left unchecked whatever it is: that bare bind is the evidence
+    // `ir::verify` reports `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` on, and an
+    // inline `TRAP` still traps a *call* — a scrutinee that is only an operator
+    // is rejected exactly as before.
+    let root_operator_raises = !hoists.is_empty()
+        && matches!(&root, IrValue::Binary { .. } | IrValue::Unary { .. })
+        && trap_hoist_kind(&root, context.fallible) == Some(true);
+    let check_root = match &root {
+        IrValue::Call { target, .. } => {
+            hoists.is_empty() || context.fallible.call_is_fallible(target)
+        }
+        _ => hoists.is_empty() || root_operator_raises,
+    };
+    // Allocated before the value slot so the no-hoist lowering keeps its
+    // historical temp numbering.
     let res_name = make_temp_local_name(context, "trap_res");
-    let mut ops = vec![IrOp::Bind {
-        mutable: false,
-        name: res_name.clone(),
-        type_: result_type.clone(),
-        value: Some(call_result),
-        loc: stmt_loc,
-        explicit_type: false,
-    }];
-    locals.insert(res_name.clone(), result_type);
+    let (root_result, root_plain) = if check_root {
+        locals.insert(res_name.clone(), result_type.clone());
+        let checked = match root {
+            IrValue::Call {
+                target, args, loc, ..
+            } => IrValue::CallResult {
+                target,
+                args,
+                // The fallible form's success type is the call's own result type.
+                type_: success_type.clone(),
+                loc,
+            },
+            // A raising operator has no callee to return a `Result`, so it is
+            // wrapped instead (bug-471).
+            other if root_operator_raises => IrValue::Checked {
+                type_: success_type.clone(),
+                value: Box::new(other),
+            },
+            other => other,
+        };
+        (Some(checked), None)
+    } else {
+        (None, Some(root))
+    };
 
     // A shared slot carries the value on both the Ok and RECOVER paths so the
     // target binding/assignment is produced exactly once after the branch.
     let slot = match &target {
         InlineTrapTarget::Bind { .. } | InlineTrapTarget::Assign { .. } => {
             let val_name = make_temp_local_name(context, "trap_val");
-            ops.push(IrOp::Bind {
-                mutable: true,
-                name: val_name.clone(),
-                type_: success_type.clone(),
-                value: None,
-                loc: stmt_loc,
-                explicit_type: false,
-            });
             locals.insert(val_name.clone(), success_type.clone());
             Some(val_name)
         }
         InlineTrapTarget::Discard => None,
-    };
-
-    let then_body = match &slot {
-        Some(val_name) => vec![IrOp::Assign {
-            name: val_name.clone(),
-            value: IrValue::ResultValue {
-                type_: success_type.clone(),
-                value: Box::new(IrValue::Local(res_name.clone())),
-            },
-            loc: stmt_loc,
-        }],
-        None => Vec::new(),
     };
 
     let mut handler_locals = locals.clone();
@@ -1335,29 +1411,242 @@ fn lower_inline_trap(
     // ErrorLoc/Error assembly it forces — see `emit_error_register_return`'s
     // discard path) is dead work. Eliding it is what lets the conversion error
     // path materialize only a bare tag.
-    let mut else_body = Vec::new();
-    if ops_read_local(&handler_ops, binding) {
-        else_body.push(IrOp::Bind {
-            mutable: false,
-            name: binding.to_string(),
-            type_: ParameterType::named("Error"),
-            value: Some(IrValue::ResultError {
+    let handler_reads_err = ops_read_local(&handler_ops, binding);
+
+    // The Ok arm of the outermost node's check: deliver its value into the slot.
+    let root_then = match (&root_result, &slot) {
+        (Some(_), Some(val_name)) => vec![IrOp::Assign {
+            name: val_name.clone(),
+            value: IrValue::ResultValue {
+                type_: success_type.clone(),
                 value: Box::new(IrValue::Local(res_name.clone())),
+            },
+            loc: stmt_loc,
+        }],
+        _ => Vec::new(),
+    };
+
+    let mut ops = Vec::new();
+    if hoists.is_empty() {
+        let call_result = root_result.expect("a scrutinee with nothing lifted is always checked");
+        ops.push(IrOp::Bind {
+            mutable: false,
+            name: res_name.clone(),
+            type_: result_type,
+            value: Some(call_result),
+            loc: stmt_loc,
+            explicit_type: false,
+        });
+        if let Some(val_name) = &slot {
+            ops.push(IrOp::Bind {
+                mutable: true,
+                name: val_name.clone(),
+                type_: success_type.clone(),
+                value: None,
+                loc: stmt_loc,
+                explicit_type: false,
+            });
+        }
+        let mut else_body = Vec::new();
+        if handler_reads_err {
+            else_body.push(IrOp::Bind {
+                mutable: false,
+                name: binding.to_string(),
+                type_: ParameterType::named("Error"),
+                value: Some(IrValue::ResultError {
+                    value: Box::new(IrValue::Local(res_name.clone())),
+                }),
+                loc: stmt_loc,
+                explicit_type: false,
+            });
+        }
+        else_body.extend(handler_ops);
+        ops.push(IrOp::If {
+            condition: IrValue::ResultIsOk {
+                value: Box::new(IrValue::Local(res_name.clone())),
+            },
+            then_body: root_then,
+            else_body,
+            loc: stmt_loc,
+        });
+    } else {
+        // The shared failure flag and error slot the whole chain reports through.
+        let failed_name = make_temp_local_name(context, "trap_failed");
+        locals.insert(failed_name.clone(), ParameterType::Boolean);
+        let err_name = handler_reads_err.then(|| {
+            let name = make_temp_local_name(context, "trap_err");
+            locals.insert(name.clone(), ParameterType::named("Error"));
+            name
+        });
+        // The `else` arm every check shares: record the failure and the error,
+        // then fall out of the chain to the single handler below.
+        let fail_arm = |res: &str| {
+            let mut arm = vec![IrOp::Assign {
+                name: failed_name.clone(),
+                value: IrValue::Const {
+                    type_: ParameterType::Boolean,
+                    value: "true".to_string(),
+                },
+                loc: stmt_loc,
+            }];
+            if let Some(err_name) = &err_name {
+                arm.push(IrOp::Assign {
+                    name: err_name.clone(),
+                    value: IrValue::ResultError {
+                        value: Box::new(IrValue::Local(res.to_string())),
+                    },
+                    loc: stmt_loc,
+                });
+            }
+            arm
+        };
+
+        ops.push(IrOp::Bind {
+            mutable: true,
+            name: failed_name.clone(),
+            type_: ParameterType::Boolean,
+            value: Some(IrValue::Const {
+                type_: ParameterType::Boolean,
+                value: "false".to_string(),
             }),
             loc: stmt_loc,
             explicit_type: false,
         });
-    }
-    else_body.extend(handler_ops);
+        if let Some(err_name) = &err_name {
+            ops.push(IrOp::Bind {
+                mutable: true,
+                name: err_name.clone(),
+                type_: ParameterType::named("Error"),
+                value: None,
+                loc: stmt_loc,
+                explicit_type: false,
+            });
+        }
+        if let Some(val_name) = &slot {
+            ops.push(IrOp::Bind {
+                mutable: true,
+                name: val_name.clone(),
+                type_: success_type.clone(),
+                value: None,
+                loc: stmt_loc,
+                explicit_type: false,
+            });
+        }
 
-    ops.push(IrOp::If {
-        condition: IrValue::ResultIsOk {
-            value: Box::new(IrValue::Local(res_name.clone())),
-        },
-        then_body,
-        else_body,
-        loc: stmt_loc,
-    });
+        // Innermost: the residual expression, checked or plain.
+        let mut body = match (root_result, root_plain) {
+            (Some(call_result), _) => vec![
+                IrOp::Bind {
+                    mutable: false,
+                    name: res_name.clone(),
+                    type_: result_type,
+                    value: Some(call_result),
+                    loc: stmt_loc,
+                    explicit_type: false,
+                },
+                IrOp::If {
+                    condition: IrValue::ResultIsOk {
+                        value: Box::new(IrValue::Local(res_name.clone())),
+                    },
+                    then_body: root_then,
+                    else_body: fail_arm(&res_name),
+                    loc: stmt_loc,
+                },
+            ],
+            (None, Some(plain)) => match &slot {
+                Some(val_name) => vec![IrOp::Assign {
+                    name: val_name.clone(),
+                    value: plain,
+                    loc: stmt_loc,
+                }],
+                None => vec![IrOp::Eval {
+                    value: plain,
+                    loc: stmt_loc,
+                }],
+            },
+            (None, None) => Vec::new(),
+        };
+
+        // Wrap the lifted calls around it, innermost last, so each one's Ok arm
+        // carries everything evaluated after it and a failure skips the rest.
+        for hoist in hoists.into_iter().rev() {
+            let TrapHoist {
+                name,
+                type_,
+                value,
+                res,
+                loc,
+            } = hoist;
+            match res {
+                Some(res) => {
+                    let mut then_body = vec![IrOp::Bind {
+                        mutable: false,
+                        name,
+                        type_: type_.clone(),
+                        value: Some(IrValue::ResultValue {
+                            type_: type_.clone(),
+                            value: Box::new(IrValue::Local(res.clone())),
+                        }),
+                        loc,
+                        explicit_type: false,
+                    }];
+                    then_body.append(&mut body);
+                    let else_body = fail_arm(&res);
+                    body = vec![
+                        IrOp::Bind {
+                            mutable: false,
+                            name: res.clone(),
+                            type_: ParameterType::result_of(type_),
+                            value: Some(value),
+                            loc,
+                            explicit_type: false,
+                        },
+                        IrOp::If {
+                            condition: IrValue::ResultIsOk {
+                                value: Box::new(IrValue::Local(res)),
+                            },
+                            then_body,
+                            else_body,
+                            loc,
+                        },
+                    ];
+                }
+                None => {
+                    let mut lifted = vec![IrOp::Bind {
+                        mutable: false,
+                        name,
+                        type_,
+                        value: Some(value),
+                        loc,
+                        explicit_type: false,
+                    }];
+                    lifted.append(&mut body);
+                    body = lifted;
+                }
+            }
+        }
+        ops.append(&mut body);
+
+        // The single handler, reached from whichever check failed.
+        let mut handler_block = Vec::new();
+        if let Some(err_name) = &err_name {
+            handler_block.push(IrOp::Bind {
+                mutable: false,
+                name: binding.to_string(),
+                type_: ParameterType::named("Error"),
+                value: Some(IrValue::Local(err_name.clone())),
+                loc: stmt_loc,
+                explicit_type: false,
+            });
+        }
+        handler_block.extend(handler_ops);
+        ops.push(IrOp::If {
+            condition: IrValue::Local(failed_name),
+            then_body: handler_block,
+            else_body: Vec::new(),
+            loc: stmt_loc,
+        });
+    }
 
     match target {
         InlineTrapTarget::Bind {
@@ -1399,6 +1688,376 @@ fn lower_inline_trap(
     }
 
     ops
+}
+
+/// One call lifted out of an inline-`TRAP` scrutinee (bug-457).
+struct TrapHoist {
+    /// The local the residual expression reads in the call's place.
+    name: String,
+    /// The call's own value type.
+    type_: ParameterType,
+    /// The lifted call: a `CallResult` when it is checked, a plain `Call` when
+    /// it is lifted only to keep evaluation order.
+    value: IrValue,
+    /// The `Result` temp its check binds, when it is checked.
+    res: Option<String>,
+    loc: IrSourceLoc,
+}
+
+/// Depth cap for the two inline-`TRAP` scrutinee walks. Mirrors
+/// [`super::value::VALUE_VISIT_MAX_DEPTH`], the IR verifier's own value-walk
+/// bound; the scan and the rewrite must stop at the *same* depth or they would
+/// disagree on which call node an index names.
+const TRAP_SCRUTINEE_MAX_DEPTH: usize = super::value::VALUE_VISIT_MAX_DEPTH;
+
+/// Whether `op` only evaluates its right operand when the left one does not
+/// already decide the result (`mfb spec language operators`). A call in that
+/// position cannot be lifted — hoisting evaluates it unconditionally — so it is
+/// left in place, and `ir::shape` rejects a *fallible* one with
+/// `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` rather than letting its error escape.
+pub(super) fn is_short_circuit_operator(op: &str) -> bool {
+    op == "AND" || op == "OR"
+}
+
+/// Lifts the calls nested inside an inline-`TRAP` scrutinee out in front of it,
+/// rewriting `root` to read their results from locals (bug-457).
+///
+/// Returns them in evaluation order, empty when the scrutinee has no fallible
+/// call nested inside it — which is the common single-call shape, left
+/// untouched.
+///
+/// Everything up to and including the **last** fallible call is lifted, not just
+/// the fallible ones: the lifted binds all run before the residual expression,
+/// so a side-effecting infallible call left behind would move *after* a fallible
+/// call it used to precede. Calls past the last fallible one need no such care
+/// and stay in the expression.
+fn hoist_trap_calls(
+    root: &mut IrValue,
+    locals: &mut HashMap<String, ParameterType>,
+    context: &mut LowerContext<'_>,
+) -> Vec<TrapHoist> {
+    // The scrutinee's own outermost node is handled by the caller, so only its
+    // operands are scanned.
+    let mut fallible = Vec::new();
+    scan_trap_operands(root, context.fallible, 0, &mut fallible);
+    let Some(last_fallible) = fallible.iter().rposition(|f| *f) else {
+        return Vec::new();
+    };
+    let mut hoists = Vec::new();
+    let mut index = 0;
+    rewrite_trap_operands(
+        root,
+        &fallible,
+        last_fallible + 1,
+        &mut index,
+        0,
+        &mut hoists,
+        locals,
+        context,
+    );
+    hoists
+}
+
+/// Records, in evaluation order, whether each call node under `value` is
+/// fallible. `value`'s own node is not recorded — only its operands.
+fn scan_trap_operands(value: &IrValue, fallible: &Fallibility, depth: usize, out: &mut Vec<bool>) {
+    let next = depth + 1;
+    match value {
+        IrValue::Const { .. }
+        | IrValue::Local(_)
+        | IrValue::Global(_)
+        | IrValue::LocalRef { .. }
+        | IrValue::FunctionRef { .. }
+        | IrValue::Capture { .. } => {}
+        // A lambda's body runs at the callback's call site, not here; only the
+        // captured values are evaluated in this expression.
+        IrValue::Closure { captures, .. } => {
+            for capture in captures {
+                scan_trap_call(capture, fallible, next, out);
+            }
+        }
+        IrValue::Call { args, .. }
+        | IrValue::CallResult { args, .. }
+        | IrValue::Constructor { args, .. } => {
+            for arg in args {
+                scan_trap_call(arg, fallible, next, out);
+            }
+        }
+        IrValue::UnionWrap { value, .. }
+        | IrValue::UnionExtract { value, .. }
+        | IrValue::ResultIsOk { value }
+        | IrValue::ResultValue { value, .. }
+        | IrValue::ResultError { value }
+        | IrValue::Checked { value, .. }
+        | IrValue::Unary { operand: value, .. }
+        | IrValue::MemberAccess { target: value, .. } => scan_trap_call(value, fallible, next, out),
+        IrValue::WithUpdate {
+            target, updates, ..
+        } => {
+            scan_trap_call(target, fallible, next, out);
+            for update in updates {
+                scan_trap_call(&update.value, fallible, next, out);
+            }
+        }
+        IrValue::ListLiteral { values, .. } | IrValue::SetLiteral { values, .. } => {
+            for value in values {
+                scan_trap_call(value, fallible, next, out);
+            }
+        }
+        IrValue::MapLiteral { entries, .. } => {
+            for (key, value) in entries {
+                scan_trap_call(key, fallible, next, out);
+                scan_trap_call(value, fallible, next, out);
+            }
+        }
+        IrValue::Binary {
+            op, left, right, ..
+        } => {
+            scan_trap_call(left, fallible, next, out);
+            if !is_short_circuit_operator(op) {
+                scan_trap_call(right, fallible, next, out);
+            }
+        }
+    }
+}
+
+/// Whether `value`'s own node is one the desugar lifts out of the scrutinee: a
+/// call, or (bug-471) an operator that can raise while the expression is
+/// evaluated. Both walks below index exactly these nodes, in evaluation order,
+/// so a node's position means the same thing to each.
+///
+/// `Some(true)` = lifted **and checked** (its error routes to the handler);
+/// `Some(false)` = lifted but not checked — an infallible call kept in place
+/// only so a later lift cannot reorder it past this one; `None` = not indexed.
+fn trap_hoist_kind(value: &IrValue, fallible: &Fallibility) -> Option<bool> {
+    match value {
+        IrValue::Call { target, .. } => Some(fallible.call_is_fallible(target)),
+        // The spelling of a negative literal, which cannot raise — see
+        // `fallible::is_total_literal_negation` for why, and why `Byte` is not
+        // exempt.
+        IrValue::Unary {
+            op, type_, operand, ..
+        } if matches!(operand.as_ref(), IrValue::Const { .. })
+            && is_total_literal_negation(op, type_) =>
+        {
+            None
+        }
+        // A raising operator is always checked: unlike a call there is no
+        // declaration to prove it total, and `operator_can_raise` is already the
+        // conservative side of that question.
+        IrValue::Binary { op, type_, .. } | IrValue::Unary { op, type_, .. } => {
+            operator_can_raise(op, type_).then_some(true)
+        }
+        _ => None,
+    }
+}
+
+/// [`scan_trap_operands`] plus `value`'s own node, so lifted nodes are recorded
+/// in evaluation order (operands first, then the node they feed).
+fn scan_trap_call(value: &IrValue, fallible: &Fallibility, depth: usize, out: &mut Vec<bool>) {
+    if depth > TRAP_SCRUTINEE_MAX_DEPTH {
+        return;
+    }
+    scan_trap_operands(value, fallible, depth, out);
+    if let Some(checked) = trap_hoist_kind(value, fallible) {
+        out.push(checked);
+    }
+}
+
+/// The mutating twin of [`scan_trap_operands`]: walks the same nodes in the same
+/// order and replaces the first `limit` call nodes with reads of the locals they
+/// are lifted into.
+#[allow(clippy::too_many_arguments)]
+fn rewrite_trap_operands(
+    value: &mut IrValue,
+    fallible: &[bool],
+    limit: usize,
+    index: &mut usize,
+    depth: usize,
+    hoists: &mut Vec<TrapHoist>,
+    locals: &mut HashMap<String, ParameterType>,
+    context: &mut LowerContext<'_>,
+) {
+    let next = depth + 1;
+    match value {
+        IrValue::Const { .. }
+        | IrValue::Local(_)
+        | IrValue::Global(_)
+        | IrValue::LocalRef { .. }
+        | IrValue::FunctionRef { .. }
+        | IrValue::Capture { .. } => {}
+        IrValue::Closure { captures, .. } => {
+            for capture in captures {
+                rewrite_trap_call(
+                    capture, fallible, limit, index, next, hoists, locals, context,
+                );
+            }
+        }
+        IrValue::Call { args, .. }
+        | IrValue::CallResult { args, .. }
+        | IrValue::Constructor { args, .. } => {
+            for arg in args {
+                rewrite_trap_call(arg, fallible, limit, index, next, hoists, locals, context);
+            }
+        }
+        IrValue::UnionWrap { value, .. }
+        | IrValue::UnionExtract { value, .. }
+        | IrValue::ResultIsOk { value }
+        | IrValue::ResultValue { value, .. }
+        | IrValue::ResultError { value }
+        | IrValue::Checked { value, .. }
+        | IrValue::Unary { operand: value, .. }
+        | IrValue::MemberAccess { target: value, .. } => {
+            rewrite_trap_call(value, fallible, limit, index, next, hoists, locals, context)
+        }
+        IrValue::WithUpdate {
+            target, updates, ..
+        } => {
+            rewrite_trap_call(
+                target, fallible, limit, index, next, hoists, locals, context,
+            );
+            for update in updates {
+                rewrite_trap_call(
+                    &mut update.value,
+                    fallible,
+                    limit,
+                    index,
+                    next,
+                    hoists,
+                    locals,
+                    context,
+                );
+            }
+        }
+        IrValue::ListLiteral { values, .. } | IrValue::SetLiteral { values, .. } => {
+            for value in values {
+                rewrite_trap_call(value, fallible, limit, index, next, hoists, locals, context);
+            }
+        }
+        IrValue::MapLiteral { entries, .. } => {
+            for (key, value) in entries {
+                rewrite_trap_call(key, fallible, limit, index, next, hoists, locals, context);
+                rewrite_trap_call(value, fallible, limit, index, next, hoists, locals, context);
+            }
+        }
+        IrValue::Binary {
+            op, left, right, ..
+        } => {
+            let short_circuit = is_short_circuit_operator(op);
+            rewrite_trap_call(left, fallible, limit, index, next, hoists, locals, context);
+            if !short_circuit {
+                rewrite_trap_call(right, fallible, limit, index, next, hoists, locals, context);
+            }
+        }
+    }
+}
+
+/// [`rewrite_trap_operands`] plus `value`'s own node, lifting it when its
+/// evaluation-order index is within `limit`.
+#[allow(clippy::too_many_arguments)]
+fn rewrite_trap_call(
+    value: &mut IrValue,
+    fallible: &[bool],
+    limit: usize,
+    index: &mut usize,
+    depth: usize,
+    hoists: &mut Vec<TrapHoist>,
+    locals: &mut HashMap<String, ParameterType>,
+    context: &mut LowerContext<'_>,
+) {
+    if depth > TRAP_SCRUTINEE_MAX_DEPTH {
+        return;
+    }
+    rewrite_trap_operands(
+        value, fallible, limit, index, depth, hoists, locals, context,
+    );
+    if !matches!(
+        value,
+        IrValue::Call { .. } | IrValue::Binary { .. } | IrValue::Unary { .. }
+    ) {
+        return;
+    }
+    // The scan's fallibility verdict is recomputed here rather than read off
+    // `fallible[position]`, because a non-raising operator is not indexed at all
+    // and must not consume a position.
+    let Some(checked) = trap_hoist_kind(value, context.fallible) else {
+        return;
+    };
+    debug_assert_eq!(
+        fallible.get(*index).copied(),
+        Some(checked),
+        "the scan and the rewrite disagree on which nodes are lifted"
+    );
+    let position = *index;
+    *index += 1;
+    if position >= limit {
+        return;
+    }
+    let lifted = std::mem::replace(value, IrValue::Local(String::new()));
+    let (type_, loc, value_node) = match lifted {
+        IrValue::Call {
+            target,
+            args,
+            type_,
+            loc,
+        } => {
+            let node = if checked {
+                IrValue::CallResult {
+                    target,
+                    args,
+                    type_: type_.clone(),
+                    loc,
+                }
+            } else {
+                IrValue::Call {
+                    target,
+                    args,
+                    type_: type_.clone(),
+                    loc,
+                }
+            };
+            (type_, loc, node)
+        }
+        // bug-471: a raising operator has no callee whose error return could be
+        // turned into a `Result`, so it is wrapped in a `Checked` — "evaluate
+        // this with its domain-error exits captured". Its own operands have
+        // already been rewritten above, so every call inside it is a `Local`
+        // read of an earlier lift and the `Checked` wraps pure arithmetic.
+        operator => {
+            let type_ = operator
+                .annotated_parameter_type()
+                .unwrap_or(ParameterType::Unknown);
+            let loc = match &operator {
+                IrValue::Binary { loc, .. } | IrValue::Unary { loc, .. } => *loc,
+                _ => unreachable!("only a Binary/Unary node reaches here"),
+            };
+            (
+                type_.clone(),
+                loc,
+                IrValue::Checked {
+                    type_,
+                    value: Box::new(operator),
+                },
+            )
+        }
+    };
+    let name = make_temp_local_name(context, "trap_arg");
+    locals.insert(name.clone(), type_.clone());
+    let res = if checked {
+        let res = make_temp_local_name(context, "trap_res");
+        locals.insert(res.clone(), ParameterType::result_of(type_.clone()));
+        Some(res)
+    } else {
+        None
+    };
+    hoists.push(TrapHoist {
+        name: name.clone(),
+        type_,
+        value: value_node,
+        res,
+        loc,
+    });
+    *value = IrValue::Local(name);
 }
 
 /// Normalizes an inline-`TRAP` handler so that a `RECOVER` (which is lowered as

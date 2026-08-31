@@ -33,16 +33,16 @@ const MODULE_DESC: &str = r#"The `money` package controls how `Money` **arithmet
 provides an explicit settling function. `Money` itself is a built-in scalar type
 (see `mfb man types numeric`): an exact base-10 fixed-point value scaled to five
 decimal places. Its arithmetic (`M / k`, `M * Float`, `M * Fixed`, and the
-`toMoney`/`toFixed` conversions) rounds under a per-execution-context mode that
+`toMoney`/`toFixed` conversions) rounds under a per-thread mode that
 this package reads and writes. `money` is a built-in package: `IMPORT money` needs
 no manifest dependency.
 
 The mode is one of the `Rounding` enum members: `Commercial` rounds half away from
 zero (the default) and `Banker` rounds half to even (banker's rounding), which
 removes the small upward bias of always rounding ties away. The mode is
-per-execution-context state: a worker thread inherits the spawning thread's mode
+per-thread: a worker thread inherits the spawning thread's mode
 and then diverges independently, consistent with the per-thread RNG and other
-arena state. It affects only `Money` arithmetic — it does not change `Fixed` or
+per thread. It affects only `Money` arithmetic — it does not change `Fixed` or
 `Float` rounding, and it does not change how `toString(Money)` renders a value.
 `toString` presentation rounding is a fixed half-away-from-zero rule independent of
 the mode, so a logged or displayed amount is a pure function of its value and

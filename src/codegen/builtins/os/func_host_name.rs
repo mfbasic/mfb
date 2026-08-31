@@ -84,7 +84,7 @@ pub(crate) fn lower_host_name(
 
 const INTRO: &str = r#"The host's network name"#;
 const DESC: &str = r#"`os::hostName` returns the host's network name via the host `gethostname` call,
-copied into an owned `String`. The name is whatever the host is configured to
+copied into a `String`. The name is whatever the host is configured to
 report (often the short hostname).
 
 If the host cannot supply the name, `os::hostName` raises `ErrUnsupported`. It

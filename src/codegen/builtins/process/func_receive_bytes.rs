@@ -35,7 +35,8 @@ Without a `from` argument it reads the child's standard output; pass a `Stream`
 value to choose standard output or standard error. The call blocks until at least
 one byte is available or the stream ends. A pipe read returns any buffered bytes
 before signalling end of stream, so late output is drained; only a read that finds
-end of stream with nothing buffered raises `ErrResourceClosed`. On success the
+end of stream with nothing buffered raises `ErrResourceClosed`, as does a handle
+that has been detached (`process::detach` ends the handle). On success the
 result always holds at least one byte — end of output is never an empty list."#;
 const EX: &str = r#"Read one chunk of raw output and report its length:
 

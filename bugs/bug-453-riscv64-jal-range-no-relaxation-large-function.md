@@ -29,6 +29,130 @@ References:
 - Found during the optimizer worktree's examples verification (all-targets
   sweep after merging main, 2026-08-24).
 
+## The fix is NOT a port of bug-445's pass — read this first (2026-08-31, coordinator)
+
+This document frames the work as "the AArch64 twin that riscv64 never got".
+Structurally the hook is the same (a pass over `NativeCodePlan` before `encode`,
+mirroring `relax_conditional_branches` at
+`src/arch/aarch64/encode/relax.rs:68`, wired in `encode/mod.rs`). **The content
+is not the same, and copying bug-445's pass fixes only half the failure.**
+
+**On AArch64 the tight instruction is the conditional branch** (imm19). **On
+riscv64 conditional branches are already handled** — `emit_rv_br`
+(`src/arch/riscv64/encode/emitter.rs:749`) never emits a bare B-type (imm12,
+±4 KiB). Its doc comment says so:
+
+> `rv.br` — the flagless compare-and-branch, always emitted in the 8-byte long
+> form so its size is deterministic and **it reaches ±1 MiB: an inverted
+> conditional branch over an unconditional `jal` to the target.**
+
+That is why the ±4 KiB B-type range never appears in this bug: it is structurally
+avoided. But note *how* it is avoided — **the long form's escape hatch is itself
+a `jal`.** So `rv.br` reaches ±1 MiB *because* it emits a `jal`, and `jal` at
+±1 MiB is precisely what overflows here (`emitter.rs:875`).
+
+**Consequence: two call sites overflow at the same threshold, not one.**
+
+1. the standalone `jal` to the shared trap stub — the failure this doc reports;
+2. the `jal` **inside** every `rv.br` long form whose target is >1 MiB away —
+   same instruction, same limit, different emitter path.
+
+A fix that relaxes only (1) will make the documented reproduction pass while
+leaving (2) rejecting functions of essentially the same size. The bug would read
+as fixed and would not be. Any relaxation (`auipc`+`jalr`, or a near
+trampoline) must be applied at **both** sites, and the fixpoint must account for
+`rv.br` growing from 8 bytes to whatever the relaxed form costs — which shifts
+every later displacement and can push a previously in-range `jal` out of range.
+
+**Acceptance must therefore cover a conditional branch across the boundary**, not
+only a trap-stub call. `examples/ai_chat` and `examples/browser/app` (the doc's
+repros) demonstrate (1); neither is evidence for (2). Add a fixture whose
+`rv.br` target sits beyond ±1 MiB, or verify (2) explicitly on the built
+artifact.
+
+## Design: relax with a CHAIN of `jal zero` hops, not `auipc`+`jalr`
+
+Worked out 2026-08-31 (coordinator) because the obvious mechanism runs straight
+into a wall this project already hit once, and the way around it is not obvious.
+
+**The wall.** Unlike AArch64, riscv64 has no wider unconditional branch to relax
+*into*: `jal`'s ±1 MiB **is** the widest single-instruction jump. Reaching
+further needs `auipc rd, %pcrel_hi(t)` + `jalr zero, %pcrel_lo(t)(rd)` — and
+`auipc` needs a destination **register**. There is no free one:
+
+* `t0`–`t2` are reserved *lowering* scratch (`select.rs:38-42`) — immediate
+  materialization, overflow detection, the float-compare boolean. A `jal` that
+  needs relaxing can sit **inside** such an expansion (see below), so they are
+  not safely dead at the rewrite site.
+* `gp` (x3) is the plan-99 flag register, holding a compare's left operand across
+  the compare→branch span (`select.rs:49-55`).
+* bug-381 already searched and found nothing else: *"rv64 has no free one
+  (`tp`/x4 faults a dynamically-linked binary via TLS, and shrinking the
+  allocatable pool to free a temporary destabilizes the allocator)"*. Do not
+  re-litigate that; it cost a bug to establish.
+
+**The way around it.** `jal zero, offset` writes **no** link register, so a jump
+is register-free — only its *reach* is limited. Relax by chaining hops instead of
+widening the instruction:
+
+```text
+    jal zero, far            jal zero, L1      ; ≤1 MiB
+                    ==>    L1:
+                             jal zero, far     ; ≤1 MiB from L1
+```
+
+Each hop must land within ±1 MiB of the previous, so place trampolines at ~1 MiB
+intervals and route through as many as the distance needs. A function would have
+to exceed ~2 MiB before a second hop is required, and the reported failure is
+only 1107060 bytes (≈1.06 MiB) past the limit — one intermediate hop covers it.
+This needs **no scratch register, no ABI reasoning, and no TLS hazard**, which is
+what makes it preferable to `auipc`+`jalr` here even though the latter is what a
+linker would emit.
+
+**Refinement — an ADJACENT trampoline does not work here, and this is the single
+biggest departure from bug-445.** AArch64's pass splices the veneer right next to
+the branch, and that works because the veneer's `b` has *wider reach* (imm26,
+±128 MiB) than the branch it replaces. riscv64 has no such instruction, so a
+trampoline placed beside the far `jal` sits at essentially the same distance from
+the target and is equally out of range. The hops must be placed **between** the
+source and the target, at ≤1 MiB intervals — which makes this a different
+algorithm, not a port with different constants.
+
+An inserted hop is an island in the instruction stream, so it must be jumped
+over rather than fallen into:
+
+```text
+    jal zero, far          ==>   jal zero, Lhop      ; ≤1 MiB to the island
+    ...                                ...
+                                 jal zero, Lover     ; skip the island
+                               Lhop:
+                                 jal zero, far       ; ≤1 MiB onward
+                               Lover:
+                                 ...
+```
+
+The implementation therefore needs a placement step the AArch64 pass has no
+equivalent of: walk the offset table for an instruction boundary about 1 MiB
+along the path to the target, and splice the three-instruction island there.
+Prefer a boundary that is already a branch target or a function-level seam if one
+is near, so the extra `jal zero, Lover` lands somewhere cold.
+
+Structure the outer loop like the AArch64 twin regardless: a pass over
+`NativeCodePlan` before `encode`, run to a fixpoint (inserting hops shifts later
+displacements and can push a previously in-range `jal` out), and a strict no-op
+when everything already fits, so every existing fixture stays byte-identical.
+Termination needs an argument the AArch64 pass gets for free — there, a rewritten
+branch targets a trampoline two instructions away and can never be rewritten
+again. Here each rewrite shortens the *remaining* distance by ~1 MiB, so bound
+the hop count per branch by `ceil(distance / 1 MiB)` and assert it, or a
+pathological placement could oscillate.
+
+**Both sites still need it** — see the section above: the standalone `jal` to the
+trap stub *and* the `jal` inside every `rv.br` long form. The second is the one
+that makes the scratch-register route dangerous, since that `jal` is emitted
+mid-expansion where `t0`–`t2` liveness is not obvious; the chained-hop route is
+immune to that question entirely, because it clobbers nothing.
+
 ## Failing Reproduction
 
 ```

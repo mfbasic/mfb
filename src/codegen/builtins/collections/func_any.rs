@@ -27,11 +27,7 @@ inside `predicate` is **not** absorbed by `any`: it propagates out of the
 `collections::any` call to the caller, where a function-level or inline `TRAP`
 may catch it. `any` itself defines no error of its own. Note that a lambda
 passed here may not capture an outer `MUT` binding; the callback position proven
-non-escaping is `collections::forEach`, not `any`.
-
-`any` is a generic implemented in MFBASIC source; a call is rewritten to the
-internal `__collections_any` generic and instantiated for the element type like
-any other generic function. It does not
+non-escaping is `collections::forEach`, not `any`.It does not
 mutate `value` and has no other side effects beyond whatever `predicate` does.
 
 `T` is inferred from the element type of `value` and may be any type; `any`

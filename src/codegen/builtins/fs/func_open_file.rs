@@ -45,9 +45,8 @@ byte, and is case sensitive; any other value is rejected before the file is
 touched.
 
 Files created by a `write`, `readWrite`, or `append` open are created with
-owner-only `0600` permission bits (subject to the process umask), not
-world-readable `0666`, matching `fs::createTempFile` and the atomic writers
-(audit-2 OS-01 / bug-184).
+user-only `0600` permission bits (subject to the process umask), not
+world-readable `0666`, matching `fs::createTempFile` and the atomic writers.
 
 The final path component is followed when it is a symlink, so opening through a
 symlink opens its target. To refuse a symlinked final component, use
@@ -59,9 +58,8 @@ characters when the host filesystem accepts those names. The string must not be
 empty and must not contain an embedded NUL byte, because the host `open` call
 requires a NUL-terminated path.
 
-The returned `File` is closed by lexical drop when the binding that holds it
-leaves scope, or explicitly with `fs::close`. The function reads or writes no
-file contents itself; it only opens the descriptor and wraps it in the `File`
+The returned `File` is closed when the binding that holds it goes out of scope, or explicitly with `fs::close`. The function reads or writes no
+file contents itself; it only opens the file and gives you the `File`
 resource."#;
 const EX: &str = r#"Open a file for reading using the default mode:
 
@@ -69,6 +67,7 @@ const EX: &str = r#"Open a file for reading using the default mode:
 IMPORT fs
 
 SUB main()
+  fs::writeText("data.txt", "first line\nsecond line\n")
   RES f AS fs::File = fs::openFile("data.txt")
   fs::close(f)
 END SUB
@@ -80,6 +79,7 @@ Open a file for writing, truncating any previous contents:
 IMPORT fs
 
 SUB main()
+  fs::writeText("out.txt", "first line\nsecond line\n")
   RES w AS fs::File = fs::openFile("out.txt", "write")
   fs::writeAll(w, "hello")
   fs::close(w)
@@ -92,6 +92,7 @@ Open a file for appending so each write lands at the end:
 IMPORT fs
 
 SUB main()
+  fs::writeText("app.log", "first line\nsecond line\n")
   RES log AS fs::File = fs::openFile("app.log", "a")
   fs::writeAll(log, "started\n")
   fs::close(log)

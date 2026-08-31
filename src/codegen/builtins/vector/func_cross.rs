@@ -34,10 +34,10 @@ functions, which all round on `Integer`. `cross` is also the only geometry
 function here that never raises `ErrInvalidArgument`: it has no degenerate input
 to reject, and the cross product of parallel operands is simply the zero vector.
 
-The unary 2D form computes the same value as `vector::perpendicular`, but the two
-are separate functions with separate implementations in the companion source —
-`__vector_cross_float2` and `__vector_perpendicular_float2` — rather than one
-delegating to the other. Use whichever name reads better at the call site.
+The unary 2D form gives the same result as `vector::perpendicular`. Use whichever
+name reads better where you are: `cross` when the surrounding code is doing
+cross products across dimensions, `perpendicular` when the point is the quarter
+turn itself.
 
 `vector::cross` is generic over the nine built-in vector record types, and is the
 only member of this package whose accepted arity varies: `1` for a 2D type, `2`
@@ -189,6 +189,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("one T2, two T3, or three T4 vectors of the same type"),
         internal_only: false,
-        implementations: super::implementations("cross", super::Shape::Cross, &[], body),
+        implementations: super::implementations("cross", super::Shape::Cross, &[], body, &[
+            "The first vector. In 2D this is the only argument and the result is the perpendicular; in 3D and 4D it is the left operand.",
+            "The second vector (3D and 4D only).",
+            "The third vector (4D only).",
+        ]),
     });
 }

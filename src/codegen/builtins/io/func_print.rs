@@ -30,13 +30,13 @@ const DESC: &str = r#"`io::print` writes `value` to standard output and then app
 escaping and no newline translation beyond the one trailing newline this call
 adds. An empty `String` emits nothing but that newline.
 
-Only `String` is accepted, and exactly one argument. There is no implicit
-conversion, so a non-string value must be converted first — for example with
-`toString`.
+Exactly one argument, either a `String` or an `AttributedString` (see
+`mfb man astrings`). There is no implicit conversion, so any other value must be
+converted first — for example with `toString`.
 
 The underlying write loops until every byte has been transferred: a short write
-advances the cursor and re-issues, and an `EINTR` interruption retries with the
-cursor unchanged. A zero-byte or failing write is a failure and raises
+advances the cursor and re-issues, and an interruption is resumed rather than losing
+bytes. A zero-byte or failing write is a failure and raises
 `ErrOutput`.
 
 With standard-output buffering enabled by `io::setBuffered(TRUE)` the text is
@@ -45,9 +45,8 @@ drained when the buffer fills, on `io::flush`, before any standard-input read, a
 at program exit. Buffering is off by default, in which case each call writes
 straight through. While the program is in `term::` TUI mode, standard output is
 retained rather than printed and nothing reaches the terminal until `term::sync`
-presents the frame. Output goes to whatever is bound to standard output: file
-descriptor 1 in a console program, and the application transcript window in app
-mode (`mfb build --app`)."#;
+presents the frame. Output goes to standard output in a console program, and to the application
+transcript window in app mode (`mfb build --app`)."#;
 const EX: &str = r#"Print a line of text:
 
 ```

@@ -18,14 +18,12 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 const INTO_GET: &str = "Read a list item by index or a map value by key.";
 const DESC_GET: &str = r#"`collections::get` reads one element out of a collection. The collection itself
-is neither copied nor mutated: the lowering stores only a handle to it, walks
-its lookup table, and materializes just the selected payload.
+is neither copied nor mutated: the call reads it and returns just the selected
+item or value.
 
-The value returned is **owned** by the caller. Scalars are returned by value and
-a `String` payload is materialized fresh, while a composite payload stored
-inline in the collection's data region is copied into a standalone arena block
-before it is handed back, so binding, storing, and freeing the result cannot
-disturb the source collection.
+The value returned is yours to keep and independent of the collection — you get
+a copy, so nothing you do with it afterwards can disturb the collection it came
+from. See `mfb man variable` for what a copy means in MFBASIC.
 
 `get` is the only fallible member of this group. It reports a missing element as
 a trappable domain error rather than substituting anything, and it is
@@ -40,8 +38,8 @@ therefore matched bit-for-bit, so `NaN` never matches any key and `-0.0` does
 not match a stored `0.0`.
 
 Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`,
-`Byte`, and `Boolean` goes through the map's hash bucket index; other key types
-fall back to a linear scan of the entry table. This is a performance difference
+`Byte`, and `Boolean` is a direct lookup; other key types are found by scanning
+the map. This is a performance difference
 only — both paths select the same entry and raise the same error when the key is
 absent."#;
 
@@ -100,14 +98,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list or map to read from. Not modified.",
                         aliases: &["collection"],
                         ty: ParameterType::list_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "index",
-                        desc: "",
+                        desc: "The list index, zero-based. Out of range raises — use `collections::getOr` to supply a fallback instead.",
                         aliases: &["key"],
                         ty: ParameterType::Integer,
                         default: DefaultValue::None,
@@ -121,14 +119,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list or map to read from. Not modified.",
                         aliases: &["collection"],
                         ty: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("V")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "index",
-                        desc: "",
+                        desc: "The list index, zero-based. Out of range raises — use `collections::getOr` to supply a fallback instead.",
                         aliases: &["key"],
                         ty: ParameterType::var("K"),
                         default: DefaultValue::None,

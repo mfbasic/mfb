@@ -152,6 +152,31 @@ struct Walker<'a> {
     /// `.state` on such a local typed `Unknown` there (bug-376's displaced
     /// error, pinned by its fixture).
     state_dropped: HashSet<String>,
+    /// Every builtin package RECORD, keyed by its type, mapped to the package
+    /// that declares it — the authority for the field-access import rule
+    /// (bug-466). Built from the REGISTRY rather than from the project's type
+    /// table, because that table holds whatever the injected companion sources
+    /// happened to declare: `udp`'s `Datagram` names a `net.Address`, so an
+    /// unrelated `IMPORT udp` used to drag `Address`'s declaration in and make
+    /// an otherwise-identical `tcp` program compile. Keying on the registry and
+    /// the file's own imports is the only spelling that gives one verdict.
+    ///
+    /// A name the project itself declares — or an imported `.mfp` exports, or
+    /// two builtin packages both declare — is excluded: there the nominal does
+    /// not unambiguously mean the builtin's record, so there is no import to
+    /// name and the rule stays silent.
+    builtin_record_owner: HashMap<ParameterType, &'static str>,
+    /// Whether the file being walked is compiler-injected builtin package
+    /// source. Such a file declares the very types the rule above guards and is
+    /// authored against the registry's own import graph, so the rule does not
+    /// apply to it — and a diagnostic reported at `<builtin-net>` would name a
+    /// path the user cannot open.
+    current_file_internal: bool,
+    /// The packages the file being walked declared itself — `HirFile::own_imports`,
+    /// NOT `self.context.current_imports`. Monomorphization widens a file's
+    /// `imports` with the project-wide union, so the resolution scope is not the
+    /// author's list; the foreign-record field rule needs the author's.
+    current_own_imports: HashSet<String>,
     diagnostics: Vec<PendingDiagnostic>,
     /// Every `LET`/`MUT`/`RES` binding's computed type in walk order — the
     /// seam-fidelity probe the unit tests compare against lowering's stamped
@@ -618,6 +643,51 @@ impl<'a> Walker<'a> {
                 .iter()
                 .any(|import| import.package_name() == "astrings")
         });
+        // bug-466: the builtin records whose FIELDS need their own package's
+        // `IMPORT`. A nominal the project itself declares (in a file the
+        // compiler did not inject) or an imported `.mfp` exports means that
+        // type, not the builtin's, so it is excluded — as is a name two builtin
+        // packages both declare, which no single import would name.
+        //
+        // `shadowed` is read off the `types` table built above rather than
+        // re-walking the HIR: that table already holds exactly these two
+        // populations, keyed by the very `ParameterType` a lookup will use, so
+        // the two cannot disagree about a key. An entry's `file` is the
+        // declaring file, or empty for an imported type.
+        let internal_files: HashSet<&str> = hir
+            .files
+            .iter()
+            .filter(|file| file.internal)
+            .map(|file| file.path.as_str())
+            .collect();
+        let shadowed: HashSet<&ParameterType> = types
+            .iter()
+            .filter(|(_, shape)| !internal_files.contains(shape.file.as_str()))
+            .map(|(type_, _)| type_)
+            .collect();
+        let mut builtin_record_owner: HashMap<ParameterType, &'static str> = HashMap::new();
+        let mut ambiguous: HashSet<ParameterType> = HashSet::new();
+        for package in crate::codegen::registry::registry().packages() {
+            for record in package.records() {
+                // `named`, not `declared`: a registry record's name is a bare
+                // `&'static str` nominal the descriptor already built this way
+                // (`ParameterType::named(net::ADDRESS_TYPE)`), so this is a
+                // constructor call, not a grammar entry.
+                let type_ = ParameterType::named(record.name);
+                if shadowed.contains(&type_) {
+                    continue;
+                }
+                if builtin_record_owner
+                    .insert(type_.clone(), package.import_name())
+                    .is_some()
+                {
+                    ambiguous.insert(type_);
+                }
+            }
+        }
+        for type_ in &ambiguous {
+            builtin_record_owner.remove(type_);
+        }
         Walker {
             project_dir,
             context: facts.context(),
@@ -634,6 +704,9 @@ impl<'a> Walker<'a> {
             call_typed_unknown: false,
             call_verdicts: HashMap::new(),
             state_dropped: HashSet::new(),
+            builtin_record_owner,
+            current_file_internal: false,
+            current_own_imports: HashSet::new(),
             diagnostics: Vec::new(),
             #[cfg(test)]
             bound_types: Vec::new(),
@@ -904,6 +977,8 @@ impl<'a> Walker<'a> {
         self.context.current_imports = file.import_bindings();
         self.context.current_file = file.path.clone();
         self.file = file.path.clone();
+        self.current_file_internal = file.internal;
+        self.current_own_imports = file.own_imports.iter().cloned().collect();
         for item in &file.items {
             match item {
                 HirItem::Binding(binding) => {
@@ -1233,6 +1308,7 @@ impl<'a> Walker<'a> {
                         _ => success_type,
                     };
                     self.walk_expression(expression, locals);
+                    self.check_trap_short_circuit(expression, locals, *trap_line);
                     let trapped_type = self.type_of(expression, locals);
                     self.walk_handler(binding, handler, locals, trapped_type, *trap_line);
                     // The checker typed the binding by the trapped call.
@@ -1502,11 +1578,258 @@ impl<'a> Walker<'a> {
         } = value
         {
             self.walk_expression(expression, locals);
+            self.check_trap_short_circuit(expression, locals, *line);
             let trapped_type = self.type_of(expression, locals);
             self.walk_handler(binding, handler, locals, trapped_type, *line);
             return;
         }
         self.walk_expression(value, locals);
+    }
+
+    /// TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL (bug-457): a fallible call in a
+    /// **short-circuited** operand of the trapped expression.
+    ///
+    /// `lower_inline_trap` covers a nested fallible call by lifting it into its
+    /// own `CallResult` check ahead of the residual expression. That is sound
+    /// only where the call is evaluated unconditionally: `AND`/`OR` evaluate
+    /// their right operand only when the left one does not already decide the
+    /// result (`mfb spec language operators`), so lifting a call out of one
+    /// would call it every time. Reporting is the alternative to leaving the
+    /// error to escape the handler unnoticed, which is the bug this rule closes
+    /// the last corner of; the author binds the call to its own `LET … TRAP`
+    /// first, which is what the desugar would have had to do anyway.
+    ///
+    /// Lowering erases the evidence — the operand structure is gone by the time
+    /// `ir::verify` sees the lifted chain — so the rule lives here.
+    fn check_trap_short_circuit(
+        &mut self,
+        expression: &HirExpression,
+        locals: &HashMap<String, ParameterType>,
+        line: usize,
+    ) {
+        let mut offender = None;
+        self.find_short_circuited_call(expression, locals, false, &mut offender);
+        if let Some(callee) = offender {
+            self.emit(
+                "TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL",
+                format!(
+                    "Inline TRAP cannot cover `{callee}`: AND/OR evaluate their right operand \
+                     only conditionally, so it cannot be lifted ahead of the expression. \
+                     Bind it to its own LET with a TRAP first, then use that value here."
+                ),
+                line,
+            );
+        }
+    }
+
+    /// Records a raising operator sitting in a short-circuited operand (bug-471).
+    ///
+    /// `lower_inline_trap` covers a raising operator by lifting it into its own
+    /// `Checked` bind ahead of the residual expression — the same lift, and the
+    /// same restriction, as a fallible call: an operand `AND`/`OR` evaluates only
+    /// conditionally cannot be hoisted, because hoisting evaluates it every time.
+    /// Reporting it is the alternative to letting the division-by-zero escape the
+    /// handler unnoticed, which is the whole of bug-471.
+    fn note_short_circuited_operator(
+        &self,
+        expression: &HirExpression,
+        operator: &str,
+        locals: &HashMap<String, ParameterType>,
+        conditional: bool,
+        offender: &mut Option<String>,
+    ) {
+        if offender.is_some() || !conditional {
+            return;
+        }
+        let type_ = self.type_of(expression, locals);
+        // The same exemption `lower::trap_hoist_kind` applies: a unary `-` over a
+        // numeric literal is the spelling of a negative literal and cannot raise,
+        // so `t AND -1 > 0` must not be reported. Kept in step with the lift by
+        // reading the one predicate both sides share.
+        if let HirExpression::Unary { operand, .. } = expression {
+            if matches!(operand.as_ref(), HirExpression::Number(_))
+                && super::fallible::is_total_literal_negation(operator, &type_)
+            {
+                return;
+            }
+        }
+        if super::fallible::operator_can_raise(operator, &type_) {
+            *offender = Some(operator.to_string());
+        }
+    }
+
+    /// Records the first fallible call — or, since bug-471, raising **operator**
+    /// — reached through a short-circuited operand. `conditional` is true once
+    /// the walk has entered the right side of an `AND`/`OR`; a lambda body is
+    /// skipped because it runs at the callback's call site, not in this
+    /// expression.
+    fn find_short_circuited_call(
+        &self,
+        expression: &HirExpression,
+        locals: &HashMap<String, ParameterType>,
+        conditional: bool,
+        offender: &mut Option<String>,
+    ) {
+        if offender.is_some() {
+            return;
+        }
+        match expression {
+            HirExpression::String(_)
+            | HirExpression::Number(_)
+            | HirExpression::Scalar(_)
+            | HirExpression::Boolean(_)
+            | HirExpression::Identifier(_)
+            | HirExpression::Lambda { .. } => {}
+            HirExpression::Binary {
+                left,
+                operator,
+                right,
+                ..
+            } => {
+                self.find_short_circuited_call(left, locals, conditional, offender);
+                let short_circuit = lower::is_short_circuit_operator(operator);
+                self.find_short_circuited_call(
+                    right,
+                    locals,
+                    conditional || short_circuit,
+                    offender,
+                );
+                self.note_short_circuited_operator(
+                    expression,
+                    operator,
+                    locals,
+                    conditional,
+                    offender,
+                );
+            }
+            HirExpression::Unary {
+                operand, operator, ..
+            } => {
+                self.find_short_circuited_call(operand, locals, conditional, offender);
+                self.note_short_circuited_operator(
+                    expression,
+                    operator,
+                    locals,
+                    conditional,
+                    offender,
+                );
+            }
+            HirExpression::Call {
+                callee, arguments, ..
+            } => {
+                for argument in arguments {
+                    match argument {
+                        HirCallArg::Positional(value) | HirCallArg::Named { value, .. } => {
+                            self.find_short_circuited_call(value, locals, conditional, offender)
+                        }
+                    }
+                }
+                if offender.is_none()
+                    && conditional
+                    && self
+                        .context
+                        .call_is_fallible(&self.canonical_callee(callee))
+                {
+                    *offender = Some(callee.replace('.', "::"));
+                }
+            }
+            HirExpression::Constructor { arguments, .. } => {
+                for argument in arguments {
+                    match argument {
+                        HirConstructorArg::Positional(value)
+                        | HirConstructorArg::Named { value, .. } => {
+                            self.find_short_circuited_call(value, locals, conditional, offender)
+                        }
+                    }
+                }
+            }
+            HirExpression::WithUpdate { target, updates } => {
+                self.find_short_circuited_call(target, locals, conditional, offender);
+                for update in updates {
+                    self.find_short_circuited_call(&update.value, locals, conditional, offender);
+                }
+            }
+            HirExpression::ListLiteral(values) => {
+                for value in values {
+                    self.find_short_circuited_call(value, locals, conditional, offender);
+                }
+            }
+            HirExpression::SetLiteral { elements, .. } => {
+                for element in elements {
+                    self.find_short_circuited_call(element, locals, conditional, offender);
+                }
+            }
+            HirExpression::MapLiteral { entries, .. } => {
+                for (key, value) in entries {
+                    self.find_short_circuited_call(key, locals, conditional, offender);
+                    self.find_short_circuited_call(value, locals, conditional, offender);
+                }
+            }
+            HirExpression::MemberAccess { target, .. } => {
+                self.find_short_circuited_call(target, locals, conditional, offender)
+            }
+            // A nested inline TRAP routes its own expression's errors to its own
+            // handler, so nothing inside it escapes into this one.
+            HirExpression::Trapped { .. } => {}
+        }
+    }
+
+    /// TYPE_UNKNOWN_VALUE, the foreign-record field form (bug-466). Reading a
+    /// field off a record a BUILTIN package declares requires that package's own
+    /// `IMPORT` in this file. Imports are not transitive and a package cannot
+    /// re-export another's types, so `tcp::localAddress`'s `net::Address` result
+    /// has no field table in a file that imported only `tcp` — the read has no
+    /// type, and the value it produces is `Unknown`.
+    ///
+    /// **Why here and not in `ir::verify`, and why not by asking whether the
+    /// read typed.** The `Unknown` was already caught wherever it was BOUND
+    /// (`LET p AS Integer = b.port`) or fed to an operator, but not where it was
+    /// a call argument: a declared `Integer` parameter accepted it, and an
+    /// overloaded builtin unified it against a candidate rather than failing
+    /// resolution. It then survived to native lowering, which asserted its own
+    /// invariant with no source location to attach — `native plan has no storage
+    /// class for type 'Unknown'`, or, one call away from the mistake, `native
+    /// code field access target 'Address' is not a record or variant while
+    /// lowering eval call io.print`. Gating the FIELD ACCESS ITSELF makes the
+    /// verdict independent of where the `Unknown` happens to land, so a position
+    /// nobody thought to check cannot reopen the hole.
+    ///
+    /// And it keys on the file's own imports rather than on whether the read
+    /// resolved, because whether it resolved was never a property of this file:
+    /// the type table is populated by whichever companion sources got injected,
+    /// and `udp`'s `Datagram` names a `net.Address`, so adding an unreferenced
+    /// `IMPORT udp` used to drag `Address`'s declaration in and make the
+    /// identical `tcp` program compile. Same program, different verdict, decided
+    /// by an unrelated import. This asks the registry instead, so both spellings
+    /// are refused.
+    ///
+    /// `.state` is excluded: it is not a record field, and its own rules
+    /// (`ir::verify`'s TYPE_STATE_INVALID, and the `state_dropped` cascade
+    /// below) already report it more precisely.
+    fn check_foreign_record_field(
+        &mut self,
+        target: &HirExpression,
+        member: &str,
+        locals: &HashMap<String, ParameterType>,
+    ) {
+        if self.current_file_internal || member == "state" {
+            return;
+        }
+        let target_type = strip_res(&self.type_of(target, locals)).without_state();
+        let Some(owner) = self.builtin_record_owner.get(&target_type) else {
+            return;
+        };
+        if self.current_own_imports.contains(*owner) {
+            return;
+        }
+        let type_name = target_type.name();
+        self.emit(
+            "TYPE_UNKNOWN_VALUE",
+            format!(
+                "Field `{member}` belongs to `{owner}::{type_name}`, whose fields are not visible in this file. Imports are not transitive and a package cannot re-export another's types, so add `IMPORT {owner}`."
+            ),
+            self.current_line,
+        );
     }
 
     /// An inline-TRAP handler block: the error binding is an `Error` local
@@ -1736,7 +2059,10 @@ impl<'a> Walker<'a> {
                     self.walk_expression(value, locals);
                 }
             }
-            HirExpression::MemberAccess { target, .. } => self.walk_expression(target, locals),
+            HirExpression::MemberAccess { target, member } => {
+                self.walk_expression(target, locals);
+                self.check_foreign_record_field(target, member, locals);
+            }
             HirExpression::Trapped {
                 expression,
                 binding,
@@ -4289,6 +4615,138 @@ mod tests {
                 "Call to `g` does not have a parameter named `y`.",
                 "Call to `g` has 0 argument(s), expected 1 to 1.",
             ]
+        );
+    }
+    // --- bug-466: field access on a record whose owning package is not imported ---
+    //
+    // `tcp::localAddress` returns a `net::Address`. Imports are not transitive
+    // and a builtin package cannot re-export another's types, so `Address`'s
+    // FIELDS are readable only where the file itself imports `net` (the rule
+    // `mfb man tcp localAddress` states). The checker caught the resulting
+    // `Unknown` at a BINDING and at an operator, but not when it was passed as a
+    // call argument: there it survived to native lowering, which failed with the
+    // bare, unlocated `native plan has no storage class for type 'Unknown'`.
+    //
+    // The gate below is a pre-lowering rule on the field access itself, so the
+    // verdict no longer depends on where the `Unknown` happened to land — nor,
+    // as `unrelated_import_does_not_make_a_foreign_record_field_readable` pins,
+    // on which UNRELATED package the file also imported.
+
+    /// The rule/line pairs for `src`, for the location assertions.
+    fn shape_reports(src: &str) -> Vec<(String, usize)> {
+        collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(src),
+            &[],
+            &HashMap::new(),
+            &[],
+        )
+        .into_iter()
+        .map(|d| (d.rule, d.line))
+        .collect()
+    }
+
+    /// bug-466 Reproduction 1: the `Unknown` field read as an argument to an
+    /// OVERLOADED BUILTIN (`tcp::connect`), which unified it against a candidate
+    /// rather than rejecting it.
+    #[test]
+    fn foreign_record_field_as_builtin_argument_is_rejected() {
+        let src = "IMPORT tcp\n\
+                   FUNC main AS Integer\n\
+                   \x20 RES s = tcp::listen(\"127.0.0.1\", 0)\n\
+                   \x20 LET b = tcp::localAddress(s)\n\
+                   \x20 RES c = tcp::connect(\"127.0.0.1\", b.port)\n\
+                   \x20 RETURN 0\n\
+                   END FUNC\n";
+        assert_eq!(
+            shape_reports(src),
+            [("TYPE_UNKNOWN_VALUE".to_string(), 5)],
+            "the field read must be refused AT ITS OWN LINE, not absorbed by lowering"
+        );
+    }
+
+    /// bug-466 Reproduction 2: the same `Unknown` as an argument to a USER
+    /// `FUNC`, whose declared `Integer` parameter accepted it. The unlocated
+    /// codegen error this replaces blamed `io.print`, three calls away.
+    #[test]
+    fn foreign_record_field_as_user_func_argument_is_rejected() {
+        let src = "IMPORT tcp\n\
+                   IMPORT io\n\
+                   FUNC take(n AS Integer) AS Integer\n\
+                   \x20 RETURN n\n\
+                   END FUNC\n\
+                   FUNC main AS Integer\n\
+                   \x20 RES s = tcp::listen(\"127.0.0.1\", 0)\n\
+                   \x20 LET b = tcp::localAddress(s)\n\
+                   \x20 io::print(toString(take(b.port)))\n\
+                   \x20 RETURN 0\n\
+                   END FUNC\n";
+        assert_eq!(
+            shape_reports(src),
+            [("TYPE_UNKNOWN_VALUE".to_string(), 9)],
+            "the field read must be refused at its own line, not at `io::print`"
+        );
+    }
+
+    /// bug-466 Reproduction 4: `IMPORT udp` (never referenced) used to make the
+    /// identical `tcp` program compile, because `udp` declares a record whose
+    /// field is a `net::Address` and that dragged `Address`'s definition into the
+    /// project-wide type table. Whether a program compiled therefore depended on
+    /// which UNRELATED packages it imported. The gate keys on the file's own
+    /// imports, so the verdict is now the same either way.
+    #[test]
+    fn unrelated_import_does_not_make_a_foreign_record_field_readable() {
+        let src = "IMPORT tcp\n\
+                   IMPORT udp\n\
+                   FUNC main AS Integer\n\
+                   \x20 RES s = tcp::listen(\"127.0.0.1\", 0)\n\
+                   \x20 LET b = tcp::localAddress(s)\n\
+                   \x20 RES c = tcp::connect(\"127.0.0.1\", b.port)\n\
+                   \x20 RETURN 0\n\
+                   END FUNC\n";
+        assert_eq!(
+            shape_reports(src),
+            [("TYPE_UNKNOWN_VALUE".to_string(), 6)],
+            "an unrelated import must not change the verdict"
+        );
+    }
+
+    /// The rule this bug is about ENFORCING, not tightening: with `IMPORT net`
+    /// the field read is exactly as legal as it always was.
+    #[test]
+    fn foreign_record_field_with_the_owning_import_is_accepted() {
+        let src = "IMPORT tcp\n\
+                   IMPORT net\n\
+                   IMPORT io\n\
+                   FUNC main AS Integer\n\
+                   \x20 RES s = tcp::listen(\"127.0.0.1\", 0)\n\
+                   \x20 LET b = tcp::localAddress(s)\n\
+                   \x20 io::print(b.host & \":\" & toString(b.port))\n\
+                   \x20 RES c = tcp::connect(\"127.0.0.1\", b.port)\n\
+                   \x20 RETURN 0\n\
+                   END FUNC\n";
+        assert!(accepts(src), "got {:?}", shape_codes(src));
+    }
+
+    /// bug-466 Reproduction 3, characterization: the position the checker
+    /// ALREADY caught — the annotated binding — keeps reporting, now preceded by
+    /// the field access's own report.
+    #[test]
+    fn foreign_record_field_in_a_binding_still_reports() {
+        let src = "IMPORT tcp\n\
+                   FUNC main AS Integer\n\
+                   \x20 RES s = tcp::listen(\"127.0.0.1\", 0)\n\
+                   \x20 LET b = tcp::localAddress(s)\n\
+                   \x20 LET p AS Integer = b.port\n\
+                   \x20 RETURN 0\n\
+                   END FUNC\n";
+        assert_eq!(
+            shape_reports(src),
+            [
+                ("TYPE_UNKNOWN_VALUE".to_string(), 5),
+                ("TYPE_UNKNOWN_VALUE".to_string(), 5),
+            ],
+            "the binding cascade must survive alongside the new field-access gate"
         );
     }
 }

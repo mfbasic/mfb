@@ -23,16 +23,15 @@ const DESC: &str = r#"`io::isInputTerminal` returns `TRUE` when standard input i
 terminal and `FALSE` when it is redirected from a file, a pipe, or any other
 non-terminal source. It takes no arguments.
 
-The answer comes from an `isatty` probe of file descriptor 0: a result greater
-than zero yields `TRUE`, anything else — including an error return — yields
-`FALSE`. Because a failure is folded into `FALSE`, the call never raises.
+When the question cannot be answered the call reports `FALSE` rather than
+failing, so it never raises.
 
-The probe inspects state only. It does not modify the stream, consume any input,
+The probe inspects state only. It does not modify the stream, read any input,
 or block waiting for data, so it is safe to call before deciding whether to
 prompt interactively, enable line editing, or read a piped stream straight
 through. In app mode the program has no real standard streams — input is served by
 the application window, which is treated as an interactive console — so this call
-returns `TRUE` without probing a descriptor."#;
+returns `TRUE`."#;
 const EX: &str = r#"Prompt only when a human is attached, otherwise read the piped stream:
 
 ```

@@ -9,8 +9,7 @@ const INTO_FIND: &str =
     "Return the index of the first matching element or contiguous sublist in a list";
 
 const DESC_FIND: &str = r#"`collections::find` scans `value` forward from `start` and returns the
-zero-based index of the first match. It is a **native** member: the compiler
-emits the search loop directly rather than instantiating an MFBASIC generic.
+zero-based index of the first match.
 
 This page documents the `List` form only. `collections::find` accepts nothing
 but a `List` as its first argument; the `String` search of the same name lives in
@@ -24,8 +23,7 @@ element type is itself a `List` — a second argument of that element type is re
 as an element search. Any other second-argument type fails to resolve at compile
 time.
 
-`start` is optional. When it is omitted the search begins at index 0; the
-lowering supplies that default itself, so an omitted `start` and an explicit `0`
+`start` is optional. When it is omitted the search begins at index 0; the call supplies that default itself, so an omitted `start` and an explicit `0`
 behave identically.
 
 `start` is validated before anything is compared. A negative `start`, or a
@@ -43,11 +41,11 @@ Element equality is decided on the stored payload. `String` elements compare by
 length and then byte for byte; `Integer`, `Float`, `Fixed`, and `Money` elements
 compare as their stored 64-bit pattern, so `Float` matching is bit-exact and a
 `NaN` never matches itself; `Boolean`, `Byte`, and `Scalar` compare as their
-narrower stored value; record elements compare field by field. A nested
-collection that is stored as a handle rather than inlined compares by identity,
-not by contents.
+narrower stored value; record elements compare field by field. An element type that cannot be compared — a nested
+`List`, `Map` or `Set` — is rejected at compile time
+(`TYPE_REQUIRES_COMPARABLE`) rather than matching by identity.
 
-`value` is neither modified nor consumed, and no new collection is allocated."#;
+`value` is neither modified nor closed, and no new collection is built."#;
 
 const EX_FIND: &str = r#"Find an element, with and without a starting index:
 
@@ -111,21 +109,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list to search. Not modified.",
                         aliases: &["list"],
                         ty: ParameterType::list_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "item",
-                        desc: "",
+                        desc: "The element to look for, when using the value form rather than a predicate. Compared with `=`.",
                         aliases: &["needle"],
                         ty: ParameterType::var("T"),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "start",
-                        desc: "",
+                        desc: "Where to begin searching, as a zero-based index. Omit it to search from the beginning.",
                         aliases: &[],
                         ty: ParameterType::Integer,
                         default: DefaultValue::Optional,
@@ -139,21 +137,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list to search. Not modified.",
                         aliases: &["list"],
                         ty: ParameterType::list_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "item",
-                        desc: "",
+                        desc: "The element to look for, when using the value form rather than a predicate. Compared with `=`.",
                         aliases: &["needle"],
                         ty: ParameterType::list_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "start",
-                        desc: "",
+                        desc: "Where to begin searching, as a zero-based index. Omit it to search from the beginning.",
                         aliases: &[],
                         ty: ParameterType::Integer,
                         default: DefaultValue::Optional,

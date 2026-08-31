@@ -28,27 +28,18 @@ missing position is an error:
   overwritten; when it is absent a new entry is inserted. The map overload has no
   failure path at all — it raises no domain error for any key.
 
-`set` is value-semantic in both overloads. The collection named by `value` is
+`set` does not change its argument in either overload. The collection named by `value` is
 unchanged; the updated collection is the returned value, and a program observes
-the update only through what it does with that return value. When the compiler
-can prove the target is a uniquely owned local being reassigned — the
-`c = collections::set(c, k, v)` shape, on a non-`by_ref` local that is not the
-live iterable of an enclosing `FOR EACH` — it lowers the call to an in-place
-update instead of rebuilding the collection. This is an optimization only; the
-observable semantics, including the list bounds check, are identical either way.
+the update only through what it does with that return value. Assigning straight
+back to the same local variable — `c = collections::set(c, k, v)` — is the cheap
+shape: it updates the collection in place rather than rebuilding it. Writing
+through something reached another way (a parameter, a module-level `MUT`, or the
+collection a `FOR EACH` is walking) copies the whole collection on every write,
+which turns a write-heavy loop quadratic. The result is the same either way.
 
-On the general (copying) path the list overload is composed from
-`removeAt(index)` followed by an insert of the replacement at the same index,
-which is where its `0 <= index < len(value)` bound comes from; the map overload
-is composed from `removeKey` — which is a filter and never fails on a missing
-key — followed by a concatenation of the single new entry, which is why an
-absent key inserts rather than raising.
-
-`set` is classified **fallible** overall because of the list overload's range
-check, so an inline `TRAP` on a `set` call compiles and catches that failure
-rather than being reported as a dead handler. On the list path the bounds test
-runs before any replacement value is materialized, so a rejected index allocates
-nothing."#;
+`set` can fail, because of the list overload's range check, so an inline `TRAP`
+on a `set` call compiles and catches that failure. A rejected index changes
+nothing: the bounds check happens before anything is written."#;
 
 const EX: &str = r#"Replace an existing list element:
 
@@ -104,21 +95,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list or map to update. Not modified — you get a new collection back.",
                         aliases: &["collection"],
                         ty: ParameterType::list_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "index",
-                        desc: "",
+                        desc: "The list index to overwrite, zero-based. It must already exist; `set` does not extend a list.",
                         aliases: &["key"],
                         ty: ParameterType::Integer,
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "item",
-                        desc: "",
+                        desc: "The value to store at that index or key.",
                         aliases: &[],
                         ty: ParameterType::var("T"),
                         default: DefaultValue::None,
@@ -132,21 +123,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list or map to update. Not modified — you get a new collection back.",
                         aliases: &["collection"],
                         ty: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("V")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "index",
-                        desc: "",
+                        desc: "The list index to overwrite, zero-based. It must already exist; `set` does not extend a list.",
                         aliases: &["key"],
                         ty: ParameterType::var("K"),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "item",
-                        desc: "",
+                        desc: "The value to store at that index or key.",
                         aliases: &[],
                         ty: ParameterType::var("V"),
                         default: DefaultValue::None,

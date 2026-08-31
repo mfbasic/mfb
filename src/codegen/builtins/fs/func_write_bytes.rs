@@ -40,13 +40,13 @@ instead of replacing it, use `fs::appendBytes`.
 The byte payload is written directly from the byte list's packed data region.
 The write is retried until every byte has been written or the host reports an
 output failure, so a short host write that transfers only part of the buffer is
-resumed rather than treated as complete, and an interrupted (`EINTR`) write is
-retried from the same cursor before any byte has moved. An empty byte list
+resumed rather than treated as complete, and an interruption never loses or
+duplicates bytes. An empty byte list
 produces an empty (truncated) file. Bytes are written exactly as held in the
 list, with no encoding, decoding, or newline translation, so the function is
 suitable for binary data as well as text.
 
-The new file is created with mode `384` (octal `0600`), owner read/write only,
+The new file gets permissions `0600` — readable and writable only by the user running the program,
 before the process umask is applied — not the world-readable `0666`. The file is
 created and truncated only after `path` has been validated, and the final path
 component is followed when it is a symlink, so writing through a symlink writes
@@ -69,8 +69,9 @@ const EX: &str = r#"Write raw bytes to a file:
 IMPORT fs
 
 SUB main()
+  fs::createDirectories("output")
   LET bytes AS List OF Byte = [72, 105]
-  fs::writeBytes("target/output.bin", bytes)
+  fs::writeBytes("output/report.bin", bytes)
 END SUB
 ```
 
@@ -80,6 +81,7 @@ Replace a file's contents with bytes read from another file:
 IMPORT fs
 
 SUB main()
+  fs::writeText("source.bin", "first line\nsecond line\n")
   LET bytes AS List OF Byte = fs::readBytes("source.bin")
   fs::writeBytes("copy.bin", bytes)
 END SUB

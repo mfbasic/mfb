@@ -570,12 +570,7 @@ impl CodeBuilder<'_> {
 const INTRO: &str = r#"Return a new list holding the elements of a list in ascending order"#;
 
 const DESC: &str = r#"`collections::sort` returns a new list containing every element of `value`
-arranged in ascending order. It is a generic function written in MFBASIC source:
-a call to `collections::sort` is rewritten to the internal
-`__collections_sort` generic and instantiated for the element type `T` during
-monomorphization.
-
-The algorithm is a bottom-up merge sort with O(n log n) comparisons. Runs of
+arranged in ascending order.The algorithm is a bottom-up merge sort with O(n log n) comparisons. Runs of
 width 1 are merged into runs of width 2, then 4, and so on, until a single run
 covers the list. The merge is **stable**: when a left-run element and a
 right-run element compare equal, the left-run element is emitted first, because
@@ -602,8 +597,8 @@ the instantiated element type must be one the `<` operator accepts: `Integer`,
 `Byte`, `Float`, `Fixed`, `Money`, `String`, or `Scalar`. `Money` compares only
 against `Money`, and `Scalar` never orders against `String`.
 
-The constraint is enforced after monomorphization, when the generic body has
-been instantiated for a concrete `T`. Sorting a list whose element type the `<`
+The constraint is enforced once the element type is known, when the generic body has
+been given a concrete element type. Sorting a list whose element type the `<`
 operator does not accept — a `Boolean`, a record, a nested `List`, or a `Map` —
 is a compile-time `TYPE_BINARY_OPERATOR_MISMATCH` error reported against the
 comparison inside the merge, not a runtime failure."#;

@@ -585,6 +585,12 @@ FUNC main AS Integer
     RETURN 1
   END TRAP
 END FUNC
+```
+
+prints, and exits non-zero:
+
+```
+failed: 77050002
 ```"#;
 
 #[rustfmt::skip]

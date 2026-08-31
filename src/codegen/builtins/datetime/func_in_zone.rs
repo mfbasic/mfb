@@ -10,14 +10,11 @@ an observer in that zone reads at that moment.
 
 It first resolves the effective UTC offset for `zone` at the instant `at` — the
 same quantity `datetime::offsetAt` returns: zero for a UTC zone
-(`ZoneKind::Utc`), the stored constant for a fixed-offset zone (`ZoneKind::FixedOffset`,
-kind `1`, built with `datetime::fixedOffset`), and the DST-correct host offset
-for a local zone (`ZoneKind::Local`, kind `2`, built with `datetime::local`).
- It then adds
-that offset, in seconds, to the instant's seconds-since-epoch to obtain a local
-second count, floor-divides that into whole days and the second-of-day, converts
-the day count to a civil year/month/day with the proleptic Gregorian calendar,
-and decomposes the second-of-day into hour, minute, and second.
+(`ZoneKind.Utc`), the stored constant for a fixed-offset zone
+(`ZoneKind.FixedOffset`, built with `datetime::fixedOffset`), and the DST-correct
+host offset for a local zone (`ZoneKind.Local`, built with `datetime::local`).
+It then applies that offset to the instant to get the local calendar date and
+wall-clock time, using the proleptic Gregorian calendar.
 
 
 The returned `DateTime` carries four things: the civil date, the civil time,
@@ -89,14 +86,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "at",
-                    desc: "",
+                    desc: "The instant to view. The instant itself does not change; only the zone it is read in does.",
                     aliases: &[],
                     ty: super::ParameterType::named("Instant"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "zone",
-                    desc: "",
+                    desc: "The zone to read it in.",
                     aliases: &[],
                     ty: super::ParameterType::named("Zone"),
                     default: super::DefaultValue::None,

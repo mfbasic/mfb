@@ -43,7 +43,7 @@ stream carries raw interleaved `s16le` PCM (one frame is `channels * 2` bytes).
 `ErrInvalidArgument`. `channels`/`sampleRate` are not resampled: on Linux the
 committed rate and channel count must match the request exactly or the call raises
 `ErrAudioDevice`. The returned `AudioOutput` is a move-only, non-sendable resource
-closed by lexical drop or `audio::close`; feed it with `audio::write` or
+closed when its binding goes out of scope, or by `audio::close`; feed it with `audio::write` or
 `audio::play`, both defined only over `AudioOutput`."#;
 const EX: &str = r#"Open the default mono output at 48 kHz and play a short MML tune:
 

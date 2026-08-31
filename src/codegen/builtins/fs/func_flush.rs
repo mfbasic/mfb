@@ -24,24 +24,22 @@ pub(crate) fn lower_fs_flush(
     Ok(super::gen_shared::void_result(ctx.call))
 }
 
-const INTRO: &str = r#"Drain an open `File`'s output buffer to its file descriptor"#;
+const INTRO: &str = r#"Drain an open `File`'s output buffer to the file itself"#;
 const DESC: &str = r#"`fs::flush` drains any output currently held in `file`'s per-handle buffer,
-issuing the pending bytes to the underlying file descriptor at once, then returns
+issuing the pending bytes to the file at once, then returns
 nothing. It matters only when the handle has buffering enabled with
 `fs::setBuffered(file, TRUE)`; on an unbuffered handle — the default — nothing is
 ever held back, so `fs::flush` is a no-op. It is also a no-op when a buffered
 handle has no pending bytes.
 
-Internally the drain issues a `write(fd, buffer, filled)` loop until the buffer is
-empty and then resets the fill count to zero; a short write advances the cursor
-and continues, and an `EINTR` interruption re-issues the write with the unchanged
-cursor. If a write fails, the buffer is left intact so a later `fs::flush` can
-retry, and the call raises `ErrOutput`.
+A partial write is not a failure — the rest is written. If the write genuinely
+fails, `flush` raises `ErrOutput` and **leaves the pending bytes in the buffer**,
+so a later `fs::flush` can retry them rather than losing them.
 
 Use `fs::flush` at a checkpoint where buffered data must reach the file before the
 program continues — for example before another process reads the file, or before a
 long pause. Closing the handle with `fs::close`, or letting its `RES` binding
-leave scope, also drains the buffer, so an explicit flush is only needed
+go out of scope, also drains the buffer, so an explicit flush is only needed
 mid-stream; the final bytes are never lost to a clean close.
 
 Buffering and flushing are per handle: `fs::flush(file)` drains only `file`'s
@@ -53,6 +51,7 @@ const EX: &str = r#"Force buffered data to disk at a checkpoint, then keep writi
 IMPORT fs
 
 SUB main()
+  fs::writeText("report.txt", "first line\nsecond line\n")
   LET header AS String = "id,name\n"
   LET body AS String = "1,alice\n"
   RES out = fs::openFile("report.txt", "write")

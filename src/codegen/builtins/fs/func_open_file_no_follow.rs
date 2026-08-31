@@ -36,7 +36,7 @@ the open is refused rather than resolving through the link.
 The whole-path guarantee is enforced by the host in a single operation. On Linux
 the path is resolved with `openat2` carrying `RESOLVE_NO_SYMLINKS`; on macOS the
 open uses `O_NOFOLLOW_ANY`, which fails if a symlink is encountered at any
-component (bug-260 / OS-04). On a Linux kernel too old for `openat2` (`ENOSYS`,
+component. On a Linux kernel too old for `openat2` (`ENOSYS`,
 pre-5.6, or a restrictive seccomp filter) it falls back to a plain `open` with
 `O_NOFOLLOW`, which refuses only a symlinked *final* component.
 
@@ -45,8 +45,7 @@ silently redirected through a symlink that may have been swapped in along the
 path.
 
 The `mode` argument is optional: when it is omitted the file is opened for
-reading, exactly as if `"read"` had been supplied. The implicit `"read"` is
-appended before lowering, matching `fs::openFile`.
+reading, exactly as if `"read"` had been supplied.
 
 `mode` selects how the file is opened. The portable mode names are `"read"` or
 `"r"`, `"write"` or `"w"`, `"readWrite"` or `"rw"`, and `"append"` or `"a"`.
@@ -60,9 +59,8 @@ byte, and is case sensitive; any other value is rejected before the file is
 touched.
 
 Files created by a `write`, `readWrite`, or `append` open are created with
-owner-only `0600` permission bits (subject to the process umask), not
-world-readable `0666`, matching `fs::createTempFile` and the atomic writers
-(audit-2 OS-01 / bug-184).
+user-only `0600` permission bits (subject to the process umask), not
+world-readable `0666`, matching `fs::createTempFile` and the atomic writers.
 
 `path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
 absolute or relative to the current working directory and may contain Unicode
@@ -70,9 +68,8 @@ characters when the host filesystem accepts those names. The string must not be
 empty and must not contain an embedded NUL byte, because the host `open` call
 requires a NUL-terminated path.
 
-The returned `File` is closed by lexical drop when the binding that holds it
-leaves scope, or explicitly with `fs::close`. The function reads or writes no
-file contents itself; it only opens the descriptor and wraps it in the `File`
+The returned `File` is closed when the binding that holds it goes out of scope, or explicitly with `fs::close`. The function reads or writes no
+file contents itself; it only opens the file and gives you the `File`
 resource."#;
 const EX: &str = r#"Open a file for reading using the default mode, refusing a symlinked path:
 
@@ -80,6 +77,7 @@ const EX: &str = r#"Open a file for reading using the default mode, refusing a s
 IMPORT fs
 
 SUB main()
+  fs::writeText("data.txt", "first line\nsecond line\n")
   RES f AS fs::File = fs::openFileNoFollow("data.txt")
   fs::close(f)
 END SUB
@@ -91,6 +89,7 @@ Open a file for writing; the open fails if any component of the path is a symlin
 IMPORT fs
 
 SUB main()
+  fs::writeText("out.txt", "first line\nsecond line\n")
   RES w AS fs::File = fs::openFileNoFollow("out.txt", "write")
   fs::writeAll(w, "hello")
   fs::close(w)
@@ -103,6 +102,7 @@ Open a file for appending so each write lands at the end:
 IMPORT fs
 
 SUB main()
+  fs::writeText("app.log", "first line\nsecond line\n")
   RES log AS fs::File = fs::openFileNoFollow("app.log", "a")
   fs::writeAll(log, "started\n")
   fs::close(log)

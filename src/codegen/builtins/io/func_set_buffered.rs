@@ -66,12 +66,12 @@ const DESC: &str = r#"`io::setBuffered` turns standard-output buffering on or of
 thread and returns nothing. Buffering is **off by default**, so without this call
 every `io::write` and `io::print` reaches the operating system immediately.
 
-Passing `TRUE` only sets the enabled flag; the 4 KiB buffer itself is allocated
+Passing `TRUE` only sets the enabled flag; the 4 KiB buffer itself is set up
 lazily on the first buffered write. From then on output is accumulated and issued
 in blocks, collapsing a write-heavy loop from one host write per call to roughly
 one per full buffer. A chunk larger than the whole buffer is written directly
 after the buffer is drained, so ordering is never disturbed, and if the buffer
-cannot be allocated the write falls back to going out directly — buffering is an
+cannot be set up the write falls back to going out directly — buffering is an
 optimization, never a correctness dependency.
 
 Passing `FALSE` **drains any pending bytes first** and then clears the flag, so
@@ -85,8 +85,7 @@ before the program blocks — and at program exit. The setting is per thread: ea
 thread has its own buffer and its own enabled flag, and one thread's choice is
 invisible to another. Standard error is never buffered, so this call affects
 standard output only. In app mode the buffer is inert and this call does nothing.
-Because buffered output lives in memory until drained, a hard crash can lose bytes
-that were written but not yet flushed."#;
+A hard crash can lose output that was written but not yet drained."#;
 const EX: &str = r#"Buffer a write-heavy loop and flush once at the end:
 
 ```

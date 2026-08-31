@@ -18,16 +18,15 @@ result is a set with the same elements — no duplicate is created and the lengt
 is unchanged. When `item` is new, the result has one more element than `value`,
 appended in insertion order so a later `collections::toList` places it last.
 
-`add` is value-semantic. The set named by `value` is unchanged; the modified set
+`add` does not change `value`. The set it names is unchanged; the modified set
 is the returned value, and a program observes the update only through what it
-does with that return value. When the compiler can prove the target is a
-uniquely-owned local being reassigned — the `set = collections::add(set, x)`
-shape — it may update the live buffer in place; this is an optimization only, and
-the observable semantics are identical either way.
+does with that return value. Assigning straight back to the same variable —
+`set = collections::add(set, x)` — is the cheap shape: it updates the set
+rather than building a second one. The result is the same either way.
 
-`add` is **infallible**: no path in its lowering raises a trappable domain error,
-so an inline `TRAP` written on an `add` call has a dead handler. Allocation
-exhaustion is not a trappable domain error in this language."#;
+`add` is **infallible**: nothing it does raises a trappable domain error,
+so an inline `TRAP` written on an `add` call has a dead handler. Running out of
+memory is not something a `TRAP` can catch."#;
 
 const EX: &str = r#"Insert a new element:
 
@@ -83,14 +82,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The set to add to. Not modified — you get a new set back.",
                     aliases: &["set"],
                     ty: ParameterType::set_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "item",
-                    desc: "",
+                    desc: "The element to insert. Adding one that is already present gives back an equal set, so `add` is idempotent.",
                     aliases: &["element"],
                     ty: ParameterType::var("T"),
                     default: DefaultValue::None,

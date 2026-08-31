@@ -27,7 +27,7 @@ Only the contiguous runs of whitespace at the very start and the very end are
 removed. Whitespace between non-whitespace scalars is interior and is preserved
 byte for byte. A `value` that is entirely whitespace trims to the empty string,
 and the empty string trims to the empty string. `value` is not mutated; the
-result is a newly allocated `String`, even when nothing was trimmed.
+result is a new `String`, even when nothing was trimmed.
 
 The trim is locale-independent and performs no normalization or case folding. To
 strip a specific set of scalars instead of whitespace, use `strings::trimChars`.

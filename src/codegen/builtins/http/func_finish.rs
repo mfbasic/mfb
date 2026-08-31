@@ -14,7 +14,7 @@ lowercased, duplicates last-wins), and body (de-chunked when the reply was
 `chunked`).
 
 `finish` does not close the stream: the handle stays bound and its socket is
-closed exactly once when it leaves scope. The returned `Response` is a plain,
+closed exactly once when its binding goes out of scope. The returned `Response` is a plain,
 copyable value record — `status`, `reason`, `httpVersion`, `headers`, `body`, and
 `ok` (`TRUE` only for a 2xx status) — identical to what a blocking `http::read`
 over the same URL would return. Redirects are not followed; a 3xx reply is
@@ -57,7 +57,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: Some("Stream STATE PendingState"),
         internal_only: false,
         implementations: vec![Implementation {
-            params: vec![super::req("stream", "The completed stream from `http::startRead` (after `http::done` is `TRUE`). Passed by reference; `finish` neither consumes nor closes it.", &[], ParameterType::named("Stream"))],
+            params: vec![super::req("stream", "The completed stream from `http::startRead` (after `http::done` is `TRUE`). The stream stays open — `finish` reads it and leaves it to you to close.", &[], ParameterType::named("Stream"))],
             return_type: ParameterType::named(super::RESPONSE_TYPE),
             errors: vec![],
             body: Body::mfb(BODY, "__http_finish"),

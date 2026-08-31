@@ -13,14 +13,13 @@ const INTRO: &str =
 const DESC: &str = r#"`money::round` settles `value` to `decimals` fractional places and returns the
 result, still as a `Money`. It is the explicit "compute at five places, book at
 two" operation: intermediate `Money` arithmetic keeps all five decimal places that
-the type carries, and `money::round` is what settles a line item or an allocation
+the type carries, and `money::round` is what settles a line item or a share
 remainder to whole cents (`decimals` `2`) or another scale when it is time to
 record it.
 
-The computation is exact integer arithmetic on the underlying scaled value, with no
-floating point anywhere: the raw is divided by `10^(5 - decimals)`, the remainder is
-settled through the shared rounding helper, and the quotient is multiplied back to
-`Money` scale.
+The computation is exact integer arithmetic on the underlying scaled value, with
+no floating point anywhere, so the result does not depend on how the host
+happens to round a `Float`.
 
 How the remainder settles depends on the mode installed by `money::setRounding`. A
 remainder that is not an exact half always goes to the nearer value, under either

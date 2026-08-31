@@ -7,20 +7,17 @@ const INTRO: &str = r#"The current wall-clock instant on the UTC timeline."#;
 const DESC: &str = r#"`datetime::now` reads the host's real-time clock and returns the `Instant` it
 names on the UTC timeline (the Unix epoch, without leap seconds). The result
 carries whole seconds since `1970-01-01T00:00:00Z` in its `seconds` field and a
-sub-second `nanos` field in the range `0 .. 999_999_999`. `now` is the only
-wall-clock entry point in the package; project the result through a zone with
+sub-second `nanos` field in the range `0 .. 999_999_999`. `now` is the package's
+wall-clock entry point that returns an `Instant` (`datetime::nowNanos` reads the
+same clock as a bare nanosecond count); project the result through a zone with
 `datetime::toUtc`, `datetime::toLocal`, or `datetime::inZone` to obtain civil
 fields (year, month, day, and so on).
 
-Internally `now` takes a single nanoseconds-since-epoch reading from the OS
-intrinsic (`datetime::nowNanos`), then splits it into the `seconds` and `nanos`
-fields of an `Instant` by a truncating divide and remainder against
-`1_000_000_000`. The reading is non-negative and the divisor is a non-zero
-constant, so the split cannot trap, and the nanosecond remainder already falls
-in `0 .. 999_999_999`.
+`now` is `datetime::nowNanos` split into the `seconds` and `nanos` fields of an
+`Instant`. The split never fails, and `nanos` always falls in `0 .. 999_999_999`.
 
-`now` is bounded by its underlying intrinsic, which reports nanoseconds since
-the epoch and is valid through roughly the year 2262. This is a limit on `now`,
+`now` is bounded by that nanosecond count, which is valid through roughly the
+year 2262. This is a limit on `now`,
 not on `Instant`, whose `seconds` field spans the full `Integer` range.
 
 `now` is one of the few `datetime` functions that is **not pure**: two calls may

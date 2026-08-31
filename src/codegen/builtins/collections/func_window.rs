@@ -350,12 +350,7 @@ const INTRO: &str = r#"Produce the sliding windows of a list, each of exactly `s
 
 const DESC: &str = r#"`collections::window` walks `value` from index 0 in steps of `stride`, and at
 each position where a full run of `size` consecutive elements still fits, emits
-that run as a window. The result is the list of those windows, in order. It is a
-generic function written in MFBASIC source, rewritten to the internal
-`__collections_window` generic and instantiated for the element type `T` during
-monomorphization.
-
-Every window has exactly `size` elements — there is no short final window. The
+that run as a window. The result is the list of those windows, in order.Every window has exactly `size` elements — there is no short final window. The
 loop advances only while `i + size` is still within the length of `value`, so a
 trailing partial run is simply not emitted, and the elements it would have
 contained are dropped from the result. This is the key difference from
@@ -373,10 +368,9 @@ is the empty list; an empty `value` likewise produces an empty result. Both
 runtime with `ErrInvalidArgument`. Note the parameter is named `stride`, not
 `step`.
 
-Each window is built by the internal slice helper, which is lowered natively as
-a bulk range copy, so element payloads are copied into freshly allocated lists
-and no window shares storage with `value`. Overlapping windows therefore hold
-independent copies of the elements they share. `value` is not modified.
+Each window is a new list holding its own copy of the elements, so overlapping
+windows hold independent copies of the elements they share and nothing you do
+with a window affects `value`. `value` is not modified.
 
 `T` is inferred from `value` and carries no ordering or comparability
 requirement: `window` copies contiguous ranges and never inspects an element, so

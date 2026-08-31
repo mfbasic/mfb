@@ -64,27 +64,53 @@ fn package_type_exports_decodes_record_union_enum() {
 #[test]
 fn resolve_resource_close_name_maps_builtins_and_functions() {
     let package = decoded_package();
+    // The two legacy sentinels name one resource each and ignore the type name.
     assert_eq!(
-        resolve_resource_close_name(&package, BUILTIN_FS_CLOSE_FUNCTION_ID).unwrap(),
+        resolve_resource_close_name(&package, BUILTIN_FS_CLOSE_FUNCTION_ID, "fs.File").unwrap(),
         builtins::resource_close_function(&crate::types::ParameterType::named(
             crate::codegen::builtins::fs::FILE_TYPE_ID
         ))
         .map(str::to_string)
     );
     assert_eq!(
-        resolve_resource_close_name(&package, BUILTIN_STREAM_CLOSE_FUNCTION_ID).unwrap(),
+        resolve_resource_close_name(&package, BUILTIN_STREAM_CLOSE_FUNCTION_ID, "tcp.Socket")
+            .unwrap(),
         builtins::resource_close_function(&crate::types::ParameterType::named(
             crate::codegen::builtins::tcp::SOCKET_TYPE_ID
         ))
         .map(str::to_string)
     );
+    // bug-464 fallout: every other built-in resolves from the registry by the
+    // entry's own type name, which is why one id serves all of them. `udp.Socket`
+    // and the `tls` pair had NO table entry at all before that fix.
+    for (type_name, expected) in [
+        ("udp.Socket", "udp.close"),
+        ("tls.Socket", "tls.close"),
+        ("process.Process", "process.__drop"),
+    ] {
+        assert_eq!(
+            resolve_resource_close_name(&package, BUILTIN_RESOURCE_CLOSE_BY_TYPE, type_name)
+                .unwrap()
+                .as_deref(),
+            Some(expected),
+            "close op for {type_name}"
+        );
+    }
+    // A type the registry does not know resolves to None rather than panicking.
+    assert!(
+        resolve_resource_close_name(&package, BUILTIN_RESOURCE_CLOSE_BY_TYPE, "nope.Nope")
+            .unwrap()
+            .is_none()
+    );
     // A function-id index resolves to that function's name.
-    let named = resolve_resource_close_name(&package, 0).unwrap();
+    let named = resolve_resource_close_name(&package, 0, "fs.File").unwrap();
     assert!(named.is_some());
     // An out-of-range id resolves to None.
-    assert!(resolve_resource_close_name(&package, u32::MAX - 5)
-        .unwrap()
-        .is_none());
+    assert!(
+        resolve_resource_close_name(&package, u32::MAX - 5, "fs.File")
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]

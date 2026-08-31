@@ -44,14 +44,13 @@ current end of the file. The byte payload is written directly from the byte
 list's packed data region. The write is retried until every byte has been written
 or the host reports an output failure, so a short host write that transfers only
 part of the buffer is resumed rather than treated as complete, and an interrupted
-(`EINTR`) write is retried from the same cursor before any byte has moved. An
+interruption never loses or duplicates bytes. An
 empty byte list leaves the file's length unchanged, creating it as an empty file
 if it did not exist. Bytes are written exactly as held in the list, with no
 encoding, decoding, or newline translation, so the function is suitable for
 binary data as well as text.
 
-When the file is created it is given mode `384` (octal `0600`), owner read/write
-only, before the process umask is applied — not the world-readable `0666`. An
+When the file is created it gets permissions `0600` — readable and writable only by the user running the program, before the process umask is applied — not the world-readable `0666`. An
 existing file keeps its current mode. The file is created and opened only after
 `path` has been validated, and the final path component is followed when it is a
 symlink, so appending through a symlink appends to the target file.
@@ -72,8 +71,9 @@ const EX: &str = r#"Append a single newline byte to a log file:
 IMPORT fs
 
 SUB main()
+  fs::createDirectories("output")
   LET bytes AS List OF Byte = [10]
-  fs::appendBytes("target/log.bin", bytes)
+  fs::appendBytes("output/log.bin", bytes)
 END SUB
 ```
 
@@ -83,6 +83,7 @@ Append the contents of one file to the end of another:
 IMPORT fs
 
 SUB main()
+  fs::writeText("source.bin", "first line\nsecond line\n")
   LET bytes AS List OF Byte = fs::readBytes("source.bin")
   fs::appendBytes("combined.bin", bytes)
 END SUB

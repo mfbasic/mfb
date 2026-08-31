@@ -42,23 +42,22 @@ directory.
 
 `path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
 absolute or relative to the current working directory, and may contain Unicode
-characters when the host filesystem accepts those names. Internally a
-NUL-terminated copy of `path` is allocated for the host call, so `path` must be
-non-empty and must not contain an embedded NUL byte.
+characters when the host filesystem accepts those names. It must be non-empty and must not contain an embedded NUL byte.
 
-When the host refuses the removal, the failure `errno` is mapped to the matching
-error below and `path` is left unchanged. Attempting to remove a directory is
+When the host refuses the removal, it raises the matching error below and
+`path` is left unchanged. Attempting to remove a directory is
 reported as a host failure (for example `ErrInvalidPath` or `ErrDirectoryNotEmpty`)
-rather than as a directory-specific error, since `unlink` does not operate on
-directories. `errno` values are per-OS; the same symbolic error is produced on
-each platform."#;
+rather than as a directory-specific error — use `fs::deleteDirectory` for a
+directory. The same error is raised on every platform."#;
 const EX: &str = r#"Remove a generated output file:
 
 ```
 IMPORT fs
 
 SUB main()
-  fs::deleteFile("target/output.txt")
+  fs::createDirectories("output")
+  fs::writeText("output/report.txt", "generated")
+  fs::deleteFile("output/report.txt")
 END SUB
 ```
 

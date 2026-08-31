@@ -24,7 +24,7 @@ The `Float` overloads sum in IEEE doubles and take the root with `math::sqrt`.
 The `Fixed` overloads work entirely in deterministic Q32.32 arithmetic. The
 `Integer` overloads square and sum in exact checked integer arithmetic and then
 apply the package's rounding integer square root: it first derives a seed from
-the hardware `Float` square root of the sum, then corrects that seed to the exact
+an approximate square root of the sum, then corrects it to the exact
 `floor` of the true root using only integer comparisons and divisions, and finally
 rounds up when the remainder exceeds the floor. The floating-point seed is only a
 starting point — the integer correction loops guarantee the exact floor
@@ -140,6 +140,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("a vector (Float2/3/4, Fixed2/3/4, Integer2/3/4)"),
         internal_only: false,
-        implementations: super::implementations("length", super::Shape::UnaryScalar, &[], body),
+        implementations: super::implementations(
+            "length",
+            super::Shape::UnaryScalar,
+            &[],
+            body,
+            &["The vector to measure. The zero vector has length zero."],
+        ),
     });
 }

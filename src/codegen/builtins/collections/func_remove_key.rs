@@ -11,9 +11,9 @@ use crate::types::ParameterType;
 const INTO_REMOVE_KEY: &str = "Return a copy of a map with the entry for one key removed.";
 const DESC_REMOVE_KEY: &str = r#"`collections::removeKey` produces a **new** map containing every entry of
 `value` except the one whose key matches `key`. It does not edit `value` in
-place: the lowering scans the entry table to count the entries it will retain
-and size their payloads, allocates a fresh map block, and copies the retained
-entries into it. The original map is left untouched and remains usable.
+place: it counts the entries it will keep
+and how much room they need, builds a new map, and copies the retained entries
+into it. The original map is left untouched and remains usable.
 
 Retained entries are copied in their existing order, so the surviving entries of
 the result keep the relative order they had in `value`.
@@ -21,8 +21,7 @@ the result keep the relative order they had in `value`.
 Removing a key that is not present is not an error. The scan simply retains
 every entry, and the call returns a fresh map with the same contents as `value`.
 Note that this is a new map rather than the same map object — a `removeKey` for
-an absent key still allocates and copies, it does not return the argument
-itself. The result therefore has `len(value)` entries when `key` was absent, or
+an absent key still builds a copy, rather than returning the argument itself. The result therefore has `len(value)` entries when `key` was absent, or
 `len(value) - 1` entries when it was present. Because a map holds at most one
 entry per key, at most one entry is ever dropped.
 
@@ -33,8 +32,8 @@ such a call always returns an unchanged copy.
 
 `collections::removeKey` raises no trappable domain error — neither a missing
 key nor an empty map fails — so an inline `TRAP` on a `removeKey` call has a
-dead handler. Building the result map does allocate, and an allocation failure
-is not a trappable domain error in this language."#;
+dead handler. Building the result map needs memory, and running out of it is
+not something a `TRAP` can catch."#;
 
 const EX: &str = r#"Remove a key:
 
@@ -91,14 +90,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The map to remove from. Not modified — you get a new map back.",
                     aliases: &["map"],
                     ty: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("V")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "key",
-                    desc: "",
+                    desc: "The key to drop. A key that is not present is not an error; you get back a copy with the same contents.",
                     aliases: &[],
                     ty: ParameterType::var("K"),
                     default: DefaultValue::None,

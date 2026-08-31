@@ -25,6 +25,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed | Money",
+        "The number to round to the nearest whole value, or a list of them. Halves round away from zero.",
         &[Float, Fixed, Money],
         &[Float, Fixed],
         &["ErrOverflow"],

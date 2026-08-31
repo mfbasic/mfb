@@ -17,7 +17,15 @@ const DESC: &str = r#"`removeAttribute` returns a new `AttributedString` with `a
 (same member and, for font/size, same value). A matching span that straddles the range is **split**:
 its surviving left flank `[s.start, start−1]` and/or right flank `[endIndex+1, s.last]` are kept and
 the overlap dropped. Because overlapping spans resolve by higher-start-wins, removing a covering
-winner can reveal a lower-start loser at read time."#;
+winner can reveal a lower-start loser at read time.
+
+**An invalid range raises.** `start` must be zero or more and no greater than
+`endIndex`, or the call raises `ErrInvalidArgument` (`invalid attribute range`);
+and both ends must fall inside the visible text, or it raises
+`ErrIndexOutOfRange` (`attribute range out of bounds`). Because the range is
+inclusive, **empty text has no valid range at all** — even `0, 0` is out of
+bounds on an empty `AttributedString`, so guard construction from text that
+might be empty."#;
 
 const EX: &str = r#"```
 IMPORT astrings

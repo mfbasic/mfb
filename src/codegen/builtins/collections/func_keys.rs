@@ -9,20 +9,19 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 const INTO_KEYS: &str = "Return a map's keys as a list.";
 const DESC_KEYS: &str = r#"`collections::keys` builds a new `List OF K` holding the key of every entry in
-`value`. It walks the map's lookup-entry table front to back, copying each
-entry's key payload into a freshly allocated list block. The source map is not
-mutated and its own storage is not aliased by the result — the returned list is
-an independent, owned collection.
+`value`. It walks the map front to back, copying each
+entry's key into a new list. The source map is not mutated, and the returned
+list is an independent collection.
 
 The result has exactly one item per map entry, so its length equals
 `len(value)`. An empty map yields an empty list. Each key appears exactly once,
 because a map holds at most one entry per key.
 
-**Ordering.** The projection walks the lookup-entry array directly, and that
-array is maintained in insertion order; the hash bucket index is separate
-derived metadata that does not reorder it. `collections::keys` and
-`collections::values` walk the same array over the same entries and differ only
-in which payload field of each entry they copy, so the two results are
+**Ordering.** The map keeps its entries in insertion order and `keys` walks
+them in that order; how a key is looked up is separate
+and does not reorder it. `collections::keys` and `collections::values` walk the
+same entries in the same order and differ only in which half of each entry they
+copy, so the two results are
 index-aligned: item `i` of `collections::keys(m)` is the key of the entry whose
 value is item `i` of `collections::values(m)`. The language specification
 describes map iteration order as implementation-defined but stable for a given
@@ -30,8 +29,8 @@ unchanged map, so treat insertion order as the current implementation's behavior
 rather than a guarantee to rely on across versions.
 
 `collections::keys` raises no trappable domain error, so an inline `TRAP` on a
-`keys` call has a dead handler. Building the result list does allocate, and an
-allocation failure is not a trappable domain error in this language."#;
+`keys` call has a dead handler. Building the result list needs memory, and
+running out of memory is not something a `TRAP` can catch."#;
 
 const EX: &str = r#"Get the keys of a map:
 
@@ -88,7 +87,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",
-                desc: "",
+                desc: "The map whose keys to collect. Not modified. The order matches `collections::values` for the same unchanged map.",
                 aliases: &["map"],
                 ty: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("V")),
                 default: DefaultValue::None,

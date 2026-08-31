@@ -29,12 +29,13 @@ newline translation. An empty `String` writes nothing at all. It is the
 newline-free counterpart of `io::print`, which is the same call with a trailing
 LF appended.
 
-Only `String` is accepted, and exactly one argument; there is no implicit
-conversion, so convert other values first — for example with `toString`.
+Exactly one argument, either a `String` or an `AttributedString` (see
+`mfb man astrings`); there is no implicit conversion, so convert any other value
+first — for example with `toString`.
 
 The underlying write loops until every byte has been transferred: a short write
-advances the cursor and re-issues, and an `EINTR` interruption retries with the
-cursor unchanged. A zero-byte or failing write is a failure and raises
+advances the cursor and re-issues, and an interruption is resumed rather than losing
+bytes. A zero-byte or failing write is a failure and raises
 `ErrOutput`.
 
 With standard-output buffering enabled by `io::setBuffered(TRUE)` the text is
@@ -44,9 +45,9 @@ fills, on `io::flush`, before any standard-input read, and at program exit —
 which is why a prompt written with `io::write` still appears before a following
 `io::readLine` even under buffering. While the program is in `term::` TUI mode,
 standard output is retained rather than printed and nothing reaches the terminal
-until `term::sync` presents the frame. Output goes to whatever is bound to
-standard output: file descriptor 1 in a console program, and the application
-transcript window in app mode (`mfb build --app`)."#;
+until `term::sync` presents the frame. Output goes to standard output in a console
+program, and to the application transcript window in app mode
+(`mfb build --app`)."#;
 const EX: &str = r#"Write a prompt on the same line as the answer:
 
 ```

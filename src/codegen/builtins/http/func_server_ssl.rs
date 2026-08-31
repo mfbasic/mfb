@@ -14,12 +14,11 @@ keyPath, backlog)`, so the listener behaves in every respect like one opened by
 `tls` itself. Note the argument order differs: `serverSSL` leads with `port` to
 match `http::server`, while `tls::listen` leads with `host`.
 
-`host` defaults to `"0.0.0.0"` and `backlog` defaults to `128`; both defaults are
-injected at IR lowering, so the three- and four-argument forms are exactly the
-five-argument form with those literals supplied. The `128` default is supplied by
+`host` defaults to `"0.0.0.0"` and `backlog` defaults to `128`, so the three- and
+four-argument forms mean exactly the five-argument form with those values. The `128` default is supplied by
 `http` — calling `tls::listen` directly defaults `backlog` to `0` instead.
 
-The socket is created with `SO_REUSEADDR` set, bound, and placed in the listening
+The port is bound with address reuse enabled, and placed in the listening
 state. On Linux, address resolution uses `AF_INET` passive hints, so **only IPv4
 is bound** — an IPv6 host such as `"::"` does not resolve and fails rather than
 binding. An empty `host` (`""`) is passed to the resolver as a passive (NULL)
@@ -47,13 +46,13 @@ A single server certificate is presented: there is no SNI multi-certificate
 selection, and the listener does not request or verify a client certificate (no
 mutual TLS).
 
-The server TLS context is owned by the listener and *borrowed* by each accepted
-socket, so closing an accepted connection never frees the shared context; it is
+The listener holds the server's TLS settings and every accepted socket shares
+them, so closing one connection leaves the listener and its settings intact; it is
 released exactly once when the listener itself closes.
 
 The returned listener is a resource: bind it with `RES`, and it is closed by
-lexical drop at scope exit (or earlier with `tls::close`). Drive it with a
-user-owned `DO`/`LOOP` over `http::handleRequest`, which is overloaded on the
+itself when its binding goes out of scope (or earlier with `tls::close`). Drive it with a
+your own `DO`/`LOOP` over `http::handleRequest`, which is overloaded on the
 listener type — the loop body and route list are unchanged between `http://` and
 `https://`. Each call accepts one connection, performs the server-side TLS
 handshake, parses the request, matches its path against an ordered
@@ -72,7 +71,7 @@ FUNC home(req AS http::Request) AS http::Response
   RETURN http::ok("welcome")
 END FUNC
 
-SUB secureMain()
+SUB main()
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/", home))
   RES s AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem")
@@ -89,7 +88,7 @@ IMPORT http
 IMPORT tls
 IMPORT io
 
-SUB localOnly()
+SUB main()
   RES s AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem", "127.0.0.1", 16)
   io::print("listening on 127.0.0.1:8443")
 END SUB

@@ -20,8 +20,8 @@ Each cluster contributes `0`, `1`, or `2` columns. A cluster's width is the widt
 of its first non-zero-width scalar: `0` for a cluster made only of zero-width
 scalars (a lone combining mark, a zero-width space, or a zero-width joiner), `2`
 for a cluster led by an East Asian Wide or Fullwidth character or an
-emoji-presentation symbol, and `1` for everything else. The per-scalar width
-comes from the vendored utf8proc `charwidth` table.
+emoji-presentation symbol, and `1` for everything else. The per-scalar widths
+follow the standard Unicode character-width data.
 
 The string is first segmented into extended grapheme clusters using the same
 UAX #29 boundary rules as `strings::graphemes`, so a base letter with combining

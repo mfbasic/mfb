@@ -34,7 +34,7 @@ one scalar.
 Normalization is independent of case: it neither folds nor changes case, so apply
 `strings::caseFold` in addition when matching must ignore both normalization and
 case. The transformation is deterministic and locale-independent. `value` is not
-mutated; the result is a new owned `String`.
+mutated; the result is a new `String`.
 
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed as above, but **attributes are

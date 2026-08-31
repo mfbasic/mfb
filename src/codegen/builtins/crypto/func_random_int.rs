@@ -43,7 +43,7 @@ unpredictable to an adversary.
 every call (in 8-byte draws, one per rejection-sampling attempt). Its logic is
 byte-identical on every target (macOS/Linux, aarch64/x86-64); only the entropy,
 and therefore the values, differs. Because the entropy is drawn through
-`crypto::randomBytes`, an OS entropy failure or allocation failure there
+`crypto::randomBytes`, an entropy or out-of-memory failure there
 propagates out as `ErrUnknown` or `ErrOutOfMemory`."#;
 const EX: &str = r#"Roll a fair six-sided die:
 

@@ -32,6 +32,23 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const EXPECTED: &[u8] = &[65, 66, 67, 68, 69]; // "ABCDE"
 const PORT: u16 = 18453;
 
+/// Wall-clock bound on the peer exchange, guarding bug-386's
+/// `dispatch_semaphore_wait(FOREVER)` stall so a regression fails this test
+/// instead of wedging `cargo test` for 36+ minutes.
+///
+/// It was 30s, and 30s was measured FAILING here purely from CPU starvation
+/// (three heavy jobs on one machine) while the same code PASSED in 67.24s run
+/// alone. That is the worst kind of flake: a starved timeout and a genuine
+/// FOREVER stall print the identical message, so the false red looks exactly
+/// like the bug this bound exists to catch.
+///
+/// The bound only has to fire before CI's job-level limit does — it is not a
+/// performance assertion, and every second is free unless something is already
+/// broken. Set clear of the contended case rather than close to the
+/// observed-good one. Matches the reasoning on
+/// `rt_tls_listener_local_address.rs`'s `DEADLINE`.
+const STALL_DEADLINE: Duration = Duration::from_secs(120);
+
 fn nonce() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -186,7 +203,7 @@ fn macos_tls_write_sends_capacity_over_count_byte_list_exactly() {
         let _ = tx.send(out.stdout);
     });
 
-    let stdout = match rx.recv_timeout(Duration::from_secs(30)) {
+    let stdout = match rx.recv_timeout(STALL_DEADLINE) {
         Ok(stdout) => {
             let _ = worker.join();
             stdout
@@ -199,9 +216,12 @@ fn macos_tls_write_sends_capacity_over_count_byte_list_exactly() {
             }
             let _ = fs::remove_dir_all(&root);
             panic!(
-                "bug-386: TLS server did not respond within 30s (a FOREVER \
+                "bug-386: TLS server did not respond within {}s (a FOREVER \
                  semaphore-wait stall); killed server+peer and failed instead of \
-                 hanging cargo test"
+                 hanging cargo test. NOTE: this message is also what a merely \
+                 CPU-STARVED run prints -- re-run this test ALONE before treating \
+                 it as a TLS regression.",
+                STALL_DEADLINE.as_secs()
             );
         }
     };

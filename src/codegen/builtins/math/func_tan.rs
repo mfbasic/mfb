@@ -24,6 +24,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed",
+        "The angle in radians, or a list of them. Near an odd multiple of pi/2 the result grows without bound.",
         &[Float, Fixed],
         &[Float],
         &["ErrFloatInf", "ErrFloatNaN", "ErrInvalidArgument"],

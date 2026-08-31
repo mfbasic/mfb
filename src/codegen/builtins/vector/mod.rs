@@ -88,8 +88,7 @@ Each function is overloaded by the exact argument record type: a member takes a
 vector of one of the nine types and returns either that type or its scalar element
 type. Algebraic operations are correctly rounded on `Float`, use Q32.32 fixed-point
 on `Fixed`, and round half away from zero on `Integer`. `vector` is a built-in
-package written in MFBASIC over the intrinsic `math` package, so `IMPORT vector`
-needs no manifest dependency."#;
+built-in package: `IMPORT vector` needs no manifest dependency."#;
 
 // The nine value-record type names, grouped by dimension. VEC_TYPES fixes the
 // registration order (2D then 3D then 4D per element, matching the companion).
@@ -119,15 +118,29 @@ fn rewrite(member: &str, ty: &str) -> &'static str {
     Box::leak(format!("__vector_{member}_{}", ty.to_ascii_lowercase()).into_boxed_str())
 }
 
-/// One required parameter with optional keyword aliases.
-fn param(name: &'static str, aliases: &'static [&'static str], ty: ParameterType) -> Parameter {
+/// One required parameter with optional keyword aliases. `desc` is the man page's
+/// Parameters-table prose, supplied per member by position (see `implementations`).
+fn param(
+    name: &'static str,
+    aliases: &'static [&'static str],
+    ty: ParameterType,
+    desc: &'static str,
+) -> Parameter {
     Parameter {
         name,
-        desc: "",
+        desc,
         aliases,
         ty,
         default: DefaultValue::None,
     }
+}
+
+/// The description for parameter `i`, or `""` when a member supplied fewer than the
+/// shape uses. Members pass their descriptions positionally because one shape serves
+/// several members whose arguments mean different things — `distance` and `dot` are
+/// both `BinaryScalar`, and their `a`/`b` want different sentences.
+fn d(descs: &[&'static str], i: usize) -> &'static str {
+    descs.get(i).copied().unwrap_or("")
 }
 
 fn imp(
@@ -178,6 +191,7 @@ pub(crate) fn implementations(
     shape: Shape,
     errors: &[&'static str],
     body: fn(&str) -> &'static str,
+    descs: &[&'static str],
 ) -> Vec<Implementation> {
     let errs = || errors.to_vec();
     let mut out = Vec::new();
@@ -185,7 +199,7 @@ pub(crate) fn implementations(
         Shape::UnaryScalar => {
             for &ty in VEC_TYPES {
                 out.push(imp(
-                    vec![param("v", &[], ParameterType::named(ty))],
+                    vec![param("v", &[], ParameterType::named(ty), d(descs, 0))],
                     element_of(ty),
                     errs(),
                     Body::mfb(body(ty), rewrite(member, ty)),
@@ -195,7 +209,7 @@ pub(crate) fn implementations(
         Shape::UnaryVector => {
             for &ty in VEC_TYPES {
                 out.push(imp(
-                    vec![param("v", &[], ParameterType::named(ty))],
+                    vec![param("v", &[], ParameterType::named(ty), d(descs, 0))],
                     ParameterType::named(ty),
                     errs(),
                     Body::mfb(body(ty), rewrite(member, ty)),
@@ -206,8 +220,8 @@ pub(crate) fn implementations(
             for &ty in VEC_TYPES {
                 out.push(imp(
                     vec![
-                        param("a", &["v"], ParameterType::named(ty)),
-                        param("b", &["n"], ParameterType::named(ty)),
+                        param("a", &["v"], ParameterType::named(ty), d(descs, 0)),
+                        param("b", &["n"], ParameterType::named(ty), d(descs, 1)),
                     ],
                     element_of(ty),
                     errs(),
@@ -219,8 +233,8 @@ pub(crate) fn implementations(
             for &ty in VEC_TYPES {
                 out.push(imp(
                     vec![
-                        param("a", &["v"], ParameterType::named(ty)),
-                        param("b", &["n"], ParameterType::named(ty)),
+                        param("a", &["v"], ParameterType::named(ty), d(descs, 0)),
+                        param("b", &["n"], ParameterType::named(ty), d(descs, 1)),
                     ],
                     ParameterType::named(ty),
                     errs(),
@@ -232,9 +246,9 @@ pub(crate) fn implementations(
             for &ty in VEC_TYPES {
                 out.push(imp(
                     vec![
-                        param("a", &[], ParameterType::named(ty)),
-                        param("b", &[], ParameterType::named(ty)),
-                        param("t", &[], ParameterType::Float),
+                        param("a", &[], ParameterType::named(ty), d(descs, 0)),
+                        param("b", &[], ParameterType::named(ty), d(descs, 1)),
+                        param("t", &[], ParameterType::Float, d(descs, 2)),
                     ],
                     ParameterType::named(ty),
                     errs(),
@@ -246,8 +260,8 @@ pub(crate) fn implementations(
             for &ty in VEC_TYPES {
                 out.push(imp(
                     vec![
-                        param("v", &[], ParameterType::named(ty)),
-                        param("max", &[], element_of(ty)),
+                        param("v", &[], ParameterType::named(ty), d(descs, 0)),
+                        param("max", &[], element_of(ty), d(descs, 1)),
                     ],
                     ParameterType::named(ty),
                     errs(),
@@ -258,7 +272,7 @@ pub(crate) fn implementations(
         Shape::Perpendicular => {
             for &ty in VEC2_TYPES {
                 out.push(imp(
-                    vec![param("v", &[], ParameterType::named(ty))],
+                    vec![param("v", &[], ParameterType::named(ty), d(descs, 0))],
                     ParameterType::named(ty),
                     errs(),
                     Body::mfb(body(ty), rewrite(member, ty)),
@@ -269,8 +283,8 @@ pub(crate) fn implementations(
             for &ty in VEC2_TYPES {
                 out.push(imp(
                     vec![
-                        param("v", &[], ParameterType::named(ty)),
-                        param("angle", &[], ParameterType::Float),
+                        param("v", &[], ParameterType::named(ty), d(descs, 0)),
+                        param("angle", &[], ParameterType::Float, d(descs, 1)),
                     ],
                     ParameterType::named(ty),
                     errs(),
@@ -283,7 +297,7 @@ pub(crate) fn implementations(
             // merged `call_param_names` table is `[[a, v], [b], [c]]`.
             for &ty in VEC2_TYPES {
                 out.push(imp(
-                    vec![param("a", &["v"], ParameterType::named(ty))],
+                    vec![param("a", &["v"], ParameterType::named(ty), d(descs, 0))],
                     ParameterType::named(ty),
                     errs(),
                     Body::mfb(body(ty), rewrite(member, ty)),
@@ -292,8 +306,8 @@ pub(crate) fn implementations(
             for &ty in VEC3_TYPES {
                 out.push(imp(
                     vec![
-                        param("a", &["v"], ParameterType::named(ty)),
-                        param("b", &[], ParameterType::named(ty)),
+                        param("a", &["v"], ParameterType::named(ty), d(descs, 0)),
+                        param("b", &[], ParameterType::named(ty), d(descs, 1)),
                     ],
                     ParameterType::named(ty),
                     errs(),
@@ -303,9 +317,9 @@ pub(crate) fn implementations(
             for &ty in VEC4_TYPES {
                 out.push(imp(
                     vec![
-                        param("a", &["v"], ParameterType::named(ty)),
-                        param("b", &[], ParameterType::named(ty)),
-                        param("c", &[], ParameterType::named(ty)),
+                        param("a", &["v"], ParameterType::named(ty), d(descs, 0)),
+                        param("b", &[], ParameterType::named(ty), d(descs, 1)),
+                        param("c", &[], ParameterType::named(ty), d(descs, 2)),
                     ],
                     ParameterType::named(ty),
                     errs(),

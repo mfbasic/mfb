@@ -132,7 +132,7 @@ produces a `List OF List OF Integer` — the innermost lists survive as elements
 Flattening further requires calling `flatten` again on the result. It is not
 recursive and there is no depth parameter.
 
-Order is fully preserved: the inner lists are consumed in their own order, and
+Order is fully preserved: the inner lists are read in their own order, and
 the items within each inner list keep their relative order, so the result reads
 as the inner lists laid end to end. Empty inner lists contribute nothing and are
 simply skipped over; they do not produce a placeholder element. When `value`
@@ -186,7 +186,7 @@ IMPORT io
 IMPORT collections
 
 FUNC main AS Integer
-  LET deep AS List OF List OF List OF Integer = [[[1, 2], [3]],]
+  LET deep AS List OF List OF List OF Integer = [[[1, 2], [3]]]
   LET once AS List OF List OF Integer = collections::flatten(deep)
   LET twice AS List OF Integer = collections::flatten(once)
   io::print(toString(len(once)) & " " & toString(len(twice)))

@@ -9,25 +9,24 @@ use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Blank the whole back buffer and home the cursor"#;
+const INTRO: &str = r#"Blank the whole surface and home the cursor"#;
 
-const DESC: &str = r#"`term::clear` blanks every cell of the `term::` back buffer and moves the shadow
-cursor to the home position (row 0, column 0). It takes no arguments.
+const DESC: &str = r#"`term::clear` blanks every cell of the surface and moves the cursor to the home
+position (row 0, column 0). It takes no arguments.
 
 Two details are easy to get wrong and worth stating plainly.
 
-**The clear is a zero-fill, not a fill with the current background.** Every cell
-is zeroed: a blank glyph, foreground 0, background 0. The cleared surface is
-therefore black regardless of what `term::setBackground` was last set to. To get
-a coloured background, set the colour and then draw over the region — the colour
-is stamped into the cells that drawn text occupies, not into cells the clear
-leaves behind.
+**The cleared surface is black, not your current background colour.** Clearing
+does not honour `term::setBackground` — whatever colour you last set, what you
+get is a blank black surface. To get a coloured background, set the colour and
+then draw over the region: the colour goes into the cells that drawn text
+occupies, not into the ones the clear leaves behind.
 
-**The clear does move the cursor.** It homes the shadow cursor to (0, 0), so a
-following `term::moveTo(0, 0)` is redundant.
+**The clear does move the cursor.** It homes it to (0, 0), so a following
+`term::moveTo(0, 0)` is redundant.
 
-Like the rest of the surface, `term::clear` is retained: it mutates the back
-buffer and emits nothing to the terminal. The blanked screen appears when the
+Like the rest of the surface, `term::clear` is buffered: it changes the surface
+and sends nothing to the terminal. The blanked screen appears when the
 program calls `term::sync`. It also leaves the *current* attributes alone — the
 foreground, background, bold, underline, and cursor-visibility settings that
 subsequent drawing will use are untouched; only the cells are.

@@ -19,7 +19,7 @@ intended basis for caseless matching, in preference to uppercasing or lowercasin
 both operands.
 
 Folding is applied per Unicode scalar value across the whole string, using the
-case-folding table embedded in the runtime. Scalars with no folded form — digits,
+Unicode full case folding. Scalars with no folded form — digits,
 punctuation, and symbols — are copied through unchanged. Folding is *full*: one
 scalar may fold to several, so `"Straße"` folds to `"strasse"` and the result can
 be longer than the input. Never assume `len` is preserved across a fold.
@@ -33,7 +33,7 @@ Folding does not normalize. Strings that differ in Unicode normalization form ca
 still differ after folding, so apply `strings::normalizeNfc` first when
 normalization-insensitive matching is required. The mapping is deterministic and
 locale-independent, with no language-specific tailoring. `value` is not mutated;
-the result is a new owned `String`.
+the result is a new `String`.
 
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed as above, but **attributes are

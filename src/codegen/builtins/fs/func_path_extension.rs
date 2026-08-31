@@ -29,8 +29,7 @@ consisting only of `/` separators, returns an empty `String`.
 The scan is byte-oriented (the separator is the single byte `47` and the dot is
 the single byte `46`), so UTF-8 file names are preserved unchanged and any
 embedded bytes are treated literally. A new `String` holding the extension bytes
-is allocated for the result. The function reads no external state and has no side
-effects other than allocating the returned `String`."#;
+is built for the result. The function reads no external state and has no side effects."#;
 const EX: &str = r#"A file name with an extension yields the extension:
 
 ```

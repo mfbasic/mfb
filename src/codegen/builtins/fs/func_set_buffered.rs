@@ -61,13 +61,14 @@ const EX: &str = r#"Buffer a loop of small writes and let scope exit flush and c
 IMPORT fs
 
 SUB main()
+  fs::writeText("events.log", "first line\nsecond line\n")
   LET events AS List OF String = ["started", "ready"]
   RES log = fs::openFile("events.log", "write")
   fs::setBuffered(log, TRUE)
   FOR EACH event IN events
     fs::writeAll(log, event & "\n")
   NEXT
-  ' log is flushed and closed automatically at scope exit
+  ' log is flushed and closed when this scope ends
 END SUB
 ```
 
@@ -77,6 +78,7 @@ Enable buffering for a bulk write, then flush and disable it before durable work
 IMPORT fs
 
 SUB main()
+  fs::writeText("report.txt", "first line\nsecond line\n")
   LET header AS String = "id,name\n"
   LET body AS String = "1,alice\n"
   RES out = fs::openFile("report.txt", "write")

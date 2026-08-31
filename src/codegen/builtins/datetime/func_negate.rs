@@ -63,7 +63,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "d",
-                desc: "",
+                desc: "The duration to reverse. `negate` of a negative duration is positive.",
                 aliases: &[],
                 ty: super::ParameterType::named("Duration"),
                 default: super::DefaultValue::None,

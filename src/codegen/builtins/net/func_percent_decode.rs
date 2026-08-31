@@ -8,7 +8,7 @@ const INTRO: &str = r#"Percent-decode a URL path component."#;
 
 const DESC: &str = r#"`net::percentDecode` decodes the `%XX` escapes in a request-target path component
 and returns the result as a `String`. It walks `s` one grapheme at a time: a `%`
-consumes the next two characters and contributes the byte they name in
+takes the next two characters and contributes the byte they name in
 hexadecimal, and every other grapheme contributes its own UTF-8 bytes unchanged.
 The accumulated bytes are then validated as UTF-8, so the result is always
 well-formed text.
@@ -21,11 +21,8 @@ keys and values do decode `+` to a space.
 Decoding here is **strict**, which is the other way it differs from
 `net::parseQuery`. A `%` with fewer than two characters after it, a `%` followed
 by something that is not a hexadecimal pair, or a decoded byte sequence that is
-not valid UTF-8 all raise `ErrInvalidFormat`. The implementation routes every
-failure inside the decode — including the UTF-8 validation failure, which the
-inline-trap analysis cannot see — through a single function-level trap, so
-`ErrInvalidFormat` is the only error this function raises: nothing else, not even
-an allocation failure, escapes with a different code.
+not valid UTF-8 all raise `ErrInvalidFormat`. That is the only error this
+function raises — nothing else escapes with a different code.
 
 This is the decoder the built-in `http` server applies to a request path."#;
 
@@ -45,6 +42,7 @@ Report the error code for a malformed escape:
 
 ```
 IMPORT net
+IMPORT io
 
 FUNC decodeOrCode(s AS String) AS String
   RETURN net::percentDecode(s)
@@ -54,9 +52,16 @@ FUNC decodeOrCode(s AS String) AS String
 END FUNC
 
 SUB main()
-  ' Returns the decoded text, or the error code — 77050003 (ErrInvalidFormat) for a
-  ' truncated or non-hex escape, or a non-UTF-8 result.
+  io::print(decodeOrCode("/a%20b"))
+  io::print(decodeOrCode("%2"))
 END SUB
+```
+
+prints the decoded text, then the error code for the truncated escape:
+
+```
+/a b
+77050003
 ```"#;
 
 #[rustfmt::skip]

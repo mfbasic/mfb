@@ -155,7 +155,8 @@ pub(crate) fn walk_value<V: NirVisitor + ?Sized>(visitor: &mut V, value: &NirVal
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => visitor.visit_value(value),
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => visitor.visit_value(value),
         NirValue::WithUpdate {
             target, updates, ..
         } => {
@@ -224,6 +225,7 @@ mod tests {
             NirValue::ResultIsOk { .. } => "ResultIsOk",
             NirValue::ResultValue { .. } => "ResultValue",
             NirValue::ResultError { .. } => "ResultError",
+            NirValue::Checked { .. } => "Checked",
             NirValue::WithUpdate { .. } => "WithUpdate",
             NirValue::ListLiteral { .. } => "ListLiteral",
             NirValue::SetLiteral { .. } => "SetLiteral",

@@ -25,7 +25,7 @@ surface, the effect becomes visible only when `term::sync` presents the frame.
 Colour is per cell, not global. Each cell of the grid records the foreground,
 background, bold, and underline that were current when its glyph was written, so
 changing the foreground affects only text drawn *after* the call — text already in
-the back buffer keeps the colour it was drawn with, and is not restyled.
+the surface keeps the colour it was drawn with, and is not restyled.
 
 The setting persists until the next `term::setForeground` or the next
 `term::on`, which resets the foreground to white (255, 255, 255). The background

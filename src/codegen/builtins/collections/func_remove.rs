@@ -18,12 +18,12 @@ is in `value`, the result is a set with the same elements and the same length.
 When `item` is present, the result has exactly one fewer element and the
 remaining elements keep their relative insertion order.
 
-`remove` is value-semantic. The set named by `value` is unchanged; the modified
+`remove` does not change `value`. The set it names is unchanged; the modified
 set is the returned value, and a program observes the update only through what it
 does with that return value. When the compiler can prove the target is a
-uniquely-owned local being reassigned — the `set = collections::remove(set, x)`
-shape — it may update the live buffer in place; this is an optimization only, and
-the observable semantics are identical either way.
+same local being reassigned — the `set = collections::remove(set, x)`
+shape — is the cheap shape: it updates the set rather than building a second
+one. The result is the same either way.
 
 `remove` is **infallible**: removing an absent element is defined as a no-op
 rather than a failure, so no path raises a trappable domain error and an inline
@@ -67,14 +67,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The set to remove from. Not modified — you get a new set back.",
                     aliases: &["set"],
                     ty: ParameterType::set_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "item",
-                    desc: "",
+                    desc: "The element to take out. Removing one that is not there gives back an equal set rather than failing.",
                     aliases: &["element"],
                     ty: ParameterType::var("T"),
                     default: DefaultValue::None,

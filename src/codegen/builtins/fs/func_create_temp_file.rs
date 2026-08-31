@@ -42,7 +42,8 @@ bits `0600` (octal), so the call always yields a freshly created, empty file
 readable and writable only by the current user. Exclusive creation means the
 call fails rather than reusing or truncating any pre-existing file, which
 together with the random name closes the classic temporary-file race and
-symlink-redirection attacks. The descriptor is also opened close-on-exec.
+symlink-redirection attacks. The file is also opened so that a child process started later does not inherit
+it.
 
 Without an argument the file is created inside the host temporary directory, the
 same location returned by `fs::tempDirectory`; that directory path is supplied
@@ -58,8 +59,7 @@ Unicode characters when the host filesystem accepts those names. It must not be
 empty and must not contain an embedded NUL byte, because the host `open` call
 requires a NUL-terminated path.
 
-The returned `File` is positioned at the start of the empty file and is owned by
-the caller. It is closed by lexical drop when the binding that holds it leaves
+The returned `File` is positioned at the start of the empty file and is yours to use. It is closed when the binding that holds it goes out of scope leaves
 scope, or explicitly with `fs::close`. The file itself is not deleted on close;
 removing it is the caller's responsibility, for example with `fs::deleteFile`."#;
 const EX: &str = r#"Create a temporary file in the host temporary directory and write to it:
@@ -70,7 +70,7 @@ IMPORT fs
 SUB main()
   RES f = fs::createTempFile()
   fs::writeAll(f, "data")
-  ' f is closed by lexical drop when this scope ends
+  ' f closes itself when this scope ends
 END SUB
 ```
 
@@ -80,9 +80,10 @@ Create a temporary file in a specific directory:
 IMPORT fs
 
 SUB main()
-  RES g = fs::createTempFile("target")
+  fs::createDirectories("output")
+  RES g = fs::createTempFile("output")
   fs::writeAll(g, "data")
-  ' g is closed by lexical drop when this scope ends
+  ' g closes itself when this scope ends
 END SUB
 ```"#;
 

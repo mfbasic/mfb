@@ -63,13 +63,29 @@ SUB main()
 END SUB
 ```
 
-Sleep inside a worker, treating cancellation as a normal shutdown:
+Sleep inside a worker, treating cancellation as a normal shutdown. Cancelling a
+sleeping thread makes its `os::sleep` raise, so the worker traps and returns:
 
 ```
 IMPORT os
 IMPORT io
+IMPORT thread
+IMPORT workers
 
-FUNC tick(w AS ThreadWorker OF Integer TO String, seed AS String) AS String
+FUNC main AS Integer
+  LET t AS Thread OF Nothing TO String = thread::start(workers::tick, 0)
+  os::sleep(50)
+  thread::cancel(t)
+  io::print(thread::waitFor(t))
+  RETURN 0
+END FUNC
+```
+
+The worker's own side, in a companion package (a thread entry point must be an
+exported `ISOLATED FUNC`):
+
+```
+EXPORT ISOLATED FUNC tick(w AS ThreadWorker OF Nothing TO String, seed AS Integer) AS String
   os::sleep(5000) TRAP(err)
     RETURN "cancelled"
   END TRAP

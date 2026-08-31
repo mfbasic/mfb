@@ -22,6 +22,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed",
+        "The angle in radians, or a list of them.",
         &[Float, Fixed],
         &[Float],
         &["ErrFloatNaN"],

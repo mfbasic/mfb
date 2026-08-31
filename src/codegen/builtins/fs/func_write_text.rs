@@ -42,11 +42,11 @@ The text payload is written directly from the `String`'s packed byte data. A
 held, with no re-encoding, decoding, or newline translation. The write is
 retried until every byte has been written or the host reports an output failure,
 so a short host write that transfers only part of the buffer is resumed rather
-than treated as complete, and an interrupted (`EINTR`) write is retried from the
+than treated as complete, and an interruption never loses or duplicates bytes; the
 same cursor before any byte has moved. An empty `String` produces an empty
 (truncated) file.
 
-The new file is created with mode `384` (octal `0600`), owner read/write only,
+The new file gets permissions `0600` — readable and writable only by the user running the program,
 before the process umask is applied — not the world-readable `0666`. The file is
 created and truncated only after `path` has been validated, and the final path
 component is followed when it is a symlink, so writing through a symlink writes
@@ -69,7 +69,8 @@ const EX: &str = r#"Write text to a file:
 IMPORT fs
 
 SUB main()
-  fs::writeText("target/output.txt", "Hello")
+  fs::createDirectories("output")
+  fs::writeText("output/report.txt", "Hello")
 END SUB
 ```
 

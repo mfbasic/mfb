@@ -726,6 +726,89 @@ impl RegistryEnum {
     }
 }
 
+/// How one of a resource record's type-specific slots must move when the handle
+/// is transferred to another thread (bug-464).
+///
+/// The distinction that matters is **who owns the memory the word points at**.
+/// A pointer into a foreign heap (libssl's `malloc`, a refcounted
+/// Core Foundation / dispatch object) is process-wide, so moving the word is
+/// sound. A pointer into the *sender's arena* is not: arena state is per-thread
+/// and no thread may free another's block, so the receiver would either free
+/// into a foreign arena or read memory the sender's teardown already released.
+/// Those must be copied into the receiver's arena and the fresh pointer stored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SlotTransfer {
+    /// Move the word verbatim: a foreign-heap pointer, a refcounted handle, or
+    /// an inert scalar. Nothing in the receiver's arena depends on it.
+    Verbatim,
+    /// The word points at a fixed-size block in the **sender's arena**. Allocate
+    /// `size` bytes in the receiver's arena, byte-copy, and store the new
+    /// pointer. A null source pointer stays null.
+    ///
+    /// A byte copy is sufficient *because a transfer is a move*: the sender is
+    /// tombstoned `moved|closed` and its cleanup deactivated, so any OS handles
+    /// duplicated inside the block are released exactly once, by the receiver.
+    ArenaBlock { size: usize },
+    /// The word points at a NUL-terminated C string in the **sender's arena**.
+    /// Measure it, allocate, copy including the terminator. A null stays null.
+    ArenaCString,
+}
+
+/// Which backend a [`ResourceLiveSlot`] exists on.
+///
+/// A resource's record tail is **not** backend-uniform, and the same offset can
+/// mean different things with different ownership: `tls::Socket`+40 is libssl's
+/// `SSL*` (foreign heap) on OpenSSL, an SSPI block **in the arena** on Schannel,
+/// and a dispatch queue on Network.framework. A flat offset list could not
+/// express that, so each slot names the backend it belongs to and
+/// `copy_resource_to_current_arena` selects by the target it is emitting for.
+/// The three variants map 1:1 onto [`PlatformFamily`], which is how
+/// `copy_resource_to_current_arena` selects. There is deliberately no "every
+/// backend" variant: no resource needs one today, and every live slot that
+/// exists is backend-specific. A resource with a platform-uniform tail should
+/// add that variant when it arrives, rather than carrying an unused one now.
+///
+/// [`PlatformFamily`]: crate::codegen::engine::types::PlatformFamily
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SlotBackend {
+    /// Linux (and any non-macOS, non-Windows target): the OpenSSL TLS backend.
+    OpenSsl,
+    /// Windows: the Schannel/SSPI TLS backend.
+    Schannel,
+    /// macOS: the Network.framework TLS backend.
+    NetworkFramework,
+}
+
+/// One live word in a resource record **past the canonical header**
+/// (tag @0, handle @8, closed @16, STATE @24), declared so the thread-transfer
+/// copy can carry it (bug-464).
+///
+/// Before this existed, `copy_resource_to_current_arena` copied the header, then
+/// unconditionally stored ZERO over every slot from 32 to 80 — those stores
+/// reset `fs::File`'s write buffer and read cache on a move, but the routine is
+/// type-agnostic and applied them to every resource. Any resource with live
+/// state in its tail was therefore silently truncated to nulls on transfer,
+/// which is the real reason `tls::Socket`/`tls::Listener` were fenced off behind
+/// `sendable: false` rather than a product decision alone.
+///
+/// Declaring the slots here rather than special-casing types in the copy routine
+/// is what makes that truncation structurally impossible for a resource added
+/// later: a new handle with live tail state either declares its slots or is not
+/// sendable, and `sendable` goes back to being an honest product decision.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ResourceLiveSlot {
+    /// Byte offset into the resource record. Must be >= 32 (past the header) and
+    /// leave a whole word inside `RESOURCE_RECORD_SIZE_BYTES`.
+    pub(crate) offset: usize,
+    /// How the word moves.
+    pub(crate) transfer: SlotTransfer,
+    /// The backend whose record layout puts a live word here.
+    pub(crate) backend: SlotBackend,
+    /// What lives in the slot, for the reader of a layout table that otherwise
+    /// reads as bare integers.
+    pub(crate) what: &'static str,
+}
+
 /// A package resource type — an opaque handle (`File`, `Socket`, `Process`) whose
 /// lifetime the RES ownership system tracks. Unlike a [`RegistryRecord`] /
 /// [`RegistryUnion`] / [`RegistryEnum`], a resource has **no injectable source
@@ -748,7 +831,27 @@ pub(crate) struct RegistryResource {
     pub(crate) close_function: &'static str,
     /// Whether the handle may cross a thread boundary (the RES "sendable to thread"
     /// bit — mirrors [`crate::codegen::resource::ResourceInfo::sendable`]).
+    ///
+    /// This is a **product decision** about whether moving the handle is
+    /// meaningful, not a guard over the transfer copy — [`live_slots`] carries
+    /// the record (bug-464). A resource that is not sendable must still declare
+    /// its live slots, so that opting it in later is a one-line change that
+    /// cannot silently truncate.
+    ///
+    /// [`live_slots`]: Self::live_slots
     pub(crate) sendable: bool,
+    /// The live words in this resource's record **past the canonical header**,
+    /// which the thread-transfer copy must carry (bug-464). Empty means the
+    /// record is the header alone — an assertion, not an omission: an empty list
+    /// says "everything live about this handle is tag/handle/closed/STATE", which
+    /// is exactly why `fs::File`, `tcp::Socket` and `udp::Socket` were safely
+    /// sendable all along.
+    ///
+    /// `fs::File` is the one deliberate exception: its tail *is* used (the
+    /// plan-14-B write buffer and plan-14-C read cache), but those are a buffer
+    /// and a cache that a move intentionally resets, so it declares no slots and
+    /// keeps the zeroing behaviour it has always had.
+    pub(crate) live_slots: &'static [ResourceLiveSlot],
     /// Whether the close op can fail (mirrors
     /// the drop-time cleanup derives the same fact from the close wrapper's
     /// `SUCCESS ON`).
@@ -3414,6 +3517,7 @@ mod tests {
             description: "resource doc",
             close_function,
             sendable: true,
+            live_slots: &[],
             close_may_fail: true,
             kind: crate::codegen::resource::ResourceKind::Builtin,
         }

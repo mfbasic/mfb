@@ -40,10 +40,18 @@ const EX: &str = r#"A plain-text handler:
 
 ```
 IMPORT http
+IMPORT io
 
-FUNC home(req AS http::Request) AS http::Response
-  RETURN http::ok("welcome")
-END FUNC
+SUB main()
+  LET resp AS http::Response = http::ok("welcome")
+  io::print(toString(resp.status) & " " & toString(len(resp.body)) & " bytes")
+END SUB
+```
+
+prints:
+
+```
+200 7 bytes
 ```
 
 Adding a header to a text response:

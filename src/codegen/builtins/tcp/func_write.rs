@@ -26,10 +26,19 @@ How long a blocked write waits is governed by `tcp::setWriteTimeout`, not by an
 argument here. With no write timeout set the call blocks until the OS accepts the
 data.
 
-Writing to a socket whose peer has already closed raises rather than silently
-discarding the data. Note that TCP gives no delivery receipt: a successful write
-means the bytes were accepted by the local OS for sending, not that the peer
-received or processed them.
+An empty `bytes` list — or an empty `String` — is a no-op: nothing is sent and
+the call succeeds without touching the socket. `tls::write` behaves identically.
+
+**A write to a peer that has already gone away is not reported reliably.** The
+first such write is accepted by the local OS, and a later one currently
+terminates the process rather than raising, so a `TRAP` around the write does not
+protect a server from a client that disconnects. Detect a disconnect on the
+*read* side instead, where `tcp::read` raises `ErrConnectionClosed` promptly and
+correctly.
+
+Note also that TCP gives no delivery receipt even when everything works: a
+successful write means the bytes were accepted by the local OS for sending, not
+that the peer received or processed them.
 
 The `String` overload exists because sending has no character-boundary hazard —
 the whole string is written at once. Reading deliberately has no text form; see
@@ -39,19 +48,20 @@ const EX: &str = r#"Write text and bytes over the same socket:
 
 ```
 IMPORT tcp
+IMPORT net
 
 FUNC main AS Integer
   RES server = tcp::listen("127.0.0.1", 0)
   LET bound = tcp::localAddress(server)
   RES client = tcp::connect("127.0.0.1", bound.port)
   RES conn = tcp::accept(server)
-  tcp::write(client, "GET / HTTP/1.0" & chr(13) & chr(10))
-  tcp::write(client, [72b, 105b])
+  tcp::write(client, "GET / HTTP/1.0\u{000D}\u{000A}")
+  tcp::write(client, [toByte(72), toByte(105)])
   RETURN 0
 END FUNC
 ```"#;
 
-const SOCK_DESC: &str = "An open connected socket. Borrowed, not consumed.";
+const SOCK_DESC: &str = "An open connected socket. The handle stays open — you still close it.";
 
 /// `abi_function` body for `tcp::write`. The `String` overload arrives under the
 /// `tcp.writeText` code form, which is the same emitter in its text mode.

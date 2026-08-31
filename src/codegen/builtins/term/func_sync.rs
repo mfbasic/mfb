@@ -20,32 +20,21 @@ operation that presents a frame. **A program that draws without calling
 `term::sync` shows nothing** — this is the single most common mistake when
 writing against this surface.
 
-The present works by diffing. Each cell of the back buffer is compared against
-the front buffer holding what was last shown, and only the cells that differ are
-emitted — as a minimal stream of cursor moves, colour and attribute changes, and
-glyphs, coalesced so an unchanged attribute is not re-sent. The whole stream is
-built into a scratch buffer and issued as a **single batched write**, not a write
-per cell, and each emitted cell is copied back to front so the next present diffs
-from the frame actually on screen. The result is that repainting every frame
-produces output proportional to what changed, and shows no flicker.
-
-That write is looped to completion. A short write advances the cursor and
-re-issues until every byte lands, which matters here more than elsewhere: the
-front buffer already claims those cells were painted, so a partially written
-frame that was not finished would leave the screen wrong until something else
-happened to mark the cells dirty again.
+**Only what changed is sent to the terminal.** `term::sync` compares the frame
+you have composed against the one already on screen and updates just the cells
+that differ, so redrawing the whole surface every frame costs work proportional
+to what actually moved, and does not flicker. You are meant to call it once per
+frame; there is no cheaper way to present, and no reason to avoid it.
 
 **A terminal resize is handled here.** On entry `term::sync` re-reads the
-terminal size; if it changed, it allocates a new grid, copies the top-left overlap
-so existing content survives, clamps the cursor into the new bounds, and forces a
-full repaint of the next frame. If the re-read or the allocation fails, the old
-grid is kept and the frame is presented into it unchanged.
+terminal size; if it changed, it resizes the surface, keeps the content that
+still fits in the top-left, clamps the cursor into the new bounds, and repaints
+the next frame in full. If the size cannot be re-read or the surface cannot be
+resized, the old surface is kept and the frame is presented into it unchanged.
 
-After the changed cells, the present emits a trailing sequence that resets
-attributes, moves the terminal cursor to the shadow cursor's position, and shows
-or hides it according to `term::showCursor`/`term::hideCursor`. The first present
-after `term::on` (or after a resize) is a full repaint because the grid is marked
-dirty.
+Each frame ends with the terminal's cursor left where `term::moveTo` put it, and
+shown or hidden according to `term::showCursor`/`term::hideCursor`. The first
+frame after `term::on`, and the first after a resize, is always drawn in full.
 
 `term::sync` is gated: while TUI mode is off it is a clean no-op, so calling it
 before `term::on` or after `term::off` is harmless. `term::off` performs a final

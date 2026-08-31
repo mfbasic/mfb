@@ -45,10 +45,10 @@ then fails with end-of-input.
 
 The returned `String` never includes the terminating LF or the CR of a CRLF pair.
 An empty line (an LF, or a CRLF, with nothing before it) yields an empty `String`
-while still consuming the terminator and advancing the position. The bytes making
+while still passing over the terminator and advancing the position. The bytes making
 up the line are validated as UTF-8 before being returned.
 
-On success the position is left immediately after the consumed terminator (or at
+On success the position is left immediately after the terminator (or at
 end of input when the last line had no terminator), so repeated calls walk the
 file one line at a time. Because end of input is reported as an error rather than
 an empty result, use `fs::eof` to test for the end before each call. The function
@@ -64,19 +64,20 @@ identical to an unbuffered read. A whole-file read (`fs::readAll`,
 reconciles the buffer first, so mixing them with `fs::readLine` sees the exact
 logical position.
 
-Thread cancellation is cooperative. The current runtime does not asynchronously
-interrupt arbitrary host file reads; workers that need prompt cancellation around
-blocking file descriptors should check `thread::isCancelled` between
-cancellation-point operations."#;
+Thread cancellation is cooperative: a read already waiting on the host is not
+interrupted. A worker that must stop promptly should check
+`thread::isCancelled` between reads rather than expect a blocked one to be cut
+short."#;
 const EX: &str = r#"Read the first line of a file:
 
 ```
 IMPORT fs
 
 SUB main()
+  fs::writeText("data.txt", "first line\nsecond line\n")
   RES f = fs::openFile("data.txt")
   LET line AS String = fs::readLine(f)
-  ' f is closed by lexical drop when this scope ends
+  ' f closes itself when this scope ends
 END SUB
 ```
 
@@ -87,6 +88,7 @@ IMPORT fs
 IMPORT io
 
 SUB main()
+  fs::writeText("data.txt", "first line\nsecond line\n")
   RES f = fs::openFile("data.txt")
   WHILE NOT fs::eof(f)
     io::print(fs::readLine(f))

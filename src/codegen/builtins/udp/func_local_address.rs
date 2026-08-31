@@ -19,8 +19,8 @@ There is no `remoteAddress`: a bound datagram socket has no peer. The address a
 datagram came from is reported per-datagram, in the `from` field of what
 `udp::receive` returns.
 
-The socket is borrowed, not consumed, and the result is an ordinary `net::Address`
-with no tie to the socket's lifetime.
+The socket stays open — you still close it — and the result is an ordinary `net::Address`
+independent of the socket.
 
 **A file that uses the returned address must `IMPORT net` as well as `udp`.**
 Imports are not transitive and packages cannot re-export types, so `Address` is
@@ -72,7 +72,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![super::req(
                 "sock",
-                "An open bound socket whose local address to report. Borrowed, not consumed.",
+                "An open bound socket whose local address to report. The handle stays open — you still close it.",
                 &[],
                 super::socket(),
             )],

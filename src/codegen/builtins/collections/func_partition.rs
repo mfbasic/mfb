@@ -245,7 +245,7 @@ len(result.unmatched)` always equals `len(value)`. An empty input yields a
 The result type `Partition OF T` is an ordinary generic record with two fields,
 `matched` and `unmatched`, both of type `List OF T`. It is constructed and
 field-accessed like any other record — write `result.matched` — and it is
-declared in the compiler-owned prelude injected into every project, so it is in
+declared in the prelude every project gets, so it is in
 scope without an import.
 
 `predicate` is an ordinary function value of type `FUNC(T) AS Boolean` — a named
@@ -256,15 +256,8 @@ result. `partition` itself defines no error of its own. Note that a lambda
 passed here may not capture an outer `MUT` binding; the callback position proven
 non-escaping is `collections::forEach`, not `partition`.
 
-`partition` does not mutate `value`; it builds two new lists. It allocates while
-doing so, but allocation failure is not a trappable domain error, and the
-`append` it uses is classified infallible for exactly that reason.
-
-`partition` is a generic implemented in MFBASIC source; a call is rewritten to
-the internal `__collections_partition` generic and instantiated for the element
-type like any other generic function.
-
-`T` is inferred from the element type of `value` and may be any type;
+`partition` does not mutate `value`; it builds two new lists. Doing so needs memory, but running out of memory is not a trappable domain error, and the
+`append` it uses is classified infallible for exactly that reason.`T` is inferred from the element type of `value` and may be any type;
 `partition` imposes no comparability or orderability constraint on `T`, because
 elements are never compared to one another — they are only passed to
 `predicate`. The second argument must be a function value taking exactly one `T`

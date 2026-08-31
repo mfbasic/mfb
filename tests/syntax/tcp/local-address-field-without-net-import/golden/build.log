@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/tcp/local-address-field-without-net-import
+   8 |   RES s = tcp::listen("127.0.0.1", 0)
+   9 |   LET b = tcp::localAddress(s)
+  10 |   RES c = tcp::connect("127.0.0.1", b.port)
+     | ^
+tests/syntax/tcp/local-address-field-without-net-import/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Field `port` belongs to `net::Address`, whose fields are not visible in this file. Imports are not transitive and a package cannot re-export another's types, so add `IMPORT net`.
+[exit 1]

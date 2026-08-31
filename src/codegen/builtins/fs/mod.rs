@@ -123,16 +123,15 @@ Handle functions work through the opaque `File` resource type. `fs::open`,
 `fs::openFile`, `fs::openFileNoFollow`, and `fs::createTempFile` return a `File`;
 `fs::readLine`, `fs::readAll`, `fs::readAllBytes`, `fs::writeAll`,
 `fs::writeAllBytes`, and `fs::eof` act on one. Portable open modes are
-`"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. A
-`File` is an owned, non-copyable handle closed automatically by lexical drop when
-its binding leaves scope; call `fs::close` only to release it earlier. Using a
+`"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. A `File` is a handle that closes itself when its binding goes out of scope; call `fs::close` only to release it earlier. Using a
 `File` after it is closed fails.
 
 Each `File` handle can independently opt in to output buffering. It is off by
 default, so `fs::writeAll`/`fs::writeAllBytes` reach the OS immediately;
 `fs::setBuffered(file, TRUE)` instead holds incremental writes in a per-handle
 buffer that is drained on `fs::flush(file)`, when it fills, and — mandatorily — on
-close (`fs::close` or scope drop), so buffered on-disk data is never stranded.
+close — `fs::close`, or the binding going out of scope — so buffered on-disk
+data is never stranded.
 `fs::setBuffered(file, FALSE)` drains and disables it, and `fs::isBuffered(file)`
 reports the current mode. Only incremental handle writes are buffered; whole-file
 and atomic writes already issue one write and ignore the setting. A hard crash may
@@ -147,8 +146,7 @@ uses when called without one. `fs::listDirectory` returns entry names only,
 excluding `.` and `..`, sorted in ascending byte-wise order for deterministic
 results. The existence predicates `fs::exists`, `fs::fileExists`, and
 `fs::directoryExists` return a `Boolean` and report a missing or unreadable path
-as `FALSE` rather than raising; only an internal allocation failure can raise
-from them."#;
+as `FALSE` rather than raising; only an internal running out of memory can raise from them."#;
 
 /// Register the `fs` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
@@ -161,10 +159,19 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_resource(RegistryResource {
         name: FILE_TYPE,
         export: true,
-        description: "An opaque, owned handle to an open file, released automatically \
-                      when it leaves scope.",
+        description: "An opaque handle to an open file, closed automatically \
+                      when its binding goes out of scope.",
         close_function: CLOSE,
         sendable: true,
+        // Deliberately empty even though `File` is the one resource that *does*
+        // use its record tail: the plan-14-B write buffer (32/40/48) and the
+        // plan-14-C read cache (56/64/72/80) are a buffer and a cache that a
+        // move intentionally RESETS -- a moved handle starts unbuffered with an
+        // empty cache at the fd's current position. Declaring them live would
+        // carry a block that lives in the sender's arena. See the zeroing in
+        // `copy_resource_to_current_arena`, which is what an undeclared slot
+        // gets.
+        live_slots: &[],
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });

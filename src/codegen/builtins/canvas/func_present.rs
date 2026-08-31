@@ -14,12 +14,11 @@ rendering the installed scene — on vsync, on resize, on damage — until the n
 nothing thereafter, and a program that never changes its content never calls
 `present` again.
 
-`present` **deep-copies the scene transitively**. Every reachable byte — the item
-fields, a `Polygon`'s point list, a `Text`'s string, the `Paint` values — is copied
-into runtime-owned storage, so once `present` returns, nothing in the installed
-scene points at anything the caller owns. The program is free to mutate or drop
-whatever it built the list from, and the renderer can read the scene at any later
-moment without coordinating with the program.
+`present` **copies the whole scene**. Everything it reaches — the item fields, a
+`Polygon`'s point list, a `Text`'s string, the `Paint` values — is copied, so
+once `present` returns the installed scene is entirely its own. You are free to
+change or discard whatever you built the list from, and the renderer can read
+the scene at any later moment without coordinating with your program.
 
 **Re-presenting an identical scene does nothing.** `present` compares the incoming
 content against what is already installed and returns without republishing when
@@ -27,9 +26,8 @@ they match, so an animation loop that redraws an unchanged frame costs a
 comparison rather than a re-render.
 
 An item names an image or font through an `ImageRef`/`FontRef` — an id, not the
-resource — so an installed scene has no opinion about any resource's lifetime.
-Destroying an image that a scene still names is safe: the runtime defers freeing
-the backing texture until the GPU has finished with it.
+resource itself — so an installed scene never keeps an image open. Destroying an
+image a scene still names is safe: the scene holds its id, not the image.
 
 Requires `Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
 

@@ -20,8 +20,8 @@ const DESC: &str = r#"`tls::poll` reports whether a connected `Socket` is readab
 a following `tls::read` or `tls::read` can proceed without blocking. It returns
 `TRUE` when application bytes are available (or the connection has reached a
 terminal readable state — peer close or error — where a read returns promptly), and
-`FALSE` when nothing became readable before the deadline. The socket is borrowed and
-inspected only; no application data is consumed, so a `TRUE` result leaves the bytes
+`FALSE` when nothing became readable before the deadline. The socket stays open
+and nothing is read, so a `TRUE` result leaves the bytes
 in place for the next read.
 
 **Readiness includes bytes buffered inside the TLS layer, not just raw transport
@@ -39,8 +39,8 @@ long. A negative `timeoutMs` is rejected with `ErrInvalidArgument`.
 
 Given a `List OF RES tls::Socket`, `tls::poll` becomes a **readiness multiplex**: it
 blocks until at least one socket in the list is readable, then returns the first
-ready one (lowest list index). The returned `Socket` is a **borrowed** pointer —
-an alias of a list element — so the list retains ownership and closes every socket
+ready one (lowest list index). The returned `Socket` is an **alias** of the one
+in the list — closing it closes that one — so the list still closes every socket
 exactly once on scope exit. An empty list is rejected with `ErrInvalidArgument`;
 because the multiplex yields a resource with no not-ready value, expiry raises
 `ErrTimeout` (a producing call). The elements must be marked `RES`."#;
@@ -64,7 +64,7 @@ END FUNC
 ```
 
 Wait for the first ready socket among several (the readiness multiplex). The
-returned socket is borrowed — the list still owns and closes both:
+returned socket is an alias of one in the list — the list still closes both:
 
 ```
 IMPORT encoding
@@ -133,7 +133,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "sock",
-                        desc: "An open TLS socket, as returned by `tls::connect` or `tls::accept`. It is borrowed and inspected for readiness only; no data is read and the handle is not consumed.",
+                        desc: "An open TLS socket, as returned by `tls::connect` or `tls::accept`. The handle stays open — this only tests readiness and reads no data.",
                         aliases: &[],
                         ty: ParameterType::named(super::TLS_SOCKET_TYPE_ID),
                         default: DefaultValue::None,
@@ -152,7 +152,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "socks",
-                        desc: "A non-empty list of open TLS sockets. Each is borrowed and inspected for readiness; the list keeps ownership. An empty list raises `ErrInvalidArgument`.",
+                        desc: "A non-empty list of open TLS sockets. Each stays open and the list still closes it. An empty list raises `ErrInvalidArgument`.",
                         aliases: &[],
                         // The element is the bare resource id: `ParameterType::parse`
                         // strips the `RES ` ownership marker off a list element, so the

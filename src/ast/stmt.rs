@@ -296,6 +296,61 @@ impl<'a> FileParser<'a> {
             }
         }
 
+        // `record.field = value` (and the nested `a.b.c = value`) — a record field
+        // write, which the language does not have: records are updated with
+        // `WITH value { field := expr }` (§4). MFBASIC spells assignment and
+        // equality both `=`, so with no guard here the statement falls through to
+        // `parse_expression` below and the `=` binds as the *equality* operator:
+        // the write becomes a Boolean comparison that is computed and thrown
+        // away, silently, with no diagnostic whenever the two sides happen to be
+        // comparable (bug-468). Reject it in statement position, where a bare
+        // comparison can never be useful — a comparison in expression position
+        // (`IF p.x = 77 THEN`) never reaches here. The `resource.state[.field] =`
+        // forms are the one member-target assignment in the language and have
+        // already returned above.
+        if matches!(self.peek().kind, TokenKind::Identifier(_)) {
+            let mut cursor = self.current;
+            let mut segments: Vec<String> = Vec::new();
+            // Walk the leading `ident (. ident)*` chain. `path_complete` stays
+            // false if the chain runs out mid-`.` (`a.b. = c`), so a malformed
+            // member path keeps its ordinary syntax diagnostic, not this one.
+            let mut path_complete = false;
+            while let Some(TokenKind::Identifier(name)) =
+                self.tokens.get(cursor).map(|token| token.kind.clone())
+            {
+                segments.push(name);
+                cursor += 1;
+                if matches!(
+                    self.tokens.get(cursor).map(|token| &token.kind),
+                    Some(TokenKind::Dot)
+                ) {
+                    cursor += 1;
+                } else {
+                    path_complete = true;
+                    break;
+                }
+            }
+            if path_complete
+                && segments.len() >= 2
+                && matches!(
+                    self.tokens.get(cursor).map(|token| &token.kind),
+                    Some(TokenKind::Equal)
+                )
+            {
+                let field = segments.pop().expect("chain has at least two segments");
+                let base = segments.join(".");
+                let token = self.tokens[cursor].clone();
+                self.report(
+                    "MFB_PARSE_RECORD_FIELD_ASSIGNMENT",
+                    &format!(
+                        "Cannot assign to record field `{field}` — `=` in statement position is the equality operator, so this is a discarded comparison, not a write. Update the record with `WITH {base} {{ {field} := <value> }}`."
+                    ),
+                    &token,
+                );
+                return None;
+            }
+        }
+
         if let TokenKind::Identifier(name) = self.peek().kind.clone() {
             if self
                 .tokens

@@ -82,32 +82,49 @@ pub(crate) mod gen_pow;
 pub(crate) mod gen_rng_pcg64;
 pub(crate) use gen_rng_pcg64::*;
 
-const MODULE_INTRO: &str = r#"Scalar and vectorized numeric functions and constants"#;
-const MODULE_DESC: &str = r#"The `math` package provides the scalar and vectorized (SIMD) numeric functions the
-language operator set does not spell — absolute value, min/max/clamp, the rounding
-family, square root, the transcendentals (exp/log/trig), power, and a per-thread
-pseudo-random generator — together with 14 compile-time constants (`pi`, `e`,
-`ln2`, and friends, each in a `Float` and a `Fixed` form).
+const MODULE_INTRO: &str = r#"Numeric functions and constants"#;
+const MODULE_DESC: &str = r#"The `math` package provides the numeric functions the language operator set does
+not spell — absolute value, min/max/clamp, the rounding family, square root, the
+transcendentals (exp/log/trig), power, and a per-thread random sequence —
+together with 14 constants.
 
-Every function lowers inline at the call site, like `bits::*`, rather than calling a
-runtime helper, and produces identical results on the native and Binary
-Representation execution paths. The argument-type-preserving members (`abs`,
-`min`/`max`/`clamp`, `sqrt`, the transcendentals, `pow`, `atan2`) return the operand
-type; `floor`/`ceil`/`round` exit to `Integer`; `rand` draws an `Integer` (or, over
-two `Money` bounds, a `Money`); `seed` returns Nothing.
+Most members take a single number or a `List OF` that number and give back the
+same type they were given: `abs`, `min`/`max`/`clamp`, `sqrt`, the
+transcendentals, `pow`, and `atan2`. `floor`/`ceil`/`round` always give back an
+`Integer`. `rand` gives an `Integer`, or a `Money` when called with two `Money`
+bounds; `seed` returns nothing.
+
+**Constants.** Each is written `math::<name>` and needs no call parentheses.
+Every one comes in a `Float` form and a `Fixed` form with the same value, so you
+can stay in whichever type your program already uses:
+
+| Float | Fixed | Value |
+|---|---|---|
+| `math::pi` | `math::piFixed` | 3.141592653589793 |
+| `math::pi2` | `math::pi2Fixed` | 1.5707963267948966 (pi/2) |
+| `math::pi4` | `math::pi4Fixed` | 0.7853981633974483 (pi/4) |
+| `math::twoOverPi` | `math::twoOverPiFixed` | 0.6366197723675814 (2/pi) |
+| `math::e` | `math::eFixed` | 2.718281828459045 |
+| `math::ln2` | `math::ln2Fixed` | 0.6931471805599453 |
+| `math::ln10` | `math::ln10Fixed` | 2.302585092994046 |
+
+A constant has no page of its own: `mfb man math pi` will not resolve, because
+`pi` is a value rather than a function.
 
 `math` is a built-in package: `IMPORT math` needs no manifest dependency."#;
 
 /// One required parameter with optional keyword aliases and no default. `desc` is
-/// left empty — the human parameter documentation lives in the `math/*` man pages.
+/// the man page's Parameters-table prose — these descriptors ARE the man pages
+/// (`src/cli/man.rs` renders them), so an empty one renders as an empty cell.
 pub(crate) fn req(
     name: &'static str,
     aliases: &'static [&'static str],
     ty: ParameterType,
+    desc: &'static str,
 ) -> Parameter {
     Parameter {
         name,
-        desc: "",
+        desc,
         aliases,
         ty,
         default: DefaultValue::None,
@@ -200,6 +217,7 @@ pub(crate) fn preserving_unary(
     desc: &'static str,
     example: &'static str,
     expected: &'static str,
+    value_desc: &'static str,
     scalars: &[ParameterType],
     lists: &[ParameterType],
     errors: &[&'static str],
@@ -215,7 +233,12 @@ pub(crate) fn preserving_unary(
     let mut impls = Vec::new();
     for ty in lists {
         impls.push(overload(
-            vec![req("value", &[], ParameterType::list_of(ty.clone()))],
+            vec![req(
+                "value",
+                &[],
+                ParameterType::list_of(ty.clone()),
+                value_desc,
+            )],
             ParameterType::Arg(0),
             errors.to_vec(),
             lower,
@@ -223,7 +246,7 @@ pub(crate) fn preserving_unary(
     }
     for ty in scalars {
         impls.push(overload(
-            vec![req("value", &[], ty.clone())],
+            vec![req("value", &[], ty.clone(), value_desc)],
             ParameterType::Arg(0),
             errors.to_vec(),
             lower,
@@ -249,6 +272,7 @@ pub(crate) fn rounding(
     desc: &'static str,
     example: &'static str,
     expected: &'static str,
+    value_desc: &'static str,
     scalars: &[ParameterType],
     lists: &[ParameterType],
     errors: &[&'static str],
@@ -261,7 +285,12 @@ pub(crate) fn rounding(
     let mut impls = Vec::new();
     for ty in lists {
         impls.push(overload(
-            vec![req("value", &[], ParameterType::list_of(ty.clone()))],
+            vec![req(
+                "value",
+                &[],
+                ParameterType::list_of(ty.clone()),
+                value_desc,
+            )],
             ParameterType::list_of(ParameterType::Integer),
             errors.to_vec(),
             lower,
@@ -269,7 +298,7 @@ pub(crate) fn rounding(
     }
     for ty in scalars {
         impls.push(overload(
-            vec![req("value", &[], ty.clone())],
+            vec![req("value", &[], ty.clone(), value_desc)],
             ParameterType::Integer,
             errors.to_vec(),
             lower,
@@ -297,8 +326,8 @@ pub(crate) fn preserving_binary(
     desc: &'static str,
     example: &'static str,
     expected: &'static str,
-    p0: (&'static str, &'static [&'static str]),
-    p1: (&'static str, &'static [&'static str]),
+    p0: (&'static str, &'static [&'static str], &'static str),
+    p1: (&'static str, &'static [&'static str], &'static str),
     scalars: &[ParameterType],
     lists: &[ParameterType],
     errors: &[&'static str],
@@ -310,7 +339,10 @@ pub(crate) fn preserving_binary(
     for ty in lists {
         let list = ParameterType::list_of(ty.clone());
         impls.push(overload(
-            vec![req(p0.0, p0.1, list.clone()), req(p1.0, p1.1, list)],
+            vec![
+                req(p0.0, p0.1, list.clone(), p0.2),
+                req(p1.0, p1.1, list, p1.2),
+            ],
             ParameterType::Arg(0),
             errors.to_vec(),
             lower,
@@ -318,7 +350,10 @@ pub(crate) fn preserving_binary(
     }
     for ty in scalars {
         impls.push(overload(
-            vec![req(p0.0, p0.1, ty.clone()), req(p1.0, p1.1, ty.clone())],
+            vec![
+                req(p0.0, p0.1, ty.clone(), p0.2),
+                req(p1.0, p1.1, ty.clone(), p1.2),
+            ],
             ParameterType::Arg(0),
             errors.to_vec(),
             lower,

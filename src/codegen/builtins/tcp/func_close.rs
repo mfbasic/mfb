@@ -13,38 +13,44 @@ use crate::codegen::registry::AbiCtx;
 const INTRO: &str = r#"Close a TCP socket or listener and release its OS handle."#;
 
 const DESC: &str = r#"`tcp::close` releases the operating-system socket behind a handle and marks it
-closed, so any later `tcp::` call on the same value raises rather than touching a
-stale descriptor.
+closed, so any later `tcp::` call using that handle raises.
 
-`tcp::close` is the only `tcp` call that **consumes** its argument. Every other
-function borrows the handle and leaves it open; `close` moves the value into the
-call, after which it cannot be referenced again.
+`tcp::close` is the only `tcp` call that **closes** its argument. Every other
+function leaves the handle open; after `tcp::close(sock)`, do not use `sock`
+again.
 
 Closing a `Socket` tears down the connection, so a peer reading from it observes
 the end of the stream. Closing a `Listener` stops new connections from being
 accepted but does not affect sockets already returned by `tcp::accept`: each of
-those is an independent resource with its own lifetime.
+those is an independent resource, closed on its own.
 
-Closing is otherwise automatic. Every `tcp` handle is closed by lexical drop when
-its binding leaves scope, so `tcp::close` is needed only to release earlier — to
+Closing is otherwise automatic. Every `tcp` handle is closed when
+its binding goes out of scope, so `tcp::close` is needed only to release earlier — to
 free a listening port for reuse, to let a peer see the end of the stream promptly,
 or to bound how many descriptors a long-running program holds open. Closing and
 then letting the binding drop is safe: the drop sees the closed flag and does
 nothing.
 
-An already-closed handle is an error rather than a no-op. The handle's closed word
-is checked first, and a non-zero value refuses the call. That word also carries
-the *moved* bit that `thread::transfer` sets, so a handle transferred to another
-thread is refused too — but with `ErrResourceMoved`, which names the real reason,
-rather than `ErrResourceClosed`. The closed flag is set before the host close's
-result is examined, so a host failure surfaces `ErrCloseFailed` exactly once and a
-second close is refused rather than closing a descriptor number that may by then
-name an unrelated file."#;
+**An already-closed handle is an error rather than a no-op, and `tls::close`
+deliberately differs** — there, closing twice succeeds. The two are otherwise
+drop-in mirrors, so the split is worth knowing: code moved between the transports
+must not assume either answer. Neither package will change under the other
+without a decision, because each has callers relying on what it does today. In
+practice the difference is invisible to the recommended idiom — close once, or
+let the end of the scope do it — since the automatic close after an explicit one
+does nothing on both.
+
+A socket handed to another thread is refused too, but with `ErrResourceMoved`,
+which says what actually happened. And if the host itself fails to close, you get
+`ErrCloseFailed` exactly once: the handle is marked closed either way, so a
+second attempt is refused rather than acting on a socket that may by then belong
+to something else."#;
 
 const EX: &str = r#"Release a listening port as soon as it is no longer needed:
 
 ```
 IMPORT tcp
+IMPORT net
 IMPORT encoding
 IMPORT io
 
@@ -55,7 +61,7 @@ FUNC main AS Integer
   RES conn = tcp::accept(server)
   tcp::close(server)
   tcp::write(client, "hi")
-  io::print(encoding::toUtf8Text(tcp::read(conn, 16)))
+  io::print(encoding::utf8Decode(tcp::read(conn, 16)))
   RETURN 0
 END FUNC
 ```"#;
@@ -64,7 +70,7 @@ fn overload(ty: ParameterType) -> Implementation {
     Implementation {
         params: vec![Parameter {
             name: "resource",
-            desc: "The socket or listener to close. Consumed by the call and unusable afterwards. Also accepts the alternate named-argument spellings `sock` and `listener`.",
+            desc: "The socket or listener to close. Closed by this call; the handle cannot be used again. Also accepts the alternate named-argument spellings `sock` and `listener`.",
             aliases: &["sock", "listener"],
             ty,
             default: crate::codegen::registry::DefaultValue::None,

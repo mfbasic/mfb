@@ -339,11 +339,7 @@ const INTRO: &str =
 const DESC: &str = r#"`collections::chunks` walks `value` from index 0 in steps of `chunkSize`, and
 for each step emits the range starting there and running `chunkSize` elements
 forward, stopping early at the end of the list. The result is a list of those
-blocks. It is a generic function written in MFBASIC source, rewritten to the
-internal `__collections_chunks` generic and instantiated for the element type
-`T` during monomorphization.
-
-Because the step and the block length are both `chunkSize`, the blocks are
+blocks.Because the step and the block length are both `chunkSize`, the blocks are
 consecutive and never overlap, and concatenating them reproduces `value`
 exactly. Every block holds exactly `chunkSize` elements except possibly the
 last: when the length of `value` is not a multiple of `chunkSize`, the final
@@ -358,9 +354,9 @@ block holding the whole list.
 with `ErrInvalidArgument`; there is no clamping and no default, so the argument
 is always required.
 
-Each block is built by the internal slice helper, which is lowered natively as a
-bulk range copy, so element payloads are copied into freshly allocated lists and
-no block shares storage with `value`. `value` is not modified.
+Each block is a new list holding its own copy of the corresponding elements, and
+bulk copy, so the elements are copied into new lists and
+nothing you do with a block affects `value`. `value` is not modified.
 
 `T` is inferred from `value` and carries no ordering or comparability
 requirement: `chunks` copies contiguous ranges and never inspects an element, so

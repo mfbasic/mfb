@@ -7,7 +7,7 @@ use crate::types::ParameterType::{Integer, Nothing};
 
 use super::{overload, req};
 const INTRO: &str = r#"Reseed this thread's random generator."#;
-const DESC: &str = r#"`seed(value)` reseeds this thread's PCG64 generator so a subsequent sequence of
+const DESC: &str = r#"`seed(value)` resets this thread's random sequence so a subsequent sequence of
 `math::rand` draws is reproducible. It returns Nothing. Seeding is per-execution
 context: a worker thread inherits the spawning thread's stream and then diverges
 independently."#;
@@ -24,7 +24,7 @@ const SEED_A: &[&str] = &["seed"];
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     let impls: Vec<Implementation> = vec![overload(
-        vec![req("value", SEED_A, Integer)],
+        vec![req("value", SEED_A, Integer, "The value to seed the generator with. The same seed replays the same sequence, which is what makes a run reproducible.")],
         Nothing,
         vec![],
         lower_math_seed,

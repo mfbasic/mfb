@@ -38,6 +38,29 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
+// One file per member, holding its descriptor AND its man-page prose — the same
+// shape every other builtin package uses. The shared helpers (`req`, `opt`,
+// `member`) and the name constants stay here; so does `resolve_call`, which owns
+// resolution for the whole family.
+mod func_error;
+mod func_is_empty;
+mod func_is_even;
+mod func_is_negative;
+mod func_is_not_empty;
+mod func_is_numeric;
+mod func_is_odd;
+mod func_is_positive;
+mod func_is_zero;
+mod func_len;
+mod func_to_byte;
+mod func_to_fixed;
+mod func_to_float;
+mod func_to_int;
+mod func_to_money;
+mod func_to_scalar;
+mod func_to_string;
+mod func_type_name;
+
 const ERROR: &str = "error";
 const LEN: &str = "len";
 const TYPE_NAME: &str = "typeName";
@@ -549,11 +572,12 @@ fn exact_one_of(arg_types: &[ParameterType], expected: &[ParameterType]) -> bool
 // `RuntimeHelper::General` bare-name lowering.
 // ---------------------------------------------------------------------------
 
-/// A required parameter of illustrative type `ty`.
-fn req(name: &'static str, ty: ParameterType) -> Parameter {
+/// A required parameter of illustrative type `ty`. `desc` is the man page's
+/// Parameters-table prose.
+pub(super) fn req(name: &'static str, ty: ParameterType, desc: &'static str) -> Parameter {
     Parameter {
         name,
-        desc: "",
+        desc,
         aliases: &[],
         ty,
         default: DefaultValue::None,
@@ -562,10 +586,15 @@ fn req(name: &'static str, ty: ParameterType) -> Parameter {
 
 /// An optional parameter (widens arity but is never default-padded — the runtime
 /// lowering selects the overload by argument count).
-fn opt(name: &'static str, aliases: &'static [&'static str], ty: ParameterType) -> Parameter {
+pub(super) fn opt(
+    name: &'static str,
+    aliases: &'static [&'static str],
+    ty: ParameterType,
+    desc: &'static str,
+) -> Parameter {
     Parameter {
         name,
-        desc: "",
+        desc,
         aliases,
         ty,
         default: DefaultValue::Optional,
@@ -574,18 +603,20 @@ fn opt(name: &'static str, aliases: &'static [&'static str], ty: ParameterType) 
 
 /// Build one general member: a single `Body::Intrinsic` implementation carrying its
 /// illustrative signature, return type, and declared runtime errors.
-fn member(
+/// `prose` is (intro, desc, example) — the three man-page fields.
+pub(super) fn member(
     name: &'static str,
-    intro: &'static str,
+    prose: (&'static str, &'static str, &'static str),
     return_type: ParameterType,
     errors: Vec<&'static str>,
     params: Vec<Parameter>,
 ) -> RegistryFunction {
+    let (intro, desc, example) = prose;
     RegistryFunction {
         name,
         intro,
-        desc: "",
-        example: "",
+        desc,
+        example,
         expected_arguments: None,
         internal_only: false,
         implementations: vec![Implementation {
@@ -612,144 +643,28 @@ pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("general", INTRO, DESC);
     pkg.mark_unqualified_global();
 
-    // Reserved primitive: legacy `error` had param names but EMPTY overloads → `None`
-    // arity. The registry forbids an implementation-less function, so it carries one
-    // illustrative implementation; `arity` special-cases `error` back to `None`.
-    pkg.add_function(member(
-        ERROR,
-        "Construct an `Error` value from a numeric code and a message.",
-        ParameterType::named("Error"),
-        vec![],
-        vec![
-            req("code", ParameterType::Integer),
-            req("message", ParameterType::String),
-        ],
-    ));
-    pkg.add_function(member(
-        LEN,
-        "The number of elements in a String, List, Set, or Map.",
-        ParameterType::Integer,
-        vec![],
-        vec![req("value", ParameterType::String)],
-    ));
-    pkg.add_function(member(
-        TYPE_NAME,
-        "The name of a value's runtime type.",
-        ParameterType::String,
-        vec![],
-        vec![req("value", ParameterType::var("T"))],
-    ));
-    pkg.add_function(member(
-        TO_STRING,
-        "Render a value as a String.",
-        ParameterType::String,
-        vec![],
-        vec![
-            req("value", ParameterType::named("Scalar")),
-            opt("precision", &["decimals"], ParameterType::Byte),
-        ],
-    ));
-    pkg.add_function(member(
-        TO_INT,
-        "Convert a value to an Integer.",
-        ParameterType::Integer,
-        vec![],
-        vec![
-            req("value", ParameterType::String),
-            opt("base", &[], ParameterType::Integer),
-        ],
-    ));
-    pkg.add_function(member(
-        TO_FLOAT,
-        "Convert a value to a Float.",
-        ParameterType::Float,
-        vec!["ErrOverflow", "ErrInvalidFormat"],
-        vec![req("value", ParameterType::String)],
-    ));
-    pkg.add_function(member(
-        TO_FIXED,
-        "Convert a value to a Fixed.",
-        ParameterType::Fixed,
-        vec!["ErrOverflow", "ErrInvalidFormat"],
-        vec![req("value", ParameterType::String)],
-    ));
-    pkg.add_function(member(
-        TO_BYTE,
-        "Convert a value to a Byte.",
-        ParameterType::Byte,
-        vec!["ErrOverflow"],
-        vec![req("value", ParameterType::Integer)],
-    ));
-    pkg.add_function(member(
-        TO_MONEY,
-        "Convert a value to Money.",
-        ParameterType::Money,
-        vec!["ErrOverflow", "ErrInvalidFormat"],
-        vec![req("value", ParameterType::String)],
-    ));
-    pkg.add_function(member(
-        TO_SCALAR,
-        "Convert a value to a Scalar (Unicode codepoint).",
-        ParameterType::named("Scalar"),
-        vec!["ErrInvalidArgument"],
-        vec![req("value", ParameterType::Integer)],
-    ));
-    pkg.add_function(member(
-        IS_NUMERIC,
-        "Whether a String parses as a number.",
-        ParameterType::Boolean,
-        vec![],
-        vec![req("value", ParameterType::String)],
-    ));
-    pkg.add_function(member(
-        IS_EVEN,
-        "Whether an Integer is even.",
-        ParameterType::Boolean,
-        vec![],
-        vec![req("value", ParameterType::Integer)],
-    ));
-    pkg.add_function(member(
-        IS_ODD,
-        "Whether an Integer is odd.",
-        ParameterType::Boolean,
-        vec![],
-        vec![req("value", ParameterType::Integer)],
-    ));
-    pkg.add_function(member(
-        IS_POSITIVE,
-        "Whether a number is greater than zero.",
-        ParameterType::Boolean,
-        vec![],
-        vec![req("value", ParameterType::Integer)],
-    ));
-    pkg.add_function(member(
-        IS_NEGATIVE,
-        "Whether a number is less than zero.",
-        ParameterType::Boolean,
-        vec![],
-        vec![req("value", ParameterType::Integer)],
-    ));
-    pkg.add_function(member(
-        IS_ZERO,
-        "Whether a number equals zero.",
-        ParameterType::Boolean,
-        vec![],
-        vec![req("value", ParameterType::Integer)],
-    ));
-    pkg.add_function(member(
-        IS_EMPTY,
-        "Whether a String, List, Set, or Map has no elements.",
-        ParameterType::Boolean,
-        vec![],
-        vec![req("value", ParameterType::String)],
-    ));
-    pkg.add_function(member(
-        IS_NOT_EMPTY,
-        "Whether a String, List, Set, or Map has at least one element.",
-        ParameterType::Boolean,
-        vec![],
-        vec![req("value", ParameterType::String)],
-    ));
+    func_error::register(&mut pkg);
+    func_len::register(&mut pkg);
+    func_type_name::register(&mut pkg);
+
+    // Conversions.
+    func_to_string::register(&mut pkg);
+    func_to_int::register(&mut pkg);
+    func_to_float::register(&mut pkg);
+    func_to_fixed::register(&mut pkg);
+    func_to_byte::register(&mut pkg);
+    func_to_money::register(&mut pkg);
+    func_to_scalar::register(&mut pkg);
+
+    // Predicates.
+    func_is_numeric::register(&mut pkg);
+    func_is_even::register(&mut pkg);
+    func_is_odd::register(&mut pkg);
+    func_is_positive::register(&mut pkg);
+    func_is_negative::register(&mut pkg);
+    func_is_zero::register(&mut pkg);
+    func_is_empty::register(&mut pkg);
+    func_is_not_empty::register(&mut pkg);
 
     r.add_package(pkg);
 }

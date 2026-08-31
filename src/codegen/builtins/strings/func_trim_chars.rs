@@ -18,7 +18,7 @@ repetition within `chars` are irrelevant, and `chars` is never matched as a
 substring.
 
 Trimming works from both ends toward the middle. From the front, whole scalars
-are consumed while each one is a member of the set, stopping at the first scalar
+are removed while each one is a member of the set, stopping at the first scalar
 that is not; the same is then done from the back. Only those two contiguous runs
 are removed, so a set member that sits between two non-members is interior and is
 preserved. Membership is tested on whole Unicode scalars rather than bytes, so a
@@ -30,7 +30,7 @@ no case folding, so a scalar removed in one case is not removed in another. When
 `chars` is the empty string the set is empty, nothing qualifies, and a copy of
 `value` is returned. When `value` is empty, or every scalar of `value` belongs to
 the set, the result is the empty string. Neither argument is mutated; the result
-is a newly allocated `String`, even when nothing was trimmed.
+is a new `String`, even when nothing was trimmed.
 
 Unlike `strings::trim`, which removes Unicode whitespace, `trimChars` removes
 only what `chars` lists. To strip a fixed leading or trailing *substring* rather

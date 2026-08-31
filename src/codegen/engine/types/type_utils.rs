@@ -63,6 +63,12 @@ pub(crate) fn static_nir_value_type(
             .or_else(|| builtins::call_return_type(target))
         }
         NirValue::ResultIsOk { .. } => Some(ParameterType::Boolean),
+        // `Checked` annotates its SUCCESS type and this oracle echoes it, exactly
+        // as the `CallResult` arm above echoes the callee's return type rather
+        // than the `Result OF` wrapper: the Result-producing family reports what
+        // the value delivers on the `Ok` path. The `Result OF T` the bind
+        // receives is on the binding, which `NirValue::Local` resolves.
+        NirValue::Checked { type_, .. } => Some(type_.clone()),
         NirValue::ResultValue { value } => match static_nir_value_type(value, locals, fields)? {
             ParameterType::ResultOf(success) => Some(*success),
             _ => None,

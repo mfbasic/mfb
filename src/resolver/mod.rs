@@ -772,6 +772,7 @@ mod tests {
         HirFile {
             path: path.into(),
             imports: Vec::new(),
+            own_imports: Vec::new(),
             items: Vec::new(),
             internal: false,
         }
@@ -784,6 +785,7 @@ mod tests {
             files: vec![HirFile {
                 path: "a.mfb".into(),
                 imports: Vec::new(),
+                own_imports: Vec::new(),
                 items,
                 internal: false,
             }],
@@ -901,6 +903,7 @@ mod tests {
         let file = HirFile {
             path: "a.mfb".into(),
             imports: Vec::new(),
+            own_imports: Vec::new(),
             items: vec![binding("GLOBAL"), HirItem::Function(func("helper", vec![]))],
             internal: false,
         };
@@ -924,6 +927,7 @@ mod tests {
             files: vec![HirFile {
                 path: "lib.mfb".into(),
                 imports: Vec::new(),
+                own_imports: Vec::new(),
                 items: vec![HirItem::Link(crate::hir::elaborate_link_block(
                     &crate::ast::LinkBlock {
                         library: "lib".into(),

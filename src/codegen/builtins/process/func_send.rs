@@ -25,7 +25,7 @@ The whole payload is written before the call returns: it loops over the underlyi
 writes, advancing past whatever each accepted and retrying an interrupted write, so
 a short write is resumed rather than mistaken for completion. Without a `timeoutMs`
 the call blocks while the child's input pipe is full, waiting for the child to
-consume enough to make room.
+read enough to make room.
 
 If the child has closed or is no longer reading its standard input — a broken pipe —
 the write fails and `send` raises `ErrResourceClosed`, the same error raised when
@@ -57,10 +57,12 @@ Bound the write with a one-second timeout:
 
 ```
 IMPORT process
+IMPORT io
 
 FUNC main AS Integer
   RES child = process::spawn(["cat"])
   process::send(child, "hello", 1000)
+  io::print(process::receive(child))
   RETURN 0
 END FUNC
 ```"#;
@@ -104,7 +106,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "p",
-                    desc: "The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`.",
+                    desc: "The child process handle. The handle stays open — you still close it. Also accepts the alternate named-argument spelling `process`.",
                     aliases: &["process"],
                     ty: ParameterType::named(super::PROCESS_TYPE_ID),
                     default: DefaultValue::None,

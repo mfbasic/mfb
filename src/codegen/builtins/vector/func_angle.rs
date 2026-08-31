@@ -29,9 +29,8 @@ implementation checks each length before dividing and fails with
 either is zero. The check is on the actual computed length, so the failure
 happens before any division by zero can occur.
 
-The `Integer` overloads are the coarsest. They compute the angle internally in
-`Fixed` (Q32.32) radians through a dedicated helper, then round that radian value
-to an `Integer` with `math::round`, half away from zero. Because the full range of
+The `Integer` overloads are the coarsest. They round the angle in radians to a
+whole number, half away from zero. Because the full range of
 the function is `0` through `pi`, the only possible `Integer` results are `0`,
 `1`, `2`, and `3`. The `Integer` overload is therefore a very lossy quantization
 of the angle and is rarely the right tool; prefer the `Float` or `Fixed`
@@ -183,6 +182,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             super::Shape::BinaryScalar,
             &["ErrInvalidArgument"],
             body,
+            &[
+                "The first vector. Must not be zero-length — a zero vector has no direction to measure from.",
+                "The second vector. Must not be zero-length either.",
+            ],
         ),
     });
 }

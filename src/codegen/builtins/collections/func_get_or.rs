@@ -16,15 +16,14 @@ missing it returns `default`. It raises no trappable error at all, which is
 precisely the difference between the two: an inline `TRAP` on a
 `collections::getOr` call has a dead handler.
 
-The collection is neither copied nor mutated; only the selected payload is
-materialized.
+The collection is neither copied nor mutated; only the selected item or value is
+copied out.
 
-Both the found path and the default path return an **owned** value. When the
-element type is `String`, the supplied `default` is copied into a fresh owned
-string on the fallback path rather than being returned as a borrow, so the
-result can be bound and freed identically no matter which path ran. A composite
-payload read out of the collection is likewise copied into a standalone block
-before it is returned.
+Both paths return a value that is yours to keep and independent of the
+collection. When the element type is `String`, the supplied `default` is copied
+on the fallback path, so the result behaves the same however it was produced. A
+composite value read out of the collection is likewise copied before it is
+returned.
 
 `default` is an ordinary argument expression, so it is evaluated before the
 lookup runs, whether or not it ends up being used.
@@ -35,9 +34,9 @@ and then bytes. A `Float` key is matched bit-for-bit, so `NaN` never matches and
 `-0.0` does not match a stored `0.0`; such a lookup simply yields `default`.
 
 Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`,
-`Byte`, and `Boolean` goes through the map's hash bucket index — the same probe
+`Byte`, and `Boolean` is a direct lookup — the same one
 `collections::get` uses — with `default` substituted on the probe's not-found
-branch; other key types fall back to a linear scan of the entry table. This is
+branch; other key types are found by scanning the map. This is
 a performance difference only — both paths select the same entry and yield the
 same `default` when the key is absent."#;
 
@@ -96,21 +95,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list or map to read from. Not modified.",
                         aliases: &["collection"],
                         ty: ParameterType::list_of(ParameterType::var("T")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "index",
-                        desc: "",
+                        desc: "The list index, zero-based. Unlike `collections::get`, out of range is not an error.",
                         aliases: &["key"],
                         ty: ParameterType::Integer,
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "default",
-                        desc: "",
+                        desc: "What to return when the index or key is absent. An ordinary argument, so it is evaluated whether or not it ends up being used.",
                         aliases: &["fallback"],
                         ty: ParameterType::var("T"),
                         default: DefaultValue::None,
@@ -124,21 +123,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The list or map to read from. Not modified.",
                         aliases: &["collection"],
                         ty: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("V")),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "index",
-                        desc: "",
+                        desc: "The list index, zero-based. Unlike `collections::get`, out of range is not an error.",
                         aliases: &["key"],
                         ty: ParameterType::var("K"),
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "default",
-                        desc: "",
+                        desc: "What to return when the index or key is absent. An ordinary argument, so it is evaluated whether or not it ends up being used.",
                         aliases: &["fallback"],
                         ty: ParameterType::var("V"),
                         default: DefaultValue::None,

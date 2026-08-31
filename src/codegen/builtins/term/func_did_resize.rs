@@ -18,18 +18,14 @@ across every intervening call until `term::didResize` observes it, so a program
 that only polls occasionally never misses a resize. Reading it clears it, so the
 very next call reports `FALSE` unless another resize has happened in between.
 
-The resize is detected wherever the surface tracks its own geometry:
+A resize is noticed in both places a surface can live. In a terminal,
+`term::sync` re-reads the size on each frame, so a change is picked up the next
+time you present. In an `--app` build, the window reports its own size changes,
+so live window resizes are reported the same way.
 
-- In the CLI backend the shadow-grid present (`term::sync`) re-reads the terminal
-  size each frame and reflows the grid; a genuine change latches the flag.
-- In `--app` mode each window backend records the change in its own resize hook —
-  macOS in the `setFrameSize:` view callback, and Linux/GTK in the drawing area's
-  `resize` signal — so `term::didResize` reports live window resizes too.
-
-Like `term::isOn`, this query is **not gated**: it reads state only and never
-touches the terminal, the alternate screen, or the shadow grid. Before any
-`term::on` — or on a fixed-size app surface that never reflows — it simply reads
-`FALSE`. A companion `term::terminalSize` call returns the new extent after
+Like `term::isOn`, this query is **not gated**: it reads state only and touches
+neither the terminal nor the surface. Before any `term::on` — or on a
+fixed-size app window that never resizes — it simply reads `FALSE`. A companion `term::terminalSize` call returns the new extent after
 `term::didResize` reports a change."#;
 
 const EX: &str = r#"Reflow a layout only when the terminal changes size:

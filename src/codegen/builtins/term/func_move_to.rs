@@ -11,7 +11,7 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Move the shadow cursor to a row and column of the surface"#;
+const INTRO: &str = r#"Move the cursor to a row and column of the surface"#;
 
 const DESC: &str = r#"`term::moveTo` sets the position at which the next text drawn through the
 `term::` surface — including `io::print` and `io::write` — will start. Coordinates
@@ -25,8 +25,8 @@ for the row, `columns-1` for the column, using the current surface dimensions th
 `term::terminalSize` reports. The cursor can therefore never be placed outside the
 grid, and no error is raised for an out-of-range request.
 
-The move is retained, like everything else on this surface: it updates the shadow
-cursor in the grid header and emits nothing to the terminal. The position is
+The move is buffered, like everything else on this surface: it records the new
+cursor position and sends nothing to the terminal. The position is
 honoured by the next glyph written and by the frame `term::sync` presents.
 Moving the cursor draws nothing, erases nothing, and leaves the colours and
 attributes alone.

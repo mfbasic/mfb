@@ -744,7 +744,8 @@ pub(super) fn validate_value(
         }
         NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => validate_value(
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => validate_value(
             value,
             locals,
             function_names,

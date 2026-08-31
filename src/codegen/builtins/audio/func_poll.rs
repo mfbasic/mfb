@@ -62,7 +62,7 @@ SUB main()
 END SUB
 ```"#;
 
-const STREAM_DESC: &str = "An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Borrowed, not consumed. A closed handle polls as `FALSE`.";
+const STREAM_DESC: &str = "An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. The handle stays open — you still close it. A closed handle polls as `FALSE`.";
 const TIMEOUT_DESC: &str = "Maximum wait in milliseconds (timed overload only). `0` is a non-blocking test; a negative value raises `ErrInvalidArgument`; a positive value is clamped to `2147483647`.";
 
 fn overload(stream_ty: &'static str) -> Implementation {

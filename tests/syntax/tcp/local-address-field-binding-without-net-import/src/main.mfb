@@ -1,0 +1,14 @@
+' bug-466 Reproduction 3, characterization: the three positions the checker
+' ALREADY diagnosed correctly — an annotated binding, an operator operand, and a
+' non-overloaded builtin argument. These must keep reporting, located and coded.
+IMPORT tcp
+IMPORT io
+
+FUNC main AS Integer
+  RES s = tcp::listen("127.0.0.1", 0)
+  LET b = tcp::localAddress(s)
+  LET p AS Integer = b.port
+  LET q = b.port + 1
+  io::print(toString(b.port))
+  RETURN 0
+END FUNC

@@ -7,7 +7,7 @@ const INTRO: &str = r#"Report whether an HTTP stream has data available to read 
 
 const DESC: &str = r#"`ready` returns `TRUE` when a non-blocking read of `stream` would return bytes or
 observe end-of-stream right now, and `FALSE` when it would have to wait. It is a
-pure readiness probe with a zero timeout — it never blocks and never consumes
+pure readiness probe with a zero timeout — it never blocks and never reads
 bytes — layered on the scalar `tcp::poll`/`tls::poll` of the active transport
 variant. Use it to gate `http::pump` so a cooperative drive loop only reads when
 progress is possible and otherwise does the caller's own work.
@@ -52,7 +52,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: Some("Stream STATE PendingState"),
         internal_only: false,
         implementations: vec![Implementation {
-            params: vec![super::req("stream", "The bound stream from `http::startRead`. Passed by reference; `ready` neither consumes nor closes it.", &[], ParameterType::named("Stream"))],
+            params: vec![super::req("stream", "The bound stream from `http::startRead`. The stream stays open — `ready` only reads its state and leaves it to you to close.", &[], ParameterType::named("Stream"))],
             return_type: ParameterType::Boolean,
             errors: vec![],
             body: Body::mfb(BODY, "__http_ready"),

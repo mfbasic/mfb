@@ -58,11 +58,14 @@ Three specifics are transport-shaped:
   owner and closes it once; the binding that receives it registers no close
   obligation. Classifying that bind as an owner double-closes the element.
 
-`tcp::Socket` and `udp::Socket` are thread-sendable; the listeners are not (they
-accept on their owning thread), and neither is a `tls::Socket` (a TLS session is
-driven from the thread that owns it). No transport handle may be stored in a
-record field; a collection element is allowed, and is what the list `poll` form
-exists for.
+Every transport handle is thread-sendable — `tcp::Socket`, `udp::Socket`,
+`tcp::Listener`, `tls::Socket` and `tls::Listener` — so a server may bind on one
+thread and accept on another, and hand each accepted connection to a worker.
+`thread::transfer` **moves** the handle (§16): the receiving thread carries the
+close obligation and the sender's binding is consumed, so one handle is never
+driven from two threads at once. No transport handle may be stored in a record
+field; a collection element is allowed, and is what the list `poll` form exists
+for.
 
 ## Streams versus datagrams
 

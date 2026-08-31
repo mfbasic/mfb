@@ -209,10 +209,9 @@ time ahead of UTC (east of the prime meridian); a negative result places it
 behind UTC (west); zero means local time coincides with UTC at that instant.
 
 
-This is the OS seam through which the rest of the package learns the host's
-wall-clock rules. The call lowers to a libc runtime helper that hands
-`epochSeconds` to `localtime_r` and reports the resolved `tm_gmtoff` for that
-moment, so the result is DST-correct: it returns the standard-time offset for
+This is how the rest of the package learns the host's wall-clock rules. It asks
+the host what offset its configured time zone had at that instant, so the result
+is DST-correct: it returns the standard-time offset for
 instants outside daylight saving and the shifted offset for instants within it.
 Two calls with epoch seconds on opposite sides of a daylight-saving transition
 can therefore return different values. The offset reflects whatever zone the host
@@ -260,7 +259,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "epochSeconds",
-                desc: "",
+                desc: "The instant, in seconds since the epoch, to ask about. The offset is not constant — a zone with daylight saving gives different answers at different times of year.",
                 aliases: &[],
                 ty: super::ParameterType::Integer,
                 default: super::DefaultValue::None,

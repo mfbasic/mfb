@@ -10,8 +10,11 @@ const INTRO: &str = r#"Linear interpolation between two vectors, clamped to the 
 const DESC: &str = r#"`vector::lerp` interpolates component-wise along the straight segment from `a` to
 `b`, computing `a + (b - a) * t` for each component in declared field order. At
 `t = 0` the result is `a`, at `t = 1` it is `b`, and at `t = 0.5` it is the
-midpoint. The path traced as `t` sweeps is a straight line, and the speed along
-it is constant — for interpolation that follows the arc between two directions
+midpoint. For a `Float` vector the path traced as `t` sweeps is a straight line
+travelled at a constant rate. For `Fixed` and `Integer` the result is rounded to
+the element type at every step, so positions repeat and the steps are uneven —
+an `Integer2` lerp from `(0, 0)` to `(3, 0)` gives `(2, 0)` at both `t = 0.5`
+and `t = 0.75`. For interpolation that follows the arc between two directions
 instead, use `vector::slerp`.
 
 The defining difference from `vector::lerp_unclamped` is that `t` is **clamped to
@@ -175,6 +178,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("two vectors of the same type and a Float t"),
         internal_only: false,
-        implementations: super::implementations("lerp", super::Shape::Lerp, &[], body),
+        implementations: super::implementations("lerp", super::Shape::Lerp, &[], body, &[
+            "The start vector, returned when `t` is 0.",
+            "The end vector, returned when `t` is 1.",
+            "How far along to travel, 0 through 1. Values outside that range are clamped — use `vector::lerp_unclamped` to extrapolate.",
+        ]),
     });
 }

@@ -67,7 +67,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "dt",
-                desc: "",
+                desc: "The date-time to resolve. This is where an ambiguous or non-existent local time — the two that a daylight-saving transition creates — gets settled.",
                 aliases: &[],
                 ty: super::ParameterType::named("DateTime"),
                 default: super::DefaultValue::None,

@@ -33,7 +33,7 @@ element with no delimiter at all.
 `join` and `strings::split` are inverses for a non-empty delimiter: joining the
 result of `split(value, delimiter)` with the same delimiter reproduces `value`.
 
-Neither argument is mutated; the result is a new owned `String`. `parts` is also
+Neither argument is mutated; the result is a new `String`. `parts` is also
 accepted under the name `values`, and `delimiter` under the name `separator`."#;
 
 const EX: &str = r#"Join words with a separator, and with none:

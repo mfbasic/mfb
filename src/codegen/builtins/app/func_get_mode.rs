@@ -53,9 +53,8 @@ nowhere, and `Mode.None` for a program that references it anywhere (even on a
 never-taken branch: the decision is a static, whole-program one, not a runtime
 flow analysis).
 
-The mode is not a call into a runtime helper you can see — it is lowered to a
-single load of the per-execution-context presentation-mode word held in the arena
-state region, reserved only in an `--app` build.
+Reading the mode is as cheap as reading a local variable, so a program may call
+`app::getMode` freely rather than caching the answer.
 
 The `Mode` enum is referenced bare, like every other builtin type: write
 `Mode.Console`, not `app::Mode.Console`."#;

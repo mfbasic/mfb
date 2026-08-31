@@ -29,8 +29,8 @@ exact — `fromScalars(toScalars(s))` equals `s` for every `String s` — becaus
 every `String` is well-formed UTF-8 by construction, so decoding cannot fail.
 
 The scalars appear in the same left-to-right order as in `value`. The empty
-string yields the empty list. `value` is not mutated; the returned list is a
-fresh owned value.
+string yields the empty list. `value` is not mutated; the returned list is its
+own value.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and

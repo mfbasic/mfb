@@ -64,7 +64,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "year",
-                desc: "",
+                desc: "The calendar year to test, as written. Follows the Gregorian rule, so 1900 is not a leap year and 2000 is.",
                 aliases: &[],
                 ty: super::ParameterType::Integer,
                 default: super::DefaultValue::None,

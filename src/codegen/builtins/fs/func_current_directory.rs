@@ -35,10 +35,7 @@ running process as a UTF-8 `String`.
 The path is queried from the operating system with the host `getcwd` call on
 every invocation rather than cached, so the result reflects the process's
 working directory at the moment of the call. The returned path is absolute and
-is given in the host's native spelling. Internally the path is read into a
-fixed 4096-byte arena buffer, its length is measured up to the terminating NUL,
-and those bytes are copied into an arena-backed `String`; the terminating NUL is
-not included in the returned value.
+is given in the host's native spelling.
 
 The working directory is the base against which any relative path passed to
 other `fs` functions is resolved, so this value names the directory used by

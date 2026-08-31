@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/types/types-record-field-assign-invalid
+  17 |   ' Plain field write — types match, so the old parse produced no diagnostic
+  18 |   ' at all and the write was lost.
+  19 |   o.tag = "changed"
+     |         ^
+tests/syntax/types/types-record-field-assign-invalid/src/main.mfb:19 error[1-102-0013 MFB_PARSE_RECORD_FIELD_ASSIGNMENT]: record field assignment is not supported
+               Cannot assign to record field `tag` — `=` in statement position is the equality operator, so this is a discarded comparison, not a write. Update the record with `WITH o { tag := <value> }`.
+  19 |   o.tag = "changed"
+  20 |   ' Nested field write.
+  21 |   o.inner.x = 77
+     |             ^
+tests/syntax/types/types-record-field-assign-invalid/src/main.mfb:21 error[1-102-0013 MFB_PARSE_RECORD_FIELD_ASSIGNMENT]: record field assignment is not supported
+               Cannot assign to record field `x` — `=` in statement position is the equality operator, so this is a discarded comparison, not a write. Update the record with `WITH o.inner { x := <value> }`.
+  21 |   o.inner.x = 77
+  22 |   ' Inline-IF branch: statement position inside `THEN`.
+  23 |   IF o.inner.x > 0 THEN o.inner.x = 5
+     |                                   ^
+tests/syntax/types/types-record-field-assign-invalid/src/main.mfb:23 error[1-102-0013 MFB_PARSE_RECORD_FIELD_ASSIGNMENT]: record field assignment is not supported
+               Cannot assign to record field `x` — `=` in statement position is the equality operator, so this is a discarded comparison, not a write. Update the record with `WITH o.inner { x := <value> }`.
+[exit 1]

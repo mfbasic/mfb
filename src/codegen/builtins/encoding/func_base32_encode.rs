@@ -11,7 +11,7 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Encode a `List OF Byte` to a standard Base32 `String`."#;
 const DESC: &str = r#"`encoding::base32Encode` returns the standard Base32 representation of `data`
-as defined by RFC 4648 §6. Input bytes are consumed as a continuous bit stream,
+as defined by RFC 4648 §6. Input bytes are read as a continuous bit stream,
 most-significant bit first, and emitted five bits at a time; each 5-bit group
 selects one character from the uppercase alphabet
 `ABCDEFGHIJKLMNOPQRSTUVWXYZ234567`.

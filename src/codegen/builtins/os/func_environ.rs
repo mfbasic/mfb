@@ -258,7 +258,7 @@ with no `=` maps its whole text to an empty-string value. The snapshot reflects
 variables written earlier by `os::setEnv` and omits those removed by
 `os::unsetEnv`.
 
-The returned map is an ordinary owned value captured at the moment of the call;
+The returned map is an ordinary value captured at the moment of the call;
 later `os::setEnv`/`os::unsetEnv` calls do not change it, so re-read the
 environment with a fresh `os::environ()` to observe subsequent mutations. The map
 is unordered, like any `Map`. On the rare host that lists a name twice, the map

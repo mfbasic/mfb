@@ -12,7 +12,7 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Read the current foreground colour as a `TermColor`"#;
 
 const DESC: &str = r#"`term::getForeground` returns the colour that subsequently drawn text will be
-written in, as a freshly allocated `TermColor` record with three `Byte` fields
+written in, as a `TermColor` record with three `Byte` fields
 `r`, `g`, and `b` holding the red, green, and blue channels. It takes no
 arguments.
 
@@ -33,8 +33,8 @@ program cannot distinguish "off" from "on and set to white" by this call alone â
 use `term::isOn` for that.
 
 The call reads state only: it changes no `term::` state, moves no cursor, and
-draws nothing. It can still fail, because the returned record has to be
-allocated."#;
+draws nothing. It can still fail, because building the returned record can
+fail when memory is exhausted."#;
 
 const EX: &str = r#"Set a colour and read it back:
 

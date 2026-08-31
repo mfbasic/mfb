@@ -37,11 +37,7 @@ On an empty list every legal `start` is `0`, which is `len(value)`, so
 inside `predicate` propagates out of the `collections::findIndex` call to the
 caller rather than being reported as a non-match. Note that a lambda passed here
 may not capture an outer `MUT` binding; the callback position proven
-non-escaping is `collections::forEach`, not `findIndex`.
-
-`findIndex` is a generic implemented in MFBASIC source; a call is rewritten to
-the internal `__collections_findIndex` generic and instantiated for the element
-type like any other generic function. It
+non-escaping is `collections::forEach`, not `findIndex`.It
 does not mutate `value`.
 
 `T` is inferred from the element type of `value` and may be any type;

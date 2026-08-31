@@ -35,6 +35,23 @@ use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, Registry, RegistryFunction, RegistryPackage,
 };
 use crate::types::ParameterType;
+
+// One file per assertion, holding its descriptor AND its man-page prose — the
+// same shape every other builtin package uses. The two shared signature helpers
+// (`operands`, `assertion`) stay here because every member spells one of them.
+mod func_expect_equal;
+mod func_expect_fixed;
+mod func_expect_float;
+mod func_expect_integer;
+mod func_expect_n_equal;
+mod func_expect_n_fixed;
+mod func_expect_n_float;
+mod func_expect_n_integer;
+mod func_expect_n_string;
+mod func_expect_n_trap;
+mod func_expect_string;
+mod func_expect_trap;
+
 const INTRO: &str = r#"Assertion builtins for the built-in test framework."#;
 
 const DESC: &str = r#"The `testing` package provides the assertion builtins used inside a `TESTING`
@@ -42,17 +59,48 @@ block's `TCASE` bodies — `expectEqual`/`expectNEqual`, the typed
 `expectFloat`/`expectInteger`/`expectFixed`/`expectString` (and their `expectN*`
 inequality twins), and the `expectTrap`/`expectNTrap` trap assertions.
 
-These are **unqualified global** builtins: they are written as bare names
+These are **unqualified global** builtins: you write them as bare names
 (`expectEqual(actual, expected)`), never `testing::expectEqual`, and there is no
-`IMPORT testing`. Each assertion returns `Nothing`; on failure it aborts the case
-with the reserved internal error code and reports the mismatch. Every assertion is
-compiler-lowered — recognized in the front end and desugared to comparison
-statements — so there is no runtime helper."#;
+`IMPORT testing`.
+
+An assertion is only valid inside a `TCASE` body; using one anywhere else is a
+compile error. Each returns nothing, and the **first failed assertion ends its
+case** — later lines in that `TCASE` do not run, while sibling cases and groups
+carry on. So a case reports at most one failure, and it is the first one.
+
+A failure prints the case as `[F]` with the mismatch and the source line beneath
+it:
+
+```
+* a failing case, to see what a failure reports
+  * [F] this one is meant to fail
+    X expected 99, got 5  (src/main.mfb:49)
+```
+
+Which assertion to reach for:
+
+- **`expectEqual`/`expectNEqual`** are the general pair. They compare with the
+  language's own `=` and `<>`, so the operands must be comparable and printable
+  (a number, `Boolean`, `String`, `Byte`, `Scalar`, or `List OF Byte`) — printable because the failure
+  message has to show them.
+- **The typed forms** — `expectInteger`, `expectFloat`, `expectFixed`,
+  `expectString` and their `expectN…` twins — additionally require both operands
+  to be exactly that type. Reach for these when a wrong type would be a real bug
+  in the code under test; `expectEqual` would happily compare an `Integer` `1`
+  with a `Float` `1.0`, and `expectInteger` will not.
+- **`expectTrap`/`expectNTrap`** assert on failure rather than on a value:
+  whether evaluating an expression raises. `expectTrap` can also pin the exact
+  `error.code`.
+
+Tests live in a `TESTING … END TESTING` block, which `mfb build` drops entirely
+— a release binary is identical to one with the tests deleted — and which
+`mfb test` compiles and runs. See `mfb spec language test-framework` for the
+block structure."#;
 
 /// One assertion's parameter list: `actual` and `expected`, both of operand type
 /// `ty` (a concrete scalar for the typed families, or `Var("T")` for the generic
 /// `expectEqual`/`expectNEqual`).
-fn operands(ty: ParameterType) -> Vec<Parameter> {
+pub(super) fn operands(ty: ParameterType) -> Vec<Parameter> {
     vec![
         Parameter {
             name: "actual",
@@ -74,12 +122,18 @@ fn operands(ty: ParameterType) -> Vec<Parameter> {
 /// Build an equality/inequality assertion `RegistryFunction`: two operands of type
 /// `ty`, `Nothing` return, and the `Body::Intrinsic` marker (the assertion is a
 /// front-end desugar with no codegen realization).
-fn assertion(name: &'static str, intro: &'static str, params: Vec<Parameter>) -> RegistryFunction {
+/// `prose` is (intro, desc, example) — the three man-page fields.
+pub(super) fn assertion(
+    name: &'static str,
+    prose: (&'static str, &'static str, &'static str),
+    params: Vec<Parameter>,
+) -> RegistryFunction {
+    let (intro, desc, example) = prose;
     RegistryFunction {
         name,
         intro,
-        desc: "",
-        example: "",
+        desc,
+        example,
         expected_arguments: None,
         internal_only: false,
         implementations: vec![Implementation {
@@ -98,97 +152,24 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.mark_unqualified_global();
 
     // Generic equality / inequality (any `=`-comparable, printable operands).
-    pkg.add_function(assertion(
-        "expectEqual",
-        "Assert `actual` equals `expected` (generic).",
-        operands(ParameterType::var("T")),
-    ));
-    pkg.add_function(assertion(
-        "expectNEqual",
-        "Assert `actual` does not equal `expected` (generic).",
-        operands(ParameterType::var("T")),
-    ));
+    func_expect_equal::register(&mut pkg);
+    func_expect_n_equal::register(&mut pkg);
 
     // Typed equality.
-    pkg.add_function(assertion(
-        "expectFloat",
-        "Assert two `Float` values are equal.",
-        operands(ParameterType::Float),
-    ));
-    pkg.add_function(assertion(
-        "expectInteger",
-        "Assert two `Integer` values are equal.",
-        operands(ParameterType::Integer),
-    ));
-    pkg.add_function(assertion(
-        "expectFixed",
-        "Assert two `Fixed` values are equal.",
-        operands(ParameterType::Fixed),
-    ));
-    pkg.add_function(assertion(
-        "expectString",
-        "Assert two `String` values are equal.",
-        operands(ParameterType::String),
-    ));
+    func_expect_float::register(&mut pkg);
+    func_expect_integer::register(&mut pkg);
+    func_expect_fixed::register(&mut pkg);
+    func_expect_string::register(&mut pkg);
 
     // Typed inequality.
-    pkg.add_function(assertion(
-        "expectNFloat",
-        "Assert two `Float` values are not equal.",
-        operands(ParameterType::Float),
-    ));
-    pkg.add_function(assertion(
-        "expectNInteger",
-        "Assert two `Integer` values are not equal.",
-        operands(ParameterType::Integer),
-    ));
-    pkg.add_function(assertion(
-        "expectNFixed",
-        "Assert two `Fixed` values are not equal.",
-        operands(ParameterType::Fixed),
-    ));
-    pkg.add_function(assertion(
-        "expectNString",
-        "Assert two `String` values are not equal.",
-        operands(ParameterType::String),
-    ));
+    func_expect_n_float::register(&mut pkg);
+    func_expect_n_integer::register(&mut pkg);
+    func_expect_n_fixed::register(&mut pkg);
+    func_expect_n_string::register(&mut pkg);
 
-    // Trap assertions. `expectTrap(expr)` / `expectTrap(expr, code)`: a guardable
-    // expression plus an optional expected `error.code`. The `code` slot is
-    // `Optional` — it widens arity to (1, 2) but is not default-padded (the desugar
-    // selects the trap-with-code body by argument count). `expectNTrap(expr)` takes
-    // exactly the expression.
-    pkg.add_function(assertion(
-        "expectTrap",
-        "Assert evaluating an expression traps (optionally with a given error code).",
-        vec![
-            Parameter {
-                name: "expression",
-                desc: "The expression asserted to trap.",
-                aliases: &[],
-                ty: ParameterType::var("T"),
-                default: DefaultValue::None,
-            },
-            Parameter {
-                name: "code",
-                desc: "The trap's expected `error.code`, if given.",
-                aliases: &[],
-                ty: ParameterType::Integer,
-                default: DefaultValue::Optional,
-            },
-        ],
-    ));
-    pkg.add_function(assertion(
-        "expectNTrap",
-        "Assert evaluating an expression does not trap.",
-        vec![Parameter {
-            name: "expression",
-            desc: "The expression asserted not to trap.",
-            aliases: &[],
-            ty: ParameterType::var("T"),
-            default: DefaultValue::None,
-        }],
-    ));
+    // Trap assertions.
+    func_expect_trap::register(&mut pkg);
+    func_expect_n_trap::register(&mut pkg);
 
     r.add_package(pkg);
 }

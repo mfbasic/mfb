@@ -11,8 +11,8 @@ const DESC: &str = r#"`vector::abs` returns a new vector of the same type whose 
 absolute value of the corresponding component of `v`. Each component is computed
 by the scalar `math::abs` of that component, evaluated in declared field order
 (`x`, then `y`, then `z`, then `w`), and the results are assembled into a fresh
-record. `v` is not modified — like every `vector` type these records copy by
-value.
+record. `v` is not modified — like every `vector` type, these records are
+ordinary values and assigning or passing one copies it.
 
 This is a purely component-wise operation with no cross-component interaction:
 `abs` reflects the vector into the all-positive orthant, so it is not a
@@ -21,15 +21,12 @@ way as `v`. The magnitude is preserved, however, because negating individual
 components does not change the sum of their squares — `vector::length(vector::abs(v))`
 always equals `vector::length(v)`.
 
-The three element types differ only in how the scalar absolute value is taken.
-The `Float` overloads clear the sign bit with the hardware floating-point
-absolute value, which cannot overflow and performs no rounding or domain check,
-so the `Float` overloads never fail. The `Fixed` and `Integer` overloads operate
-on the underlying signed 64-bit representation, whose negative range extends one
-step further than its positive range; negating the minimum representable value
-has no positive counterpart and is reported as `ErrOverflow` rather than
-silently wrapping. This is exactly the scalar `math::abs` behavior, inherited
-per component.
+The three element types differ only in whether the operation can fail. `Float`
+absolute value never rounds and never overflows, so the `Float` overloads never
+fail. `Fixed` and `Integer` reach one step further below zero than above it, so
+the most negative representable component has no positive counterpart: taking
+its absolute value raises `ErrOverflow` rather than wrapping silently. This is
+exactly the scalar `math::abs` behavior, applied per component.
 
 `vector::abs` is generic over the nine built-in vector record types. The overload
 is selected at compile time from the exact record type of the single argument;
@@ -157,6 +154,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("a vector (Float2/3/4, Fixed2/3/4, Integer2/3/4)"),
         internal_only: false,
-        implementations: super::implementations("abs", super::Shape::UnaryVector, &[], body),
+        implementations: super::implementations("abs", super::Shape::UnaryVector, &[], body, &[
+            "The vector to take component-wise. Each component is replaced by its magnitude; the result is a new vector.",
+        ]),
     });
 }

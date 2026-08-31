@@ -28,12 +28,10 @@ until EOF (`sort`, `cat`, `wc`, `tr`, …) stops waiting for more input and prod
 its output. After `close`, further `process::send`/`process::sendBytes` to the same
 child raise `ErrResourceClosed`.
 
-`process::close` is **not** a handle-consuming close. Despite the name, it does not
-release the `Process` resource: the child keeps running, its output stays readable
-with `process::receive`, and the handle remains valid and owned. The resource is
-still closed the usual way — by lexical drop at scope exit (which force-kills and
-reaps the child) — because `close` is deliberately not treated as an ownership
-transfer.
+`process::close` does **not** close the handle. Despite the name, it does not
+end the `Process`: the child keeps running, its output stays readable with
+`process::receive`, and the handle stays usable. The child is still cleaned up
+the usual way — when the binding ends, which force-kills and reaps it.
 
 Closing the input is idempotent with respect to the input pipe: once stdin is
 closed the call is a harmless no-op. Only a handle that has already been dropped or
@@ -89,7 +87,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "p",
-                desc: "The child process handle whose standard input to close. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`.",
+                desc: "The child process handle whose standard input to close. The handle stays open — you still close it. Also accepts the alternate named-argument spelling `process`.",
                 aliases: &["process"],
                 ty: ParameterType::named(super::PROCESS_TYPE_ID),
                 default: DefaultValue::None,

@@ -31,11 +31,13 @@ validated: a name that is syntactically odd but non-empty is accepted here and
 only fails later, at resolution time.
 
 The port is optional and defaults to the scheme default — 443 for `https` and 80
-for everything else, which given the scheme check means 80 for `http`. An
-explicit port must be non-empty, must not carry a leading `+` or `-` (ports are
-unsigned, and the shared radix parser would otherwise accept a sign), must parse
-as base-10 digits, and must not exceed 65535; each of those raises
-`ErrInvalidFormat`.
+for everything else, which given the scheme check means 80 for `http`. A bare
+trailing `:` with nothing after it counts as absent, so
+`http://example.com:` takes the default 80 rather than failing.
+
+A **non-empty** explicit port must not carry a leading `+` or `-` (ports are
+unsigned), must be base-10 digits, and must not exceed 65535; each of those
+raises `ErrInvalidFormat`.
 
 What remains is split at the first `#` into a fragment and at the first `?` into a
 query, each stored without its leading punctuation. An absent path becomes `"/"`.

@@ -384,14 +384,28 @@ fn is_trap_discard_conversion(target: &str) -> bool {
 /// plan-64-I: names of inline-conversion `CallResult` Result-locals whose
 /// trapped error is provably unused. `CallResult` is produced *only* by the
 /// inline-`TRAP` desugar (`ir::lower::lower_inline_trap`), which binds the raw
-/// `Result` to a temp consumed solely by `ResultIsOk`/`ResultValue`/`ResultError`
-/// and, on the error branch, `Bind err = ResultError(result)`. So a conversion
-/// `CallResult` local is error-discardable when its paired `err` binding is
-/// never read (the `RECOVER` handler ignores `err`), or when no `ResultError`
-/// of it exists at all. Such a local's `Error` object is never observed, so the
-/// error path can skip building the ErrorLoc + flat `Error` block and keep only
-/// the tag. Conservative: an unrelated read of an identically-named local only
-/// keeps the (correct) full error build.
+/// `Result` to a temp consumed solely by
+/// `ResultIsOk`/`ResultValue`/`ResultError`. So a conversion `CallResult` local
+/// is error-discardable when the local its `ResultError` flows into is never
+/// read (the `RECOVER` handler ignores `err`), or when no `ResultError` of it
+/// exists at all. Such a local's `Error` object is never observed, so the error
+/// path can skip building the ErrorLoc + flat `Error` block and keep only the
+/// tag. Conservative: an unrelated read of an identically-named local only keeps
+/// the (correct) full error build.
+///
+/// The desugar has **two** shapes and both must be recognised (bug-457):
+///
+/// * one check — `Bind err = ResultError(result)` in the `If`'s else arm;
+/// * a check chain — `Assign $trap_errN = ResultError(result)` into the shared
+///   error slot, because the chain reports through one slot and binds `err` from
+///   it once, after the branches.
+///
+/// Matching only the `Bind` form silently mis-classified every chain as
+/// error-discardable: codegen then emitted the error tag with no `Error` block
+/// while the `Assign` went on to read one, killing the process (the acceptance
+/// suite's `expectTrap(toInt(toFloat("1e20")), …)`). An unrecognised shape here
+/// is not a missed optimisation, it is a miscompile — so this must be kept in
+/// step with `lower_inline_trap`.
 fn trap_discard_error_results(ops: &[NirOp]) -> HashSet<String> {
     use nir::visit::{walk_op, walk_value, NirVisitor};
     struct Collector {
@@ -404,12 +418,18 @@ fn trap_discard_error_results(ops: &[NirOp]) -> HashSet<String> {
     }
     impl NirVisitor for Collector {
         fn visit_op(&mut self, op: &NirOp) {
-            if let NirOp::Bind {
-                name,
-                value: Some(value),
-                ..
-            } = op
-            {
+            // Both desugar shapes land the error in a named local: the one-check
+            // form binds it, the check chain assigns it into the shared slot.
+            let bound = match op {
+                NirOp::Bind {
+                    name,
+                    value: Some(value),
+                    ..
+                } => Some((name, value)),
+                NirOp::Assign { name, value } => Some((name, value)),
+                _ => None,
+            };
+            if let Some((name, value)) = bound {
                 match value {
                     NirValue::CallResult { target, .. } if is_trap_discard_conversion(target) => {
                         self.candidates.insert(name.clone());
@@ -585,6 +605,7 @@ fn mark_vector_escaping_value(value: &NirValue, out: &mut HashSet<String>) {
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
         | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. }
         | NirValue::Unary { operand: value, .. } => mark_vector_escaping_value(value, out),
         NirValue::Binary { left, right, .. } => {
             mark_vector_escaping_value(left, out);

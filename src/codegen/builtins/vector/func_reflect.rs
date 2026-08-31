@@ -24,7 +24,7 @@ responsible for passing a unit normal — typically the output of
 it has no division and therefore no zero-vector guard, so a zero `n` is accepted
 and simply returns `v` unchanged.
 
-Because the implementation is multiplication and subtraction only — no division,
+Because `reflect` is multiplication and subtraction only — no division,
 no square root, no trigonometry — it performs **no rounding** on any element type.
 The `Integer` overloads are exact checked integer arithmetic and the `Fixed`
 overloads are exact within the Q32.32 grid. This puts `reflect` in the small group
@@ -180,6 +180,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("two vectors of the same type"),
         internal_only: false,
-        implementations: super::implementations("reflect", super::Shape::BinaryVector, &[], body),
+        implementations: super::implementations("reflect", super::Shape::BinaryVector, &[], body, &[
+            "The incoming vector to reflect.",
+            "The surface normal to reflect across. Give it unit length — `reflect` does not normalize it for you, and a longer normal scales the result.",
+        ]),
     });
 }

@@ -25,11 +25,10 @@ string for any valid `times`. A negative `times` is rejected with
 `ErrInvalidArgument`.
 
 The total size is computed with overflow checks. A `byteLen(value) * times`
-product, or the string header added to it, that cannot be represented in 64 bits
-raises the same `ErrInvalidArgument` rather than allocating short and writing
-past the buffer.
+product that cannot be represented in 64 bits raises the same
+`ErrInvalidArgument` rather than producing a truncated result.
 
-`value` is not mutated; the result is a new owned `String`.
+`value` is not mutated; the result is a new `String`.
 
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's

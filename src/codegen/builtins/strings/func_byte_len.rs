@@ -12,9 +12,9 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Return the UTF-8 byte length of a string."#;
 
 const DESC: &str = r#"`strings::byteLen` returns the number of bytes `value` occupies in its UTF-8
-encoding. It measures storage size, not character count: every byte of the
-encoding is counted exactly once. The length is read directly from the string's
-stored byte count, so the call is constant time and does not scan the text.
+encoding. It counts bytes, not characters: every byte of the encoding is counted
+exactly once. The answer is immediate however long the string is — `byteLen`
+does not walk the text.
 
 Because UTF-8 uses a variable number of bytes per Unicode scalar value, the
 result can exceed `len(value)`, which counts Unicode scalar values. ASCII scalars
@@ -23,7 +23,7 @@ outside ASCII occupy two, three, or four bytes each, making the byte length
 larger. `byteLen` is therefore always greater than or equal to `len(value)`.
 
 The empty string has a byte length of `0`. `byteLen` inspects `value` only: it
-allocates nothing, mutates nothing, and is locale-independent.
+changes nothing and is locale-independent.
 
 To count Unicode scalar values use the bare `len` builtin; to count
 user-perceived characters use `strings::graphemesCount`; to obtain the individual

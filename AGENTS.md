@@ -104,18 +104,31 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
     `mfb man <pkg> --all`.
   * **Narrative guide topics still live as Markdown** under `src/docs/man/**`
     (`errors`, `flow`, `lambda`, `link`, `optimizations`, `tooling`, `tour`,
-    `types`, `unicode`) — a directory with a `package.md` is a topic, embedded at
-    build time (`src/docs/man/mod.rs`). Only reached when the first positional is
-    not a known package.
-  * **Do NOT use `.ai/man_template.md` / `man_package_template.md` /
-    `man_type_template.md`.** They are the retired `src/docs/man/**` per-builtin-page
-    workflow (last touched 2026-06-29, before the registry migration) and no longer
-    describe anything real. Several pending plans still cite them; that is stale, not
-    a reason to follow them. `.ai/man-content.md` does not exist either — it is an
-    output plan-108-A has not delivered yet. Until it lands, this bullet is the
-    authority.
+    `types`, `unicode`, `variable`) — a directory with a `package.md` is a topic,
+    embedded at build time (`src/docs/man/mod.rs`). Only reached when the first
+    positional is not a known package.
+  * **`.ai/man-content.md` is the content standard — read it before writing a
+    page.** It defines who the page is for, what it must and must not contain,
+    the four-step authoring workflow, and the verification instruments
+    (`scripts/man-census.sh`, `scripts/man-run-examples.sh`). The retired
+    `.ai/man_*template*.md` files are deleted; nothing in them survived the
+    registry migration (the renderer derives Synopsis/Parameters/Return/Errors/
+    See-also itself, so a page author writes only intro, description and
+    examples).
+  * **No C/Rust memory vocabulary on a man page.** The only permitted words are
+    **copy**, **mutate**, **value**, and **alias** (the last for a `RES` handle
+    only). Not: borrow, ownership, move, consume, free, heap, refcount,
+    lifetime, dangling, allocate, deep/shallow copy, by reference, drop. Say
+    what a developer observes — "the handle stays open — you still close it",
+    "you get a copy" — and link `mfb man variable` for the model itself; the
+    precise contract lives in `mfb spec` §14. Check with
+    `scripts/man-census.sh --memory-scope` (and `--banned-list` for the full
+    list); it must report 0 unclassified hits.
   * Prose fields are `&'static str` the compiler never reads, so no compiler gate
-    catches a doc error — `mfb man` output is the only verification.
+    catches a doc error — `mfb man` output is the only verification. Render it:
+    `scripts/man-census.sh --fill <pkg>` for coverage,
+    `scripts/man-run-examples.sh <pkg> --run` to compile and run every example
+    on the page.
 * The embedded spec (`mfb spec`, `src/docs/spec/**`) → `.ai/specifications.md` (keep it
   current with every compiler change).
 * Remote test machines → `.ai/remote_systems.md`.

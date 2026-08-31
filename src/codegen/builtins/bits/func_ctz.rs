@@ -28,8 +28,8 @@ never raises, and has no side effects.
 Because the result is the index of the lowest set bit, `ctz` is the primitive
 behind alignment and power-of-two work. For a positive power of two,
 `bits::ctz(value)` is exactly its base-2 exponent, so it inverts
-`bits::sl(1, n)`. A pointer or size is `2^k`-aligned exactly when
-`bits::ctz(value) >= k`, which is a cheaper test than a modulo. And `ctz`
+`bits::sl(1, n)`. A value is `2^k`-aligned exactly when
+`bits::ctz(value) >= k`, which is how to test alignment without a modulo. And `ctz`
 composes with the lowest-set-bit idiom `value AND -value`, which clears every
 bit but the lowest one: iterating "extract lowest bit, `ctz` it, clear it" walks
 a bitmask's set indices in ascending order, one iteration per set bit rather than
@@ -46,31 +46,11 @@ anywhere in the word see `bits::popCount`. Note the identity
 `bits::ctz(value) = bits::popCount(bits::band(value, -value) - 1)`, which holds
 for every `value` including `0`.
 
-`ctz` lowers inline rather than calling a runtime helper: the backend reverses
-the bit order of the operand and then counts leading zeros of the reversal, so
-`ctz` costs one `rbit` plus a full `clz` on every architecture.
-
-The instruction budget of that pair differs sharply by target. AArch64 is the
-only architecture where both halves are native, encoding the operation as
-`RBIT Xd, Xn` followed by `CLZ Xd, Xn` — two instructions total.
-x86-64 has no bit-reverse
-instruction, so the emitter expands `rbit` into a five-level SWAR swap network
-(alternating bits, then pairs, nibbles, bytes, and 16-bit halves) before the
-`lzcnt`. That expansion uses `rax` as its mask register and `rdx` as its scratch
-accumulator, and preserves both with an explicit push/pop because the allocator's
-clobber model does not cover a multi-instruction expansion; consequently the
-emitter rejects a `dst` coloured onto `rax` or `rdx`, since the trailing pop
-would restore the register and discard the result (bug-284 C6).
-RISC-V has neither `rbit` nor `clz` in
-base RV64I and assumes no Zbb dependency, so it pays both expansions: the same
-five-level swap network plus a byte reverse, followed by `clz`'s six-step
-shift-or smear and SWAR population count — roughly four dozen instructions, and
-the sequence clobbers the `t0`–`t2` scratch registers.
-
-Despite the three very different encodings the result is identical on every
-architecture and on both the native and Binary Representation execution paths. If
-you are counting instructions on a hot RISC-V path, prefer `bits::band(value, -value)`
-plus a comparison over `ctz` when a boolean alignment test is all you need."#;
+`ctz` gives the same answer on every platform, but it is the one function here
+whose cost varies noticeably between them: it is cheap on arm64 and x86-64 and
+markedly more expensive on RISC-V, which lacks the operations it is built from.
+On a hot RISC-V path where all you need is a yes/no alignment test, prefer
+`bits::band(value, -value)` and a comparison over calling `ctz`."#;
 const EX: &str = r#"Count the trailing zeros of `40` (`0b101000`) — its lowest set bit is at index 3:
 
 ```

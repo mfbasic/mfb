@@ -26,8 +26,8 @@ remove them all. An empty `prefix` removes no bytes, a `prefix` longer than
 `value` cannot match, and a non-matching `prefix` leaves `value` alone; all three
 return an equal string.
 
-The function is total and never fails. Neither operand is modified, and a new
-`String` is always allocated for the result, even on the unchanged path.
+The function is total and never fails. Neither operand is modified, and you
+always get a new `String` back, even on the unchanged path.
 
 To test for the prefix without removing it, use `strings::startsWith`. To remove
 a *set* of leading scalars rather than a fixed substring, use

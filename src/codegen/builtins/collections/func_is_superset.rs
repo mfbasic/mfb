@@ -17,13 +17,7 @@ one that is absent from `a`, returning `TRUE` if the walk finds no such element.
 set is a superset of the empty set, so `isSuperset(a, Set OF T { })` is always
 `TRUE`. A set is a superset of itself, and equal sets are supersets of each other.
 
-`isSuperset` raises no user-trappable error of its own.
-
-`isSuperset` is a generic implemented in MFBASIC source; a call is rewritten to
-the internal `__collections_isSuperset` generic and instantiated for the element
-type like any other generic function.
-
-Both arguments must be the same `Set OF T`. `T` is inferred from the element type
+`isSuperset` raises no user-trappable error of its own.Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
 arguments are not both sets of the same element type does not resolve and is
 rejected at compile time."#;

@@ -32,7 +32,7 @@ On Windows there is no way to deliver an arbitrary signal to a child without a
 shared console, so every terminating bucket maps to the same best-effort
 `TerminateProcess`, with a POSIX-flavored exit code (`128 + signo`, so `137`/`143`/
 `134` for `Kill`/`Terminate`/`Error`) that a later `process::waitFor` can read back;
-there is no per-signal fidelity. The full platform mapping is tabulated in
+there is no per-signal fidelity. The full platform mapping is tabulated on
 `mfb man process types`.
 
 Delivery does not wait for or reap the child; call `process::waitFor` afterward to
@@ -48,7 +48,10 @@ IMPORT io
 FUNC main AS Integer
   RES child = process::spawn(["sleep", "30"])
   process::signal(child, Signal.Terminate)
-  io::print(toString(process::waitFor(child)))
+  ' A signalled child has no exit status of its own, so waitFor gives -1.
+  IF process::waitFor(child) = -1 THEN
+    io::print("stopped by a signal")
+  END IF
   RETURN 0
 END FUNC
 ```"#;
@@ -90,7 +93,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "p",
-                    desc: "The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`.",
+                    desc: "The child process handle. The handle stays open — you still close it. Also accepts the alternate named-argument spelling `process`.",
                     aliases: &["process"],
                     ty: ParameterType::named(super::PROCESS_TYPE_ID),
                     default: DefaultValue::None,

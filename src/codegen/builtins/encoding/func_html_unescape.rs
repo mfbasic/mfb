@@ -26,8 +26,9 @@ and `;`:
 - A **decimal numeric** reference `&#…;` (for example `&#233;`), where the
   digits after `#` are parsed as base 10.
 
-- A **named** reference `&…;` (for example `&eacute;`), looked up in the
-  built-in entity table.
+- A **named** reference `&…;` (for example `&eacute;`). Only the names listed
+  under "Named references" below are recognised; any other name — including
+  common HTML ones such as `&alpha;` — raises `ErrInvalidFormat`.
 
 The resolved code point is emitted as UTF-8 text. Any code point in the range
 `0`–`1114111` (`0x10FFFF`) is accepted, including surrogate values, which are
@@ -37,7 +38,14 @@ The function is **not total**: it fails on a reference that has no `;`
 terminator, on a numeric reference whose digits are empty or non-numeric, on an
 unknown entity name, and on a numeric reference whose value exceeds `1114111`.
 The empty string yields the empty string. `encoding::htmlUnescape` is the
-inverse of `encoding::htmlEscape`."#;
+inverse of `encoding::htmlEscape`.
+
+**Named references.** These 44 names are recognised, and no others:
+
+`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`, `&nbsp;`, `&copy;`, `&reg;`, `&trade;`, `&hellip;`, `&mdash;`, `&ndash;`, `&lsquo;`, `&rsquo;`, `&ldquo;`, `&rdquo;`, `&euro;`, `&pound;`, `&cent;`, `&yen;`, `&sect;`, `&deg;`, `&plusmn;`, `&times;`, `&divide;`, `&frac12;`, `&frac14;`, `&frac34;`, `&middot;`, `&laquo;`, `&raquo;`, `&aacute;`, `&eacute;`, `&iacute;`, `&oacute;`, `&uacute;`, `&agrave;`, `&egrave;`, `&ccedil;`, `&ntilde;`, `&uuml;`, `&ouml;`, `&auml;`, `&szlig;`
+
+Anything outside this list must be written as a numeric reference — `&#945;`
+or `&#x3B1;` for the Greek letter alpha, for instance."#;
 #[rustfmt::skip]
 const BODY: &str =
 r##"FUNC __encoding_htmlUnescape(text AS String) AS String

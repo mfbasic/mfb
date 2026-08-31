@@ -11,7 +11,7 @@ use crate::codegen::registry::AbiCtx;
 
 const INTRO: &str = r#"Wait until a datagram is queued — on one socket, or one of a list."#;
 
-const DESC: &str = r#"`udp::poll` reports whether a datagram is waiting, without consuming it. The
+const DESC: &str = r#"`udp::poll` reports whether a datagram is waiting, without reading it. The
 following `udp::receive` returns that same datagram intact.
 
 Given a single `Socket` it answers a `Boolean`: `TRUE` if a datagram is queued,
@@ -19,9 +19,9 @@ Given a single `Socket` it answers a `Boolean`: `TRUE` if a datagram is queued,
 deadline is a `FALSE`, not an error.
 
 Given a `List OF RES Socket` it answers with the first socket that has one,
-scanning in list order. The returned socket is **borrowed**: the list keeps
-ownership and still closes each member exactly once at scope exit, so the result
-must not be closed or transferred. An empty list raises `ErrInvalidArgument`, and
+scanning in list order. The returned socket is an **alias** of the one in the
+list: the list still closes each socket exactly once when it goes out of scope, so
+do not close the returned socket or hand it to another thread. An empty list raises `ErrInvalidArgument`, and
 a deadline that expires with none ready raises `ErrTimeout` — unlike the scalar
 form there is no value that could mean "nothing".
 
@@ -54,18 +54,35 @@ FUNC main AS Integer
 END FUNC
 ```
 
-Serve whichever of several sockets has traffic first:
+Serve whichever of several sockets has traffic first. The list form returns the
+socket that is ready rather than a flag, and that socket is an alias of the one
+in the list — receiving from it receives on that socket:
 
 ```
+IMPORT net
 IMPORT udp
 IMPORT io
 
-FUNC serveFirst(socks AS List OF RES udp::Socket) AS Integer
-  RES ready AS udp::Socket = udp::poll(socks, 5000)
+FUNC main AS Integer
+  RES a = udp::bind("127.0.0.1", 0)
+  RES b = udp::bind("127.0.0.1", 0)
+  RES client = udp::bind("127.0.0.1", 0)
+
+  ' Only b is sent anything.
+  udp::send(client, udp::localAddress(b), "over here")
+
+  LET socks AS List OF RES udp::Socket = [a, b]
+  RES ready = udp::poll(socks, 5000)
   LET datagram = udp::receive(ready, 4096)
   io::print("got " & toString(len(datagram.bytes)) & " bytes")
   RETURN 0
 END FUNC
+```
+
+prints:
+
+```
+got 9 bytes
 ```"#;
 
 const TIMEOUT_DESC: &str = "Optional. The maximum time to wait, in milliseconds. Omit to block until a datagram arrives; `0` polls once; a positive value bounds the wait (clamped to `2147483647`); a negative value raises `ErrInvalidArgument`.";
@@ -102,7 +119,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     super::req(
                         "sock",
-                        "An open bound socket to test. Borrowed, not consumed.",
+                        "An open bound socket to test. The handle stays open — you still close it.",
                         &[],
                         super::socket(),
                     ),
@@ -116,7 +133,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     super::req(
                         "socks",
-                        "The sockets to wait on, scanned in list order. The list retains ownership; an empty list raises `ErrInvalidArgument`.",
+                        "The sockets to wait on, scanned in list order. The list still closes each socket; an empty list raises `ErrInvalidArgument`.",
                         &[],
                         ParameterType::list_of(ParameterType::Res(Box::new(super::socket()))),
                     ),

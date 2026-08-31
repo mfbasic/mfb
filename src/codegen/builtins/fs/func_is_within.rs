@@ -60,8 +60,7 @@ This check is inherently subject to a time-of-check/time-of-use race: a
 component of either path can be swapped for a symbolic link after `isWithin`
 returns but before a later `fs::open` acts on the result. When the goal is to
 open a caller-supplied name that cannot escape a trusted root, use
-`fs::openWithin`, which enforces containment atomically at open time
-(bug-259 / OS-03)."#;
+`fs::openWithin`, which enforces containment atomically at open time."#;
 const EX: &str = r#"Guard against escaping a root directory:
 
 ```
@@ -69,6 +68,8 @@ IMPORT fs
 IMPORT io
 
 SUB main()
+  fs::createDirectories("uploads")
+  fs::writeText("uploads/report.txt", "hi")
   LET root AS String = fs::canonicalPath("uploads")
   LET candidate AS String = fs::canonicalPath("uploads/report.txt")
   IF fs::isWithin(root, candidate) THEN
@@ -95,6 +96,8 @@ A path is within itself, but a sibling is not:
 IMPORT fs
 
 SUB main()
+  fs::createDirectories("base")
+  fs::createDirectories("base2")
   LET same AS Boolean = fs::isWithin("base", "base")
   LET sibling AS Boolean = fs::isWithin("base", "base2")
 END SUB

@@ -30,7 +30,7 @@ is set, and otherwise returns `fallback`. It never raises for a missing variable
 mirroring `collections::getOr(map, key, fallback)`. The lookup reflects the live
 environment, including values written earlier by `os::setEnv`.
 
-Both the found value and the fallback are returned as fresh owned `String`
+Both the found value and the fallback are returned as fresh `String`
 values. Because absence yields `fallback` rather than a raised error, a variable
 set to the empty string and an unset variable are indistinguishable through this
 function; use `os::hasEnv` or `os::getEnv` when that distinction matters.

@@ -6,10 +6,11 @@
 //! datagrams (plan-110-C); `tls` takes the encrypted stream (plan-110-D).
 //!
 //! Two resources: `Socket` (a connected stream) and `Listener` (a bound server
-//! endpoint). Both are opaque, owned handles released by lexical drop, and both
+//! endpoint). Both are opaque handles released when their bindings go out of scope, and both
 //! share the public `tcp.close` close op — the same shape `net` used, because the
-//! runtime record is unchanged. `Socket` is thread-sendable; `Listener` is not,
-//! since it accepts on its owning thread.
+//! runtime record is unchanged. Both are thread-sendable (bug-464): each record is
+//! the canonical header alone — fd @8, closed @16 — so the thread-transfer copy
+//! carries all of it, and a server can bind on one thread and serve on another.
 //!
 //! **`Address` is not duplicated here.** Endpoints are `net::Address`, so a value
 //! from `net::lookup` feeds `tcp::connect` directly and no conversion exists to get
@@ -122,18 +123,19 @@ Endpoints are `net::Address` values, so an address resolved by `net::lookup` can
 be handed straight to `tcp::connect`, and `tcp::localAddress` /
 `tcp::remoteAddress` report the same shape back.
 
-**A program that uses those addresses must `IMPORT net` as well as `tcp`.**
+**A file that reads those addresses' fields must `IMPORT net` as well as `tcp`.**
 Imports are not transitive and a package cannot re-export another's types (see
 `mfb spec language modules-and-packages`), so `Address` is only nameable in a
-file that imports the package declaring it. Without that import, the value
-returned by `tcp::localAddress` has no nameable type and the *next* call using it
-fails to resolve. Only the address-valued members are affected: `tcp::connect`,
-`tcp::listen`, `tcp::read`, and `tcp::write` need nothing but `IMPORT tcp`.
+file that imports the package declaring it. Passing the whole value on still
+works without it — `tcp::connect(bound)` compiles — but `bound.host` and
+`bound.port` are refused there. Only the address-valued members are affected:
+`tcp::connect`, `tcp::listen`, `tcp::read`, and `tcp::write` need nothing but
+`IMPORT tcp`.
 
-`Socket` and `Listener` are opaque, owned handles closed automatically by lexical
-drop when their binding leaves scope. `tcp::close` releases one earlier — to free
-a listening port for reuse, to let a peer observe the end of the stream promptly,
-or to bound how many descriptors a long-running program holds open.
+`Socket` and `Listener` are opaque handles that close themselves when their
+binding goes out of scope. `tcp::close` closes one earlier — to release a
+listening port for reuse, to let a peer observe the end of the stream promptly,
+or to bound how many connections a long-running program holds open at once.
 
 `tcp::read` returns bytes and never text: a stream read stops wherever the
 network divided it, which need not be a character boundary, so decoding belongs
@@ -164,9 +166,12 @@ pub(crate) fn register(r: &mut Registry) {
         name: SOCKET_TYPE,
         export: true,
         description: "A connected TCP stream from `tcp::connect` or `tcp::accept`, \
-                      closed automatically when it leaves scope.",
+                      closed automatically when its binding goes out of scope.",
         close_function: "tcp.close",
         sendable: true,
+        // Header-only: the connected fd @8 and the closed flag @16. Deadlines
+        // are kernel-side (`SO_RCVTIMEO`/`SO_SNDTIMEO`) and ride the fd.
+        live_slots: &[],
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });
@@ -175,9 +180,17 @@ pub(crate) fn register(r: &mut Registry) {
         export: true,
         description: "A bound TCP server endpoint from `tcp::listen`; \
                       `tcp::accept` draws connections from it.",
-        // A listener accepts on its owning thread, so it is not thread-sendable.
         close_function: "tcp.close",
-        sendable: false,
+        // Thread-sendable (bug-464): a listener's record is the canonical header
+        // and nothing else -- the listening fd @8 and the closed flag @16, the
+        // same shape as the `Socket` above -- so the thread-transfer copy already
+        // carries all of it. The earlier `false` was policy alone ("a listener
+        // accepts on its owning thread"), which ruled out the ordinary server
+        // shape of binding on one thread and serving on another.
+        sendable: true,
+        // Header-only, exactly like the `Socket` above -- which is why this
+        // needed no change to the transfer copy.
+        live_slots: &[],
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });
@@ -239,17 +252,24 @@ mod tests {
     }
 
     #[test]
-    fn tcp_socket_is_sendable_and_listener_is_not() {
-        // A connected stream may cross a thread boundary; a listener may not,
-        // because it accepts on its owning thread.
+    fn tcp_socket_and_listener_are_both_sendable() {
+        // bug-464: both cross a thread boundary. This test asserted
+        // `!sendable` for the Listener until then -- carried into plan-110-B
+        // (008d745c2) from plan-03-net.md §4.4's v1 deferral, which was a
+        // product decision ("a listener accepts on its owning thread") and not a
+        // safety invariant. The Listener record is the canonical header alone
+        // (fd @8, closed @16), the same shape as the Socket, so the
+        // thread-transfer copy already carried all of it; the restriction only
+        // ruled out binding on one thread and serving on another.
+        // `tests/rt-behavior/threads/thread-transfer-tcp-listener-rt` proves the
+        // new contract at runtime by accepting a real connection on a
+        // transferred listener.
         assert!(crate::codegen::resource::is_builtin_sendable_resource_type(
             &crate::types::ParameterType::declared(super::SOCKET_TYPE_ID)
         ));
-        assert!(
-            !crate::codegen::resource::is_builtin_sendable_resource_type(
-                &crate::types::ParameterType::declared(super::LISTENER_TYPE_ID)
-            )
-        );
+        assert!(crate::codegen::resource::is_builtin_sendable_resource_type(
+            &crate::types::ParameterType::declared(super::LISTENER_TYPE_ID)
+        ));
     }
 
     #[test]

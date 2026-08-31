@@ -11,12 +11,10 @@ const DESC_REDUCE: &str = r#"`collections::reduce` folds `value` into one value.
 `initial`. The list is walked from the first element to the last, and for each
 element the reducer is called as `f(accumulator, element)` — **accumulator
 first, element second** — with its return value becoming the accumulator for the
-next step. The accumulator left after the final element is the result. It is a
-**native** member: the compiler emits the fold loop directly rather than
-instantiating an MFBASIC generic.
+next step. The accumulator left after the final element is the result.
 
 The fold direction is left, from index 0 upward: the loop starts at the head of
-the entry table and advances one entry per step. For a right-to-left fold, use
+the list and advances one element per step. For a right-to-left fold, use
 `collections::reduceRight`.
 
 The accumulator type `U` is fixed by `initial`. `f`'s first parameter type, its
@@ -27,17 +25,14 @@ a `List OF String` can be folded into an `Integer`.
 When `value` is empty, the loop body never runs, `f` is never called, and
 `initial` is returned unchanged.
 
-`value` is not modified. Unlike the other three callback members, `reduce`
-deliberately does not free the per-element item it materializes for the
-callback, because the reducer is allowed to return that item itself as the new
-accumulator — freeing it would turn a leak into a use-after-free. Intermediate
-accumulators are likewise left unfreed.
+`value` is not modified. The reducer may return one of the elements it was
+given as the new accumulator, and that is safe to do.
 
 `reduce` raises no domain error of its own. It is classified fallible solely
 because a failing `f` propagates: when the reducer returns a non-`Ok` result,
 the fold stops immediately at that element, later elements are never visited,
 and the reducer's own error is passed through unchanged. No cleanup runs on that
-path, since the accumulator may still alias the borrowed `initial`.
+path, since the accumulator may still be the `initial` value you passed in.
 
 An inline `TRAP` on a `reduce` call captures that propagated reducer error at
 the call site rather than letting it auto-propagate."#;
@@ -106,21 +101,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to fold. Not modified.",
                     aliases: &["collection"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "initial",
-                    desc: "",
+                    desc: "The starting accumulator, and the result when the list is empty. Its type decides the result type.",
                     aliases: &["seed"],
                     ty: ParameterType::var("U"),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "f",
-                    desc: "",
+                    desc: "Called once per element as `(accumulator, item)`, left to right; what it returns becomes the next accumulator.",
                     aliases: &["combine"],
                     ty: ParameterType::func(
                         vec![ParameterType::var("U"), ParameterType::var("T")],

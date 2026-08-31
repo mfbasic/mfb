@@ -1,0 +1,12 @@
+' bug-466 Reproduction 1: `tcp::localAddress` returns a `net::Address`, whose
+' FIELDS are readable only where the file itself imports `net`. Passing the
+' field read to an overloaded builtin used to escape every front-end gate and
+' fail in native lowering with a bare, unlocated message.
+IMPORT tcp
+
+FUNC main AS Integer
+  RES s = tcp::listen("127.0.0.1", 0)
+  LET b = tcp::localAddress(s)
+  RES c = tcp::connect("127.0.0.1", b.port)
+  RETURN 0
+END FUNC

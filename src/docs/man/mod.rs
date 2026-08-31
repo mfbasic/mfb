@@ -72,7 +72,16 @@ mod tests {
         // Every topic advertised by `mfb man <topic>` resolves to a non-empty
         // overview with a one-line summary.
         for name in [
-            "errors", "flow", "lambda", "link", "tooling", "tour", "types", "unicode",
+            "errors",
+            "flow",
+            "lambda",
+            "link",
+            "optimizations",
+            "tooling",
+            "tour",
+            "types",
+            "unicode",
+            "variable",
         ] {
             let topic = topic(name).unwrap_or_else(|| panic!("guide topic `{name}` present"));
             assert!(!topic.overview.is_empty(), "{name} overview is non-empty");

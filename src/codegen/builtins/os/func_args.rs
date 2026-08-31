@@ -195,7 +195,7 @@ program invoked with no arguments returns an empty list.
 
 The arguments are captured at program startup from the values the OS passes in,
 so `os::args` reflects the invocation regardless of where in the program it is
-called. Each element is an owned `String` copied from the corresponding `argv`
+called. Each element is a `String` copied from the corresponding `argv`
 entry."#;
 const EX: &str = r#"Print each argument on its own line:
 

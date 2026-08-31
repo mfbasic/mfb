@@ -15,7 +15,15 @@ const DESC: &str = r#"`addAttribute` returns a new `AttributedString` with `attr
 range `[start, endIndex]` (length `endIndex − start + 1`; `start == endIndex` is a single scalar).
 Spans are stored as-is and never merged; overlapping same-member spans resolve at read time by
 higher-start-wins (see `getAttributes`). The end-of-range parameter is `endIndex` rather than `end`
-because `end` is a reserved keyword."#;
+because `end` is a reserved keyword.
+
+**An invalid range raises.** `start` must be zero or more and no greater than
+`endIndex`, or the call raises `ErrInvalidArgument` (`invalid attribute range`);
+and both ends must fall inside the visible text, or it raises
+`ErrIndexOutOfRange` (`attribute range out of bounds`). Because the range is
+inclusive, **empty text has no valid range at all** — even `0, 0` is out of
+bounds on an empty `AttributedString`, so guard construction from text that
+might be empty."#;
 
 const EX: &str = r#"```
 IMPORT astrings

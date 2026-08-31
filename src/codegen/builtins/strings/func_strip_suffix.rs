@@ -25,8 +25,8 @@ to remove them all. An empty `suffix` removes no bytes, a `suffix` longer than
 `value` cannot match, and a non-matching `suffix` leaves `value` alone; all three
 return an equal string.
 
-The function is total and never fails. Neither operand is modified, and a new
-`String` is always allocated for the result, even on the unchanged path.
+The function is total and never fails. Neither operand is modified, and you
+always get a new `String` back, even on the unchanged path.
 
 To test for the suffix without removing it, use `strings::endsWith`. To remove a
 *set* of trailing scalars rather than a fixed substring, use

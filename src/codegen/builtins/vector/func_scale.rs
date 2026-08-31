@@ -25,7 +25,7 @@ products, whereas `vector::dot` sums those same products into a *scalar*. The tw
 are related by `dot(a, b) = scale(a, b).x + scale(a, b).y + ...`, but they have
 different return types and the compiler will not confuse them.
 
-The implementation is multiplication only — no addition beyond that, no division,
+`scale` is multiplication only — no addition beyond that, no division,
 no square root, no trigonometry — so it performs **no rounding** on any element
 type. The `Integer` overloads are exact checked integer arithmetic and the `Fixed`
 overloads are exact within the Q32.32 grid, putting `scale` in the small exact
@@ -159,6 +159,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("two vectors of the same type"),
         internal_only: false,
-        implementations: super::implementations("scale", super::Shape::BinaryVector, &[], body),
+        implementations: super::implementations("scale", super::Shape::BinaryVector, &[], body, &[
+            "The vector to scale.",
+            "The per-component scale factors, as a vector of the same type. Multiplication is component-wise, not a dot product.",
+        ]),
     });
 }

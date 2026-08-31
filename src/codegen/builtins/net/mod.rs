@@ -127,7 +127,7 @@ The package also parses and renders URLs: `net::toUrl` decomposes an absolute UR
 into a `Url` value record, `toString` renders it back, and `net::percentDecode` /
 `net::parseQuery` decode request-target components.
 
-`net` owns no resources. It has no handles to close."#;
+`net` has no handles to open or close — every call takes and returns ordinary values."#;
 
 /// Build a native `net.*` member's `Body::abi_function_aliased`: its own per-member
 /// lowering `lower` (which lives in the member's `func_*.rs` and calls the matching

@@ -219,6 +219,52 @@ pub(super) fn lower_project_with_external_functions(
         if used.contains("tcp.Listener") {
             resources.add_standard_listener(&mut types, &mut strings);
         }
+        // Every OTHER built-in resource (bug-464 fallout). The three branches
+        // above were the WHOLE table: a package exporting a `udp::Socket`, a
+        // `tls::Socket`/`Listener`, a `process::Process`, an audio handle or a
+        // `canvas::Image` got no entry and failed to build with an opaque
+        // `truncated binary representation`. Reproduced on clean main
+        // (fc5c8a6db) with `EXPORT FUNC useSock(RES s AS udp::Socket)`, so this
+        // predates bug-464 -- the TLS work only made it unavoidable.
+        //
+        // `used` holds the spellings as they appear in signatures, which for a
+        // plan-54 stateful handle is `fs.File STATE Cursor`, not `fs.File`. The
+        // table is keyed by the BASE resource type, so each name is normalised
+        // with `without_state()` before it is considered -- otherwise a stateful
+        // handle adds a second, bogus entry under its full spelling, which is
+        // exactly what drifted 45 committed `.mfp` files on the first attempt
+        // here. (The three branches above compare bare names for the same
+        // reason.)
+        //
+        // A BTreeSet both de-duplicates -- two params of `fs.File STATE A` and
+        // `fs.File STATE B` normalise to one entry -- and fixes the order.
+        // `used` is a HashSet, and an iteration-order-dependent table would make
+        // `.mfp` bytes vary from run to run.
+        let others: std::collections::BTreeSet<String> = used
+            .iter()
+            .map(|name| {
+                crate::types::ParameterType::declared(name)
+                    .without_state()
+                    .name()
+                    .to_string()
+            })
+            .filter(|base| {
+                !matches!(base.as_str(), "fs.File" | "tcp.Socket" | "tcp.Listener")
+                    && crate::codegen::resource::is_builtin_resource_type(
+                        // `named`, not `declared`: this is already a normalised
+                        // base identity, so it is a constructor call and not a
+                        // second trip through the grammar (plan-111 class 1b).
+                        &crate::types::ParameterType::named(base),
+                    )
+            })
+            .collect();
+        for name in &others {
+            resources.add_standard_other(
+                &mut types,
+                &mut strings,
+                &crate::types::ParameterType::named(name),
+            );
+        }
     }
     // Native LINK resources (plan-link-update.md §10): each becomes an opaque
     // type (exported when the declaration is `EXPORT`) plus a RESOURCE_TABLE
@@ -435,7 +481,8 @@ pub(super) fn value_uses_resource_type(value: &IrValue) -> bool {
         | IrValue::UnionExtract { value, .. }
         | IrValue::ResultIsOk { value }
         | IrValue::ResultValue { value, .. }
-        | IrValue::ResultError { value } => value_uses_resource_type(value),
+        | IrValue::ResultError { value }
+        | IrValue::Checked { value, .. } => value_uses_resource_type(value),
         IrValue::MemberAccess { target, .. } => value_uses_resource_type(target),
         IrValue::WithUpdate {
             target, updates, ..
@@ -586,7 +633,8 @@ pub(super) fn collect_resource_names_in_value(
         | IrValue::UnionExtract { value, .. }
         | IrValue::ResultIsOk { value }
         | IrValue::ResultValue { value, .. }
-        | IrValue::ResultError { value } => collect_resource_names_in_value(value, names, record),
+        | IrValue::ResultError { value }
+        | IrValue::Checked { value, .. } => collect_resource_names_in_value(value, names, record),
         IrValue::MemberAccess { target, .. } => {
             collect_resource_names_in_value(target, names, record)
         }
@@ -794,6 +842,7 @@ pub(super) fn collect_imported_calls_value(
         | IrValue::ResultIsOk { value }
         | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
+        | IrValue::Checked { value, .. }
         | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => {
             collect_imported_calls_value(value, imported, used)
@@ -993,12 +1042,29 @@ pub(super) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
 
 /// The `RESOURCE_TABLE` flags for a standard built-in resource, including the
 /// "sendable to thread" bit (bit 2) when the registry marks the type sendable.
-pub(super) fn standard_resource_flags(type_name: &str) -> u32 {
-    let mut flags = RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD | RESOURCE_FLAG_CLOSE_MAY_FAIL;
-    if crate::codegen::resource::is_builtin_sendable_resource_type(
-        &crate::types::ParameterType::declared(type_name),
-    ) {
+/// `RESOURCE_TABLE` flags for a built-in resource row.
+///
+/// **Takes the QUALIFIED id** (`fs.File`, `tcp.Socket`, `udp.Socket`) — every
+/// registry lookup here does `resolve_type`, which splits on `'.'` and answers
+/// `None` for a bare name. The three `add_standard_*` helpers used to pass the
+/// BARE `"File"`/`"Socket"`/`"Listener"` constants, so `sendable` silently
+/// answered `false` for all three and the bit was clear even for `fs::File`,
+/// which has always been sendable. The unit test passed the qualified id, so it
+/// never saw this (bug-464 fallout).
+///
+/// `close_may_fail` is registry-driven for the same reason the table is no
+/// longer three hardcoded types: `process::Process` is the one built-in whose
+/// close op cannot fail.
+/// Takes the TYPE, not its spelling (plan-111 class 1b): every caller already
+/// holds the `ParameterType` it hands `TypeTable::type_id`, so re-deriving one
+/// from a string here would be a `declared` site for no gain.
+pub(super) fn standard_resource_flags(type_: &crate::types::ParameterType) -> u32 {
+    let mut flags = RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD;
+    if crate::codegen::resource::is_builtin_sendable_resource_type(type_) {
         flags |= RESOURCE_FLAG_SENDABLE;
+    }
+    if crate::codegen::resource::builtin_resource_close_may_fail(type_) {
+        flags |= RESOURCE_FLAG_CLOSE_MAY_FAIL;
     }
     flags
 }

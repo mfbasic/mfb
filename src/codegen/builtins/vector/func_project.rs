@@ -21,7 +21,7 @@ opposite to `b`. Note that only the *direction* of `b` matters for the result, n
 its magnitude — the `dot(b, b)` in the denominator cancels the scaling — so
 projecting onto `b` and onto `2 * b` gives the same answer.
 
-**`b` must not be the zero vector.** The implementation computes `dot(b, b)` first
+**`b` must not be the zero vector.** `b`'s squared length is taken first
 and, when it is zero, fails with `ErrInvalidArgument` and the message
 `vector::project onto a zero-length vector` rather than dividing by zero. Note
 that the guard is on the squared length rather than on the vector's components
@@ -216,6 +216,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             super::Shape::BinaryVector,
             &["ErrInvalidArgument"],
             body,
+            &[
+                "The vector to project.",
+                "The vector to project onto. Must not be zero-length: there is no direction to project onto.",
+            ],
         ),
     });
 }

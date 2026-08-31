@@ -18,15 +18,8 @@ insertion order follows the elements of `a` first, then the elements of `b` that
 were not already in `a`. The union of a set with the empty set is a copy of that
 set, and the union of two equal sets is a set equal to either one.
 
-`union` raises no user-trappable error of its own. It allocates while building
-the result, but allocation failure is not a trappable domain error, and the
-`add` it is built on is classified infallible for exactly that reason.
-
-`union` is a generic implemented in MFBASIC source; a call is rewritten to the
-internal `__collections_union` generic and instantiated for the element type like
-any other generic function.
-
-Both arguments must be the same `Set OF T`. `T` is inferred from the element type
+`union` raises no user-trappable error of its own. While building the result it needs memory, but running out of memory is not a trappable domain error, and the
+`add` it is built on is classified infallible for exactly that reason.Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
 arguments are not both sets of the same element type does not resolve and is
 rejected at compile time."#;

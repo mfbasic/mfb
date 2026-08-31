@@ -24,7 +24,7 @@ byte length of the result is generally larger than the element count, while
 `len` of the result equals the element count exactly. The empty list yields the
 empty string.
 
-The input list is not modified; the returned `String` is a fresh owned value."#;
+The input list is not modified; the returned `String` is its own value."#;
 
 const EX: &str = r#"Build a string from scalar literals:
 

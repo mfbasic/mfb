@@ -53,8 +53,7 @@ as `"tests"` or `".."`, is resolved against the existing working directory
 before the change takes effect. The path may contain Unicode characters,
 including emoji, when the host filesystem accepts those names. The string must
 not be empty and must not contain an embedded NUL byte, because the host call
-requires a NUL-terminated path; the helper allocates an internal
-NUL-terminated copy of the path for the call and rejects an empty or
+requires a NUL-terminated path; the call prepares an internal copy of the path for the call and rejects an empty or
 NUL-containing string before making it.
 
 The named entry must exist and must be a directory the process is allowed to
@@ -67,7 +66,8 @@ const EX: &str = r#"Move into a subdirectory and back up to the parent:
 IMPORT fs
 
 SUB main()
-  fs::setCurrentDirectory("tests")
+  fs::createDirectories("scratch")
+  fs::setCurrentDirectory("scratch")
   fs::setCurrentDirectory("..")
 END SUB
 ```
@@ -79,7 +79,8 @@ IMPORT fs
 IMPORT io
 
 SUB main()
-  fs::setCurrentDirectory("target")
+  fs::createDirectories("output")
+  fs::setCurrentDirectory("output")
   LET here AS String = fs::currentDirectory()
   io::print(here)
 END SUB

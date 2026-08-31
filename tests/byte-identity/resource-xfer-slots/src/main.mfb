@@ -1,0 +1,31 @@
+' bug-464 byte-identity codegen-coverage fixture (compile-only, never executed).
+'
+' This exists for the targets this machine cannot RUN. The live-slot transfer
+' copy is per-backend by construction -- a `tls::Socket`'s record tail is
+' `SSL_CTX*`@32 + `SSL*`@40 on OpenSSL, an ARENA SSPI block@40 on Schannel (which
+' must be deep-copied, not aliased), and ctx@32 + queue@40 on Network.framework.
+' The macOS path is proven at runtime by
+' `tests/rt-behavior/threads/thread-transfer-tls-socket-rt`, but no test on this
+' host ever executes the OpenSSL or Schannel forms, and no Windows binary is run
+' by any test at all.
+'
+' A byte-identity fixture is the available substitute: it is lowered for EVERY
+' registered target by `builtin_codegen_corpora_lower_in_process` and pinned by
+' five per-target `.ncodesum` goldens. That does not prove the Schannel deep-copy
+' is CORRECT -- only that it is emitted, and that it does not silently change
+' afterwards. The distinction is recorded in bug-464's STATUS block; do not read
+' a green gate here as runtime proof on Windows or Linux.
+'
+' Compile-only, so `tls::connect` never has to reach a peer.
+IMPORT tls
+IMPORT thread
+IMPORT xfer_tls_worker
+
+FUNC main AS Integer
+  LET t AS Thread OF RES tls::Socket TO Boolean = thread::start(xfer_tls_worker::talkOnTransferredSocket, "dns.google")
+  RES conn = tls::connect("8.8.8.8", 443, 30000, "dns.google")
+  ' The call that emits `copy_resource_to_current_arena` for a resource WITH
+  ' declared live slots -- the whole point of the fixture.
+  thread::transfer(t, conn)
+  RETURN 0
+END FUNC

@@ -14,12 +14,10 @@ const INTRO: &str = r#"Parse UTF-8 CSV text into a grid of String cells."#;
 
 const DESC: &str = r#"`csv::parse` scans `value` left to right and returns the resulting document as a
 `List OF List OF String`: an ordered list of rows, each an ordered list of String
-cells. Internally the text is decoded to its Unicode scalars in one pass
-(`encoding::utf32Encode`) and scanned scalar by scalar, so the scanner never
-splits a multi-byte code point or a `\r\n` pair incorrectly; each field is
-accumulated in a scalar buffer and re-encoded to a String with
-`encoding::utf32Decode`. Every structural CSV character (comma, quote, CR, LF) is
-ASCII, so the resulting grid is byte-identical to a grapheme-based scan.
+cells. Parsing is done in terms of Unicode scalars, never bytes, so a multi-byte
+character is never split and a `\r\n` line ending is never seen as two. Every
+character CSV treats as structural — comma, quote, CR, LF — is ASCII, so the
+result is the same either way.
 
 The dialect is RFC-4180-aligned. The field delimiter defaults to a comma (scalar
 `44`) but can be overridden with the optional `delimiter` argument; the quote

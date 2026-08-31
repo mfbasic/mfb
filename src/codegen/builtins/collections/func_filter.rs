@@ -14,20 +14,17 @@ const INTO_FILTER: &str = "Keep the elements of a list for which a predicate ret
 const DESC_FILTER: &str = r#"`collections::filter` walks `value` from the first element to the last, calls
 `predicate` once per element, and appends the element to a new list when the
 predicate returns `TRUE`. Elements for which the predicate returns `FALSE` are
-skipped. It is a **native** member: the compiler emits the selection loop
-directly rather than instantiating an MFBASIC generic.
+skipped.
 
 Relative order is preserved: kept elements appear in the result in the same
 order they had in `value`. The result has the same type as `value`, so filtering
 a `List OF String` yields a `List OF String`, and its length is between zero and
 the length of `value`.
 
-`value` is neither modified nor consumed; the result is a freshly allocated
-list, pre-sized to the source so the per-element append never has to regrow.
+`value` is neither modified nor closed; the result is a new list.
 
 `predicate` must accept exactly one argument of the element type `T` and return
-`Boolean`. This is enforced both when the call is resolved and again in the
-lowering.
+`Boolean`. This is enforced both when the call is resolved and again in the.
 
 The single-argument `general` predicates — `isEven`, `isOdd`, `isPositive`,
 `isNegative`, `isZero`, `isEmpty`, and `isNotEmpty` — are ordinary
@@ -40,7 +37,7 @@ An empty `value` calls `predicate` zero times and yields an empty list.
 because a failing `predicate` propagates: when the callback returns a non-`Ok`
 result, the loop stops immediately at that element, later elements are never
 visited, no result list is produced, and the callback's own error is passed
-through unchanged. The partially built output is freed on that path before the
+through unchanged. The partially built output is discarded on that path before the
 error leaves.
 
 An inline `TRAP` on a `filter` call captures that propagated callback error at
@@ -97,14 +94,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to filter. Not modified — you get a new list back.",
                     aliases: &["collection"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "predicate",
-                    desc: "",
+                    desc: "Called once per element, in order. Elements it answers `TRUE` for are kept. An error it raises propagates and abandons the result.",
                     aliases: &[],
                     ty: ParameterType::func(vec![ParameterType::var("T")], ParameterType::Boolean),
                     default: DefaultValue::None,

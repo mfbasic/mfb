@@ -34,10 +34,9 @@ missing parent directories, like `mkdir -p`, and returns `Nothing` on success.
 
 `path` is scanned left to right and each `/`-separated prefix is created in turn
 before the final component is created. A leading `/` is skipped so the filesystem
-root is not treated as a component to create. For every prefix, and for the final
-component, one host `mkdir` operation is attempted; a component that already
-exists (host `EEXIST`, errno `17`) is accepted and the scan continues. As a
-result, existing intermediate directories and a final `path` that already exists
+root is not treated as a component to create. Each prefix, and the final
+component, is created in turn; one that already exists is accepted and the walk
+continues. As a result, existing intermediate directories and a final `path` that already exists
 as a directory all succeed quietly rather than being treated as errors, which
 makes `fs::createDirectories` idempotent: re-running it on a path that is already
 present succeeds without changing anything.
@@ -50,17 +49,13 @@ each directory's actual mode is `0755` with the umask bits cleared.
 
 `path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
 absolute or relative to the current working directory, and may contain Unicode
-characters when the host filesystem accepts those names. Internally a
-NUL-terminated copy of `path` is allocated for the host calls, and the `/`
-separators in that copy are temporarily overwritten with NUL bytes to create each
-prefix and restored afterward, so `path` must be non-empty and must not contain an
-embedded NUL byte.
+characters when the host filesystem accepts those names. Each prefix is created in turn, so `path` must be non-empty and must not contain an embedded NUL byte.
 
 When the host refuses to create a prefix or the final component for any reason
-other than `EEXIST`, the operation stops at that point and the failure `errno` is
-mapped to the matching error below. Only `ENOENT` and `EACCES` are given specific
-errors; every other refusal is reported as `ErrOutput`. `errno` values are per-OS;
-the same symbolic error is produced on each platform."#;
+other than "it already exists", the walk stops there and raises the matching
+error below — leaving the directories it had already created. A missing parent
+and a permission refusal get their own errors; every other refusal is reported
+as `ErrOutput`. The same error is raised on every platform."#;
 const EX: &str = r#"Create a nested directory together with its missing parents:
 
 ```

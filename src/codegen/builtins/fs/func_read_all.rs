@@ -37,7 +37,7 @@ position is advanced to end of input, so a subsequent `fs::eof` reports true.
 
 The amount to read is measured up front: the function seeks to record the current
 position, seeks to the end to find the file's length, seeks back to the start
-position, allocates a `String` of exactly that length, and reads the remainder
+position, builds a `String` of exactly that length, and reads the remainder
 into it in one or more host reads until the buffer is full. No newline
 translation or other decoding is performed beyond the UTF-8 validity check, so the
 returned `String` holds the file's remaining bytes exactly as stored on disk,
@@ -61,9 +61,10 @@ const EX: &str = r#"Read all remaining text from an open file:
 IMPORT fs
 
 SUB main()
+  fs::writeText("data.txt", "first line\nsecond line\n")
   RES f = fs::openFile("data.txt")
   LET value AS String = fs::readAll(f)
-  ' f is closed by lexical drop when this scope ends
+  ' f closes itself when this scope ends
 END SUB
 ```
 
@@ -73,6 +74,7 @@ Skip the first line, then read the rest of the file:
 IMPORT fs
 
 SUB main()
+  fs::writeText("data.txt", "first line\nsecond line\n")
   RES f = fs::openFile("data.txt")
   LET header AS String = fs::readLine(f)
   LET body AS String = fs::readAll(f)

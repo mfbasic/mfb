@@ -15,9 +15,15 @@ server-side counterpart to the client's `tls::connect`.
 The endpoint is resolved and bound exactly as `tcp::listen` does. An empty
 `host` (or `"0.0.0.0"`) binds all local interfaces; any other value binds the
 matching address. The listening socket is created with the address-reuse option
-set, so a restarted server can re-bind a recently used port. The optional
-`backlog` hints the size of the kernel's pending-connection queue; `0` (the
-default when omitted) uses the host default.
+set, so a restarted server can re-bind a recently used port. Port `0` asks the OS
+to choose a free port, which `tls::localAddress` on the returned `Listener` then
+reports — the race-free way to bind.
+
+The optional `backlog` hints the size of the kernel's pending-connection queue;
+`0` (the default when omitted) uses the host default. **`tcp::listen` defaults to
+`128` instead**, so the two transports do not queue the same depth unless the
+argument is given explicitly. On macOS `backlog` is accepted for
+signature parity but ignored: Network.framework manages its own accept queue.
 
 `certPath` and `keyPath` are filesystem paths to PEM files: the certificate
 chain (leaf certificate first, followed by any intermediates) and the matching
@@ -41,8 +47,8 @@ no conversion step is needed to move a server between them. The key must be
 unencrypted: a passphrase-protected PEM has no way to be unlocked here and raises
 `ErrTlsFailed`.
 
-The server TLS context is owned by the `Listener` and *borrowed* by each
-accepted `Socket`: closing an accepted socket never frees the shared context,
+The `Listener` holds the server's TLS settings and every accepted `Socket`
+shares them: closing an accepted socket leaves them intact,
 which is released exactly once when the listener itself closes. The listener
 presents its certificate but does not request or verify a client certificate
 (no mutual TLS in this version)."#;
@@ -59,7 +65,7 @@ SUB main()
   LET line = encoding::utf8Decode(tls::read(client, 4096))
   tls::write(client, "you said: " & line)
   tls::close(client)
-  ' server is closed by lexical drop when this scope ends
+  ' server closes itself when this scope ends
 END SUB
 ```"#;
 
@@ -101,7 +107,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "port",
-                    desc: "The local TCP port to bind and listen on.",
+                    desc: "The local TCP port to bind and listen on. `0` asks the OS to choose a free port, which `tls::localAddress` then reports.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

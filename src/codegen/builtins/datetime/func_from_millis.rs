@@ -89,7 +89,8 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "millis",
-                desc: "",
+                desc:
+                    "Milliseconds since the Unix epoch. Negative values name instants before 1970.",
                 aliases: &[],
                 ty: super::ParameterType::Integer,
                 default: super::DefaultValue::None,

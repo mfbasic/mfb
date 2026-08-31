@@ -1,0 +1,62 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_workers
+
+' bug-469: a `thread::start` that raises must leave nothing for scope cleanup to
+' drop. Each case below traps the raise and returns 0. Before the fix the
+' function-level TRAP handler's own exit ran `thread.drop` on a `Thread` slot
+' that never received a handle, and the process died with SIGSEGV during
+' teardown -- after the handler had already run and returned normally.
+
+FUNC trappedInboundLimit AS Integer
+  LET t AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 0, 1)
+  RETURN 1
+  TRAP(err)
+    IF err.code <> 77050002 THEN RETURN 2
+    RETURN 0
+  END TRAP
+END FUNC
+
+FUNC trappedOutboundLimit AS Integer
+  LET t AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 1, 0)
+  RETURN 1
+  TRAP(err)
+    IF err.code <> 77050002 THEN RETURN 2
+    RETURN 0
+  END TRAP
+END FUNC
+
+FUNC failBeforeBind AS Integer
+  FAIL error(77050002, "before bind")
+END FUNC
+
+' An error raised BEFORE the `LET` runs jumps the handler past a bind that never
+' executed at all -- the prologue entry-zero half of the same hazard.
+FUNC raiseBeforeThreadBind AS Integer
+  LET before AS Integer = failBeforeBind()
+  LET t AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 1, 1)
+  RETURN 1
+  TRAP(err)
+    RETURN 0
+  END TRAP
+END FUNC
+
+' A live thread bound before the failing one must still be dropped normally.
+FUNC liveThreadSurvivesTrappedStart AS Integer
+  LET live AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 1, 1)
+  LET bad AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 0, 1)
+  RETURN 1
+  TRAP(err)
+    IF err.code <> 77050002 THEN RETURN 2
+    RETURN 0
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  IF trappedInboundLimit() <> 0 THEN RETURN 10
+  IF trappedOutboundLimit() <> 0 THEN RETURN 11
+  IF raiseBeforeThreadBind() <> 0 THEN RETURN 12
+  IF liveThreadSurvivesTrappedStart() <> 0 THEN RETURN 13
+  io::print("thread-start-invalid-limit-trapped-ok")
+  RETURN 0
+END FUNC

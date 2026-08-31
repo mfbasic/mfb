@@ -19,7 +19,7 @@ digraph `ǅ`) are **not** reported as uppercase, and neither are uncased letters
 digits, punctuation, or symbols. `isUpper` is a category test, not a
 "has-no-lowercase-mapping" test.
 
-Classification reads the Unicode general-category table embedded in the compiler,
+Classification follows the Unicode general categories,
 so it covers the whole code-point space rather than just ASCII, and is
 deterministic and locale-independent. The function is total: it returns a
 `Boolean` for every `Scalar` and never fails.

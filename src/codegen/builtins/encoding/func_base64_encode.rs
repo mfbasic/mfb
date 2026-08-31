@@ -11,7 +11,7 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Encode a `List OF Byte` to a standard Base64 `String`."#;
 const DESC: &str = r#"`encoding::base64Encode` returns the standard Base64 representation of `data`
-as defined by RFC 4648 §4. Input bytes are consumed as a continuous bit stream,
+as defined by RFC 4648 §4. Input bytes are read as a continuous bit stream,
 most-significant bit first, and emitted six bits at a time; each 6-bit group
 selects one character from the alphabet
 `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/`, so the

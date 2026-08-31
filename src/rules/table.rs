@@ -183,6 +183,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "statement block nesting is too deep",
     },
     Rule {
+        code: "1-102-0013",
+        name: "MFB_PARSE_RECORD_FIELD_ASSIGNMENT",
+        severity: Severity::Error,
+        message: "record field assignment is not supported",
+    },
+    Rule {
         code: "2-201-0001",
         name: "IMPORT_PACKAGE_INVALID",
         severity: Severity::Error,
@@ -719,6 +725,18 @@ pub(super) const RULES: &[Rule] = &[
         name: "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
         severity: Severity::Error,
         message: "inline TRAP requires a fallible call",
+    },
+    // bug-457/bug-471: the one nested shape the inline-TRAP desugar cannot cover.
+    // Lifting a fallible call — or a raising operator — out of a short-circuited
+    // operand would evaluate it unconditionally, so it is reported instead of
+    // silently escaping. The name keeps `_CALL` from bug-457: renaming a shipped
+    // rule breaks every diagnostic filter keyed on it, and the widening is in the
+    // message, not the identity.
+    Rule {
+        code: "2-203-0137",
+        name: "TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL",
+        severity: Severity::Error,
+        message: "inline TRAP cannot cover a fallible call or raising operator in a short-circuited operand",
     },
     // 2-203-0102 (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN) retired in plan-26-C: every
     // inline-lowered builtin is now trappable (raw-supported or infallible), so an

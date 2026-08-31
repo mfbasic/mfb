@@ -22,7 +22,7 @@ parsing `value` left to right. The components are:
   literal `:` characters
 - `.fraction` — optional fractional second: a `.` followed by decimal digits. The
   first nine digits are scaled to nanoseconds (so `.25` becomes `250000000` ns);
-  any digits beyond the ninth are consumed but ignored
+  any digits beyond the ninth are read but ignored
 - `<offset>` — required UTC offset: `Z` or `z` for UTC, otherwise a signed
   `+/-HH:MM` or `+/-HHMM` (the colon between offset hours and minutes is optional)
 
@@ -73,9 +73,16 @@ Text that is missing its required offset is not valid RFC 3339 and raises
 
 ```
 IMPORT datetime
+IMPORT io
 
 SUB main()
   LET bad AS DateTime = datetime::parseIso("2026-06-26T09:30:00")
+  io::print("accepted")
+  EXIT SUB
+TRAP(err)
+  io::print("rejected: " & toString(err.code))
+  EXIT SUB
+END TRAP
 END SUB
 ```"#;
 
@@ -137,7 +144,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "value",
-                desc: "",
+                desc: "The ISO-8601 text to parse.",
                 aliases: &[],
                 ty: super::ParameterType::String,
                 default: super::DefaultValue::None,

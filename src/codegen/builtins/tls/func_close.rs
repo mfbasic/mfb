@@ -16,14 +16,14 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Close a TLS socket or listener and release its OS handle."#;
 const DESC: &str = r#"`close` shuts down a connected `Socket` and releases the resources behind it.
-On Linux it performs an orderly TLS shutdown and frees the OpenSSL objects
+On Linux it performs an orderly TLS shutdown and releases the underlying objects
 (`SSL_shutdown`, `SSL_free`, `SSL_CTX_free`) before closing the underlying socket
 file descriptor; on macOS it cancels the Network.framework connection. After a
 successful return the socket is marked closed and must not be used again — any
 later `tls::` call that takes the same value raises an error rather than touching
 a stale handle.
 
-`close` consumes the `Socket` it is given: the value is moved into the call and
+`close` closes the `Socket` it is given: the handle cannot be used again, and
 cannot be referenced afterward. The call is idempotent with respect to a socket
 that is already closed — closing a socket whose closed flag is already set does
 nothing and returns successfully — so closing a socket and then letting it drop is
@@ -31,15 +31,14 @@ safe. This differs from `tcp::close`, which treats an already-closed resource as
 an error.
 
 `close` also closes a `Listener` from `tls::listen`. The same name spans both
-handle types: given a listener it closes the listening socket and frees the
-server TLS context the listener owns. Because every accepted `Socket` only
-*borrows* that shared context, closing the listener is safe while accepted
-sockets are still open — the context is freed exactly once, when the listener
-closes, and an accepted socket's own close never touches it. The listener close
-is likewise idempotent and consumes its handle.
+handle types: given a listener it closes the listening socket and releases the
+server TLS settings it holds. Because every accepted `Socket` only
+shares those settings, closing the listener is safe while accepted
+sockets are still open — they are released exactly once, when the listener closes, and an accepted socket's own close never touches it. The listener close
+is likewise idempotent and closes its handle.
 
 Closing is otherwise automatic. Every `Socket` and `Listener` is closed by
-lexical drop when the binding that holds it leaves scope. Call `tls::close` only
+itself when the binding that holds it goes out of scope. Call `tls::close` only
 when the handle must be torn down earlier than that."#;
 const EX: &str = r#"Close a TLS connection explicitly once the exchange is complete:
 
@@ -94,7 +93,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![Parameter {
                     name: "sock",
-                    desc: "The connected TLS socket to close, as returned by `tls::connect` or `tls::accept`. The value is consumed by the call. Closing a socket that is already closed is harmless and returns successfully.",
+                    desc: "The connected TLS socket to close, as returned by `tls::connect` or `tls::accept`. Closed by this call; the handle cannot be used again. Closing a socket that is already closed is harmless and returns successfully.",
                     aliases: &["resource"],
                     ty: ParameterType::named(super::TLS_SOCKET_TYPE_ID),
                     default: DefaultValue::None,
@@ -108,7 +107,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![Parameter {
                     name: "listener",
-                    desc: "Alternatively, the listener to close, as returned by `tls::listen`. Closes the listening socket and frees the server TLS context it owns; safe to call while accepted sockets are still open. Consumed by the call; closing an already-closed listener returns successfully.",
+                    desc: "Alternatively, the listener to close, as returned by `tls::listen`. Closes the listening socket and releases the server TLS settings it holds; safe to call while accepted sockets are still open. Closed by this call; the handle cannot be used again. Closing an already-closed listener returns successfully.",
                     aliases: &["resource"],
                     ty: ParameterType::named(super::TLS_LISTENER_TYPE_ID),
                     default: DefaultValue::None,

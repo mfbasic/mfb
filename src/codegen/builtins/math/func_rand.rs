@@ -9,7 +9,7 @@ use super::{overload, req};
 const INTRO: &str =
     r#"A uniform random value in an inclusive range, from this thread's generator."#;
 const DESC: &str = r#"`rand(min, max)` returns a uniformly-distributed value in the inclusive range
-`[min, max]`, drawn from this thread's PCG64 generator (seeded with `math::seed`).
+`[min, max]`, drawn from this thread's random sequence (seeded with `math::seed`).
 The `(Integer, Integer)` form returns `Integer`; the `(Money, Money)` form returns
 `Money` (a uniform amount between two amounts is itself an amount). `min` must not
 exceed `max`, else `ErrInvalidArgument`."#;
@@ -23,17 +23,25 @@ END SUB
 
 const MIN_A: &[&str] = &["minimum"];
 const MAX_A: &[&str] = &["maximum"];
+const MIN_D: &str = "The lowest value the result may take, inclusive.";
+const MAX_D: &str = "The highest value the result may take, inclusive. Must not be below `min`.";
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     let impls: Vec<Implementation> = vec![
         overload(
-            vec![req("min", MIN_A, Integer), req("max", MAX_A, Integer)],
+            vec![
+                req("min", MIN_A, Integer, MIN_D),
+                req("max", MAX_A, Integer, MAX_D),
+            ],
             Integer,
             vec!["ErrInvalidArgument"],
             lower_math_rand,
         ),
         overload(
-            vec![req("min", MIN_A, Money), req("max", MAX_A, Money)],
+            vec![
+                req("min", MIN_A, Money, MIN_D),
+                req("max", MAX_A, Money, MAX_D),
+            ],
             Money,
             vec!["ErrInvalidArgument"],
             lower_math_rand,

@@ -1510,6 +1510,7 @@ impl CodeBuilder<'_> {
                     text: "resultError".to_string(),
                 })
             }
+            NirValue::Checked { type_, value } => self.lower_checked_value(&type_, &value),
             NirValue::WithUpdate {
                 type_,
                 target,
@@ -1634,6 +1635,66 @@ impl CodeBuilder<'_> {
             NirValue::SetLiteral { type_, values } => self.lower_set_literal(&type_, values),
             NirValue::MapLiteral { type_, entries } => self.lower_map_literal(&type_, entries),
         }
+    }
+
+    /// Lower a `Checked` node (bug-471): run `value`'s ordinary lowering under a
+    /// `raw_result_capture` so every domain error it raises joins the capture
+    /// point instead of the function's error exit, then tag the success
+    /// fall-through `Ok` and materialize a `Result OF <success_type>`.
+    ///
+    /// This is the member-agnostic sibling of `lower_inline_conversion_raw` /
+    /// `lower_inline_builtin_raw`: those wrap ONE built-in's inline lowering,
+    /// this wraps an arbitrary raising *expression* — the arithmetic operators
+    /// `ir::lower`'s inline-`TRAP` desugar lifts out of a trapped expression.
+    /// Every one of them raises through `emit_error_register_return`, whose
+    /// `raw_result_capture` branch is what makes this work; the `Float`
+    /// observation-boundary check (`observe_float` → `emit_float_result_check`)
+    /// funnels through the same tail.
+    ///
+    /// `value` never contains a call: a callee's error return does not pass
+    /// through `emit_error_register_return` in this frame, so it would slip past
+    /// the capture. The desugar lifts every call out ahead of the checked value
+    /// and `ir::verify::check_checked_has_no_call` rejects the shape on the
+    /// decoded-package path.
+    fn lower_checked_value(
+        &mut self,
+        success_type: &ParameterType,
+        value: &NirValue,
+    ) -> Result<ValueResult, String> {
+        let capture = self.label("raw_checked_done");
+        let previous = self.raw_result_capture.take();
+        self.raw_result_capture = Some(capture.clone());
+        // A `Float` arithmetic node raises at plan-17's *observation boundary*,
+        // not at the operator, and the boundary is wherever the value is first
+        // consumed. Checking it here makes the `Checked` node that boundary: the
+        // lifted `z * z` no longer flows into a `Bind`/argument that would have
+        // observed it (it flows into `ResultValue`, which is not an arithmetic
+        // node), so without this an overflow to infinity would be delivered as a
+        // finite-looking `Ok` instead of running the handler.
+        let lowered = self
+            .lower_value(value)
+            .and_then(|success| self.observe_float(value, &success).map(|()| success));
+        self.raw_result_capture = previous;
+        let success = lowered?;
+        // Success fall-through: tag the produced value as the `Ok` result. A
+        // `d`-native `Float` still lives in its FP register (plan-01), so its bit
+        // pattern is moved across rather than pushed through a GP `mov` — the
+        // same distinction `store_value_at` draws when spilling one.
+        if Self::float_is_dnative(&success) {
+            self.emit(abi::float_move_x_from_d(
+                RESULT_VALUE_REGISTER,
+                &success.location,
+            ));
+        } else {
+            self.emit(abi::move_register(RESULT_VALUE_REGISTER, &success.location));
+        }
+        self.emit(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::label(&capture));
+        self.materialize_current_result(success_type, "checked".to_string(), false)
     }
 
     /// Lower an inline conversion built-in (`toInt`/`toFloat`/`toFixed`/`toByte`)
@@ -2305,6 +2366,24 @@ impl CodeBuilder<'_> {
                     "tls.writeText"
                 } else {
                     "tls.write"
+                }
+            }
+            // bug-465: `tls::localAddress` spans both handle types, as
+            // `tcp::localAddress` always has. The two cannot share one body —
+            // macOS reads a `Socket`'s address off its connection path and a
+            // `Listener`'s port off `nw_listener_get_port` — so the `Listener`
+            // form routes to its own `tls.localAddressListener` code form.
+            "tls.localAddress" => {
+                if args
+                    .first()
+                    .and_then(|arg| self.static_type_name(arg))
+                    .is_some_and(|type_| {
+                        type_.is_named(crate::codegen::builtins::tls::TLS_LISTENER_TYPE_ID)
+                    })
+                {
+                    crate::codegen::builtins::tls::LOCAL_ADDRESS_LISTENER
+                } else {
+                    "tls.localAddress"
                 }
             }
             // plan-76-C: `tls::poll(List OF RES tls::Socket)` lowers through the portable

@@ -28,7 +28,7 @@ applied repeatedly. After each match the scan resumes at the position just past
 the end of that match, so the matches are non-overlapping and the returned
 indices are strictly increasing. A zero-length match is recorded, and the scan
 then advances by one scalar to make progress; a zero-length match is never
-recorded twice at a position already consumed by the previous match, so a
+recorded twice at a position the previous match already covered, so a
 pattern like `a*` against `"aba"` yields the starts of the real runs rather than
 an empty match wedged between them.
 

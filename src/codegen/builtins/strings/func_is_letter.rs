@@ -16,7 +16,7 @@ otherwise. A scalar counts as a letter when its Unicode general category is one
 of `Lu` (uppercase letter), `Ll` (lowercase letter), `Lt` (titlecase letter),
 `Lm` (modifier letter), or `Lo` (other letter) — that is, any `L*` category.
 
-Classification reads the Unicode general-category table embedded in the compiler,
+Classification follows the Unicode general categories,
 so it covers the whole code-point space rather than just ASCII: `中` and `é` are
 letters, while `5`, `-`, and a space are not. The test is deterministic and
 locale-independent, with no language-specific tailoring.

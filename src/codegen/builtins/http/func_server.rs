@@ -10,12 +10,11 @@ the `tcp::Listener` **directly** — the `http` package adds no wrapper resource
 its own. The call is a pass-through to `tcp::listen(host, port, backlog)`, so
 the listener behaves in every respect like one opened by `tcp` itself.
 
-`host` defaults to `"0.0.0.0"` and `backlog` defaults to `128`; both defaults are
-injected at IR lowering, so the one- and two-argument forms are exactly the
-three-argument form with those literals supplied.
+`host` defaults to `"0.0.0.0"` and `backlog` defaults to `128`, so the one- and
+two-argument forms mean exactly the three-argument form with those values.
 
-The socket is created with `SO_REUSEADDR` set, bound, and placed in the listening
-state. Address resolution uses `AF_INET` hints, so **only IPv4 is bound** — an
+The port is bound with address reuse enabled, so a restart does not have to wait
+out the previous listener. **Only IPv4 is bound** — an
 IPv6 host such as `"::"` does not resolve and fails rather than binding. An empty
 `host` (`""`) is passed to the resolver as a passive (NULL) node and binds every
 IPv4 interface, which is equivalent to the `"0.0.0.0"` default.
@@ -31,8 +30,8 @@ before the call, so a large 64-bit backlog cannot be reinterpreted as negative.
 The value is advisory in any case; the host may clamp it further.
 
 The returned listener is a resource: bind it with `RES`, and it is closed by
-lexical drop at scope exit (or earlier with `tcp::close`). Drive it with a
-user-owned `DO`/`LOOP` over `http::handleRequest`, which accepts one connection
+itself when its binding goes out of scope (or earlier with `tcp::close`). Drive it with a
+your own `DO`/`LOOP` over `http::handleRequest`, which accepts one connection
 per call, parses the request, matches its path against an ordered
 `List OF http::Route`, invokes the matched handler, writes the response, and
 closes the connection. The server is single-threaded and blocking: one request is
@@ -50,7 +49,7 @@ FUNC home(req AS http::Request) AS http::Response
   RETURN http::ok("welcome")
 END FUNC
 
-SUB serverMain()
+SUB main()
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/", home))
   RES s AS tcp::Listener = http::server(8080)
@@ -64,10 +63,11 @@ Bind loopback only, with an explicit backlog:
 
 ```
 IMPORT http
+IMPORT net
 IMPORT tcp
 IMPORT io
 
-SUB localOnly()
+SUB main()
   RES s AS tcp::Listener = http::server(8080, "127.0.0.1", 16)
   LET bound = tcp::localAddress(s)
   io::print("listening on port " & toString(bound.port))

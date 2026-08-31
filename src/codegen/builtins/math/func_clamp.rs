@@ -22,6 +22,10 @@ END SUB
 
 const LOW: &[&str] = &["minimum"];
 const HIGH: &[&str] = &["maximum"];
+const VALUE_D: &str = "The number to constrain, or a list of them.";
+const LOW_D: &str = "The lowest value allowed. A `value` below it comes back as `low`.";
+const HIGH_D: &str =
+    "The highest value allowed. A `value` above it comes back as `high`. Must not be below `low`.";
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     let mut impls: Vec<Implementation> = Vec::new();
@@ -31,9 +35,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     for ty in [Integer, Float, Fixed] {
         impls.push(overload(
             vec![
-                req("value", &[], ParameterType::list_of(ty.clone())),
-                req("low", LOW, ty.clone()),
-                req("high", HIGH, ty.clone()),
+                req("value", &[], ParameterType::list_of(ty.clone()), VALUE_D),
+                req("low", LOW, ty.clone(), LOW_D),
+                req("high", HIGH, ty.clone(), HIGH_D),
             ],
             ParameterType::Arg(0),
             vec!["ErrInvalidArgument"],
@@ -44,9 +48,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     for ty in [Integer, Float, Fixed, Money] {
         impls.push(overload(
             vec![
-                req("value", &[], ty.clone()),
-                req("low", LOW, ty.clone()),
-                req("high", HIGH, ty.clone()),
+                req("value", &[], ty.clone(), VALUE_D),
+                req("low", LOW, ty.clone(), LOW_D),
+                req("high", HIGH, ty.clone(), HIGH_D),
             ],
             ParameterType::Arg(0),
             vec!["ErrInvalidArgument"],

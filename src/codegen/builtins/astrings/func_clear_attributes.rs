@@ -18,7 +18,15 @@ const DESC: &str = r#"`clearAttributes` returns a new `AttributedString` with at
 empties the entire attribute overlay. The three-argument form clears every attribute over the
 inclusive range `[start, endIndex]`, **splitting** any span that straddles the range so its flanks
 outside the range survive (regardless of member — unlike `removeAttribute`, no structural match is
-required)."#;
+required).
+
+**An invalid range raises.** `start` must be zero or more and no greater than
+`endIndex`, or the call raises `ErrInvalidArgument` (`invalid attribute range`);
+and both ends must fall inside the visible text, or it raises
+`ErrIndexOutOfRange` (`attribute range out of bounds`). Because the range is
+inclusive, **empty text has no valid range at all** — even `0, 0` is out of
+bounds on an empty `AttributedString`, so guard construction from text that
+might be empty."#;
 
 const EX: &str = r#"```
 IMPORT astrings

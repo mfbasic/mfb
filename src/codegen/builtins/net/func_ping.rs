@@ -78,16 +78,25 @@ IMPORT io
 FUNC main AS Integer
   LET result = net::ping("127.0.0.1", 1000)
   MATCH result.status
-    CASE net::PingStatus.Ok
+    CASE PingStatus.Ok
       io::print("up in " & toString(result.rttMs) & " ms")
-    CASE net::PingStatus.Timeout
+    CASE PingStatus.Timeout
       io::print("no answer")
     CASE ELSE
       io::print("unreachable")
   END MATCH
   RETURN 0
+TRAP(err)
+  io::print("could not ping at all: " & err.message)
+  RETURN 0
+END TRAP
 END FUNC
 ```
+
+The `TRAP` is not optional decoration. A `PingStatus` of `Timeout` or
+`Unreachable` is an *answer*; being unable to send the probe at all — no raw
+socket permission, a sandbox, no route — is an **error**, and it is the common
+case on a locked-down host.
 
 Ping a resolved `Address`, and treat a refusal by the OS as the error it is:
 
@@ -115,7 +124,7 @@ IMPORT io
 
 FUNC main AS Integer
   LET hop = net::ping("example.com", 2000, 1)
-  IF hop.status = net::PingStatus.TtlExceeded THEN
+  IF hop.status = PingStatus.TtlExceeded THEN
     io::print("first hop is " & hop.address.host)
   END IF
   RETURN 0

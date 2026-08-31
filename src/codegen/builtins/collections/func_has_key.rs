@@ -11,7 +11,7 @@ use crate::types::ParameterType;
 const INTO_HAS_KEY: &str = "Test whether a map contains an entry for a key.";
 const DESC_HAS_KEY: &str = r#"`collections::hasKey` returns `TRUE` when `value` holds an entry whose key
 matches `key`, and `FALSE` otherwise. The map is neither copied nor mutated, and
-the matching value is never materialized — only the key is compared.
+the matching value is never copied out — only the key is compared.
 
 This is a map-only member. There is no list or `String` form: to test list
 membership use `collections::contains`, and to test for a substring use the
@@ -25,8 +25,8 @@ bitwise, a `Float` key of `NaN` never reports as present and `-0.0` does not
 match a stored `0.0`.
 
 For the key types `String`, `Integer`, `Float`, `Fixed`, `Byte`, and `Boolean`
-the probe uses the map's hash bucket index; other key types use a linear scan of
-the entry table. Both paths compare exactly the same key bytes and return the
+the lookup is direct; other key types are found by scanning the map. Both
+compare exactly the same key and return the
 same answer.
 
 `collections::hasKey` raises no trappable domain error, so an inline `TRAP` on a
@@ -91,14 +91,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The map to look in. Not modified.",
                     aliases: &["map"],
                     ty: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("V")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "key",
-                    desc: "",
+                    desc: "The key to test for. Compared with `=`.",
                     aliases: &[],
                     ty: ParameterType::var("K"),
                     default: DefaultValue::None,

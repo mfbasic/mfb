@@ -24,7 +24,7 @@ The operation is a comparison and a select on every element type — it does no
 arithmetic at all, so it cannot overflow, performs no rounding, and never fails.
 This makes `vector::max` one of only two functions in this package (with
 `vector::min`) that raise no errors whatsoever, on any overload. `Float`
-comparisons use the hardware maximum instruction; `Fixed`, `Integer`, and `Money`
+comparisons take the larger of the two directly; `Fixed`, `Integer`, and `Money`
 comparisons are a signed 64-bit compare and select over the underlying
 representation.
 
@@ -153,6 +153,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("two vectors of the same type"),
         internal_only: false,
-        implementations: super::implementations("max", super::Shape::BinaryVector, &[], body),
+        implementations: super::implementations("max", super::Shape::BinaryVector, &[], body, &[
+            "The first vector.",
+            "The second vector. The result takes the larger of each component pair independently, so it need not equal either input.",
+        ]),
     });
 }

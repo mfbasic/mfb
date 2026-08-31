@@ -1,0 +1,12 @@
+{
+  "name": "xfer_tls_listener_worker",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "Receives a tls::Listener on the resource plane and completes tls::accept on it, proving a transferred TLS listener serves on the receiving thread (bug-464).",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "ident": "tests:xfer-tls-listener-worker",
+  "identKey": "ed25519-public:test-xfer-tls-listener-worker-ident",
+  "identFingerprint": "sha256:test-xfer-tls-listener-worker-ident",
+  "signingFingerprint": "sha256:test-xfer-tls-listener-worker-signing"
+}

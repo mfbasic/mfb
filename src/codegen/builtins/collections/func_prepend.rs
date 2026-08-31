@@ -15,30 +15,25 @@ neither is optional and neither is variadic.
 Unlike `collections::append`, `prepend` has **only** the single-element form.
 There is no list-into-list overload: the second argument must have exactly the
 element type `T`, and passing another `List OF T` resolves no overload and is a
-compile-time error. The lowering rejects a list-typed item explicitly as well.
+compile-time error. A list-typed item is rejected explicitly as well.
 To place a whole list in front of another, use `collections::append` with the
 operands reversed — `collections::append(front, back)`.
 
-Internally the element is wrapped as a one-element list and spliced into `value`
-at index `0`, so the operation is the index-`0` case of the same splice that
-backs `append` and `insert`.
+`prepend` is `insert` at index `0`.
 
-`prepend` is value-semantic. The list named by `value` is unchanged; the modified
+`prepend` does not change `value`. The list it names is unchanged; the modified
 list is the returned value. When the compiler can prove the target is a uniquely
-owned local being reassigned — the `list = collections::prepend(list, x)` shape,
+same local being reassigned — the `list = collections::prepend(list, x)` shape,
 on a non-`by_ref` local that is not the live iterable of an enclosing `FOR EACH` —
-it lowers the call to an in-place shift-and-insert with geometric spare capacity
+it inserts into the existing list rather than copying it
 instead of a full copy. This is an optimization only; the observable semantics
 are identical either way. Note that prepending must shift every existing lookup
 entry right by one, so a repeated prepend stays O(n) per call even on the
 in-place path, unlike `append`.
 
-`prepend` is **infallible**: no path in its lowering raises a trappable domain
-error. It has no index to range-check and no lookup to miss, so it is classified
-as infallible alongside `append` and `replace`, and an inline `TRAP` written on a
-`prepend` call has a dead handler (the front end reports
-`TYPE_INLINE_TRAP_DEAD_HANDLER`). Allocation exhaustion is not a trappable domain
-error in this language.
+`prepend` is **infallible**: nothing it does raises a trappable error. It has no
+index to range-check and no lookup to miss, so an inline `TRAP` written on a
+`prepend` call has a handler that can never run, and the compiler reports it.
 
 Prepending to an empty list yields a one-element list."#;
 
@@ -93,14 +88,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to prepend to. Not modified — you get a new list back.",
                     aliases: &["list"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "item",
-                    desc: "",
+                    desc: "The element to add at the front. Everything already there shifts one place later.",
                     aliases: &[],
                     ty: ParameterType::var("T"),
                     default: DefaultValue::None,

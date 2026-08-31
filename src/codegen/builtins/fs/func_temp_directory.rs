@@ -31,8 +31,8 @@ pub(crate) fn lower_fs_temp_directory(
 const INTRO: &str = r#"Return the host temporary directory path"#;
 const DESC: &str = r#"`fs::tempDirectory` returns the path of the host's temporary directory as a
 UTF-8 `String`. This is the same location `fs::createTempFile` uses when it is
-called without a `directory` argument; that zero-argument form is lowered to
-supply `fs::tempDirectory()` as the directory automatically.
+called without a `directory` argument — that form uses this path
+automatically.
 
 The directory path is queried from the operating system on every call rather
 than cached, so the result reflects the host environment at the moment of the
@@ -51,8 +51,7 @@ The source of the path is platform specific:
 
 The function takes no arguments and has no filesystem side effects: it neither
 creates the directory nor verifies that it exists, it only reports the
-configured path. Internally it reads into a fixed 4096-byte buffer before
-copying the result into an arena-backed `String`."#;
+configured path."#;
 const EX: &str = r#"Read and print the host temporary directory:
 
 ```
@@ -72,7 +71,7 @@ IMPORT fs
 
 SUB main()
   RES f = fs::createTempFile()
-  ' f is created under fs::tempDirectory() and closed by lexical drop
+  ' f is created under fs::tempDirectory() and closes itself
 END SUB
 ```"#;
 

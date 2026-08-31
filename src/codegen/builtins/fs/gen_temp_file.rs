@@ -149,7 +149,7 @@ pub(crate) fn lower_fs_create_temp_file_helper(
         abi::branch_eq(&file_alloc_ok),
         // The File-record alloc failed after `open` created the temp file: close the
         // fd before reporting OOM so the error path does not leak the OS fd
-        // (bug-63). `fd` is a spilled vreg, surviving the failed alloc and this
+        //. `fd` is a spilled vreg, surviving the failed alloc and this
         // close. (The temp file itself is the caller's to clean up, matching the
         // success contract of createTempFile.)
         abi::move_register(abi::return_register(), &fd),
@@ -178,7 +178,7 @@ pub(crate) fn lower_fs_create_temp_file_helper(
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_PTR),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_FILLED),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_ENABLED),
-        // Transparent read buffer (plan-14-C): empty cache at the fd's position.
+        // Transparent read buffer: empty cache at the fd's position.
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_PTR),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_POS),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_FILL),

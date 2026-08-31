@@ -45,15 +45,13 @@ is `0755` with the umask bits cleared.
 
 `path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
 absolute or relative to the current working directory, and may contain Unicode
-characters when the host filesystem accepts those names. Internally a
-NUL-terminated copy of `path` is allocated for the host call, so `path` must be
-non-empty and must not contain an embedded NUL byte.
+characters when the host filesystem accepts those names. It must be non-empty and must not contain an embedded NUL byte.
 
 `fs::createDirectory` never overwrites or reuses an existing entry: if anything
 already exists at `path`, including an existing directory, the call fails with
 `ErrAlreadyExists` rather than succeeding quietly. When the host refuses the
-operation, the failure `errno` is mapped to the matching error below and the
-filesystem is left unchanged. `errno` values are per-OS; the same symbolic error is
+operation, it raises the matching error below and the filesystem is left
+unchanged. The same error is
 produced on each platform."#;
 const EX: &str = r#"Create a single output directory whose parent already exists:
 
@@ -61,7 +59,10 @@ const EX: &str = r#"Create a single output directory whose parent already exists
 IMPORT fs
 
 SUB main()
-  fs::createDirectory("target/example")
+  fs::createDirectories("scratch")
+  IF NOT fs::directoryExists("scratch/example") THEN
+    fs::createDirectory("scratch/example")
+  END IF
 END SUB
 ```
 
@@ -71,8 +72,9 @@ Guard against re-creating a directory that already exists:
 IMPORT fs
 
 SUB main()
-  IF NOT fs::directoryExists("target/cache") THEN
-    fs::createDirectory("target/cache")
+  fs::createDirectories("scratch")
+  IF NOT fs::directoryExists("scratch/cache") THEN
+    fs::createDirectory("scratch/cache")
   END IF
 END SUB
 ```"#;

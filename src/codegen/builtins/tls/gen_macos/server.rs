@@ -1173,7 +1173,7 @@ pub(crate) fn lower_tls_listen_macos(
         abi::label(&ready),
     ]);
     // Build the Listener record: header { tag, listener, closed=0, STATE=0 }
-    // then the macOS tail { lctx, queue } (plan-80).
+    // then the macOS tail { lctx, queue, bound host } (plan-80, bug-465).
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", REC_SIZE),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
@@ -1190,6 +1190,13 @@ pub(crate) fn lower_tls_listen_macos(
         abi::store_u64(&v9, abi::mfb_return(1), REC_QUEUE),
         abi::load_u64(&v9, abi::stack_pointer(), LCTX),
         abi::store_u64(&v9, abi::mfb_return(1), REC_CTX),
+        // bug-465: keep the host C string so `tls::localAddress(listener)` has
+        // something to report. `nw_listener_get_port` answers the port and
+        // nothing in Network.framework answers the address, so this is the only
+        // record of what was bound. Borrowed, never freed: it is an arena copy or
+        // the static `_mfb_tls_anyhost`, both process-lifetime.
+        abi::load_u64(&v9, abi::stack_pointer(), HOSTCSTR),
+        abi::store_u64(&v9, abi::mfb_return(1), REC_LHOST),
         abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),

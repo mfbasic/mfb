@@ -78,6 +78,11 @@ SUB show(doc AS json::Json)
     EXIT SUB
   END TRAP
 END SUB
+
+SUB main
+  show(json::parse("{\"config\": {\"enabled\": true}}"))
+  show(json::parse("{}"))
+END SUB
 ```"#;
 
 #[rustfmt::skip]

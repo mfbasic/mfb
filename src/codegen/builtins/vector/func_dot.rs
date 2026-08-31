@@ -23,7 +23,7 @@ functions in this package — `project`, `reject`, `angle`, and the `Integer`
 `normalize` — use it to test for a zero-length vector without paying for a square
 root.
 
-The implementation is multiplication and addition only: no division, no square
+`dot` is multiplication and addition only: no division, no square
 root, and no trigonometry. It therefore performs **no rounding** on any element
 type. The `Integer` overloads are exact checked integer arithmetic, so
 `vector::dot` is one of the few members of this package (with `cross` and `scale`)
@@ -139,6 +139,15 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("two vectors of the same type"),
         internal_only: false,
-        implementations: super::implementations("dot", super::Shape::BinaryScalar, &[], body),
+        implementations: super::implementations(
+            "dot",
+            super::Shape::BinaryScalar,
+            &[],
+            body,
+            &[
+                "The first vector.",
+                "The second vector. `dot` is symmetric, so the order does not matter.",
+            ],
+        ),
     });
 }

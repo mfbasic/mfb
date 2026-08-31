@@ -33,9 +33,9 @@ returned; `replace` never inserts `new` between existing scalars. If `old` is
 longer than `value` it likewise cannot match. When `old` does match and `new` is
 empty, each match is deleted.
 
-None of the three arguments is mutated. The result is always a freshly allocated
-`String` — when no replacement occurred, `value` is deep-copied rather than
-aliased, so the caller owns the returned value unconditionally.
+None of the three arguments is mutated. The result is always a new `String` —
+when nothing matched, it is its own copy of `value`, so you always get a `String`
+back that is independent of the one you passed in.
 
 `old` is also accepted under the name `needle`, and `new` under the name
 `replacement`. The bare `replace` name is also defined for lists; see

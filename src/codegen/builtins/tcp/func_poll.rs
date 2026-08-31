@@ -12,7 +12,7 @@ use crate::codegen::registry::AbiCtx;
 
 const INTRO: &str = r#"Wait until a socket — or one socket out of a list — is readable."#;
 
-const DESC: &str = r#"`tcp::poll` reports readability without consuming anything. It has two shapes.
+const DESC: &str = r#"`tcp::poll` reports readability without reading anything. It has two shapes.
 
 Given a single `Socket` it answers a `Boolean`: `TRUE` if a following `tcp::read`
 would return data (or observe the peer's close) without blocking, `FALSE` if the
@@ -20,8 +20,8 @@ deadline passed with nothing to read. Readiness is a *query*, so an expired
 deadline is a `FALSE`, not an error.
 
 Given a `List OF RES Socket` it answers with the first ready socket, scanning in
-list order. The returned socket is **borrowed**: the list keeps ownership and
-still closes each of its members exactly once at scope exit, so the result must
+list order. The returned socket is an **alias** of the one in the list: the list still
+still closes each of its members exactly once when it goes out of scope, so the result must
 not be closed or transferred. This is the multiplex form — one call waits on many
 connections instead of a thread per connection. An empty list raises
 `ErrInvalidArgument`, and a deadline that expires with none ready raises
@@ -35,14 +35,17 @@ bounds the wait (clamped to `2147483647`). A negative value raises
 `ErrInvalidArgument`. A signal that interrupts the wait re-issues it against the
 remaining time rather than returning early.
 
-Readability includes the peer having closed: a closed peer makes `read` return
-an empty list immediately, which is "would not block". So a `TRUE` here does not
-promise that bytes are available, only that `read` will not wait."#;
+Readability includes the peer having closed: a closed peer makes the following
+`tcp::read` raise `ErrConnectionClosed` immediately, which is "would not block".
+So a `TRUE` here does not promise that bytes are available, only that `read` will
+not wait — and a drain loop still needs the `TRAP` that `tcp::read` documents,
+because polling cannot tell "data arrived" from "the stream ended"."#;
 
 const EX: &str = r#"Wait up to a second for data on one socket:
 
 ```
 IMPORT tcp
+IMPORT net
 IMPORT io
 
 FUNC main AS Integer
@@ -58,19 +61,39 @@ FUNC main AS Integer
 END FUNC
 ```
 
-Serve whichever of several connections speaks first:
+Serve whichever of several connections speaks first. The list form returns the
+socket that is ready, not a flag, and that socket is an alias of the one in the
+list — reading from it reads that connection:
 
 ```
-IMPORT collections
 IMPORT tcp
+IMPORT net
 IMPORT io
 
-FUNC serve(conns AS List OF RES tcp::Socket) AS Integer
-  LET ready = tcp::poll(conns, 5000)
+FUNC main AS Integer
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound = tcp::localAddress(server)
+
+  RES clientA = tcp::connect("127.0.0.1", bound.port)
+  RES connA = tcp::accept(server)
+  RES clientB = tcp::connect("127.0.0.1", bound.port)
+  RES connB = tcp::accept(server)
+
+  ' Only the second client says anything.
+  tcp::write(clientB, "over here")
+
+  LET conns AS List OF RES tcp::Socket = [connA, connB]
+  RES ready = tcp::poll(conns, 5000)
   LET chunk = tcp::read(ready, 4096)
   io::print("read " & toString(len(chunk)) & " bytes")
   RETURN 0
 END FUNC
+```
+
+prints:
+
+```
+read 9 bytes
 ```"#;
 
 const TIMEOUT_DESC: &str = "Optional. The maximum time to wait, in milliseconds. Omit to block until something is readable; `0` polls once; a positive value bounds the wait (clamped to `2147483647`); a negative value raises `ErrInvalidArgument`.";
@@ -107,7 +130,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     super::req(
                         "sock",
-                        "An open connected socket to test for readability. Borrowed, not consumed.",
+                        "An open connected socket to test for readability. The handle stays open — you still close it.",
                         &[],
                         super::socket(),
                     ),
@@ -121,7 +144,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     super::req(
                         "socks",
-                        "The sockets to wait on, scanned in list order. The list retains ownership; an empty list raises `ErrInvalidArgument`.",
+                        "The sockets to wait on, scanned in list order. The list still closes each socket; an empty list raises `ErrInvalidArgument`.",
                         &[],
                         ParameterType::list_of(ParameterType::Res(Box::new(super::socket()))),
                     ),

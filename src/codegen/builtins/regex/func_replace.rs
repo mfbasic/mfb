@@ -39,7 +39,7 @@ clusters, consistent with `len` and the `strings` package.
 `replacement` is literal text interleaved with capture references: `$N` or `${N}`
 inserts capturing group `N` (`$0` is the whole match), `$name` or `${name}`
 inserts a named group, and `$$` inserts a literal `$`. An unbraced reference
-consumes the longest valid run, so use the braced form to butt a reference
+takes the longest run of digits it can, so use the braced form to butt a reference
 against following text: `${1}0` is group `1` then `"0"`, whereas `$10` is group
 `10`. A reference to a group that did not participate in the match, or to an
 unknown name or an out-of-range number, expands to the empty string. Replacement

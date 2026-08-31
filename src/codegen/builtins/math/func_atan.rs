@@ -23,6 +23,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         DESC,
         EX,
         "Float | Fixed",
+        "The tangent to invert, or a list of them. Every value is accepted — the result approaches ±pi/2.",
         &[Float, Fixed],
         &[Float],
         &["ErrFloatNaN"],

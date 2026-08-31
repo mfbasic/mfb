@@ -71,7 +71,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "dt",
-                desc: "",
+                desc: "The date-time whose day to take the start of. Not always midnight: in a zone whose clocks jump forward at midnight, the day starts at the first time that exists.",
                 aliases: &[],
                 ty: super::ParameterType::named("DateTime"),
                 default: super::DefaultValue::None,

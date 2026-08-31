@@ -27,19 +27,15 @@ Only the **List** overload of `replace` lives in `collections`. The `String`
 overload — replacing a substring within a `String` — is a different function that
 lives in `strings::`. A `String` first argument does not resolve here.
 
-`replace` is value-semantic. The list named by `value` is unchanged; the modified
+`replace` does not change `value`. The list it names is unchanged; the modified
 list is the returned value, and a program observes the update only through what
-it does with that return value. There is no in-place fast path for `replace` —
-the compiler's in-place assignment recognizers cover `append`, bulk `append`,
-`prepend`, `set`, and string concatenation, not `replace`.
+it does with that return value. Unlike `append`, `prepend`, and `set`, there is
+no cheap in-place shape for `replace`: every call copies the list.
 
-`replace` is **infallible**: no path in its lowering raises a trappable domain
-error. It has no index to range-check, and a `new` that never matches is a
-success producing an unchanged copy, not a failure — so it is classified as
-infallible alongside `append` and `prepend`, and an inline `TRAP` written on a
-`replace` call has a dead handler (the front end reports
-`TYPE_INLINE_TRAP_DEAD_HANDLER`). Allocation exhaustion is not a trappable domain
-error in this language."#;
+`replace` is **infallible**: nothing it does raises a trappable error. It has no
+index to range-check, and a `new` that never matches is a success producing an
+unchanged copy, not a failure — so an inline `TRAP` written on a
+`replace` call has a handler that can never run, and the compiler reports it."#;
 
 const EX_REPLACE: &str = r#"Replace every matching element:
 
@@ -93,21 +89,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to work on. Not modified — you get a new list back.",
                     aliases: &["list"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "old",
-                    desc: "",
+                    desc: "The element to look for. Every element equal to it is replaced, not just the first.",
                     aliases: &["needle"],
                     ty: ParameterType::var("T"),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "new",
-                    desc: "",
+                    desc: "What to put in its place.",
                     aliases: &["replacement"],
                     ty: ParameterType::var("T"),
                     default: DefaultValue::None,

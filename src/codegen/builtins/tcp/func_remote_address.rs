@@ -20,8 +20,8 @@ the host string that was passed in.
 There is no listener overload: a listener has no single peer. Use
 `tcp::localAddress` for the address it is bound to.
 
-The socket is borrowed, not consumed, and the returned value is an ordinary
-`net::Address` with no tie to the socket's lifetime.
+The socket stays open — you still close it — and the returned value is an ordinary
+`net::Address` independent of the socket.
 
 **A file that uses the returned address must `IMPORT net` as well as `tcp`.**
 Imports are not transitive and packages cannot re-export types, so `Address` is
@@ -31,6 +31,7 @@ const EX: &str = r#"Log who connected:
 
 ```
 IMPORT tcp
+IMPORT net
 IMPORT io
 
 FUNC main AS Integer
@@ -75,7 +76,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![super::req(
                 "sock",
-                "An open connected socket whose peer to report. Borrowed, not consumed.",
+                "An open connected socket whose peer to report. The handle stays open — you still close it.",
                 &[],
                 super::socket(),
             )],

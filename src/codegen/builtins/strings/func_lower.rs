@@ -14,7 +14,7 @@ const INTRO: &str = r#"Map a string to lowercase using Unicode full case mapping
 
 const DESC: &str = r#"`strings::lower` returns a new `String` in which every scalar of `value` has been
 mapped to its lowercase form. The mapping is applied per Unicode scalar value
-across the whole string, using the lowercase table embedded in the runtime.
+across the whole string, applying the Unicode full lowercase mapping.
 Scalars with no lowercase mapping — digits, punctuation, symbols, and
 already-lowercase letters — are copied through unchanged.
 
@@ -30,7 +30,7 @@ combining sequences stay decomposed; apply `strings::normalizeNfc` first when
 that matters.
 
 For caseless *comparison*, prefer `strings::caseFold` over lowercasing both
-operands. `value` is not mutated; the result is a new owned `String`.
+operands. `value` is not mutated; the result is a new `String`.
 
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed as above, but **attributes are

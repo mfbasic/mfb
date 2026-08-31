@@ -1,0 +1,12 @@
+{
+  "name": "xfer_tls_worker",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "Receives a connected tls::Socket on the resource plane and drives a full request/response on it, proving the TLS session survives the move (bug-464).",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "ident": "tests:xfer-tls-worker",
+  "identKey": "ed25519-public:test-xfer-tls-worker-ident",
+  "identFingerprint": "sha256:test-xfer-tls-worker-ident",
+  "signingFingerprint": "sha256:test-xfer-tls-worker-signing"
+}

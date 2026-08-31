@@ -23,7 +23,7 @@ not be used as an authorisation check. `tls::connect` verifies the certificate
 against the requested name; that verification, not this address, is what
 establishes who the peer is.
 
-The socket is borrowed, not consumed.
+The socket stays open — you still close it.
 
 **A file that uses the returned address must `IMPORT net` as well as `tls`.**
 Imports are not transitive and packages cannot re-export types."#;
@@ -73,7 +73,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "sock",
-                desc: "An open TLS socket whose peer to report. Borrowed, not consumed.",
+                desc: "An open TLS socket whose peer to report. The handle stays open — you still close it.",
                 aliases: &[],
                 ty: ParameterType::named(super::TLS_SOCKET_TYPE_ID),
                 default: DefaultValue::None,

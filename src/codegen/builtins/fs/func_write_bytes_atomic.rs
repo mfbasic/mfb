@@ -53,8 +53,8 @@ same-filesystem move rather than a copy.
 The byte payload is written directly from the byte list's packed data region.
 The write is retried until every byte has been written or the host reports an
 output failure, so a short host write that transfers only part of the buffer is
-resumed rather than treated as complete, and an interrupted (`EINTR`) write is
-retried from the same cursor before any byte has moved. An empty byte list
+resumed rather than treated as complete, and an interruption never loses or
+duplicates bytes. An empty byte list
 produces an empty file at `path`. Bytes are written exactly as held in the list,
 with no encoding, decoding, or newline translation, so the function is suitable
 for binary data as well as text.
@@ -77,8 +77,9 @@ const EX: &str = r#"Atomically write raw bytes to a file:
 IMPORT fs
 
 SUB main()
+  fs::createDirectories("output")
   LET bytes AS List OF Byte = [72, 105]
-  fs::writeBytesAtomic("target/output.bin", bytes)
+  fs::writeBytesAtomic("output/report.bin", bytes)
 END SUB
 ```
 
@@ -88,6 +89,7 @@ Atomically replace a file's contents with bytes read from another file:
 IMPORT fs
 
 SUB main()
+  fs::writeText("source.bin", "first line\nsecond line\n")
   LET bytes AS List OF Byte = fs::readBytes("source.bin")
   fs::writeBytesAtomic("copy.bin", bytes)
 END SUB

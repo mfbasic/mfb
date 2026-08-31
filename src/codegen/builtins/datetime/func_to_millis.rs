@@ -66,7 +66,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "at",
-                desc: "",
+                desc: "The instant to convert. Sub-millisecond precision is discarded.",
                 aliases: &[],
                 ty: super::ParameterType::named("Instant"),
                 default: super::DefaultValue::None,

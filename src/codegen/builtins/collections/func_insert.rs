@@ -22,23 +22,21 @@ position and is accepted, producing the same result as
 greater than the length, raises `ErrIndexOutOfRange`.
 
 Only the single-element form exists. `item` must have exactly the element type
-`T`; passing another `List OF T` resolves no overload, and the lowering rejects a
+`T`; passing another `List OF T` resolves no overload, and the call rejects a
 list-typed item explicitly with "insert expects a single item, not a list".
-Internally the element is wrapped as a one-element list and spliced into `value`
-at `index`, which is the same splice that backs `append` (index `= len`) and
-`prepend` (index `0`).
+`insert` at `index = len(value)` is `append`, and at `index = 0` is `prepend`;
+use those names when that is what you mean.
 
-`insert` is value-semantic. The list named by `value` is unchanged; the modified
+`insert` does not change `value`. The list it names is unchanged; the modified
 list is the returned value, and a program observes the update only through what
-it does with that return value. There is no in-place fast path for `insert` at an
-arbitrary index — the compiler's in-place assignment recognizers cover
-`append`, bulk `append`, `prepend`, `set`, and string concatenation, not
-`insert`.
+it does with that return value. Unlike `append`, `prepend`, and `set`, there is
+no cheap in-place shape for `insert` at an arbitrary index: every call copies
+the list.
 
 `insert` is **fallible**: the range check is a real trappable domain error, so an
 inline `TRAP` on an `insert` call compiles and catches the out-of-range failure
 rather than being reported as a dead handler. The bounds test runs before any
-allocation for the result, so a rejected index allocates nothing."#;
+anything for the result, so a rejected index builds nothing."#;
 
 const EX: &str = r#"Insert in the middle:
 
@@ -89,21 +87,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "",
+                    desc: "The list to insert into. Not modified — you get a new list back.",
                     aliases: &["list"],
                     ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "index",
-                    desc: "",
+                    desc: "Where to put the new element, zero-based. May equal the length, which appends; anything outside 0 through the length raises.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "item",
-                    desc: "",
+                    desc: "The element to insert. Everything from `index` onward shifts one place later.",
                     aliases: &[],
                     ty: ParameterType::var("T"),
                     default: DefaultValue::None,

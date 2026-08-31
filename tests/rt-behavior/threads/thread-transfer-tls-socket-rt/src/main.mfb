@@ -1,0 +1,25 @@
+' bug-464: a connected `tls::Socket` moves to another thread and keeps talking.
+'
+' The handshake completes HERE, on the main thread; every byte of the exchange
+' happens on the worker, over the SAME session. That is the property the widened
+' transfer copy buys -- the socket's live session state (`SSL*`/`SSL_CTX*` on
+' OpenSSL, the SSPI block on Schannel, the connection ctx / dispatch queue on
+' macOS) has to arrive intact for the worker's `tls::write` to encrypt under the
+' negotiated keys.
+'
+' Peer is 8.8.8.8:443 (Google Public DNS -- stable anycast, HTTPS, cert SANs the
+' bare IP), validated against dns.google, matching the sibling `tls-poll-rt` and
+' `tls-connect-google-rt` fixtures. Output is one Boolean so the golden does not
+' depend on the remote's response bytes.
+IMPORT io
+IMPORT thread
+IMPORT tls
+IMPORT xfer_tls_worker
+
+FUNC main AS Integer
+  LET t AS Thread OF RES tls::Socket TO Boolean = thread::start(xfer_tls_worker::talkOnTransferredSocket, "dns.google")
+  RES conn = tls::connect("8.8.8.8", 443, 30000, "dns.google")
+  thread::transfer(t, conn)
+  io::print("moved=" & toString(thread::waitFor(t)))
+  RETURN 0
+END FUNC

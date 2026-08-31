@@ -15,10 +15,8 @@ characters: 32 lowercase hexadecimal digits plus the four hyphens.
 
 **Standard.** A version-4 UUID (RFC 4122) is 122 bits of randomness with a 4-bit
 version field fixed to `4` and a 2-bit variant field fixed to the RFC 4122
-variant (`10` in binary), exactly as the standard prescribes. Internally `uuid4`
-draws 16 random bytes, forces the high nibble of byte 6 to `0x4` (the version)
-and the top two bits of byte 8 to `10` (the variant), hex-encodes all 16 bytes,
-and splits the 32 digits into the five hyphenated groups of 8-4-4-4-12.
+variant (`10` in binary), exactly as the standard prescribes. Every other bit is random, so a `uuid4` carries 122 bits of
+randomness.
 
 **Security caveats.** The random bytes come from `crypto::randomBytes` (the OS
 CSPRNG), so the identifiers are cryptographically strong and effectively
@@ -29,7 +27,7 @@ seedable, non-cryptographic counterpart see `math::rand`, which must never be
 used for security-sensitive identifiers.
 
 `uuid4` takes no arguments. It is total in normal operation, but because it draws
-entropy through `crypto::randomBytes`, an OS entropy failure or allocation
+entropy through `crypto::randomBytes`, an entropy or out-of-memory
 failure there propagates out as `ErrUnknown` or `ErrOutOfMemory`.
 
 **Implementation.** `uuid4` is portable MFBASIC software layered over

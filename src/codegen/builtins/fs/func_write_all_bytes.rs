@@ -48,7 +48,7 @@ or `"append"`). If the handle was previously read with `fs::readLine`, its
 buffered read-ahead is first reconciled so the write lands at the true
 file-descriptor position rather than the block read-ahead. When per-`File` write
 buffering is enabled, the bytes are appended into the handle's buffer instead of
-being written straight through; otherwise they go directly to the descriptor. The
+being written straight through; otherwise they go directly to the file. The
 function only writes to and repositions `file`; it does not close it and has no
 other side effects. Whether the data is forced to disk is governed by the open
 handle, not by this call, which does not flush on its own. To write a whole file
@@ -63,10 +63,11 @@ const EX: &str = r#"Write raw bytes to an open file:
 IMPORT fs
 
 SUB main()
-  RES f = fs::openFile("target/output.bin", "write")
+  fs::createDirectories("output")
+  RES f = fs::openFile("output/report.bin", "write")
   LET bytes AS List OF Byte = [72, 105]
   fs::writeAllBytes(f, bytes)
-  ' f is closed by lexical drop when this scope ends
+  ' f closes itself when this scope ends
 END SUB
 ```
 
@@ -76,6 +77,8 @@ Copy the bytes of one open file into another:
 IMPORT fs
 
 SUB main()
+  fs::writeText("data.bin", "first line\nsecond line\n")
+  fs::writeText("copy.bin", "first line\nsecond line\n")
   RES src = fs::openFile("data.bin")
   RES dst = fs::openFile("copy.bin", "write")
   LET bytes AS List OF Byte = fs::readAllBytes(src)

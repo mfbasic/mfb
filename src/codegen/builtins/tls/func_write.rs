@@ -15,14 +15,14 @@ layer, not merely the first chunk. The socket must still be open.
 The bytes are taken from the list in order, starting at its first element. An
 empty `bytes` list is a no-op: nothing is sent and the call succeeds without
 touching the TLS layer. The function reads from the existing list buffer and
-allocates nothing of its own; it has no side effects beyond the bytes it sends
+keeps nothing of its own; it has no side effects beyond the bytes it sends
 and does not close the socket.
 
 `write` returns `Nothing`; there is no short-write result to inspect, because a
 partial write that cannot be completed is reported as an error rather than a
-count. Use `tls::write` to send a `String` as UTF-8 without first converting
-it to a `List OF Byte`, and `tls::read` or `tls::read` to receive the peer's
-reply."#;
+count. Pass a `String` to send its UTF-8 bytes without first converting it to a
+`List OF Byte` — that is the second overload of this same call — and use
+`tls::read` to receive the peer's reply."#;
 const EX: &str = r#"Send a raw request over a connected TLS socket:
 
 ```
@@ -35,7 +35,7 @@ SUB main()
   LET request = strings::toBytes("GET / HTTP/1.0\r\n\r\n")
   tls::write(conn, request)
   LET reply = encoding::utf8Decode(tls::read(conn, 4096))
-  ' conn is closed by lexical drop when this scope ends
+  ' conn closes itself when this scope ends
 END SUB
 ```"#;
 

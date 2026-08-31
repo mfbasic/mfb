@@ -33,15 +33,10 @@ that `count` is in the range `0` to `63` inclusive and raises
 `ErrInvalidArgument` for any value outside it, before performing the shift.
 Larger shift amounts are not implicitly clamped or reduced modulo the width —
 that is the difference from the rotates `bits::rl64` and `bits::rr64`, which
-accept any `count` and let the hardware reduce it.
+accept every `count` and reduce it modulo their width.
 
-The operation has no side effects and lowers inline to the target-neutral `asrv`
-machine op rather than calling a runtime helper. Every backend encodes it
-natively: `asrv Xd, Xn, Xm` on AArch64, `sra rd, rs1, rs2` on RISC-V, and a
-`mov` of the count into `rcx` followed by `sar dst, cl` on x86-64, whose shift
-instruction takes its variable count only in `cl`. The result is identical on
-every architecture and on both the native and Binary Representation execution
-paths."#;
+The operation has no side effects, and the result is identical on every
+platform."#;
 const EX: &str = r#"Arithmetic shift of a negative value preserves its sign (signed divide by 16):
 
 ```

@@ -16,9 +16,10 @@ const DESC: &str = r#"`handleRequest` performs exactly **one** connection's wort
 single inbound connection from `listener`, reads one HTTP/1.1 request, matches it
 against `routes`, invokes the matched handler, writes the resulting
 `http::Response`, and closes the accepted socket. It is meant to be driven from a
-user-owned `DO`/`LOOP`. The listener itself is **borrowed** — it stays open across
-calls and is closed only by its own lexical drop (or `tcp::close` / `tls::close`).
-The accepted socket is owned by the call and closed by lexical drop on return.
+your own `DO`/`LOOP`. The listener stays open across
+calls and is closed only when its own binding goes out of scope (or by
+`tcp::close` / `tls::close`). The accepted socket belongs to the call and is
+closed when it returns.
 
 The server is single-threaded and blocking: the accept call blocks until a client
 arrives, and one request is served at a time in the caller's loop. No timeout is
@@ -97,7 +98,7 @@ FUNC showUser(req AS http::Request) AS http::Response
   RETURN http::ok("user " & collections::getOr(req.params, "id", ""))
 END FUNC
 
-SUB secureMain()
+SUB main()
   MUT routes AS List OF http::Route = []
   routes = collections::append(routes, http::route("/user/:id", showUser))
   RES s AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem")
@@ -111,7 +112,7 @@ END SUB
 const BODY: &str =
 r#"' Plaintext accept -> parse -> dispatch -> respond -> close (one connection).
 ' Only a pointer to the listener is passed (it stays open for the next call); the accepted socket
-' is owned and closed by lexical drop at return.
+' belongs to the call and is closed when it returns.
 SUB __http_handleRequest(RES listener AS tcp::Listener, routes AS List OF Route)
   RES sock AS tcp::Socket = tcp::accept(listener)
   MUT raw AS List OF Byte = []
@@ -199,7 +200,7 @@ fn overload(listener_ty: &'static str, body: Body) -> Implementation {
         params: vec![
             Parameter {
                 name: "listener",
-                desc: "An open listening socket to accept one connection from. Borrowed — it remains open and usable after the call. Must be bound with `RES`.",
+                desc: "An open listening socket to accept one connection from. It stays open and usable after the call. Must be bound with `RES`.",
                 aliases: &["server"],
                 ty: ParameterType::named(listener_ty),
                 default: crate::codegen::registry::DefaultValue::None,

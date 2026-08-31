@@ -43,12 +43,10 @@ left in place.
 
 `path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
 absolute or relative to the current working directory, and may contain Unicode
-characters when the host filesystem accepts those names. Internally a
-NUL-terminated copy of `path` is allocated for the host call, so `path` must be
-non-empty and must not contain an embedded NUL byte.
+characters when the host filesystem accepts those names. It must be non-empty and must not contain an embedded NUL byte.
 
-When the host refuses the removal, the failure `errno` is mapped to the matching
-error below and the filesystem is left unchanged. `errno` values are per-OS; the
+When the host refuses the removal, it raises the matching error below and the
+filesystem is left unchanged. The
 same symbolic error is produced on each platform."#;
 const EX: &str = r#"Remove an empty directory:
 
@@ -56,7 +54,8 @@ const EX: &str = r#"Remove an empty directory:
 IMPORT fs
 
 SUB main()
-  fs::deleteDirectory("target/example")
+  fs::createDirectories("scratch/example")
+  fs::deleteDirectory("scratch/example")
 END SUB
 ```
 
@@ -66,8 +65,8 @@ Create a directory and then remove it:
 IMPORT fs
 
 SUB main()
-  fs::createDirectory("target/scratch")
-  fs::deleteDirectory("target/scratch")
+  fs::createDirectories("scratch/cache")
+  fs::deleteDirectory("scratch/cache")
 END SUB
 ```"#;
 

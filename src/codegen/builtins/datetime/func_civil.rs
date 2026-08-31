@@ -14,9 +14,8 @@ a concrete `Instant`, it round-trips: `datetime::resolve` on the returned
 
 
 The `year`, `month`, and `day` of `date` and the `hour`, `minute`, and `second`
-of `time` are combined into a single second count (`daysFromCivil * 86400 +
-hour * 3600 + minute * 60 + second`) that names the wall-clock moment, treated
-as a civil (zone-local) time. The offset for that moment is then resolved from
+of `time` are read together as one wall-clock moment, treated as a civil
+(zone-local) time. The offset for that moment is then resolved from
 `zone`. For a zone with a fixed offset (built by `datetime::utc` or
 `datetime::fixedOffset`) the offset is constant; for the host's local zone
 (`datetime::local`) it is resolved from the platform's zone table at that
@@ -81,21 +80,21 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "date",
-                    desc: "",
+                    desc: "The calendar date.",
                     aliases: &[],
                     ty: super::ParameterType::named("Date"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "time",
-                    desc: "",
+                    desc: "The wall-clock time on that date.",
                     aliases: &[],
                     ty: super::ParameterType::named("Time"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "zone",
-                    desc: "",
+                    desc: "The zone the wall-clock time is read in. This is what decides which instant the pair names; the same date and time in two zones are two different instants.",
                     aliases: &[],
                     ty: super::ParameterType::named("Zone"),
                     default: super::DefaultValue::None,
