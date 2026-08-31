@@ -259,7 +259,7 @@ screenshot of the real window, not by a no-crash assertion. `MFB_MACAPP_GUI=1
 scripts/test-macapp.sh` — 18 ok, 0 fail. GTK and Windows cross-build and their
 codegen-inspection tests pass (`cargo test --bin mfb canvas_reconcile_tests` — 41).
 The exact-match golden and the rasteriser suite still pass (13).
-Commit: —
+Commit: `3b723ca5b` (macOS) + `f94f76d9d` (GTK, Windows, tests)
 
 ## Validation Plan
 
