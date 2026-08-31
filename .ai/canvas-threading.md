@@ -49,52 +49,64 @@ thread last ran an entry, and it gives the graphics thread a pointer into the
 
 ## 3. The scene ring
 
-The ring is **process-global storage** (a writable data symbol, like
-`_mfb_winapp_canvas_frame`), not arena state. That is what makes it visible to a
-thread that has its own `x19`, and it is the only canvas state shared between
-threads.
+The ring is **process-global storage** (`CANVAS_SCENE_SYMBOL`, a writable data
+symbol), not arena state. That is what makes it visible to a thread with its own
+`x19`, and it is the only canvas state shared between threads.
+
+It is **three pointers, not three buffers.** A fixed slot array presumes a slot is a
+reusable buffer the producer refills; an MFBASIC collection is a *value*, so every
+`present` deep-copies into a block sized for that scene and a slot can only ever hold
+a pointer. The three that exist are:
 
 ```
-SceneRing {
-    slots[3]     // scene buffers, ALL owned and allocated by the worker
-    building     // index the worker is filling; worker-private
-    pending      // atomic: index the worker has published, or NONE
-    live         // graphics-private: index the graphics thread is rendering
-}
+items / hashes / layers          the published scene   (what the renderer reads)
+retiredItems / retiredHashes /
+retiredLayers + retiredFrame     the block just displaced
+                                 (plus a fresh block being built inside present)
 ```
 
 ### Ordering
 
 **Worker, in `canvas::present`:**
 
-1. Fill `slots[building]` with the deep-copied scene (unchanged from plan-98-B).
-2. Release-store `pending ← building`.
-3. `building ← ` the index that was in `pending` before step 2, or the free third
-   index if `pending` was NONE.
-4. Signal the redraw condition.
+1. Deep-copy the caller's scene into a fresh block.
+2. Compare against the published block; if the content is identical, stop — the
+   frame skip (§3.1).
+3. **Reclaim**: if a previous retirement exists and `frames > retiredFrame`, free it.
+4. **Retire**: move the currently-published pointers into the retired slots and stamp
+   `retiredFrame = frames`.
+5. Publish the new pointers, then the revision **last**.
+6. Signal the redraw condition.
 
-**Graphics, at frame start:**
+**Graphics, at frame start:** read the published pointers and copy what it needs.
 
-1. Acquire-swap `pending → NONE`, taking the index if there was one.
-2. If an index was taken: the old `live` becomes free for the worker, and
-   `live ← taken`.
-3. Render `slots[live]`.
+### Why retirement rather than an immediate free
 
-`present()` never waits for a frame and a frame never waits for `present()`. Three
-slots is the minimum that gives that: with two, the worker's step 3 has no free index
-whenever the graphics thread is mid-render, and it would have to block.
+The block a publish replaces may be the one the renderer is copying *right now*.
+Freeing it there is a use-after-free. Waiting until the frame counter has passed
+`retiredFrame` means a frame has **completed** since the retirement, so no render can
+still hold it — the same drain gate §7 specifies for textures, and deliberately so.
+
+### Who frees
+
+Only the **worker**, and only blocks the worker allocated. An arena is per-thread, so
+a cross-thread free would corrupt the worker's free list. The graphics thread never
+returns memory.
+
+### 3.1 The frame skip compares CONTENT, not bytes
+
+An identical re-present must publish nothing. The comparison is `count`, then
+`dataLength`, then the data region — **not** a whole-block `memcmp`. A collection
+block is not byte-comparable even between two shrink-to-fit copies: a lookup entry is
+40 bytes of which a *list* writes only some, so `keyOffset`/`keyLength` hold whatever
+the arena handed out. The whole-block form never once reported "unchanged".
 
 ### Two presents before one frame
 
 The intermediate scene is **skipped**, and that is correct — it was never on screen
-and nothing observed it. Step 2's overwrite of `pending` is the skip.
-
-### Who frees a slot
-
-**Nobody, in steady state.** All three buffers are allocated by the worker from the
-worker's arena and *reused*. This is not an optimisation: an arena is per-thread, so
-a cross-thread free would corrupt the worker's free list. The graphics thread returns
-an index; it never returns memory.
+and nothing observed it. The redraw signal is a flag, not a counter, so two presents
+between frames produce one frame. A test that needs one frame per present must set
+`MFB_CANVAS_SYNC` (§10).
 
 ## 4. Redraw triggers
 
@@ -113,18 +125,27 @@ visible, and repainting for it would turn an off-screen buffer update into a fra
 
 ## 5. Resize handshake
 
-1. **Main** publishes the new size and sets `resizePending` (release).
-2. **Graphics**, at frame start, reads and clears `resizePending` (acquire),
-   reallocates the pixel buffer to the new size, then renders.
+1. **Main**, in the platform's resize callback (macOS: `MFBCanvasView setFrameSize:`),
+   publishes the new width and height into the graphics state and signals a redraw.
+2. **Graphics**, at frame start, reads them (`canvas::surfaceWidth` /
+   `surfaceHeight`) and allocates the frame buffer at that size.
 
-Main never touches the pixel buffer, and graphics never touches the window. The
-worker is not involved at all — which is the guarantee `term::` does not give, and is
-worth stating in the spec: **a canvas resizes and repaints correctly while the program
-is blocked in `io::input`.**
+There is **no `resizePending` flag**. The renderer reads the size at the start of
+every frame anyway, so the size *is* the flag; a separate one would be a second thing
+to keep in sync with what it describes.
+
+Main never touches the pixel buffer, and graphics never touches the window. The worker
+is not involved at all — the guarantee `term::` does not give: **a canvas resizes and
+repaints correctly while the program is blocked in `io::input`.**
 
 A frame already in flight when the resize lands finishes at the old size and is
-presented; the next frame is at the new size. Tearing the frame to the new size
-mid-render would mean drawing part of the picture with each.
+presented; the next frame is at the new size. Tearing the frame mid-render would mean
+drawing part of the picture at each size.
+
+**The failure this must rule out is doing nothing.** `CALayer`'s default
+`contentsGravity` stretches the old frame to fill the resized layer, so a resize that
+never reached the renderer still *looks* plausible. The test therefore measures a
+fixed-size shape as a fraction of the window (`test-macapp.sh` Case 3g).
 
 ## 6. Dirty-texture upload
 
@@ -169,8 +190,12 @@ Supporting rules, each of which the gate depends on:
   knowledge of what the graphics thread is doing.
 * **A closed texture is skipped in new frames.** So `lastUsedFrame` stops advancing
   the moment it closes, and the gate is guaranteed to open.
-* **A closed id in a NEW scene raises `ErrResourceClosed`** (plan-98-B). So no future
-  frame can resurrect a texture whose free is pending.
+* **A closed image cannot be named again.** `canvas::imageRef(image)` is a read of
+  the *resource* and raises `ErrResourceClosed` (plan-98-B), so a program cannot mint
+  a fresh handle to a closed image and no future scene can resurrect one whose free is
+  pending. Note the guard is at `imageRef`, **not** at `present`: a `Picture` carries
+  an `ImageRef`, which is a plain value, so presenting a stale one draws nothing rather
+  than raising.
 
 ## 8. The race matrix
 
@@ -181,7 +206,7 @@ row names the rule from above that protects it.
 |---|---|---|---|
 | R1 | present → `destroyImage` → graphics mid-record | the in-flight frame keeps sampling the texture and completes normally | §7 "close never frees" |
 | R2 | present → `destroyImage` → frame completes → next frame | the next frame skips the texture; the free fires exactly once | §7 skip-in-new-frames + the gate |
-| R3 | `destroyImage` → present naming the same id | `ErrResourceClosed` at `present`, no frame ever sees it | plan-98-B closed-read guard |
+| R3 | `destroyImage` → try to name it again | `ErrResourceClosed` at `imageRef`, so no new scene can carry it | plan-98-B closed-read guard |
 | R4 | two presents, no frame between | the second scene renders; the first is skipped, not rendered late | §3 step 2 overwrite |
 | R5 | present while graphics is mid-render | `present` does not block; the new scene renders next frame | §3 three slots |
 | R6 | graphics stalled indefinitely, worker presents repeatedly | `present` still never blocks; slots are reused, no unbounded allocation | §3 "nobody frees a slot" |
@@ -191,6 +216,12 @@ row names the rule from above that protects it.
 | R10 | `setBytes` on an image not in the live scene | no repaint at all | §4 trigger 5 |
 | R11 | `setBytes` → `destroyImage` → frame | no upload into a closed texture; free still gated | §7 skip-in-new-frames |
 | R12 | program exits while a frame is in flight | no use-after-free of the scene slots or the pixel buffer | shutdown must join graphics before the worker's frame unwinds |
+
+**Rows R1, R2, R9, R10 and R11 are not yet reachable.** They are the texture and
+dirty-upload rows, and there is no texture: `Picture` draws nothing until plan-98-G
+brings the sampler, and `canvas::createImage` allocates nothing outside MFB's own
+resource record. They become testable in plan-98-E, which is where the deferred free
+lands (plan-98-D Correction 13). Every other row is test-proven today.
 
 R12 is **not** named by plan-98-D's design; it was found writing this document. The
 scene slots live in the worker's arena and the worker's arena state lives on the
@@ -206,6 +237,20 @@ stopped) before the worker's entry unwinds.
   a thing that can happen. A lock there would guard an impossible caller.
 * **No time-based repaint.** §4.
 * **No cross-thread arena free.** §3.
+
+## 10. Test affordances
+
+Three environment variables, all off by default and none on the production path:
+
+* `MFB_CANVAS_DUMP` — write each rendered frame's raw RGBA to a file. How a headless
+  run is observed at all, and what the golden harness reads.
+* `MFB_CANVAS_STATS` — **append** one line per rendered frame with the geometry-cache
+  counters. Appends rather than overwrites because the interesting quantity is the
+  delta between frames.
+* `MFB_CANVAS_SYNC` — make `present` wait for the frame it asked for. Frames coalesce
+  by design (§3), so frame counts are otherwise a scheduling detail — the same
+  three-present program was observed producing one, two and three frames. Any
+  frame-level assertion needs this.
 
 ## See also
 

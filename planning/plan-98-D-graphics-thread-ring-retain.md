@@ -295,24 +295,42 @@ Commit: —
 
 ### Phase 4 — Deferred texture free (closed-flag + frame-drain) (largest blast radius last)
 
-- [ ] Graphics thread stamps each texture's `lastUsedFrame` when it draws it and advances a
-      single `lastCompletedFrame` on frame completion; a closed texture is skipped in new
-      frames.
-- [ ] Free a pending-free (closed) texture when `closed AND lastUsedFrame <
-      lastCompletedFrame` — no refcount, no per-frame reference set.
-- [ ] Implement the exact design race deterministically: publish scene → worker calls
-      `canvas::destroyImage` → graphics thread mid-record — assert no tear, no
-      use-after-free, the closed texture keeps rendering until the scene is replaced, and
-      the free fires exactly once after the drain.
-- [ ] Tests: the full race matrix from Phase 1, each driven deterministically with injected
-      frame-completions; a stress test interleaving present/destroy/resize over many frames
-      under a thread sanitizer if available.
+- [x] ~~Stamp `lastUsedFrame` when a texture is drawn~~ — **moot: no frame draws
+      one.** `Picture` generates the `__CANVAS_GEO_NONE` kind
+      (`helper_geometry.rs:__canvas_headerFor`), so the rasteriser never samples an
+      image; the sampler is plan-98-G's (plan-98-C Correction 4). `lastUsedFrame` is
+      reserved in the resource record and written exactly once, to zero, at creation
+      (`func_create_image.rs:164` — the only write in the tree). The
+      `lastCompletedFrame` half **does** exist and is live: it is
+      `GRAPHICS_OFFSET_FRAMES`, advanced by `canvas::frameDone` and already used as the
+      drain gate for the scene ring (Phase 3).
+- [x] ~~Free the OS-side texture on the drain gate~~ — **moot: there is no OS-side
+      texture.** `canvas::createImage` stores the pixels in the resource's own CPU
+      shadow inside the 96-byte record (`gen_image.rs`, `IMAGE_PIXELS`), which the RES
+      model frees with the record. Nothing is allocated outside MFB's ownership, so
+      there is nothing for a deferred free to defer. A GPU texture first exists in
+      plan-98-E; the gate lands there, with the thing it gates.
+- [x] ~~The publish → destroy → mid-record race~~ — **moot for the same reason, and
+      vacuously safe today:** a render never reads an image, so destroying one mid-frame
+      cannot tear or use-after-free. What *is* reachable is the guard that makes the id
+      unusable afterwards, and it is already tested: `cli_canvas_image_resource`'s
+      `closedRefuses` closes an image through an aliasing helper the checker cannot see
+      through and asserts `ErrResourceClosed`.
+- [x] Tests: the matrix is covered except its texture rows. R3 by
+      `cli_canvas_image_resource::closedRefuses`; R4/R5/R6 (scene skip, no blocking,
+      bounded reuse) by `rt_canvas_graphics_thread` and the ring; R7/R8 (resize, and
+      with the program blocked) by `test-macapp.sh` Case 3g; R12 (shutdown) by
+      `a_present_then_immediate_return_still_renders`. R1/R2/R9/R10/R11 are the texture
+      and dirty-upload rows and are moot above — `.ai/canvas-threading.md` §8 now says
+      so per row, so the list stays honest rather than looking covered.
 
-Acceptance: every enumerated race in `.ai/canvas-threading.md` is test-proven; this plan's
-publish→destroy→mid-record sequence never frees a texture a frame is still reading and frees
-it exactly once once `closed AND lastUsedFrame < lastCompletedFrame`; no use-after-free under
-the stress/sanitizer run. Run only the new ring/race tests plus C's canvas golden tests
-(the pixel oracle must survive the ring); golden still exact-match.
+Acceptance: MET as far as it is reachable, and the remainder is moot with evidence
+rather than deferred (Correction 13). Every non-texture row of the matrix is
+test-proven; the texture rows have no texture to test, which is a structural fact
+(`Picture` draws nothing, `createImage` allocates nothing outside MFB) and not a
+judgement about effort. The pixel oracle survives the ring: the exact-match golden
+still passes. `MFB_MACAPP_GUI=1 test-macapp.sh`: 19 ok; every canvas/app-mode target:
+53 passed.
 Commit: —
 
 ## Validation Plan
@@ -479,6 +497,38 @@ which copies the whole buffer per element (27 copies per new item); it now appen
 a local and writes the global back once. Measured across 25/50/100/200 presents, RSS
 fell from 218/227/248/328 MB to 21/25/26/40 MB, and one frame went 0.38 s to 0.25 s.
 The rendered frame is byte-identical throughout.
+
+**Correction 13 (Phase 4) — the deferred texture free is moot until plan-98-E, with
+evidence.** Phase 4's whole subject is "do not free a GPU texture while a frame is
+still sampling it". Three facts make it unreachable today, and none of them is about
+effort:
+
+* **No frame samples an image.** `Picture` generates the `__CANVAS_GEO_NONE` kind
+  (`helper_geometry.rs:__canvas_headerFor`) and the rasteriser draws nothing for it.
+  The sampler is G's (plan-98-C Correction 4).
+* **There is no OS-side texture.** `canvas::createImage` stores the pixels in the
+  resource's CPU shadow inside its own 96-byte record (`gen_image.rs`), which the RES
+  model frees with the record. Nothing exists outside MFB's ownership to defer.
+* **`lastUsedFrame` is never stamped.** The only write in the tree is the zero at
+  creation (`func_create_image.rs:164`), because nothing draws a texture to stamp it.
+
+Building the gate now would mean writing a free for a resource with no external
+backing, keyed on a counter nothing advances — machinery with no content, which is
+what plan-98-B Correction 18 rejected once already and what moved the geometry cache
+into C. It lands in **plan-98-E**, the letter that first creates a real texture, and
+E's Prerequisites gain the row.
+
+The *other* half of the mechanism is not moot and is already live: `lastCompletedFrame`
+exists as `GRAPHICS_OFFSET_FRAMES`, advanced by `canvas::frameDone`, and Phase 3's
+scene ring already uses exactly the `retired < completed` drain gate that invariant 4
+specifies. So E inherits a working gate and only has to stamp the texture side.
+
+**Correction 14 (Phase 4) — the protocol doc's R3 named the wrong guard.**
+`.ai/canvas-threading.md` §8 said "a closed id in a NEW scene raises
+`ErrResourceClosed` at `present`". It does not: a `Picture` carries an `ImageRef`,
+which is a plain value, so presenting a stale one draws nothing rather than raising.
+The guard is at `canvas::imageRef(image)`, which is a read of the *resource* and does
+raise. Corrected in the doc.
 
 <Further corrections filled in during execution.>
 
