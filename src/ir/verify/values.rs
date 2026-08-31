@@ -103,6 +103,10 @@ impl TypeEnv {
             IrValue::ResultIsOk { value } | IrValue::ResultError { value } => {
                 self.check_value_depth(value, locals, depth + 1);
             }
+            IrValue::Checked { value, .. } => {
+                self.check_value_depth(value, locals, depth + 1);
+                self.check_checked_has_no_call(value);
+            }
             IrValue::Unary { op, operand, .. } => {
                 self.check_value_depth(operand, locals, depth + 1);
                 self.check_unary_operand(op, operand, locals);
@@ -295,6 +299,37 @@ impl TypeEnv {
             | IrValue::LocalRef { .. }
             | IrValue::FunctionRef { .. }
             | IrValue::Capture { .. } => {}
+        }
+    }
+
+    /// Reject a `Checked` node that wraps a call (bug-471).
+    ///
+    /// `Checked` means "evaluate this value with its domain-error exits captured";
+    /// codegen implements it by running the inner lowering under a
+    /// `raw_result_capture`, which only `emit_error_register_return` consults. A
+    /// *call* inside it does not raise through that seam — it auto-propagates from
+    /// its own call site — so its error would slip past the capture and past the
+    /// handler the `Checked` exists to feed, which is exactly the escape class
+    /// bug-457/bug-471 close. `ir::lower` never builds this shape (it lifts every
+    /// call out of the trapped expression before wrapping what is left), so this
+    /// only rejects a crafted `.mfp`.
+    pub(super) fn check_checked_has_no_call(&self, value: &IrValue) {
+        let mut offender = None;
+        crate::ir::value::visit_value(value, &mut |node| {
+            if offender.is_none() {
+                if let IrValue::Call { target, .. } | IrValue::CallResult { target, .. } = node {
+                    offender = Some(target.clone());
+                }
+            }
+        });
+        if let Some(target) = offender {
+            self.emit(
+                VERIFY_TYPE,
+                format!(
+                    "Checked wraps a call to `{target}`; a call's error does not join the capture, \
+                     so it must be lifted out before the value is checked"
+                ),
+            );
         }
     }
 

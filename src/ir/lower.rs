@@ -1,6 +1,6 @@
 use super::*;
 
-use super::fallible::Fallibility;
+use super::fallible::{operator_can_raise, Fallibility};
 use super::lower_link::{link_aliases, link_cstructs, link_functions, native_resources};
 use crate::hir::{
     HirCallArg, HirConstructorArg, HirExpression, HirFunction, HirItem, HirMatchCase,
@@ -1339,11 +1339,22 @@ fn lower_inline_trap(
     // Once a nested call has been lifted the handler is demonstrably live, so an
     // outermost node that cannot fail (`toString(parse(s))`, or no call at all)
     // is left as a plain value instead of a needless always-`Ok` check.
+    // bug-471: with something already lifted, a raising *operator* at the root
+    // is checked too — `LET c = inner(x) + 1 TRAP(e)` (the shape `mfb spec
+    // language error-model` §8.6 rule 11 explicitly blesses) must catch the
+    // `+`'s overflow, not just `inner`'s failure. With nothing lifted the root
+    // is left unchecked whatever it is: that bare bind is the evidence
+    // `ir::verify` reports `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` on, and an
+    // inline `TRAP` still traps a *call* — a scrutinee that is only an operator
+    // is rejected exactly as before.
+    let root_operator_raises = !hoists.is_empty()
+        && matches!(&root, IrValue::Binary { op, type_, .. } | IrValue::Unary { op, type_, .. }
+            if operator_can_raise(op, type_));
     let check_root = match &root {
         IrValue::Call { target, .. } => {
             hoists.is_empty() || context.fallible.call_is_fallible(target)
         }
-        _ => hoists.is_empty(),
+        _ => hoists.is_empty() || root_operator_raises,
     };
     // Allocated before the value slot so the no-hoist lowering keeps its
     // historical temp numbering.
@@ -1359,6 +1370,12 @@ fn lower_inline_trap(
                 // The fallible form's success type is the call's own result type.
                 type_: success_type.clone(),
                 loc,
+            },
+            // A raising operator has no callee to return a `Result`, so it is
+            // wrapped instead (bug-471).
+            other if root_operator_raises => IrValue::Checked {
+                type_: success_type.clone(),
+                value: Box::new(other),
             },
             other => other,
         };
@@ -1771,6 +1788,7 @@ fn scan_trap_operands(value: &IrValue, fallible: &Fallibility, depth: usize, out
         | IrValue::ResultIsOk { value }
         | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
+        | IrValue::Checked { value, .. }
         | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => scan_trap_call(value, fallible, next, out),
         IrValue::WithUpdate {
@@ -1803,15 +1821,36 @@ fn scan_trap_operands(value: &IrValue, fallible: &Fallibility, depth: usize, out
     }
 }
 
-/// [`scan_trap_operands`] plus `value`'s own node, so calls are recorded in
-/// evaluation order (operands first, then the call they feed).
+/// Whether `value`'s own node is one the desugar lifts out of the scrutinee: a
+/// call, or (bug-471) an operator that can raise while the expression is
+/// evaluated. Both walks below index exactly these nodes, in evaluation order,
+/// so a node's position means the same thing to each.
+///
+/// `Some(true)` = lifted **and checked** (its error routes to the handler);
+/// `Some(false)` = lifted but not checked — an infallible call kept in place
+/// only so a later lift cannot reorder it past this one; `None` = not indexed.
+fn trap_hoist_kind(value: &IrValue, fallible: &Fallibility) -> Option<bool> {
+    match value {
+        IrValue::Call { target, .. } => Some(fallible.call_is_fallible(target)),
+        // A raising operator is always checked: unlike a call there is no
+        // declaration to prove it total, and `operator_can_raise` is already the
+        // conservative side of that question.
+        IrValue::Binary { op, type_, .. } | IrValue::Unary { op, type_, .. } => {
+            operator_can_raise(op, type_).then_some(true)
+        }
+        _ => None,
+    }
+}
+
+/// [`scan_trap_operands`] plus `value`'s own node, so lifted nodes are recorded
+/// in evaluation order (operands first, then the node they feed).
 fn scan_trap_call(value: &IrValue, fallible: &Fallibility, depth: usize, out: &mut Vec<bool>) {
     if depth > TRAP_SCRUTINEE_MAX_DEPTH {
         return;
     }
     scan_trap_operands(value, fallible, depth, out);
-    if let IrValue::Call { target, .. } = value {
-        out.push(fallible.call_is_fallible(target));
+    if let Some(checked) = trap_hoist_kind(value, fallible) {
+        out.push(checked);
     }
 }
 
@@ -1856,6 +1895,7 @@ fn rewrite_trap_operands(
         | IrValue::ResultIsOk { value }
         | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
+        | IrValue::Checked { value, .. }
         | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => {
             rewrite_trap_call(value, fallible, limit, index, next, hoists, locals, context)
@@ -1921,52 +1961,89 @@ fn rewrite_trap_call(
     rewrite_trap_operands(
         value, fallible, limit, index, depth, hoists, locals, context,
     );
-    if !matches!(value, IrValue::Call { .. }) {
+    if !matches!(
+        value,
+        IrValue::Call { .. } | IrValue::Binary { .. } | IrValue::Unary { .. }
+    ) {
         return;
     }
+    // The scan's fallibility verdict is recomputed here rather than read off
+    // `fallible[position]`, because a non-raising operator is not indexed at all
+    // and must not consume a position.
+    let Some(checked) = trap_hoist_kind(value, context.fallible) else {
+        return;
+    };
+    debug_assert_eq!(
+        fallible.get(*index).copied(),
+        Some(checked),
+        "the scan and the rewrite disagree on which nodes are lifted"
+    );
     let position = *index;
     *index += 1;
     if position >= limit {
         return;
     }
     let lifted = std::mem::replace(value, IrValue::Local(String::new()));
-    let IrValue::Call {
-        target,
-        args,
-        type_,
-        loc,
-    } = lifted
-    else {
-        unreachable!("only a Call node reaches here");
+    let (type_, loc, value_node) = match lifted {
+        IrValue::Call {
+            target,
+            args,
+            type_,
+            loc,
+        } => {
+            let node = if checked {
+                IrValue::CallResult {
+                    target,
+                    args,
+                    type_: type_.clone(),
+                    loc,
+                }
+            } else {
+                IrValue::Call {
+                    target,
+                    args,
+                    type_: type_.clone(),
+                    loc,
+                }
+            };
+            (type_, loc, node)
+        }
+        // bug-471: a raising operator has no callee whose error return could be
+        // turned into a `Result`, so it is wrapped in a `Checked` — "evaluate
+        // this with its domain-error exits captured". Its own operands have
+        // already been rewritten above, so every call inside it is a `Local`
+        // read of an earlier lift and the `Checked` wraps pure arithmetic.
+        operator => {
+            let type_ = operator
+                .annotated_parameter_type()
+                .unwrap_or(ParameterType::Unknown);
+            let loc = match &operator {
+                IrValue::Binary { loc, .. } | IrValue::Unary { loc, .. } => *loc,
+                _ => unreachable!("only a Binary/Unary node reaches here"),
+            };
+            (
+                type_.clone(),
+                loc,
+                IrValue::Checked {
+                    type_,
+                    value: Box::new(operator),
+                },
+            )
+        }
     };
     let name = make_temp_local_name(context, "trap_arg");
     locals.insert(name.clone(), type_.clone());
-    let res = if fallible[position] {
+    let res = if checked {
         let res = make_temp_local_name(context, "trap_res");
         locals.insert(res.clone(), ParameterType::result_of(type_.clone()));
         Some(res)
     } else {
         None
     };
-    let call = if res.is_some() {
-        IrValue::CallResult {
-            target,
-            args,
-            type_: type_.clone(),
-            loc,
-        }
-    } else {
-        IrValue::Call {
-            target,
-            args,
-            type_: type_.clone(),
-            loc,
-        }
-    };
     hoists.push(TrapHoist {
         name: name.clone(),
         type_,
-        value: call,
+        value: value_node,
         res,
         loc,
     });

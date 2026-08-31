@@ -33,6 +33,7 @@
 
 use crate::codegen::builtins;
 use crate::hir::{HirCallArg, HirConstructorArg, HirExpression, HirItem, HirProject, HirStatement};
+use crate::types::ParameterType;
 use std::collections::HashSet;
 
 /// The project's fallibility verdicts, consulted by target name.
@@ -120,6 +121,48 @@ pub(super) fn analyze(hir: &HirProject) -> Fallibility {
         }
     }
     verdicts
+}
+
+/// The arithmetic operators (`mfb spec language operators` §11). Every one of
+/// them is *checked* on an integer-family result — the spec's "checked numeric
+/// failures from operators are ordinary failures and therefore auto-propagate
+/// unless handled by a `TRAP`" — so each is a raise site the inline-`TRAP`
+/// desugar has to cover (bug-471). The logical (`AND`/`OR`/`XOR`/`NOT`),
+/// comparison and string-concatenation operators produce no domain error and are
+/// deliberately absent.
+const ARITHMETIC_OPERATORS: [&str; 7] = ["+", "-", "*", "/", "DIV", "MOD", "^"];
+
+/// Whether an operator node can raise a domain error while the expression it
+/// sits in is being evaluated (bug-471).
+///
+/// This is the operator twin of [`Fallibility::call_is_fallible`] and, like it,
+/// a deliberate **over-approximation**: it answers from the operator spelling
+/// and the node's own result type rather than arm-by-arm against
+/// `codegen::engine::operators`. A recogniser kept in lockstep with a per-arm
+/// census is exactly the shape that silently loses an arm when the census grows
+/// (`Money`'s dispatcher, `Byte`'s underflow, `Fixed`'s `MOD` divisor check are
+/// three separate code paths already), and here an over-approximation costs one
+/// redundant always-`Ok` check inside a trapped expression while an
+/// under-approximation is the miscompile this exists to close.
+///
+/// The result type is the discriminator because arithmetic only type-checks on
+/// numeric operands (`AND`/`OR` are `Boolean`-only, `&` is `String`-only — §11),
+/// so an arithmetic node's result type is numeric exactly when its operands
+/// were. `Float` counts: plan-17 moved `+`/`-`/`*`/`/`'s check from the operator
+/// to the observation boundary, but that boundary still sits *inside* the
+/// trapped expression (a `Float` overflow nested in a trapped call escaped the
+/// handler exactly like an integer one before this fix), and `MOD`/`^` raise
+/// `ErrFloatDomain` at the operator itself.
+pub(super) fn operator_can_raise(op: &str, result_type: &ParameterType) -> bool {
+    ARITHMETIC_OPERATORS.contains(&op)
+        && matches!(
+            result_type,
+            ParameterType::Byte
+                | ParameterType::Integer
+                | ParameterType::Fixed
+                | ParameterType::Money
+                | ParameterType::Float
+        )
 }
 
 /// Whether a block can let an error escape to the caller.

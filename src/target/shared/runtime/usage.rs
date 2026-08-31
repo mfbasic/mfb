@@ -308,7 +308,8 @@ fn push_value_helpers(value: &IrValue, helpers: &mut Vec<RuntimeHelper>) {
         | IrValue::UnionExtract { value, .. }
         | IrValue::ResultIsOk { value }
         | IrValue::ResultValue { value, .. }
-        | IrValue::ResultError { value } => {
+        | IrValue::ResultError { value }
+        | IrValue::Checked { value, .. } => {
             push_value_helpers(value, helpers);
         }
         IrValue::WithUpdate {

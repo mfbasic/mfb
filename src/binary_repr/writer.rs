@@ -435,7 +435,8 @@ pub(super) fn value_uses_resource_type(value: &IrValue) -> bool {
         | IrValue::UnionExtract { value, .. }
         | IrValue::ResultIsOk { value }
         | IrValue::ResultValue { value, .. }
-        | IrValue::ResultError { value } => value_uses_resource_type(value),
+        | IrValue::ResultError { value }
+        | IrValue::Checked { value, .. } => value_uses_resource_type(value),
         IrValue::MemberAccess { target, .. } => value_uses_resource_type(target),
         IrValue::WithUpdate {
             target, updates, ..
@@ -586,7 +587,8 @@ pub(super) fn collect_resource_names_in_value(
         | IrValue::UnionExtract { value, .. }
         | IrValue::ResultIsOk { value }
         | IrValue::ResultValue { value, .. }
-        | IrValue::ResultError { value } => collect_resource_names_in_value(value, names, record),
+        | IrValue::ResultError { value }
+        | IrValue::Checked { value, .. } => collect_resource_names_in_value(value, names, record),
         IrValue::MemberAccess { target, .. } => {
             collect_resource_names_in_value(target, names, record)
         }
@@ -794,6 +796,7 @@ pub(super) fn collect_imported_calls_value(
         | IrValue::ResultIsOk { value }
         | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
+        | IrValue::Checked { value, .. }
         | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => {
             collect_imported_calls_value(value, imported, used)
