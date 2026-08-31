@@ -59,6 +59,13 @@ pub(crate) fn lower_destroy_font(
         .location
         .clone();
 
+    // Unpublish before closing: a renderer that looked the handle up between the two
+    // would find a block whose resource is already closed, and the whole point of the
+    // handle indirection is that a scene never has to care.
+    let handle = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&handle, &record, RESOURCE_OFFSET_HANDLE));
+    super::gen_font_table::emit_unregister_font(builder, &Operand::from(handle.to_string()));
+
     let flag = builder.temporary_vreg();
     builder.emit(abi::move_immediate(&flag, "Integer", "1"));
     builder.emit(abi::store_u64(&flag, &record, RESOURCE_OFFSET_CLOSED));

@@ -1,4 +1,4 @@
-# bug-477: a Windows `--app` worker thread faults inside `BCryptGenRandom` — every app-mode program dies with `0xC0000005`, whatever it does
+# bug-478: a Windows `--app` worker thread faults inside `BCryptGenRandom` — every app-mode program dies with `0xC0000005`, whatever it does
 
 Last updated: 2026-08-31
 Effort: large (half a day+) — Windows-only, needs the box and a minidump

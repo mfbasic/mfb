@@ -346,8 +346,58 @@ FUNC __canvas_tailFor(item AS DrawItem) AS List OF Float
     CASE Picture(pic)
       RETURN []
     CASE Text(t)
-      RETURN []
+      RETURN __canvas_textEdges(t)
   END MATCH
+END FUNC
+
+FUNC __canvas_textEdges(t AS Text) AS List OF Float
+  LET b AS List OF Byte = __canvas_fontBlob(t.font.id)
+  IF len(b) = 0 THEN
+    RETURN []
+  END IF
+  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
+  IF upem <= 0 THEN
+    RETURN []
+  END IF
+  LET scale AS Float = t.size / toFloat(upem)
+  MUT edges AS List OF Float = []
+  MUT pen AS Float = t.x
+  FOR EACH cp IN encoding::utf32Encode(t.text)
+    LET gid AS Integer = __canvas_glyphIndex(b, cp)
+    edges = __canvas_glyphEdges(b, gid, scale, pen, t.y, edges)
+    pen = pen + toFloat(__canvas_glyphAdvance(b, gid)) * scale
+  NEXT
+  RETURN edges
+END FUNC
+
+FUNC __canvas_textHeader(t AS Text, tail AS List OF Float) AS List OF Float
+  LET tailLen AS Integer = len(tail)
+  IF tailLen < 5 THEN
+    RETURN __canvas_emptyHeader()
+  END IF
+  MUT out AS List OF Float = __canvas_blankHeader()
+  out = collections::set(out, 0, toFloat(__CANVAS_GEO_POLYGON))
+  out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER + tailLen))
+  out = __canvas_paintHeader(out, t.paint)
+  out = collections::set(out, 20, toFloat(tailLen / 5))
+  MUT minX AS Float = collections::getOr(tail, 0, 0.0)
+  MUT maxX AS Float = minX
+  MUT minY AS Float = collections::getOr(tail, 1, 0.0)
+  MUT maxY AS Float = minY
+  MUT i AS Integer = 0
+  WHILE i < tailLen
+    LET x0 AS Float = collections::getOr(tail, i, 0.0)
+    LET y0 AS Float = collections::getOr(tail, i + 1, 0.0)
+    LET x1 AS Float = x0 + collections::getOr(tail, i + 2, 0.0)
+    LET y1 AS Float = y0 + collections::getOr(tail, i + 3, 0.0)
+    minX = __canvas_minF(minX, __canvas_minF(x0, x1))
+    maxX = __canvas_maxF(maxX, __canvas_maxF(x0, x1))
+    minY = __canvas_minF(minY, __canvas_minF(y0, y1))
+    maxY = __canvas_maxF(maxY, __canvas_maxF(y0, y1))
+    i = i + 5
+  END WHILE
+  LET pad AS Float = __canvas_maxF(__canvas_strokeHalf(t.paint), 0.0) + 1.0
+  RETURN __canvas_boundsHeader(out, minX - pad, minY - pad, maxX + pad, maxY + pad)
 END FUNC"#;
 
 /// Probe, confirm, and on a miss generate and insert.
@@ -403,14 +453,25 @@ FUNC __canvas_geoEvict() AS Integer
 END FUNC
 
 FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
-  LET header AS List OF Float = __canvas_headerFor(item)
+  ' Every other kind's header is a handful of arithmetic on the item's own fields, so
+  ' building it on every probe costs nothing and it doubles as the hash-collision
+  ' guard. A `Text` header is not like that: its bounds and its edge count are
+  ' properties of the *flattened glyph outlines*, so building it per frame would
+  ' re-read `glyf` for every character of every string on screen and the cache would
+  ' save nothing at all. Text therefore probes on the hash alone and builds its header
+  ' from the tail on a miss.
+  LET deferred AS Boolean = __canvas_headerIsDeferred(item)
+  MUT header AS List OF Float = []
+  IF NOT deferred THEN
+    header = __canvas_headerFor(item)
+  END IF
   __CANVAS_GEO_REV = __CANVAS_GEO_REV + 1
   MUT slot AS Integer = 0
   LET slots AS Integer = len(__CANVAS_GEO_HASHES)
   WHILE slot < slots
     IF collections::getOr(__CANVAS_GEO_HASHES, slot, 0) = hash THEN
       LET offset AS Integer = collections::getOr(__CANVAS_GEO_OFFSETS, slot, 0)
-      IF __canvas_headerMatches(offset, header) THEN
+      IF deferred OR __canvas_headerMatches(offset, header) THEN
         __CANVAS_GEO_LASTUSED = collections::set(__CANVAS_GEO_LASTUSED, slot, __CANVAS_GEO_REV)
         RETURN offset
       END IF
@@ -420,6 +481,9 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
 
   LET evicted AS Integer = __canvas_geoEvict()
   LET tail AS List OF Float = __canvas_tailFor(item)
+  IF deferred THEN
+    header = __canvas_deferredHeader(item, tail)
+  END IF
   __CANVAS_GEO_GENERATIONS = __CANVAS_GEO_GENERATIONS + 1
   LET offset AS Integer = len(__CANVAS_GEO_DATA)
   ' Append into a LOCAL and write the global back once. `collections::append` is
@@ -445,6 +509,48 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
   __CANVAS_GEO_COUNTS = collections::append(__CANVAS_GEO_COUNTS, __CANVAS_GEO_HEADER + tailCount)
   __CANVAS_GEO_LASTUSED = collections::append(__CANVAS_GEO_LASTUSED, __CANVAS_GEO_REV)
   RETURN offset
+END FUNC
+
+FUNC __canvas_headerIsDeferred(item AS DrawItem) AS Boolean
+  MATCH item
+    CASE Text(t)
+      RETURN TRUE
+    CASE Rectangle(r)
+      RETURN FALSE
+    CASE RoundedRect(rr)
+      RETURN FALSE
+    CASE Circle(c)
+      RETURN FALSE
+    CASE Line(l)
+      RETURN FALSE
+    CASE Arc(a)
+      RETURN FALSE
+    CASE Polygon(p)
+      RETURN FALSE
+    CASE Picture(pic)
+      RETURN FALSE
+  END MATCH
+END FUNC
+
+FUNC __canvas_deferredHeader(item AS DrawItem, tail AS List OF Float) AS List OF Float
+  MATCH item
+    CASE Text(t)
+      RETURN __canvas_textHeader(t, tail)
+    CASE Rectangle(r)
+      RETURN __canvas_emptyHeader()
+    CASE RoundedRect(rr)
+      RETURN __canvas_emptyHeader()
+    CASE Circle(c)
+      RETURN __canvas_emptyHeader()
+    CASE Line(l)
+      RETURN __canvas_emptyHeader()
+    CASE Arc(a)
+      RETURN __canvas_emptyHeader()
+    CASE Polygon(p)
+      RETURN __canvas_emptyHeader()
+    CASE Picture(pic)
+      RETURN __canvas_emptyHeader()
+  END MATCH
 END FUNC
 
 FUNC __canvas_hashItem(item AS DrawItem) AS Integer

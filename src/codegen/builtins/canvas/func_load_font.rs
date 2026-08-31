@@ -155,6 +155,13 @@ pub(crate) fn lower_font_from_bytes(
     let value = builder.temporary_vreg();
     builder.emit(abi::load_u64(&value, abi::stack_pointer(), owned_slot));
     builder.emit(abi::store_u64(&value, &record, FONT_BYTES));
+    // Publish it where the graphics thread can find it. The record is the worker's;
+    // the renderer only ever has the integer a `FontRef` carries.
+    super::gen_font_table::emit_register_font(
+        builder,
+        &Operand::from(record.to_string()),
+        &Operand::from(value.to_string()),
+    );
 
     builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &record));
     builder.emit(abi::move_immediate(

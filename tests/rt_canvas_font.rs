@@ -258,12 +258,43 @@ fn minimal_truetype() -> Vec<u8> {
         hmtx.extend(be16(0));
     }
 
+    // `glyf`: glyph 1 is a square, `(100,0)` to `(400,300)` in font units. Four
+    // on-curve points and no instructions, so the reader's every branch is the simple
+    // one and the expected pixels are a rectangle anyone can compute.
+    let mut glyf = Vec::new();
+    glyf.extend(be16(1)); // numberOfContours
+    for v in [100i16, 0, 400, 300] {
+        glyf.extend(be16(v as u16)); // xMin, yMin, xMax, yMax
+    }
+    glyf.extend(be16(3)); // endPtsOfContours[0] — four points, so the last index is 3
+    glyf.extend(be16(0)); // instructionLength
+    for _ in 0..4 {
+        glyf.push(0x01); // ON_CURVE, and neither axis short or repeated
+    }
+    for dx in [100i16, 300, 0, -300] {
+        glyf.extend(be16(dx as u16));
+    }
+    for dy in [0i16, 0, 300, 0] {
+        glyf.extend(be16(dy as u16));
+    }
+
+    // `loca`, 16-bit format (`head.indexToLocFormat` is 0, which the zeroed `head`
+    // already says): offsets are stored halved. Glyphs 0 and 2 are empty ranges,
+    // which is how the format spells "no outline" — a space, and `.notdef` here.
+    let glyf_len = glyf.len() as u16;
+    let mut loca = Vec::new();
+    for halved in [0u16, 0, glyf_len / 2, glyf_len / 2] {
+        loca.extend(be16(halved));
+    }
+
     // Tag order is the sorted order a real directory uses.
-    let tables: [(&[u8; 4], Vec<u8>); 4] = [
+    let tables: [(&[u8; 4], Vec<u8>); 6] = [
         (b"cmap", cmap),
+        (b"glyf", glyf),
         (b"head", head),
         (b"hhea", hhea),
         (b"hmtx", hmtx),
+        (b"loca", loca),
     ];
 
     let mut font = Vec::new();
@@ -274,6 +305,10 @@ fn minimal_truetype() -> Vec<u8> {
     font.extend(be16(0)); // rangeShift
 
     let mut offset = 12 + 16 * tables.len() as u32;
+    debug_assert!(
+        glyf_len % 2 == 0,
+        "a 16-bit `loca` cannot address an odd offset"
+    );
     let mut body: Vec<u8> = Vec::new();
     for (tag, data) in &tables {
         font.extend(*tag);
@@ -404,4 +439,160 @@ END SUB
         Some("descent is positive: 20.00")
     );
     assert_eq!(lines.get(1).map(String::as_str), Some("height 110.00"));
+}
+
+/// Surface dimensions, fixed by `__canvas_surfaceSize`.
+const WIDTH: usize = 900;
+
+/// Build a project with the fixture font, render one frame headless, return the pixels.
+fn render(name: &str, source: &str) -> Vec<u8> {
+    let project = common::temp_project(name, source);
+    std::fs::write(project.join("fixture.ttf"), minimal_truetype()).expect("write the font");
+    let build = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg("-app")
+        .arg(&project)
+        .output()
+        .expect("run mfb build -app");
+    assert!(
+        build.status.success(),
+        "mfb build -app failed:\n{}\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr),
+    );
+    let frame = project.join("frame.rgba");
+    let binary = app_binary(&project, name);
+    let run = Command::new(&binary)
+        .current_dir(&project)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_DUMP", &frame)
+        .env("MFB_CANVAS_SYNC", "1")
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        run.status.success(),
+        "program exited {:?}:\n{}\n{}",
+        run.status.code(),
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr),
+    );
+    let pixels = std::fs::read(&frame).expect("canvas dump written");
+    let _ = std::fs::remove_dir_all(&project);
+    pixels
+}
+
+fn pixel(frame: &[u8], x: usize, y: usize) -> (u8, u8, u8, u8) {
+    let at = (y * WIDTH + x) * 4;
+    (frame[at], frame[at + 1], frame[at + 2], frame[at + 3])
+}
+
+#[test]
+fn a_glyph_outline_renders_where_its_own_coordinates_put_it() {
+    // Glyph 1 is the square `(100,0)..(400,300)` in font units. At `unitsPerEm` 1000
+    // and `size` 100 the scale is exactly 0.1, so with the pen at x=100 and the
+    // **baseline** at y=200 the ink is `x` 110..140 and `y` 170..200 — the Y flip is
+    // the whole reason the top edge is the *smaller* number, since a font's Y grows
+    // upward and the surface's grows down.
+    let frame = render(
+        "canvas_glyph_render",
+        r#"IMPORT app
+IMPORT canvas
+
+SUB main()
+  app::setMode(Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    EXIT SUB
+  END TRAP
+  LET label AS DrawItem = Text[x := 100.0, y := 200.0, text := "A", font := canvas::fontRef(face), size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  canvas::present([label])
+END SUB
+"#,
+    );
+
+    let lit: Vec<(usize, usize)> = (0..frame.len() / 4)
+        .filter(|i| frame[i * 4] != 0 || frame[i * 4 + 1] != 0 || frame[i * 4 + 2] != 0)
+        .map(|i| (i % WIDTH, i / WIDTH))
+        .collect();
+    assert!(!lit.is_empty(), "the glyph drew nothing at all");
+    let min_x = lit.iter().map(|p| p.0).min().unwrap();
+    let max_x = lit.iter().map(|p| p.0).max().unwrap();
+    let min_y = lit.iter().map(|p| p.1).min().unwrap();
+    let max_y = lit.iter().map(|p| p.1).max().unwrap();
+
+    // A pixel is lit when its *centre* is inside the shape, so the covered centres run
+    // 110.5..139.5 and 170.5..199.5 — the last whole pixels inside the 30x30 square.
+    assert_eq!(
+        (min_x, max_x, min_y, max_y),
+        (110, 139, 170, 199),
+        "glyph ink is not where its own coordinates put it",
+    );
+    assert_eq!(lit.len(), 30 * 30, "the square is not solid");
+    assert_eq!(pixel(&frame, 125, 185), (255, 255, 255, 255), "inside");
+    assert_eq!(pixel(&frame, 105, 185), (0, 0, 0, 255), "left of it");
+    assert_eq!(pixel(&frame, 125, 160), (0, 0, 0, 255), "above it");
+    assert_eq!(
+        pixel(&frame, 125, 210),
+        (0, 0, 0, 255),
+        "below the baseline"
+    );
+}
+
+#[test]
+fn a_string_advances_the_pen_between_glyphs() {
+    // "AA" is the same outline twice, one advance apart. Glyph 1's advance is 250
+    // font units = 25 px, so the second square starts 25 px right of the first and the
+    // two overlap into one 55-px-wide band — which is what a *monospaced* run looks
+    // like when the glyph is wider than its advance, and is exactly the arithmetic the
+    // pen has to get right.
+    let frame = render(
+        "canvas_glyph_advance",
+        r#"IMPORT app
+IMPORT canvas
+
+SUB main()
+  app::setMode(Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    EXIT SUB
+  END TRAP
+  LET label AS DrawItem = Text[x := 100.0, y := 200.0, text := "AA", font := canvas::fontRef(face), size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  canvas::present([label])
+END SUB
+"#,
+    );
+    let lit: Vec<usize> = (0..frame.len() / 4)
+        .filter(|i| frame[i * 4] != 0)
+        .map(|i| i % WIDTH)
+        .collect();
+    assert!(!lit.is_empty(), "the string drew nothing at all");
+    assert_eq!(
+        (*lit.iter().min().unwrap(), *lit.iter().max().unwrap()),
+        (110, 164),
+        "the second glyph is not one advance right of the first",
+    );
+}
+
+#[test]
+fn text_in_a_font_that_was_never_loaded_draws_nothing() {
+    // A `FontRef` a program fabricated, or one whose font it released — the runtime
+    // draws empty rather than following a handle it cannot resolve. This is the
+    // property that lets `canvas::destroyFont` be safe while a scene still names the
+    // font, so it is worth pinning separately from the happy path.
+    let frame = render(
+        "canvas_glyph_no_font",
+        r#"IMPORT app
+IMPORT canvas
+
+SUB main()
+  app::setMode(Mode.Canvas)
+  LET label AS DrawItem = Text[x := 100.0, y := 200.0, text := "A", font := FontRef[id := 12345], size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  canvas::present([label])
+END SUB
+"#,
+    );
+    assert!(
+        frame.chunks(4).all(|p| p[0] == 0 && p[1] == 0 && p[2] == 0),
+        "text in an unresolvable font drew something",
+    );
 }

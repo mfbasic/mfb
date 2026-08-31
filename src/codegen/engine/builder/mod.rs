@@ -809,6 +809,16 @@ pub(crate) fn lower_module_for_platform(
             size: CANVAS_SCENE_SLOTS * 8,
             value: "00".repeat(CANVAS_SCENE_SLOTS * 8),
         });
+        // plan-98-G: the loaded-font table, process-global for the same reason — the
+        // worker loads a font and the graphics thread rasterises from it.
+        data_objects.push(CodeDataObject {
+            symbol: CANVAS_FONTS_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            layout: "mfb.runtime.canvas_fonts.v1 { u64 handle, block }[16]".to_string(),
+            align: 8,
+            size: CANVAS_FONT_TABLE_BYTES,
+            value: "00".repeat(CANVAS_FONT_TABLE_BYTES),
+        });
     }
     if module.entry.is_some() && module.target == "linux-riscv64" {
         data_objects.push(CodeDataObject {

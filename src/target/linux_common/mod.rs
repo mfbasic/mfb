@@ -85,6 +85,8 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "canvas.fontRef",
     "canvas.fontBytes",
     "canvas.measureText",
+    "canvas.fontRegistered",
+    "canvas.fontBlobUnchecked",
     "canvas.getSize",
     "canvas.getBytes",
     "canvas.setBytes",

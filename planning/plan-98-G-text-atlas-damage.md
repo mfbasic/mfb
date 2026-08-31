@@ -31,7 +31,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-98-F's **backends** render the non-text scene | `scripts/test-canvas-vulkan.sh <exe> --box 2228 --libc glibc` and `--box 2227 --libc musl --icd auto`; `cargo test --test rt_canvas_metal` | **MET** — software, Metal and Linux Vulkan all render the full primitive set within tolerance. The row used to read "plan-98-F complete", which is a *different* claim: F Phase 3 (Windows Vulkan) is blocked on bug-477 and G does not touch it. Corrected in place rather than waived — see Correction 2. |
+| plan-98-F's **backends** render the non-text scene | `scripts/test-canvas-vulkan.sh <exe> --box 2228 --libc glibc` and `--box 2227 --libc musl --icd auto`; `cargo test --test rt_canvas_metal` | **MET** — software, Metal and Linux Vulkan all render the full primitive set within tolerance. The row used to read "plan-98-F complete", which is a *different* claim: F Phase 3 (Windows Vulkan) is blocked on bug-478 and G does not touch it. Corrected in place rather than waived — see Correction 2. |
 | ~~The shared atlas exists (white pixel + images)~~ | — | **Corrected: the row asked G to require its own output.** There is no atlas: plan-98-E and plan-98-F each audited this and marked their atlas rows moot *pointing at G*. `grep -n 'CASE Picture' -A 3 src/codegen/builtins/canvas/helper_geometry.rs` shows `Picture` returning `__canvas_emptyHeader()` and `[]`, and all four `IMAGE_DIRTY` hits are writes. Building the atlas is Phase 1's work, not its precondition (Correction 3). |
 | The vendored-dependency policy is decided | this letter's Open Decisions | **MET** — hand-roll in MFBASIC, decided 2026-08-31 (Correction 1). |
 | Working tree builds | `cargo build` → pass | **MET** (`Finished \`dev\` profile`). |
@@ -226,8 +226,35 @@ the raster proves machine-variant, which it should not) and within tolerance on 
       plan-93-A's scope — so `loadImage` rides the same decision as the font path
       (Correction 1): an inflate and a PNG unfilter, hand-rolled beside the TrueType
       reader.
-- [ ] Build the chosen font rasteriser (hand-rolled, Correction 1); implement Text rendering: shape
-      (positioning) + per-`(font,size,codepoint)` glyph raster into the atlas + tinted quads.
+- [x] The rasteriser, and Text rendering — **as a polygon**, which is the whole payoff
+      of Correction 1. A glyph is a set of closed contours and `__canvas_edgeDistance`
+      already turns closed contours into a signed distance, so a `Text` item produces a
+      `__CANVAS_GEO_POLYGON` header with every glyph's flattened edges in its tail and
+      **no renderer arm is added at all** — software, Metal and Vulkan draw text through
+      the path they already draw polygons through, with the same fill, stroke,
+      antialiasing and blending.
+
+      `helper_glyph.rs` is the reader: `loca` (both offset formats), simple `glyf`
+      contours, run-length-decoded flags, the three-case delta coordinates, implied
+      on-curve midpoints, and quadratic flattening. `helper_font.rs` supplies the tables
+      it sits on.
+
+      **Two departures from the box's wording, both deliberate.** There is no
+      *per-`(font,size,codepoint)` atlas* and no *tinted quad*: the geometry cache
+      already keys on the item's content hash, so a string's outlines are flattened once
+      and reused until the string changes, and the "quad" a glyph would be textured into
+      is the polygon itself. The atlas the box asks for is what a *bitmap* rasteriser
+      needs; an outline one does not, and adding it would mean rasterising glyphs twice.
+      Phase 2's eviction row is re-scoped accordingly (Correction 11).
+
+      Verified by rendering. `Hi` in Andale Mono is two clean glyphs with the dot on the
+      `i` as its own contour; `Sog@` exercises curves, counters and a descender — the
+      `o`'s hole and the `@`'s spiral both come out right, which is the even-odd/non-zero
+      question answered in practice (Correction 10). The committed gate uses a
+      **synthesized** glyph instead: a square whose font-unit coordinates make the
+      expected pixels arithmetic — ink exactly `x` 110..139, `y` 170..199, 900 lit
+      pixels, and black on all four sides of it. Two more tests pin the pen advance
+      between glyphs and that text in an unresolvable font draws nothing.
 - [x] `canvas::loadFont` landed with the resource above; `canvas::measureText` →
       `TextMetrics` now lands with the TrueType table reader it shares with the render
       box. `helper_font.rs` is that reader: big-endian primitives, the table directory,
@@ -246,9 +273,11 @@ the raster proves machine-variant, which it should not) and within tolerance on 
       is zero wide and still a full line tall. Also measured on a real font — Andale
       Mono, `unitsPerEm` 2048 — where "hello" at 24 px is 72.01, which is five
       monospaced advances.
-- [ ] Tests: a text scene renders exact-match on the software oracle (or documented text
-      tolerance); `measureText` returns expected metrics; Text renders within tolerance on
-      Metal + Vulkan.
+- [~] `tests/rt_canvas_font.rs` is 7 tests over a synthesized font: the container
+      rules, the metrics, the descent sign, the glyph's own coordinates, the pen
+      advance, and the unresolvable-font case. What remains is the **GPU** half — Text
+      within tolerance on Metal and Vulkan — which needs a font on the box and in the
+      macOS harness, and is the last thing in this phase.
 
 Acceptance: Text `DrawItem`s render on all backends (software exact-match/documented-tolerance, GPU
 within tolerance); `measureText` works and its API is shaper-independent; a `Font`
@@ -381,7 +410,7 @@ shared with every other primitive. `canvas::loadImage` rides the same decision �
 inflate and a PNG unfilter, hand-rolled beside the font reader.
 
 **Correction 2 (Prerequisites) — "plan-98-F complete" was the wrong condition.** F Phase 3
-(Windows Vulkan) is blocked on **bug-477** — a Windows `--app` program faults before
+(Windows Vulkan) is blocked on **bug-478** — a Windows `--app` program faults before
 `main`'s first statement — and G does not touch the Windows Vulkan path. The row now names
 what G actually depends on: that F's *backends* render the non-text scene, which software,
 Metal and Linux Vulkan all do, each with a command to check it. Corrected rather than
@@ -460,3 +489,42 @@ reserved word, so `LET sub AS Integer = …` in the `cmap` reader is a parse err
 *fractional* division language-wide (`.../04_types.md`: "DIV is the explicit Float
 escape") — integer division is plain `/` on two `Integer`s, which is the opposite of
 what the keyword's name suggests to anyone arriving from Pascal or VB.
+
+**Correction 9 (Phase 1) — the font blob needed a process-global table, and that is the
+thing the plan calls "the atlas".** `canvas::loadFont` runs on the **worker**; the
+geometry cache that needs a glyph's outline runs on the **graphics thread**. The bytes
+are already reachable from both — an arena block is ordinary process memory, and only
+the *allocator state* is per-thread (`.ai/canvas-threading.md` §2) — but the graphics
+thread has no way to get from the integer a `FontRef` carries to the block. So
+`_mfb_rt_canvas_fonts` is a sixteen-slot process-global `handle -> block` map, published
+by `loadFont` and cleared by `destroyFont`, and it is a global for exactly the reason
+the scene region is one.
+
+A full table is **not** an error: the font still loads and still measures, and only text
+*drawn* in it comes out empty — the same thing that happens to a released font. Failing
+the load instead would turn a rendering limit into a program-stopping error at a moment
+the program cannot predict.
+
+**Correction 10 (Phase 1) — the fill rule is even-odd, and TrueType specifies non-zero.**
+`__canvas_edgeDistance` counts crossings. The two agree on every glyph whose counters
+are wound opposite their outer contour, which is what the format requires and what
+well-made fonts do — verified by rendering `o`, `g` and `@`, whose holes and spiral all
+come out right. They differ only where two contours of one glyph *overlap*, which good
+fonts avoid because it renders badly everywhere. That is a real if narrow limitation and
+it is the price of text sharing one rasteriser with every other primitive rather than
+having its own.
+
+**Correction 11 (Phase 1/2) — a text header is not cheap, so the cache had to change.**
+`__canvas_geometryFor` builds the header on **every probe**, which is fine when a header
+is arithmetic on the item's own fields and doubles as the hash-collision guard. A `Text`
+header is not: its bounds and its edge count are properties of the *flattened outlines*,
+so building it per frame would re-read `glyf` for every character on screen and the
+cache would save nothing. Text therefore probes on the hash alone and builds its header
+from the tail on a miss — a narrower collision guard for the one kind that cannot afford
+the wide one, rather than a slower cache for every kind.
+
+The same fact re-scopes **Phase 2**. An LRU glyph atlas is what a *bitmap* rasteriser
+needs; an outline rasteriser caches the flattened string in the geometry cache that
+already exists, and adding a glyph atlas on top would mean rasterising twice. Phase 2's
+row is re-read as "the geometry cache's eviction must be correct under text pressure",
+which is a real thing to test and a much smaller thing to build.
