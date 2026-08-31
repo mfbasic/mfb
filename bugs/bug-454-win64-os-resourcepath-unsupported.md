@@ -71,9 +71,60 @@ call `os.executablePath`, which this document treats as sharing the acquisition,
 (`src/target/win_x86_64/plan.rs:229`). Only `os.resourcePath` is missing —
 `grep -n 'os.resourcePath' src/target/win_x86_64/mod.rs` returns nothing, while
 `src/target/linux_common/mod.rs:98` and `src/target/macos_aarch64/mod.rs:83`
-both list it. So the remaining work is to route `os.resourcePath` to the
-exe-path acquisition that Windows already has, not to build that acquisition
-from scratch as the References section implies.
+both list it.
+
+**Correction, same day — that last sentence was wrong, and the scope is larger.**
+An earlier revision of this note said the fix "routes `os.resourcePath` to the
+exe-path acquisition Windows already has". Reading the code rather than the
+import table: Windows *does* acquire an executable path, but in a shape
+`resourcePath` cannot consume, and two further things are missing.
+
+1. **The acquisition is a whole-function lowering, not a reusable fragment.**
+   `resourcePath` gets its path from `emit_executable_path_into`
+   (`src/codegen/builtins/os/gen_paths.rs:19`), a raw-**byte**-buffer helper
+   whose `PlatformFamily::Windows` arm deliberately returns `Err`:
+
+   > Windows acquires its executable path through the UTF-16 wide-string helper
+   > (`lower_os_wide_string_windows`), not this raw-buffer routine, so
+   > `lower_executable_path` early-returns for Windows before reaching here.
+
+   `lower_os_wide_string_windows` returns `(instructions, relocations,
+   stack_size)` for an entire function producing a finished `String`
+   (`func_executable_path.rs:28-30`). It cannot be spliced into the middle of
+   `lower_resource_path`, which needs the raw bytes *before* its strip/suffix
+   arithmetic. So the work is a new Windows arm in `emit_executable_path_into`
+   (`GetModuleFileNameW` → `WideCharToMultiByte` into a frame byte buffer,
+   returning `(buf, Some(count))` as the Linux arm does) — genuinely new code,
+   not a routing change.
+
+2. **The path-separator arithmetic is POSIX-only, and nothing in this document
+   mentions it.** `lower_resource_path` hardcodes `/` in both places it inspects
+   the path: the `.`/`..` component validation
+   (`func_resource_path.rs:77`, `compare_immediate(&scan_byte, "47")`) and the
+   backward scan for the `strip`-th separator
+   (`func_resource_path.rs:166`, same constant). `GetModuleFileNameW` returns
+   `C:\path\to\app.exe`. A backward scan for `/` in that string finds **no**
+   separator, so the strip loop does not merely mis-count — it never terminates
+   on a match and the base-path computation is wrong however good the
+   acquisition is. Both sites need to accept `\` (92) on Windows.
+
+3. **The `resource_base_offset` table must be checked for Windows.** It maps
+   build mode to `(components-to-strip, suffix)` and is documented as needing to
+   stay "in lockstep with plan-55-A's `resource_output_dir`". Whether the
+   Windows output layout has the same depth as the POSIX one is unverified here;
+   if it differs, the table needs a Windows row, and a wrong row is silent — it
+   yields a plausible path that does not exist.
+
+Consequence for planning: the `Effort: medium (1h–2h)` header predates all of
+this and is likely optimistic. Treat the acquisition, the separator handling and
+the base-offset table as three separate pieces, each with its own fixture.
+Verification also needs a real Windows host or the PE rig — a green cross-build
+proves only that codegen emitted something ([[windows-box-has-no-test-script]]
+in the operator notes; no test on the Windows box runs a binary).
+
+Expect this to drift the ~24 windows `.ncodesum` goldens, per the standing note
+that a `win_x86_64` code change ripples every io-importer; re-sync them all with
+`regen-ncodesum.sh` rather than by hand.
 
 | Environment | Details | Result |
 | --- | --- | --- |
