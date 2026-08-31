@@ -140,6 +140,13 @@ pub fn run_capture_with_env(executable: &Path, envs: &[(&str, String)]) -> (i32,
     )
 }
 
+/// Build a `close()` interposer that fails the close of a chosen fd, so a test
+/// can observe *that* the runtime closed a resource (and how it reports a close
+/// failure). Unix-only by construction: the shim is a `SYS_close` raw-syscall
+/// shared object injected with `LD_PRELOAD` / `DYLD_INSERT_LIBRARIES`, and
+/// Windows has neither the syscall interface nor a loader-level symbol-preload
+/// mechanism to hang it on. Callers are `#[cfg(unix)]` for the same reason.
+#[cfg(unix)]
 pub fn build_close_interposer(root: &Path) -> PathBuf {
     let source = root.join("fail_close.c");
     fs::write(
@@ -428,6 +435,28 @@ pub fn hex(bytes: &[u8]) -> String {
     out
 }
 
+/// The Python 3 interpreter that drives the helper scripts below. `python3` is
+/// the canonical name on Unix and is also what GitHub's Windows images put on
+/// PATH, but a stock python.org install on Windows ships only `python.exe` — so
+/// probe rather than fail with a bare "program not found". The Microsoft Store
+/// `python.exe` *alias stub* answers the probe with a non-zero exit, so checking
+/// the status (not just that the spawn succeeded) rejects it.
+pub fn python_exe() -> &'static str {
+    static NAME: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| {
+        for candidate in ["python3", "python"] {
+            let ok = Command::new(candidate)
+                .arg("--version")
+                .output()
+                .is_ok_and(|out| out.status.success());
+            if ok {
+                return candidate;
+            }
+        }
+        "python3"
+    })
+}
+
 pub fn decode_hex(value: &str) -> Vec<u8> {
     fn nibble(byte: u8) -> u8 {
         match byte {
@@ -446,36 +475,39 @@ pub fn decode_hex(value: &str) -> Vec<u8> {
         .collect()
 }
 
-/// Run `executable` with stdout (fd 1) pointed at a **read-only** descriptor
-/// (`/dev/null` opened `O_RDONLY`), then dup'd onto fd 1. Any real `write(1, …)`
-/// then fails deterministically with `EBADF` on every platform/libc — unlike a
-/// *closed* fd, a valid-but-read-only descriptor cannot be silently reopened or
-/// replaced by the runtime/loader, so this is the portable way to exercise the
-/// stdout-write failure path (bug-04: `io::flush`/`io::input` detect failures via
-/// `write`, not `fsync`).
+/// Run `executable` with stdout pointed at a **read-only** descriptor (the null
+/// device opened `O_RDONLY`). Any real write to fd 1 then fails deterministically
+/// on every platform — unlike a *closed* fd, a valid-but-read-only descriptor
+/// cannot be silently reopened or replaced by the runtime/loader, so this is the
+/// portable way to exercise the stdout-write failure path (bug-04: `io::flush` /
+/// `io::input` detect failures via `write`, not `fsync`).
+///
+/// The read-only descriptor is handed to `Popen` as the child's stdout directly
+/// rather than dup'd over fd 1 from a `preexec_fn`: `preexec_fn` is a fork-only
+/// hook that raises `ValueError` on Windows, and passing the descriptor is
+/// exactly equivalent (the POSIX form built a stdout pipe only to immediately
+/// replace it, so the child's stdout was never observable either way — hence the
+/// empty stdout line below).
 pub fn run_with_readonly_stdout(executable: &Path, stdin: &[u8]) -> (i32, String, String) {
-    let output = Command::new("python3")
+    let output = Command::new(python_exe())
         .arg("-c")
         .arg(
             r#"import binascii, os, subprocess, sys
 stdin_data = bytes.fromhex(sys.argv[2])
 
-def make_stdout_readonly():
-    fd = os.open(os.devnull, os.O_RDONLY)
-    os.dup2(fd, 1)
-    if fd != 1:
-        os.close(fd)
-
-proc = subprocess.Popen(
-    [sys.argv[1]],
-    stdin=subprocess.PIPE,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    preexec_fn=make_stdout_readonly,
-)
-out, err = proc.communicate(stdin_data)
+readonly_stdout = os.open(os.devnull, os.O_RDONLY)
+try:
+    proc = subprocess.Popen(
+        [sys.argv[1]],
+        stdin=subprocess.PIPE,
+        stdout=readonly_stdout,
+        stderr=subprocess.PIPE,
+    )
+finally:
+    os.close(readonly_stdout)
+_, err = proc.communicate(stdin_data)
 sys.stdout.write(str(proc.returncode) + "\n")
-sys.stdout.write(binascii.hexlify(out).decode("ascii") + "\n")
+sys.stdout.write("\n")
 sys.stdout.write(binascii.hexlify(err).decode("ascii") + "\n")"#,
         )
         .arg(executable)
