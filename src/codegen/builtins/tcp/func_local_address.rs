@@ -23,10 +23,12 @@ The handle stays open — you still close it. The result is an ordinary `net::Ad
 value independent of the handle, so it stays valid after the handle is
 closed.
 
-**A file that uses the returned address must `IMPORT net` as well as `tcp`.**
+**A file that reads the address's fields must `IMPORT net` as well as `tcp`.**
 Imports are not transitive and packages cannot re-export types, so `Address` is
-nameable only where `net` is imported. Without it the returned value has no
-nameable type and the next call that uses it fails to resolve."#;
+nameable only where `net` is imported. Without it you can still pass the whole
+value on — `tcp::connect(bound)` compiles — but `bound.host` and `bound.port` are
+refused: the record's fields are not visible in a file that did not import the
+package declaring them."#;
 
 const EX: &str = r#"Learn the port the OS chose:
 

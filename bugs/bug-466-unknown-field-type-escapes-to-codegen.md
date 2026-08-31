@@ -1,12 +1,14 @@
 # bug-466: field access on an un-imported package's record escapes the type checker into native lowering, producing an unlocated internal error
 
-Last updated: 2026-08-30
+Last updated: 2026-08-31
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (diagnostics)
 
-Status: Open
-Regression Test: `tests/syntax/tcp/local-address-field-without-net-import/` (new)
+Status: Fixed
+Regression Test: `tests/syntax/tcp/local-address-field-*` (4 new fixtures) plus five
+`src/ir/shape.rs` unit tests (`foreign_record_field_*`,
+`unrelated_import_does_not_make_a_foreign_record_field_readable`)
 
 Reading a field off a value whose record type belongs to a package the file did
 not `IMPORT` yields `Unknown`. The type checker catches that `Unknown` when it is
@@ -172,6 +174,37 @@ is why `IMPORT udp` fixes an unrelated `tcp` program. All three packages declare
 That makes the user-facing rule ("a program that uses those addresses must
 `IMPORT net`") true but under-enforced, and accidentally satisfiable.
 
+**Correction (found while fixing): the visibility inconsistency has a second
+half the analysis above missed, and it is the half that matters to the fix.**
+The type-table account is right about why the `IMPORT udp` program *compiles* —
+`Address`'s field table is present, so `b.port` types. But the file's **import
+list** is widened too, and by a different mechanism: `monomorph::lower` emits
+every generated instantiation into the **first** file and unions every other
+file's imports into it, so those bodies' package-qualified calls still resolve
+("union every source file's imports into it", `src/monomorph/lower.rs`). After
+monomorphization `main.mfb`'s import list therefore reads
+`{tcp, udp, net, strings, collections}` for a program that wrote only `IMPORT
+tcp` and `IMPORT udp` — `net`, `strings` and `collections` all arrive from the
+injected `udp` companion source. Measured with a probe on
+`Walker::check_foreign_record_field`:
+
+```
+PROBE-CHK file=main.mfb member=port target_type=Address imports={"tcp": "tcp"}
+PROBE-CHK file=main.mfb member=port target_type=Address imports={"strings": "strings",
+          "net": "net", "udp": "udp", "tcp": "tcp", "collections": "collections"}
+```
+
+(first line: `IMPORT tcp` alone; second: with `IMPORT udp` added.)
+
+The widening is correct for lowering, which needs it, and invisible to name
+resolution, which ran on the original AST and still refuses a `net::` call in a
+file that did not import `net` (verified: `net::percentEncode` in a file
+importing only `udp` and `io` gives `2-201-0014 SYMBOL_UNKNOWN_IMPORT`). But it
+means *the post-monomorph HIR cannot answer "what did the author import?"* — so a
+gate keyed on `HirFile::imports` would have let the unrelated `IMPORT udp`
+silently reopen the hole. `HirFile` now carries `own_imports`, snapshotted at
+elaboration and copied verbatim by monomorph.
+
 ## Goal
 
 - Reproductions 1 and 2 are refused by the type checker with a located, coded diagnostic pointing at the field access.
@@ -198,22 +231,43 @@ plus the record census above.
 - `udp::localAddress`, `udp::receive` — **do not reproduce**, because `udp` declares `Datagram` and that pulls `Address`'s fields in. Same latent hole, accidentally masked.
 - `net::lookup` + `net::toUrl` — **unaffected**; using them requires `IMPORT net` already, so `Address`/`Url` fields are always visible.
 - `http` — **unaffected in practice**; `http::Request`/`Response` are declared by `http` itself, and `http::startRead` takes a `net::Url` which forces `IMPORT net` at the call site anyway.
-- **User packages returning another package's record** — **latent, not verified.** The mechanism is in the shared type table, not in builtin-specific code, so a user package should hit the same hole; confirming needs a multi-package fixture and is deferred to Phase 1.
+- **User packages returning another package's record** — **verified: DOES NOT reproduce.** Built the three-project model `rt_foreign_type_reexport.rs` uses (`pa466` exports `TYPE A`; `pc466` imports it and exports `makesA() AS A`; `app466` imports only `pc466`) and read `v.n` off the result with no `IMPORT pa466`: it builds and runs clean. A `.mfp` carries the foreign type's full definition through the re-export path bug-390 added, so the app has `A`'s field table without importing its owner. The hole is specific to BUILTIN packages, whose companion source is injected only when some file imports them — there is no `.mfp` to carry `net::Address`'s fields into a `tcp`-only file. The gate is therefore scoped to builtin-package records; the user-package behavior is left exactly as it is.
 - `src/target/shared/plan/lower.rs:180` and `builder_value_semantics.rs:560` — **hardened by this bug**: after the front-end gate closes, these become unreachable from source and should say so.
 
 ## Fix Design
 
-The fix is a **post-inference sweep**, not a change to unification. After type
-inference completes and before IR verification hands off to lowering, walk the
-function bodies for any expression whose resolved type is still `Unknown` and
-report `TYPE_UNKNOWN_VALUE` at its location. That preserves `Unknown`'s
-provisional role during inference (the empty-collection case refines and passes
-the sweep) while guaranteeing nothing provisional survives into codegen.
+The fix is a **pre-lowering rule on the field access itself**, in `ir::shape` —
+not a change to unification, and not a check on the resulting `Unknown`.
 
-Rejected alternative: rejecting `Unknown` in argument checking specifically. It
-would fix both reproductions but leaves the general hole open — any *other*
-expression position that forgets to check would produce the same unlocated error.
-The sweep is one gate covering all of them.
+Reading a field off a record a **builtin package** declares requires that
+package's own `IMPORT` in the file. That is the documented language rule (`mfb
+man tcp localAddress`); what changes is that violating it is now diagnosed,
+located and coded, at the read. `Unknown`'s provisional role in inference is
+untouched.
+
+Gating the *access* rather than the *value* is what closes the hole for good.
+The value was already caught wherever it was bound or fed to an operator, and
+escaped only through the two call-argument paths; a check on the value has to be
+right in every position it can reach, and the two positions nobody checked are
+exactly the ones this bug is. The access has one position.
+
+**Rejected: the post-inference `Unknown` sweep this document originally
+proposed.** It would fix Reproductions 1 and 2, but it cannot fix Reproduction
+4 — under `IMPORT udp` the read *does* type (`Address`'s field table is in the
+project-wide table), so a sweep for surviving `Unknown`s sees nothing to report
+and the program still compiles. "Same verdict either way" is not derivable from
+whether the type resolved; only from what the file imported.
+
+**Rejected: rejecting `Unknown` in argument checking specifically.** Fixes both
+reproductions, leaves the general hole open — any other expression position that
+forgets to check produces the same unlocated error.
+
+Where the rule does *not* apply: to compiler-injected package source
+(`HirFile::internal`), which declares the guarded types and is authored against
+the registry's own import graph; to `.state`, which is not a record field and has
+its own more precise rules; and to any type name the project itself declares, an
+imported `.mfp` exports, or two builtin packages both declare — there the nominal
+does not unambiguously mean the builtin's record, so there is no import to name.
 
 Improving the message is worthwhile but secondary: when the `Unknown` came from a
 field access on a known-but-undefined record type, the diagnostic should say so
@@ -229,53 +283,72 @@ then be diagnosed rather than one silently compiling.
 
 ### Phase 1 — failing tests + audit (no behavior change)
 
-- [ ] Add `tests/syntax/tcp/local-address-field-without-net-import/` covering Reproductions 1 and 2, with the current (bare) output as the golden. RED: the golden shows the unlocated error that must change.
-- [ ] Add the Reproduction 3 cases to the same fixture family as **characterization** tests — they already pass and must keep passing.
-- [ ] Add Reproduction 4 as a fixture, pinning today's "unrelated import changes the verdict" behavior so the Open Decision below is made deliberately.
-- [ ] Confirm whether a **user package** returning another package's record reproduces (Blast Radius, unverified item). Write the verdict into this file.
+- [x] Add `tests/syntax/tcp/local-address-field-without-net-import/` and `…-user-func-without-net-import/` covering Reproductions 1 and 2. RED: the front end lets both through (`[exit 0]`, `.ast`/`.ir` dumped); the failure was only in native lowering.
+- [x] Add the Reproduction 3 cases as `…-binding-without-net-import/` — **characterization**, already passing.
+- [x] Add Reproduction 4 as `…-unrelated-udp-import/`, pinning the "unrelated import changes the verdict" behavior so the Open Decision is made deliberately.
+- [x] Five `src/ir/shape.rs` unit tests, RED for the documented mechanism: the field read produced **zero** diagnostics where a located one must appear.
+- [x] Confirm whether a **user package** returning another package's record reproduces. **Verdict: it does not** — see Blast Radius. A `.mfp` carries the foreign type's definition through bug-390's re-export path, so the consumer has the field table without importing the owner. The hole is specific to builtin packages.
 
-Acceptance: fixtures 1/2/4 pin the current wrong behavior; fixture 3 passes; the user-package verdict is recorded.
-Commit: —
+Acceptance: met. Reproductions re-run on `target/release/mfb` (macos-aarch64) before any change:
+repro 1 `error: native plan has no storage class for type 'Unknown'`; repro 2 `error: native code field access target 'Address' is not a record or variant while lowering eval call io.print`; repro 4 `Wrote executable to …`; repro 3 located `2-203-0043` / `2-203-0021`.
+Commit: `175997a63`
 
 ### Phase 2 — the gate
 
-- [ ] Add the post-inference `Unknown` sweep, reporting `TYPE_UNKNOWN_VALUE` at the offending expression's location.
-- [ ] Where the `Unknown` originates in a field access on a type with no loaded definition, extend the message to name the type and the package to import.
-- [ ] Update the goldens for fixtures 1/2 to the new located diagnostic.
+- [x] Add the field-access rule in `ir::shape` (`check_foreign_record_field`), reporting `TYPE_UNKNOWN_VALUE` at the read's own line.
+- [x] Message names the field, the owning package, the type, and the import to add.
+- [x] Add `HirFile::own_imports` so the rule reads the author's import list, not the post-monomorph union (see the Root Cause correction).
+- [x] Fill the goldens for all four fixtures with the new located diagnostic.
 
-Acceptance: Reproductions 1 and 2 produce located, coded diagnostics; Reproduction 3 unchanged; no source program reaches either codegen escape site.
-Commit: —
+Acceptance: met. Reproductions 1, 2 and 4 now report the identical located `2-203-0043` at the field read; Reproduction 3's binding/operator/argument diagnostics are unchanged; the `IMPORT net` program builds and runs.
+Commit: `79b8ec348`
 
 ### Phase 3 — validate + resolve the visibility inconsistency
 
-- [ ] Act on the Open Decision for Reproduction 4 and update its golden accordingly.
-- [ ] `cargo test --release --no-fail-fast` plus `test-accept.sh`; `artifact-gate.sh all` (a front-end-only gate should drift no `.ncodesum` — an unexpected diff here is a bug-hunt trigger, not a re-baseline).
-- [ ] Re-run all four reproductions.
-- [ ] Correct `mfb man tcp localAddress`'s "the next call that consumes it fails to resolve" — passing the whole record does resolve; it is field access that fails.
+- [x] Open Decision for Reproduction 4 acted on: **refuse in both cases** (the recommended option). Its golden now matches Reproduction 1's byte for byte apart from the line number.
+- [x] `cargo test --release --no-fail-fast`, `test-accept.sh`, `artifact-gate.sh all`.
+- [x] Re-run all four reproductions.
+- [x] Correct `mfb man tcp localAddress` and `mfb man tcp`: passing the whole record does resolve (verified — `tcp::connect(bound)` compiles with no `IMPORT net`); it is field access that fails.
 
-Acceptance: full suite green; no `.ncodesum` drift; all four reproductions behave as designed.
-Commit: —
+Acceptance: PHASE3_ACCEPTANCE
+Commit: PHASE3_COMMIT
 
 ## Validation Plan
 
-- Regression tests: the syntax fixture family above (2 RED-then-green, 3 characterization, 1 decision-pinning).
-- Runtime proof: not applicable — this is a compile-time diagnostic bug; the proof is the golden `build.log`.
-- Doc sync: `mfb man tcp localAddress` (and the `tls`/`udp` equivalents, which repeat the same sentence).
+- Regression tests: `tests/syntax/tcp/local-address-field-{without-net-import,user-func-without-net-import,unrelated-udp-import}` (RED-then-green) and `…-binding-without-net-import` (characterization), plus five `src/ir/shape.rs` unit tests — four RED before the fix, one (`…with_the_owning_import_is_accepted`) green throughout so the rule cannot be satisfied by rejecting everything.
+- Runtime proof: not applicable — this is a compile-time diagnostic bug; the proof is the golden `build.log`. The positive side is covered at runtime by the pre-existing `tests/rt_tls_listener_local_address.rs`, which reads `bound.host`/`bound.port` with `IMPORT net` present.
+- Doc sync: `mfb man tcp localAddress` and `mfb man tcp` corrected. The `tls`/`udp` equivalents did **not** repeat the wrong sentence — grep for "next call that uses it fails to resolve" found exactly one occurrence, and `tcp/mod.rs` carried a paraphrase of the same claim; both are fixed and the others ("nameable only where `net` is imported") were already accurate.
 - Full suite: `cargo test --release --no-fail-fast`, `test-accept.sh`, `artifact-gate.sh all`.
 
 ## Open Decisions
 
-- **Should `IMPORT udp` keep making `net::Address`'s fields visible to a `tcp` program?** Recommended: **no** — record-definition visibility should follow the file's own imports, not leak through whichever imported package happens to declare a record referencing the type. It makes the `IMPORT net` rule honest and the failure reproducible. Alternative (cheaper): accept the leak as harmless once Phase 2 guarantees a located diagnostic in the unmasked case, and document it. The Phase 1 fixture exists to force this choice rather than let it drift.
-- **Diagnostic code for the improved message.** Recommended: reuse `TYPE_UNKNOWN_VALUE` (2-203-0043) with a richer message, since that is what the working cases already emit and consistency beats a new code. Alternative: a dedicated "field access requires import" code, better targeted but a new rules-table entry.
+- **Should `IMPORT udp` keep making `net::Address`'s fields visible to a `tcp` program?** **Resolved: no** (the recommended option). The field-access rule keys on the file's own imports, so both spellings are refused identically.
+  Note what was *not* done: the project-wide type table still holds `Address` whenever some file imports `net`, and `HirFile::imports` is still widened by monomorph. Both are load-bearing (lowering needs the widened list; the type table is how injected companions see each other) and neither is observable now that the rule asks the author's list instead. Scoping record-definition visibility per file would be a much larger change to `TypeIndex` with no remaining user-visible payoff.
+- **Diagnostic code for the improved message.** **Resolved: reuse `TYPE_UNKNOWN_VALUE`** (2-203-0043), as recommended — it is what the working cases already emit, and Reproduction 3 now shows the two forms side by side under one code.
 
 ## Summary
 
-The engineering risk is in the gate's placement, not its logic: `Unknown` must stay
-provisional through inference (the empty-collection binding depends on it), so the
-check has to be a post-inference sweep rather than a unification change — that is
-the one way to get this wrong. Two codegen sites currently absorb the escapee and
-print unlocated, uncoded errors, one of which blames a call three levels away from
-the mistake. The underlying visibility rule is sound and stays; what changes is
-that violating it is diagnosed, and diagnosed the same way regardless of which
-unrelated packages the file imported. Untouched: `Unknown`'s role in unification,
-import non-transitivity, and the binding/operator diagnostics that already work.
+The engineering risk was in the gate's placement, and this document's original
+proposal placed it wrong. `Unknown` must stay provisional through inference (the
+empty-collection binding depends on it), so the check could not go in
+`unify_type` — that much was right. But the proposed alternative, a post-inference
+sweep for surviving `Unknown`s, cannot satisfy this bug's own goal: under `IMPORT
+udp` the offending read *does* type, so there is no `Unknown` left to sweep and
+Reproduction 4 still compiles. "Same verdict regardless of unrelated imports" is
+not a property of whether a type resolved; it is a property of what the file
+imported. The gate is therefore on the field **access**, keyed on the author's
+import list, pre-lowering in `ir::shape`.
+
+Getting the author's import list took a second finding: monomorphization widens
+the first file's `imports` with the project-wide union, so the post-monomorph HIR
+cannot answer "what did the author write?". `HirFile::own_imports` now carries
+that answer, snapshotted at elaboration.
+
+Two codegen sites used to absorb the escapee and print unlocated, uncoded errors,
+one of which blamed a call three levels away from the mistake. The underlying
+visibility rule is sound and stays; what changed is that violating it is
+diagnosed, and diagnosed the same way regardless of which unrelated packages the
+file imported. Untouched: `Unknown`'s role in unification, import
+non-transitivity, the binding/operator diagnostics that already worked, the
+project-wide type table, monomorph's import widening, and the `tcp`/`tls`/`udp`
+public surface.
