@@ -49,6 +49,12 @@
 use super::*;
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::codegen::runtime::canvas::{
+    EDGE_SLOTS, FIXED_POINT_SCALE, HEADER_AUX0, HEADER_AUX1, HEADER_BOUNDS, HEADER_FILL_R,
+    HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R,
+    ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD,
+    ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, MAX_EDGES,
+};
+use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_MTL_DEVICE, GRAPHICS_OFFSET_MTL_PIPELINE, GRAPHICS_OFFSET_MTL_QUEUE,
     GRAPHICS_OFFSET_MTL_READY, GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT,
     GRAPHICS_OFFSET_MTL_TEX_WIDTH, GRAPHICS_STATE_SYMBOL,
@@ -577,50 +583,6 @@ const MTL_STORE_ACTION_STORE: &str = "1";
 /// triangle and ignores the fourth vertex, which renders exactly half the quad and
 /// looks like a geometry bug rather than an enum one.
 const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
-
-/// 16.16 fixed point: the scale the shader divides the quad by.
-const FIXED_POINT_SCALE: &str = "65536";
-
-/// The per-item parameter block. Six `int4`s and an `int2`, 112 bytes.
-///
-/// Every member is an `int4` so the emitter's offsets and MSL's own packing cannot
-/// disagree. A mixed struct would put the burden of predicting MSL's alignment rules
-/// on this file, and a wrong prediction is not a compile error — it is a scene that
-/// draws with its fields shifted. The trailing `int2` is safe because it is last.
-const ITEM_BLOCK_SIZE: usize = 112;
-const ITEM_OFFSET_QUAD: usize = 0;
-const ITEM_OFFSET_SHAPE: usize = 16;
-const ITEM_OFFSET_FILL: usize = 32;
-const ITEM_OFFSET_STROKE: usize = 48;
-const ITEM_OFFSET_MISC: usize = 64;
-const ITEM_OFFSET_ARC: usize = 80;
-const ITEM_OFFSET_SURFACE: usize = 96;
-
-/// Geometry-header slots this renderer reads (`__canvas_headerFor`'s fixed layout).
-const HEADER_KIND: usize = 0;
-const HEADER_SHAPE: usize = 2;
-const HEADER_RADIUS: usize = 6;
-const HEADER_STROKE_HALF: usize = 7;
-const HEADER_FILL_R: usize = 8;
-const HEADER_STROKE_R: usize = 12;
-const HEADER_BOUNDS: usize = 16;
-/// Slot 20 is the polygon's edge count *and* the arc's start angle — the header
-/// reuses it per kind, and so does the item block. Writing both unconditionally is
-/// cheaper than branching and can never be wrong: the shader reads only the one its
-/// `kind` selects.
-const HEADER_AUX0: usize = 20;
-const HEADER_AUX1: usize = 21;
-/// The fixed header length, in slots — where a polygon's edge tail begins.
-const HEADER_SLOTS: usize = 22;
-/// Doubles per cached edge: `x0, y0, dx, dy, invLenSq`.
-const EDGE_SLOTS: usize = 5;
-/// The most edges one polygon may carry on the GPU path.
-///
-/// `setFragmentBytes:length:atIndex:` is capped at 4 KB, and each edge crosses as
-/// four 16.16 ints. `__canvas_metalRenderable` declines a polygon past this rather
-/// than truncating it, because a truncated polygon renders as a *different shape*
-/// and would read as a geometry bug.
-const MAX_EDGES: usize = 256;
 
 // The frame. `OFF_REGION` holds the 48-byte `MTLRegion` that
 // `getBytes:bytesPerRow:fromRegion:mipmapLevel:` takes by value in C. AAPCS64 rule

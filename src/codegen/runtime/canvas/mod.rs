@@ -125,8 +125,8 @@ pub(crate) const GRAPHICS_OFFSET_HEIGHT: usize = 232;
 /// are measured against (plan-98-A invariant 7), and its goldens are exact-match; a
 /// GPU frame only matches within a tolerance. Making Metal the default would turn
 /// every exact-match golden into a tolerance test and destroy the reference they are
-/// compared to. `MFB_CANVAS_METAL=1` selects it; plan-98-E's own tests set it.
-pub(crate) const GRAPHICS_OFFSET_METAL: usize = 296;
+/// compared to. `MFB_CANVAS_GPU=1` selects it; plan-98-E's own tests set it.
+pub(crate) const GRAPHICS_OFFSET_GPU: usize = 296;
 /// Scratch for the `pthread_attr_t` the spawn configures. 64 bytes covers macOS
 /// (64) and musl/glibc (56). It lives here rather than on the spawner's stack
 /// because there is exactly one spawn and the block is already process-global.
@@ -183,8 +183,90 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY: usize = 472;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT: usize = 480;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_RENDER_PASS: usize = 488;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_PIPELINE: usize = 496;
+/// The offscreen render target and the readback path, plus the dimensions they were
+/// built for — a resize rebuilds them, as the Metal path rebuilds its texture.
+///
+/// `VULKAN_MAPPED` is the readback buffer's persistently-mapped pointer. Vulkan
+/// allows a `HOST_VISIBLE` allocation to stay mapped for its lifetime, so mapping
+/// once and keeping the pointer avoids a map/unmap pair per frame.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_IMAGE: usize = 504;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY: usize = 512;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW: usize = 520;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER: usize = 528;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_READ_BUFFER: usize = 536;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_READ_MEMORY: usize = 544;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_MAPPED: usize = 552;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_TEX_WIDTH: usize = 560;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT: usize = 568;
+/// The command pool and the single command buffer the frame is recorded into.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_COMMAND_POOL: usize = 576;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER: usize = 584;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 504;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 592;
+
+/// The per-item parameter block both GPU backends push to their shaders.
+///
+/// **One contract, two emitters.** The block is byte-identical between the Metal
+/// pipeline (an MSL `constant MfbItem&`) and the Vulkan one (a GLSL push-constant
+/// block) — glslang's reflection reports exactly these offsets and this size — so
+/// the shaders agree by construction rather than by two hand-maintained layouts
+/// staying in step. Each backend emits the *stores* in its own IR flavour; the
+/// *layout* is here, once.
+///
+/// Six `ivec4`s and a seventh holding the surface size. Every member is an `ivec4`
+/// so the two shading languages' packing rules cannot disagree, and 112 bytes fits
+/// Vulkan's guaranteed 128-byte push-constant range, which is why neither backend
+/// needs descriptor sets or uniform buffers.
+pub(crate) const ITEM_BLOCK_SIZE: usize = 112;
+/// Bounds `minX, minY, maxX, maxY`, 16.16 fixed point.
+pub(crate) const ITEM_OFFSET_QUAD: usize = 0;
+/// The shape parameters `p0..p3`, 16.16.
+pub(crate) const ITEM_OFFSET_SHAPE: usize = 16;
+/// Fill and stroke `RGBA`, whole 0–255 values.
+pub(crate) const ITEM_OFFSET_FILL: usize = 32;
+pub(crate) const ITEM_OFFSET_STROKE: usize = 48;
+/// `kind`, `radius` (16.16), `strokeHalf` (16.16), `edgeCount`.
+pub(crate) const ITEM_OFFSET_MISC: usize = 64;
+/// The arc's `startAngle`, `endAngle` (16.16 radians), then two unused words.
+pub(crate) const ITEM_OFFSET_ARC: usize = 80;
+/// The surface's width and height, in whole pixels.
+pub(crate) const ITEM_OFFSET_SURFACE: usize = 96;
+
+/// 16.16 fixed point: the scale both shaders divide positions by.
+///
+/// Positions narrow to fixed point on the CPU because the geometry header is
+/// `Float` (IEEE double), neither shading language has a double, and the AArch64
+/// assembler has no double→single convert and no 32-bit FP store. 16.16 covers
+/// ±32768 px at 1/65536 px — finer than `float`'s own resolution above 512 px, over
+/// a coordinate space a few thousand pixels wide.
+pub(crate) const FIXED_POINT_SCALE: &str = "65536";
+
+/// Slots of `__canvas_headerFor`'s fixed 22-float geometry header that the GPU
+/// backends read. The software rasteriser indexes the same layout.
+pub(crate) const HEADER_KIND: usize = 0;
+pub(crate) const HEADER_SHAPE: usize = 2;
+pub(crate) const HEADER_RADIUS: usize = 6;
+pub(crate) const HEADER_STROKE_HALF: usize = 7;
+pub(crate) const HEADER_FILL_R: usize = 8;
+pub(crate) const HEADER_STROKE_R: usize = 12;
+pub(crate) const HEADER_BOUNDS: usize = 16;
+/// Slot 20 is the polygon's edge count *and* the arc's start angle — the header
+/// reuses it per kind, and so does the item block. Writing both unconditionally is
+/// cheaper than branching and can never be wrong: a shader reads only the one its
+/// `kind` selects.
+pub(crate) const HEADER_AUX0: usize = 20;
+pub(crate) const HEADER_AUX1: usize = 21;
+/// The fixed header length in slots — where a polygon's edge tail begins.
+pub(crate) const HEADER_SLOTS: usize = 22;
+/// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
+pub(crate) const EDGE_SLOTS: usize = 5;
+/// The most edges one polygon may carry on a GPU path.
+///
+/// Metal's `setFragmentBytes:` and Vulkan's push constants are both small, so the
+/// edges ride a bounded payload; `__canvas_metalRenderable` declines a polygon past
+/// this rather than truncating it, because a truncated polygon renders as a
+/// *different shape* and would read as a geometry bug.
+pub(crate) const MAX_EDGES: usize = 256;
 
 /// The trampoline `pthread_create` starts: establishes the MFB context, then loops.
 pub(crate) const GRAPHICS_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_canvas_graphics_entry";
@@ -1077,11 +1159,11 @@ pub(crate) fn emit_publish_surface_size(
     instructions.push(abi::store_u64(height, base, GRAPHICS_OFFSET_HEIGHT));
 }
 
-/// `canvas::setMetalMode(on)` — record whether the Metal renderer is selected.
+/// `canvas::setGpuMode(on)` — record whether the Metal renderer is selected.
 ///
 /// Read from MFBASIC at first present, next to `setSyncMode`, for the same reason:
 /// the environment is portably readable there.
-pub(crate) fn emit_set_metal_mode(
+pub(crate) fn emit_set_gpu_mode(
     symbol: &str,
     scratch: &GraphicsScratch,
     value: &Operand,
@@ -1089,29 +1171,24 @@ pub(crate) fn emit_set_metal_mode(
     relocations: &mut Vec<CodeRelocation>,
 ) {
     state_base(symbol, &scratch.base, instructions, relocations);
-    instructions.push(abi::store_u64(value, &scratch.base, GRAPHICS_OFFSET_METAL));
+    instructions.push(abi::store_u64(value, &scratch.base, GRAPHICS_OFFSET_GPU));
 }
 
-/// `canvas::useMetal()` — is the Metal renderer selected?
+/// `canvas::useGpu()` — is the Metal renderer selected?
 ///
 /// Always FALSE on a non-macOS target: the flag exists everywhere so the renderer
 /// seam has one shape, but only macOS has a Metal path behind it.
-pub(crate) fn emit_use_metal(
+pub(crate) fn emit_use_gpu(
     symbol: &str,
     scratch: &GraphicsScratch,
-    platform: &dyn CodegenPlatform,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    if platform.family() != PlatformFamily::MacOS {
-        instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
-        return;
-    }
     state_base(symbol, &scratch.base, instructions, relocations);
     instructions.push(abi::load_u64(
         &scratch.scratch,
         &scratch.base,
-        GRAPHICS_OFFSET_METAL,
+        GRAPHICS_OFFSET_GPU,
     ));
     instructions.push(abi::move_register(RESULT_VALUE_REGISTER, &scratch.scratch));
 }

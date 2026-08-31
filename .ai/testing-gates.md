@@ -158,6 +158,33 @@ PNG encoders vary in the bytes they emit for given pixels, but a PNG decodes to
 exactly one pixel array — so this is precisely as exact as a raw blob, at ~1% of
 the size (21 KB vs 2.3 MB for one 900x640 frame) and directly viewable.
 
+### The GPU comparison is against the ORACLE, not a stored picture
+
+`tests/rt_canvas_metal.rs` and `scripts/test-canvas-vulkan.sh` both render the *same
+program twice* — once with `MFB_CANVAS_GPU=1`, once without — and diff the two
+frames. Neither compares a GPU frame to a checked-in PNG, and that is deliberate: an
+oracle comparison cannot go stale. If the rasteriser changes, both sides change
+together and the assertion still means "the two backends agree", whereas a stored GPU
+reference would have to be regenerated alongside every rasteriser change and would
+quietly stop testing anything the day someone regenerated it carelessly.
+
+The Vulkan half must be a **script** rather than a `cargo test`, for the same
+structural reason `scripts/test-appimage.sh` is one: the dev host is macOS and cannot
+run a Linux binary, so the artifact travels. It needs no display server — the
+renderer draws offscreen and reads back — which is what makes it runnable at all,
+since no reachable Linux box has one. Run it as
+`scripts/test-canvas-vulkan.sh <mfb> [--box <port>] [--libc glibc|musl]`; `--libc`
+must match the box (2228 is glibc, 2227 musl), because musl's loader absorbs the
+glibc compat sonames and the wrong one does not fail cleanly.
+
+**Both skip when the GPU path was not taken, and both key that skip off the flag the
+renderer itself gates on** (`metalReady` / `vulkanReady`). A skip keyed off anything
+else can disagree with the runtime about whether the GPU actually ran — which is how
+a passing test can mean "the software path produced both frames". The tell for that
+failure is a GPU frame **byte-identical** to the oracle: two independent rasterisers
+do not agree to the byte by luck, so an exact match on a first run means the GPU path
+never ran.
+
 ## Perf goldens break execution acceptance
 
 Running `scripts/test-accept.sh <exe> <dir>` for a FULL execution pass is **inherently noisy** at baseline and cannot reach 0 mismatches — do not treat a clean full test-accept as the acceptance gate.

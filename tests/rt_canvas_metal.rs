@@ -2,7 +2,7 @@
 //!
 //! The oracle is the software rasteriser, not a stored image: plan-98-A invariant 7
 //! makes the software path the reference every GPU backend is measured against, so
-//! these tests render the *same program twice* — once with `MFB_CANVAS_METAL=1` and
+//! these tests render the *same program twice* — once with `MFB_CANVAS_GPU=1` and
 //! once without — and diff the two frames. That is stronger than diffing the GPU
 //! frame against a checked-in PNG, because it cannot drift out of date: if the
 //! rasteriser changes, both sides change together and the comparison still means
@@ -152,7 +152,7 @@ fn render(program: &Program, metal: bool, tag: &str) -> (Frame, String) {
         .env("MFB_CANVAS_STATS", &stats_path)
         .env("MFB_CANVAS_DUMP", &frame_path);
     if metal {
-        command.env("MFB_CANVAS_METAL", "1");
+        command.env("MFB_CANVAS_GPU", "1");
     }
     let run = command
         .output()
@@ -222,8 +222,8 @@ fn rectangles_match_the_software_oracle_within_tolerance() {
         return; // no Metal device on this host (§metal_built)
     }
     assert!(
-        stats.contains("metalSelected=TRUE"),
-        "MFB_CANVAS_METAL=1 did not select the Metal renderer: {stats}"
+        stats.contains("gpuSelected=TRUE"),
+        "MFB_CANVAS_GPU=1 did not select the Metal renderer: {stats}"
     );
     if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
         panic!(
@@ -276,7 +276,7 @@ fn the_full_primitive_set_matches_the_software_oracle() {
 
 /// A scene the shader cannot draw is declined, not drawn wrongly.
 ///
-/// This is the test that keeps `MFB_CANVAS_METAL=1` honest. A backend that drew a
+/// This is the test that keeps `MFB_CANVAS_GPU=1` honest. A backend that drew a
 /// declined scene approximately — a truncated polygon, say — would still report
 /// success, and the picture would be wrong in a way no other test looks at.
 ///

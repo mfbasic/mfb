@@ -813,7 +813,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         functions.push(emit_canvas_blit_apply_helper());
         functions.push(emit_canvas_set_frame_size_helper());
         // plan-98-E Phase 1: the Metal device/queue/pipeline setup. Same gate as
-        // the blit for the same reason — `MFB_CANVAS_METAL=1` is a runtime choice,
+        // the blit for the same reason — `MFB_CANVAS_GPU=1` is a runtime choice,
         // so any program that draws must carry the code that choice would run.
         functions.push(metal::emit_metal_init());
         functions.push(metal::emit_metal_draw());

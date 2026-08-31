@@ -13,10 +13,10 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::codegen::runtime::canvas::metal::emit_metal_available;
-use crate::codegen::runtime::canvas::vulkan::{emit_vulkan_available, emit_vulkan_ready};
+use crate::codegen::runtime::canvas::vulkan::emit_vulkan_ready;
 use crate::codegen::runtime::canvas::{
-    emit_frame_done, emit_set_metal_mode, emit_set_sync_mode, emit_signal_redraw,
-    emit_start_graphics, emit_surface_dimension, emit_sync_frame, emit_use_metal,
+    emit_frame_done, emit_set_gpu_mode, emit_set_sync_mode, emit_signal_redraw,
+    emit_start_graphics, emit_surface_dimension, emit_sync_frame, emit_use_gpu,
     emit_wait_for_redraw, GraphicsScratch, DEFAULT_SURFACE_HEIGHT, DEFAULT_SURFACE_WIDTH,
     GRAPHICS_OFFSET_HEIGHT, GRAPHICS_OFFSET_WIDTH,
 };
@@ -253,8 +253,8 @@ fn internal_integer(name: &'static str, body: Body) -> RegistryFunction {
     }
 }
 
-/// `canvas::setMetalMode(on AS Boolean)` — select the Metal renderer.
-pub(crate) fn lower_set_metal_mode(
+/// `canvas::setGpuMode(on AS Boolean)` — select the Metal renderer.
+pub(crate) fn lower_set_gpu_mode(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
     _ctx: &AbiCtx,
@@ -266,7 +266,7 @@ pub(crate) fn lower_set_metal_mode(
         .location
         .clone();
     let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
-    emit_set_metal_mode(
+    emit_set_gpu_mode(
         &symbol,
         &scratch,
         &value,
@@ -276,18 +276,17 @@ pub(crate) fn lower_set_metal_mode(
     Ok(ok_return(builder, symbol))
 }
 
-/// `canvas::useMetal() AS Boolean` — the renderer seam's discriminant.
-pub(crate) fn lower_use_metal(
+/// `canvas::useGpu() AS Boolean` — the renderer seam's discriminant.
+pub(crate) fn lower_use_gpu(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
-    ctx: &AbiCtx,
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
     let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg().to_string());
-    emit_use_metal(
+    emit_use_gpu(
         &symbol,
         &scratch,
-        ctx.platform,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -337,7 +336,7 @@ pub(crate) fn lower_metal_available(
 ///
 /// Builds the device, command queue and render pipeline on the first call and
 /// reports whether they exist; every later call reports the remembered answer. It is
-/// the second half of the renderer branch's condition (`canvas::useMetal` is the
+/// the second half of the renderer branch's condition (`canvas::useGpu` is the
 /// first): asked for *and* actually available.
 ///
 /// A target with no Metal implementation has no seam, and reports `FALSE` — which is
@@ -359,35 +358,6 @@ pub(crate) fn lower_metal_ready(
         }
         None => builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0")),
     }
-    builder.emit(abi::move_immediate(
-        RESULT_TAG_REGISTER,
-        "Integer",
-        RESULT_OK_TAG,
-    ));
-    builder.emit(abi::return_());
-    Ok(ValueResult {
-        origin: None,
-        type_: ParameterType::Nothing,
-        location: Operand::from("void"),
-        text: symbol,
-    })
-}
-
-/// `canvas::vulkanAvailable() AS Boolean` — can this process render with Vulkan?
-///
-/// The Vulkan twin of `canvas::metalAvailable`, and deliberately the same shape: load
-/// the loader, ask for a device, report yes or no. It is the first checkable claim of
-/// plan-98-F for the same reason the Metal probe was E's — it exercises the whole
-/// foreign-call path (dlopen, the `vkGetInstanceProcAddr` bootstrap, the hand-written
-/// C struct layouts, calling through a resolved pointer) in one call that fails
-/// cheaply.
-pub(crate) fn lower_vulkan_available(
-    builder: &mut CodeBuilder,
-    _args: &[ValueResult],
-    ctx: &AbiCtx,
-) -> Result<ValueResult, String> {
-    let symbol = builder.current_symbol.clone();
-    emit_vulkan_available(builder, ctx.platform, ctx.platform_imports)?;
     builder.emit(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -483,7 +453,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         Body::abi_function(lower_surface_height),
     ));
     pkg.add_function(RegistryFunction {
-        name: "setMetalMode",
+        name: "setGpuMode",
         intro: "",
         desc: "",
         example: "",
@@ -499,7 +469,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Nothing,
             errors: vec![],
-            body: Body::abi_function(lower_set_metal_mode),
+            body: Body::abi_function(lower_set_gpu_mode),
         }],
     });
     pkg.add_function(RegistryFunction {
@@ -514,20 +484,6 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::Boolean,
             errors: vec![],
             body: Body::abi_function(lower_metal_available),
-        }],
-    });
-    pkg.add_function(RegistryFunction {
-        name: "vulkanAvailable",
-        intro: "",
-        desc: "",
-        example: "",
-        expected_arguments: None,
-        internal_only: true,
-        implementations: vec![Implementation {
-            params: vec![],
-            return_type: ParameterType::Boolean,
-            errors: vec![],
-            body: Body::abi_function(lower_vulkan_available),
         }],
     });
     pkg.add_function(RegistryFunction {
@@ -559,7 +515,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         }],
     });
     pkg.add_function(RegistryFunction {
-        name: "useMetal",
+        name: "useGpu",
         intro: "",
         desc: "",
         example: "",
@@ -569,7 +525,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![],
             return_type: ParameterType::Boolean,
             errors: vec![],
-            body: Body::abi_function(lower_use_metal),
+            body: Body::abi_function(lower_use_gpu),
         }],
     });
     pkg.add_function(internal("frameDone", Body::abi_function(lower_frame_done)));

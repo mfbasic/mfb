@@ -23,7 +23,7 @@ fn run(name: &str, source: &str, sync: bool) -> (String, Vec<String>) {
     run_with(name, source, sync, false)
 }
 
-/// As `run`, plus the `MFB_CANVAS_METAL` selector (plan-98-E).
+/// As `run`, plus the `MFB_CANVAS_GPU` selector (plan-98-E).
 fn run_with(name: &str, source: &str, sync: bool, metal: bool) -> (String, Vec<String>) {
     let project = common::temp_project(name, source);
     let build = Command::new(common::mfb_exe())
@@ -49,7 +49,7 @@ fn run_with(name: &str, source: &str, sync: bool, metal: bool) -> (String, Vec<S
         command.env("MFB_CANVAS_SYNC", "1");
     }
     if metal {
-        command.env("MFB_CANVAS_METAL", "1");
+        command.env("MFB_CANVAS_GPU", "1");
     }
     let run = command
         .output()
@@ -314,7 +314,7 @@ fn an_identical_re_present_draws_no_second_metal_frame() {
 /// backend rests on those three, and a failure in any of them is far cheaper to read
 /// here than as a blank window several hundred lines later.
 ///
-/// `metalSelected` must be FALSE by default. The software renderer is the oracle the
+/// `gpuSelected` must be FALSE by default. The software renderer is the oracle the
 /// GPU path is measured against (plan-98-A invariant 7) and its goldens are
 /// exact-match; if selecting Metal were the default, every one of those goldens would
 /// silently become a tolerance test against a reference that no longer exists.
@@ -340,15 +340,15 @@ fn the_renderer_seam_finds_a_metal_device_and_leaves_it_unselected() {
         "MTLCreateSystemDefaultDevice must bind and return a device on this host",
     );
     assert_eq!(
-        field(&default_run, "metalSelected="),
+        field(&default_run, "gpuSelected="),
         "FALSE",
         "the software renderer must stay the default — it is the exact-match oracle",
     );
 
     let (_, selected) = run_with("canvas_metal_selected", &source, true, true);
     assert_eq!(
-        field(&selected, "metalSelected="),
+        field(&selected, "gpuSelected="),
         "TRUE",
-        "MFB_CANVAS_METAL must select the Metal renderer",
+        "MFB_CANVAS_GPU must select the Metal renderer",
     );
 }

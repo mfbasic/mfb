@@ -39,17 +39,23 @@ END FUNC"#;
 /// nothing" — and a file holding only the final total cannot show it.
 ///
 /// It also carries the renderer selection: `metal=` (a Metal device exists),
-/// `metalSelected=` (the program asked for it), `metalReady=` (the Metal pipeline
+/// `gpuSelected=` (the program asked for it), `metalReady=` (the Metal pipeline
 /// built) and `vulkan=` (a Vulkan device exists — plan-98-F). All are internal-only,
 /// so a program cannot call them and a test cannot read them any other way; putting
 /// them here makes the seam's discriminants observable without adding public surface
 /// for a test to poke.
 ///
-/// `vulkan=` is what proves the Vulkan loader path end to end: it is FALSE unless
-/// `dlopen("libvulkan.so.1")` succeeded, `vkGetInstanceProcAddr` resolved, a bare
-/// `VkInstance` was created from hand-written `VkApplicationInfo` /
-/// `VkInstanceCreateInfo` structs, and `vkEnumeratePhysicalDevices` reported at least
-/// one device.
+/// `vulkanReady=` is what proves the whole Vulkan path end to end: it is FALSE
+/// unless `dlopen("libvulkan.so.1")` succeeded, the entry points resolved, an
+/// instance was created from hand-written structs, a physical device with a graphics
+/// queue was found, a logical device and queue were made, and the shader modules,
+/// layout, render pass and pipeline all built.
+///
+/// There was briefly a second, narrower `vulkan=` probe reporting only "a device
+/// exists". It is gone: it disagreed with this one on box 2227 — reporting FALSE on a
+/// machine where the pipeline demonstrably built and rendered a byte-identical frame
+/// — and two probes of overlapping facts that can disagree are worse than one, since
+/// the narrower one answered a question nothing gated on.
 ///
 /// `metalReady` is what actually builds the device, queue and pipeline the first
 /// time it is asked — the same call the renderer branch makes — so a stats line
@@ -71,7 +77,7 @@ END FUNC
 FUNC __canvas_writeStats() AS Nothing
   LET path AS String = os::getEnvOr("MFB_CANVAS_STATS", "")
   IF len(path) > 0 THEN
-    LET line AS String = "generations=" & toString(__CANVAS_GEO_GENERATIONS) & " entries=" & toString(len(__CANVAS_GEO_HASHES)) & " floats=" & toString(len(__CANVAS_GEO_DATA)) & " metal=" & toString(canvas::metalAvailable()) & " metalSelected=" & toString(canvas::useMetal()) & " metalReady=" & toString(canvas::metalReady()) & " vulkan=" & toString(canvas::vulkanAvailable()) & " vulkanReady=" & toString(canvas::vulkanReady()) & "\n"
+    LET line AS String = "generations=" & toString(__CANVAS_GEO_GENERATIONS) & " entries=" & toString(len(__CANVAS_GEO_HASHES)) & " floats=" & toString(len(__CANVAS_GEO_DATA)) & " metal=" & toString(canvas::metalAvailable()) & " gpuSelected=" & toString(canvas::useGpu()) & " metalReady=" & toString(canvas::metalReady()) & " vulkanReady=" & toString(canvas::vulkanReady()) & "\n"
     fs::appendText(path, line) TRAP(err)
       RETURN
     END TRAP

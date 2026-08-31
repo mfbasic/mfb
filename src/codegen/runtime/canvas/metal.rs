@@ -7,7 +7,7 @@
 //! cannot be created is a link or dylib problem, and finding that out from a
 //! one-call helper is much cheaper than finding it out from a blank window.
 //!
-//! Everything here is macOS-only. The seam (`canvas::useMetal`) is compiled for
+//! Everything here is macOS-only. The seam (`canvas::useGpu`) is compiled for
 //! every target so the renderer dispatch has one shape, but it reports FALSE
 //! anywhere without a Metal path.
 

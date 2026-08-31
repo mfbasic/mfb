@@ -71,6 +71,14 @@ END FUNC"#;
 /// It reads the geometry header by slot rather than through a helper because that is
 /// what the header is for: a fixed 22-float layout both backends index directly
 /// (`__canvas_headerFor`).
+///
+/// `__canvas_vulkanRenderable` is the Vulkan predicate, and it is *stricter*: that
+/// shader draws every kind except `Polygon`, whose per-edge array does not fit a
+/// push-constant block and needs a descriptor-bound buffer. Sharing the Metal
+/// predicate would have been the tempting shortcut and would have rendered polygons
+/// as nothing while reporting success — the same lie both predicates exist to
+/// prevent. It is measured, not assumed: the scene that found it differed from the
+/// oracle on 4,610 pixels, all of them the one triangle.
 #[rustfmt::skip]
 const RENDER_METAL: &str =
 r#"FUNC __canvas_sceneOffsets() AS List OF Integer
@@ -113,6 +121,27 @@ FUNC __canvas_renderMetal() AS Boolean
   canvas::metalDrawScene(buffer, size.width, size.height, __CANVAS_GEO_DATA, offsets)
   __canvas_presentSurface(buffer, size.width, size.height)
   RETURN TRUE
+END FUNC
+
+FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
+  FOR EACH offset IN offsets
+    IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0)) = __CANVAS_GEO_POLYGON THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+FUNC __canvas_renderVulkan() AS Boolean
+  LET offsets AS List OF Integer = __canvas_sceneOffsets()
+  IF NOT __canvas_vulkanRenderable(offsets) THEN
+    RETURN FALSE
+  END IF
+  LET size AS Size = __canvas_surfaceSize()
+  LET buffer AS List OF Byte = canvas::newSurface(size.width, size.height)
+  canvas::vulkanDrawScene(buffer, size.width, size.height, __CANVAS_GEO_DATA, offsets)
+  __canvas_presentSurface(buffer, size.width, size.height)
+  RETURN TRUE
 END FUNC"#;
 
 /// The per-item content hashes for a scene, in item order.
@@ -152,7 +181,7 @@ r#"MUT __CANVAS_GFX_READY AS Boolean = FALSE
 FUNC __canvas_ensureGraphics() AS Nothing
   IF NOT __CANVAS_GFX_READY THEN
     canvas::setSyncMode(len(os::getEnvOr("MFB_CANVAS_SYNC", "")) > 0)
-    canvas::setMetalMode(len(os::getEnvOr("MFB_CANVAS_METAL", "")) > 0)
+    canvas::setGpuMode(len(os::getEnvOr("MFB_CANVAS_GPU", "")) > 0)
     canvas::startGraphics()
     __CANVAS_GFX_READY = TRUE
   END IF
@@ -163,14 +192,20 @@ END FUNC"#;
 /// `__canvas_renderFrame` is the one place that will choose a renderer (plan-98-E).
 /// It is deliberately a runtime branch rather than a build-time one, because the
 /// choice is a runtime fact: whether a Metal device exists, and whether the program
-/// asked for it (`canvas::metalAvailable` and `canvas::useMetal` answer those).
+/// asked for it (`canvas::metalAvailable` and `canvas::useGpu` answer those).
 ///
-/// The Metal arm is taken only when all three of its conditions hold: the program
-/// asked for it (`canvas::useMetal`), a pipeline exists (`canvas::metalReady`), and
-/// the *scene* is one the GPU renderer draws correctly (`__canvas_renderMetal`
-/// returns FALSE otherwise, and the software path runs instead).
+/// There are two GPU arms — Metal on macOS, Vulkan on Linux — and each is taken only
+/// when all three of its conditions hold: the program asked for a GPU
+/// (`canvas::useGpu`, which despite its name is the one renderer-selection flag and
+/// is set by `MFB_CANVAS_GPU`), a pipeline exists (`canvas::metalReady` /
+/// `canvas::vulkanReady`), and the *scene* is one that renderer draws correctly.
 ///
-/// That third condition is what keeps `MFB_CANVAS_METAL=1` honest: a backend that
+/// The two are mutually exclusive in practice — `metalReady` is FALSE off macOS and
+/// `vulkanReady` FALSE off Linux — so the order between them never decides anything;
+/// they are written as separate `IF`s rather than an `ELSE` so a future platform with
+/// both is a matter of which is listed first, not a restructure.
+///
+/// That third condition is what keeps `MFB_CANVAS_GPU=1` honest: a backend that
 /// drew a circle as its bounding box would still *report* success, which is exactly
 /// the lie Correction 3 rejected. Since Phase 2 the shader reproduces every
 /// primitive, so the only scene still declined is one carrying a polygon with more
@@ -195,8 +230,13 @@ r#"FUNC __canvas_renderLoop() AS Nothing
 END FUNC
 
 FUNC __canvas_renderFrame() AS Nothing
-  IF canvas::useMetal() AND canvas::metalReady() THEN
+  IF canvas::useGpu() AND canvas::metalReady() THEN
     IF __canvas_renderMetal() THEN
+      RETURN
+    END IF
+  END IF
+  IF canvas::useGpu() AND canvas::vulkanReady() THEN
+    IF __canvas_renderVulkan() THEN
       RETURN
     END IF
   END IF

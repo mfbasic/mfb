@@ -454,13 +454,13 @@ impl LinuxPlan<'_> {
             | "canvas.frameDone"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
-            | "canvas.setMetalMode"
+            | "canvas.setGpuMode"
             | "canvas.metalAvailable"
-            | "canvas.vulkanAvailable"
             | "canvas.vulkanReady"
+            | "canvas.vulkanDrawScene"
             | "canvas.metalReady"
             | "canvas.metalDrawScene"
-            | "canvas.useMetal"
+            | "canvas.useGpu"
             | "canvas.surfaceWidth"
             | "canvas.surfaceHeight" => [
                 "pthread_create",

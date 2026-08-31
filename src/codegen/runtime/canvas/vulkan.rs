@@ -41,11 +41,20 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 use crate::codegen::runtime::canvas::{
-    push_symbol_address, GRAPHICS_OFFSET_VULKAN_DEVICE, GRAPHICS_OFFSET_VULKAN_INSTANCE,
-    GRAPHICS_OFFSET_VULKAN_LIB, GRAPHICS_OFFSET_VULKAN_PHYSICAL, GRAPHICS_OFFSET_VULKAN_PIPELINE,
+    push_symbol_address, FIXED_POINT_SCALE, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
+    GRAPHICS_OFFSET_VULKAN_COMMAND_POOL, GRAPHICS_OFFSET_VULKAN_DEVICE,
+    GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER, GRAPHICS_OFFSET_VULKAN_IMAGE,
+    GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY, GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW,
+    GRAPHICS_OFFSET_VULKAN_INSTANCE, GRAPHICS_OFFSET_VULKAN_LIB, GRAPHICS_OFFSET_VULKAN_MAPPED,
+    GRAPHICS_OFFSET_VULKAN_PHYSICAL, GRAPHICS_OFFSET_VULKAN_PIPELINE,
     GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT, GRAPHICS_OFFSET_VULKAN_QUEUE,
     GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY, GRAPHICS_OFFSET_VULKAN_READY,
-    GRAPHICS_OFFSET_VULKAN_RENDER_PASS, GRAPHICS_STATE_SYMBOL,
+    GRAPHICS_OFFSET_VULKAN_READ_BUFFER, GRAPHICS_OFFSET_VULKAN_READ_MEMORY,
+    GRAPHICS_OFFSET_VULKAN_RENDER_PASS, GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT,
+    GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, HEADER_AUX0, HEADER_AUX1,
+    HEADER_BOUNDS, HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_STROKE_HALF,
+    HEADER_STROKE_R, ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC,
+    ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
 };
 use crate::codegen::string::util::hex_encode_cstring;
 use crate::target::shared::abi;
@@ -71,11 +80,39 @@ const VK_PROBE_ENTRY_POINTS: &[&str] = &[
     "vkCreatePipelineLayout",
     "vkCreateRenderPass",
     "vkCreateGraphicsPipelines",
+    "vkDeviceWaitIdle",
+    "vkDestroyFramebuffer",
+    "vkDestroyImageView",
+    "vkDestroyImage",
+    "vkDestroyBuffer",
+    "vkFreeMemory",
+    "vkCreateImage",
+    "vkGetImageMemoryRequirements",
+    "vkGetPhysicalDeviceMemoryProperties",
+    "vkAllocateMemory",
+    "vkBindImageMemory",
+    "vkCreateImageView",
+    "vkCreateFramebuffer",
+    "vkCreateBuffer",
+    "vkGetBufferMemoryRequirements",
+    "vkBindBufferMemory",
+    "vkMapMemory",
+    "vkCreateCommandPool",
+    "vkAllocateCommandBuffers",
+    "vkBeginCommandBuffer",
+    "vkCmdBeginRenderPass",
+    "vkCmdBindPipeline",
+    "vkCmdSetViewport",
+    "vkCmdSetScissor",
+    "vkCmdPushConstants",
+    "vkCmdDraw",
+    "vkCmdEndRenderPass",
+    "vkCmdCopyImageToBuffer",
+    "vkEndCommandBuffer",
+    "vkQueueSubmit",
+    "vkQueueWaitIdle",
 ];
 
-/// `VK_STRUCTURE_TYPE_APPLICATION_INFO` / `…_INSTANCE_CREATE_INFO`.
-const VK_STRUCTURE_TYPE_APPLICATION_INFO: &str = "0";
-const VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO: &str = "1";
 /// `VK_API_VERSION_1_0` — `VK_MAKE_API_VERSION(0, 1, 0, 0)`, i.e. `1 << 22`.
 const VK_API_VERSION_1_0: &str = "4194304";
 
@@ -130,12 +167,6 @@ const SPIRV_MAGIC: u32 = 0x0723_0203;
 /// Both shaders' entry point. GLSL compiled by glslang always names it `main`.
 const SHADER_ENTRY_NAME: &str = "main";
 
-/// The push-constant block both stages read — byte-identical to the Metal item
-/// block, so one CPU-side emitter feeds both backends. 112 bytes fits Vulkan's
-/// guaranteed 128-byte push-constant range, which is why this path needs no
-/// descriptor sets and no buffers.
-const ITEM_BLOCK_SIZE: usize = 112;
-
 /// `VkStructureType` values used by the pipeline.
 const ST_SHADER_MODULE_CREATE_INFO: &str = "16";
 const ST_PIPELINE_SHADER_STAGE_CREATE_INFO: &str = "18";
@@ -169,7 +200,13 @@ const IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL: &str = "6";
 const PIPELINE_BIND_POINT_GRAPHICS: &str = "0";
 /// `VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP` — four vertices, two triangles, and (as on
 /// Metal) no vertex buffer, so there is nothing to keep in sync with a CPU layout.
-const TOPOLOGY_TRIANGLE_STRIP: &str = "5";
+///
+/// 4, not 5: the enum runs POINT_LIST, LINE_LIST, LINE_STRIP, TRIANGLE_LIST,
+/// TRIANGLE_STRIP, TRIANGLE_FAN, so 5 is the *fan*. A fan over strip-ordered
+/// vertices is not an error — it draws two real triangles that happen not to be the
+/// quad, which came out as a shape missing its lower-right corner. The Metal path hit
+/// the same class of bug from the same off-by-one in a different enum.
+const TOPOLOGY_TRIANGLE_STRIP: &str = "4";
 /// `VK_POLYGON_MODE_FILL`, `VK_CULL_MODE_NONE`, `VK_FRONT_FACE_COUNTER_CLOCKWISE`.
 const POLYGON_MODE_FILL: &str = "0";
 const CULL_MODE_NONE: &str = "0";
@@ -307,255 +344,6 @@ fn emit_struct(builder: &mut CodeBuilder, base: usize, size: usize, fields: &[(u
             }
         }
     }
-}
-
-/// `canvas::vulkanAvailable() AS Boolean` — can this process render with Vulkan?
-///
-/// Loads the loader, bootstraps `vkGetInstanceProcAddr`, creates a bare instance
-/// (no layers, no extensions — an offscreen renderer needs neither) and asks whether
-/// any physical device exists. The instance is destroyed before returning: this
-/// answers a question, and the renderer creates and keeps its own.
-///
-/// Every failure is a plain `FALSE`, never an abort. A machine with no Vulkan loader,
-/// no ICD, or no device is a normal machine — it renders in software, which is the
-/// default anyway.
-///
-/// `platform` decides whether any of this is emitted at all: on a target with no
-/// `dlopen` the answer is a constant `FALSE`, so the renderer branch keeps one shape
-/// everywhere.
-///
-/// ## Two things this must not do, both learned by segfaulting
-///
-/// **It takes its scratch from `builder.allocate_stack_object`, never by moving the
-/// stack pointer itself.** The enclosing `abi_function` body addresses its own locals
-/// off `sp`, so a `sub sp` in the middle of it silently relocates every one of them.
-///
-/// **It keeps nothing in `abi::LOCAL[…]`.** `%local0` realizes to the arena-state
-/// register, which every MFBASIC global and the whole canvas scene region is
-/// addressed off. Parking a device count there for the length of one call corrupts
-/// the program's entire world, and does it *after* the probe has returned the right
-/// answer — so the failure lands somewhere else entirely.
-pub(crate) fn emit_vulkan_available(
-    builder: &mut CodeBuilder,
-    platform: &dyn CodegenPlatform,
-    platform_imports: &std::collections::HashMap<String, String>,
-) -> Result<(), String> {
-    if !matches!(platform.family(), PlatformFamily::Linux) {
-        builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
-        return Ok(());
-    }
-    let symbol = builder.current_symbol.clone();
-    let unavailable = builder.label("vk_unavailable");
-    let done = builder.label("vk_done");
-
-    // Builder-owned scratch: the two create-info structs, then one word each for the
-    // instance handle, the device count, the dlopen handle, `vkGetInstanceProcAddr`,
-    // the entry point currently resolved, and the count carried across the teardown.
-    let off_app_info = builder.allocate_stack_object("vk_app_info", APP_INFO_SIZE);
-    let off_instance_info = builder.allocate_stack_object("vk_instance_info", INSTANCE_INFO_SIZE);
-    let off_instance = builder.allocate_stack_object("vk_instance", 8);
-    let off_count = builder.allocate_stack_object("vk_count", 8);
-    let off_handle = builder.allocate_stack_object("vk_handle", 8);
-    let off_fn = builder.allocate_stack_object("vk_fn", 8);
-    let off_devices = builder.allocate_stack_object("vk_devices", 8);
-
-    // handle = dlopen("libvulkan.so.1", RTLD_NOW)
-    emit_data_address(
-        &symbol,
-        abi::c_arg(0),
-        &soname_symbol(),
-        &mut builder.instructions,
-        &mut builder.relocations,
-    );
-    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
-    platform.emit_external_call(
-        "dlopen",
-        &symbol,
-        platform_imports,
-        &mut builder.instructions,
-        &mut builder.relocations,
-    )?;
-    builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
-    builder.emit(abi::branch_eq(&unavailable));
-    builder.emit(abi::store_u64(
-        abi::c_return(0),
-        abi::stack_pointer(),
-        off_handle,
-    ));
-
-    // gipa = dlsym(handle, "vkGetInstanceProcAddr")
-    builder.emit(abi::load_u64(
-        abi::c_arg(0),
-        abi::stack_pointer(),
-        off_handle,
-    ));
-    emit_data_address(
-        &symbol,
-        abi::c_arg(1),
-        &symbol_name_symbol(SYM_GET_INSTANCE_PROC_ADDR),
-        &mut builder.instructions,
-        &mut builder.relocations,
-    );
-    platform.emit_external_call(
-        "dlsym",
-        &symbol,
-        platform_imports,
-        &mut builder.instructions,
-        &mut builder.relocations,
-    )?;
-    // The result is discarded: this only asks whether the library that answered the
-    // `dlopen` is really a Vulkan loader. Every entry point below is resolved from
-    // the same handle by name (see `emit_dlsym`), so nothing calls through this.
-    builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
-    builder.emit(abi::branch_eq(&unavailable));
-
-    emit_dlsym(
-        builder,
-        platform,
-        platform_imports,
-        "vkCreateInstance",
-        off_handle,
-        off_fn,
-        &unavailable,
-    )?;
-
-    // The two create-info structs. Everything not named here is zero, which is what
-    // Vulkan wants for every field this probe does not use — no layers, no
-    // extensions, no flags.
-    emit_zero_range(builder, off_app_info, APP_INFO_SIZE);
-    emit_zero_range(builder, off_instance_info, INSTANCE_INFO_SIZE);
-    emit_store_u32_immediate(
-        builder,
-        off_app_info + APP_INFO_STYPE,
-        VK_STRUCTURE_TYPE_APPLICATION_INFO,
-    );
-    emit_store_u32_immediate(
-        builder,
-        off_app_info + APP_INFO_API_VERSION,
-        VK_API_VERSION_1_0,
-    );
-    emit_store_u32_immediate(
-        builder,
-        off_instance_info + INSTANCE_INFO_STYPE,
-        VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-    );
-    builder.emit(abi::add_immediate(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_app_info,
-    ));
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_instance_info + INSTANCE_INFO_APP_INFO,
-    ));
-
-    // result = createInstance(&createInfo, NULL, &instance)
-    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_instance,
-    ));
-    builder.emit(abi::add_immediate(
-        abi::c_arg(0),
-        abi::stack_pointer(),
-        off_instance_info,
-    ));
-    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
-    builder.emit(abi::add_immediate(
-        abi::c_arg(2),
-        abi::stack_pointer(),
-        off_instance,
-    ));
-    let callee = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&callee, abi::stack_pointer(), off_fn));
-    builder.emit(abi::branch_link_register(&callee));
-    // VK_SUCCESS is 0; anything else means no instance.
-    builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
-    builder.emit(abi::branch_ne(&unavailable));
-
-    // enumerate = gipa(instance, "vkEnumeratePhysicalDevices")
-    emit_dlsym(
-        builder,
-        platform,
-        platform_imports,
-        "vkEnumeratePhysicalDevices",
-        off_handle,
-        off_fn,
-        &unavailable,
-    )?;
-
-    // enumerate(instance, &count, NULL) — the count-only form, which is all the
-    // question "is there a device" needs.
-    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_count,
-    ));
-    builder.emit(abi::load_u64(
-        abi::c_arg(0),
-        abi::stack_pointer(),
-        off_instance,
-    ));
-    builder.emit(abi::add_immediate(
-        abi::c_arg(1),
-        abi::stack_pointer(),
-        off_count,
-    ));
-    builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
-    let callee = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&callee, abi::stack_pointer(), off_fn));
-    builder.emit(abi::branch_link_register(&callee));
-
-    // Tear the instance down before answering, so asking twice costs a lookup rather
-    // than an instance. The count is copied to its own slot first, because
-    // `vkDestroyInstance` is free to scribble on the caller's scratch.
-    builder.emit(abi::load_u32(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_count,
-    ));
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_devices,
-    ));
-    emit_dlsym(
-        builder,
-        platform,
-        platform_imports,
-        "vkDestroyInstance",
-        off_handle,
-        off_fn,
-        &unavailable,
-    )?;
-    builder.emit(abi::load_u64(
-        abi::c_arg(0),
-        abi::stack_pointer(),
-        off_instance,
-    ));
-    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
-    let callee = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&callee, abi::stack_pointer(), off_fn));
-    builder.emit(abi::branch_link_register(&callee));
-
-    builder.emit(abi::load_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_devices,
-    ));
-    builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
-    builder.emit(abi::branch_eq(&unavailable));
-    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"));
-    builder.emit(abi::branch(&done));
-
-    builder.emit(abi::label(&unavailable));
-    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
-
-    builder.emit(abi::label(&done));
-    Ok(())
 }
 
 /// `VkDeviceQueueCreateInfo`, 40 bytes.
@@ -883,8 +671,15 @@ pub(crate) fn emit_vulkan_ready(
         off_devices,
     ));
     emit_call_fn(builder, off_fn);
-    // VK_INCOMPLETE (5) is fine here — see MAX_PHYSICAL_DEVICES. Only a negative
-    // result is a failure, and the count is what decides whether there is a device.
+    // **Check the result before the count.** The count was pre-set to the array
+    // capacity, because that is how Vulkan's enumerate-into-an-array form is told how
+    // much room it has — so a call that fails without writing it leaves 8 there, and
+    // reading the count alone would say "eight devices" on a machine with none.
+    //
+    // A negative `VkResult` is an error; `VK_INCOMPLETE` (5) is not — it means there
+    // were more devices than the array, which is fine when any one will do.
+    builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
+    builder.emit(abi::branch_lt(&unavailable));
     builder.emit(abi::load_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -1707,6 +1502,1867 @@ fn emit_vulkan_pipeline(
     Ok(())
 }
 
+// --- render-target struct layouts ------------------------------------------------
+
+/// `VkImageCreateInfo`, 88 bytes.
+const IMAGE_INFO_SIZE: usize = 88;
+const IMAGE_INFO_TYPE: usize = 20;
+const IMAGE_INFO_FORMAT: usize = 24;
+const IMAGE_INFO_WIDTH: usize = 28;
+const IMAGE_INFO_HEIGHT: usize = 32;
+const IMAGE_INFO_DEPTH: usize = 36;
+const IMAGE_INFO_MIP_LEVELS: usize = 40;
+const IMAGE_INFO_ARRAY_LAYERS: usize = 44;
+const IMAGE_INFO_SAMPLES: usize = 48;
+const IMAGE_INFO_TILING: usize = 52;
+const IMAGE_INFO_USAGE: usize = 56;
+const IMAGE_INFO_INITIAL_LAYOUT: usize = 80;
+
+/// `VkMemoryRequirements`, 24 bytes.
+const MEMORY_REQS_SIZE: usize = 24;
+const MEMORY_REQS_BYTES: usize = 0;
+const MEMORY_REQS_TYPE_BITS: usize = 16;
+
+/// `VkMemoryAllocateInfo`, 32 bytes.
+const ALLOC_INFO_SIZE: usize = 32;
+const ALLOC_INFO_BYTES: usize = 16;
+const ALLOC_INFO_TYPE_INDEX: usize = 24;
+
+/// `VkPhysicalDeviceMemoryProperties`, 520 bytes: a count, then 32
+/// `VkMemoryType`s of `{ propertyFlags u32, heapIndex u32 }`.
+const MEMORY_PROPERTIES_SIZE: usize = 520;
+const MEMORY_PROPERTIES_TYPE_COUNT: usize = 0;
+const MEMORY_PROPERTIES_TYPES: usize = 4;
+const MEMORY_TYPE_STRIDE: usize = 8;
+
+/// `VkImageViewCreateInfo`, 80 bytes.
+const VIEW_INFO_SIZE: usize = 80;
+const VIEW_INFO_IMAGE: usize = 24;
+const VIEW_INFO_TYPE: usize = 32;
+const VIEW_INFO_FORMAT: usize = 36;
+const VIEW_INFO_ASPECT: usize = 56;
+const VIEW_INFO_LEVEL_COUNT: usize = 64;
+const VIEW_INFO_LAYER_COUNT: usize = 72;
+
+/// `VkFramebufferCreateInfo`, 64 bytes.
+const FRAMEBUFFER_INFO_SIZE: usize = 64;
+const FRAMEBUFFER_RENDER_PASS: usize = 24;
+const FRAMEBUFFER_ATTACHMENT_COUNT: usize = 32;
+const FRAMEBUFFER_ATTACHMENTS: usize = 40;
+const FRAMEBUFFER_WIDTH: usize = 48;
+const FRAMEBUFFER_HEIGHT: usize = 52;
+const FRAMEBUFFER_LAYERS: usize = 56;
+
+/// `VkBufferCreateInfo`, 56 bytes.
+const BUFFER_INFO_SIZE: usize = 56;
+const BUFFER_INFO_BYTES: usize = 24;
+const BUFFER_INFO_USAGE: usize = 32;
+
+/// `VkCommandPoolCreateInfo`, 24 bytes.
+const POOL_INFO_SIZE: usize = 24;
+const POOL_INFO_FLAGS: usize = 16;
+const POOL_INFO_FAMILY: usize = 20;
+
+/// `VkCommandBufferAllocateInfo`, 32 bytes.
+const CMD_ALLOC_INFO_SIZE: usize = 32;
+const CMD_ALLOC_POOL: usize = 16;
+const CMD_ALLOC_LEVEL: usize = 24;
+const CMD_ALLOC_COUNT: usize = 28;
+
+/// `VK_STRUCTURE_TYPE_*` for the target.
+const ST_MEMORY_ALLOCATE_INFO: &str = "5";
+const ST_BUFFER_CREATE_INFO: &str = "12";
+const ST_IMAGE_CREATE_INFO: &str = "14";
+const ST_IMAGE_VIEW_CREATE_INFO: &str = "15";
+const ST_FRAMEBUFFER_CREATE_INFO: &str = "37";
+const ST_COMMAND_POOL_CREATE_INFO: &str = "39";
+const ST_COMMAND_BUFFER_ALLOCATE_INFO: &str = "40";
+
+/// `VK_IMAGE_TYPE_2D` / `VK_IMAGE_VIEW_TYPE_2D`.
+const IMAGE_TYPE_2D: &str = "1";
+const IMAGE_VIEW_TYPE_2D: &str = "1";
+/// `VK_IMAGE_TILING_OPTIMAL`.
+const IMAGE_TILING_OPTIMAL: &str = "0";
+/// `VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT`.
+const IMAGE_USAGE_COLOR_AND_SRC: &str = "17";
+/// `VK_IMAGE_ASPECT_COLOR_BIT`.
+const IMAGE_ASPECT_COLOR: &str = "1";
+/// `VK_BUFFER_USAGE_TRANSFER_DST_BIT`.
+const BUFFER_USAGE_TRANSFER_DST: &str = "2";
+/// `VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT`, and
+/// `HOST_VISIBLE | HOST_COHERENT` for the readback buffer — coherent so the copy
+/// needs no explicit invalidate before the CPU reads it.
+const MEMORY_DEVICE_LOCAL: &str = "1";
+const MEMORY_HOST_VISIBLE_COHERENT: &str = "6";
+/// `VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT` — the one buffer is re-recorded
+/// every frame.
+const POOL_RESET_COMMAND_BUFFER: &str = "2";
+/// `VK_COMMAND_BUFFER_LEVEL_PRIMARY`.
+const COMMAND_BUFFER_LEVEL_PRIMARY: &str = "0";
+
+/// Ensure the offscreen image, its framebuffer and the readback buffer exist at
+/// `width` x `height`, rebuilding them if the surface has resized.
+///
+/// The Vulkan counterpart of the Metal path's texture check, and the same shape: the
+/// dimensions live beside the handles so the common case is two word compares rather
+/// than a query, and a resize tears the old set down before building the new one.
+/// Leaking here would be a whole surface's worth of device memory per resize step —
+/// megabytes per frame of a window drag.
+///
+/// The command pool and its single command buffer are built here too, but only once:
+/// neither depends on the surface size, and the pool is created with
+/// `RESET_COMMAND_BUFFER` so each frame re-records the same buffer instead of
+/// allocating one.
+#[allow(clippy::too_many_arguments)]
+fn emit_vulkan_target(
+    builder: &mut CodeBuilder,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &std::collections::HashMap<String, String>,
+    off_handle: usize,
+    off_fn: usize,
+    off_state: usize,
+    off_out: usize,
+    off_width: usize,
+    off_height: usize,
+    unavailable: &str,
+) -> Result<(), String> {
+    let build = builder.label("vk_target_build");
+    let ready = builder.label("vk_target_ready");
+    let no_teardown = builder.label("vk_target_no_teardown");
+    let have_pool = builder.label("vk_target_have_pool");
+
+    let off_image_info = builder.allocate_stack_object("vk_image_info", IMAGE_INFO_SIZE);
+    let off_reqs = builder.allocate_stack_object("vk_reqs", MEMORY_REQS_SIZE);
+    let off_alloc_info = builder.allocate_stack_object("vk_alloc_info", ALLOC_INFO_SIZE);
+    let off_properties = builder.allocate_stack_object("vk_mem_properties", MEMORY_PROPERTIES_SIZE);
+    let off_type_index = builder.allocate_stack_object("vk_type_index", 8);
+    let off_type_bits = builder.allocate_stack_object("vk_type_bits", 8);
+    let off_view_info = builder.allocate_stack_object("vk_view_info", VIEW_INFO_SIZE);
+    let off_view_handle = builder.allocate_stack_object("vk_view_handle", 8);
+    let off_fb_info = builder.allocate_stack_object("vk_fb_info", FRAMEBUFFER_INFO_SIZE);
+    let off_buffer_info = builder.allocate_stack_object("vk_buffer_info", BUFFER_INFO_SIZE);
+    let off_pool_info = builder.allocate_stack_object("vk_pool_info", POOL_INFO_SIZE);
+    let off_cmd_alloc = builder.allocate_stack_object("vk_cmd_alloc", CMD_ALLOC_INFO_SIZE);
+    let off_bytes = builder.allocate_stack_object("vk_bytes", 8);
+
+    // Already the right size?
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_IMAGE,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    builder.emit(abi::branch_eq(&build));
+    for (slot, parked) in [
+        (GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, off_width),
+        (GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT, off_height),
+    ] {
+        emit_state_load(builder, off_state, slot, abi::SCRATCH[0]);
+        builder.emit(abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), parked));
+        builder.emit(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
+        builder.emit(abi::branch_ne(&build));
+    }
+    builder.emit(abi::branch(&ready));
+
+    builder.emit(abi::label(&build));
+    // Tear the old set down first. Everything the GPU could still be using is behind
+    // a `vkDeviceWaitIdle`, which is the blunt instrument and the right one here: a
+    // resize is rare and this is not the frame path.
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_IMAGE,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    builder.emit(abi::branch_eq(&no_teardown));
+    emit_device_call_1(
+        builder,
+        platform,
+        platform_imports,
+        "vkDeviceWaitIdle",
+        off_handle,
+        off_fn,
+        off_state,
+        unavailable,
+    )?;
+    for (name, slot) in [
+        ("vkDestroyFramebuffer", GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER),
+        ("vkDestroyImageView", GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW),
+        ("vkDestroyImage", GRAPHICS_OFFSET_VULKAN_IMAGE),
+        ("vkDestroyBuffer", GRAPHICS_OFFSET_VULKAN_READ_BUFFER),
+        ("vkFreeMemory", GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY),
+        ("vkFreeMemory", GRAPHICS_OFFSET_VULKAN_READ_MEMORY),
+    ] {
+        emit_dlsym(
+            builder,
+            platform,
+            platform_imports,
+            name,
+            off_handle,
+            off_fn,
+            unavailable,
+        )?;
+        emit_state_load(
+            builder,
+            off_state,
+            GRAPHICS_OFFSET_VULKAN_DEVICE,
+            abi::c_arg(0),
+        );
+        emit_state_load(builder, off_state, slot, abi::c_arg(1));
+        builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+        emit_call_fn(builder, off_fn);
+        builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+        emit_state_store(builder, off_state, slot, abi::SCRATCH[0]);
+    }
+
+    builder.emit(abi::label(&no_teardown));
+
+    // bytes = width * height * 4
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_width,
+    ));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_height,
+    ));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
+    builder.emit(abi::move_immediate(abi::SCRATCH[1], "Integer", "4"));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_bytes,
+    ));
+
+    // --- the colour image ---------------------------------------------------------
+    emit_struct(
+        builder,
+        off_image_info,
+        IMAGE_INFO_SIZE,
+        &[
+            (0, Field::U32(ST_IMAGE_CREATE_INFO)),
+            (IMAGE_INFO_TYPE, Field::U32(IMAGE_TYPE_2D)),
+            (IMAGE_INFO_FORMAT, Field::U32(FORMAT_B8G8R8A8_SRGB)),
+            (IMAGE_INFO_DEPTH, Field::U32("1")),
+            (IMAGE_INFO_MIP_LEVELS, Field::U32("1")),
+            (IMAGE_INFO_ARRAY_LAYERS, Field::U32("1")),
+            (IMAGE_INFO_SAMPLES, Field::U32(SAMPLE_COUNT_1)),
+            (IMAGE_INFO_TILING, Field::U32(IMAGE_TILING_OPTIMAL)),
+            (IMAGE_INFO_USAGE, Field::U32(IMAGE_USAGE_COLOR_AND_SRC)),
+            (
+                IMAGE_INFO_INITIAL_LAYOUT,
+                Field::U32(IMAGE_LAYOUT_UNDEFINED),
+            ),
+        ],
+    );
+    for (field, parked) in [
+        (IMAGE_INFO_WIDTH, off_width),
+        (IMAGE_INFO_HEIGHT, off_height),
+    ] {
+        builder.emit(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), parked));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_image_info + field,
+        ));
+    }
+    emit_create_call(
+        builder,
+        platform,
+        platform_imports,
+        "vkCreateImage",
+        off_handle,
+        off_fn,
+        off_state,
+        off_image_info,
+        off_out,
+        GRAPHICS_OFFSET_VULKAN_IMAGE,
+        unavailable,
+    )?;
+
+    // Its memory.
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkGetImageMemoryRequirements",
+        off_handle,
+        off_fn,
+        unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DEVICE,
+        abi::c_arg(0),
+    );
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_IMAGE,
+        abi::c_arg(1),
+    );
+    builder.emit(abi::add_immediate(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        off_reqs,
+    ));
+    emit_call_fn(builder, off_fn);
+    emit_allocate_and_bind(
+        builder,
+        platform,
+        platform_imports,
+        off_handle,
+        off_fn,
+        off_state,
+        off_reqs,
+        off_alloc_info,
+        off_properties,
+        off_type_index,
+        off_type_bits,
+        off_out,
+        MEMORY_DEVICE_LOCAL,
+        GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY,
+        "vkBindImageMemory",
+        GRAPHICS_OFFSET_VULKAN_IMAGE,
+        unavailable,
+    )?;
+
+    // --- the view and the framebuffer ---------------------------------------------
+    emit_struct(
+        builder,
+        off_view_info,
+        VIEW_INFO_SIZE,
+        &[
+            (0, Field::U32(ST_IMAGE_VIEW_CREATE_INFO)),
+            (VIEW_INFO_TYPE, Field::U32(IMAGE_VIEW_TYPE_2D)),
+            (VIEW_INFO_FORMAT, Field::U32(FORMAT_B8G8R8A8_SRGB)),
+            (VIEW_INFO_ASPECT, Field::U32(IMAGE_ASPECT_COLOR)),
+            (VIEW_INFO_LEVEL_COUNT, Field::U32("1")),
+            (VIEW_INFO_LAYER_COUNT, Field::U32("1")),
+        ],
+    );
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_IMAGE,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_view_info + VIEW_INFO_IMAGE,
+    ));
+    emit_create_call(
+        builder,
+        platform,
+        platform_imports,
+        "vkCreateImageView",
+        off_handle,
+        off_fn,
+        off_state,
+        off_view_info,
+        off_out,
+        GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW,
+        unavailable,
+    )?;
+
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_view_handle,
+    ));
+    emit_struct(
+        builder,
+        off_fb_info,
+        FRAMEBUFFER_INFO_SIZE,
+        &[
+            (0, Field::U32(ST_FRAMEBUFFER_CREATE_INFO)),
+            (FRAMEBUFFER_ATTACHMENT_COUNT, Field::U32("1")),
+            (FRAMEBUFFER_ATTACHMENTS, Field::Addr(off_view_handle)),
+            (FRAMEBUFFER_LAYERS, Field::U32("1")),
+        ],
+    );
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_RENDER_PASS,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_fb_info + FRAMEBUFFER_RENDER_PASS,
+    ));
+    for (field, parked) in [
+        (FRAMEBUFFER_WIDTH, off_width),
+        (FRAMEBUFFER_HEIGHT, off_height),
+    ] {
+        builder.emit(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), parked));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_fb_info + field,
+        ));
+    }
+    emit_create_call(
+        builder,
+        platform,
+        platform_imports,
+        "vkCreateFramebuffer",
+        off_handle,
+        off_fn,
+        off_state,
+        off_fb_info,
+        off_out,
+        GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER,
+        unavailable,
+    )?;
+
+    // --- the readback buffer ------------------------------------------------------
+    emit_struct(
+        builder,
+        off_buffer_info,
+        BUFFER_INFO_SIZE,
+        &[
+            (0, Field::U32(ST_BUFFER_CREATE_INFO)),
+            (BUFFER_INFO_USAGE, Field::U32(BUFFER_USAGE_TRANSFER_DST)),
+        ],
+    );
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_bytes,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_buffer_info + BUFFER_INFO_BYTES,
+    ));
+    emit_create_call(
+        builder,
+        platform,
+        platform_imports,
+        "vkCreateBuffer",
+        off_handle,
+        off_fn,
+        off_state,
+        off_buffer_info,
+        off_out,
+        GRAPHICS_OFFSET_VULKAN_READ_BUFFER,
+        unavailable,
+    )?;
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkGetBufferMemoryRequirements",
+        off_handle,
+        off_fn,
+        unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DEVICE,
+        abi::c_arg(0),
+    );
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_READ_BUFFER,
+        abi::c_arg(1),
+    );
+    builder.emit(abi::add_immediate(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        off_reqs,
+    ));
+    emit_call_fn(builder, off_fn);
+    emit_allocate_and_bind(
+        builder,
+        platform,
+        platform_imports,
+        off_handle,
+        off_fn,
+        off_state,
+        off_reqs,
+        off_alloc_info,
+        off_properties,
+        off_type_index,
+        off_type_bits,
+        off_out,
+        MEMORY_HOST_VISIBLE_COHERENT,
+        GRAPHICS_OFFSET_VULKAN_READ_MEMORY,
+        "vkBindBufferMemory",
+        GRAPHICS_OFFSET_VULKAN_READ_BUFFER,
+        unavailable,
+    )?;
+
+    // Map it once and keep the pointer: Vulkan allows a HOST_VISIBLE allocation to
+    // stay mapped for its lifetime, so this saves a map/unmap pair every frame.
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkMapMemory",
+        off_handle,
+        off_fn,
+        unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DEVICE,
+        abi::c_arg(0),
+    );
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_READ_MEMORY,
+        abi::c_arg(1),
+    );
+    builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // offset
+    builder.emit(abi::load_u64(
+        abi::c_arg(3),
+        abi::stack_pointer(),
+        off_bytes,
+    ));
+    builder.emit(abi::move_immediate(abi::c_arg(4), "Integer", "0")); // flags
+    builder.emit(abi::add_immediate(
+        abi::c_arg(5),
+        abi::stack_pointer(),
+        off_out,
+    ));
+    emit_call_fn(builder, off_fn);
+    builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
+    builder.emit(abi::branch_ne(unavailable));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_out,
+    ));
+    emit_state_store(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_MAPPED,
+        abi::SCRATCH[0],
+    );
+
+    // Remember the size this set was built for.
+    for (slot, parked) in [
+        (GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, off_width),
+        (GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT, off_height),
+    ] {
+        builder.emit(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), parked));
+        emit_state_store(builder, off_state, slot, abi::SCRATCH[0]);
+    }
+
+    // --- the command pool and its one buffer, built once --------------------------
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_COMMAND_POOL,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    builder.emit(abi::branch_ne(&have_pool));
+    emit_struct(
+        builder,
+        off_pool_info,
+        POOL_INFO_SIZE,
+        &[
+            (0, Field::U32(ST_COMMAND_POOL_CREATE_INFO)),
+            (POOL_INFO_FLAGS, Field::U32(POOL_RESET_COMMAND_BUFFER)),
+        ],
+    );
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_pool_info + POOL_INFO_FAMILY,
+    ));
+    emit_create_call(
+        builder,
+        platform,
+        platform_imports,
+        "vkCreateCommandPool",
+        off_handle,
+        off_fn,
+        off_state,
+        off_pool_info,
+        off_out,
+        GRAPHICS_OFFSET_VULKAN_COMMAND_POOL,
+        unavailable,
+    )?;
+    emit_struct(
+        builder,
+        off_cmd_alloc,
+        CMD_ALLOC_INFO_SIZE,
+        &[
+            (0, Field::U32(ST_COMMAND_BUFFER_ALLOCATE_INFO)),
+            (CMD_ALLOC_LEVEL, Field::U32(COMMAND_BUFFER_LEVEL_PRIMARY)),
+            (CMD_ALLOC_COUNT, Field::U32("1")),
+        ],
+    );
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_COMMAND_POOL,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_cmd_alloc + CMD_ALLOC_POOL,
+    ));
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkAllocateCommandBuffers",
+        off_handle,
+        off_fn,
+        unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DEVICE,
+        abi::c_arg(0),
+    );
+    builder.emit(abi::add_immediate(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        off_cmd_alloc,
+    ));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        off_out,
+    ));
+    emit_call_fn(builder, off_fn);
+    builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
+    builder.emit(abi::branch_ne(unavailable));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_out,
+    ));
+    emit_state_store(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
+        abi::SCRATCH[0],
+    );
+
+    builder.emit(abi::label(&have_pool));
+    builder.emit(abi::label(&ready));
+    Ok(())
+}
+
+/// `vkCreateX(device, &info, NULL, &out)` then store `out` into the state block.
+#[allow(clippy::too_many_arguments)]
+fn emit_create_call(
+    builder: &mut CodeBuilder,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &std::collections::HashMap<String, String>,
+    name: &str,
+    off_handle: usize,
+    off_fn: usize,
+    off_state: usize,
+    off_info: usize,
+    off_out: usize,
+    state_slot: usize,
+    unavailable: &str,
+) -> Result<(), String> {
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        name,
+        off_handle,
+        off_fn,
+        unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DEVICE,
+        abi::c_arg(0),
+    );
+    builder.emit(abi::add_immediate(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        off_info,
+    ));
+    builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(3),
+        abi::stack_pointer(),
+        off_out,
+    ));
+    emit_call_fn(builder, off_fn);
+    builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
+    builder.emit(abi::branch_ne(unavailable));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_out,
+    ));
+    emit_state_store(builder, off_state, state_slot, abi::SCRATCH[0]);
+    Ok(())
+}
+
+/// `vkX(device)` — the one-argument device calls.
+#[allow(clippy::too_many_arguments)]
+fn emit_device_call_1(
+    builder: &mut CodeBuilder,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &std::collections::HashMap<String, String>,
+    name: &str,
+    off_handle: usize,
+    off_fn: usize,
+    off_state: usize,
+    unavailable: &str,
+) -> Result<(), String> {
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        name,
+        off_handle,
+        off_fn,
+        unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DEVICE,
+        abi::c_arg(0),
+    );
+    emit_call_fn(builder, off_fn);
+    Ok(())
+}
+
+/// Allocate memory for the requirements at `off_reqs` and bind it to `object`.
+#[allow(clippy::too_many_arguments)]
+fn emit_allocate_and_bind(
+    builder: &mut CodeBuilder,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &std::collections::HashMap<String, String>,
+    off_handle: usize,
+    off_fn: usize,
+    off_state: usize,
+    off_reqs: usize,
+    off_alloc_info: usize,
+    off_properties: usize,
+    off_type_index: usize,
+    off_type_bits: usize,
+    off_out: usize,
+    required: &str,
+    memory_slot: usize,
+    bind_name: &str,
+    object_slot: usize,
+    unavailable: &str,
+) -> Result<(), String> {
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_reqs + MEMORY_REQS_TYPE_BITS,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_type_bits,
+    ));
+    emit_pick_memory_type(
+        builder,
+        platform,
+        platform_imports,
+        off_handle,
+        off_fn,
+        off_state,
+        off_properties,
+        off_type_index,
+        off_type_bits,
+        required,
+        unavailable,
+    )?;
+    emit_struct(
+        builder,
+        off_alloc_info,
+        ALLOC_INFO_SIZE,
+        &[(0, Field::U32(ST_MEMORY_ALLOCATE_INFO))],
+    );
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_reqs + MEMORY_REQS_BYTES,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_alloc_info + ALLOC_INFO_BYTES,
+    ));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_type_index,
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_alloc_info + ALLOC_INFO_TYPE_INDEX,
+    ));
+    emit_create_call(
+        builder,
+        platform,
+        platform_imports,
+        "vkAllocateMemory",
+        off_handle,
+        off_fn,
+        off_state,
+        off_alloc_info,
+        off_out,
+        memory_slot,
+        unavailable,
+    )?;
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        bind_name,
+        off_handle,
+        off_fn,
+        unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DEVICE,
+        abi::c_arg(0),
+    );
+    emit_state_load(builder, off_state, object_slot, abi::c_arg(1));
+    emit_state_load(builder, off_state, memory_slot, abi::c_arg(2));
+    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    emit_call_fn(builder, off_fn);
+    builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
+    builder.emit(abi::branch_ne(unavailable));
+    Ok(())
+}
+
+/// Choose a memory type satisfying `type_bits` and `required`, leaving its index in
+/// `off_index`.
+///
+/// The standard Vulkan scan: the requirements report a bitmask of *acceptable* type
+/// indices, and the device reports what each type can do; the answer is the first
+/// index that is in the mask and has every required property.
+///
+/// A miss branches to `unavailable`. That is not a machine without the memory —
+/// Vulkan guarantees at least one `DEVICE_LOCAL` type and at least one
+/// `HOST_VISIBLE | HOST_COHERENT` type — so a miss means the mask and the
+/// requirement disagree, which is a caller bug and should fail the same way a
+/// missing device does rather than silently allocating the wrong kind.
+#[allow(clippy::too_many_arguments)]
+fn emit_pick_memory_type(
+    builder: &mut CodeBuilder,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &std::collections::HashMap<String, String>,
+    off_handle: usize,
+    off_fn: usize,
+    off_state: usize,
+    off_properties: usize,
+    off_index: usize,
+    off_type_bits: usize,
+    required: &str,
+    unavailable: &str,
+) -> Result<(), String> {
+    let head = builder.label("vk_memtype_head");
+    let next = builder.label("vk_memtype_next");
+    let found = builder.label("vk_memtype_found");
+
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkGetPhysicalDeviceMemoryProperties",
+        off_handle,
+        off_fn,
+        unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_PHYSICAL,
+        abi::c_arg(0),
+    );
+    builder.emit(abi::add_immediate(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        off_properties,
+    ));
+    emit_call_fn(builder, off_fn);
+
+    builder.emit(abi::move_immediate(abi::SCRATCH[5], "Integer", "0"));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        off_index,
+    ));
+
+    builder.emit(abi::label(&head));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        off_index,
+    ));
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[6],
+        abi::stack_pointer(),
+        off_properties + MEMORY_PROPERTIES_TYPE_COUNT,
+    ));
+    builder.emit(abi::compare_registers(abi::SCRATCH[5], abi::SCRATCH[6]));
+    builder.emit(abi::branch_ge(unavailable));
+
+    // Is this index in the requirements' mask?
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[6],
+        abi::stack_pointer(),
+        off_type_bits,
+    ));
+    builder.emit(abi::shift_right_variable(
+        abi::SCRATCH[6],
+        abi::SCRATCH[6],
+        abi::SCRATCH[5],
+    ));
+    builder.emit(abi::move_immediate(abi::SCRATCH[7], "Integer", "1"));
+    builder.emit(abi::and_registers(
+        abi::SCRATCH[6],
+        abi::SCRATCH[6],
+        abi::SCRATCH[7],
+    ));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[6], "0"));
+    builder.emit(abi::branch_eq(&next));
+
+    // Does it have every required property?
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[7],
+        "Integer",
+        &MEMORY_TYPE_STRIDE.to_string(),
+    ));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[7],
+        abi::SCRATCH[5],
+        abi::SCRATCH[7],
+    ));
+    builder.emit(abi::add_immediate(
+        abi::SCRATCH[6],
+        abi::stack_pointer(),
+        off_properties + MEMORY_PROPERTIES_TYPES,
+    ));
+    builder.emit(abi::add_registers(
+        abi::SCRATCH[6],
+        abi::SCRATCH[6],
+        abi::SCRATCH[7],
+    ));
+    builder.emit(abi::load_u32(abi::SCRATCH[6], abi::SCRATCH[6], 0));
+    builder.emit(abi::move_immediate(abi::SCRATCH[7], "Integer", required));
+    builder.emit(abi::and_registers(
+        abi::SCRATCH[6],
+        abi::SCRATCH[6],
+        abi::SCRATCH[7],
+    ));
+    builder.emit(abi::compare_registers(abi::SCRATCH[6], abi::SCRATCH[7]));
+    builder.emit(abi::branch_eq(&found));
+
+    builder.emit(abi::label(&next));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        off_index,
+    ));
+    builder.emit(abi::add_immediate(abi::SCRATCH[5], abi::SCRATCH[5], 1));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        off_index,
+    ));
+    builder.emit(abi::branch(&head));
+
+    builder.emit(abi::label(&found));
+    Ok(())
+}
+
+/// `VkCommandBufferBeginInfo`, 32 bytes.
+const CMD_BEGIN_INFO_SIZE: usize = 32;
+const CMD_BEGIN_FLAGS: usize = 16;
+
+/// `VkRenderPassBeginInfo`, 64 bytes; `renderArea` is a `VkRect2D` inline at 32.
+const PASS_BEGIN_INFO_SIZE: usize = 64;
+const PASS_BEGIN_RENDER_PASS: usize = 16;
+const PASS_BEGIN_FRAMEBUFFER: usize = 24;
+const PASS_BEGIN_AREA_WIDTH: usize = 40;
+const PASS_BEGIN_AREA_HEIGHT: usize = 44;
+const PASS_BEGIN_CLEAR_COUNT: usize = 48;
+const PASS_BEGIN_CLEARS: usize = 56;
+
+/// `VkClearValue`, 16 bytes — four floats. Opaque black, matching
+/// `canvas::newSurface`, so both backends start from the same pixels.
+const CLEAR_VALUE_SIZE: usize = 16;
+const CLEAR_ALPHA: usize = 12;
+
+/// `VkViewport`, 24 bytes of floats, and `VkRect2D`, 16 bytes of ints.
+const VIEWPORT_SIZE: usize = 24;
+const VIEWPORT_WIDTH: usize = 8;
+const VIEWPORT_HEIGHT: usize = 12;
+const VIEWPORT_MAX_DEPTH: usize = 20;
+const RECT_SIZE: usize = 16;
+const RECT_WIDTH: usize = 8;
+const RECT_HEIGHT: usize = 12;
+
+/// `VkBufferImageCopy`, 56 bytes.
+const COPY_SIZE: usize = 56;
+const COPY_ASPECT: usize = 16;
+const COPY_LAYER_COUNT: usize = 28;
+const COPY_EXTENT_WIDTH: usize = 44;
+const COPY_EXTENT_HEIGHT: usize = 48;
+const COPY_EXTENT_DEPTH: usize = 52;
+
+/// `VkSubmitInfo`, 72 bytes.
+const SUBMIT_INFO_SIZE: usize = 72;
+const SUBMIT_COMMAND_COUNT: usize = 40;
+const SUBMIT_COMMANDS: usize = 48;
+
+const ST_SUBMIT_INFO: &str = "4";
+const ST_COMMAND_BUFFER_BEGIN_INFO: &str = "42";
+const ST_RENDER_PASS_BEGIN_INFO: &str = "43";
+
+/// `VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT`.
+const COMMAND_BUFFER_ONE_TIME_SUBMIT: &str = "1";
+/// `VK_SUBPASS_CONTENTS_INLINE`.
+const SUBPASS_CONTENTS_INLINE: &str = "0";
+/// `1.0f` as its IEEE-754 bit pattern, for the viewport's `maxDepth` and the clear
+/// colour's alpha.
+const FLOAT_ONE_BITS_F32: &str = "1065353216";
+
+/// Fill the 112-byte item block at `sp + off_item` from the geometry header whose
+/// address is in `SCRATCH[0]`.
+///
+/// The Vulkan-flavoured twin of the Metal emitter in
+/// `target/macos_aarch64/app/metal.rs`. The two emit into different IRs — one builds
+/// a standalone `CodeFunction` with `Asm`, the other writes into an `abi_function`
+/// body through `CodeBuilder` — but they write the *same* block, because the layout
+/// and the header slots are one definition in `runtime/canvas/mod.rs`. A change to
+/// the contract therefore cannot move one backend without moving the other.
+///
+/// Positions narrow to 16.16 fixed point; colours cross as the whole 0–255 values
+/// the header already stores, so nothing rounds a colour.
+fn emit_item_block(
+    builder: &mut CodeBuilder,
+    off_item: usize,
+    off_width: usize,
+    off_height: usize,
+) {
+    let header = abi::SCRATCH[0];
+    let scale = abi::FP_SCRATCH[0];
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        FIXED_POINT_SCALE,
+    ));
+    builder.emit(abi::signed_convert_to_float_d(scale, abi::SCRATCH[1]));
+
+    // The 16.16 fields: bounds, shape parameters, arc angles.
+    for (item_offset, slots) in [
+        (
+            ITEM_OFFSET_QUAD,
+            [
+                HEADER_BOUNDS,
+                HEADER_BOUNDS + 1,
+                HEADER_BOUNDS + 2,
+                HEADER_BOUNDS + 3,
+            ],
+        ),
+        (
+            ITEM_OFFSET_SHAPE,
+            [
+                HEADER_SHAPE,
+                HEADER_SHAPE + 1,
+                HEADER_SHAPE + 2,
+                HEADER_SHAPE + 3,
+            ],
+        ),
+        (
+            ITEM_OFFSET_ARC,
+            [HEADER_AUX0, HEADER_AUX1, HEADER_AUX1, HEADER_AUX1],
+        ),
+    ] {
+        for (index, slot) in slots.into_iter().enumerate() {
+            builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+            builder.emit(abi::float_multiply_d(
+                abi::FP_SCRATCH[1],
+                abi::FP_SCRATCH[1],
+                scale,
+            ));
+            builder.emit(abi::float_round_to_signed_x(
+                abi::SCRATCH[1],
+                abi::FP_SCRATCH[1],
+            ));
+            builder.emit(abi::store_u32(
+                abi::SCRATCH[1],
+                abi::stack_pointer(),
+                off_item + item_offset + index * 4,
+            ));
+        }
+    }
+
+    // Both colours, as whole numbers.
+    for (item_offset, first) in [
+        (ITEM_OFFSET_FILL, HEADER_FILL_R),
+        (ITEM_OFFSET_STROKE, HEADER_STROKE_R),
+    ] {
+        for channel in 0..4 {
+            builder.emit(abi::load_double(
+                abi::FP_SCRATCH[1],
+                header,
+                (first + channel) * 8,
+            ));
+            builder.emit(abi::float_convert_to_signed_x(
+                abi::SCRATCH[1],
+                abi::FP_SCRATCH[1],
+            ));
+            builder.emit(abi::store_u32(
+                abi::SCRATCH[1],
+                abi::stack_pointer(),
+                off_item + item_offset + channel * 4,
+            ));
+        }
+    }
+
+    // misc = { kind, radius (16.16), strokeHalf (16.16), edgeCount }
+    for (index, slot, fixed) in [
+        (0usize, HEADER_KIND, false),
+        (1, HEADER_RADIUS, true),
+        (2, HEADER_STROKE_HALF, true),
+        (3, HEADER_AUX0, false),
+    ] {
+        builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+        if fixed {
+            builder.emit(abi::float_multiply_d(
+                abi::FP_SCRATCH[1],
+                abi::FP_SCRATCH[1],
+                scale,
+            ));
+            builder.emit(abi::float_round_to_signed_x(
+                abi::SCRATCH[1],
+                abi::FP_SCRATCH[1],
+            ));
+        } else {
+            builder.emit(abi::float_convert_to_signed_x(
+                abi::SCRATCH[1],
+                abi::FP_SCRATCH[1],
+            ));
+        }
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            off_item + ITEM_OFFSET_MISC + index * 4,
+        ));
+    }
+
+    for (index, parked) in [off_width, off_height].into_iter().enumerate() {
+        builder.emit(abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), parked));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            off_item + ITEM_OFFSET_SURFACE + index * 4,
+        ));
+    }
+}
+
+/// `canvas::vulkanDrawScene(surface, width, height, geometry, offsets)` — render one
+/// frame on the GPU and read it back into `surface`.
+///
+/// The Vulkan counterpart of `canvas::metalDrawScene`, and deliberately the same
+/// shape: draw offscreen, read back, and let the frame leave through the same
+/// `canvas::blitSurface` every other path uses. That is what makes the two backends
+/// and the software oracle comparable at all — the tolerance comparator diffs an
+/// RGBA8 buffer — and here it is also what makes the renderer testable, because no
+/// reachable Linux box has a display server for a swapchain to present to.
+///
+/// The submit is followed by `vkQueueWaitIdle`, so the frame is complete before this
+/// returns and `canvas::frameDone` advances D's counter after real GPU completion —
+/// the same ordering plan-98-E Correction 12 records for Metal, and for the same
+/// reason: the readback is on the critical path, so a fence-and-continue would be
+/// weaker, not stronger.
+pub(crate) fn emit_vulkan_draw_scene(
+    builder: &mut CodeBuilder,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &std::collections::HashMap<String, String>,
+    surface: &Operand,
+    width: &Operand,
+    height: &Operand,
+    geometry: &Operand,
+    offsets: &Operand,
+) -> Result<(), String> {
+    if !matches!(platform.family(), PlatformFamily::Linux) {
+        return Ok(());
+    }
+    let done = builder.label("vk_draw_done");
+    let unavailable = builder.label("vk_draw_unavailable");
+    let item_head = builder.label("vk_draw_item_head");
+    let item_done = builder.label("vk_draw_item_done");
+    let swizzle_head = builder.label("vk_draw_swizzle_head");
+    let swizzle_done = builder.label("vk_draw_swizzle_done");
+
+    let off_state = builder.allocate_stack_object("vk_state", 8);
+    let off_handle = builder.allocate_stack_object("vk_handle", 8);
+    let off_fn = builder.allocate_stack_object("vk_fn", 8);
+    let off_out = builder.allocate_stack_object("vk_out", 8);
+    let off_surface = builder.allocate_stack_object("vk_surface", 8);
+    let off_width = builder.allocate_stack_object("vk_width", 8);
+    let off_height = builder.allocate_stack_object("vk_height", 8);
+    let off_geometry = builder.allocate_stack_object("vk_geometry", 8);
+    let off_offsets = builder.allocate_stack_object("vk_offsets", 8);
+    let off_count = builder.allocate_stack_object("vk_draw_count", 8);
+    let off_index = builder.allocate_stack_object("vk_draw_index", 8);
+    let off_item = builder.allocate_stack_object("vk_item", ITEM_BLOCK_SIZE);
+    let off_begin = builder.allocate_stack_object("vk_cmd_begin", CMD_BEGIN_INFO_SIZE);
+    let off_clear = builder.allocate_stack_object("vk_clear", CLEAR_VALUE_SIZE);
+    let off_pass_begin = builder.allocate_stack_object("vk_pass_begin", PASS_BEGIN_INFO_SIZE);
+    let off_viewport = builder.allocate_stack_object("vk_viewport", VIEWPORT_SIZE);
+    let off_scissor = builder.allocate_stack_object("vk_scissor", RECT_SIZE);
+    let off_copy = builder.allocate_stack_object("vk_copy", COPY_SIZE);
+    let off_submit = builder.allocate_stack_object("vk_submit", SUBMIT_INFO_SIZE);
+    let off_cmd_handle = builder.allocate_stack_object("vk_cmd_handle", 8);
+
+    // Park the arguments before anything calls.
+    builder.emit(abi::add_immediate(
+        abi::SCRATCH[0],
+        surface.clone(),
+        COLLECTION_HEADER_SIZE,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_surface,
+    ));
+    builder.emit(abi::add_immediate(
+        abi::SCRATCH[0],
+        geometry.clone(),
+        COLLECTION_HEADER_SIZE,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_geometry,
+    ));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        offsets.clone(),
+        COLLECTION_OFFSET_COUNT,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_count,
+    ));
+    builder.emit(abi::add_immediate(
+        abi::SCRATCH[0],
+        offsets.clone(),
+        COLLECTION_HEADER_SIZE,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_offsets,
+    ));
+    builder.emit(abi::store_u64(
+        width.clone(),
+        abi::stack_pointer(),
+        off_width,
+    ));
+    builder.emit(abi::store_u64(
+        height.clone(),
+        abi::stack_pointer(),
+        off_height,
+    ));
+
+    // The renderer must be ready. `canvas::vulkanReady` is the branch's own
+    // condition, so this is a guard against being called out of order, not a
+    // fallback: a frame that got here without a pipeline renders nothing and leaves
+    // the cleared surface the software path would have produced.
+    state_base_into(builder, off_state);
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_READY,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], "1"));
+    builder.emit(abi::branch_ne(&done));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_LIB,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_handle,
+    ));
+
+    emit_vulkan_target(
+        builder,
+        platform,
+        platform_imports,
+        off_handle,
+        off_fn,
+        off_state,
+        off_out,
+        off_width,
+        off_height,
+        &unavailable,
+    )?;
+
+    // --- record ------------------------------------------------------------------
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_cmd_handle,
+    ));
+    emit_struct(
+        builder,
+        off_begin,
+        CMD_BEGIN_INFO_SIZE,
+        &[
+            (0, Field::U32(ST_COMMAND_BUFFER_BEGIN_INFO)),
+            (CMD_BEGIN_FLAGS, Field::U32(COMMAND_BUFFER_ONE_TIME_SUBMIT)),
+        ],
+    );
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkBeginCommandBuffer",
+        off_handle,
+        off_fn,
+        &unavailable,
+    )?;
+    builder.emit(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_cmd_handle,
+    ));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        off_begin,
+    ));
+    emit_call_fn(builder, off_fn);
+
+    // Opaque black, matching `canvas::newSurface`, so both backends start from the
+    // same pixels without either naming the colour twice.
+    emit_struct(
+        builder,
+        off_clear,
+        CLEAR_VALUE_SIZE,
+        &[(CLEAR_ALPHA, Field::U32(FLOAT_ONE_BITS_F32))],
+    );
+    emit_struct(
+        builder,
+        off_pass_begin,
+        PASS_BEGIN_INFO_SIZE,
+        &[
+            (0, Field::U32(ST_RENDER_PASS_BEGIN_INFO)),
+            (PASS_BEGIN_CLEAR_COUNT, Field::U32("1")),
+            (PASS_BEGIN_CLEARS, Field::Addr(off_clear)),
+        ],
+    );
+    for (field, slot) in [
+        (PASS_BEGIN_RENDER_PASS, GRAPHICS_OFFSET_VULKAN_RENDER_PASS),
+        (PASS_BEGIN_FRAMEBUFFER, GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER),
+    ] {
+        emit_state_load(builder, off_state, slot, abi::SCRATCH[0]);
+        builder.emit(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_pass_begin + field,
+        ));
+    }
+    for (field, parked) in [
+        (PASS_BEGIN_AREA_WIDTH, off_width),
+        (PASS_BEGIN_AREA_HEIGHT, off_height),
+    ] {
+        builder.emit(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), parked));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_pass_begin + field,
+        ));
+    }
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkCmdBeginRenderPass",
+        off_handle,
+        off_fn,
+        &unavailable,
+    )?;
+    builder.emit(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_cmd_handle,
+    ));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        off_pass_begin,
+    ));
+    builder.emit(abi::move_immediate(
+        abi::c_arg(2),
+        "Integer",
+        SUBPASS_CONTENTS_INLINE,
+    ));
+    emit_call_fn(builder, off_fn);
+
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkCmdBindPipeline",
+        off_handle,
+        off_fn,
+        &unavailable,
+    )?;
+    builder.emit(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_cmd_handle,
+    ));
+    builder.emit(abi::move_immediate(
+        abi::c_arg(1),
+        "Integer",
+        PIPELINE_BIND_POINT_GRAPHICS,
+    ));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_PIPELINE,
+        abi::c_arg(2),
+    );
+    emit_call_fn(builder, off_fn);
+
+    // Viewport and scissor are dynamic state, so they are set per frame — which is
+    // exactly what lets a resize reuse the pipeline.
+    emit_struct(
+        builder,
+        off_viewport,
+        VIEWPORT_SIZE,
+        &[(VIEWPORT_MAX_DEPTH, Field::U32(FLOAT_ONE_BITS_F32))],
+    );
+    for (field, parked) in [(VIEWPORT_WIDTH, off_width), (VIEWPORT_HEIGHT, off_height)] {
+        builder.emit(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), parked));
+        emit_store_f32_from_integer(builder, abi::SCRATCH[0], off_viewport + field);
+    }
+    emit_struct(builder, off_scissor, RECT_SIZE, &[]);
+    for (field, parked) in [(RECT_WIDTH, off_width), (RECT_HEIGHT, off_height)] {
+        builder.emit(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), parked));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_scissor + field,
+        ));
+    }
+    for (name, slot) in [
+        ("vkCmdSetViewport", off_viewport),
+        ("vkCmdSetScissor", off_scissor),
+    ] {
+        emit_dlsym(
+            builder,
+            platform,
+            platform_imports,
+            name,
+            off_handle,
+            off_fn,
+            &unavailable,
+        )?;
+        builder.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            off_cmd_handle,
+        ));
+        builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
+        builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
+        builder.emit(abi::add_immediate(
+            abi::c_arg(3),
+            abi::stack_pointer(),
+            slot,
+        ));
+        emit_call_fn(builder, off_fn);
+    }
+
+    // --- one quad per item --------------------------------------------------------
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_index,
+    ));
+    builder.emit(abi::label(&item_head));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_index,
+    ));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_count,
+    ));
+    builder.emit(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
+    builder.emit(abi::branch_ge(&item_done));
+
+    // header = geometry + offsets[i] * 8
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        3,
+    ));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_offsets,
+    ));
+    builder.emit(abi::add_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+    ));
+    builder.emit(abi::load_u64(abi::SCRATCH[0], abi::SCRATCH[0], 0));
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        3,
+    ));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_geometry,
+    ));
+    builder.emit(abi::add_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+    ));
+    emit_item_block(builder, off_item, off_width, off_height);
+
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkCmdPushConstants",
+        off_handle,
+        off_fn,
+        &unavailable,
+    )?;
+    builder.emit(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_cmd_handle,
+    ));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT,
+        abi::c_arg(1),
+    );
+    builder.emit(abi::move_immediate(
+        abi::c_arg(2),
+        "Integer",
+        SHADER_STAGE_VERTEX_AND_FRAGMENT,
+    ));
+    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    builder.emit(abi::move_immediate(
+        abi::c_arg(4),
+        "Integer",
+        &ITEM_BLOCK_SIZE.to_string(),
+    ));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(5),
+        abi::stack_pointer(),
+        off_item,
+    ));
+    emit_call_fn(builder, off_fn);
+
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkCmdDraw",
+        off_handle,
+        off_fn,
+        &unavailable,
+    )?;
+    builder.emit(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_cmd_handle,
+    ));
+    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "4")); // vertices
+    builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "1")); // instances
+    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    builder.emit(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+    emit_call_fn(builder, off_fn);
+
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_index,
+    ));
+    builder.emit(abi::add_immediate(abi::SCRATCH[0], abi::SCRATCH[0], 1));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_index,
+    ));
+    builder.emit(abi::branch(&item_head));
+    builder.emit(abi::label(&item_done));
+
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkCmdEndRenderPass",
+        off_handle,
+        off_fn,
+        &unavailable,
+    )?;
+    builder.emit(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_cmd_handle,
+    ));
+    emit_call_fn(builder, off_fn);
+
+    // --- copy the image out -------------------------------------------------------
+    emit_struct(
+        builder,
+        off_copy,
+        COPY_SIZE,
+        &[
+            (COPY_ASPECT, Field::U32(IMAGE_ASPECT_COLOR)),
+            (COPY_LAYER_COUNT, Field::U32("1")),
+            (COPY_EXTENT_DEPTH, Field::U32("1")),
+        ],
+    );
+    for (field, parked) in [
+        (COPY_EXTENT_WIDTH, off_width),
+        (COPY_EXTENT_HEIGHT, off_height),
+    ] {
+        builder.emit(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), parked));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_copy + field,
+        ));
+    }
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkCmdCopyImageToBuffer",
+        off_handle,
+        off_fn,
+        &unavailable,
+    )?;
+    builder.emit(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_cmd_handle,
+    ));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_IMAGE,
+        abi::c_arg(1),
+    );
+    builder.emit(abi::move_immediate(
+        abi::c_arg(2),
+        "Integer",
+        IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    ));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_READ_BUFFER,
+        abi::c_arg(3),
+    );
+    builder.emit(abi::move_immediate(abi::c_arg(4), "Integer", "1"));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(5),
+        abi::stack_pointer(),
+        off_copy,
+    ));
+    emit_call_fn(builder, off_fn);
+
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkEndCommandBuffer",
+        off_handle,
+        off_fn,
+        &unavailable,
+    )?;
+    builder.emit(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_cmd_handle,
+    ));
+    emit_call_fn(builder, off_fn);
+
+    // --- submit and wait ----------------------------------------------------------
+    emit_struct(
+        builder,
+        off_submit,
+        SUBMIT_INFO_SIZE,
+        &[
+            (0, Field::U32(ST_SUBMIT_INFO)),
+            (SUBMIT_COMMAND_COUNT, Field::U32("1")),
+            (SUBMIT_COMMANDS, Field::Addr(off_cmd_handle)),
+        ],
+    );
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkQueueSubmit",
+        off_handle,
+        off_fn,
+        &unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_QUEUE,
+        abi::c_arg(0),
+    );
+    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "1"));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        off_submit,
+    ));
+    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    emit_call_fn(builder, off_fn);
+
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkQueueWaitIdle",
+        off_handle,
+        off_fn,
+        &unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_QUEUE,
+        abi::c_arg(0),
+    );
+    emit_call_fn(builder, off_fn);
+
+    // --- BGRA -> RGBA into the surface ---------------------------------------------
+    // The attachment is the layer-compatible format, so the readback is B,G,R,A while
+    // the software surface — and every consumer of it — is R,G,B,A. The Metal path
+    // does the same swap for the same reason.
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_MAPPED,
+        abi::SCRATCH[2],
+    );
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[3],
+        abi::stack_pointer(),
+        off_surface,
+    ));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_width,
+    ));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_height,
+    ));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[4],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
+    builder.emit(abi::move_immediate(abi::SCRATCH[5], "Integer", "0"));
+    builder.emit(abi::label(&swizzle_head));
+    builder.emit(abi::compare_registers(abi::SCRATCH[5], abi::SCRATCH[4]));
+    builder.emit(abi::branch_ge(&swizzle_done));
+    builder.emit(abi::load_u8(abi::SCRATCH[6], abi::SCRATCH[2], 2)); // R
+    builder.emit(abi::store_u8(abi::SCRATCH[6], abi::SCRATCH[3], 0));
+    builder.emit(abi::load_u8(abi::SCRATCH[6], abi::SCRATCH[2], 1)); // G
+    builder.emit(abi::store_u8(abi::SCRATCH[6], abi::SCRATCH[3], 1));
+    builder.emit(abi::load_u8(abi::SCRATCH[6], abi::SCRATCH[2], 0)); // B
+    builder.emit(abi::store_u8(abi::SCRATCH[6], abi::SCRATCH[3], 2));
+    builder.emit(abi::load_u8(abi::SCRATCH[6], abi::SCRATCH[2], 3)); // A
+    builder.emit(abi::store_u8(abi::SCRATCH[6], abi::SCRATCH[3], 3));
+    builder.emit(abi::add_immediate(abi::SCRATCH[2], abi::SCRATCH[2], 4));
+    builder.emit(abi::add_immediate(abi::SCRATCH[3], abi::SCRATCH[3], 4));
+    builder.emit(abi::add_immediate(abi::SCRATCH[5], abi::SCRATCH[5], 1));
+    builder.emit(abi::branch(&swizzle_head));
+    builder.emit(abi::label(&swizzle_done));
+    builder.emit(abi::branch(&done));
+
+    // A failure anywhere above leaves the surface exactly as `canvas::newSurface`
+    // made it — the cleared frame, not garbage.
+    builder.emit(abi::label(&unavailable));
+    builder.emit(abi::label(&done));
+    Ok(())
+}
+
 /// Park the graphics-state block's address in `slot`, once, so every later access is
 /// a load rather than another `adrp`/`add` pair.
 fn state_base_into(builder: &mut CodeBuilder, slot: usize) {
@@ -1748,6 +3404,56 @@ fn emit_state_load(
         state_slot,
     ));
     builder.emit(abi::load_u64(dst, abi::SCRATCH[3], offset));
+}
+
+/// Store `value` (a whole number in a GPR) as an IEEE-754 **single** at
+/// `sp + offset`.
+///
+/// `VkViewport` is the one place this backend needs a real `float` — everything else
+/// crosses as 16.16 fixed point or a whole number. The assembler has no double→single
+/// convert and no 32-bit floating-point store, which is the same gap that made the
+/// item block fixed point, so the bit pattern is assembled with integer arithmetic:
+/// convert to a double (which the assembler *does* have), read its bits out with
+/// `fmov`, then re-lay the sign, the rebiased exponent and the top 23 mantissa bits.
+///
+/// Exact for the values it is given. A viewport dimension is a positive integer well
+/// under 2^24, so it is representable in `float` with no rounding at all and the
+/// mantissa bits being dropped are all zero. It is **not** a general
+/// double-to-float — it has no rounding, no denormals, and no zero case — which is
+/// why it is spelled as a private helper for this one use rather than an `abi::`
+/// primitive that would invite the general one.
+fn emit_store_f32_from_integer(
+    builder: &mut CodeBuilder,
+    value: impl Into<Operand>,
+    offset: usize,
+) {
+    let bits = abi::SCRATCH[8];
+    let sign = abi::SCRATCH[9];
+    let exponent = abi::SCRATCH[10];
+    let mantissa = abi::SCRATCH[11];
+
+    builder.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[7], value));
+    builder.emit(abi::float_move_x_from_d(bits, abi::FP_SCRATCH[7]));
+
+    // sign = bits >> 63, in place at bit 31.
+    builder.emit(abi::shift_right_immediate(sign, bits, 63));
+    builder.emit(abi::shift_left_immediate(sign, sign, 31));
+
+    // exponent = ((bits >> 52) & 0x7FF) - 1023 + 127, at bit 23.
+    builder.emit(abi::shift_right_immediate(exponent, bits, 52));
+    builder.emit(abi::move_immediate(mantissa, "Integer", "2047"));
+    builder.emit(abi::and_registers(exponent, exponent, mantissa));
+    builder.emit(abi::subtract_immediate(exponent, exponent, 896));
+    builder.emit(abi::shift_left_immediate(exponent, exponent, 23));
+
+    // mantissa = (bits >> 29) & 0x7FFFFF — the top 23 of the double's 52.
+    builder.emit(abi::shift_right_immediate(mantissa, bits, 29));
+    builder.emit(abi::move_immediate(bits, "Integer", "8388607"));
+    builder.emit(abi::and_registers(mantissa, mantissa, bits));
+
+    builder.emit(abi::or_registers(sign, sign, exponent));
+    builder.emit(abi::or_registers(sign, sign, mantissa));
+    builder.emit(abi::store_u32(sign, abi::stack_pointer(), offset));
 }
 
 /// Call the function pointer parked at `off_fn`.
@@ -1829,15 +3535,6 @@ fn emit_zero_range(builder: &mut CodeBuilder, base: usize, length: usize) {
             offset,
         ));
     }
-}
-
-fn emit_store_u32_immediate(builder: &mut CodeBuilder, offset: usize, value: &str) {
-    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", value));
-    builder.emit(abi::store_u32(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        offset,
-    ));
 }
 
 #[cfg(test)]

@@ -18,6 +18,7 @@ use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
+use crate::codegen::runtime::canvas::vulkan::emit_vulkan_draw_scene;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
@@ -110,6 +111,66 @@ pub(crate) fn lower_metal_draw_scene(
     })
 }
 
+/// `canvas::vulkanDrawScene(surface, width, height, geometry, offsets) AS Nothing`.
+///
+/// The Vulkan twin of `metalDrawScene`, and the same contract: it writes **through**
+/// the surface argument rather than returning a new collection, because the buffer
+/// comes straight from `canvas::newSurface` inside `__canvas_renderVulkan` and is
+/// aliased by nothing.
+///
+/// Unlike the Metal one this needs no platform seam: Vulkan is plain C reached
+/// through `dlopen`, so the whole emitter is target-neutral and lives in
+/// `runtime/canvas/vulkan.rs`. On a target with no Vulkan path it emits nothing and
+/// the call is a no-op — unreachable anyway, since the renderer branch gates on
+/// `canvas::vulkanReady`.
+pub(crate) fn lower_vulkan_draw_scene(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let mut located = Vec::new();
+    for (index, what) in [
+        "the surface argument",
+        "the width argument",
+        "the height argument",
+        "the geometry argument",
+        "the offsets argument",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        located.push(
+            args.get(index)
+                .ok_or_else(|| format!("'{symbol}' expects {what}"))?
+                .location
+                .clone(),
+        );
+    }
+    emit_vulkan_draw_scene(
+        builder,
+        ctx.platform,
+        ctx.platform_imports,
+        &located[0],
+        &located[1],
+        &located[2],
+        &located[3],
+        &located[4],
+    )?;
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Nothing,
+        location: Operand::from("void"),
+        text: symbol,
+    })
+}
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "metalDrawScene",
@@ -119,46 +180,66 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: None,
         internal_only: true,
         implementations: vec![Implementation {
-            params: vec![
-                Parameter {
-                    name: "surface",
-                    desc: "",
-                    aliases: &[],
-                    ty: ParameterType::list_of(ParameterType::Byte),
-                    default: DefaultValue::None,
-                },
-                Parameter {
-                    name: "width",
-                    desc: "",
-                    aliases: &[],
-                    ty: ParameterType::Integer,
-                    default: DefaultValue::None,
-                },
-                Parameter {
-                    name: "height",
-                    desc: "",
-                    aliases: &[],
-                    ty: ParameterType::Integer,
-                    default: DefaultValue::None,
-                },
-                Parameter {
-                    name: "geometry",
-                    desc: "",
-                    aliases: &[],
-                    ty: ParameterType::list_of(ParameterType::Float),
-                    default: DefaultValue::None,
-                },
-                Parameter {
-                    name: "offsets",
-                    desc: "",
-                    aliases: &[],
-                    ty: ParameterType::list_of(ParameterType::Integer),
-                    default: DefaultValue::None,
-                },
-            ],
+            params: scene_params(),
             return_type: ParameterType::Nothing,
             errors: vec![],
             body: Body::abi_function(lower_metal_draw_scene),
         }],
     });
+    pkg.add_function(RegistryFunction {
+        name: "vulkanDrawScene",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: scene_params(),
+            return_type: ParameterType::Nothing,
+            errors: vec![],
+            body: Body::abi_function(lower_vulkan_draw_scene),
+        }],
+    });
+}
+
+/// The parameter list both GPU draw seams take: the surface to write, its
+/// dimensions, the geometry cache, and the per-item offsets in draw order.
+fn scene_params() -> Vec<Parameter> {
+    vec![
+        Parameter {
+            name: "surface",
+            desc: "",
+            aliases: &[],
+            ty: ParameterType::list_of(ParameterType::Byte),
+            default: DefaultValue::None,
+        },
+        Parameter {
+            name: "width",
+            desc: "",
+            aliases: &[],
+            ty: ParameterType::Integer,
+            default: DefaultValue::None,
+        },
+        Parameter {
+            name: "height",
+            desc: "",
+            aliases: &[],
+            ty: ParameterType::Integer,
+            default: DefaultValue::None,
+        },
+        Parameter {
+            name: "geometry",
+            desc: "",
+            aliases: &[],
+            ty: ParameterType::list_of(ParameterType::Float),
+            default: DefaultValue::None,
+        },
+        Parameter {
+            name: "offsets",
+            desc: "",
+            aliases: &[],
+            ty: ParameterType::list_of(ParameterType::Integer),
+            default: DefaultValue::None,
+        },
+    ]
 }

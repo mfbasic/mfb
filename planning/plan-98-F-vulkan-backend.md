@@ -156,11 +156,23 @@ GTK4/Win32 already own windowing; F only needs a Vulkan surface from their handl
       fill 32, stroke 48, misc 64, arc 80, size 112 — so one CPU-side emitter feeds
       both backends. 112 bytes fits Vulkan's guaranteed 128-byte push-constant range,
       so the render path needs no descriptor sets.
-- [ ] Device + pipeline + one quad rendered offscreen and read back; assert
-      tolerance-match to the software oracle headless.
+- [x] Device, pipeline, offscreen render and readback, **measured on two boxes**.
+      `scripts/test-canvas-vulkan.sh` renders the same program twice — once with
+      `MFB_CANVAS_GPU=1`, once without — and diffs the frames against
+      `Tolerance::GPU_DEFAULT`:
 
-Acceptance: one quad renders via Vulkan on Linux and matches the software reference
-within tolerance; software backend still exact-match.
+      * box 2228 (Ubuntu glibc, llvmpipe): worst channel delta **1**, 0.0306% of
+        pixels differing;
+      * box 2227 (Alpine musl): worst delta **0** — byte-identical.
+
+      Both are inside the comparator's *per-pixel* bound, not merely its population
+      budget. And the scene is far past the box's "one tinted quad": two circles, a
+      swept arc, a rounded rect with both fill and stroke, a thick line and a
+      translucent rect, so every arm of the fragment shader's distance dispatch is
+      exercised. `Polygon` is the one kind declined (Correction 6).
+
+Acceptance: MET, and exceeded — the full primitive set (less `Polygon`) matches the
+software oracle within tolerance on two libcs, and the software backend is untouched.
 Commit: —
 
 ### Phase 2 — Linux full scene + resize/out-of-date + texture free
@@ -300,3 +312,50 @@ With all three, an app-mode program runs on Linux x86-64 for the first time, and
 canvas frame it renders is **byte-identical to the macOS render of the same scene** —
 2,304,000 bytes, two ISAs, two operating systems. `helper_render.rs` claims the
 software rasteriser produces identical pixels on every target; that is now measured.
+
+**Correction 4 (Phase 1) — `useMetal` was the wrong name, and the name was the bug.**
+`canvas::useMetal` began as "is Metal selected" and hard-returned FALSE off macOS. It
+had since become the *one* renderer-selection flag both GPU backends read, so that
+early return silently made `MFB_CANVAS_METAL=1` a no-op on Linux — the Vulkan arm
+could not be reached no matter how ready it was, and the first "Vulkan" frame was
+measured byte-identical to the software render because the software path had produced
+it.
+
+Renamed throughout to `canvas::useGpu` / `canvas::setGpuMode` / `MFB_CANVAS_GPU`, and
+the platform gate deleted. It now reports the flag and nothing else: "was a GPU asked
+for" and "is one usable here" are different questions, and `canvas::metalReady` /
+`canvas::vulkanReady` already answer the second. Folding them together is what caused
+this.
+
+**Correction 5 (Phase 1) — one readiness probe, not two.** The letter briefly had
+`canvas::vulkanAvailable` (a device exists) beside `canvas::vulkanReady` (a pipeline
+built), mirroring the Metal pair. They disagreed on box 2227: `vulkanAvailable`
+reported FALSE on a machine where the pipeline demonstrably built and rendered a
+**byte-identical** frame. `vulkanAvailable` was removed rather than debugged — nothing
+gated on it, the renderer gates on `vulkanReady`, and two probes of overlapping facts
+that can disagree are worse than one. The acceptance script's skip now keys off the
+same flag the runtime does, so the test and the renderer cannot disagree about whether
+the GPU path was taken.
+
+That episode also found a real defect in `vulkanReady`, now fixed: it pre-set the
+device count to the array capacity (which is how Vulkan's enumerate-into-an-array form
+is told how much room it has) and then read the count without checking the call's
+`VkResult`. A failed enumerate leaves the capacity there, so a machine with no devices
+reads as eight — and the renderer would take stack garbage for a `VkPhysicalDevice`.
+
+**Correction 6 (Phase 1) — the Vulkan predicate is stricter than the Metal one.**
+`__canvas_vulkanRenderable` declines any scene containing a `Polygon`, because a
+polygon's per-edge array does not fit a push-constant block and needs a
+descriptor-bound buffer (Phase 2). Reusing `__canvas_metalRenderable`, which accepts
+polygons because the Metal shader draws them, was the tempting shortcut and would have
+rendered polygons as nothing while reporting success — the same lie both predicates
+exist to prevent. Measured before it was fixed: the scene differed from the oracle on
+4,610 pixels, every one of them the single triangle.
+
+**Correction 7 (Phase 1) — `TRIANGLE_STRIP` is 4, and this is the second time.**
+`VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP` is 4; 5 is `TRIANGLE_FAN`. A fan over
+strip-ordered vertices is not an error — it draws two real triangles that are not the
+quad — and came out as a shape missing its lower-right corner, 4.44% of pixels wrong.
+plan-98-E Correction 8 records the identical mistake in Metal's enum
+(`MTLPrimitiveTypeTriangleStrip` is 4, and 3 is the triangle *list*). Two GPU APIs,
+two different enums, the same off-by-one, both found only by looking at pixels.

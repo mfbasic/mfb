@@ -245,13 +245,13 @@ renderer is chosen. The choice is a runtime branch, not a build-time one, becaus
 every input to it is a runtime fact:
 
 ```
-IF canvas::useMetal() AND canvas::metalReady() THEN
+IF canvas::useGpu() AND canvas::metalReady() THEN
   IF __canvas_renderMetal() THEN RETURN
 END IF
 __canvas_renderScene()
 ```
 
-* `canvas::useMetal` — did the program ask? (`MFB_CANVAS_METAL=1`, read once at
+* `canvas::useGpu` — did the program ask? (`MFB_CANVAS_GPU=1`, read once at
   spawn.) **Software is the default and must stay so**: it is the oracle the GPU
   backends are measured against, so it cannot become the thing being measured.
 * `canvas::metalReady` — did a pipeline build? It runs `_mfb_macapp_metal_init` on
@@ -299,8 +299,8 @@ Three environment variables, all off by default and none on the production path:
 
 A fourth selects the renderer rather than observing it:
 
-* `MFB_CANVAS_METAL` — ask for the Metal backend (§10). The stats line reports all
-  of the branch's discriminants — `metal=`, `metalSelected=`, `metalReady=` and, on
+* `MFB_CANVAS_GPU` — ask for the Metal backend (§10). The stats line reports all
+  of the branch's discriminants — `metal=`, `gpuSelected=`, `metalReady=` and, on
   Linux, `vulkan=` and `vulkanReady=` — which is how a test tells "the GPU agreed
   with the oracle" from "there was no GPU and both runs were the oracle". The
   Vulkan pair distinguishes a third case the Metal pair cannot: a machine with a
