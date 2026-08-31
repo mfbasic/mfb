@@ -165,6 +165,10 @@ pub(crate) fn register(r: &mut Registry) {
                       closed automatically when its binding goes out of scope.",
         close_function: "udp.close",
         sendable: true,
+        // Header-only: the socket fd @8 and the closed flag @16. Its read/write
+        // deadlines are kernel-side (`SO_RCVTIMEO`/`SO_SNDTIMEO`), so they ride
+        // the fd across a move for free.
+        live_slots: &[],
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });

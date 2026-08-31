@@ -217,6 +217,10 @@ pub(crate) fn register(r: &mut Registry) {
         // thread-sendable in v1 (plan-90-A; C revisits). The `__drop` op force-kills and
         // reaps, so it does not fail.
         sendable: false,
+        // Not audited for transfer (bug-464 left process out of scope: a child
+        // handle's waitpid semantics are per-thread on some platforms). Empty
+        // here is only consistent with `sendable: false`.
+        live_slots: &[],
         close_may_fail: false,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });

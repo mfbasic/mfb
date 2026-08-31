@@ -1,0 +1,20 @@
+IMPORT thread
+IMPORT tcp
+IMPORT encoding
+
+' bug-464: `tcp::Listener` was `sendable: false` on policy grounds alone ("a
+' listener accepts on its owning thread"), so this plane declaration did not
+' compile. Its record is fd+closed -- the same shape as the already-sendable
+' `tcp::Socket` -- so nothing but the bit stood in the way.
+'
+' The worker accepts a REAL connection on the transferred listener. That is the
+' point: a listener whose fd did not survive the move would fail here, not merely
+' fail to compile.
+EXPORT ISOLATED FUNC serveOnTransferredListener(t AS ThreadWorker OF RES tcp::Listener TO Integer, seed AS String) AS Integer
+  RES server AS tcp::Listener = thread::accept(t, 5000)
+  RES conn AS tcp::Socket = tcp::accept(server, 10000)
+  LET req AS String = encoding::utf8Decode(tcp::read(conn, 64))
+  tcp::write(conn, "pong:" & req)
+  tcp::close(conn)
+  RETURN 1
+END FUNC

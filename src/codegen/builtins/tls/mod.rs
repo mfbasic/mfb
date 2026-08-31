@@ -26,7 +26,9 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::error::constants::*;
-use crate::codegen::registry::{Registry, RegistryPackage, RegistryResource};
+use crate::codegen::registry::{
+    Registry, RegistryPackage, RegistryResource, ResourceLiveSlot, SlotBackend, SlotTransfer,
+};
 pub(crate) mod gen_macos;
 mod gen_openssl;
 pub(crate) mod gen_schannel;
@@ -109,7 +111,10 @@ endpoint from `tls::listen` that holds the loaded server TLS settings; `tls::acc
 Each is closed automatically when its binding goes out of scope, so
 `tls::close` is needed only to release a handle earlier; unlike `tcp::close`,
 `tls::close` closes the handle and treats an already-closed handle as success
-rather than an error. Neither handle type is thread-sendable, and neither can be
+rather than an error. Either handle may be handed to another thread on a thread's
+resource plane, so a server can accept on one thread and give each connection to
+a worker. The thread that receives a handle is the one that closes it, and the
+sending thread can no longer use it. Neither can be
 carried in a record. Both may be collection elements when the element type is
 spelled `RES` (a bare `List OF tls::Socket` is rejected with
 `TYPE_RESOURCE_REQUIRES_RES`); `List OF RES tls::Socket` is what the `tls::poll`
@@ -163,9 +168,62 @@ pub(crate) fn register(r: &mut Registry) {
                       `tls::connect` or an accepted server connection from `tls::accept` — \
                       closed automatically when its binding goes out of scope.",
         close_function: "tls.close",
-        // A TLS session is driven from its owning thread; not thread-sendable in v1
-        // (plan-03-net.md §4.4).
-        sendable: false,
+        // Thread-sendable since bug-464. A session moves to another thread with
+        // its handle; what is NOT allowed is two threads using one session at
+        // once, and `thread::transfer` moves rather than shares (the sender is
+        // tombstoned `moved|closed` and its cleanup deactivated). OpenSSL 1.1.1+
+        // is thread-safe for distinct objects, so a session used by one thread at
+        // a time is sound.
+        sendable: true,
+        // The live session state, per backend -- this is what the transfer copy
+        // used to zero, and the real reason the bit was `false`.
+        live_slots: &[
+            ResourceLiveSlot {
+                offset: gen_shared::TLS_OFFSET_CTX,
+                transfer: SlotTransfer::Verbatim,
+                backend: SlotBackend::OpenSsl,
+                what: "SSL_CTX* (libssl malloc heap; 0 on an accepted socket, the \
+                       marker that it borrows the listener's shared context)",
+            },
+            ResourceLiveSlot {
+                offset: gen_shared::TLS_OFFSET_SSL,
+                transfer: SlotTransfer::Verbatim,
+                backend: SlotBackend::OpenSsl,
+                what: "SSL* (libssl malloc heap)",
+            },
+            ResourceLiveSlot {
+                offset: gen_shared::TLS_SCHANNEL_OFFSET_BLOCK,
+                transfer: SlotTransfer::ArenaBlock {
+                    size: gen_schannel::SOCKET_BLOCK_SIZE,
+                },
+                backend: SlotBackend::Schannel,
+                what: "SSPI credential/context block -- an ARENA block, so it is \
+                       copied into the receiver's arena, never aliased",
+            },
+            ResourceLiveSlot {
+                offset: gen_macos::REC_CTX,
+                transfer: SlotTransfer::Verbatim,
+                backend: SlotBackend::NetworkFramework,
+                what: "nw_connection ctx (also holds the CTX_RTO/CTX_WTO deadlines, \
+                       which therefore ride this pointer)",
+            },
+            ResourceLiveSlot {
+                offset: gen_macos::REC_QUEUE,
+                transfer: SlotTransfer::Verbatim,
+                backend: SlotBackend::NetworkFramework,
+                what: "dispatch_queue_t (refcounted and thread-safe, so a move is sound). \
+                       Zero on an accepted socket, which shares its listener's queue.",
+            },
+            // NOTE: `REC_LHOST`@48 is deliberately NOT listed here. It is
+            // LISTENER-ONLY -- written by `tls::listen` (gen_macos/server.rs) and
+            // by neither `tls::connect` (client.rs:628-630) nor `tls::accept`
+            // (server.rs:1650-1652), both of which write only CTX and QUEUE. A
+            // socket's word 48 is therefore uninitialised arena memory, and
+            // declaring it live made the transfer copy run `strlen` over a
+            // poisoned pointer: an immediate SIGSEGV on the first transferred
+            // socket. Only ever declare a slot the resource's OWN constructors
+            // write.
+        ],
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });
@@ -175,9 +233,47 @@ pub(crate) fn register(r: &mut Registry) {
         description: "A bound, listening server endpoint from `tls::listen`, holding the \
                       loaded server TLS settings; `tls::accept` draws connections from it.",
         close_function: CLOSE_LISTENER,
-        // The listener owns the server TLS context and accepts on its own thread; not
-        // thread-sendable in v1 (plan-06-tls-server.md §1).
-        sendable: false,
+        // Thread-sendable since bug-464: bind and load the identity on one
+        // thread, accept on another. The listener still owns the server context
+        // and still frees it exactly once, now on the receiving thread.
+        sendable: true,
+        live_slots: &[
+            ResourceLiveSlot {
+                offset: gen_shared::TLS_LISTENER_OFFSET_CTX,
+                transfer: SlotTransfer::Verbatim,
+                backend: SlotBackend::OpenSsl,
+                what: "server SSL_CTX* (libssl malloc heap), owned and freed by the listener",
+            },
+            ResourceLiveSlot {
+                offset: gen_shared::TLS_SCHANNEL_OFFSET_BLOCK,
+                transfer: SlotTransfer::ArenaBlock {
+                    size: gen_schannel::LISTENER_BLOCK_SIZE,
+                },
+                backend: SlotBackend::Schannel,
+                what: "SSPI WORK block (credential, cert, key container) -- an ARENA \
+                       block. Its stl::CONTNAME key-container name is derived from the \
+                       ORIGINAL block pointer but stored as bytes, so the copy keeps \
+                       naming the container that actually exists.",
+            },
+            ResourceLiveSlot {
+                offset: gen_macos::REC_CTX,
+                transfer: SlotTransfer::Verbatim,
+                backend: SlotBackend::NetworkFramework,
+                what: "nw_listener ctx",
+            },
+            ResourceLiveSlot {
+                offset: gen_macos::REC_QUEUE,
+                transfer: SlotTransfer::Verbatim,
+                backend: SlotBackend::NetworkFramework,
+                what: "dispatch_queue_t the listener and its connections are bound to",
+            },
+            ResourceLiveSlot {
+                offset: gen_macos::REC_LHOST,
+                transfer: SlotTransfer::ArenaCString,
+                backend: SlotBackend::NetworkFramework,
+                what: "bound-host C string for tls::localAddress -- an ARENA string",
+            },
+        ],
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });

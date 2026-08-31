@@ -1,0 +1,30 @@
+' bug-464: a `tcp::Listener` moves to another thread and accepts there.
+'
+' This is the shape the bug exists for -- bind and learn the port on one thread,
+' hand the listener to a worker, serve on the worker. Before the fix the plane
+' declaration alone was refused (`2-203-0063 TYPE_THREAD_NOT_SENDABLE`).
+'
+' The port is read BEFORE the transfer: `thread::transfer` moves, so `server` is
+' tombstoned `moved|closed` afterwards and main must neither use nor close it.
+' Reaching the end of main without a double-close is half of what this proves;
+' the reply coming back from the worker is the other half.
+IMPORT io
+IMPORT thread
+IMPORT tcp
+IMPORT net
+IMPORT encoding
+IMPORT xfer_listener_worker
+
+FUNC main AS Integer
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound AS net::Address = tcp::localAddress(server)
+  LET t AS Thread OF RES tcp::Listener TO Integer = thread::start(xfer_listener_worker::serveOnTransferredListener, "seed")
+  thread::transfer(t, server)
+  RES client = tcp::connect("127.0.0.1", bound.port, 10000)
+  tcp::write(client, "ping")
+  LET reply AS String = encoding::utf8Decode(tcp::read(client, 64))
+  io::print("reply=" & reply)
+  io::print("worker=" & toString(thread::waitFor(t)))
+  tcp::close(client)
+  RETURN 0
+END FUNC

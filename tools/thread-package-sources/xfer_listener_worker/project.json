@@ -1,0 +1,12 @@
+{
+  "name": "xfer_listener_worker",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "Receives a tcp::Listener on the resource plane and accepts a connection on it, proving a transferred listener works on the receiving thread (bug-464).",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "ident": "tests:xfer-listener-worker",
+  "identKey": "ed25519-public:test-xfer-listener-worker-ident",
+  "identFingerprint": "sha256:test-xfer-listener-worker-ident",
+  "signingFingerprint": "sha256:test-xfer-listener-worker-signing"
+}
