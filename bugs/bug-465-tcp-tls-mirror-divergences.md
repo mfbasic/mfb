@@ -5,8 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (documentation) + Footgun (API asymmetry) + one functional gap
 
-Status: Open — Phases 1 and 2 landed; Phase 3 (golden regeneration, full suite,
-merge to main) in progress.
+Status: Closed
 Regression Test: `tests/rt-behavior/tcp/tcp-read-eof-raises-rt/` (new),
 `tests/rt-behavior/tls/tls-read-eof-raises-rt/` (new),
 `tests/rt_tls_listener_local_address.rs` (new)
@@ -43,6 +42,59 @@ References:
 - `src/codegen/builtins/tcp/mod.rs` MODULE_DESC — carries it a third time.
 - bug-464 (`bugs/bug-464-sockets-and-listeners-not-thread-sendable.md`) — the other tcp/tls asymmetry found in the same audit (sendability). Independent fix.
 - Found during: the 2026-08-30 review of the `websockets` section of `planning/todo.md`, which recorded the *documented* (wrong) divergence as a real hazard. That note must be corrected as part of this fix — see Phase 3.
+
+## STATUS: FIXED (worktree-B-465, merged to main)
+
+The engineering risk was where the Summary predicted — in *not over-correcting* —
+but the largest piece of work was somewhere this report did not anticipate.
+
+**Finding 1 (the headline) was a documentation defect, and the docs moved to the
+code.** `tcp::read` and `tls::read` already agreed at EOF; four `tcp` sites said
+otherwise, one of them shipping a drain example that could not terminate. All
+four corrected, plus two the report did not list (`maxBytes`'s parameter
+description, and `tls::read`'s own prose, which asserted the very divergence
+being disproved). Two characterization fixtures now pin the contract on both
+transports so a future change cannot silently re-divide them.
+
+**Finding 3 (the functional gap) cost more than predicted.** The report expected
+pure registration — "the existing `getsockname` path pointed at the listener
+record". True on Linux and Windows; false on macOS, where a TLS `Listener` holds
+an `nw_listener` with no descriptor and Network.framework exposes exactly one
+address accessor (`nw_listener_get_port` — a port, no address). That needed its
+own emitted body, a new listener-record tail slot for the bound host, an
+`os_alias` code form and its six wiring seams. Recorded in `.ai/net-tls.md` so
+the next person does not re-derive it from an SDK header.
+
+**Deviations from the plan, all recorded in Corrections:**
+
+- The `tls::localAddress` regression test landed as a Rust integration test, not
+  the planned rt-behavior fixture — a static golden fixture cannot carry a TLS
+  identity.
+- `tcp::write`'s "writing to a closed peer raises" was found to be **false**, not
+  a doc-parity gap. It does not raise; the second write kills the process with
+  SIGPIPE. Filed as **bug-467** (a remote peer can end any MFBASIC server) and
+  out of scope here; the false sentence was corrected rather than mirrored into
+  `tls`, and bug-467 Phase 3 restores it.
+- The `planning/todo.md` task was already done by `52d60054d`.
+- Two Open Decisions (close idempotency, backlog default) were **not** decided,
+  per Non-goals — both are now documented on both sides as deliberate, with the
+  reason, which is what the Goal actually required.
+
+**Verification, on the merged tree** (main advanced 33 commits mid-flight, so
+every number below is post-merge):
+
+| gate | result |
+| --- | --- |
+| `cargo test --release --no-fail-fast` | 78 suites, all `test result: ok`, **4189 passed, 0 failed** |
+| `artifact-gate all` | 1293 tests, 1450 builds, **1784 goldens, 0 diffs** |
+| `test-accept.sh` | **1309 ran** (peers' 1307 + this bug's 2 fixtures), 1 mismatch found and corrected, re-verified |
+| reproductions 1–3 | all pass on the final binary |
+| cross-target builds | macOS, linux-x86_64 glibc+musl, linux-riscv64, windows-x86_64 |
+
+The sweep earned its place: it caught a stale diagnostic golden
+(`syntax/tls/endpoints_invalid`) that `cargo test` and the artifact gate were
+both structurally blind to, because `build.log` is not in
+`ARTIFACT_HOST_KINDS`.
 
 ## Failing Reproduction
 
@@ -218,7 +270,7 @@ Commit: `1eb5049f8` (the overload), `4f0c49138` (the prose), `a97d83805` (rustfm
 
 - [x] Regenerate any drifted `.ncodesum` (the `tls::localAddress` overload is a real codegen change) and gate with `artifact-gate.sh all`; prove the delta is only ours. **Done, and the audit found a coverage gap first**: the `tls` byte-identity fixture is a codegen-*cover* fixture that never called `tls::localAddress`, so neither the new listener body nor the pre-existing socket body had any drift sentinel. Both are now exercised in the fixture. Regenerated set: **6 `.ncodesum`** — 5 `tls` (every target) and `http`'s macos-aarch64 row (http drives the TLS server path); `tcp`, `net` and `udp` are byte-identical, which is what proves the shared `net::Address` builder refactor changed no emitted instruction on the four packages already using it. Attribution against a merge-base binary (`git archive 52d60054d | tar -x -C /tmp/base465`, which reproduces the committed golden hash `c7355a41…` exactly): with the fixture source held fixed on both sides, the `tls` `.ncode` diff is **39 lines** — one new data object (`_mfb_tls_sym_nw_listener_get_port`), four instructions storing the bound host at record offset 48, and the label renumbering those four cause. `http`'s diff is byte-for-byte the same shape. Nothing unexplained.
 - [x] `cargo test --release --no-fail-fast`. Run *after* the golden regeneration, not before, and re-run **after the main merge** — the pre-merge green (69 suites / 4087 passed) is superseded and does not count, because main advanced 33 commits under it. Post-merge: **78 suites, every one `test result: ok`, 4189 passed, 0 failed**, `exit=0`. A real result line per suite, not an inferred green. Its `golden.rs` step ran `artifact-gate all` on the merged tree and genuinely held the lock (260.28s, not a sub-second refusal): **1293 tests, 1450 builds, 1784 goldens, 0 diffs**.
-- [~] `test-accept.sh` — **ran, and it earned its place: it found a real staleness both other gates were blind to.** `1309 test(s) ran` (the peers' runs report 1307; the +2 are this bug's two new EOF fixtures, matching the +2 fixtures / +4 goldens in the artifact-gate counts — so nothing was silently skipped, which is the failure mode that matters here). One mismatch:
+- [x] `test-accept.sh` — **ran, and it earned its place: it found a real staleness both other gates were blind to.** `1309 test(s) ran` (the peers' runs report 1307; the +2 are this bug's two new EOF fixtures, matching the +2 fixtures / +4 goldens in the artifact-gate counts — so nothing was silently skipped, which is the failure mode that matters here). One mismatch:
 
   ```
   syntax/tls/endpoints_invalid/build.log
@@ -238,8 +290,11 @@ Commit: `1eb5049f8` (the overload), `4f0c49138` (the prose), `a97d83805` (rustfm
   (an `Integer` is rejected, `TYPE_CALL_ARGUMENT_MISMATCH`) is untouched and
   still holds. Stale, not wrong. Only that line was edited;
   `tls::remoteAddress`'s `expected Socket` two entries below is deliberately left
-  alone, because that member really is Socket-only. Re-verification of the
-  corrected fixture and its `syntax/tls/*` siblings is the remaining step.
+  alone, because that member really is Socket-only.
+
+  **Re-verified after the correction**: `acceptance tests passed (7 test(s) ran)`
+  over the corrected fixture and all six of its `syntax/tls/*` siblings, so the
+  edit fixed the one line without disturbing the neighbouring diagnostics.
 - [x] **Correct `planning/todo.md`'s websockets section** — **correction**: the false "stream-shape trap" paragraph had already been removed by `52d60054d` before this fix started, and the section already cited bug-465. What remained was the stale "`mfb man tcp read` *currently* claims…" wording, now updated, plus a new note about the write-side asymmetry (bug-467), which is the one a WebSocket server must actually design around.
 - [x] Re-run all three reproductions — against the FINAL binary (rebuilt 21:32, after every source commit), not the build each fix landed on:
   - **1. `tcp::read` at a clean EOF** → `RAISED: Socket peer closed the connection or the connection is no longer usable.` The behavior is unchanged and correct; the documentation now says so.
