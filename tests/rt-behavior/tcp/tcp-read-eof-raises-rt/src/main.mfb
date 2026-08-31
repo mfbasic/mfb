@@ -1,0 +1,67 @@
+' bug-465: a CHARACTERIZATION test. It pins the contract `tcp::read` actually
+' has at a clean end of stream, and it passed the day it was written — that is
+' the point of it, not an oversight.
+'
+' `tcp::read`'s documentation used to claim that a peer's close surfaces as an
+' empty `List OF Byte` ("the normal end of a stream, not an error"), and shipped
+' a drain example looping on `IF len(chunk) = 0`. No such path exists in the
+' emitter: `recv` returning 0 branches to `peer_closed`, which raises
+' `ErrConnectionClosed` on every target (`tcp/gen_io.rs`, the shared
+' `compare_immediate(ret, "0") / branch_eq(peer_closed)` sequence). The docs were
+' rewritten to match the code; this fixture is what stops a later reader
+' re-litigating the direction from the prose. `tls::read` behaves identically —
+' see `rt-behavior/tls/tls-read-eof-raises-rt`, which pins the same contract on
+' the encrypted transport so the two cannot silently diverge.
+'
+' Do NOT "fix" this by making `tcp::read` return an empty list. `http`'s internal
+' readers and every existing drain loop are built on the raise.
+IMPORT collections
+IMPORT errorCode
+IMPORT io
+IMPORT net
+IMPORT tcp
+
+' Connect a loopback pair, close the client for a clean FIN, then read. The
+' TRAP is the only way out: there is no empty-list path.
+FUNC readAtEof AS String
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound = tcp::localAddress(server)
+  RES client = tcp::connect("127.0.0.1", bound.port)
+  RES conn = tcp::accept(server)
+  tcp::close(client)
+  LET chunk AS List OF Byte = tcp::read(conn, 16)
+  RETURN "returned-list-len=" & toString(len(chunk))
+  TRAP(err)
+    RETURN "raised=" & toString(err.code = errorCode::ErrConnectionClosed)
+  END TRAP
+END FUNC
+
+' The documented drain shape, written the way it must be written: the loop ends
+' on the raise, not on a zero-length chunk. Proves the TRAP-terminated idiom in
+' `mfb man tcp read` actually terminates and reports every byte sent.
+FUNC drainUntilClosed AS Integer
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound = tcp::localAddress(server)
+  RES client = tcp::connect("127.0.0.1", bound.port)
+  RES conn = tcp::accept(server)
+  tcp::write(client, "hello world")
+  tcp::close(client)
+  MUT total = 0
+  WHILE TRUE
+    LET chunk = tcp::read(conn, 4096)
+    total = total + len(chunk)
+  END WHILE
+  RETURN -1
+  TRAP(err)
+    IF err.code <> errorCode::ErrConnectionClosed THEN
+      RETURN -2
+    END IF
+    RETURN total
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  io::print("eof " & readAtEof())
+  io::print("drained " & toString(drainUntilClosed()))
+  RETURN 0
+END FUNC
