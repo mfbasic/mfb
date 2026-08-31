@@ -231,6 +231,53 @@ the lock and treat a lock whose PID is gone as stale).
 A guard test should assert the refusal in both directions rather than only the
 new one, so the existing same-kind guard cannot regress unnoticed.
 
+## Third contender, found by audit after the fix (2026-08-31)
+
+The title names two scripts. A completeness sweep for other guards and other
+writers found a **third**, which the document does not mention and which the
+two-script fix would have left open:
+
+```
+$ grep -rln "pgrep" scripts/
+scripts/artifact-gate.sh  scripts/test-accept.sh  scripts/test-accept-selftest.sh
+scripts/test-appimage.sh  scripts/test-macapp.sh
+```
+
+`scripts/sync-goldens.sh` has **no guard at all**, yet it is a golden *writer*:
+it invokes `test-accept.sh` (`:28`) and then copies the produced artifacts over
+the committed goldens (`:45`, `cp "$adir/$name" "$gf"`). With the lock added,
+the invoked `test-accept.sh` acquires and **releases** — so the copy runs
+unlocked, and an `artifact-gate.sh` starting in that window reads half-written
+goldens. Same corruption class, longer window, and it writes the *committed*
+files rather than scratch artifacts.
+
+Locking it naively self-deadlocks: the `test-accept.sh` it spawns refuses its
+own parent. Hence the **re-entrancy** rule in `gate_lock_acquire` — the owner pid
+is exported, a child that finds the live lock already owned by its process tree
+neither takes nor releases it, and the parent holds across both phases. The
+exported pid is re-checked against the live lock so a stale value from an
+earlier run in the same shell cannot wave a caller through.
+
+**Left deliberately alone**, with reasons, so the next reader does not re-derive
+them: `test-accept-selftest.sh` is a distinct lightweight harness the bug-455
+`.sh` anchor already excluded on purpose; `test-appimage.sh` and
+`test-macapp.sh` are packaging tests with their own guards that do not write
+fixture dumps. If any of those three ever starts writing under `tests/`, it
+needs the same `gate_lock_acquire` call — one line, and this note is the pointer.
+
+## What landed
+
+- `scripts/gate-lock.sh` — atomic `mkdir` acquire (no `flock(1)` on macOS),
+  per-tree by construction, tree derived from the script's own location rather
+  than `$PWD`, stale-holder reclamation by recorded pid, re-entrant for the
+  nesting case, refusal still exit `98` and now naming the rival and tree.
+- `artifact-gate.sh`, `test-accept.sh`, `sync-goldens.sh` all acquire; ~40 lines
+  of `pgrep`/PGID/argv matching deleted from each of the first two.
+- `tests/gate_mutual_exclusion.rs` — five tests. Each was verified RED against
+  exactly the implementation it rejects and no other: a no-op lock fails the two
+  same-tree tests and the nesting test; a machine-wide lock fails only the
+  cross-tree test.
+
 ## Blast radius
 
 Any session that runs `cargo test` (which reaches `artifact-gate all` through
