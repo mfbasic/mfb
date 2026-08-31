@@ -15,7 +15,7 @@
 
 mod common;
 
-use common::canvas_image::{compare_within_tolerance, Frame, Tolerance};
+use common::canvas_image::{compare_exact, Frame};
 use std::process::Command;
 
 /// Build a `--app` program, run it headless, and return its stdout lines.
@@ -452,6 +452,23 @@ fn render(name: &str, source: &str) -> Vec<u8> {
 
 /// The same, with `MFB_CANVAS_GPU` optionally on.
 fn render_with(name: &str, source: &str, gpu: bool) -> Vec<u8> {
+    let extra: &[(&str, &str)] = if gpu { &[("MFB_CANVAS_GPU", "1")] } else { &[] };
+    let (pixels, stats) = render_env(name, source, extra);
+    if gpu && !stats.contains("metalReady=TRUE") {
+        // A host with no Metal device is a real configuration, not a failure. The skip
+        // gates on the flag the *renderer* gates on, so the test and the runtime can
+        // never disagree about whether the GPU path was taken.
+        return Vec::new();
+    }
+    pixels
+}
+
+/// Render one frame headless under extra environment, returning the pixels and the
+/// `MFB_CANVAS_STATS` text. The stats are the only window onto the caches: they are
+/// written by the graphics thread, which is the thread that owns them — a program
+/// asking from `main` would be asking the worker, whose copies of those globals are
+/// its own and always empty (`.ai/canvas-threading.md` §1).
+fn render_env(name: &str, source: &str, extra: &[(&str, &str)]) -> (Vec<u8>, String) {
     let project = common::temp_project(name, source);
     std::fs::write(project.join("fixture.ttf"), minimal_truetype()).expect("write the font");
     let build = Command::new(common::mfb_exe())
@@ -478,8 +495,8 @@ fn render_with(name: &str, source: &str, gpu: bool) -> Vec<u8> {
         .env("MFB_CANVAS_DUMP", &frame)
         .env("MFB_CANVAS_STATS", &stats)
         .env("MFB_CANVAS_SYNC", "1");
-    if gpu {
-        command.env("MFB_CANVAS_GPU", "1");
+    for (key, value) in extra {
+        command.env(key, value);
     }
     let run = command
         .output()
@@ -492,17 +509,23 @@ fn render_with(name: &str, source: &str, gpu: bool) -> Vec<u8> {
         String::from_utf8_lossy(&run.stderr),
     );
     let pixels = std::fs::read(&frame).expect("canvas dump written");
-    let selected = std::fs::read_to_string(&stats)
-        .unwrap_or_default()
-        .contains("metalReady=TRUE");
+    let stats = std::fs::read_to_string(&stats).unwrap_or_default();
     let _ = std::fs::remove_dir_all(&project);
-    if gpu && !selected {
-        // A host with no Metal device is a real configuration, not a failure. The skip
-        // gates on the flag the *renderer* gates on, so the test and the runtime can
-        // never disagree about whether the GPU path was taken.
-        return Vec::new();
-    }
-    pixels
+    (pixels, stats)
+}
+
+/// The last frame's value for a `key=value` field of the stats line.
+fn stat(stats: &str, key: &str) -> i64 {
+    let last = stats
+        .lines()
+        .filter(|line| line.contains(&format!("{key}=")))
+        .next_back()
+        .unwrap_or_else(|| panic!("no stats line carries `{key}=`:\n{stats}"));
+    let after = last.split(&format!("{key}=")).nth(1).unwrap();
+    let digits: String = after.chars().take_while(char::is_ascii_digit).collect();
+    digits
+        .parse()
+        .unwrap_or_else(|e| panic!("`{key}=` is not a number in `{last}`: {e}"))
 }
 
 fn pixel(frame: &[u8], x: usize, y: usize) -> (u8, u8, u8, u8) {
@@ -644,7 +667,7 @@ END SUB
 "#;
 
 #[test]
-fn text_on_the_gpu_matches_the_software_oracle() {
+fn a_scene_containing_text_is_declined_by_the_gpu_and_falls_back_completely() {
     let software = render_with("canvas_text_gpu_sw", GPU_TEXT, false);
     let gpu = render_with("canvas_text_gpu_hw", GPU_TEXT, true);
     if gpu.is_empty() {
@@ -667,11 +690,108 @@ fn text_on_the_gpu_matches_the_software_oracle() {
         height,
         pixels: gpu,
     };
-    // The same gate every other GPU comparison uses. Text is not a special case for the
-    // backends — it arrives as a polygon — so anything but agreement here would mean
-    // the *polygon* path had diverged, which the plan-98-F scenes would also have
-    // caught. Running it anyway is cheap and it is the box's own wording.
-    if let Err(diff) = compare_within_tolerance(&got, &want, Tolerance::GPU_DEFAULT) {
-        panic!("GPU text differs from the software oracle: {diff:?}");
+    // Since the glyph cache landed, a glyph run is a kind neither shader can draw, so
+    // both `*Renderable` predicates decline the whole scene and the frame comes from the
+    // software path. That is why this asserts **exact** equality rather than a
+    // tolerance: a fallback producing *nearly* the software frame would mean the GPU had
+    // drawn part of it, and a partial GPU frame is the failure this exists to catch.
+    //
+    // Not hypothetical. The first version of the cache left the predicates alone, Metal
+    // accepted a scene whose kind its shader does not know, and the frame came back with
+    // the text simply missing and no error anywhere — 4536 pixels wrong, reported as
+    // success. That is the exact lie both predicates were written to prevent.
+    if let Err(diff) = compare_exact(&got, &want) {
+        panic!("a scene containing text must fall back to the software renderer whole: {diff:?}");
+    }
+}
+
+/// Three hundred text items, each at its own size, presented twice.
+///
+/// Every size is a distinct glyph-cache key (`__canvas_sizeQ` quantises to 1/16 px and
+/// the step here is 0.2), and every position is a distinct geometry-cache key, so the
+/// scene is 300 entries in both caches. That matters: the geometry cache holds 256, so
+/// past item 256 the earliest items are evicted from it — and a glyph is pinned exactly
+/// while a live geometry entry references it, so that eviction is what lets the glyph
+/// cache free anything at all. A scene smaller than the geometry cache pins its whole
+/// working set by construction and can never demonstrate an LRU drop.
+///
+/// The fixture glyph is a square with four edges, so 300 rasterisations are cheap while
+/// the bitmaps — 6x6 up to 24x24 — add up to far more than the budget the test forces.
+const EVICTION: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT collections
+
+SUB main()
+  app::setMode(Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    EXIT SUB
+  END TRAP
+  LET white AS Paint = canvas::fill(canvas::rgb(255, 255, 255))
+  MUT items AS List OF DrawItem = []
+  MUT i AS Integer = 0
+  WHILE i < 300
+    LET size AS Float = 20.0 + toFloat(i) * 0.2
+    LET x AS Float = 4.0 + toFloat(i MOD 20) * 45.0
+    LET y AS Float = 36.0 + toFloat(i / 20) * 40.0
+    LET glyph AS DrawItem = Text[x := x, y := y, text := "A", font := canvas::fontRef(face), size := size, paint := white]
+    items = collections::append(items, glyph)
+    i = i + 1
+  END WHILE
+  ' Twice. The second frame re-renders a scene whose earliest items were evicted from
+  ' both caches while the first frame was still being drawn, so it is the frame that
+  ' exercises re-rasterising after eviction rather than merely surviving it.
+  canvas::present(items)
+  canvas::present(items)
+END SUB
+"#;
+
+#[test]
+fn eviction_frees_unpinned_glyphs_and_changes_no_pixel() {
+    // Same program, same scene, two budgets. The roomy run never evicts, so it is the
+    // oracle; the forced run cannot hold the scene and has to drop and re-raster.
+    let (thrashed, pressed) = render_env(
+        "canvas_glyph_eviction",
+        EVICTION,
+        &[("MFB_CANVAS_GLYPH_BUDGET", "8192")],
+    );
+    let (roomy, relaxed) = render_env("canvas_glyph_roomy", EVICTION, &[]);
+
+    // The pressure is real, and it is *only* pressure — the default budget holds the
+    // whole scene, which is what makes eviction a cache behaviour rather than something
+    // ordinary text runs into.
+    assert!(
+        stat(&pressed, "glyphEvictions") > 0,
+        "the forced budget never evicted:\n{pressed}",
+    );
+    assert_eq!(
+        stat(&relaxed, "glyphEvictions"),
+        0,
+        "a 300-item scene evicted at the default budget:\n{relaxed}",
+    );
+
+    // Entries really left the cache. Without this the test would still pass if
+    // `__canvas_glyphEvict` compacted the cache while keeping every entry — which is
+    // exactly what it does when everything is pinned, and is not eviction.
+    let kept = stat(&pressed, "glyphs");
+    let all = stat(&relaxed, "glyphs");
+    assert!(
+        kept < all,
+        "eviction dropped nothing: {kept} entries under pressure, {all} without",
+    );
+
+    // And the pixels are identical. This is the whole claim: a glyph the live scene
+    // still draws is never the one dropped, and one that *was* dropped re-rasters to
+    // the same bitmap it had before. Exact, not tolerant — a single wrong pixel here
+    // means a glyph went missing or came back different, and both are silent failures
+    // in a cache that reports nothing.
+    let height = (roomy.len() / 4 / WIDTH) as u32;
+    let got = Frame::from_rgba(WIDTH as u32, height, thrashed);
+    let want = Frame::from_rgba(WIDTH as u32, height, roomy);
+    assert!(
+        want.pixels.iter().any(|&b| b != 0),
+        "the oracle frame is blank, so the comparison would be vacuous",
+    );
+    if let Err(diff) = compare_exact(&got, &want) {
+        panic!("a frame drawn under cache pressure differs from the same frame drawn without it: {diff:?}");
     }
 }

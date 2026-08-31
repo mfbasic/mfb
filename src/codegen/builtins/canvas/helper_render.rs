@@ -80,6 +80,14 @@ END FUNC"#;
 /// polygon and Vulkan caps their sum. The two really are different conditions, and a
 /// scene can be GPU-renderable on one backend and not the other.
 ///
+/// **Both decline a glyph run** (`__CANVAS_GEO_TEXT`). Neither shader has a sampler, and
+/// a glyph run's tail is cache indices rather than edges, so a backend that accepted it
+/// would draw nothing while reporting success — the exact lie both predicates exist to
+/// prevent, and one this letter watched happen: the first version of the glyph cache
+/// left the predicates alone and the GPU frame came back with the text missing and no
+/// error anywhere. Restoring GPU text needs a glyph atlas and a sampler, which is
+/// plan-98-G Phase 2's own row.
+///
 /// Sharing the Metal predicate was the tempting shortcut when this shader still
 /// declined every polygon, and it would have rendered them as nothing while reporting
 /// success — the same lie both predicates exist to prevent. It was measured, not
@@ -108,7 +116,11 @@ LET __CANVAS_METAL_MAX_EDGES AS Integer = 256
 
 FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   FOR EACH offset IN offsets
-    IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0)) = __CANVAS_GEO_POLYGON THEN
+    LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
+    IF kind = __CANVAS_GEO_TEXT THEN
+      RETURN FALSE
+    END IF
+    IF kind = __CANVAS_GEO_POLYGON THEN
       IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0)) > __CANVAS_METAL_MAX_EDGES THEN
         RETURN FALSE
       END IF
@@ -134,7 +146,11 @@ LET __CANVAS_VULKAN_MAX_FRAME_EDGES AS Integer = 16384
 FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   MUT total AS Integer = 0
   FOR EACH offset IN offsets
-    IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0)) = __CANVAS_GEO_POLYGON THEN
+    LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
+    IF kind = __CANVAS_GEO_TEXT THEN
+      RETURN FALSE
+    END IF
+    IF kind = __CANVAS_GEO_POLYGON THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
   NEXT

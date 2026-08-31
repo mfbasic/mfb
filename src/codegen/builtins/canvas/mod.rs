@@ -69,6 +69,7 @@ mod helper_draw;
 mod helper_font;
 mod helper_geometry;
 mod helper_glyph;
+mod helper_glyph_cache;
 mod helper_items;
 mod helper_paint_defaults;
 mod helper_render;
@@ -793,6 +794,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_draw::register(&mut pkg);
     helper_font::register(&mut pkg);
     helper_glyph::register(&mut pkg);
+    helper_glyph_cache::register(&mut pkg);
     helper_geometry::register(&mut pkg);
     helper_items::register(&mut pkg);
     helper_surface::register(&mut pkg);

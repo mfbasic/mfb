@@ -297,13 +297,32 @@ Commit: —
 
 ### Phase 2 — Glyph atlas LRU eviction
 
-- [ ] Evict glyphs by last-used revision under atlas pressure; pin glyphs referenced by a live
-      scene (never evict an in-use glyph).
-- [ ] Tests: forcing a small atlas evicts least-recently-used glyphs; a live-scene glyph is never
+- [x] Rasterise each `(font, sizeQ, glyphId)` once into a coverage bitmap and blit it, instead of
+      evaluating a signed distance field over the glyph's area per frame (Correction 12).
+      `__CANVAS_GLYPH_KEYS/META/COV` in `src/codegen/builtins/canvas/helper_glyph_cache.rs`;
+      a `__CANVAS_GEO_TEXT` geometry entry carries `(entryIndex, penX, penY)` per glyph.
+      **Measured: a 12-character render at size 120 went from 8.1 s to 1.0 s.**
+- [x] Evict glyphs by last-used revision under atlas pressure; pin glyphs referenced by a live
+      scene (never evict an in-use glyph). `__canvas_glyphEvict` pins from the geometry cache's
+      own `__CANVAS_GEO_TEXT` runs *and* from the run under construction
+      (`__CANVAS_GLYPH_PINS`), renumbers the survivors, and rewrites both to match. Budget
+      1 MiB, overridable with `MFB_CANVAS_GLYPH_BUDGET` so a test can force pressure.
+- [x] Tests: forcing a small atlas evicts least-recently-used glyphs; a live-scene glyph is never
       evicted; re-rendering a scene after eviction re-rasters cleanly (golden unchanged).
+      `eviction_frees_unpinned_glyphs_and_changes_no_pixel` in `tests/rt_canvas_font.rs`:
+      the same 300-item scene under a forced 8 KiB budget and under the default, asserted
+      **pixel-identical**. Measured `glyphEvictions=23, glyphs=261` under pressure against
+      `glyphEvictions=0, glyphs=300` without. It is not a vacuous test — it found two real
+      defects before it passed (Corrections 15 and 16).
+- [ ] **GPU text** (added — Correction 14 is its motivation): give Metal and Vulkan a glyph
+      atlas texture and a sampler so a `__CANVAS_GEO_TEXT` scene renders on the GPU instead of
+      being declined. Until then both `*Renderable` predicates decline it and the whole scene
+      falls back to software, which is correct but forfeits the GPU for any scene with a
+      character in it.
 
 Acceptance: atlas eviction is LRU and never evicts a live glyph; output is golden-stable across
-eviction cycles.
+eviction cycles — asserted as **exact pixel equality** between a pressured and an unpressured
+render of the same scene, not merely "no crash".
 Commit: —
 
 ### Phase 3 — Optional damage-rect present (largest blast radius last)
@@ -435,17 +454,6 @@ it and marked *their* atlas rows moot pointing at G. Re-audited at this commit:
 tail builder, and all four `IMAGE_DIRTY` hits are writes with no reader. Building the
 atlas is Phase 1's work.
 
-## Summary
-
-G ships minimum-viable text on a hand-rolled TrueType path across all backends, with a
-shaper-independent
-`measureText` so a future HarfBuzz/MSDF upgrade is non-breaking, plus glyph-atlas LRU eviction and
-optional damage-rect present. The real risks are software-text-golden determinism and never
-evicting a live glyph; the named blocker was the vendored-dependency policy, resolved
-before code (Correction 1).
-With G landed, canvas mode is feature-complete for general 2D (images, shapes, text) on software +
-Metal + Vulkan; complex text shaping remains a deliberately-scoped future plan.
-
 **Correction 4 (Phase 1) — `ErrBadFontFile` is a new error code, and the reason is that
 `ErrNotFound` already existed.** `canvas::loadFont` can fail two ways a caller fixes
 differently: the path is wrong, or the file is not a font this build reads. Collapsing
@@ -570,3 +578,88 @@ Phase 1's outline reader is not wasted — it is what fills the cache.
 Recorded as its own correction rather than by editing Correction 11, because the
 sequence is the point: the re-scope was a plausible inference from a real fact, and the
 thing that refuted it was a stopwatch.
+
+**Correction 13 (Phase 2) — the cache had to move to the build side of the seam.** The
+obvious place to blit a cached glyph is the draw path, where the pen position is. It is
+the wrong place: `__canvas_drawGeometry` owns a live 2.3 MB surface local, and
+`collections::set` is in-place only while nothing else allocates underneath it, so a draw
+arm that *rasterises* pays the whole-surface copy per write (the 290x trap in
+`.ai/collections.md`). Rasterisation therefore happens in `__canvas_textGlyphRun`, at
+geometry-build time, and the geometry entry carries **cache entry indices** rather than
+glyph ids. The draw arm reads `__CANVAS_GLYPH_META`/`COV` and writes pixels; it allocates
+nothing and needs no font.
+
+**Correction 14 (Phase 2) — a glyph run is a kind no shader can draw, so both GPU
+predicates must decline it.** The first version of the cache left `__canvas_metalRenderable`
+and `__canvas_vulkanRenderable` alone. Metal then accepted a scene whose kind its shader
+does not know and returned a frame with the text simply missing — **4,536 pixels wrong,
+reported as success**. Both predicates now return `FALSE` on `__CANVAS_GEO_TEXT`, and
+`a_scene_containing_text_is_declined_by_the_gpu_and_falls_back_completely` asserts the
+fallback is *complete* with `compare_exact` rather than a tolerance: a frame that nearly
+matched the oracle would mean the GPU had drawn part of it. Restoring GPU text needs an
+atlas texture and a sampler, which is now a Phase 2 row of its own rather than an
+unrecorded regression.
+
+**Correction 15 (Phase 2) — `__canvas_hashItem` gave every text item the same hash.**
+Text defers its header (a glyph run's bounds are a property of the flattened outlines, so
+building one per probe would re-read `glyf` for every character on screen), and a deferred
+kind therefore probes the geometry cache **on the hash alone**. But `__canvas_hashItem`
+hashed `__canvas_headerFor(item)`, which for `Text` returns `__canvas_emptyHeader()` — the
+same empty header for every text item in existence. Every string in a scene collapsed onto
+one cache entry and drew as the first string, in the first string's position. A sixty-item
+scene drew **one** glyph. Fixed with `__canvas_textHash`, which hashes by hand exactly what
+the deferred header would have carried — font, size, position, paint and every codepoint.
+This is the cost of the hash-only probe, and it is worth writing down as such: the
+optimisation is sound, but it moves an obligation from the header builder to the hasher,
+and nothing in the type system says so.
+
+**Correction 16 (Phase 2) — two eviction bugs, both silent, both found by the test that
+was written to find them.**
+
+*The stale insert index.* `__canvas_glyphEntry` captured `LET known = len(KEYS)` for its
+miss scan and returned `known` as the new entry's index. An eviction pass runs between the
+two and renumbers everything that survives, so `known` was stale by exactly the number of
+entries that pass dropped. The run then carried an index to an entry that does not exist,
+which the blit reads as a zero-sized bitmap and draws as nothing. Six of the 300-item
+scene's glyphs vanished, with the cache reporting a healthy hit rate throughout. The index
+is now read immediately before the appends that use it.
+
+*The in-flight run.* A run being built is not yet in the geometry cache, so the pin scan
+could not see it: the eleventh glyph of a string could evict the first ten — glyphs the
+very item under construction was about to draw. `__CANVAS_GLYPH_PINS` publishes the run so
+`__canvas_glyphEvict` can pin *and* renumber it. Writing that list exposed a third defect
+worth its own line: `PINS = collections::append(PINS, __canvas_glyphEntry(...))` is a
+**use-after-free**, because the append resolves `PINS` before the call and the call's
+eviction pass reassigns it. The symptom was not a wrong pixel but a dead graphics thread —
+a 0%-CPU hang with three threads in `sample` where there should be four. Recorded in
+`.ai/collections.md`, because it is a property of the language and not of this cache.
+
+**Correction 17 (Phase 2) — an eviction pass is entitled to free nothing, so it must not
+be re-run per insert.** Pinning is absolute, and a scene of `__CANVAS_GEO_CAPACITY` items
+can pin the entire cache. Re-running a full compaction on every subsequent insert is then
+quadratic in the cache size for a scene we are *required* to keep whole. A pass now defers
+the next one until the cache has grown by another half budget. Memory stays bounded because
+the pins are: the geometry cache is capped, and a glyph unpins as soon as the item
+referencing it leaves that cache — which the test measures, at `glyphs=261` of 300 under
+pressure.
+
+**Correction 18 (Phase 2) — the test needed two affordances, and building them was the
+work, not a detour.** The glyph cache lives on the **graphics** thread, so a program asking
+for its size from `main` asks the worker, whose copies of those globals are its own and
+always empty. The counters therefore go on the `MFB_CANVAS_STATS` line, which the graphics
+thread writes: `glyphs=`, `glyphBytes=`, `glyphEvictions=`. And a megabyte of the fixture
+font is a scene far larger than one that can also be checked pixel by pixel, so
+`MFB_CANVAS_GLYPH_BUDGET` shrinks the budget. Without both, the first version of the test
+passed **without ever evicting anything** — it was measuring nothing, and said so only
+because the stats line let it check.
+
+## Summary
+
+G ships minimum-viable text on a hand-rolled TrueType path across all backends, with a
+shaper-independent
+`measureText` so a future HarfBuzz/MSDF upgrade is non-breaking, plus glyph-atlas LRU eviction and
+optional damage-rect present. The real risks are software-text-golden determinism and never
+evicting a live glyph; the named blocker was the vendored-dependency policy, resolved
+before code (Correction 1).
+With G landed, canvas mode is feature-complete for general 2D (images, shapes, text) on software +
+Metal + Vulkan; complex text shaping remains a deliberately-scoped future plan.

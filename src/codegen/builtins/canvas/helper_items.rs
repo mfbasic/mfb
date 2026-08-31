@@ -86,6 +86,68 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
   IF kind = __CANVAS_GEO_NONE THEN
     RETURN out
   END IF
+  ' A glyph run is blitted from the coverage cache rather than evaluated per pixel:
+  ' the same arithmetic, done once per (font, size, glyph) instead of once per pixel
+  ' per edge (plan-98-G Correction 12). Written out here rather than called as a helper
+  ' for the reason at the top of this file -- the surface cannot cross a function
+  ' boundary.
+  '
+  ' Everything this needs is already in the cache: the run carries entry indices, not
+  ' glyph ids, so drawing touches no font and allocates nothing (Correction 13).
+  IF kind = __CANVAS_GEO_TEXT THEN
+    LET tGlyphs AS Integer = toInt(__canvas_geoAt(offset, 20))
+    LET tR AS Byte = __canvas_geoByte(offset, 8)
+    LET tG AS Byte = __canvas_geoByte(offset, 9)
+    LET tB AS Byte = __canvas_geoByte(offset, 10)
+    LET tA AS Integer = toInt(__canvas_geoAt(offset, 11))
+    IF tA <= 0 OR tGlyphs <= 0 THEN
+      RETURN out
+    END IF
+    LET runAt AS Integer = offset + __CANVAS_GEO_HEADER
+    MUT gi AS Integer = 0
+    WHILE gi < tGlyphs
+      LET runBase AS Integer = runAt + gi * 3
+      LET meta AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, runBase, 0.0)) * 5
+      LET gx AS Integer = collections::getOr(__CANVAS_GLYPH_META, meta, 0) + toInt(collections::getOr(__CANVAS_GEO_DATA, runBase + 1, 0.0))
+      LET gy AS Integer = collections::getOr(__CANVAS_GLYPH_META, meta + 1, 0) + toInt(collections::getOr(__CANVAS_GEO_DATA, runBase + 2, 0.0))
+      LET gw AS Integer = collections::getOr(__CANVAS_GLYPH_META, meta + 2, 0)
+      LET gh AS Integer = collections::getOr(__CANVAS_GLYPH_META, meta + 3, 0)
+      LET gStart AS Integer = collections::getOr(__CANVAS_GLYPH_META, meta + 4, 0)
+      MUT gRow AS Integer = 0
+      WHILE gRow < gh
+        LET sy AS Integer = gy + gRow
+        IF sy >= 0 AND sy < height THEN
+          LET gRowBase AS Integer = sy * width * 4
+          MUT gCol AS Integer = 0
+          WHILE gCol < gw
+            LET sx AS Integer = gx + gCol
+            IF sx >= 0 AND sx < width THEN
+              LET cover AS Integer = toInt(collections::getOr(__CANVAS_GLYPH_COV, gStart + gRow * gw + gCol, toByte(0)))
+              IF cover > 0 THEN
+                LET gAlpha AS Integer = (tA * cover) / 255
+                LET gIdx AS Integer = gRowBase + sx * 4
+                IF gAlpha >= 255 THEN
+                  out = collections::set(out, gIdx, tR)
+                  out = collections::set(out, gIdx + 1, tG)
+                  out = collections::set(out, gIdx + 2, tB)
+                  out = collections::set(out, gIdx + 3, toByte(255))
+                ELSEIF gAlpha > 0 THEN
+                  out = collections::set(out, gIdx, __canvas_blendChannel(collections::getOr(out, gIdx, toByte(0)), tR, gAlpha))
+                  out = collections::set(out, gIdx + 1, __canvas_blendChannel(collections::getOr(out, gIdx + 1, toByte(0)), tG, gAlpha))
+                  out = collections::set(out, gIdx + 2, __canvas_blendChannel(collections::getOr(out, gIdx + 2, toByte(0)), tB, gAlpha))
+                  out = collections::set(out, gIdx + 3, toByte(255))
+                END IF
+              END IF
+            END IF
+            gCol = gCol + 1
+          END WHILE
+        END IF
+        gRow = gRow + 1
+      END WHILE
+      gi = gi + 1
+    END WHILE
+    RETURN out
+  END IF
 
   LET p0 AS Float = __canvas_geoAt(offset, 2)
   LET p1 AS Float = __canvas_geoAt(offset, 3)

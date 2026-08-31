@@ -317,8 +317,15 @@ Three environment variables, all off by default and none on the production path:
 * `MFB_CANVAS_DUMP` — write each rendered frame's raw RGBA to a file. How a headless
   run is observed at all, and what the golden harness reads.
 * `MFB_CANVAS_STATS` — **append** one line per rendered frame with the geometry-cache
-  counters. Appends rather than overwrites because the interesting quantity is the
-  delta between frames.
+  and glyph-cache counters (`entries=`, `floats=`, `glyphs=`, `glyphBytes=`,
+  `glyphEvictions=`). Appends rather than overwrites because the interesting quantity is
+  the delta between frames. It is also the **only** window onto either cache: both live
+  in globals owned by the graphics thread, so a program asking from `main` asks the
+  worker, whose copies are its own and always empty (§1).
+* `MFB_CANVAS_GLYPH_BUDGET` — shrink the glyph coverage cache's byte budget (default
+  1 MiB), so a test can force eviction with a scene small enough to also check pixel by
+  pixel. Resolved once and cached, so the ordinary path is a compare against a global
+  rather than a `getenv` per glyph.
 * `MFB_CANVAS_SYNC` — make `present` wait for the frame it asked for. Frames coalesce
   by design (§3), so frame counts are otherwise a scheduling detail — the same
   three-present program was observed producing one, two and three frames. Any
