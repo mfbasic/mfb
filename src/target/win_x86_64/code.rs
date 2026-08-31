@@ -60,6 +60,12 @@ const PAGE_READWRITE: &str = "4";
 const MEM_RELEASE: &str = "32768";
 // MultiByteToWideChar CodePage = CP_UTF8 (65001).
 const CP_UTF8: &str = "65001";
+// The two GetLastError codes that a *successful* POSIX `read()` reports as a
+// 0-byte (end-of-input) return rather than a failure: the write end of a pipe
+// has closed (`ERROR_BROKEN_PIPE`, 0x6D), and a read started at end-of-file
+// (`ERROR_HANDLE_EOF`, 0x26). See `emit_read_file`.
+const ERROR_HANDLE_EOF: &str = "38";
+const ERROR_BROKEN_PIPE: &str = "109";
 
 /// A UTF-16 path-marshaling frame for a Win32 `*W` filesystem call. The path
 /// arrives as a NUL-terminated UTF-8 C-string; every path-taking Win32 API is the
@@ -2070,8 +2076,18 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // hFile, lpBuffer, nToRead, &nRead, NULL) — the 5th arg (lpOverlapped) is a
         // stack arg that MUST be NULL. On BOOL failure return -1; otherwise nRead
         // (0 at EOF, exactly the read() contract). plan-66-C.
+        //
+        // The `read()` contract also covers the case Win32 spells as a *failure*:
+        // draining a pipe whose write end has closed. POSIX `read()` returns 0
+        // there, but `ReadFile` returns FALSE/`ERROR_BROKEN_PIPE` — so a piped
+        // stdin (`prog < file`, `echo x | prog`, any `Command::stdin(Stdio::piped)`
+        // parent) reported a hard input error instead of EOF, and every reader
+        // built on this seam raised `ErrInputFailed` where `ErrEndOfFile` is
+        // specified. Map the two end-of-input error codes back onto a 0-byte
+        // return so the seam matches its documented contract on every stdin shape.
         let n = instructions.len();
         let ok = format!("{from}_read_ok_{n}");
+        let eof = format!("{from}_read_eof_{n}");
         let done = format!("{from}_read_done_{n}");
         let file_handle = format!("{from}_read_fileh_{n}");
         let have_handle = format!("{from}_read_haveh_{n}");
@@ -2109,8 +2125,21 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         instructions.extend([
             abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_ne(&ok),
+        ]);
+        // BOOL failure. GetLastError is called immediately, before any other Win32
+        // call can overwrite the thread's last-error slot (the frame's shadow space
+        // is already reserved, so no stack adjustment is needed here).
+        call_external(from, "GetLastError", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::c_return(0), ERROR_BROKEN_PIPE),
+            abi::branch_eq(&eof),
+            abi::compare_immediate(abi::c_return(0), ERROR_HANDLE_EOF),
+            abi::branch_eq(&eof),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::subtract_immediate(abi::return_register(), abi::return_register(), 1), // -1
+            abi::branch(&done),
+            abi::label(&eof),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::branch(&done),
             abi::label(&ok),
             abi::load_u64(abi::return_register(), abi::stack_pointer(), 0x28), // nRead

@@ -1,6 +1,6 @@
 # plan-108-D: Verify the pre-filled packages, batch 1 — datetime, fs, encoding, collections, math
 
-Last updated: 2026-08-24
+Last updated: 2026-08-30
 Effort: large (3h–1d)
 Depends on: plan-108-C (all authoring done; the workflow + reviewer prompts
 have been through 10 packages — verification letters inherit a settled
@@ -26,6 +26,23 @@ See plan-108-A §3 for the workflow and the standard. Per A: verification is
 
 References:
 
+- **plan-108-A §3 (2a) — the memory-vocabulary hard ban.** Permitted:
+  **copy**, **mutate**, **value**, **alias** (`RES` handles only).
+  Banned from rendered output: `borrow`, `pointer`, `ownership`/`owns`,
+  `move`, `free`, `heap`, `refcount`, `lifetime`, `deep/shallow copy`,
+  `by reference`, `drop` (memory sense) — use A's rewrite table, and link
+  `mfb man variable` instead of re-explaining the model on a package page.
+  Run `scripts/man-census.sh --memory-scope <pkg>` before closing each
+  package; record before/after counts in the ledger.
+  Rendered baseline (2026-08-30): datetime 15, collections 4, fs 0,
+  encoding 0, math 0. **All 15 datetime hits are carve-out 1 — arithmetic
+  borrow** ("a negative nanos value borrows a second"), NOT memory: keep
+  them and classify the whole set once in this letter's ledger rather than
+  per page. `fs` looks clean only because its 37 source hits are Rust
+  module-doc comments that never render (A's population table) — verify by
+  rendering, never by grepping the `.rs` file. `collections`'s 4 are the
+  real work here: the overview's copy/mutation contract is exactly what
+  `mfb man variable` now owns, so cut and link rather than restate.
 - `src/codegen/builtins/{datetime,fs,encoding,collections,math}/` — the
   pages under audit.
 - `.ai/collections.md` — internals foil for collections prose (HOF rewrites,
@@ -45,13 +62,19 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-108-C complete | census shows 466/466 desc+example | NOT MET until C lands |
+| plan-108-C complete | census shows every function page across all 30 packages carrying desc+example (denominator per A's Phase 1 census — the first draft's 466 excluded tcp/udp) | NOT MET until C lands |
 
 ## 1. Goal
 
 - All 160 pages + 5 overviews + types pages verified claim-by-claim and
   scope-checked; every inaccuracy fixed; every internals leak rewritten in
   developer terms or removed.
+- **`scripts/man-census.sh --memory-scope` reports 0** for every package in
+  this letter (plan-108-A §3 (2a)): no `borrow`, `pointer`, `ownership`,
+  `move`, `free`, `heap`, `lifetime` in rendered output. Where a `RES`
+  handle's behavior must be stated, it is stated with **alias** and
+  MFBASIC's own verbs (open / close / stays open); anything longer links
+  `mfb man variable`.
 - Every example compiled and run during the pass (fs examples against temp
   paths only — rewrite any example that touches a real user path);
   compile-only members, if any, noted in the ledger.
@@ -61,6 +84,9 @@ References:
 
 ### Non-goals (explicit constraints)
 
+- **No new inline explanation of the memory model.** Any page that needs
+  more than one sentence about copies or handles links `mfb man variable`
+  (authored in A) — it does not re-explain, and never in C/Rust terms.
 - Per plan-108-A (no compiler testing; prose string fields only with
   per-commit `git diff` check; no renderer/schema changes; no
   `package.mfb` edits; `src/docs/man/**` untouched).

@@ -1,121 +1,5 @@
-Cleaned up codegen
-
-- = Not reviewed
-+ = Started
-@ = Reviewed
-
-[@] app
-[@] astrings
-[@] audio
-[@] bits
-[@] collections
-[@] crypto
-[@] csv
-[@] datetime
-[@] encoding
-[@] errorcode
-[@] fs
-[@] http
-[@] io
-[@] json
-[@] math
-[@] money
-[@] net
-[@] os
-[@] process
-[@] regex
-[@] strings
-[@] term
-[@] thread
-[@] tls
-[-] vector
-
----
 
 # Cleanup investigation (2026-08-23, read-only survey)
-
-## Q1 — After tls migration, can the deprecated registry items be removed cleanly?
-
-**No. tls is irrelevant to them — it's already fully migrated.**
-
-- tls is already on the clean-room registry: every member (`func_connect/listen/accept/
-  read/write/poll/close`) uses `Body::native_os_seam` + the generic `native::lower_tls_helper`
-  dispatcher (`src/codegen/builtins/tls/native/mod.rs:365`). It calls none of the deprecated
-  shims (its only reference to one is inside a code comment).
-- The 7 deprecated items live in `src/codegen/registry/mod.rs` and are doc-comment markers
-  (`/// #[deprecated(note="migrate registry()...")]`), NOT real `#[deprecated]` attributes —
-  so the build does not warn on them. The real migration is an API-shape change: route callers
-  through the `registry()` accessor instead of these `Box::leak`-ing free-function shims.
-- Each still has a live NON-tls production caller (removal is blocked on repointing these):
-  - `call_return_type` (:1849)            → `src/builtins/mod.rs:351`
-  - `rewrite_target` (:2243)              → `src/ir/lower.rs:2986`
-  - `argument_types` (:2505)              → `src/builtins/mod.rs:423`
-  - `call_param_names` (:2629)            → `src/builtins/mod.rs:653`
-  - `call_param_name_overloads` (:2667)   → `src/builtins/mod.rs:625`
-  - `default_argument_padding` (:2694)    → `src/ir/lower.rs:2805`
-  - `resource_close_function` (:2227)     → NO production caller; only `#[cfg(test)]` refs in
-    audio/os/process. Closest to dead. (Naming trap: distinct from the still-live
-    `builtins::resource_close_function` wrapper → `resource::builtin_resource_close_function`.)
-- Separate, also-not-tls deprecation markers gated on crypto/strings/collections/vector
-  SOURCE-GENERICS work: `codegen/builtins/encoding/mod.rs:235`, `collections/mod.rs:215`,
-  `vector/mod.rs:80`.
-
-## Q2 — Any remaining hardcoded registers, or all moved to vreg?
-
-**The compiler's own codegen path is fully vreg. Leftovers are only in hand-written platform
-emitters (tracked as bug-387).**
-
-- Clean: neutral instruction stream, all per-arch code plans (`linux_aarch64/linux_riscv64/
-  linux_x86_64/win_x86_64` `{code,plan}.rs`), shared lowering. Flows as vregs (`Operand::vreg`),
-  typed ABI tokens (`Operand::abi`), or `%`-sentinels; realized to physicals ONLY at two
-  legitimate seams: `src/target/shared/abi.rs` `realize_abi_token` (:381-443) and
-  `src/arch/*/select.rs` + `regmodel.rs`. (x86/riscv backends carry no x86/riscv literals —
-  they remap the AArch64-spelled neutral stream.)
-- Leftovers run BELOW the register allocator, so their target is neutral ABI tokens
-  (`LOCAL`/`SCRATCH`/`FP_SCRATCH`/`c_arg`), NOT vregs. `Asm` helpers already accept
-  `impl Into<Operand>`, so raw `"xNN"` strings are pure leftover:
-  - `src/target/linux_gtk/term_draw.rs` — LARGEST gap, ~110+ literals (callee-saved x19-x28,
-    scratch x9-x17, FP d0-d3) intermixed with tokens; clearly mid-conversion.
-  - `src/target/linux_gtk/bootstrap.rs` — ~27 lines (x9/x10/x11/x13/x19, two raw sp).
-  - `src/target/macos_aarch64/app/{bootstrap.rs,term_view.rs,mod.rs}` — only C-arg staging
-    x0-x3; callee-saved bank already migrated. Low risk.
-  - `src/target/macos_aarch64/tls.rs` — x1/x2 in the arg-reg→context-offset table.
-
-## Q3 — Move ParameterType to an integer enum from IR downward?
-
-**Yes, startable — but the enum already exists; the task is pushing its boundary UP, and the
-right model is string-interning inside the existing structural enum, NOT a flat integer enum.**
-
-- `ParameterType` (`src/types.rs:22`) is already a structural enum and the internal currency of
-  the codegen registry. String-based today: IR (`src/ir/*`), monomorph (`src/monomorph/*`), and
-  the registry's own boundary, which round-trips string → `parse` → unify/substitute → `name()`
-  → string per call (`ParameterType::parse` @ `src/types.rs:146`, 70 call sites).
-- Measured hotspots this eliminates (non-test greps): 111 scalar-name string `==`; 218
-  structural prefix matches (`strip_prefix("List OF ")` etc.); 698 `type_:/returns: …to_string()`
-  allocation sites; 49 `format!("List OF …")`; 17 `IrValue` variants each carrying
-  `type_: String` (52 alloc sites in `src/ir/lower.rs` alone); 675 `.type_` accesses.
-- NOT a flat enum: records/unions/user types (`Named`) and generics (`Var`) are open sets and
-  types nest (`List OF Foo`). Correct model = structural enum with an interned handle at the
-  nominal/var leaves. Precedent: `binary_repr` interns type names into a `type_id` table
-  (`src/binary_repr/builder.rs:82`).
-- BLOCKER to fix first: interning is currently `Box::leak` (`src/types.rs:216`) — fine at the
-  low-frequency registry boundary, but leaks per-IR-node if pushed down. Replace with a real
-  interner returning `Copy Symbol(u32)`/`TypeId` (also makes Named/Var compares integer compares
-  and the enum cheap to clone).
-- Recommended start order:
-  1. Interner → `Copy Symbol`; Named/Var hold Symbol; keep parse/name. (Localized to
-     `src/types.rs` + call sites.)
-  2. Convert registry boundary to pass/return `ParameterType`, shrinking the 1137-line
-     `resolve_call` string matcher (`src/codegen/builtins/general/mod.rs:287`).
-  3. Flip IR `type_`/`returns`/`kind` (`src/ir/types.rs`, `src/ir/value.rs`) String→ParameterType,
-     converting ONCE at cut point `ir::lower_augmented_project` (`src/ir/lower.rs`); update
-     `ir::verify`, `binary_repr`, codegen; keep `name()` only at serialize seams
-     (`src/ir/binary.rs`, `src/ir/json.rs` — wire format stays string for ABI stability).
-  4. (Later, separate phase) Give monomorph a typed representation.
-- CAVEAT: monomorph runs on the AST BEFORE IR (`src/cli/build/mod.rs:332` precedes `:416`) with a
-  parallel string type system (`src/monomorph/helpers.rs:41,171`). An IR-only cut leaves monomorph
-  string-based → does NOT speed up monomorphization. If ever unified onto `ParameterType`,
-  reconcile `MapEntry OF`/`Result OF` first (monomorph models them structurally; `parse` doesn't).
 
 ## Q4 — What other areas are a mess? (ranked next cleanup targets)
 
@@ -159,7 +43,7 @@ Yes—the primitives are sufficient for a useful JWT package, but not a broadly 
 You can implement now:
 
 - `HS256`, `HS384`, `HS512` using `crypto::hmac`.
-- `EdDSA` with Ed25519 using `crypto::sign`/`verify`.
+- `EdDSA` with both RFC 8037 curves using `crypto::sign`/`verify`: Ed25519 (`crv: "Ed25519"`, 64-byte raw `R || S`) and Ed448 (`crv: "Ed448"`, 114-byte raw `R || S`). Both already return the fixed-width raw form JWS wants, so no signature re-encoding is needed.
 - Compact JWT serialization using unpadded `encoding::base64UrlEncode`.
 - Claim parsing/serialization using `json`.
 - `exp`, `nbf`, and `iat` checks using `datetime::now().seconds`.
@@ -181,7 +65,7 @@ The main missing capabilities are:
 My recommendation is to ship a first JWT package supporting only:
 
 - `HS256`, `HS384`, `HS512`
-- `EdDSA`
+- `EdDSA` (Ed25519 and Ed448)
 - optionally `ES256/384/512` after implementing and heavily testing DER↔raw conversion
 
 The verifier should require an explicit algorithm allowlist and reject `alg: "none"`, algorithm/key-type mismatches, duplicate security-sensitive claims, malformed token segment counts, and noncanonical Base64url. Do not choose the verification algorithm solely from the untrusted header.
@@ -192,35 +76,33 @@ For full JWT ecosystem compatibility, the most valuable additions to `crypto` wo
 
 # websockets
 
-Not quite. You can build a standalone RFC 6455 WebSocket implementation over `net`/`tls`, but the existing `http` package cannot perform or hand off an upgraded connection.
+Still not quite — but the gap narrowed. You can build a standalone RFC 6455 WebSocket implementation over `tcp`/`tls`, and SHA-1 now ships, so the handshake no longer has to be hand-rolled. What remains missing is the same thing as before: the `http` package cannot perform or hand off an upgraded connection.
+
+Updated 2026-08-30 for the `net` split (plan-110): the old monolithic `net` transport surface is gone. `net` now owns only DNS (`net::lookup`), ICMP echo (`net::ping`), URL parsing (`net::toUrl`, `net::percentDecode`, `net::parseQuery`), and the shared `net::Address` record. Byte streams moved to `tcp`, datagrams to `udp`, encrypted streams stayed in `tls`. A WebSocket package would `IMPORT tcp`, `IMPORT tls`, and `IMPORT net` (imports are not transitive, and naming an `Address` requires importing `net` itself).
 
 What you already have:
 
-- Raw TCP and TLS byte streams with full-buffer writes.
-- Partial-read semantics suitable for framed protocols.
-- Polling and configurable timeouts.
-- Client and server TLS with certificate verification.
-- Secure randomness for client masking keys and `Sec-WebSocket-Key`.
-- Base64 encoding, UTF-8 validation, bitwise operations, and 64-bit integers.
-- Enough collection support to maintain a receive buffer and parse fragmented frames.
+- Raw TCP (`tcp::read`/`tcp::write`) and TLS (`tls::read`/`tls::write`) byte streams, both with full-buffer writes and a `String` overload on write.
+- Partial-read semantics suitable for framed protocols: `tcp::read` is a short read, `tls::read` returns as soon as any plaintext is decrypted.
+- Per-socket deadlines on both transports — `tcp::setReadTimeout`/`setWriteTimeout` and `tls::setReadTimeout`/`setWriteTimeout` (the TLS deadlines landed in plan-110-D).
+- A readiness **multiplex** on both transports: `tcp::poll(List OF RES tcp::Socket, timeoutMs)` and `tls::poll(List OF RES tls::Socket, timeoutMs)` each return the first ready socket. That is enough to write a single-threaded, many-connection WebSocket server without a thread per client. `tls::poll` also accounts for bytes already buffered inside the TLS layer, which a raw transport poll would miss.
+- **SHA-1**: `crypto::hash(Hash.SHA1, ...)` exists and is the standard FIPS 180-4 digest, computed by the portable software core. See the caveat below.
+- Client and server TLS with certificate verification (`tls::connect`, `tls::listen`, `tls::accept`).
+- Secure randomness for client masking keys and `Sec-WebSocket-Key` (`crypto::randomBytes`).
+- Base64 including the URL alphabet (`encoding::base64Encode`/`base64UrlEncode`), UTF-8 validation, bitwise operations, and 64-bit integers.
+- Enough collection support to maintain a receive buffer and parse fragmented frames — including `List OF RES tcp::Socket` / `List OF RES tls::Socket` for a connection table. (Resources may be collection *elements* when spelled `RES`; they may never be record *fields*, so a per-connection state record cannot embed its own socket — keep the socket and its state in parallel structures, or in a `RES ... STATE` binding.)
 
 What is missing or awkward:
 
-- SHA-1. The WebSocket handshake requires:
+- **HTTP connection upgrade/hijacking.** Unchanged and still the blocker. `http::handleRequest` accepts the connection, owns the accepted socket, always emits `Connection: close`, drops any handler-set `Connection`/`Content-Length`, and closes the socket by lexical drop on return. A handler only ever sees a parsed `Request` and returns a `Response`; there is no way to get the live socket or the unread buffered bytes back out.
+- **HTTP client upgrade support.** Also unchanged. `http::startRead` returns a `RES http::Stream STATE PendingState` — a resource union over `tcp::Socket` and `tls::Socket` — but it always sends `Connection: close` and drives toward a complete HTTP response. There is no "101 received; take this stream" operation, and no way to unwrap the union back into the underlying socket.
+- **`ws://` and `wss://` URL parsing.** `net::toUrl` still lowercases the scheme and accepts only `http`/`https`; anything else raises `ErrUnsupported`. A package can rewrite the scheme before parsing (and must then re-apply the 80/443 port default itself, since `toUrl` derives the default from the scheme it saw).
+- **The SHA-1 warning.** `crypto::hash(Hash.SHA1, ...)` works, but every source occurrence of `Hash.SHA1` emits the non-fatal `CRYPTO_SHA1_INSECURE` warning (2-203-0136). A WebSocket package would carry one unavoidable warning at its single handshake call site. Nothing suppresses it today; a narrow protocol-compatibility exemption (or a documented `crypto` entry point for handshake transforms) would keep a WebSocket package's build clean.
+- **`tls::Socket` is not thread-sendable.** Resources are not sendable by default — it is a per-resource opt-in (`THREAD_SENDABLE` on a user declaration, spec §17; the registry `sendable` bit for a builtin), enforced by `require_thread_sendable` on the thread's resource plane (`src/ir/verify/resources.rs:544`). `tls::Socket` and `tls::Listener` are both `sendable: false`, so `Thread OF RES tls::Socket TO …` is rejected outright with `TYPE_THREAD_NOT_SENDABLE` (2-203-0063) at the *type declaration*, before `thread::transfer` is reached. The reason is in the flag's own comment: a TLS session is fd + live backend session state (sequence numbers, cipher state, a partial record buffer) driven from its owning thread, and the listener additionally owns the server context every accepted socket borrows. `tcp::Socket` is `sendable: true` (`src/codegen/builtins/tcp/mod.rs:169`) because it is a bare fd with no userspace session state — so this constraint is specific to TLS, not to sockets. Note `tcp::Listener` is *also* `sendable: false` ("a listener accepts on its owning thread"), so even a plaintext server keeps its accept loop on one thread and hands off each accepted socket.
 
-  `Base64(SHA1(Sec-WebSocket-Key + GUID))`
+End of stream: **both transports raise `ErrConnectionClosed`** — they agree, and a framing loop needs a `TRAP`, not an empty-list check. Note `mfb man tcp read` currently claims `tcp::read` returns an empty list at EOF and ships a drain example that loops on `len(chunk) = 0`; that is wrong (bug-465) — probed on both transports, `tcp` and `tls` raise the identical error. Do not write a normalizing transport shim for this; there is nothing to normalize.
 
-  `crypto` exposes only SHA-2. You could implement SHA-1 inside the WebSocket package using `bits`, but a narrowly documented `crypto::hash(Hash.SHA1, ...)` would be much cleaner. SHA-1 is safe here because RFC 6455 uses it as a handshake transform, not for collision resistance.
-
-- HTTP connection upgrade/hijacking. `http::handleRequest` owns and closes the accepted socket, forces `Connection: close`, and only gives handlers a parsed `Request`. It cannot return the socket or unread buffered bytes.
-
-- HTTP client upgrade support. `http::startRead` also sends `Connection: close` and drives the connection toward a complete HTTP response. It does not expose a “101 received; take this stream” operation.
-
-- `ws://` and `wss://` URL parsing. `net::toUrl` accepts only `http` and `https`. A package can translate the schemes before parsing, but native support would be preferable.
-
-- TLS concurrency. `TlsSocket` is documented as not thread-sendable and cannot be stored in collections. That significantly limits a concurrent `wss://` server, even though a single-connection or polling design is possible. Plain `net::Socket` has better multiplexing support.
-
-Important implementation requirements:
+Important implementation requirements (unchanged):
 
 - Preserve bytes following `\r\n\r\n`; the first WebSocket frame may arrive in the same read as the handshake.
 - Accumulate partial frame headers and payloads across reads.
@@ -238,12 +120,14 @@ Important implementation requirements:
 
 So the practical verdict is:
 
-- A self-contained, blocking WebSocket client: yes, after implementing SHA-1 and the HTTP handshake yourself over `net`/`tls`.
-- A standalone WebSocket server: yes, with the same work.
-- WebSockets integrated into the existing HTTP router: no.
-- A scalable threaded secure WebSocket server: currently constrained by `TlsSocket` ownership/thread limitations.
+- A self-contained, blocking WebSocket client: **yes**, and cheaper than before — the HTTP handshake is still hand-written over `tcp`/`tls`, but SHA-1 is no longer part of the work.
+- A standalone WebSocket server: **yes**, same work.
+- A *many-connection* server without a thread per client: **yes**, using the `tcp::poll` / `tls::poll` list multiplex over a connection table. This is new; the previous entry predates the multiplex.
+- A thread-per-connection plaintext (`ws://`) server: **yes** — `tcp::Socket` is thread-sendable, so an accepted socket can be `thread::transfer`red to a worker. The accept loop itself stays on one thread (`tcp::Listener` is not sendable); it is the accepted socket that moves.
+- A thread-per-connection secure (`wss://`) server: **no** — `tls::Socket` is not sendable. Serve `wss://` from the single-threaded `tls::poll` multiplex instead.
+- WebSockets integrated into the existing HTTP router: **no**. Unchanged.
 
-The two highest-value platform additions would be an HTTP upgrade API that returns the live transport plus buffered surplus bytes, and SHA-1 specifically documented for protocol compatibility. Native `ws`/`wss` URL support would be a smaller convenience improvement.
+The single highest-value platform addition is now an **HTTP upgrade API** that returns the live transport plus buffered surplus bytes — on the server side out of `handleRequest`, and on the client side out of the `http::Stream` union. Making `tls::Socket` thread-sendable is second, and would unblock a threaded `wss://` server. Native `ws`/`wss` `toUrl` support and a warning-free SHA-1 spelling for protocol handshakes are both smaller conveniences.
 
 ---
 
@@ -426,38 +310,6 @@ For genuine official conformance, the most valuable underlying improvement would
 
 run acceptance under each system in the matrix.
 
-## window test fail on ci
-
-   Compiling pin-project v1.1.13
-   Compiling tower v0.4.13error[E0433]: cannot find `unix` in `os`
-  --> tests\cli_fmt_indent_bound.rs:11:14
-   |
-11 | use std::os::unix::process::ExitStatusExt;
-   |              ^^^^ could not find `unix` in `os`
-   |
-note: found an item that was configured out
-  --> /rustc/ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96/library\std\src\os\mod.rs:29:4
-   |
-   = note: the item is gated here
-note: found an item that was configured out
-  --> /rustc/ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96/library\std\src\os\mod.rs:84:40
-   |
-   = note: the item is gated here
-
-error[E0599]: no method named `signal` found for struct `ExitStatus` in the current scope
-  --> tests\cli_fmt_indent_bound.rs:34:23
-   |
-34 |         output.status.signal()
-   |                       ^^^^^^ method not found in `ExitStatus`
-
-Some errors have detailed explanations: E0433, E0599.
-For more information about an error, try `rustc --explain E0433`.
-error: could not compile `mfb` (test "cli_fmt_indent_bound") due to 2 previous errors
-warning: build failed, waiting for other jobs to finish...
-Error: Process completed with exit code 1.
-
----
-
 ## riscv fail
 
 
@@ -542,92 +394,6 @@ MFBasic: 154.844 ms
 C: 6.910 ms
 Python: 4.874 ms
 This likely indicates MFBasic is implementing Base64 using high-level per-byte operations while Python and C call optimized native routines.
-
----
-
-## Networking Updates
-
-Rework the current `net` and `tls` packages into the following.
-
-### net package
-
-- `net::lookup(host AS String, [port AS Integer]) AS List OF Address`
-- `net::parseQuery(s AS String) AS Map OF String TO String`
-- `net::percentDecode(s AS String) AS String`
-- `net::toUrl(href AS String) AS Url`
-- `net::ping(host AS String, [timeoutMs AS Integer], [ttl AS Integer], [size AS Integer]) AS net::PingResult`  *should Error on permissions*
-- `net::ping(address AS net::Address, [timeoutMs AS Integer], [ttl AS Integer], [size AS Integer]) AS net::PingResult` *should Error on permissions*
-
-- enum: `net::PingStatus` - Ok | Timeout | Unreachable | TtlExceeded
-- Records: `net::Url`, `net::Address`
-  - `net::PingResult`
-    status  net::PingStatus
-    address net::Address     — the responder
-    rttMs   Integer          — round-trip, milliseconds (0 when not Ok)
-    ttl     Integer          — TTL of the reply (0 when not Ok)
-    size    Integer          — payload bytes echoed back (0 when not Ok)
-
-### tcp package
-
-- `tcp::localAddress(sock AS tcp::Socket) AS net::Address`
-- `tcp::localAddress(listener AS tcp::Listener) AS net::Address`
-- `tcp::remoteAddress(sock AS tcp::Socket) AS net::Address`
-- `tcp::listen(host AS String, port AS Integer, [backlog AS Integer]) AS tcp::Listener`
-- `tcp::accept(listener AS tcp::Listener, [timeoutMs AS Integer]) AS tcp::Socket`
-- `tcp::connect(host AS String, port AS Integer, [timeoutMs AS Integer]) AS tcp::Socket`
-- `tcp::connect(address AS Address, [timeoutMs AS Integer]) AS tcp::Socket`
-- `tcp::read(sock AS tcp::Socket, maxBytes AS Integer) AS List OF Byte`
-- `tcp::write(sock AS tcp::Socket, bytes AS List OF Byte) AS Nothing`
-- `tcp::write(sock AS tcp::Socket, value AS String) AS Nothing`
-- `tcp::close(resource AS tcp::Socket) AS Nothing`
-- `tcp::close(resource AS tcp::Listener) AS Nothing`
-- `tcp::poll(sock AS tcp::Listener, [timeoutMs AS Integer]) AS Boolean`
-- `tcp::poll(sock AS tcp::Socket, [timeoutMs AS Integer]) AS Boolean`
-- `tcp::poll(socks AS List OF tcp::Socket, [timeoutMs AS Integer]) AS tcp::Socket`
-- `tcp::setReadTimeout(sock AS tcp::Socket, timeoutMs AS Integer) AS Nothing`
-- `tcp::setWriteTimeout(sock AS tcp::Socket, timeoutMs AS Integer) AS Nothing`
-
-- Resources: `tcp::Socket`, `tcp::Listener`
-
-### udp package
-
-- `udp::localAddress(sock AS udp::Socket) AS net::Address`
-- `udp::bind(host AS String, port AS Integer) AS udp::Socket`
-- `udp::close(resource AS udp::Socket) AS Nothing`
-- `udp::send(sock AS udp::Socket, address AS net::Address, bytes AS List OF Byte) AS Nothing`
-- `udp::send(sock AS udp::Socket, address AS net::Address, value AS String) AS Nothing`
-- `udp::receive(sock AS udp::Socket, maxBytes AS Integer) AS udp::Datagram`
-- `udp::setReadTimeout(sock AS udp::Socket, timeoutMs AS Integer) AS Nothing`
-- `udp::setWriteTimeout(sock AS udp::Socket, timeoutMs AS Integer) AS Nothing`
-- `udp::poll(sock AS udp::Socket, [timeoutMs AS Integer]) AS Boolean`
-- `udp::poll(socks AS List OF udp::Socket, [timeoutMs AS Integer]) AS udp::Socket`
-
-- Resources: `udp::Socket`
-- Records `udp::Datagram`
-
-### tls package
-
-- `tls::wrap(sock AS tcp::Socket, mode AS tls::WrapMode, [serverName AS String], [certPath AS String], [keyPath AS String], [caPath AS String]) AS tls::Socket`
-- `tls::localAddress(sock AS tls::Socket) AS net::Address`
-- `tls::localAddress(listener AS tls::Listener) AS net::Address`
-- `tls::remoteAddress(sock AS tls::Socket) AS net::Address`
-- `tls::listen(host AS String, port AS Integer, certPath AS String, keyPath AS String, [backlog AS Integer]) AS tls::Listener`
-- `tls::accept(listener AS tls::Listener, [timeoutMs AS Integer]) AS tls::Socket`
-- `tls::connect(host AS String, port AS Integer, [timeoutMs AS Integer], [serverName AS String]) AS tls::Socket`
-- `tls::connect(address AS Address, [timeoutMs AS Integer], [serverName AS String]) AS tls::Socket`
-- `tls::read(sock AS tls::Socket, maxBytes AS Integer) AS List OF Byte`
-- `tls::write(sock AS tls::Socket, bytes AS List OF Byte) AS Nothing`
-- `tls::write(sock AS tls::Socket, value AS String) AS Nothing`
-- `tls::close(resource AS tls::Socket) AS Nothing`
-- `tls::close(resource AS tls::Listener) AS Nothing`
-- `tls::poll(sock AS tls::Listener, [timeoutMs AS Integer]) AS Boolean`
-- `tls::poll(sock AS tls::Socket, [timeoutMs AS Integer]) AS Boolean`
-- `tls::poll(socks AS List OF tls::Socket, [timeoutMs AS Integer]) AS tls::Socket`
-- `tls::setReadTimeout(sock AS tls::Socket, timeoutMs AS Integer) AS Nothing`
-- `tls::setWriteTimeout(sock AS tls::Socket, timeoutMs AS Integer) AS Nothing`
-
-- enum: `tls::WrapMode` Server, Client
-- Resources: `tls::Socket`, `tls::Listener`
 
 ---
 

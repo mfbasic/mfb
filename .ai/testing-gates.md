@@ -171,15 +171,59 @@ Running `scripts/test-accept.sh <exe> <dir>` for a FULL execution pass is **inhe
 
 **Known-stale (macOS host):** `{audio,http,json,net,regex,strings}_codegen_cover_rt.macos-aarch64.ncodesum` byte-identity goldens differ from a locally-rebuilt macOS mfb (regen'd on another host/profile). Pre-existing on main; not something a feature branch introduced.
 
-## `mfb_exe()` reuses a stale release binary
+## `mfb_exe()` reuses a stale release binary — FIXED; `repo_exe()` still can
 
-`tests/common/mod.rs::mfb_exe()` resolves the **release** binary and builds it only inside `BUILD_RELEASE_MFB.call_once`, which early-returns when `target/release/mfb` already exists (`mod.rs:610` region). So once that binary exists it is **never rebuilt** for the life of the target dir — `cargo test` (which builds debug) will happily run any subprocess/CLI integration test (`cli_json_depth_limit.rs`, etc.) against a stale release binary.
+**This hazard is closed for `mfb_exe()`.** It now runs `cargo build --release --bin mfb`
+unconditionally inside `BUILD_RELEASE_MFB.call_once` and never skips on mere existence —
+the comment at the call site spells out why (a binary left from an earlier checkout
+produces both false failures and, worse, false passes). Cargo's own up-to-date check makes
+it a fast no-op when current. Keep the history below: it is why the code looks the way it
+does, and the failure signature recurs elsewhere.
+
+`repo_exe()` in the same file **does** still early-return on existence
+(`if exe.exists() { return; }`), so a stale `mfb-repo` binary remains possible for the
+repository integration tests.
+
+The original hazard, for reference: `mfb_exe()` resolved the **release** binary but built it
+only when absent, so once it existed it was never rebuilt for the life of the target dir —
+`cargo test` (which builds debug) would run any subprocess/CLI integration test
+(`cli_json_depth_limit.rs`, etc.) against a stale release binary.
 
 Two phantom reds this produced, both pure staleness (not regressions):
 - Built release pre-merge, then `git merge main` pulled a sibling's JSON-depth-limit fix + its new test; the stale binary lacked the guard and aborted (SIGABRT/stack overflow) while the fresh debug binary reported the bounded error correctly. Looked like the change broke an unrelated test.
 - Full `cargo test` on main returned `CARGO_EXIT=101` with the new CLI depth tests panicking "killed by signal" — `target/release/mfb` was days old (pre-fix). Unit tests passed; only the release-subprocess tests failed.
 
 **How to apply:** before trusting a full-suite result that includes any `mfb_exe()` subprocess test, `cargo build --release --bin mfb` first (or check `ls -la target/release/mfb` mtime vs your last edit). A signal/behavior RED from a subprocess test on an otherwise-green tree is a stale-release smell → `rm target/release/mfb` and re-run. Debug-path repro (`target/debug/mfb`) stays correct because you rebuild it explicitly. Real CI with a fresh target dir never hits this; confirm at HEAD via a detached worktree.
+
+## A pty helper must outlive its child, or macOS eats the output
+
+`tests/common/mod.rs`'s pty helpers (`run_under_pty`,
+`run_pty_prompt_interaction_inner`) drive a child through a real tty. Both used to
+close the parent's `slave` fd right after `Popen` and drain the master until EOF.
+That is a race, and it is only ever lost on a loaded machine:
+
+Once the child's fds are the **last** slave references, its exit tears the pty down,
+and on macOS/BSD a master read after that point returns `EIO` **and discards whatever
+the tty still had queued**. A child that writes a few lines and exits immediately can
+therefore beat the parent's first read and yield *zero* bytes — the symptom is an
+assertion like `expected tty output, got []` from a program that ran fine and exited 0.
+
+Demonstrated directly (child writes, exits, parent then reads):
+
+```
+parent drops its slave (old behaviour): b''
+parent holds a spare slave (fixed)    : b'hello-tty\r\n'
+```
+
+**How to apply:** a parent driving a pty must hold its own `os.dup(slave)` open for the
+whole drain, and must end the drain on `proc.poll()` (child exited) rather than on an EOF
+it is racing, sweeping the buffer dry afterwards. Never terminate a pty drain on EOF alone.
+Keep a wall-clock deadline too, so a genuinely wedged child stays a bounded, named failure
+instead of a hang.
+
+This class does not reproduce locally on an idle machine — 40/40 and then 25/25 under a
+saturating CPU load, both green, before *and* after. A single CI red with a working program
+and empty captured output is the tell; treat it as this bug, not as flake to re-run.
 
 ## Compiler tests live in the bin target
 

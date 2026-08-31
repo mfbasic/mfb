@@ -27,6 +27,13 @@ static WIN64_MODEL: Win64RegisterModel = Win64RegisterModel;
 #[allow(dead_code)]
 const WIN64_SHADOW_SPACE: usize = 32;
 
+/// The x86-64 page size, and so the granularity at which Windows extends a
+/// thread stack past its committed region — one guard page at a time. A frame
+/// bigger than this must touch each page it allocates or it steps over the guard
+/// page and faults; see `Backend::stack_probe_page_bytes`.
+#[allow(dead_code)]
+const WIN64_STACK_PROBE_PAGE: usize = 4096;
+
 /// The x86-64 backend singleton (zero-sized).
 pub(crate) struct X86_64Backend;
 
@@ -83,6 +90,10 @@ impl Backend for Win64Backend {
 
     fn outgoing_args_base_offset(&self) -> usize {
         WIN64_SHADOW_SPACE
+    }
+
+    fn stack_probe_page_bytes(&self) -> usize {
+        WIN64_STACK_PROBE_PAGE
     }
 }
 
