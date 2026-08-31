@@ -22,13 +22,8 @@ equivalent to a right rotate. Unlike the `bits` shifts (`sl`/`sr`/`sra`), the
 rotates do not validate `count` and never raise an error.
 
 Both `value` and the result are raw two's-complement 64-bit `Integer` bit
-patterns; `rl64` does not interpret sign. AArch64 provides only a rotate-right
-instruction (`RORV`), so a left rotate is lowered as a 64-bit rotate-right by
-`0 - count` (the hardware uses only the low 6 bits of that amount, giving the
-modulo-64 reduction); the
-operation has no side effects and lowers inline rather than calling a runtime
-helper, producing identical results on the native and Binary Representation
-execution paths."#;
+patterns; `rl64` does not interpret sign. The operation has no side effects and
+costs a single native instruction, so there is no function call at run time."#;
 const EX: &str = r#"Rotate all 64 bits left by four positions:
 
 ```

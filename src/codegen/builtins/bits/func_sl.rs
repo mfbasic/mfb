@@ -22,9 +22,8 @@ logical and an arithmetic left shift. For the sign-preserving right shift see
 Unlike the total bitwise operations, `sl` validates `count`: it first checks
 that `count` is in the range `0` to `63` inclusive and raises
 `ErrInvalidArgument` for any value outside it, before performing the shift. The
-operation has no side effects and lowers to a native variable-shift instruction
-inline rather than calling a runtime helper, producing identical results on the
-native and Binary Representation execution paths."#;
+operation has no side effects and costs a single native instruction, so there is
+no function call at run time."#;
 const EX: &str = r#"Shift a value left by four bits (multiply by 16):
 
 ```

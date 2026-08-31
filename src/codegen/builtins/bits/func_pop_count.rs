@@ -18,12 +18,9 @@ Hamming weight or population count.
 inspected regardless of whether `value` is negative. When `value` is `0` no bits
 are set and the result is `0`; when every bit is set (the bit pattern `-1`) the
 result is `64`. The operation is total — it is defined for every `Integer` and
-never raises — and has no side effects. It lowers inline rather than calling a
-runtime helper: on AArch64 as a short NEON sequence (move into a vector register,
-per-byte `CNT`, then `ADDV` the byte counts into one lane), and on other ISAs as
-the portable SWAR (bit-twiddling) sequence over the integer ALU. Both paths
-produce identical results on the native and Binary Representation execution
-paths."#;
+never raises — and has no side effects. It costs a handful of native
+instructions rather than a function call, and gives the same answer on every
+platform."#;
 const EX: &str = r#"Count the set bits of a small value:
 
 ```

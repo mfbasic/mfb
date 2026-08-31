@@ -22,12 +22,11 @@ equivalent to a right rotate. Unlike the `bits` shifts (`sl`/`sr`/`sra`), the
 rotates do not validate `count` and never raise an error.
 
 Both `value` and the result are raw two's-complement 64-bit `Integer` bit
-patterns; `rl32` does not interpret sign. AArch64 provides only a rotate-right
-instruction, so a left rotate is lowered as a 32-bit rotate-right by `0 - count`
-(the hardware uses only the low 5 bits of that amount, giving the modulo-32
-reduction); the operation has no side effects and lowers inline rather than calling a runtime
-helper, producing identical results on the native and Binary Representation
-execution paths."#;
+patterns; `rl32` does not interpret sign. `count` is reduced modulo 32, so every
+count is defined and `rl32` never raises — rotating by 32 returns the value
+unchanged, and rotating by 33 is the same as rotating by 1. The operation has no
+side effects and costs a single native instruction, so there is no function call
+at run time."#;
 const EX: &str = r#"Rotate the low 32 bits left by four positions:
 
 ```

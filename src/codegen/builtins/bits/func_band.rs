@@ -15,10 +15,8 @@ operands, and `0` otherwise.
 
 Both operands and the result are raw two's-complement 64-bit `Integer` bit
 patterns; `band` does not interpret sign. The operation is total — it is defined
-for every pair of inputs and never raises — has no side effects, and lowers to a
-single native AArch64 `and` instruction inline rather than calling a runtime
-helper, producing identical results on the native and Binary Representation
-execution paths.
+for every pair of inputs and never raises — has no side effects, and costs a
+single native instruction, so there is no function call at run time.
 
 The name is `band` rather than `and` because `AND` is a reserved logical
 (Boolean) keyword and cannot be a package member identifier."#;
