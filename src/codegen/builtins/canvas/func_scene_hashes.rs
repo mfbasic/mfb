@@ -20,6 +20,7 @@
 //! the content it stands for. See this letter's Corrections.
 
 // --- codegen tier imports (migration) ---
+use super::scene_base::scene_base;
 use crate::codegen::app::hook::app::{prepend_wrong_mode_gate, ModeRequirement};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
@@ -47,9 +48,7 @@ pub(crate) fn lower_publish_hashes(
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let scene_offset = ctx.canvas_scene_offset.ok_or_else(|| {
-        format!("native code plan emits '{symbol}' without reserving the canvas scene region")
-    })?;
+    let scene = scene_base(builder);
     let incoming = args
         .first()
         .ok_or_else(|| format!("'{symbol}' expects the hash list argument"))?
@@ -57,11 +56,7 @@ pub(crate) fn lower_publish_hashes(
         .clone();
 
     let copy = builder.copy_flat_block(&hash_list_type(), &incoming)?;
-    builder.emit(abi::store_u64(
-        &copy,
-        ARENA_STATE_REGISTER,
-        scene_offset + CANVAS_SCENE_HASHES_OFFSET,
-    ));
+    builder.emit(abi::store_u64(&copy, &scene, CANVAS_SCENE_HASHES_OFFSET));
 
     builder.emit(abi::move_immediate(
         RESULT_TAG_REGISTER,
@@ -96,12 +91,9 @@ pub(crate) fn lower_publish_hashes(
 pub(crate) fn lower_installed_hashes(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
-    ctx: &AbiCtx,
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let symbol = builder.current_symbol.clone();
-    let scene_offset = ctx.canvas_scene_offset.ok_or_else(|| {
-        format!("native code plan emits '{symbol}' without reserving the canvas scene region")
-    })?;
+    let scene = scene_base(builder);
 
     let empty = builder.label("canvas_hashes_empty");
     let done = builder.label("canvas_hashes_done");
@@ -109,8 +101,8 @@ pub(crate) fn lower_installed_hashes(
     let installed = builder.temporary_vreg();
     builder.emit(abi::load_u64(
         &installed,
-        ARENA_STATE_REGISTER,
-        scene_offset + CANVAS_SCENE_HASHES_OFFSET,
+        &scene,
+        CANVAS_SCENE_HASHES_OFFSET,
     ));
     builder.emit(abi::compare_immediate(&installed, "0"));
     builder.emit(abi::branch_eq(&empty));

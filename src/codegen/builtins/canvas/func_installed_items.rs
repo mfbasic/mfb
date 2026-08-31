@@ -12,6 +12,7 @@
 //! emitted code.
 
 // --- codegen tier imports (migration) ---
+use super::scene_base::scene_base;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::error::constants::*;
@@ -31,22 +32,15 @@ use crate::types::ParameterType;
 pub(crate) fn lower_installed_items(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
-    ctx: &AbiCtx,
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let symbol = builder.current_symbol.clone();
-    let scene_offset = ctx.canvas_scene_offset.ok_or_else(|| {
-        format!("native code plan emits '{symbol}' without reserving the canvas scene region")
-    })?;
+    let scene = scene_base(builder);
 
     let empty = builder.label("canvas_installed_empty");
     let done = builder.label("canvas_installed_done");
 
     let installed = builder.temporary_vreg();
-    builder.emit(abi::load_u64(
-        &installed,
-        ARENA_STATE_REGISTER,
-        scene_offset + CANVAS_SCENE_ITEMS_OFFSET,
-    ));
+    builder.emit(abi::load_u64(&installed, &scene, CANVAS_SCENE_ITEMS_OFFSET));
     builder.emit(abi::compare_immediate(&installed, "0"));
     builder.emit(abi::branch_eq(&empty));
 

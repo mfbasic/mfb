@@ -7,6 +7,7 @@
 //! so it lives here once rather than being written twice and drifting.
 
 // --- codegen tier imports (migration) ---
+use super::scene_base::scene_base;
 use crate::codegen::app::hook::app::{prepend_wrong_mode_gate, ModeRequirement};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
@@ -85,9 +86,7 @@ pub(crate) fn emit_publish(
     shape: SceneShape,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let scene_offset = ctx.canvas_scene_offset.ok_or_else(|| {
-        format!("native code plan emits '{symbol}' without reserving the canvas scene region")
-    })?;
+    let scene = scene_base(builder);
     let incoming = args
         .first()
         .ok_or_else(|| format!("'{symbol}' expects the scene list argument"))?
@@ -133,11 +132,7 @@ pub(crate) fn emit_publish(
     let installed_slot = builder.allocate_stack_object("canvas_publish_prev", 8);
 
     let installed = builder.temporary_vreg();
-    builder.emit(abi::load_u64(
-        &installed,
-        ARENA_STATE_REGISTER,
-        scene_offset + ptr_offset,
-    ));
+    builder.emit(abi::load_u64(&installed, &scene, ptr_offset));
     builder.emit(abi::store_u64(
         &installed,
         abi::stack_pointer(),
@@ -195,37 +190,21 @@ pub(crate) fn emit_publish(
     // reader can never observe a bumped revision alongside a half-written scene.
     let published = builder.temporary_vreg();
     builder.emit(abi::load_u64(&published, abi::stack_pointer(), copy_slot));
-    builder.emit(abi::store_u64(
-        &published,
-        ARENA_STATE_REGISTER,
-        scene_offset + ptr_offset,
-    ));
-    builder.emit(abi::store_u64(
-        &count,
-        ARENA_STATE_REGISTER,
-        scene_offset + count_offset,
-    ));
-    builder.emit(abi::store_u64(
-        abi::ZERO,
-        ARENA_STATE_REGISTER,
-        scene_offset + other_ptr,
-    ));
-    builder.emit(abi::store_u64(
-        abi::ZERO,
-        ARENA_STATE_REGISTER,
-        scene_offset + other_count,
-    ));
+    builder.emit(abi::store_u64(&published, &scene, ptr_offset));
+    builder.emit(abi::store_u64(&count, &scene, count_offset));
+    builder.emit(abi::store_u64(abi::ZERO, &scene, other_ptr));
+    builder.emit(abi::store_u64(abi::ZERO, &scene, other_count));
     let revision = builder.temporary_vreg();
     builder.emit(abi::load_u64(
         &revision,
-        ARENA_STATE_REGISTER,
-        scene_offset + CANVAS_SCENE_REVISION_OFFSET,
+        &scene,
+        CANVAS_SCENE_REVISION_OFFSET,
     ));
     builder.emit(abi::add_immediate(&revision, &revision, 1));
     builder.emit(abi::store_u64(
         &revision,
-        ARENA_STATE_REGISTER,
-        scene_offset + CANVAS_SCENE_REVISION_OFFSET,
+        &scene,
+        CANVAS_SCENE_REVISION_OFFSET,
     ));
 
     builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"));

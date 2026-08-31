@@ -368,8 +368,22 @@ pub(crate) const CANVAS_SCENE_HASHES_OFFSET: usize = 24;
 pub(crate) const CANVAS_SCENE_LAYERS_OFFSET: usize = 32;
 /// Byte offset of the layer count.
 pub(crate) const CANVAS_SCENE_LAYER_COUNT_OFFSET: usize = 40;
-/// Total reserved slots for the canvas scene region.
+/// Total slots in the canvas scene region.
 pub(crate) const CANVAS_SCENE_SLOTS: usize = (CANVAS_SCENE_LAYER_COUNT_OFFSET + 8) / 8;
+
+/// The canvas scene region itself: one writable **process-global** block, not part of
+/// any thread's arena state.
+///
+/// This is the only canvas state shared between threads, and it has to be, because
+/// **arena state is per-thread** — the entry pins `x19` to its own stack frame, and in
+/// an `--app` build the *worker* runs the entry. A scene published into arena state is
+/// invisible to the graphics thread plan-98-D spawns, which would read its own zeroed
+/// region and render blank frames forever. See `.ai/canvas-threading.md` §2.
+///
+/// One block rather than one per canvas because a process has exactly one canvas
+/// surface: `Mode.Canvas` is a property of the application, not of a window the
+/// program can have several of.
+pub(crate) const CANVAS_SCENE_SYMBOL: &str = "_mfb_rt_canvas_scene";
 
 // ===========================================================================
 // Arena state layout (ascending offset) & allocator

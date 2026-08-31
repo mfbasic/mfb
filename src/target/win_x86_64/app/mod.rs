@@ -3632,6 +3632,7 @@ mod tests {
             language_entry_accepts_args: false,
             uses_term: false,
             initial_mode: PresentationMode::Console,
+            uses_canvas: true,
         }
     }
 
@@ -3973,6 +3974,7 @@ mod canvas_reconcile_tests {
             language_entry_accepts_args: false,
             uses_term: false,
             initial_mode,
+            uses_canvas: true,
         }
     }
 

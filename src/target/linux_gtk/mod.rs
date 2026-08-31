@@ -543,9 +543,12 @@ pub(crate) fn emit_app_program_entry(
     // program never reconciles and keeps its exact function set.
     if spec.initial_mode == PresentationMode::None {
         functions.push(emit_reconcile_build_helper()?);
-        functions.push(emit_reconcile_idle_helper()?);
-        // plan-98-C Phase 3: the frame blit's worker side, its main-loop commit, and
-        // the drawing area's paint callback.
+        functions.push(emit_reconcile_idle_helper(spec.uses_canvas)?);
+    }
+    // plan-98-C Phase 3: the frame blit's worker side, its main-loop commit, and the
+    // drawing area's paint callback. Gated on the program *drawing* rather than on
+    // its start mode — see the macOS twin for why the two are not the same question.
+    if spec.uses_canvas {
         functions.push(emit_canvas_blit_helper()?);
         functions.push(emit_canvas_commit_helper()?);
         functions.push(emit_canvas_draw_helper()?);
@@ -603,9 +606,12 @@ pub(crate) fn emit_app_program_entry_x86(
     // plan-62-D Phase 2: the reconcile idle callback (None-default programs only).
     if spec.initial_mode == PresentationMode::None {
         functions.push(emit_reconcile_build_helper()?);
-        functions.push(emit_reconcile_idle_helper()?);
-        // plan-98-C Phase 3: the frame blit's worker side, its main-loop commit, and
-        // the drawing area's paint callback.
+        functions.push(emit_reconcile_idle_helper(spec.uses_canvas)?);
+    }
+    // plan-98-C Phase 3: the frame blit's worker side, its main-loop commit, and the
+    // drawing area's paint callback. Gated on the program *drawing* rather than on
+    // its start mode — see the macOS twin for why the two are not the same question.
+    if spec.uses_canvas {
         functions.push(emit_canvas_blit_helper()?);
         functions.push(emit_canvas_commit_helper()?);
         functions.push(emit_canvas_draw_helper()?);
@@ -1332,7 +1338,7 @@ mod canvas_reconcile_tests {
     /// program entered canvas mode.
     #[test]
     fn reconcile_dispatches_canvas_before_the_console_test() {
-        let func = bootstrap::emit_reconcile_idle_helper().expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
         let immediates = compare_immediates(&func);
         let canvas = immediates
             .iter()
@@ -1355,7 +1361,7 @@ mod canvas_reconcile_tests {
     /// the one widget instead of leaking a new one per cycle.
     #[test]
     fn canvas_area_is_created_and_ref_sunk() {
-        let func = bootstrap::emit_reconcile_idle_helper().expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
         assert_eq!(
             externals(&func, "gtk_drawing_area_new"),
             1,
@@ -1374,7 +1380,7 @@ mod canvas_reconcile_tests {
     /// callback at first present would leave the first exposes blank.
     #[test]
     fn canvas_area_gets_its_draw_func_when_created() {
-        let func = bootstrap::emit_reconcile_idle_helper().expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
         let order: Vec<&str> = func
             .relocations
             .iter()
@@ -1478,7 +1484,7 @@ mod canvas_reconcile_tests {
     /// plan-98-F would have nothing to build a VkSurfaceKHR from.
     #[test]
     fn native_surface_is_read_after_present() {
-        let func = bootstrap::emit_reconcile_idle_helper().expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
         let order: Vec<&str> = func
             .relocations
             .iter()
@@ -1504,7 +1510,7 @@ mod canvas_reconcile_tests {
     /// surface, so `ST_WINDOW` is null when it enters canvas mode.
     #[test]
     fn window_build_is_shared_by_the_console_and_canvas_arms() {
-        let func = bootstrap::emit_reconcile_idle_helper().expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
         assert_eq!(
             externals(&func, RECONCILE_BUILD_SYMBOL),
             2,
@@ -1529,7 +1535,7 @@ mod canvas_reconcile_tests {
     /// function.) A missing teardown drops this to 2.
     #[test]
     fn both_non_canvas_arms_tear_the_canvas_area_down() {
-        let func = bootstrap::emit_reconcile_idle_helper().expect("reconcile idle");
+        let func = bootstrap::emit_reconcile_idle_helper(true).expect("reconcile idle");
         assert_eq!(
             externals(&func, "gtk_window_set_child"),
             3,

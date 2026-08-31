@@ -1266,7 +1266,6 @@ pub(crate) fn lower_abi_function_helper(
     string_symbols: &HashMap<String, String>,
     term_state_offset: Option<usize>,
     presentation_mode_offset: Option<usize>,
-    canvas_scene_offset: Option<usize>,
     arena_global_slots: usize,
     uses_rng: bool,
 ) -> Result<
@@ -1376,7 +1375,6 @@ pub(crate) fn lower_abi_function_helper(
         module_name,
         term_state_offset,
         presentation_mode_offset,
-        canvas_scene_offset,
         call,
         arena_global_slots,
         uses_rng,

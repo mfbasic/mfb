@@ -1233,7 +1233,6 @@ pub(crate) struct ArenaLayout {
     pub(crate) presentation_mode_offset: Option<usize>,
     /// Byte offset of the `canvas::` retained-scene region (plan-98-B), when the
     /// program uses `canvas::`. Reserved just past the presentation-mode word.
-    pub(crate) canvas_scene_offset: Option<usize>,
     /// Total slots in the region: program globals + `LINK`/`FREE` pointer slots +
     /// `term::` state + the app presentation-mode slot + the canvas scene region.
     /// `thread::start` sizes a worker's arena block from this so the worker's region
@@ -1266,6 +1265,16 @@ pub(crate) struct AppEntrySpec {
     /// window surface at startup — `Console` builds the transcript window, `None`
     /// starts windowless while still running the toolkit event loop.
     pub(crate) initial_mode: PresentationMode,
+    /// Whether the program draws (`canvas::`), so the backend emits the frame-blit
+    /// helpers `canvas::blitSurface` calls.
+    ///
+    /// A separate question from `initial_mode`: a program can reach `Mode.Canvas`
+    /// only by calling `app::setMode`, which forces a `None` start — but the
+    /// *converse does not hold*, and gating the blit on `None` left a `Console`-start
+    /// program that merely mentions `canvas::` referencing a helper that was never
+    /// emitted ("internal relocation target '_mfb_macapp_canvas_blit' is not
+    /// defined").
+    pub(crate) uses_canvas: bool,
 }
 
 /// Everything the per-backend program-entry emitter needs (plan-00-G). Program

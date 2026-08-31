@@ -734,7 +734,7 @@ impl Asm {
 /// [`crate::codegen::error::constants::MACAPP_PROGRAM_SYMBOL`].
 pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
-        emit_main_bootstrap(spec.initial_mode),
+        emit_main_bootstrap(spec.initial_mode, spec.uses_canvas),
         emit_worker_shim(spec),
         emit_append_helper(),
         emit_finish_helper(spec.uses_term),
@@ -773,13 +773,16 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         // `class_addMethod` inside the canvas builder, so they are emitted with it.
         functions.push(emit_canvas_accepts_first_responder());
         functions.push(emit_canvas_key_down_helper());
-        // plan-98-C Phase 3: the frame blit's worker-side marshal and its
-        // main-thread apply. Same emission condition as the canvas surface builder
-        // above, and for the same reason — whether a program ever enters canvas mode
-        // is a runtime question.
+        functions.push(emit_reconcile_helper());
+    }
+    // plan-98-C Phase 3: the frame blit's worker-side marshal and its main-thread
+    // apply. Gated on the program *drawing*, not on its start mode: reaching
+    // `Mode.Canvas` requires `app::setMode` and so forces a `None` start, but the
+    // converse does not hold — a `Console`-start program that merely mentions
+    // `canvas::` still emits `canvas::blitSurface`, which calls these.
+    if spec.uses_canvas {
         functions.push(emit_canvas_blit_helper());
         functions.push(emit_canvas_blit_apply_helper());
-        functions.push(emit_reconcile_helper());
     }
     Ok(functions)
 }
@@ -1276,7 +1279,7 @@ mod canvas_reconcile_tests {
     /// exception on the first present rather than drawing anything.
     #[test]
     fn delegate_gets_the_blit_selector() {
-        let func = emit_main_bootstrap(PresentationMode::None);
+        let func = emit_main_bootstrap(PresentationMode::None, true);
         let names: Vec<&str> = func.relocations.iter().map(|r| r.to.as_str()).collect();
         assert!(
             names.contains(&SEL_MFB_BLIT.0),
@@ -1551,6 +1554,7 @@ mod canvas_reconcile_tests {
             language_entry_accepts_args: false,
             uses_term: false,
             initial_mode: PresentationMode::None,
+            uses_canvas: true,
         };
         let symbols: Vec<String> = emit_app_program_entry(&spec)
             .expect("app entry")
@@ -1573,7 +1577,7 @@ mod canvas_reconcile_tests {
     /// (nil reads as 0), i.e. back into stdin.
     #[test]
     fn the_input_pipe_is_wired_for_a_none_default_program() {
-        let none = emit_main_bootstrap(PresentationMode::None);
+        let none = emit_main_bootstrap(PresentationMode::None, false);
         assert!(
             none.relocations
                 .iter()
@@ -1587,7 +1591,7 @@ mod canvas_reconcile_tests {
         );
         // Console-default keeps exactly one too — the extraction must not have
         // duplicated it into the branch it came from.
-        let console = emit_main_bootstrap(PresentationMode::Console);
+        let console = emit_main_bootstrap(PresentationMode::Console, false);
         assert_eq!(calls_external(&console, "_pipe"), 1);
     }
 }

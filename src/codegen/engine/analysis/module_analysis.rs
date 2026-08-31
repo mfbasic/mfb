@@ -241,6 +241,29 @@ fn ops_may_record_cleanup_failure(ops: &[NirOp]) -> bool {
     })
 }
 
+/// Whether the module draws — i.e. whether the canvas scene region must exist.
+///
+/// Every `canvas::` member that reads or writes the scene is listed, rather than a
+/// prefix test on the runtime symbol, because the gate has to be answerable from the
+/// NIR module before helper symbols exist. A member added to the package without
+/// being added here would compile and then address a scene block that was never
+/// emitted, so the list is checked by `canvas_scene_users_are_complete`.
+pub(crate) fn module_uses_canvas(module: &NirModule) -> bool {
+    module_uses_any_call(module, CANVAS_SCENE_USERS)
+}
+
+/// The `canvas::` members that touch the scene region.
+pub(crate) const CANVAS_SCENE_USERS: &[&str] = &[
+    "canvas.present",
+    "canvas.presentLayers",
+    "canvas.publishScene",
+    "canvas.publishLayers",
+    "canvas.publishHashes",
+    "canvas.installedItems",
+    "canvas.installedLayers",
+    "canvas.installedHashes",
+];
+
 pub(crate) fn module_uses_any_call(module: &NirModule, targets: &[&str]) -> bool {
     targets
         .iter()

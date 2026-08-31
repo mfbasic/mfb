@@ -499,7 +499,7 @@ fn emit_canvas_teardown(asm: &mut Asm, label: &str) {
 /// Exactly one aliveness source is kept via `ST_HELD`. Returns `G_SOURCE_REMOVE`
 /// (0) so the idle fires once. The state lives in `STATE_SYMBOL` globals (not the
 /// arena), so this main-thread callback needs no arena register.
-pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
+pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(RECONCILE_IDLE_SYMBOL);
     let frame = 16; // lr@0, x19(mode)@8
     let none = format!("{RECONCILE_IDLE_SYMBOL}_none");
@@ -578,11 +578,17 @@ pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
     // area with no draw func renders nothing at all, so this has to happen here
     // rather than at first present — the area is built on entering canvas mode and
     // may be redrawn (resize, expose) before any frame arrives.
-    asm.load_state(abi::c_arg(0), ST_CANVAS_AREA);
-    asm.local_address(abi::c_arg(1), CANVAS_DRAW_SYMBOL);
-    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // user data
-    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // destroy notify
-    asm.call_external("gtk_drawing_area_set_draw_func");
+    //
+    // Gated on the program *drawing*, not on its being able to change mode: the draw
+    // callback is emitted for a program that uses `canvas::`, and installing it
+    // unconditionally left this naming a function that was never emitted.
+    if uses_canvas {
+        asm.load_state(abi::c_arg(0), ST_CANVAS_AREA);
+        asm.local_address(abi::c_arg(1), CANVAS_DRAW_SYMBOL);
+        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // user data
+        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // destroy notify
+        asm.call_external("gtk_drawing_area_set_draw_func");
+    }
     asm.push(abi::label(&canvas_have_area));
     // gtk_window_set_child(window, canvasArea) — the canvas replaces the transcript.
     asm.load_state(abi::c_arg(0), ST_WINDOW);

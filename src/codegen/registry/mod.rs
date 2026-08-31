@@ -68,7 +68,6 @@ pub(crate) struct AbiCtx<'a> {
     /// program uses no `canvas::`. Read by the `canvas` `abi_function` bodies
     /// (`present`/`presentLayers`); carries the `ArenaLayout` value byte-for-byte.
     /// Every other abi body ignores it.
-    pub(crate) canvas_scene_offset: Option<usize>,
     /// The count of writable global slots (program globals + `LINK`/`FREE` pointer
     /// slots + `term::` state) the program uses — from `ArenaLayout::global_slots`.
     /// `thread.start` alone consumes it to size a spawned worker's arena block so its

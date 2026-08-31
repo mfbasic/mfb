@@ -29,9 +29,6 @@ mod common;
 use serde_json::Value;
 use std::process::Command;
 
-/// The pinned arena-state register the scene region is addressed off.
-const ARENA_STATE_REGISTER: &str = "x19";
-
 /// A `--app` `--ncode` build. `common::build_ncode` has no `-app`, and `canvas` is
 /// importable only in app mode.
 fn app_ncode(name: &str, source: &str) -> Value {
@@ -87,7 +84,14 @@ fn calls(plan: &Value, symbol: &str, target: &str) -> usize {
         .unwrap_or(0)
 }
 
-const PRESENT: &str = "_mfb_rt_canvas_canvas_present";
+/// The helper that does the publishing.
+///
+/// It was `_mfb_rt_canvas_canvas_present` when plan-98-B wrote these tests. plan-98-C
+/// made `canvas::present` a `Body::mfb` member — `IF canvas::publishScene(items) THEN
+/// render` — so the publish itself, and every property asserted below, moved into
+/// `publishScene`. The behaviours are unchanged; only the function that carries them
+/// is different.
+const PUBLISH: &str = "_mfb_rt_canvas_canvas_publishScene";
 
 /// A scene built entirely inside a callee's frame, so nothing it names outlives
 /// the function that made it.
@@ -113,7 +117,7 @@ const SOURCE: &str = "IMPORT app\n\
 fn present_allocates_a_copy_of_the_scene() {
     let plan = app_ncode("canvas_present_copy", SOURCE);
     assert!(
-        calls(&plan, PRESENT, "_mfb_arena_alloc") > 0,
+        calls(&plan, PUBLISH, "_mfb_arena_alloc") > 0,
         "canvas::present must copy the scene into the arena; no allocation means \
          it published the caller's own block"
     );
@@ -125,27 +129,32 @@ fn present_allocates_a_copy_of_the_scene() {
 #[test]
 fn the_revision_is_published_after_the_items_and_count() {
     let plan = app_ncode("canvas_present_order", SOURCE);
-    let ins = instructions(&plan, PRESENT);
-    let scene_stores: Vec<i64> = ins
-        .iter()
-        .filter(|i| {
-            i["op"].as_str() == Some("str_u64") && i["base"].as_str() == Some(ARENA_STATE_REGISTER)
-        })
-        .filter_map(|i| i["offset"].as_str().and_then(|o| o.parse::<i64>().ok()))
-        .collect();
-    assert!(
-        scene_stores.len() >= 3,
-        "expected the three scene publishes (items, count, revision); got \
-         {scene_stores:?}"
-    );
-    let tail = &scene_stores[scene_stores.len() - 3..];
-    let base = tail[2];
+    let ins = instructions(&plan, PUBLISH);
     assert_eq!(
-        tail,
-        [base + 16, base + 8, base],
-        "publish order must be items(+16), count(+8), revision(+0) — the revision \
-         last, since it is what a reader gates on"
+        scene_stores(ins),
+        vec![16, 8, 32, 40, 0],
+        "publish order must be items(+16), count(+8), then the layered pair cleared \
+         (+32, +40), then revision(+0) LAST — the revision is what a reader gates on, \
+         so a reader must never see it bumped beside the previous frame's pointer"
     );
+}
+
+/// The offsets of every store into the scene region, in emitted order.
+///
+/// Anchored on the publish label rather than on a base register. The scene block is
+/// process-global (plan-98-D Phase 2 — arena state is per-thread, so a graphics
+/// thread could not see a scene published into it), so its address arrives in a vreg
+/// that the allocator spills and reloads, giving a *different* physical base for each
+/// store. Stack traffic is excluded by its `sp` base; everything left after the
+/// publish label is a scene store.
+fn scene_stores(ins: &[Value]) -> Vec<i64> {
+    let publish =
+        label_at(ins, "canvas_present_publish").expect("the publish path must have its own label");
+    ins[publish..]
+        .iter()
+        .filter(|i| i["op"].as_str() == Some("str_u64") && i["base"].as_str() != Some("sp"))
+        .filter_map(|i| i["offset"].as_str().and_then(|o| o.parse::<i64>().ok()))
+        .collect()
 }
 
 /// The index of the first `label` instruction whose name contains `needle`.
@@ -166,7 +175,7 @@ fn label_at(ins: &[Value], needle: &str) -> Option<usize> {
 #[test]
 fn an_identical_re_present_skips_the_publish() {
     let plan = app_ncode("canvas_present_skip", SOURCE);
-    let ins = instructions(&plan, PRESENT);
+    let ins = instructions(&plan, PUBLISH);
 
     // It must read the currently-installed scene to have anything to compare
     // against, and compare it byte-wise (the loop the compare helper emits).
@@ -182,27 +191,18 @@ fn an_identical_re_present_skips_the_publish() {
         "the skip path returns before the publish path"
     );
 
-    // The revision bump — the only `add_imm … 1` on an arena-state value that is
-    // then stored back — must be reachable only past the publish label.
-    let revision_store = ins
-        .iter()
-        .enumerate()
-        .position(|(index, i)| {
-            index > publish
-                && i["op"].as_str() == Some("str_u64")
-                && i["base"].as_str() == Some(ARENA_STATE_REGISTER)
-        })
-        .expect("the publish path must store to the scene region");
-    assert!(
-        revision_store > publish,
-        "every scene-region store must be on the publish path; a store before the \
-         publish label would run on a skipped frame too"
+    // Every scene-region store must be past the publish label, so a skipped frame
+    // publishes nothing at all — the revision included, which is the whole mechanism.
+    assert_eq!(
+        scene_stores(ins),
+        vec![16, 8, 32, 40, 0],
+        "the publish path must be the only thing that writes the scene region"
     );
-    // And nothing writes the scene region between the skip label and the publish
-    // label — that span is the early return.
-    let stray = ins[skip..publish].iter().any(|i| {
-        i["op"].as_str() == Some("str_u64") && i["base"].as_str() == Some(ARENA_STATE_REGISTER)
-    });
+    // And nothing writes it between the skip label and the publish label — that span
+    // is the early return.
+    let stray = ins[skip..publish]
+        .iter()
+        .any(|i| i["op"].as_str() == Some("str_u64") && i["base"].as_str() != Some("sp"));
     assert!(
         !stray,
         "the skip path must not touch the scene region at all"
@@ -215,7 +215,7 @@ fn an_identical_re_present_skips_the_publish() {
 #[test]
 fn the_mode_gate_precedes_the_allocation() {
     let plan = app_ncode("canvas_present_gate", SOURCE);
-    let ins = instructions(&plan, PRESENT);
+    let ins = instructions(&plan, PUBLISH);
     let gate = position(ins, |i| {
         i["op"].as_str() == Some("cmp_imm") && i["rhs"].as_str() == Some("2")
     })
@@ -230,7 +230,7 @@ fn the_mode_gate_precedes_the_allocation() {
          allocation (instruction {alloc}), or a wrong-mode call leaks a block"
     );
     assert!(
-        calls(&plan, PRESENT, "_mfb_str_error_wrong_mode") > 0,
+        calls(&plan, PUBLISH, "_mfb_str_error_wrong_mode") > 0,
         "the gate must raise ErrWrongMode"
     );
 }

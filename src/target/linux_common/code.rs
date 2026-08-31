@@ -1592,6 +1592,7 @@ mod tests {
                 language_entry_accepts_args: false,
                 uses_term: false,
                 initial_mode: crate::codegen::engine::types::PresentationMode::Console,
+                uses_canvas: false,
             };
             let _ = riscv64().emit_app_program_entry(&spec, &HashMap::new());
         }

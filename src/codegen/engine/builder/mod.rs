@@ -786,6 +786,23 @@ pub(crate) fn lower_module_for_platform(
     // dual-path v128 lowering (plan-32-C) branches on. Emitted only for a
     // `linux-riscv64` entry module — the exact gate under which the auxv scan is
     // injected into the program entry — so every other target stays byte-identical.
+    // plan-98-D Phase 2: the canvas scene region. A writable process-global block
+    // rather than part of the arena state, because arena state is per-thread and the
+    // graphics thread must see what the worker published — see the constant's own
+    // documentation and `.ai/canvas-threading.md` §2. Emitted only for a module that
+    // uses `canvas::`, so every other program keeps its exact data-object set.
+    if module_uses_canvas(module) {
+        data_objects.push(CodeDataObject {
+            symbol: CANVAS_SCENE_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            layout: "mfb.runtime.canvas_scene.v1 { u64 revision, count, items, hashes, \
+                     layers, layerCount }"
+                .to_string(),
+            align: 8,
+            size: CANVAS_SCENE_SLOTS * 8,
+            value: "00".repeat(CANVAS_SCENE_SLOTS * 8),
+        });
+    }
     if module.entry.is_some() && module.target == "linux-riscv64" {
         data_objects.push(CodeDataObject {
             symbol: HAS_RVV_GLOBAL_SYMBOL.to_string(),
@@ -1082,23 +1099,12 @@ pub(crate) fn lower_module_for_platform(
         None
     };
     let presentation_mode_slots = if uses_app { PRESENTATION_MODE_SLOTS } else { 0 };
-    // plan-98-B: the `canvas::` retained-scene region sits one region past the
-    // presentation-mode word, on the same pinned arena-state register. Reserved only
-    // when the program actually uses `canvas::` — the same `uses_term`/`uses_app`
-    // model — so no program that never draws pays for it. `canvas::` is `--app`-gated
-    // like `app::`, so this is implicitly false in console builds.
-    let uses_canvas = runtime_symbols
-        .iter()
-        .any(|symbol| symbol.starts_with("_mfb_rt_canvas_"));
-    let canvas_scene_offset = if uses_canvas {
-        Some(
-            ENTRY_GLOBALS_OFFSET
-                + (globals_base + link_slot_count + term_state_slots + presentation_mode_slots) * 8,
-        )
-    } else {
-        None
-    };
-    let canvas_scene_slots = if uses_canvas { CANVAS_SCENE_SLOTS } else { 0 };
+    // plan-98-D Phase 2: the `canvas::` retained scene is NOT in arena state. It was
+    // (plan-98-B put it one region past the presentation-mode word), but arena state is
+    // per-thread and the graphics thread has to see what the worker published, so it
+    // moved to the process-global `CANVAS_SCENE_SYMBOL` block — see that constant and
+    // `.ai/canvas-threading.md` §2. Nothing is reserved here any more, so a canvas
+    // program's entry frame is the same size as any other app program's.
     // plan-62-B §3.3: the static initial presentation mode. A program that
     // references `app::setMode` anywhere starts windowless (`None`); one that
     // never does keeps the default terminal-in-a-window surface (`Console`). Keyed
@@ -1126,11 +1132,8 @@ pub(crate) fn lower_module_for_platform(
     // this same number in `lower_thread_start_helper` (bug-369). Before that, a
     // worker's arena block was only `ARENA_STATE_SIZE` bytes, so every global read
     // in a worker ran off the end of the block into neighbouring arena memory.
-    let arena_global_slots = globals_base
-        + link_slot_count
-        + term_state_slots
-        + presentation_mode_slots
-        + canvas_scene_slots;
+    let arena_global_slots =
+        globals_base + link_slot_count + term_state_slots + presentation_mode_slots;
     let link_init_symbol = if link_count > 0 {
         Some(nir::LINK_INIT_SYMBOL)
     } else {
@@ -1204,6 +1207,8 @@ pub(crate) fn lower_module_for_platform(
                 language_entry_accepts_args: entry.accepts_args,
                 uses_term,
                 initial_mode,
+                uses_canvas: module_uses_canvas(module)
+                    || module_uses_call(module, "canvas.blitSurface"),
             };
             let app_entry = platform
                 .emit_app_program_entry(&app_spec, &platform_imports)
@@ -1245,10 +1250,20 @@ pub(crate) fn lower_module_for_platform(
             )?);
             code_functions.extend(app_entry);
             data_objects.extend(platform.app_mode_data_objects(&module.project));
-            // plan-62-C Phase 2: the reconcile's selector/key data objects only for a
-            // program that can change mode (static default `None`), matching where its
-            // reconcile helpers are emitted — a Console-default program is unchanged.
-            if initial_mode == PresentationMode::None {
+            // plan-62-C Phase 2: the reconcile's selector/key data objects, for a
+            // program that can change mode (static default `None`) — matching where
+            // its reconcile helpers are emitted, so a Console-default program that
+            // never draws is unchanged.
+            //
+            // plan-98-C Phase 3 added the second half of the condition. The frame-blit
+            // helpers reference this same selector set and are emitted for any program
+            // that *draws*, which is not the same population: `IMPORT canvas` injects
+            // the package's always-helpers — `__canvas_presentSurface` among them —
+            // so even a program that only calls `canvas::rgb` emits a call to
+            // `canvas::blitSurface`. Without this the data objects the emitted helpers
+            // name would be missing ("data relocation target
+            // '_mfb_macapp_sel_delegate' is not a data object").
+            if initial_mode == PresentationMode::None || app_spec.uses_canvas {
                 data_objects.extend(platform.app_mode_reconcile_data_objects());
             }
         } else {
@@ -1651,7 +1666,6 @@ pub(crate) fn lower_module_for_platform(
             ArenaLayout {
                 term_state_offset,
                 presentation_mode_offset,
-                canvas_scene_offset,
                 global_slots: arena_global_slots,
             },
             uses_rng,
@@ -1934,7 +1948,6 @@ pub(crate) fn lower_runtime_helper(
                 string_symbols,
                 arena_layout.term_state_offset,
                 arena_layout.presentation_mode_offset,
-                arena_layout.canvas_scene_offset,
                 arena_layout.global_slots,
                 uses_rng,
             )?

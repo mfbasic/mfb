@@ -75,7 +75,10 @@ fn emit_input_pipe_wiring(asm: &mut Asm, label: &str) {
     asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
 }
 
-pub(super) fn emit_main_bootstrap(initial_mode: PresentationMode) -> CodeFunction {
+pub(super) fn emit_main_bootstrap(
+    initial_mode: PresentationMode,
+    uses_canvas: bool,
+) -> CodeFunction {
     let mut asm = Asm::new(MAIN_SYMBOL);
     asm.push(abi::label("entry"));
     // Reserve the frame and stash argc/argv (passed in x0/x1 by the kernel) before
@@ -433,7 +436,7 @@ pub(super) fn emit_main_bootstrap(initial_mode: PresentationMode) -> CodeFunctio
         // Synthesize + install the NSApplication delegate (worker spawn + quit-on-close).
         // Extracted so the windowless `None` path can install it too (plan-62-C). A
         // Console-default program never reconciles, so it installs no `mfbReconcile:`.
-        emit_gui_delegate(&mut asm, false);
+        emit_gui_delegate(&mut asm, false, uses_canvas);
 
         // Input-line buffer: an NSMutableString accumulating typed characters until
         // Return; stashed (retained) on NSApp so the keyDown: handler can reach it.
@@ -567,7 +570,7 @@ pub(super) fn emit_main_bootstrap(initial_mode: PresentationMode) -> CodeFunctio
         emit_input_pipe_wiring(&mut asm, "input_pipe_wired_none");
         // A None-default program references setMode, so it reconciles: install
         // `mfbReconcile:` (its IMP is emitted for this program).
-        emit_gui_delegate(&mut asm, true);
+        emit_gui_delegate(&mut asm, true, uses_canvas);
     }
     asm.push(abi::label("after_show"));
 
@@ -650,7 +653,7 @@ pub(super) fn emit_main_bootstrap(initial_mode: PresentationMode) -> CodeFunctio
 /// `None` program has no window, so the terminate handler never fires — but the
 /// launch handler is exactly what spawns its worker under `[NSApp run]`).
 /// Requires `REG_APP` to hold the shared `NSApplication`; clobbers `abi::LOCAL[4]`.
-fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool) {
+fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool, uses_canvas: bool) {
     // cls = objc_allocateClassPair(NSObject, "MFBAppDelegate", 0)
     asm.external_data(abi::LOCAL[4], CLASS_NS_OBJECT, LIB_OBJC);
     asm.local_address("x1", STR_DELEGATE_CLASS.0);
@@ -682,10 +685,15 @@ fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool) {
         asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
         asm.call_external("_class_addMethod", LIB_OBJC);
-        // class_addMethod(cls, @selector(mfbBlit:), imp, "v@:@") — plan-98-C
-        // Phase 3: the main-thread frame blit the worker marshals to. Installed on
-        // the same condition as `mfbReconcile:`, because only a program that can
-        // enter canvas mode can ever present a frame.
+    }
+    // class_addMethod(cls, @selector(mfbBlit:), imp, "v@:@") — plan-98-C Phase 3:
+    // the main-thread frame blit the worker marshals to.
+    //
+    // Gated on the program *drawing*, NOT on `with_reconcile`. The two look like the
+    // same question and are not: `mfbBlit:`'s IMP is emitted for a program that uses
+    // `canvas::`, so installing the method for every `None`-default program left a
+    // `class_addMethod` naming an IMP that was never emitted.
+    if uses_canvas {
         asm.load_selector(SEL_MFB_BLIT.0);
         asm.local_address("x2", CANVAS_BLIT_APPLY_SYMBOL);
         asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
