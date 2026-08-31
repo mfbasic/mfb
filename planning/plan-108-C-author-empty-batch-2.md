@@ -402,7 +402,43 @@ at 0 on it.
 
 ## Corrections
 
-<Filled in during execution.>
+*(Recorded during execution in the Phases block above; transcribed here at
+plan close-out so the section is not silently empty.)*
+
+1. **The letter was re-scoped at kickoff: five of its seven packages were
+   already filled.** The plan was written as "author the empty batch"; only
+   `general` was actually empty. Measured with
+   `./scripts/man-census.sh net http general astrings vector tcp udp`:
+
+   ```
+   net                5      5      5        5       10/10     11  19/19
+   http              19     19     19       19       38/38     11  25/25
+   general           18     18      0        0        0/21     11      -
+   astrings          15     15     15       15       23/23     11  17/17
+   vector            19     19     19       19        0/38     11  27/27
+   tcp               11     11     11       11       24/24     11    2/2
+   udp                8      8      8        8       17/17     11    3/3
+   ```
+
+   So **18 pages were authored here and 77 verified**, not 95 authored. The
+   phases were re-scoped in place rather than the feature re-split.
+
+2. **Two populations the phases never named.** The same census surfaced
+   **59 missing parameter descriptions** (`vector` 0/38, `general` 0/21) — a
+   column the letter had not measured at all — and **77 memory-vocabulary
+   hits** against the 33 §2 predicted. Both were absorbed into this letter
+   rather than deferred.
+
+3. **The network family's examples had never been compiled.** Fixing that is
+   commit `c5012ff2f`, and it exposed an unlocated compiler diagnostic
+   (bug-473: a package-qualified enum name reaches NIR with no file or line),
+   which the pages now avoid by using the unqualified spelling.
+
+4. **The settled handle wording is this letter's cross-letter deliverable** and
+   is recorded verbatim in "The settled network-family handle wording" above,
+   because plan-108-E's `tls` was required to copy it rather than reinvent it.
+   plan-108-F later verified the copy held, and found one two-word divergence
+   in `tcp::accept` ("stays open **and usable**"), which it aligned.
 
 ## Summary
 
