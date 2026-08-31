@@ -284,10 +284,9 @@ it. When you later compare secret material derived from these bytes (a MAC, a
 token, an API key), never use the ordinary `=` operator — it short-circuits and
 leaks timing; use `crypto::constantTimeEqual`.
 
-**Implementation.** Unlike the portable software cores in this package (the
-hashes, HMAC, HKDF, PBKDF2, and the AEADs), `randomBytes` is the one member here
-that is a **native runtime helper reading OS entropy directly**, not MFBASIC
-source. On **macOS and Linux** (glibc and musl) it uses `getentropy(2)`, filling
+**Where the randomness comes from.** Unlike the rest of this package, which
+computes its results itself and gives byte-identical answers on every target,
+`randomBytes` asks the operating system. On **macOS and Linux** (glibc and musl) it uses `getentropy(2)`, filling
 the buffer in chunks of at most 256 bytes (the per-call `getentropy` limit),
 transparent to the caller. On **Windows** it uses `BCryptGenRandom` with the
 `BCRYPT_USE_SYSTEM_PREFERRED_RNG` flag. Because the bytes come from OS entropy,

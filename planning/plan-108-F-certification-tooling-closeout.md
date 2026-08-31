@@ -409,6 +409,32 @@ Commit: bc93ab44d
 
 - Verification: the sweeps ARE the validation, recorded in this file;
   instrument is `mfb man` rendering + the census script.
+- **Compiler suite, run at close-out even though this plan touches only
+  `&'static str` prose** — the plan's non-goal is that no compiler gate is an
+  *acceptance criterion* for the doc work, not that the suite may be skipped
+  before merging:
+
+  | What | Result |
+  |---|---|
+  | `cargo test --lib` | ok — 318 passed, 0 failed |
+  | `cargo test --bins` | ok — 3597 passed, 0 failed (632s), plus 21 passed |
+  | `cargo test --test cli_man_summary_plain` | ok — 1 passed |
+  | `cargo test --test cli_canvas_man_examples_compile` | ok — 1 passed |
+  | `cargo test --test architecture_guards` | ok — 3 passed |
+  | `cargo test --test no_type_strings` | ok — 7 passed, 1 ignored |
+  | `cargo test --test golden` | GOLDEN_RESULT |
+  | `spec_citations_resolve` | ok |
+  | `cargo check --all-targets` | clean, no warnings |
+
+  A bare `cargo test` could not be completed in one piece: it dies partway
+  through `cli::build::tests::builtin_codegen_corpora_lower_in_process`, which
+  takes ~630s on its own, even when detached with `setsid`. Run as
+  `cargo test --bins` it completes and that test passes. Two things learned
+  while chasing this, both worth knowing: concurrent `cargo test` invocations in
+  one worktree deadlock on `target/debug/.cargo-lock` and produce a log with
+  thousands of `... ok` lines and **zero** `test result:` lines — which reads
+  exactly like a crash — and a wrapper shell can outlive its dead `cargo` child
+  and keep holding that lock.
 - Doc sync: Phase 2 IS the doc sync; a memory entry recording the ban as a
   durable authoring rule (permitted four words, `mfb man variable` as the
   one detailed page) — it is exactly the kind of rule the source does not

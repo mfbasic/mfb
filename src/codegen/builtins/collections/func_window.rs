@@ -368,10 +368,9 @@ is the empty list; an empty `value` likewise produces an empty result. Both
 runtime with `ErrInvalidArgument`. Note the parameter is named `stride`, not
 `step`.
 
-Each window is built by the internal slice helper, which is lowered natively as
-a bulk copy, so the elements are copied into new lists
-and no window shares storage with `value`. Overlapping windows therefore hold
-independent copies of the elements they share. `value` is not modified.
+Each window is a new list holding its own copy of the elements, so overlapping
+windows hold independent copies of the elements they share and nothing you do
+with a window affects `value`. `value` is not modified.
 
 `T` is inferred from `value` and carries no ordering or comparability
 requirement: `window` copies contiguous ranges and never inspects an element, so

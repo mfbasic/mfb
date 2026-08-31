@@ -181,7 +181,7 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "kind",
                 ty: ParameterType::Integer,
-                description: "The zone's kind as a `ZoneKind` discriminant (Utc, FixedOffset, or Local).",
+                description: "Which kind of zone this is: `ZoneKind.Utc`, `ZoneKind.FixedOffset`, or `ZoneKind.Local`.",
             },
             RecordProp {
                 name: "label",
