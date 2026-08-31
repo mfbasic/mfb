@@ -68,6 +68,8 @@ impl NativeBackend for Backend {
                 "canvas.fontFromBytes",
                 "canvas.destroyFont",
                 "canvas.fontRef",
+                "canvas.fontBytes",
+                "canvas.measureText",
                 "canvas.getSize",
                 "canvas.getBytes",
                 "canvas.setBytes",

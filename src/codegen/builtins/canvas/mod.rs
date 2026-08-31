@@ -48,6 +48,7 @@ mod func_image_ref;
 mod func_installed_items;
 mod func_installed_layers;
 pub(crate) mod func_load_font;
+mod func_measure_text;
 mod func_metal_draw;
 mod func_new_surface;
 mod func_present;
@@ -64,6 +65,7 @@ mod gen_present;
 mod helper_clamp_byte;
 mod helper_color;
 mod helper_draw;
+mod helper_font;
 mod helper_geometry;
 mod helper_items;
 mod helper_paint_defaults;
@@ -157,7 +159,14 @@ pub(crate) fn register(r: &mut Registry) {
     // use), `os`/`fs` (the headless frame dump), and `canvas` itself — a package
     // reaches its own internal-only members through the qualified spelling, exactly
     // as `astrings` reaches `astrings::readSpans`.
-    pkg.add_imports(vec!["canvas", "collections", "math", "os", "fs"]);
+    pkg.add_imports(vec![
+        "canvas",
+        "collections",
+        "math",
+        "os",
+        "fs",
+        "encoding",
+    ]);
 
     // ---- Value types the items are built from -----------------------------
 
@@ -767,6 +776,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_destroy_image::register(&mut pkg);
     func_image_ref::register(&mut pkg);
     func_load_font::register(&mut pkg);
+    func_measure_text::register(&mut pkg);
     func_destroy_font::register(&mut pkg);
     func_font_ref::register(&mut pkg);
     func_get_size::register(&mut pkg);
@@ -778,6 +788,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_color::register(&mut pkg);
     helper_shapes::register(&mut pkg);
     helper_draw::register(&mut pkg);
+    helper_font::register(&mut pkg);
     helper_geometry::register(&mut pkg);
     helper_items::register(&mut pkg);
     helper_surface::register(&mut pkg);

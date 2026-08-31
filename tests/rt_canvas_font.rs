@@ -196,3 +196,212 @@ END SUB
         "a missing path must stay ErrNotFound, not become ErrBadFontFile: {lines:?}",
     );
 }
+
+/// A minimal but *valid* TrueType file, built here so every expected metric below is
+/// derivable rather than copied from a run.
+///
+/// Borrowing a system font would make the assertions numbers-from-a-run: correct only
+/// as long as nobody looks, and untestable on a machine with a different font. Four
+/// tables is all `measureText` reads — `cmap` for codepoint→glyph, `hmtx` for the
+/// advance, `hhea` for `numberOfHMetrics` and the vertical metrics, `head` for
+/// `unitsPerEm` — so the fixture is small enough to state completely:
+///
+/// * `unitsPerEm` 1000, so a `size` of 100 scales by exactly `0.1`;
+/// * ascender 800, descender **-200** (the file stores it negative), lineGap 100;
+/// * `numberOfHMetrics` 3, advances `[500, 250, 300]`;
+/// * `cmap` maps `A`→glyph 1 and `B`→glyph 2, and nothing else.
+///
+/// So `A` is 25.0 px wide, `B` is 30.0, and any unmapped character falls to glyph 0 at
+/// 50.0. `descent` comes back **positive** (20.0) because `TextMetrics` documents it
+/// that way, and `height` is `80 + 20 + 10 = 110.0`.
+fn minimal_truetype() -> Vec<u8> {
+    fn be16(v: u16) -> [u8; 2] {
+        v.to_be_bytes()
+    }
+    fn be32(v: u32) -> [u8; 4] {
+        v.to_be_bytes()
+    }
+
+    // `cmap`: one format-12 subtable, two single-codepoint groups.
+    let mut cmap = Vec::new();
+    cmap.extend(be16(0)); // version
+    cmap.extend(be16(1)); // numTables
+    cmap.extend(be16(3)); // platformID: Windows
+    cmap.extend(be16(10)); // encodingID: UCS-4
+    cmap.extend(be32(12)); // subtable offset, from the start of `cmap`
+    cmap.extend(be16(12)); // format 12
+    cmap.extend(be16(0)); // reserved
+    cmap.extend(be32(40)); // subtable length
+    cmap.extend(be32(0)); // language
+    cmap.extend(be32(2)); // groups
+    for (ch, gid) in [(b'A' as u32, 1u32), (b'B' as u32, 2)] {
+        cmap.extend(be32(ch)); // startCharCode
+        cmap.extend(be32(ch)); // endCharCode
+        cmap.extend(be32(gid)); // startGlyphID
+    }
+
+    // `head`: 54 bytes, and only `unitsPerEm` at +18 is read.
+    let mut head = vec![0u8; 54];
+    head[18..20].copy_from_slice(&be16(1000));
+
+    // `hhea`: 36 bytes — ascender/descender/lineGap at +4/+6/+8, numberOfHMetrics at +34.
+    let mut hhea = vec![0u8; 36];
+    hhea[4..6].copy_from_slice(&be16(800));
+    hhea[6..8].copy_from_slice(&be16((-200i16) as u16));
+    hhea[8..10].copy_from_slice(&be16(100));
+    hhea[34..36].copy_from_slice(&be16(3));
+
+    // `hmtx`: three (advanceWidth, leftSideBearing) pairs.
+    let mut hmtx = Vec::new();
+    for advance in [500u16, 250, 300] {
+        hmtx.extend(be16(advance));
+        hmtx.extend(be16(0));
+    }
+
+    // Tag order is the sorted order a real directory uses.
+    let tables: [(&[u8; 4], Vec<u8>); 4] = [
+        (b"cmap", cmap),
+        (b"head", head),
+        (b"hhea", hhea),
+        (b"hmtx", hmtx),
+    ];
+
+    let mut font = Vec::new();
+    font.extend(be32(0x0001_0000)); // sfnt version: TrueType outlines
+    font.extend(be16(tables.len() as u16));
+    font.extend(be16(0)); // searchRange — unread, this reader scans linearly
+    font.extend(be16(0)); // entrySelector
+    font.extend(be16(0)); // rangeShift
+
+    let mut offset = 12 + 16 * tables.len() as u32;
+    let mut body: Vec<u8> = Vec::new();
+    for (tag, data) in &tables {
+        font.extend(*tag);
+        font.extend(be32(0)); // checksum — unread
+        font.extend(be32(offset));
+        font.extend(be32(data.len() as u32));
+        offset += data.len() as u32;
+        body.extend(data);
+    }
+    font.extend(body);
+    font
+}
+
+/// Build a project, drop `fixture.ttf` beside it, run, and return stdout lines.
+fn run_with_font(name: &str, source: &str) -> Vec<String> {
+    let project = common::temp_project(name, source);
+    std::fs::write(project.join("fixture.ttf"), minimal_truetype()).expect("write the font");
+    let build = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg("-app")
+        .arg(&project)
+        .output()
+        .expect("run mfb build -app");
+    assert!(
+        build.status.success(),
+        "mfb build -app failed:\n{}\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr),
+    );
+    let binary = app_binary(&project, name);
+    let out = Command::new(&binary)
+        .current_dir(&project)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        out.status.success(),
+        "program exited {:?}:\n{}\n{}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let lines = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let _ = std::fs::remove_dir_all(&project);
+    lines
+}
+
+const MEASURE: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    io::print("load failed " & toString(e.code))
+    EXIT SUB
+  END TRAP
+  FOR EACH s IN ["A", "B", "AB", "X", "AXB", ""]
+    LET m AS TextMetrics = canvas::measureText(face, 100.0, s)
+    io::print("[" & s & "] w=" & toString(m.width) & " h=" & toString(m.height) & " a=" & toString(m.ascent) & " d=" & toString(m.descent) & " g=" & toString(m.lineGap))
+  NEXT
+  LET half AS TextMetrics = canvas::measureText(face, 50.0, "AB")
+  io::print("[half] w=" & toString(half.width))
+END SUB
+"#;
+
+#[test]
+fn measure_text_scales_the_fonts_own_metrics() {
+    let lines = run_with_font("canvas_measure_text", MEASURE);
+    let at = |i: usize| lines.get(i).cloned().unwrap_or_default();
+
+    // Per-glyph advances straight out of `hmtx`, scaled by `size / unitsPerEm` = 0.1.
+    // The vertical numbers are the same for every string, including the empty one: a
+    // line has a height whether or not anything is on it.
+    assert_eq!(at(0), "[A] w=25.00 h=110.00 a=80.00 d=20.00 g=10.00");
+    assert_eq!(at(1), "[B] w=30.00 h=110.00 a=80.00 d=20.00 g=10.00");
+    assert_eq!(at(2), "[AB] w=55.00 h=110.00 a=80.00 d=20.00 g=10.00");
+
+    // An unmapped codepoint is glyph 0 — `.notdef` — which has its own advance. The
+    // font must not be asked to fail here: a missing glyph draws the empty box the
+    // font provides and takes up its width.
+    assert_eq!(at(3), "[X] w=50.00 h=110.00 a=80.00 d=20.00 g=10.00");
+    assert_eq!(at(4), "[AXB] w=105.00 h=110.00 a=80.00 d=20.00 g=10.00");
+
+    // An empty string is zero wide and still a full line tall.
+    assert_eq!(at(5), "[] w=0.00 h=110.00 a=80.00 d=20.00 g=10.00");
+
+    // Halving the size halves every measurement — the scale is the only thing `size`
+    // touches, which is what makes the metrics usable for layout at any size.
+    assert_eq!(at(6), "[half] w=27.50");
+}
+
+#[test]
+fn descent_is_reported_positive_though_the_file_stores_it_negative() {
+    // `hhea.descender` in the fixture is -200, and `TextMetrics` documents `descent`
+    // as a positive distance below the baseline. Getting this backwards produces a
+    // `height` of 60 instead of 110 — a plausible-looking number that lays text out
+    // wrong, which is exactly the kind of thing a shipped constant should pin.
+    let lines = run_with_font(
+        "canvas_measure_descent",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    io::print("load failed")
+    EXIT SUB
+  END TRAP
+  LET m AS TextMetrics = canvas::measureText(face, 100.0, "A")
+  IF m.descent > 0.0 THEN
+    io::print("descent is positive: " & toString(m.descent))
+  ELSE
+    io::print("descent is not positive: " & toString(m.descent))
+  END IF
+  io::print("height " & toString(m.height))
+END SUB
+"#,
+    );
+    assert_eq!(
+        lines.first().map(String::as_str),
+        Some("descent is positive: 20.00")
+    );
+    assert_eq!(lines.get(1).map(String::as_str), Some("height 110.00"));
+}

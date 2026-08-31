@@ -228,9 +228,24 @@ the raster proves machine-variant, which it should not) and within tolerance on 
       reader.
 - [ ] Build the chosen font rasteriser (hand-rolled, Correction 1); implement Text rendering: shape
       (positioning) + per-`(font,size,codepoint)` glyph raster into the atlas + tinted quads.
-- [~] `canvas::loadFont` **is done** — it landed with the resource above, for the
-      reason recorded there. `canvas::measureText` → `TextMetrics` remains, and needs
-      the `cmap`/`hmtx`/`hhea` reader that the render box below also needs.
+- [x] `canvas::loadFont` landed with the resource above; `canvas::measureText` →
+      `TextMetrics` now lands with the TrueType table reader it shares with the render
+      box. `helper_font.rs` is that reader: big-endian primitives, the table directory,
+      `head`/`hhea` metrics, `hmtx` advances, and `cmap` formats 4 and 12.
+
+      **`TextMetrics` was already declared by plan-98-B, and its contract is the one
+      implemented** — `descent` positive, `height = ascent + descent + lineGap` — not
+      the one the raw file suggests. The duplicate record this box first added was
+      caught by `DOC_DUPLICATE` at build time (Correction 7).
+
+      Measured against a **synthesized** font whose every number is stated in the test
+      rather than copied from a run (`unitsPerEm` 1000, ascender 800, descender -200,
+      lineGap 100, advances `[500, 250, 300]`, `cmap` mapping only `A` and `B`):
+      `A` is 25.0 px at size 100, `B` is 30.0, an unmapped `X` falls to glyph 0 at
+      50.0, `AXB` is 105.0, halving the size halves every number, and an empty string
+      is zero wide and still a full line tall. Also measured on a real font — Andale
+      Mono, `unitsPerEm` 2048 — where "hello" at 24 px is 72.01, which is five
+      monospaced advances.
 - [ ] Tests: a text scene renders exact-match on the software oracle (or documented text
       tolerance); `measureText` returns expected metrics; Text renders within tolerance on
       Metal + Vulkan.
@@ -414,3 +429,34 @@ not support runtime call" *before codegen*. Worth recording because the failure 
 build time and names the call, so it is easy to fix and easy to forget: the list is
 per target, and a member added on one platform's say-so is invisible on the other two
 until someone builds for them.
+
+**Correction 6 (Phase 1) — the read-only alias was wrong, and it took a segfault to
+show it.** `canvas::fontBytes` first returned the resource's own byte block instead of
+a copy, on the reasoning that a font file is hundreds of kilobytes and `measureText`
+runs per string per frame, so copying makes measuring cost the font's size rather than
+the string's length. The reasoning is right and the code is not: the value is bound to
+an ordinary `LET` inside `__canvas_measureText`, and that binding's scope-drop reclaims
+the block — so the *second* call on the same font reads what the first one freed. The
+first `measureText` printed correct metrics and the next one exited 139.
+
+It now copies, like `canvas::getBytes`. The cost is real and paid deliberately: what
+removes it is the glyph cache in Phase 2, which skips the whole read, where an alias
+only skipped the copy and handed out a dangling block to do it.
+
+**Correction 7 (Phase 1) — `TextMetrics` already existed, with a different contract.**
+plan-98-B declared the record, documenting `descent` as "a positive number" and
+`height` as `ascent + descent + lineGap`. The implementation here first followed the
+*file's* convention instead — `hhea.descender` is negative and `height` would be
+`ascent - descent` — and declared its own record saying so. `DOC_DUPLICATE` caught the
+second declaration at build time; the wrong sign would not have been caught by
+anything, and produces a height of 60 where 110 belongs, which is a plausible-looking
+number that lays text out wrong. The published contract wins, the sign is flipped once
+at the boundary, and `descent_is_reported_positive_though_the_file_stores_it_negative`
+pins it.
+
+**Correction 8 (Phase 1) — two MFBASIC surprises worth writing down.** `sub` is a
+reserved word, so `LET sub AS Integer = …` in the `cmap` reader is a parse error
+("Binding name must be an identifier") rather than a shadowing warning. And `DIV` is
+*fractional* division language-wide (`.../04_types.md`: "DIV is the explicit Float
+escape") — integer division is plain `/` on two `Integer`s, which is the opposite of
+what the keyword's name suggests to anyone arriving from Pascal or VB.
