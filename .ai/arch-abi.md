@@ -417,3 +417,26 @@ Reordering the writes happens to work for one mapping and is a trap for the next
 added. The two-pass form cannot be wrong and the allocator coalesces most of the moves
 away. Same family as the scratch-pool/argument-bank aliasing above: a fixed ABI token is
 not a variable, and the allocator will not keep a live range in it for you.
+
+## A Windows thread start routine is entered ALREADY 16-byte aligned
+
+`BaseThreadInitThunk` does not leave the 8-byte skew an ordinary `call` does. So the
+odd-multiple-of-8 frame that is right for a normal Win64 prologue is wrong for a
+`CreateThread` entry, which needs a multiple of 16.
+
+What it costs is not the entry function: the program body's alignment *is* its caller's
+call site, so an 8-byte skew there is inherited by **every Win32 call the program ever
+makes**. It presents as `0xC0000005` deep inside ntdll — bug-478 faulted in the
+activation-context machinery, ~20 frames from anything this repository wrote, on an
+empty `SUB main() END SUB`.
+
+And the two entry paths disagree by exactly 8, because the console entry comes from the
+PE loader and `entry_stack_misaligned_on_entry` already shaves its skew. So a frame size
+measured on one path *breaks* the other. **Test both**, every time — `scripts/test-winapp.sh`
+runs the app path and an ordinary `--target windows-x86_64` build runs the console one.
+
+Two guards, both RED-checked: `the_worker_frame_keeps_the_stack_16_byte_aligned`
+(`win_x86_64/app/mod.rs`) and `every_calling_win32_seam_reserves_the_callees_shadow_space`
+(`win_x86_64/code.rs`). The second covers the other half of that bug: **shadow space is
+the caller's job and lands above its own `rsp`**, so an emitter that calls out without
+reserving 32 bytes hands the callee 32 bytes of its own locals.

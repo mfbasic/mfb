@@ -2448,6 +2448,27 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // scratch was pre-filled with the arena address as a fallback).
         const BCRYPT: &str = "bcrypt.dll";
         const BCRYPT_USE_SYSTEM_PREFERRED_RNG: &str = "2";
+        // **The frame is the whole point of this emitter.** Win64 makes the CALLER
+        // reserve 32 bytes of shadow space, which the callee is free to spill its four
+        // register arguments into — and those bytes sit *above* the caller's `rsp`, in
+        // the caller's own frame. Without this `sub`, `BCryptGenRandom` writes over 32
+        // bytes of whatever the enclosing function had there.
+        //
+        // Every other external-call emitter in this file reserves one; this one did not,
+        // and the damage was invisible on the console path and fatal on app mode's
+        // worker thread, where the corrupted frame belonged to code that then dereferenced
+        // it. See bug-478 — an empty `SUB main() END SUB` faulted with `0xC0000005` inside
+        // ntdll's activation-context machinery, several frames away from anything this
+        // repository wrote.
+        // 0x20, not 0x28. This emitter is *inline* in a larger body whose frame the
+        // `abi_function` finalizer already established and already aligned to 16, so
+        // the reservation has to be a multiple of 16 to keep it that way. 0x28 is the
+        // right number for a function's own prologue — where entry `rsp` is 8 mod 16
+        // because the call pushed a return address — and it is exactly wrong here:
+        // measured, an empty `SUB main() END SUB` console build faulted with it and
+        // ran clean with this.
+        const FRAME: usize = 0x20;
+        instructions.push(abi::subtract_stack(FRAME));
         instructions.extend([
             // Shuffle (buf x0→pbBuffer, len x1→cbBuffer) in an order that needs no
             // scratch: copy len up to ARG[2] before ARG[1] is overwritten, then buf
@@ -2459,6 +2480,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::move_immediate(abi::c_arg(3), "Integer", BCRYPT_USE_SYSTEM_PREFERRED_RNG),
         ]);
         call_external(from, "BCryptGenRandom", BCRYPT, instructions, relocations);
+        instructions.push(abi::add_stack(FRAME));
         Ok(())
     }
 
@@ -3447,6 +3469,79 @@ mod c_result_tests {
                 "{name} promises its result in abi::return_register() but never moves \
                  abi::c_return(0) there — the caller will read whatever the aligned \
                  bank happened to hold (plan-85 split the two)"
+            );
+        }
+    }
+
+    /// Emit one seam and report the largest stack reservation it makes before its
+    /// first external call.
+    fn shadow_before_first_call(
+        emit: impl Fn(
+            &Platform,
+            &str,
+            &HashMap<String, String>,
+            &mut Vec<CodeInstruction>,
+            &mut Vec<CodeRelocation>,
+        ) -> Result<(), String>,
+    ) -> usize {
+        let mut instructions = Vec::new();
+        let mut relocations = Vec::new();
+        let imports = HashMap::new();
+        emit(
+            &Platform,
+            "t",
+            &imports,
+            &mut instructions,
+            &mut relocations,
+        )
+        .expect("seam emits");
+        let mut reserved = 0usize;
+        for ins in &instructions {
+            if matches!(ins.op, CodeOp::BranchLink | CodeOp::BranchLinkRegister) {
+                break;
+            }
+            if ins.op == CodeOp::SubSp {
+                if let Some(imm) = ins.get("imm").and_then(|v| v.parse::<usize>().ok()) {
+                    reserved = reserved.max(imm);
+                }
+            }
+        }
+        reserved
+    }
+
+    /// A Win64 caller reserves the callee's shadow space, and every seam that calls
+    /// out has to.
+    ///
+    /// The 32 bytes are not scratch below `rsp` — they are *above* it, in the caller's
+    /// own frame, so a seam that calls without reserving them hands the callee 32 bytes
+    /// of its own locals to spill into. `emit_random_bytes` did exactly that: it emitted
+    /// no frame at all and called `BCryptGenRandom` straight through.
+    ///
+    /// The damage was invisible on the console path and fatal in app mode, where the
+    /// corrupted frame belonged to code that then dereferenced it — an **empty**
+    /// `SUB main() END SUB` died with `0xC0000005` inside ntdll's activation-context
+    /// machinery, ~20 frames from anything this repository wrote, and every Windows
+    /// `--app` program was unrunnable (bug-478).
+    ///
+    /// `emit_temp_directory` is the control: it already reserved a frame, so a test
+    /// that could only ever pass would prove nothing about its own reach.
+    #[test]
+    fn every_calling_win32_seam_reserves_the_callees_shadow_space() {
+        for (name, reserved) in [
+            (
+                "emit_random_bytes",
+                shadow_before_first_call(Platform::emit_random_bytes),
+            ),
+            (
+                "emit_temp_directory",
+                shadow_before_first_call(Platform::emit_temp_directory),
+            ),
+        ] {
+            assert!(
+                reserved >= 0x20,
+                "{name} reserves {reserved} bytes before its first call; Win64 requires \
+                 the caller to leave the callee 32 bytes of shadow space, and those \
+                 bytes are in the CALLER's frame (bug-478)"
             );
         }
     }

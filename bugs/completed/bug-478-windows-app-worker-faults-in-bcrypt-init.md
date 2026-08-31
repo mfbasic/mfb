@@ -5,11 +5,12 @@ Effort: large (half a day+) — Windows-only, needs the box and a minidump
 Severity: HIGH
 Class: Correctness (Windows app-mode runtime)
 
-Status: Open
-Regression Test: none yet — there is no Windows box script (`scripts/` has
-`test-appimage.sh` and `test-macapp.sh`; nothing for `windows-x86_64`). Writing one
-is part of the fix, and is the reason this went unnoticed: **no Windows binary this
-repo produces has ever been executed by an automated test.**
+Status: Fixed — 2026-08-31
+Regression Test: `scripts/test-winapp.sh` (the box script that did not exist, and whose
+absence is why this shipped), plus two codegen guards that run in `cargo test`:
+`every_calling_win32_seam_reserves_the_callees_shadow_space` in
+`src/target/win_x86_64/code.rs` and `the_worker_frame_keeps_the_stack_16_byte_aligned`
+in `src/target/win_x86_64/app/mod.rs`. Both RED-checked against the original defects.
 
 ## What happens
 
@@ -120,3 +121,64 @@ All four share one root: plan-85 split `%retC` from the aligned MFB bank, and
 `win_x86_64/app/mod.rs` was never audited for it. `src/target/win_x86_64/code.rs`
 was — its comments cite plan-85 explicitly — which is why the console path works
 and app mode did not.
+
+## Fix
+
+**Two defects, and the second was hiding behind the first.**
+
+**1. `emit_random_bytes` reserved no shadow space.** Win64 makes the *caller* leave the
+callee 32 bytes, and those bytes are **above** `rsp` — in the caller's own frame. So a
+seam that calls without reserving them hands the callee 32 bytes of its own locals to
+spill into. `emit_random_bytes` emitted no frame at all; every other external-call
+emitter in `win_x86_64/code.rs` reserves one. That is hypothesis 1 from this report,
+now proven: reserving the frame took the empty `SUB main() END SUB` from
+`0xC0000005` to `rc=0`.
+
+**2. The worker's frame was an odd multiple of 8.** `emit_worker` reserved `0x28`, which
+is the right shape for an ordinary prologue — a function reached by `call` arrives with
+`rsp % 16 == 8`. A **thread start routine does not**: `BaseThreadInitThunk` enters it
+already aligned. So `0x28` left the call site 8 bytes out, and because the program body's
+alignment simply *is* its call site's, every Win32 call the program would ever make
+inherited the skew.
+
+That is the one that made this so hard to see. The console path was green throughout —
+it comes from the PE loader, whose 8-byte skew `entry_stack_misaligned_on_entry` already
+shaves — so the two paths disagreed by exactly 8 bytes, and a fix measured on one broke
+the other. Measured both ways: with the worker at `0x28`, the shadow-space frame had to
+be `0x28` for app mode and `0x20` for console; at `0x20` both want `0x20`, which is what
+every other emitter in the file already assumed.
+
+Neither hypothesis about the TEB was needed. The read of `0xFFFFFFFFFFFFFFFF` in ntdll's
+activation-context path was downstream of a misaligned stack, not a cause.
+
+## Evidence
+
+Box 2230, `scripts/test-winapp.sh`:
+
+```
+rc=0
+worker reached main
+readback:written by the worker
+ok: the app-mode program exited cleanly
+ok: the worker thread reached the program's first statement
+ok: a file written by the worker reads back with its contents
+```
+
+The console path re-checked at the same commit (empty `SUB main() END SUB`,
+`--target windows-x86_64` without `--app`): `rc=0`. Against the merge-base binary
+(`git archive 739ee1434 | tar -x -C /tmp/base98` + `cargo build --release`) the same
+source also gives `rc=0`, which is how the intermediate console regression was caught
+rather than shipped: an early version of this fix used `0x28` and broke it.
+
+## What it cost to find, and what would have caught it sooner
+
+Five Windows defects in one sitting, all of them shipped, all of them invisible to a
+green `cargo test` on a macOS host: `fs` writes, `CreateThread`'s handle, the WNDPROC
+return, `GetEnvironmentVariableW` in three places, and this. The first four share a root
+(plan-85's `%retC` split, never audited in `win_x86_64/app/`); this one does not — it is
+older, and it is a plain ABI mistake.
+
+What they share is the *absence of a Windows test*. `scripts/test-winapp.sh` now runs an
+app-mode program on the box and checks three things the four fixed defects each broke.
+It is three assertions and it would have caught four of the five on the day they landed.
+

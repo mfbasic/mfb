@@ -864,7 +864,21 @@ fn emit_worker() -> CodeFunction {
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
     ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(0x28));
+    // 0x20, not 0x28 — and the difference is the whole of bug-478's second half.
+    //
+    // A Windows thread start routine is entered with `rsp` **already** 16-byte
+    // aligned: `BaseThreadInitThunk` does not leave the ordinary `call`'s 8-byte
+    // skew. A function reached by a normal `call` does, which is why an ordinary
+    // prologue reserves an odd multiple of 8 and this one must not.
+    //
+    // The program body assumes `rsp % 16 == 0` throughout — every external-call
+    // emitter in `win_x86_64/code.rs` reserves a multiple of 16 on top of it — and
+    // `entry_stack_misaligned_on_entry` shaves the 8 the loader's own `call` leaves.
+    // So the body's alignment is exactly this call site's, and reserving 0x28 here
+    // handed the entire app-mode program a stack that was 8 bytes out for every
+    // Win32 call it would ever make. Measured: the same emitter frame that ran clean
+    // on the console path faulted on the worker, and vice versa.
+    ins.push(abi::subtract_stack(0x20));
     // No kernel argc/argv on a worker stack; the program body captures os::args
     // (if used) via GetCommandLineW itself (plan-66-B). Pass 0/0.
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
@@ -872,7 +886,7 @@ fn emit_worker() -> CodeFunction {
     call_internal(from, MACAPP_PROGRAM_SYMBOL, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     call_external(from, "ExitThread", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::add_stack(0x28));
+    ins.push(abi::add_stack(0x20));
     ins.push(abi::return_());
     code_function("winapp.worker", WORKER_SYMBOL, ins, rel)
 }
@@ -3648,6 +3662,44 @@ mod tests {
         assert!(
             symbols.contains(&WNDPROC_SYMBOL),
             "wndproc present: {symbols:?}"
+        );
+    }
+
+    /// The worker's frame is a multiple of 16, because a thread start routine is
+    /// entered already aligned.
+    ///
+    /// `BaseThreadInitThunk` does not leave the 8-byte skew an ordinary `call` does, so
+    /// the odd-multiple-of-8 frame that is right for a normal prologue is exactly wrong
+    /// here — and what it costs is not this function, it is *the whole program*: the
+    /// body's alignment is this call site's, and every Win32 call the program ever makes
+    /// inherits it. bug-478's second half was `0x28` here, which handed app mode a stack
+    /// 8 bytes out for its entire life. The console path was unaffected and green
+    /// throughout, which is why it survived four earlier Windows fixes.
+    #[test]
+    fn the_worker_frame_keeps_the_stack_16_byte_aligned() {
+        let fns = emit_app_program_entry(&spec(), &HashMap::new()).expect("app entry");
+        let worker = fns
+            .iter()
+            .find(|f| f.symbol == WORKER_SYMBOL)
+            .expect("worker present");
+        let reserved: usize = worker
+            .instructions
+            .iter()
+            .find(|ins| ins.op == crate::arch::ops::CodeOp::SubSp)
+            .and_then(|ins| ins.get("imm"))
+            .and_then(|v| v.parse().ok())
+            .expect("the worker reserves a frame");
+        assert!(
+            reserved >= 0x20,
+            "the worker reserves {reserved} bytes; Win64 needs 32 for the callee's \
+             shadow space"
+        );
+        assert_eq!(
+            reserved % 16,
+            0,
+            "the worker reserves {reserved} bytes, which is not a multiple of 16 — a \
+             thread start routine is entered ALREADY aligned, so an odd multiple of 8 \
+             here misaligns the whole program body (bug-478)"
         );
     }
 

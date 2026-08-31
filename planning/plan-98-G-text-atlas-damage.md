@@ -389,7 +389,7 @@ differ by a single pixel and a tolerance would hide exactly the stale-rectangle 
 guarding against. A GPU backend renders full-frame whatever the damage is, which is the
 "capability-absent" arm and is reported as such. Run only the new damage/text tests plus the
 existing canvas goldens.
-Commit: —
+Commit: 2eef85015
 
 ### Phase 4 — Plan-98 closeout: the one full-suite run
 
