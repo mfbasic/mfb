@@ -184,7 +184,8 @@ simpler here and avoids a translation layer; Vulkan is Linux/Windows only.
 Acceptance: MET. One quad per item renders via Metal and matches the software
 reference (measured: exactly, gate: within tolerance); the software backend is
 untouched and still passes exact-match (`cargo test canvas` 62 passed / 0 failed).
-Commit: —
+Commit: `74b4dc0a2` (seam + framework plumbing), `0c2130c6d` (pipeline, renderer,
+tests)
 
 ### Phase 2 — Full scene render + resize via drawableSize
 
