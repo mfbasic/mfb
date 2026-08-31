@@ -1,12 +1,16 @@
 # bug-458: `os::uptime` raises `ErrUnsupported` on the Linux CI runner — `sysinfo(2)` returns non-zero, killing the program mid-fixture
 
 Last updated: 2026-08-30
-Effort: small (30m–1h) to diagnose; unknown to fix until the `sysinfo` return is known
-Severity: MEDIUM
-Class: Correctness (implemented call fails at runtime on one platform; red CI row)
+Effort: small — root-caused; the fix is one instruction
+Severity: **HIGH** (raised from MEDIUM: the observed `ErrUnsupported` is the
+*lucky* outcome — see "Root Cause". The same defect can instead corrupt memory
+silently and return a wrong answer.)
+Class: Correctness (unstaged ABI argument; implemented call fails or corrupts at runtime)
 
-Status: Open
-Regression Test: — (`tests/acceptance` fixture `rt-behavior/os/func_os_system_status_valid` already covers it and is currently red on Linux CI)
+Status: **Root-caused and fixed on branch `worktree-winpass` (peer session
+mfb-39) — NOT on `main`.** Keep this open until that fix lands; `origin/main`
+at `980c79f2e` still has the defect.
+Regression Test: — (`tests/acceptance` fixture `rt-behavior/os/func_os_system_status_valid` covers it and is red on Linux CI; see the coverage hole below for why nothing else caught it)
 
 `os::uptime()` is implemented, gated in, and import-wired on Linux, but on the
 GitHub Actions Linux runner it raises `ErrUnsupported` (`7-705-0007`) at
@@ -65,9 +69,80 @@ has no `ErrUnsupported` path at all (non-Windows is a plain `geteuid`), which
 corroborates it. The two missing golden lines are one failing call plus one
 line of collateral, not two failing calls.
 
-## Root Cause
+## Root Cause — CONFIRMED
 
-Not yet root-caused; the mechanism is narrowed to a single branch.
+**`lower_uptime`'s Linux arm never stages ARG[0].** `sysinfo(struct sysinfo *info)`
+takes a pointer to the buffer it fills. The buffer is meant to be the frame
+(`stack_size = 128`, and the following `load_u64(seconds, sp, 0)` reads
+`struct sysinfo`'s leading `long uptime` back out) — but the address was never
+passed. Emitted code:
+
+```
+sub_sp 152
+bl sysinfo          <- ARG[0] = whatever the caller happened to leave there
+cmp rax, 0
+b.ne fail
+ldr r10, [rsp+16]
+```
+
+Found by peer session mfb-39 from the candidate list below; it was **#3 (does a
+valid pointer reach the call), not #1 (glibc vs musl)**.
+
+### Why the severity is HIGH, not MEDIUM
+
+The `ErrUnsupported` we observed is the *benign* branch. Whatever junk is in
+ARG[0] decides which of two things happens:
+
+- **Unmapped junk** → `EFAULT` → `sysinfo` returns `-1` → `ErrUnsupported`.
+  Loud, safe, and what CI happened to hit.
+- **Writable junk** → `sysinfo` returns **0** after writing a 112-byte
+  `struct sysinfo` over an arbitrary address, and the load then reports a
+  garbage uptime from a slot nothing wrote. **Silent memory corruption plus a
+  wrong answer, no error at all.**
+
+Which branch you get is down to register residue from the caller. Any Linux
+program that called `os::uptime()` may have hit the silent one.
+
+### The fix
+
+One instruction — `add_immediate(c_arg(0), stack_pointer(), 0)`, the same form
+the macOS arm already uses to stage every `sysctl` argument. It must be
+`add_immediate` from `sp` rather than a raw pointer: `finalize_frame` shifts
+sp-relative accesses past the callee-saved area, and shifts this along with the
+load, so both land on the same address (`add_imm rdi, rsp, 16` against
+`ldr [rsp+16]`).
+
+### Verified, and the libc axis is eliminated
+
+Baseline vs fixed compiler, executed on real hosts — Ubuntu x86-64 (glibc) and
+Alpine x86-64 (musl) **both** go `Error: 7-705-0007 / exit 255` →
+`uptime_nonnegative=TRUE / exit 0`. So Phase 1's glibc-vs-musl split is
+*eliminated*, not halved, and it reproduces off CI entirely: "runner artifact"
+was never on the table. The fixture's output now matches its committed golden
+with **no golden touched**, and `artifact-gate all` is 0 diffs.
+
+### Sibling audit (clean)
+
+Everything else in `builtins/os` that takes arguments stages them. `getuid` →
+`getpwuid` looks like the same shape but is safe: the external-call seam emits
+`mov rdi, rax` after each call, and on SysV `rdi` is both the MFB return bank
+and ARG[0], so the uid lands correctly by construction. `sysinfo` was unique in
+needing a *frame pointer* staged rather than a value flowing out of a previous
+call.
+
+### Why this survived: a coverage hole
+
+`tests/byte-identity/os` never calls `os::uptime` — it covers
+`arch`/`args`/`cpuCount`/`environ`/… So `artifact-gate` reporting 0 diffs after
+the fix is *correct*, not a missed rebuild: no golden exercises this path. The
+acceptance fixture was the only thing touching it, and it was red and being
+read as environmental. **Worth closing that hole regardless of this bug.**
+
+---
+
+### Original narrowing (kept for the record)
+
+The mechanism was narrowed to a single branch before the root cause was found:
 
 `src/codegen/builtins/os/func_uptime.rs:23` is the Linux arm:
 
