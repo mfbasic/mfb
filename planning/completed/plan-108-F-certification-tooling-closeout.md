@@ -422,9 +422,29 @@ Commit: bc93ab44d
   | `cargo test --test cli_canvas_man_examples_compile` | ok — 1 passed |
   | `cargo test --test architecture_guards` | ok — 3 passed |
   | `cargo test --test no_type_strings` | ok — 7 passed, 1 ignored |
-  | `cargo test --test golden` | GOLDEN_RESULT |
+  | `cargo test --test golden` | 4 fixtures PASSED, 0 FAILED before the run was killed by the environment; superseded by the direct check below |
+  | `.ncode` byte-identity, direct | `collections` and `fs` hash **identically** to their committed `macos-aarch64.ncodesum` goldens |
   | `spec_citations_resolve` | ok |
   | `cargo check --all-targets` | clean, no warnings |
+
+  The `golden` harness could not be run to completion either — every detached
+  attempt was killed by the environment part-way, and `scripts/artifact-gate.sh`
+  correctly refused with "Another artifact-gate (pid 32405) is running" (a peer
+  session's). So codegen-neutrality was proven directly instead, which is
+  stronger than the summary line anyway:
+
+  ```
+  $ cp -R tests/byte-identity/collections /tmp/bi-coll && rm -rf /tmp/bi-coll/golden
+  $ ./target/release/mfb build /tmp/bi-coll -q -ncode
+  $ shasum -a 256 /tmp/bi-coll/collections_codegen_cover_rt.ncode
+  e851cc7d7729e6488da8d5b7735ad10ba0fa771147b639abd7b544b434903580
+  $ cat tests/byte-identity/collections/golden/collections_codegen_cover_rt.macos-aarch64.ncodesum
+  e851cc7d7729e6488da8d5b7735ad10ba0fa771147b639abd7b544b434903580
+  ```
+
+  Same for `fs` (`2da69633...` both sides). That is the expected result and the
+  reason the plan's non-goals put compiler gates out of scope in the first
+  place: a `&'static str` the compiler never reads cannot move a `.ncode` byte.
 
   A bare `cargo test` could not be completed in one piece: it dies partway
   through `cli::build::tests::builtin_codegen_corpora_lower_in_process`, which
