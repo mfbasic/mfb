@@ -34,6 +34,33 @@ root in chain, or issuer not locally available) is accepted — while the server
 enforced, on all three backends. Nothing else in the package changes, and no
 existing call site's behavior changes.
 
+## Sequencing: this must land AFTER bug-476 (2026-08-31, coordinator)
+
+bug-476's root cause turned out to be general, not http-specific:
+`static_type_name`'s `NirValue::Call` arm is a hand-written table, so an
+*untabulated call passed as an overload-selecting argument* answers `None` and
+every such selector silently takes its fallback code form. **`tls::connect` is on
+the affected list** (host/port vs `Address`), alongside `tcp::connect`,
+`tcp`/`tls`/`udp` `write`/`send`/`poll`, `net::ping` and `tls::localAddress`.
+
+Why that blocks this bug specifically: `func_connect.rs:41-44` records that the
+two overloads **do not share a positional layout** — `timeoutMs` and `serverName`
+are parameters 2 and 3 of the host/port form but 1 and 2 of the `Address` form,
+"since one endpoint value replaces two", and named arguments "bind per-overload,
+against whichever overload the argument types select".
+
+So today, `tls::connect(addressReturningCall(), …)` selects the wrong form and
+its named arguments bind against the wrong positional layout. This bug adds a
+**new named `Boolean` parameter that must bind correctly in both forms**.
+Implementing it against the broken selection risks encoding the wrong layout, or
+shipping a parameter that binds to the wrong slot in the `Address` form —
+and the failure would be silent, in a security-relevant flag, which is the worst
+possible place for it.
+
+Wait for bug-476 to land, then build on the corrected selection. When it has
+landed, add an `Address`-form fixture for the new argument specifically, not only
+a host/port one — the two layouts are exactly what makes this member fragile.
+
 ## Implementation constraints, added 2026-08-31 (coordinator, pre-dispatch)
 
 This document states the *behavior* correctly. What follows is the **mechanism**
