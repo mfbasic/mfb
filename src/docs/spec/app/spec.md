@@ -33,6 +33,9 @@ Neither shape emits a console `.out`. See `./mfb spec architecture artifacts`.
   handling).
 - `term-backend` — the GUI `term::` grid/cell model, the drawing surface, and the
   content-view swap on `term::on`/`off`.
+- `canvas` — the 2D drawing surface of `Mode.Canvas`: the retained-scene model,
+  what installing a scene guarantees, and why images are named rather than
+  embedded.
 
 ## See Also
 

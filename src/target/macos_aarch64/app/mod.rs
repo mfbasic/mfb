@@ -356,6 +356,48 @@ const RECONCILE_SYMBOL: &str = "_mfb_macapp_reconcile";
 /// when there is no app delegate (headless — no run loop to drain the perform, so
 /// `waitUntilDone:YES` would deadlock).
 const RECONCILE_MARSHAL_SYMBOL: &str = "_mfb_macapp_reconcile_marshal";
+/// plan-98-C Phase 3: the canvas frame blit.
+///
+/// `mfbBlit:` carries a `CGImageRef` boxed in an `NSNumber`, because
+/// `performSelectorOnMainThread:withObject:` takes an object and a `CGImageRef` is
+/// not one. Boxing the pointer rather than wrapping it in an `NSValue` keeps the
+/// unboxing to a single `longLongValue` send.
+///
+/// The box is built with `alloc`/`initWithLongLong:` and explicitly `release`d
+/// rather than with the autoreleasing `numberWithLongLong:`. The graphics thread has
+/// no autorelease pool — and giving it one would only defer the problem, since a
+/// per-frame autoreleased object on a thread-lifetime pool grows without bound. An
+/// unpooled autorelease also does not merely leak: the thread-exit TSD cleanup
+/// drains it and aborts in libmalloc, which is what it did.
+const SEL_MFB_BLIT: (&str, &str) = ("_mfb_macapp_sel_mfbBlit", "mfbBlit:");
+const SEL_INIT_WITH_LONG_LONG: (&str, &str) =
+    ("_mfb_macapp_sel_initWithLongLong", "initWithLongLong:");
+const SEL_LONG_LONG_VALUE: (&str, &str) = ("_mfb_macapp_sel_longLongValue", "longLongValue");
+const SEL_SET_CONTENTS: (&str, &str) = ("_mfb_macapp_sel_setContents", "setContents:");
+/// Worker-side helper `canvas::blitSurface` calls: wraps the frame in a `CGImage`
+/// and marshals `mfbBlit:` onto the main thread (`waitUntilDone:YES`), then releases
+/// its reference. A no-op when there is no app delegate — headless, where there is
+/// no run loop to drain the perform and `waitUntilDone:YES` would deadlock, and
+/// where the frame has nowhere to go anyway.
+const CANVAS_BLIT_SYMBOL: &str = "_mfb_macapp_canvas_blit";
+/// The app delegate, published by the bootstrap on the main thread.
+///
+/// The blit runs on the graphics thread and must reach the delegate to marshal to
+/// it. It cannot get there the obvious way: `[NSApplication sharedApplication]` is
+/// main-thread-only, and calling it from a background thread is both unsanctioned
+/// and — measured — enough to leave that thread with an Obj-C thread-local the exit
+/// cleanup then aborts on ("pointer being freed was not allocated" inside
+/// `_pthread_tsd_cleanup`). Reading a plain pointer touches no Obj-C at all.
+const DELEGATE_GLOBAL_SYM: &str = "_mfb_macapp_delegate";
+/// IMP for the delegate's `mfbBlit:` — runs on the main thread and sets the boxed
+/// `CGImage` as the canvas layer's contents.
+const CANVAS_BLIT_APPLY_SYMBOL: &str = "_mfb_macapp_canvas_blit_apply";
+/// IMP for `MFBCanvasView setFrameSize:` — publishes the new surface size and asks
+/// for a repaint (plan-98-D Phase 3).
+const CANVAS_SET_FRAME_SIZE_SYMBOL: &str = "_mfb_macapp_canvas_setFrameSize";
+/// The emitted `canvas::signalRedraw` runtime helper, by its derived symbol name.
+const CANVAS_SIGNAL_REDRAW_SYMBOL: &str = "_mfb_rt_canvas_canvas_signalRedraw";
+const LIB_COREGRAPHICS: &str = "CoreGraphics";
 /// Main-thread helper the reconcile IMP calls to build a fresh transcript window
 /// on the first `None`→`Console` switch (a `None`-start program has no startup
 /// window). Returns the new window in `x0` and stashes the window + transcript
@@ -365,6 +407,41 @@ const RECONCILE_BUILD_SYMBOL: &str = "_mfb_macapp_reconcile_build";
 /// `None`→`Console` re-points `ASSOC_KEY` (the io-routing key) at it without
 /// rebuilding the window. Only reconcile-built (None-start) windows use it.
 const RECONCILE_TV_KEY: &str = "_mfb_macapp_reconcile_tv_key";
+// plan-98-A Phase 3: the `Mode.Canvas` arm of the reconcile. Canvas swaps the
+// window's content view for a bare layer-backed `NSView` — a substitute for the
+// transcript / TermView, not a second window — so plan-98-E can later attach a
+// `CAMetalLayer` to it. No renderer, no GPU, no drawing here.
+/// Main-thread helper the reconcile IMP calls for the `Canvas` arm: ensures the
+/// window exists (reusing [`RECONCILE_BUILD_SYMBOL`] when it does not), ensures the
+/// layer-backed canvas view exists, installs it as the content view, and clears
+/// `ASSOC_KEY` so `io::` writes degrade to the fd sink. Returns the window in `x0`.
+const RECONCILE_CANVAS_SYMBOL: &str = "_mfb_macapp_reconcile_canvas";
+/// Assoc key stashing the canvas view. Held with `OBJC_ASSOCIATION_ASSIGN`, exactly
+/// like [`RECONCILE_TV_KEY`]: the view is kept alive by the `alloc` reference the
+/// build deliberately never releases (the window's own retain is the second), so
+/// swapping the content view away on mode exit drops it back to one rather than
+/// deallocating it. That is what makes enter → exit → re-enter allocate exactly one
+/// canvas view and leave no dangling associated pointer.
+const CANVAS_VIEW_ASSOC_KEY: &str = "_mfb_macapp_canvas_view_key";
+/// `setWantsLayer:` — makes the plain `NSView` layer-backed, which is the whole
+/// point of the canvas surface: `[view layer]` is then non-nil and can be replaced
+/// by (or host) a `CAMetalLayer` in plan-98-E.
+const SEL_SET_WANTS_LAYER: (&str, &str) = ("_mfb_macapp_sel_setWantsLayer", "setWantsLayer:");
+/// `layer` — reads the backing layer back, proving `setWantsLayer:` took effect.
+const SEL_LAYER: (&str, &str) = ("_mfb_macapp_sel_layer", "layer");
+// plan-98-A Phase 4: canvas keyboard input. The canvas surface is a synthesized
+// `MFBCanvasView : NSView` rather than a bare `NSView`, purely so it can override
+// `keyDown:` and `acceptsFirstResponder` — the same two overrides `TermView` adds
+// for `term::` input, and reaching the same window input pipe.
+/// Runtime class name of the synthesized canvas view.
+const STR_CANVASVIEW_CLASS: (&str, &str) = ("_mfb_macapp_str_canvasviewClass", "MFBCanvasView");
+/// IMP for `MFBCanvasView acceptsFirstResponder` (returns YES) — without it the
+/// view can never become first responder and `keyDown:` is never called.
+const CANVAS_ACCEPTS_FR_SYMBOL: &str = "_mfb_macapp_canvas_acceptsFR";
+/// IMP for `MFBCanvasView keyDown:` — writes the key's UTF-8 straight to the window
+/// input pipe, with no echo and no line buffering. Canvas mode has no text surface
+/// to echo into (a canvas draws its own UI), so raw delivery is the whole contract.
+const CANVAS_KEY_DOWN_SYMBOL: &str = "_mfb_macapp_canvas_keyDown";
 /// `NSForegroundColorAttributeName` — attributed-string key for the glyph colour.
 const NS_FOREGROUND_COLOR_ATTRIBUTE_NAME: &str = "_NSForegroundColorAttributeName";
 /// IMP for the TermView `mfbWriteString:` main-thread write entry point.
@@ -678,7 +755,7 @@ impl Asm {
 /// [`crate::codegen::error::constants::MACAPP_PROGRAM_SYMBOL`].
 pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
-        emit_main_bootstrap(spec.initial_mode),
+        emit_main_bootstrap(spec.initial_mode, spec.uses_canvas),
         emit_worker_shim(spec),
         emit_append_helper(),
         emit_finish_helper(spec.uses_term),
@@ -708,9 +785,49 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
     if spec.initial_mode == PresentationMode::None {
         functions.push(emit_reconcile_marshal_helper());
         functions.push(emit_reconcile_build_helper());
+        // plan-98-A Phase 3: the `Canvas` arm's surface builder. Emitted alongside
+        // the other reconcile helpers rather than behind a "does this program use
+        // canvas mode?" test — the mode is a runtime value, so there is no static
+        // answer to that question.
+        functions.push(emit_reconcile_canvas_helper(spec.uses_canvas));
+        // plan-98-A Phase 4: the canvas view's two method IMPs. Referenced by
+        // `class_addMethod` inside the canvas builder, so they are emitted with it.
+        functions.push(emit_canvas_accepts_first_responder());
+        functions.push(emit_canvas_key_down_helper());
         functions.push(emit_reconcile_helper());
     }
+    // plan-98-C Phase 3: the frame blit's worker-side marshal and its main-thread
+    // apply. Gated on the program *drawing*, not on its start mode: reaching
+    // `Mode.Canvas` requires `app::setMode` and so forces a `None` start, but the
+    // converse does not hold — a `Console`-start program that merely mentions
+    // `canvas::` still emits `canvas::blitSurface`, which calls these.
+    if spec.uses_canvas {
+        functions.push(emit_canvas_blit_helper());
+        functions.push(emit_canvas_blit_apply_helper());
+        functions.push(emit_canvas_set_frame_size_helper());
+    }
     Ok(functions)
+}
+
+/// plan-98-C Phase 3: the worker-side `canvas::blitSurface` seam.
+///
+/// The caller has already staged the frame pointer, width and height in the MFB
+/// argument registers, which is exactly the calling convention
+/// [`emit_canvas_blit_helper`] expects — so this is a plain call, with none of the
+/// argument reloading the mode reconcile needs.
+pub(crate) fn emit_canvas_blit_seam(
+    from_symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::branch_link(CANVAS_BLIT_SYMBOL));
+    relocations.push(CodeRelocation {
+        from: from_symbol.to_string(),
+        to: CANVAS_BLIT_SYMBOL.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    });
 }
 
 /// plan-62-C Phase 2: the worker-side `app::setMode` reconcile seam. `setMode` has
@@ -922,20 +1039,42 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
             value: "00".to_string(),
         });
     }
+    // plan-98-D Phase 2: the delegate pointer the graphics thread reads instead of
+    // asking `NSApp` (main-thread-only). Emitted with the always-on set because the
+    // bootstrap *writes* it unconditionally — gating it on the canvas set left every
+    // non-canvas app program storing into a symbol that was never emitted.
+    objects.push(CodeDataObject {
+        symbol: DELEGATE_GLOBAL_SYM.to_string(),
+        kind: "raw".to_string(),
+        layout: "mfb.macapp.delegate.v1 { u64 delegate }".to_string(),
+        align: 8,
+        size: 8,
+        value: "0000000000000000".to_string(),
+    });
     objects
 }
 
-/// plan-62-C Phase 2: the selector strings and the one associated-object key the
-/// runtime `setMode` reconcile needs. Emitted only for a program whose static
-/// default is `None` (it references `app::setMode`, so its reconcile helpers exist)
-/// — a `Console`-default program never reconciles and keeps its exact data-object
-/// set (and native goldens) unchanged.
+/// plan-62-C Phase 2 / plan-98-A Phase 3: the selector strings and the
+/// associated-object keys the runtime `setMode` reconcile needs. Emitted only for a
+/// program whose static default is `None` (it references `app::setMode`, so its
+/// reconcile helpers exist) — a `Console`-default program never reconciles and keeps
+/// its exact data-object set unchanged.
 pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
     let mut objects: Vec<CodeDataObject> = [
         SEL_ORDER_OUT,
         SEL_INT_VALUE,
         SEL_DELEGATE,
         SEL_MFB_RECONCILE,
+        // plan-98-A Phase 3: the `Canvas` arm's layer-backing sends.
+        SEL_SET_WANTS_LAYER,
+        SEL_LAYER,
+        // plan-98-A Phase 4: the synthesized canvas view's class name.
+        STR_CANVASVIEW_CLASS,
+        // plan-98-C Phase 3: the frame blit's marshal and its main-thread apply.
+        SEL_MFB_BLIT,
+        SEL_INIT_WITH_LONG_LONG,
+        SEL_LONG_LONG_VALUE,
+        SEL_SET_CONTENTS,
     ]
     .iter()
     .map(|(symbol, text)| CodeDataObject {
@@ -947,14 +1086,16 @@ pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
         value: hex_cstring(text),
     })
     .collect();
-    objects.push(CodeDataObject {
-        symbol: RECONCILE_TV_KEY.to_string(),
-        kind: "raw".to_string(),
-        layout: "associated-object key (unique address)".to_string(),
-        align: 1,
-        size: 1,
-        value: "00".to_string(),
-    });
+    for key in [RECONCILE_TV_KEY, CANVAS_VIEW_ASSOC_KEY] {
+        objects.push(CodeDataObject {
+            symbol: key.to_string(),
+            kind: "raw".to_string(),
+            layout: "associated-object key (unique address)".to_string(),
+            align: 1,
+            size: 1,
+            value: "00".to_string(),
+        });
+    }
     objects
 }
 
@@ -1048,5 +1189,472 @@ mod release_tests {
                 .any(|d| d.symbol.as_str() == SEL_RELEASE.0),
             "the `release` selector C-string must be emitted (bug-53)"
         );
+    }
+}
+
+#[cfg(test)]
+/// plan-98-A Phase 3: the `Mode.Canvas` arm of the macOS reconcile.
+///
+/// These inspect the emitted code directly rather than running it, because the
+/// reconcile IMP is **unreachable under `MFB_MACAPP_HEADLESS=1`**: headless installs
+/// no app delegate (`emit_main_bootstrap` skips `emit_gui_delegate`), and
+/// `_mfb_macapp_reconcile_marshal` no-ops when `[NSApp delegate]` is nil — it must,
+/// since `waitUntilDone:YES` with no run loop to drain the perform would deadlock.
+/// So a headless run proves the mode slot and the worker-side seam, but cannot
+/// observe the surface at all. The real surface build/teardown is proven by the
+/// GUI-gated `scripts/test-macapp.sh` case; these tests are what keeps the emitted
+/// arm honest in `cargo test`.
+mod canvas_reconcile_tests {
+    use super::*;
+
+    /// plan-98-C Phase 3: the blit checks for a delegate before allocating.
+    ///
+    /// Headless there is no delegate and no run loop, so `waitUntilDone:YES` would
+    /// deadlock. Checking first also means a headless run — which is every golden
+    /// test — builds no CoreGraphics objects at all rather than building an image it
+    /// immediately has to release.
+    ///
+    /// The check reads `DELEGATE_GLOBAL_SYM`, not `[NSApp delegate]`: since
+    /// plan-98-D Phase 2 the blit runs on the graphics thread, and `NSApp` is
+    /// main-thread-only.
+    #[test]
+    fn canvas_blit_checks_for_a_delegate_before_building_an_image() {
+        let func = emit_canvas_blit_helper();
+        let order: Vec<&str> = func
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|name| *name == DELEGATE_GLOBAL_SYM || *name == "_CGColorSpaceCreateDeviceRGB")
+            .collect();
+        let delegate = order
+            .iter()
+            .position(|name| *name == DELEGATE_GLOBAL_SYM)
+            .expect("the blit must check for an app delegate");
+        let colour_space = order
+            .iter()
+            .position(|name| *name == "_CGColorSpaceCreateDeviceRGB")
+            .expect("the blit must create a colour space for its bitmap context");
+        assert!(
+            delegate < colour_space,
+            "the delegate check must precede any CoreGraphics allocation; got {order:?}"
+        );
+    }
+
+    /// Every CoreGraphics object the blit creates is released.
+    ///
+    /// A leak here is one colour space, one context and one image *per frame* — at
+    /// sixty frames a second the process would grow without bound. The image in
+    /// particular can only be released because the perform waited: with
+    /// `waitUntilDone:NO` the main thread might not have consumed it yet.
+    #[test]
+    fn canvas_blit_releases_every_core_graphics_object() {
+        let func = emit_canvas_blit_helper();
+        for (create, release) in [
+            ("_CGColorSpaceCreateDeviceRGB", "_CGColorSpaceRelease"),
+            ("_CGBitmapContextCreate", "_CGContextRelease"),
+            ("_CGBitmapContextCreateImage", "_CGImageRelease"),
+        ] {
+            let created = func
+                .relocations
+                .iter()
+                .filter(|r| r.to.as_str() == create)
+                .count();
+            let released = func
+                .relocations
+                .iter()
+                .filter(|r| r.to.as_str() == release)
+                .count();
+            assert_eq!(
+                created, released,
+                "{create} is called {created} time(s) but {release} {released} — \
+                 every frame would leak the difference"
+            );
+        }
+    }
+
+    /// The main-thread apply sets the image as the canvas layer's contents.
+    ///
+    /// Both lookups must be guarded: the program may have left canvas mode between
+    /// the render and the perform, and `setContents:` on a nil layer would be a
+    /// silent no-op that looks like a rasteriser bug.
+    #[test]
+    fn canvas_blit_apply_sets_the_layer_contents() {
+        let func = emit_canvas_blit_apply_helper();
+        let order: Vec<&str> = func
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|name| {
+                *name == SEL_LONG_LONG_VALUE.0
+                    || *name == CANVAS_VIEW_ASSOC_KEY
+                    || *name == SEL_LAYER.0
+                    || *name == SEL_SET_CONTENTS.0
+            })
+            // An address load is an adrp/add pair, so each symbol appears twice in a
+            // row. Collapse runs — the question here is the order, not the count.
+            .fold(Vec::new(), |mut seen: Vec<&str>, name| {
+                if seen.last() != Some(&name) {
+                    seen.push(name);
+                }
+                seen
+            });
+        assert_eq!(
+            order,
+            vec![
+                SEL_LONG_LONG_VALUE.0,
+                CANVAS_VIEW_ASSOC_KEY,
+                SEL_LAYER.0,
+                SEL_SET_CONTENTS.0,
+            ],
+            "unbox the image, find the canvas view, take its layer, then set the \
+             contents; got {order:?}"
+        );
+    }
+
+    /// The `mfbBlit:` method is installed on the delegate alongside `mfbReconcile:`.
+    ///
+    /// Without it `performSelectorOnMainThread:` raises an unrecognized-selector
+    /// exception on the first present rather than drawing anything.
+    #[test]
+    fn delegate_gets_the_blit_selector() {
+        let func = emit_main_bootstrap(PresentationMode::None, true);
+        let names: Vec<&str> = func.relocations.iter().map(|r| r.to.as_str()).collect();
+        assert!(
+            names.contains(&SEL_MFB_BLIT.0),
+            "the delegate must install mfbBlit: or the first present raises"
+        );
+        assert!(
+            names.contains(&CANVAS_BLIT_APPLY_SYMBOL),
+            "the mfbBlit: IMP must be referenced by class_addMethod"
+        );
+    }
+
+    /// Count the sends of a given selector in a body: `load_selector` lays down an
+    /// `adrp`/`add` page pair per send, contributing exactly one `DataAddrHi`
+    /// relocation to that selector's C-string.
+    fn selector_send_count(rel: &[CodeRelocation], selector: &str) -> usize {
+        rel.iter()
+            .filter(|r| r.to.as_str() == selector && r.kind == RelocIntent::DataAddrHi)
+            .count()
+    }
+
+    fn calls(rel: &[CodeRelocation], target: &str) -> usize {
+        rel.iter()
+            .filter(|r| r.to.as_str() == target && r.kind == RelocIntent::Call)
+            .count()
+    }
+
+    /// Calls to an imported libSystem/ObjC function, counted by its relocations.
+    fn calls_external(func: &CodeFunction, name: &str) -> usize {
+        func.relocations
+            .iter()
+            .filter(|r| r.to.as_str() == name && r.kind == RelocIntent::Call)
+            .count()
+    }
+
+    /// The compare immediates the reconcile dispatch tests, in emitted order.
+    fn compare_immediates(func: &CodeFunction) -> Vec<String> {
+        func.instructions
+            .iter()
+            .filter(|i| i.op == crate::arch::ops::CodeOp::CmpImm)
+            .filter_map(|i| {
+                i.fields
+                    .iter()
+                    .find(|(name, _)| *name == "rhs")
+                    .map(|(_, value)| value.to_string())
+            })
+            .collect()
+    }
+
+    /// The canvas surface is a *layer-backed* view: without `setWantsLayer:YES`,
+    /// `[view layer]` is nil and plan-98-E has nothing to attach a `CAMetalLayer`
+    /// to. Both sends must be there — the second forces the layer to exist
+    /// eagerly, so the handle is retrievable the moment `setMode` returns.
+    #[test]
+    fn canvas_helper_makes_the_view_layer_backed() {
+        let func = emit_reconcile_canvas_helper(true);
+        assert_eq!(
+            selector_send_count(&func.relocations, SEL_SET_WANTS_LAYER.0),
+            1,
+            "the canvas view must be sent setWantsLayer:"
+        );
+        assert_eq!(
+            selector_send_count(&func.relocations, SEL_LAYER.0),
+            1,
+            "the canvas build must force the backing layer to exist"
+        );
+        assert_eq!(
+            selector_send_count(&func.relocations, SEL_SET_CONTENT_VIEW.0),
+            1,
+            "the canvas view must be installed as the window's content view"
+        );
+    }
+
+    /// The canvas view is `alloc`'d but deliberately never `-release`d, mirroring
+    /// the transcript view: the window's retain plus the un-released `alloc`
+    /// reference is what lets `setContentView:` swap it away on mode exit without
+    /// deallocating it, so `CANVAS_VIEW_ASSOC_KEY` (a non-retaining ASSIGN key)
+    /// stays valid and re-entry reuses the same view. A `-release` here would make
+    /// the stash dangle on the first exit.
+    #[test]
+    fn canvas_view_is_not_released_so_the_assign_stash_cannot_dangle() {
+        let func = emit_reconcile_canvas_helper(true);
+        assert_eq!(
+            selector_send_count(&func.relocations, SEL_RELEASE.0),
+            0,
+            "releasing the canvas view would leave CANVAS_VIEW_ASSOC_KEY dangling \
+             after the first mode exit"
+        );
+    }
+
+    /// A canvas-first program has never presented a surface, so no window exists
+    /// yet — the canvas arm must be able to build one rather than messaging nil.
+    #[test]
+    fn canvas_helper_builds_a_window_when_none_exists() {
+        let func = emit_reconcile_canvas_helper(true);
+        assert_eq!(
+            calls(&func.relocations, RECONCILE_BUILD_SYMBOL),
+            1,
+            "the canvas arm must fall back to the window builder when no window \
+             has been created yet"
+        );
+    }
+
+    /// The dispatch must test `Canvas` (2) *before* the old `Console`-or-not test.
+    /// With a third variant "not Console" no longer implies `None`, so the old
+    /// two-way shape would take the `None` arm for `Canvas` and order the window
+    /// out the instant a program entered canvas mode.
+    #[test]
+    fn reconcile_dispatches_canvas_before_the_console_test() {
+        let func = emit_reconcile_helper();
+        let immediates = compare_immediates(&func);
+        let canvas = immediates
+            .iter()
+            .position(|value| value == "2")
+            .expect("reconcile must test for the Canvas discriminant");
+        let console = immediates
+            .iter()
+            .position(|value| value == "0")
+            .expect("reconcile must test for the Console discriminant");
+        assert!(
+            canvas < console,
+            "Canvas (2) must be dispatched before the Console/not-Console test, \
+             else Canvas falls into the None arm; got {immediates:?}"
+        );
+        assert_eq!(
+            calls(&func.relocations, RECONCILE_CANVAS_SYMBOL),
+            1,
+            "the Canvas arm must call the canvas surface builder"
+        );
+    }
+
+    /// Leaving canvas by *either* route must restore the transcript content view,
+    /// so the canvas view is not left installed on a re-shown transcript window or
+    /// on a hidden one. The teardown reads `CANVAS_VIEW_ASSOC_KEY` once per
+    /// non-canvas arm; the canvas arm reaches the key through its own builder.
+    #[test]
+    fn both_non_canvas_arms_tear_the_canvas_view_down() {
+        let func = emit_reconcile_helper();
+        let key_reads = func
+            .relocations
+            .iter()
+            .filter(|r| r.to.as_str() == CANVAS_VIEW_ASSOC_KEY && r.kind == RelocIntent::DataAddrHi)
+            .count();
+        assert_eq!(
+            key_reads, 2,
+            "the Console and None arms must each run the canvas teardown"
+        );
+    }
+
+    /// Every symbol the arm references must be emitted, or the relocations added
+    /// above dangle at link time.
+    #[test]
+    fn canvas_selectors_and_key_are_emitted() {
+        let objects = app_mode_reconcile_data_objects();
+        for symbol in [
+            SEL_SET_WANTS_LAYER.0,
+            SEL_LAYER.0,
+            CANVAS_VIEW_ASSOC_KEY,
+            STR_CANVASVIEW_CLASS.0,
+        ] {
+            assert!(
+                objects.iter().any(|d| d.symbol.as_str() == symbol),
+                "{symbol} must be emitted as a data object"
+            );
+        }
+    }
+
+    // --- plan-98-A Phase 4: canvas keyboard input ---
+
+    /// The canvas surface is a synthesized `MFBCanvasView : NSView`, not a bare
+    /// `NSView`, and each override earns its place:
+    ///
+    /// * `acceptsFirstResponder` — a plain `NSView` returns NO and so never becomes
+    ///   first responder, and
+    /// * `keyDown:` — without it window keys go nowhere and `io::readByte` in canvas
+    ///   mode blocks forever. Those two are why the subclass exists at all.
+    /// * `setFrameSize:` — plan-98-D Phase 3: a user drag becomes a new surface size
+    ///   here.
+    ///
+    /// Asserted by **selector**, not by counting `class_addMethod`: a count says
+    /// nothing about *which* methods were installed, and it forces an unrelated edit
+    /// every time a fourth one is added.
+    #[test]
+    fn canvas_view_overrides_the_two_methods_that_deliver_keys() {
+        let func = emit_reconcile_canvas_helper(true);
+        assert_eq!(
+            calls_external(&func, "_objc_allocateClassPair"),
+            1,
+            "the canvas view must be a synthesized subclass, not a bare NSView"
+        );
+        let referenced: Vec<&str> = func.relocations.iter().map(|r| r.to.as_str()).collect();
+        for (selector, why) in [
+            (
+                SEL_ACCEPTS_FIRST_RESPONDER.0,
+                "a plain NSView returns NO and never becomes first responder",
+            ),
+            (SEL_KEY_DOWN.0, "without it window keys reach nothing"),
+            (
+                SEL_SET_FRAME_SIZE.0,
+                "without it a resize never reaches the renderer",
+            ),
+        ] {
+            assert!(
+                referenced.contains(&selector),
+                "the canvas view must override {selector}: {why}"
+            );
+        }
+        assert_eq!(
+            calls_external(&func, "_class_addMethod"),
+            3,
+            "one class_addMethod per override, and no more"
+        );
+        assert_eq!(
+            calls_external(&func, "_objc_registerClassPair"),
+            1,
+            "an unregistered class pair cannot be instantiated"
+        );
+        for imp in [CANVAS_ACCEPTS_FR_SYMBOL, CANVAS_KEY_DOWN_SYMBOL] {
+            assert!(
+                func.relocations.iter().any(|r| r.to.as_str() == imp),
+                "{imp} must be installed as a method IMP"
+            );
+        }
+    }
+
+    /// `acceptsFirstResponder` only makes the view *eligible*. Without an explicit
+    /// `makeFirstResponder:` the transcript view (or nothing) keeps focus and
+    /// `keyDown:` is never delivered. It must be re-sent on every canvas entry, not
+    /// just at build, because leaving canvas mode moves focus with the content view
+    /// — so the send sits after the have-view join, outside the build-once branch.
+    #[test]
+    fn canvas_entry_makes_the_view_first_responder() {
+        let func = emit_reconcile_canvas_helper(true);
+        assert_eq!(
+            selector_send_count(&func.relocations, SEL_MAKE_FIRST_RESPONDER.0),
+            1,
+            "the canvas view must be made first responder or it receives no keys"
+        );
+    }
+
+    /// The canvas `keyDown:` writes to the same window input pipe the transcript and
+    /// TermView handlers use — that is what makes `io::readByte`/`readLine` in canvas
+    /// mode read the window's keys rather than a second, parallel channel.
+    #[test]
+    fn canvas_key_down_writes_to_the_window_input_pipe() {
+        let func = emit_canvas_key_down_helper();
+        assert!(
+            func.relocations
+                .iter()
+                .any(|r| r.to.as_str() == PIPE_ASSOC_KEY),
+            "the canvas keyDown: must read the window input pipe's write end"
+        );
+        assert_eq!(
+            calls_external(&func, "_write"),
+            2,
+            "one write for the CR->LF newline, one for the raw UTF-8 bytes"
+        );
+    }
+
+    /// `[event characters]` reports Return as CR, but `io::readLine` terminates on
+    /// LF. Without the translation a canvas program's `readLine` would hang on a
+    /// line the user had already ended — the same reason `editproc` does it on
+    /// Windows and the transcript handler does it here.
+    #[test]
+    fn canvas_key_down_translates_return_to_newline() {
+        let func = emit_canvas_key_down_helper();
+        let immediates: Vec<String> = func
+            .instructions
+            .iter()
+            .filter(|i| i.op == crate::arch::ops::CodeOp::CmpImm)
+            .filter_map(|i| {
+                i.fields
+                    .iter()
+                    .find(|(name, _)| *name == "rhs")
+                    .map(|(_, value)| value.to_string())
+            })
+            .collect();
+        assert!(
+            immediates.iter().any(|value| value == "13"),
+            "the handler must test for CR (13); got {immediates:?}"
+        );
+        assert!(
+            func.instructions.iter().any(|i| {
+                i.op == crate::arch::ops::CodeOp::MovImm
+                    && i.fields
+                        .iter()
+                        .any(|(name, value)| *name == "value" && value.to_string() == "10")
+            }),
+            "the handler must materialize LF (10) as the delivered byte"
+        );
+    }
+
+    /// The two IMPs must be emitted for any program that can reconcile, or the
+    /// `class_addMethod` relocations above dangle at link time.
+    #[test]
+    fn canvas_key_imps_are_emitted_with_the_reconcile_helpers() {
+        let spec = AppEntrySpec {
+            language_entry_accepts_args: false,
+            uses_term: false,
+            initial_mode: PresentationMode::None,
+            uses_canvas: true,
+        };
+        let symbols: Vec<String> = emit_app_program_entry(&spec)
+            .expect("app entry")
+            .into_iter()
+            .map(|f| f.symbol)
+            .collect();
+        for imp in [CANVAS_ACCEPTS_FR_SYMBOL, CANVAS_KEY_DOWN_SYMBOL] {
+            assert!(
+                symbols.iter().any(|s| s == imp),
+                "{imp} must be emitted; got {symbols:?}"
+            );
+        }
+    }
+
+    /// plan-98-A Phase 4: the window input pipe must be wired for a `None`-default
+    /// program too. A `None` default means the program references `app::setMode`, so
+    /// it is the only kind that can ever reach `Console` or `Canvas` — and in both
+    /// the window is the input source. Wiring it only in the `Console`-default arm
+    /// left `PIPE_ASSOC_KEY` nil, so a `keyDown:` handler would have written to fd 0
+    /// (nil reads as 0), i.e. back into stdin.
+    #[test]
+    fn the_input_pipe_is_wired_for_a_none_default_program() {
+        let none = emit_main_bootstrap(PresentationMode::None, false);
+        assert!(
+            none.relocations
+                .iter()
+                .any(|r| r.to.as_str() == PIPE_ASSOC_KEY),
+            "a None-default bootstrap must wire the window input pipe"
+        );
+        assert_eq!(
+            calls_external(&none, "_pipe"),
+            1,
+            "exactly one pipe, created before the worker spawns"
+        );
+        // Console-default keeps exactly one too — the extraction must not have
+        // duplicated it into the branch it came from.
+        let console = emit_main_bootstrap(PresentationMode::Console, false);
+        assert_eq!(calls_external(&console, "_pipe"), 1);
     }
 }

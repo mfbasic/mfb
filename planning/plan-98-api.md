@@ -16,8 +16,12 @@ no longer in the rendered scene and the GPU has drained the last frame that used
 (`closed AND lastUsedFrame < lastCompletedFrame`). That gate is entirely runtime-side and
 invisible to MFB.
 
-**Mode gate:** every `canvas::` call requires `Mode.Canvas` and traps `ErrWrongMode`
-elsewhere. `term::*` traps in canvas mode. **`io::*` works fully in canvas mode**:
+**Mode gate:** every `canvas::` call that touches the surface requires `Mode.Canvas`
+and traps `ErrWrongMode` elsewhere. **Exception (plan-98-B Correction 12):**
+`canvas::rgb`/`rgba` — and the `Paint` constructors `fill`/`stroke`/`fillStroke` —
+touch no surface, they only build a value, so they are ungated and a program may
+compute its palette before it presents anything. Precedent: `io::readByte` sits
+outside the gated read set while its three siblings are in it. `term::*` traps in canvas mode. **`io::*` works fully in canvas mode**:
 outputs (`io::print`/`io::write`/error variants) go to stdout/stderr, and inputs
 (`io::readByte`/`readChar`/`readLine`/`input`) come **from the window** — the same input
 source console mode uses, just delivered from the canvas window's key events. (In
@@ -47,15 +51,28 @@ covers exactly three calls today — `io::input`, `io::readLine`, `io::readChar`
 
 - `canvas::getSize() AS Size` *(fallible)*: the full canvas surface pixel dimensions.
   (Arity overload of the image form below: no arg → canvas; `Image` arg → that image.)
-- `canvas::measureText(font AS Font, size AS Real, text AS String) AS TextMetrics`:
+- `canvas::measureText(font AS Font, size AS Float, text AS String) AS TextMetrics`:
   text metrics **without drawing** (shipped from day one; API is shaper-independent).
+  (`Real` corrected to `Float` 2026-08-30 — `Real` is not an MFBASIC type;
+  `grep -rn "\bReal\b" src/docs/spec/` returns nothing. plan-98-B Correction 8.)
 
 ## canvas:: — resources (integer ids, no refs)
 
 - `canvas::loadImage(path AS String) AS Image` *(fallible)*: load an image into the
-  backend; returns an opaque `Image` id.
+  backend; returns an opaque `Image` id. **Moved to plan-98-G** (plan-98-B
+  Correction 20): decoding a real image format needs inflate, and
+  `grep -rn "inflate\|deflate" src/codegen/builtins/` returns nothing — that is
+  plan-93-A's scope. G already owns vendoring a stb single-header library and the
+  licence question it raises, so `loadImage` lands there on `stb_image` beside
+  `loadFont` on `stb_truetype`.
 - `canvas::createImage(width AS Integer, height AS Integer, pixels AS List OF Byte) AS Image` *(fallible)*:
   create an image from raw RGBA8 pixels (`width * height * 4` bytes); returns an `Image` id.
+  A wrong length is `ErrBadPixelCount`. This is the primitive `loadImage` will feed,
+  and it is what makes images usable without a decoder at all — a program that
+  generates or parses its own pixels needs nothing else.
+- `canvas::imageRef(image AS Image) AS ImageRef`: the handle a `Picture` item
+  carries. Added by plan-98-B Correction 5 — a scene cannot hold a resource, and
+  must not own one.
 - `canvas::destroyImage(img AS Image)`: mark the image for destruction; the runtime
   frees it once no scene or in-flight frame references it. Safe to call anytime.
 - `canvas::loadFont(path AS String) AS Font` *(fallible)*: load a font; returns an
@@ -88,7 +105,7 @@ only the pixels behind the id change. The effect appears on the next rendered fr
 
 - `Mode` *(enum)*: `Console = 0`, `None = 1`, `Canvas = 2`.
 - `DrawItem` *(union — frozen set; extending it is a breaking change)*:
-  `Image`, `Rectangle`, `Line`, `Polygon`, `Circle`, `Arc`, `Text`, `RoundedRect`.
+  `Picture`, `Rectangle`, `Line`, `Polygon`, `Circle`, `Arc`, `Text`, `RoundedRect`.
   Representative fields (all coordinates in pixels, Y-down top-left origin; all carry a
   `paint AS Paint`):
   - `Circle[x, y, radius AS Float, paint]`
@@ -96,20 +113,49 @@ only the pixels behind the id change. The effect appears on the next rendered fr
     clockwise from +X (Y-down); stroke it via `paint.stroke`/`strokeWidth`.
   - `Rectangle[x, y, w, h AS Float, paint]`, `RoundedRect[…, cornerRadius, paint]`,
     `Line[x1, y1, x2, y2 AS Float, paint]`, `Polygon[points AS List OF Point, paint]`,
-    `Image[x, y, w, h AS Float, image AS Image, paint]`,
-    `Text[x, y AS Float, text AS String, font AS Font, size AS Real, paint]`.
+    `Picture[x, y, w, h AS Float, image AS ImageRef, paint]`,
+    `Text[x, y AS Float, text AS String, font AS FontRef, size AS Float, paint]`.
+  - **The image-drawing variant is `Picture`, not `Image`** (corrected 2026-08-30,
+    plan-98-B Correction 6): a record and a resource cannot share a name, and the
+    resource is `Image`.
+- `ImageRef`, `FontRef` *(record)*: a single `id AS Integer` naming a resource the
+  backend owns — obtained with `canvas::imageRef`/`canvas::fontRef`. **A record field
+  cannot hold a resource** (verified: `handle AS File` is `SYMBOL_UNKNOWN_TYPE`,
+  `handle AS RES File` does not parse), so the two variants that reference one carry a
+  handle. This is the model already stated above — the backend owns the one real copy
+  and MFB holds only the id — so a published scene provably retains nothing. Corrected
+  2026-08-30, plan-98-B Correction 5.
 - `DrawLayer` *(record)*: an ordered set of `DrawItem`s composited as one layer.
 - `Paint` *(record)*: flat value record threaded through items — `fill AS Color`,
-  `stroke AS Color`, `strokeWidth AS Float`, `blend`, `transform`, `clip`. No ambient
-  state. Named construction defaults the unset fields (a fill-only `Paint[fill := c]`
-  has a transparent stroke; a stroke-only `Paint[stroke := c, strokeWidth := 8.0]` has a
-  transparent fill).
+  `stroke AS Color`, `strokeWidth AS Float`, `blend AS BlendMode`,
+  `transform AS Transform`, `clip AS Bounds`. No ambient state.
+  **Every field's zero value is that field's no-op**: transparent fill/stroke, zero
+  width, `Normal` blend, the identity transform (which is the *all-zero* `Transform`,
+  by definition — see below), and a zero-area `clip` meaning unclipped.
+  ~~Named construction defaults the unset fields.~~ **FALSE — corrected 2026-08-30
+  (plan-98-B Correction 7).** MFBASIC named construction requires **every** field:
+  `Paint[fill := c]` is `TYPE_CONSTRUCTOR_ARITY_MISMATCH` ("has 1 argument(s),
+  expected 6"). The spec's `Circle[radius := 10.0]` is a *complete* construction of a
+  one-field record, not evidence of defaulting. `Paint` is therefore built with
+  `canvas::fill` / `canvas::stroke` / `canvas::fillStroke`, and refined with `WITH`.
+- `BlendMode` *(enum)*: `Normal = 0`, `Multiply`, `Screen`, `Add`.
+- `Transform` *(record)*: `a, b, c, d, tx, ty AS Float` — a 2×3 affine applied as
+  `x' = a*x + c*y + tx`, `y' = b*x + d*y + ty`. **The all-zero value means the
+  identity**, so an unset transform leaves an item alone rather than collapsing it to
+  the origin.
 - `Color` *(record)*: `red`, `green`, `blue`, `alpha AS Byte`. Construct via
   `canvas::rgb`/`rgba`.
 - `Point` *(record)*: `x`, `y AS Float`.
 - `Size` *(record)*: `width`, `height AS Integer` (pixels).
 - `Image`, `Font` *(RES resource)*: a plain owned value holding an integer id; the
   backend owns the one real copy, MFB holds only the id. Closed-flag lifetime, no refs.
+  Bound with `RES` and named **package-qualified** —
+  `RES logo AS canvas::Image = canvas::createImage(…)` — exactly like `fs::File`,
+  and unlike the value types above, which are bare. (Measured 2026-08-30: a bare
+  `AS Image` is `SYMBOL_UNKNOWN_TYPE`.) The compiler additionally rejects a
+  statically-visible use-after-close as `TYPE_USE_AFTER_MOVE`, so the runtime
+  `ErrResourceClosed` is the backstop for closes it cannot see — through a `RES`
+  parameter, where ownership floats up.
 - `Bounds` *(record, internal)*: `x`, `y`, `w`, `h` — item/damage bounds.
 - `TextMetrics` *(record)*: `width`, `height`, `ascent`, `descent`, `lineGap`.
 
@@ -146,20 +192,16 @@ FUNC main AS Integer
   LET cx AS Float = toFloat(canvasSize.width) / 2.0
   LET cy AS Float = toFloat(canvasSize.height) / 2.0
 
-  ' Coordinates are pixels, Y-down, top-left origin.
-  LET scene AS List OF DrawItem = [
-    ' Face — a filled yellow disc.
-    Circle[x := cx, y := cy, radius := 150.0, paint := Paint[fill := yellow]],
+  ' Coordinates are pixels, Y-down, top-left origin. Each item is bound first: a
+  ' list literal does not span lines (corrected 2026-08-30 — the original spanned
+  ' four, which is MFB_PARSE_EXPECTED_EXPRESSION).
+  LET face AS DrawItem = Circle[x := cx, y := cy, radius := 150.0, paint := canvas::fill(yellow)]
+  LET eyeL AS DrawItem = Circle[x := cx - 50.0, y := cy - 40.0, radius := 22.0, paint := canvas::fill(green)]
+  LET eyeR AS DrawItem = Circle[x := cx + 50.0, y := cy - 40.0, radius := 22.0, paint := canvas::fill(green)]
+  ' Smile — the lower half of a circle, stroked green (0 → PI sweeps downward, Y-down).
+  LET smile AS DrawItem = Arc[x := cx, y := cy + 15.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := canvas::stroke(green, 14.0)]
 
-    ' Eyes — two small filled green discs.
-    Circle[x := cx - 50.0, y := cy - 40.0, radius := 22.0, paint := Paint[fill := green]],
-    Circle[x := cx + 50.0, y := cy - 40.0, radius := 22.0, paint := Paint[fill := green]],
-
-    ' Smile — the lower half of a circle, stroked green (0 → PI sweeps downward, Y-down).
-    Arc[x := cx, y := cy + 15.0, radius := 90.0,
-        startAngle := 0.0, endAngle := 3.14159,
-        paint := Paint[stroke := green, strokeWidth := 14.0]]
-  ]
+  LET scene AS List OF DrawItem = [face, eyeL, eyeR, smile]
 
   canvas::present(scene)
 
@@ -177,10 +219,18 @@ END FUNC
 
 - **Colors need a constructor.** Building `Color` from raw `Byte` fields is clumsy in
   source, so `canvas::rgb`/`rgba` were added (real gap — kept).
-- **Partial `Paint` construction must default the rest.** The example relies on
-  `Paint[fill := …]` and `Paint[stroke := …, strokeWidth := …]` leaving the other
-  channel transparent. MFB named construction already defaults unset fields (spec
-  §4 `Circle[radius := 10.0]`), so this holds — documented above.
+- ~~**Partial `Paint` construction must default the rest.**~~ **The need was real; the
+  mechanism was not.** The example did rely on naming one `Paint` channel and leaving
+  the other transparent — but MFB named construction requires **every** field
+  (`TYPE_CONSTRUCTOR_ARITY_MISMATCH`), and the spec's `Circle[radius := 10.0]` is a
+  complete construction of a one-field record, not evidence of defaulting. So the
+  requirement is met by constructors — `canvas::fill(c)`,
+  `canvas::stroke(c, width)`, `canvas::fillStroke(f, s, width)` — plus `WITH` for
+  blend/transform/clip. Corrected 2026-08-30, plan-98-B Correction 7.
+- **A list literal does not span source lines**, and the smiley's did. Measured while
+  building this example for real: a `[` … `]` broken over four lines is
+  `MFB_PARSE_EXPECTED_EXPRESSION`. Each item is now bound to a `DrawItem` local first,
+  which also reads better than a four-line literal did.
 - **`Circle`/`Arc` earn their place as first-class variants.** Drawing a circle as a
   `RoundedRect` (radius = min(w,h)/2) works internally but reads badly in source; the
   smile in particular is impossible without `Arc`. Added to the frozen set.

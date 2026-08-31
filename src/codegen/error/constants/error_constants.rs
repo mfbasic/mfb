@@ -328,6 +328,81 @@ pub(crate) const TERM_STATE_SLOTS: usize = (TERM_STATE_RAW_TERMIOS_OFFSET + 72) 
 /// `_mfb_rt_app_get_mode` loads it and `_mfb_rt_app_set_mode` stores it.
 pub(crate) const PRESENTATION_MODE_SLOTS: usize = 1;
 
+// plan-98-B: the per-arena **canvas scene** region — the retained scene
+// `canvas::present` publishes. Reserved just past the presentation-mode word, on the
+// same pinned arena-state register, and only when the program uses `canvas::`.
+//
+// It lives in the arena rather than in a writable global because the arena region is
+// per-execution-context and its slot offsets are already threaded to every runtime
+// helper; a global would have to be declared per target.
+//
+// The scene must outlive the `present` call that publishes it — the renderer reads it
+// on vsync/resize/damage until the next `present` — which the arena satisfies: it is
+// a growing bump region owned by the execution context, not a call frame.
+/// Byte offset (within the canvas region) of the publish counter, incremented on
+/// every `present` that actually changes the scene. A `present` of an identical
+/// scene leaves it alone, which is how "re-presenting unchanged content is free"
+/// becomes observable.
+pub(crate) const CANVAS_SCENE_REVISION_OFFSET: usize = 0;
+/// Byte offset of the item count of the published scene.
+pub(crate) const CANVAS_SCENE_COUNT_OFFSET: usize = 8;
+/// Byte offset of the pointer to the published items — a deep copy of the caller's
+/// `List OF DrawItem`, owned by the arena, pointing at nothing caller-owned.
+pub(crate) const CANVAS_SCENE_ITEMS_OFFSET: usize = 16;
+/// Byte offset of the pointer to the per-item content hashes — a `List OF Integer`
+/// parallel to the published items, one hash per item.
+///
+/// The hashes key the renderer's geometry cache, which is why they are published
+/// alongside the scene rather than recomputed per frame: a resize or damage repaint
+/// re-renders the installed scene with no `present` in sight, and it must probe the
+/// same keys the presenting frame did.
+pub(crate) const CANVAS_SCENE_HASHES_OFFSET: usize = 24;
+/// Byte offset of the pointer to the published **layers** — a deep copy of a
+/// `List OF DrawLayer` from `canvas::presentLayers`.
+///
+/// A scene is published in exactly one of two shapes, and the unused pair is zeroed
+/// so a reader can tell them apart by a single test: `layers != 0` means layered,
+/// otherwise `items` is the flat scene. The alternative — making a flat `present`
+/// wrap its list in a one-element layer so there is only one shape — would put an
+/// allocation and a copy on the common path to simplify the rarer one.
+pub(crate) const CANVAS_SCENE_LAYERS_OFFSET: usize = 32;
+/// Byte offset of the layer count.
+pub(crate) const CANVAS_SCENE_LAYER_COUNT_OFFSET: usize = 40;
+/// The scene block a publish displaced, held until the renderer is provably done
+/// with it, and the frame number at which it was retired.
+///
+/// This is plan-98-D Phase 3's ring, in the shape a **variable-size** scene allows.
+/// The plan describes three fixed slots the producer and consumer rotate through,
+/// which presumes a slot is a reusable buffer. An MFBASIC collection is a value: each
+/// publish deep-copies into a freshly sized block, so a "slot" can only ever be a
+/// pointer, and three of them degenerate to exactly this — the one being built, the
+/// one published, and the one just displaced.
+///
+/// Retiring rather than freeing immediately is the whole point: the renderer may be
+/// mid-copy of the block a publish is replacing. The free waits until the frame
+/// counter has passed `RETIRED_FRAME`, which means a frame has *completed* since the
+/// retirement, so no render still holds it.
+pub(crate) const CANVAS_SCENE_RETIRED_ITEMS_OFFSET: usize = 48;
+pub(crate) const CANVAS_SCENE_RETIRED_HASHES_OFFSET: usize = 56;
+pub(crate) const CANVAS_SCENE_RETIRED_LAYERS_OFFSET: usize = 64;
+pub(crate) const CANVAS_SCENE_RETIRED_FRAME_OFFSET: usize = 72;
+/// Total slots in the canvas scene region.
+pub(crate) const CANVAS_SCENE_SLOTS: usize = (CANVAS_SCENE_RETIRED_FRAME_OFFSET + 8) / 8;
+
+/// The canvas scene region itself: one writable **process-global** block, not part of
+/// any thread's arena state.
+///
+/// This is the only canvas state shared between threads, and it has to be, because
+/// **arena state is per-thread** — the entry pins `x19` to its own stack frame, and in
+/// an `--app` build the *worker* runs the entry. A scene published into arena state is
+/// invisible to the graphics thread plan-98-D spawns, which would read its own zeroed
+/// region and render blank frames forever. See `.ai/canvas-threading.md` §2.
+///
+/// One block rather than one per canvas because a process has exactly one canvas
+/// surface: `Mode.Canvas` is a property of the application, not of a window the
+/// program can have several of.
+pub(crate) const CANVAS_SCENE_SYMBOL: &str = "_mfb_rt_canvas_scene";
+
 // ===========================================================================
 // Arena state layout (ascending offset) & allocator
 // ===========================================================================
@@ -799,6 +874,14 @@ pub(crate) const RESOURCE_TAG_TLS_SCHANNEL: &str = "7";
 pub(crate) const RESOURCE_TAG_TLS_LISTENER: &str = "8";
 pub(crate) const RESOURCE_TAG_AUDIO: &str = "9";
 pub(crate) const RESOURCE_TAG_PROCESS: &str = "10";
+// plan-98-B: the `canvas::` drawing resources. `handle@8` is the backend's id for
+// the object, which is also what an `ImageRef`/`FontRef` carries into a scene — the
+// scene holds the id, never the record, so it has no opinion about the resource's
+// lifetime.
+pub(crate) const RESOURCE_TAG_IMAGE: &str = "11";
+// `12` is reserved for `canvas::Font`, which lands with the text path (plan-98-G):
+// a `Font` cannot be constructed without `canvas::loadFont`, and that needs the
+// font parser G vendors.
 pub(crate) const RESOURCE_TAG_NATIVE: &str = "255";
 
 /// The word at `RESOURCE_OFFSET_CLOSED` is a u64 flag set, not a boolean: bit 0

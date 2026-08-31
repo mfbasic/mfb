@@ -117,6 +117,17 @@ impl plan::NativePlanPlatform for Platform {
             ("Foundation", "_OBJC_CLASS_$_NSMutableDictionary"),
             ("Foundation", "_OBJC_CLASS_$_NSNumber"),
             ("Foundation", "_OBJC_CLASS_$_NSAttributedString"),
+            // plan-98-C Phase 3: the canvas frame blit wraps the rendered RGBA8
+            // block in a `CGImage` and hands it to the layer. CoreGraphics rather
+            // than AppKit because the surface is a `CALayer` and its `contents` is
+            // a `CGImageRef` — going through `NSImage` would add a conversion whose
+            // only purpose is to be undone.
+            ("CoreGraphics", "_CGColorSpaceCreateDeviceRGB"),
+            ("CoreGraphics", "_CGColorSpaceRelease"),
+            ("CoreGraphics", "_CGBitmapContextCreate"),
+            ("CoreGraphics", "_CGBitmapContextCreateImage"),
+            ("CoreGraphics", "_CGContextRelease"),
+            ("CoreGraphics", "_CGImageRelease"),
             ("libSystem", "_pthread_create"),
             ("libSystem", "_pthread_attr_init"),
             ("libSystem", "_pthread_attr_setstacksize"),
@@ -645,6 +656,37 @@ impl plan::NativePlanPlatform for Platform {
                 "_pthread_mutex_unlock",
                 "_pthread_cond_timedwait",
                 "_clock_gettime",
+            ]
+            .into_iter()
+            .map(|symbol| PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: symbol.to_string(),
+                required_by: required_by.clone(),
+            })
+            .collect(),
+            // plan-98-D Phase 2: the graphics thread. A smaller set than `thread::`'s
+            // — the render loop has no message queue, no timed wait and no join, so
+            // it needs neither the timedwait/clock pair nor `pthread_detach`.
+            "canvas.startGraphics"
+            | "canvas.signalRedraw"
+            | "canvas.waitForRedraw"
+            | "canvas.frameDone"
+            | "canvas.syncFrame"
+            | "canvas.setSyncMode"
+            | "canvas.surfaceWidth"
+            | "canvas.surfaceHeight" => [
+                "_pthread_create",
+                "_pthread_attr_init",
+                "_pthread_attr_setstacksize",
+                "_pthread_join",
+                "_pthread_mutex_init",
+                "_pthread_mutex_lock",
+                "_pthread_mutex_unlock",
+                "_pthread_cond_init",
+                "_pthread_cond_wait",
+                "_pthread_cond_signal",
+                "_pthread_cond_broadcast",
+                "_getenv",
             ]
             .into_iter()
             .map(|symbol| PlatformImport {

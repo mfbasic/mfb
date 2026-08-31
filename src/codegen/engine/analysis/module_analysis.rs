@@ -9,6 +9,42 @@ use crate::types::ParameterType;
 use std::collections::HashMap;
 use std::collections::HashSet;
 pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool {
+    // plan-98-B: `canvas::present` deep-copies the scene into the arena, and the
+    // shared copy path builds an empty-message error on allocation failure. The
+    // sentinel is therefore required by the *helper* rather than by anything in the
+    // program's own ops, which is the same reason the recursive-transfer copy
+    // functions force it in `lower_module` — that path just cannot key on a call
+    // name, and this one can.
+    if module_uses_any_call(
+        module,
+        &[
+            "canvas.present",
+            "canvas.presentLayers",
+            "canvas.publishScene",
+            "canvas.publishLayers",
+            "canvas.blitSurface",
+            "canvas.frameDone",
+            "canvas.syncFrame",
+            "canvas.setSyncMode",
+            "canvas.surfaceWidth",
+            "canvas.surfaceHeight",
+            "canvas.startGraphics",
+            "canvas.signalRedraw",
+            "canvas.waitForRedraw",
+            "canvas.newSurface",
+            "canvas.installedItems",
+            "canvas.installedLayers",
+            "canvas.publishHashes",
+            "canvas.installedHashes",
+            "canvas.createImage",
+            "canvas.imageRef",
+            "canvas.getSize",
+            "canvas.getBytes",
+            "canvas.setBytes",
+        ],
+    ) {
+        return true;
+    }
     let type_model = TypeModel::from_module(module).unwrap_or_else(|_| TypeModel::empty());
     module.functions.iter().any(|function| {
         function
@@ -213,6 +249,29 @@ fn ops_may_record_cleanup_failure(ops: &[NirOp]) -> bool {
         | NirOp::Eval { .. } => false,
     })
 }
+
+/// Whether the module draws — i.e. whether the canvas scene region must exist.
+///
+/// Every `canvas::` member that reads or writes the scene is listed, rather than a
+/// prefix test on the runtime symbol, because the gate has to be answerable from the
+/// NIR module before helper symbols exist. A member added to the package without
+/// being added here would compile and then address a scene block that was never
+/// emitted, so the list is checked by `canvas_scene_users_are_complete`.
+pub(crate) fn module_uses_canvas(module: &NirModule) -> bool {
+    module_uses_any_call(module, CANVAS_SCENE_USERS)
+}
+
+/// The `canvas::` members that touch the scene region.
+pub(crate) const CANVAS_SCENE_USERS: &[&str] = &[
+    "canvas.present",
+    "canvas.presentLayers",
+    "canvas.publishScene",
+    "canvas.publishLayers",
+    "canvas.publishHashes",
+    "canvas.installedItems",
+    "canvas.installedLayers",
+    "canvas.installedHashes",
+];
 
 pub(crate) fn module_uses_any_call(module: &NirModule, targets: &[&str]) -> bool {
     targets

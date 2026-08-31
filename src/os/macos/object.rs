@@ -563,6 +563,13 @@ fn dylib_for_library(library: &str) -> Result<String, String> {
             Ok("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation".to_string())
         }
         "AppKit" => Ok("/System/Library/Frameworks/AppKit.framework/AppKit".to_string()),
+        // plan-98-C Phase 3: the canvas frame blit builds a `CGImage`. The install
+        // name is versioned (`Versions/A/`), unlike AppKit's and Foundation's above
+        // — taken from `dyld_info -dependents` on AppKit, which links it, rather
+        // than assumed to follow the same shape as its neighbours.
+        "CoreGraphics" => Ok(
+            "/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics".to_string(),
+        ),
         "Foundation" => {
             Ok("/System/Library/Frameworks/Foundation.framework/Foundation".to_string())
         }

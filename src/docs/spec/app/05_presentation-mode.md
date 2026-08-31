@@ -14,21 +14,28 @@ construction is `./mfb spec app macos-runtime` and `./mfb spec app linux-runtime
 
 ## The `Mode` enum
 
-`app::Mode` ships with two variants, declared in the built-in `app` source
-companion so they resolve like any user enum (no reserved wire type id):
+`app::Mode` ships with three variants, rendered into the built-in `app` package's
+injected source from the registry descriptor so they resolve like any user enum
+(no reserved wire type id):
 
 - `Console` — the terminal-in-a-window surface (a transcript view, optionally a
   full-screen `term::` grid). Discriminant `0`. The default.
 - `None` — windowless. No surface is presented; `io::print` degrades to the
   standard-output file descriptor. Discriminant `1`.
+- `Canvas` — a 2D graphics surface drawn by the `canvas` package. Discriminant
+  `2`. The window presents pixels rather than character cells, so `term::` is
+  unavailable, but `io::` works in full: writes degrade to standard output and
+  reads are fed by the canvas window's key events (plan-98).
 
 The discriminants are the stored slot values, matching the enum's declaration
 order, so a loaded mode word *is* the enum value with no remap. The enum is
 referenced bare, like every other built-in type: `Mode.None`, not
 `app::Mode.None`. [[src/codegen/registry/mod.rs:is_builtin_type]]
 
-The set is designed to grow: a future graphical mode is a new `Mode` variant
-entered through `app::setMode`, with no change to this model.
+The set is designed to grow, and grew exactly that way: a new presentation
+surface is a new `Mode` variant entered through `app::setMode`, with no change to
+this model. Because declaration order fixes the discriminants, a variant is
+**appended** — reordering would repoint every already-stored slot word.
 
 ## `--app` gating
 
@@ -83,10 +90,29 @@ calls. The per-backend window mechanics are `./mfb spec app macos-runtime` and
 
 ## Mode-gated I/O
 
-`term::*` and the console-reading side of `io::` (`io::input`, `io::readLine`,
-`io::readChar`) require the `Console` surface: outside it they raise a trappable
-wrong-mode runtime error rather than addressing a grid that does not exist or
-blocking forever on an input pipe with no producer. `io::print` / `io::write` are
-universal and degrade gracefully to standard output outside `Console`. This
-asymmetry — universal I/O degrades, specialized I/O hard-fails — is what the mode
-model makes well-defined.
+The governing asymmetry is **universal I/O degrades, specialized I/O hard-fails**.
+What makes an operation "specialized" is the surface it needs, and the two gated
+families need different ones — so they are gated differently.
+[[src/codegen/app/hook/app.rs:ModeRequirement]]
+
+| | `Console` (0) | `None` (1) | `Canvas` (2) |
+|---|---|---|---|
+| `io::print` / `io::write` (and error variants) | transcript view | degrades to stdout/stderr | degrades to stdout/stderr |
+| `io::input` / `io::readLine` / `io::readChar` | window key events | **traps `ErrWrongMode`** | window key events |
+| `io::readByte` | window key events | ungated (reads fd 0) | window key events |
+| `term::*` | the grid | **traps `ErrWrongMode`** | **traps `ErrWrongMode`** |
+
+- **`term::*` requires the character grid**, which only the `Console` transcript
+  view has. A canvas surface is pixels, not cells, so `term::` traps in `Canvas`
+  exactly as it does in `None`.
+- **The console-reading side of `io::` requires only an input source.** `Console`
+  and `Canvas` both have a window, and both deliver its key events into the same
+  file descriptor, so a read works in either. Only `None` — which presents no
+  window at all — has nowhere for input to come from, and there an ungated read
+  would block forever on a pipe with no producer. The gate is therefore written as
+  "trap in `None`" rather than "permit only `Console`", so a future windowed mode
+  inherits the input source instead of silently trapping.
+- **`io::readByte` is not in the gated set** and never has been: it reads fd 0
+  directly in every mode.
+- **Writes are never gated** — they degrade to standard output wherever no
+  transcript view is attached.
