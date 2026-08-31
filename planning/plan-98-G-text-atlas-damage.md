@@ -218,14 +218,26 @@ the raster proves machine-variant, which it should not) and within tolerance on 
       **written by the program under test**, so both spellings of TrueType and each
       refused container (`OTTO`, `ttcf`, `wOFF`, and a too-short file) are exercised
       exactly, with no font committed to the repository.
-- [ ] **`canvas::loadImage`** (moved from plan-98-B Phase 4): decode an image file to
+- [x] **`canvas::loadImage`** (moved from plan-98-B Phase 4): decode an image file to
       RGBA8 and hand it to the existing `canvas::createImage` path, which already owns
       the resource record, the CPU shadow and the pixel-count contract. It lands here
-      because decoding needs inflate, which does not exist —
-      `grep -rn "inflate\|deflate" src/codegen/builtins/` returns nothing, and it is
+      because decoding needs inflate, which did not exist —
+      `grep -rn "inflate\|deflate" src/codegen/builtins/` returned nothing, and it is
       plan-93-A's scope — so `loadImage` rides the same decision as the font path
       (Correction 1): an inflate and a PNG unfilter, hand-rolled beside the TrueType
       reader.
+
+      `helper_inflate.rs` is DEFLATE (RFC 1951): stored, fixed-Huffman and
+      dynamic-Huffman blocks, canonical decoding from code-length lists, and
+      back-references that may overlap their own output. `helper_png.rs` is the reader:
+      chunk walk with `IDAT` concatenation, all five colour types, bit depths 1–16,
+      `PLTE`/`tRNS`, all five scanline filters, and Adam7. `ErrBadImageFile`
+      (`77050023`) is new, for the same reason `ErrBadFontFile` was.
+
+      `tests/rt_canvas_image_decode.rs`: 9 tests over a generated matrix — the five
+      filters, five greyscale depths, four palette depths, colour types 2 and 4, an
+      interlaced/progressive equality, two embedded Huffman fixtures, and three
+      negatives. Every case compares against a truth image the test itself built.
 - [x] The rasteriser, and Text rendering — **as a polygon**, which is the whole payoff
       of Correction 1. A glyph is a set of closed contours and `__canvas_edgeDistance`
       already turns closed contours into a signed distance, so a `Text` item produces a
@@ -323,7 +335,7 @@ Commit: —
 Acceptance: atlas eviction is LRU and never evicts a live glyph; output is golden-stable across
 eviction cycles — asserted as **exact pixel equality** between a pressured and an unpressured
 render of the same scene, not merely "no crash".
-Commit: —
+Commit: 77efa718e (the cache, the eviction pass and its test; the GPU-text row is still open)
 
 ### Phase 3 — Optional damage-rect present (largest blast radius last)
 
@@ -652,6 +664,33 @@ font is a scene far larger than one that can also be checked pixel by pixel, so
 `MFB_CANVAS_GLYPH_BUDGET` shrinks the budget. Without both, the first version of the test
 passed **without ever evicting anything** — it was measuring nothing, and said so only
 because the stats line let it check.
+
+**Correction 19 (Phase 1) — the decoder covers the whole PNG matrix, not the common
+half.** The tempting scope was colour type 6 at depth 8, which is what almost every file
+is. It was rejected for a reason the error code makes concrete: `ErrBadImageFile` is
+supposed to tell a caller "this file is broken", and a decoder that refuses a legal
+4-bit interlaced palette PNG makes that message a lie — the caller would go looking for a
+corrupt file that is perfectly well formed. So all five colour types, all six bit depths,
+`tRNS`, and Adam7. The cost was bounded: sub-byte samples and 16-bit samples are one
+`__canvas_pngSample` between them, and interlacing is a scatter around the *same* pass
+routine rather than a second copy of the pixel conversion.
+
+Two things it deliberately does not do. **APNG** — an animation is not an `Image`, and
+the resource has nowhere to put a second frame. **`gAMA`/`iCCP` colour management** — the
+pixels are delivered as stored, because a renderer that later grows a colour pipeline
+should apply it there rather than have a decoder bake it in. And one it does not do
+*yet*: chunk **CRCs are not verified**. Every malformed-input path is guarded
+structurally — a short chunk, a bad zlib header, a Huffman code no symbol matches, a
+pass that would read past the inflated data — and those are the checks that actually
+decide whether the decode is sound. A CRC pass would be a second read of the whole file
+for a check that changes nothing about a well-formed one.
+
+**Correction 20 (Phase 1) — `step` cannot be a parameter name, and the diagnostic does
+not say so.** `FUNC __canvas_adam7Count(total, origin, step AS Integer)` is refused with
+"parameter name must be an identifier" and a line number, with no mention of which
+identifier or why. It is the reserved word (`.ai/`-level lore, and the same trap
+Correction 8 records for `sub` and `to`). Renamed to `interval`, with the reason left in
+the body so the next reader does not rediscover it.
 
 ## Summary
 

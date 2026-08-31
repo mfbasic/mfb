@@ -124,7 +124,8 @@ pub(crate) fn register(r: &mut Registry) {
         // wrong-length pixel list is a distinct, actionable mistake rather than a
         // generic bad argument — the message can say what the count should have been.
         .add_constant(constant("ErrBadPixelCount", "77050021", "Pixel list length does not match the image dimensions: an RGBA8 image needs exactly `width * height * 4` bytes.", "_mfb_str_error_bad_pixel_count"))
-        .add_constant(constant("ErrBadFontFile", "77050022", "File is not a font this build can read: it must be TrueType outlines (sfnt `0x00010000` or `true`), not CFF/OpenType-PostScript, a collection, or WOFF.", "_mfb_str_error_bad_font_file"));
+        .add_constant(constant("ErrBadFontFile", "77050022", "File is not a font this build can read: it must be TrueType outlines (sfnt `0x00010000` or `true`), not CFF/OpenType-PostScript, a collection, or WOFF.", "_mfb_str_error_bad_font_file"))
+        .add_constant(constant("ErrBadImageFile", "77050023", "File is not an image this build can decode: `canvas::loadImage` reads PNG, and refuses anything else — including a PNG whose chunks, filters or compressed data are malformed.", "_mfb_str_error_bad_image_file"));
 
     r.add_package(pkg);
 }
@@ -273,8 +274,13 @@ mod tests {
         //   +1  ErrBadFontFile (plan-98-G): "this is not a font I can read" is a
         //       different mistake from "this file is missing", and the two need
         //       different fixes — one is a path typo, the other is the wrong format.
+        //   +1  ErrBadImageFile (plan-98-G): the same distinction for `loadImage`.
+        //       Separate from `ErrBadFontFile` because a program can load both, and
+        //       "which of the two files was wrong" is the first thing its handler
+        //       wants to know.
         const LEGACY_ROWS: usize = 45;
-        const ADDED_SINCE_MIGRATION: &[&str] = &["ErrBadPixelCount", "ErrBadFontFile"];
+        const ADDED_SINCE_MIGRATION: &[&str] =
+            &["ErrBadPixelCount", "ErrBadFontFile", "ErrBadImageFile"];
         for added in ADDED_SINCE_MIGRATION {
             assert!(names.contains(added), "{added} is not in the table");
         }

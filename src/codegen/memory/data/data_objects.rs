@@ -248,6 +248,7 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         module,
         &[
             "canvas.createImage",
+            "canvas.loadImage",
             "canvas.imageRef",
             "canvas.getSize",
             "canvas.getBytes",
@@ -258,6 +259,7 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             err_msg("ErrOutOfMemory"),
             err_msg("ErrResourceClosed"),
             err_msg("ErrBadPixelCount"),
+            err_msg("ErrBadImageFile"),
             err_msg("ErrWrongMode"),
         ] {
             push_string_value(&mut values, value);
