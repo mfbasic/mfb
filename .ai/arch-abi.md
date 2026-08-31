@@ -72,6 +72,42 @@ bytes are unchanged wherever the target's registers cover the call.
 
 Symptom when it happens: every API call reports success and the frame comes back blank.
 
+### `RESULT_VALUE_REGISTER` is `rsi` on SysV, and so is `SCRATCH[1]`
+
+The aliasing above is not only about *arguments*. `RESULT_VALUE_REGISTER` is
+`abi::mfb_return(1)`, and `%retMFB` draws from the same aligned bank, so on SysV it is
+`rsi` — which `map_scratch_register` also hands to `SCRATCH[1]`, `SCRATCH[11]` and
+`LOCAL[2]`. `RESULT_TAG_REGISTER` (`mfb_return(0)`) is `rdi`, shared with `SCRATCH[2]`,
+`SCRATCH[12]` and `LOCAL[3]`.
+
+The deadly shape is writing the result *between* two uses of the aliasing token:
+
+    cmp  rsi, 0 ; je build      ; SCRATCH[1] = a tri-state
+    mov  rsi, 1                 ; RESULT_VALUE_REGISTER = TRUE — overwrites it
+    cmp  rsi, 1 ; je done       ; compares the answer with itself: always taken
+
+`canvas::vulkanReady` did exactly this and answered TRUE on a machine with no Vulkan
+driver, from its second call onward. On AArch64 the two are `x1` and `x10`, so it is
+correct there — invisible on a Mac host, again.
+
+**Rule: finish every comparison before writing the result, and carry the compared value
+in a `builder.temporary_vreg()` rather than a fixed `SCRATCH[k]`.** The full SysV map,
+worth having in front of you when hand-staging:
+
+    rdi  SCRATCH[2]  SCRATCH[12] LOCAL[3] c_arg(0)/mfb_return(0)
+    rsi  SCRATCH[1]  SCRATCH[11] LOCAL[2] c_arg(1)/mfb_return(1)
+    rdx                                   c_arg(2)/mfb_return(2) c_return(1)
+    rcx  SCRATCH[9]                       c_arg(3)/mfb_return(3)
+    r8   SCRATCH[3]  SCRATCH[13] LOCAL[4] c_arg(4)/mfb_return(4)
+    r9   SCRATCH[4]  SCRATCH[14] LOCAL[5] c_arg(5)/mfb_return(5)
+    rax                                   c_arg(6)/mfb_return(6) c_return(0)
+    rbp              LOCAL[0]             c_arg(7)/mfb_return(7)
+    rbx  SCRATCH[0]  SCRATCH[10] LOCAL[1]
+    r10  SCRATCH[5]  SCRATCH[15] LOCAL[6]
+    r11  SCRATCH[6]  SCRATCH[16] LOCAL[7]
+    r12  SCRATCH[7]  SCRATCH[17] LOCAL[8]
+    r13  SCRATCH[8]  SCRATCH[18] LOCAL[9]
+
 ### The x86 scratch pool aliases the SysV argument bank — mid-staging, that corrupts an argument
 
 `map_scratch_register` folds `x9`–`x30` onto an 11-entry pool: `SCRATCH[1]`→`rsi`,
@@ -109,7 +145,22 @@ the GUI arm and formatted into a chunk it had not allocated.
 
 **The enforced rule is stronger than "pick one spelling per value": there are now no raw
 `xN` register strings in `src/target/linux_gtk/` at all**, and
-`no_emitter_spells_a_register_as_a_raw_register_string` keeps it that way. The finish
+`no_emitter_spells_a_register_as_a_raw_register_string` keeps it that way.
+
+**The token spelling is not only about correctness — it is what keeps the line visible
+to the guard.** `shared_lowering_names_no_physical_register` decides whether a line is
+an emission context by looking for `abi::` on it, so a line that spells *everything*
+raw has no `abi::` and is skipped entirely. `term_draw.rs` had
+`emit_cell_dim_to_d(&mut asm, "d0", "x22", …)` — a forbidden FP register sitting beside
+a forbidden GPR, invisible because neither was a token. Removing the raw GPR is what
+turned the guard red on the `"d0"` that had been there all along. A guard whose reach
+depends on a convention shrinks silently every time the convention is broken, so a
+green run is evidence about the guard's reach and not only about the code.
+
+(The FP half is pure visibility: converting the nine `"dN"` literals to
+`abi::FP_SCRATCH[n]` leaves **both** linux-aarch64 and linux-x86_64 byte-identical,
+because `finalize_x86_app_function` renames the integer scratch/parking space and the
+FP bank passes straight through. Only the GPR rewrite moved bytes, and only on x86.) The finish
 helper was not the only site — a census found sixteen functions mixing, including
 `emit_term_resize_helper`, which loaded the cell width into `"x10"` and divided by
 `abi::SCRATCH[1]`. Rewriting all 146 sites to tokens left the linux-aarch64 binary

@@ -35,10 +35,24 @@ MFB_EXE="${1:?usage: test-canvas-vulkan.sh <mfb-exe> [--box <port>]}"
 shift || true
 PORT=2228
 LIBC=glibc
+# Smaller than the default 900x640 in both axes, so a renderer that ignored the resize
+# and kept its old target would be caught by the frame length rather than only by the
+# pixels.
+RESIZE_W=640
+RESIZE_H=480
+# A user-local Vulkan driver, for a box that has the loader but no ICD.
+#
+# `--icd auto` provisions one into `/tmp` on an Alpine box and points the loader at it;
+# `--icd <manifest>` uses one already there; unset uses whatever the box has installed.
+# Alpine 2227 is the musl half of this test's evidence and ships `vulkan-loader` with no
+# driver behind it, so without this the musl row is a skip — and a skip is what hid a
+# *wrong* `vulkanReady` for a whole phase (Correction 13).
+ICD=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --box) PORT="$2"; shift 2 ;;
     --libc) LIBC="$2"; shift 2 ;;
+    --icd) ICD="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -70,6 +84,7 @@ JSON
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
+IMPORT os
 SUB main()
   app::setMode(Mode.Canvas)
   LET yellow AS Color = canvas::rgb(255, 255, 0)
@@ -85,6 +100,11 @@ SUB main()
   LET tri AS DrawItem = Polygon[points := [Point[x := 620.0, y := 200.0], Point[x := 740.0, y := 200.0], Point[x := 680.0, y := 300.0]], paint := canvas::fill(canvas::rgb(200, 0, 200))]
   LET arrow AS DrawItem = Polygon[points := [Point[x := 60.0, y := 400.0], Point[x := 160.0, y := 400.0], Point[x := 160.0, y := 360.0], Point[x := 230.0, y := 430.0], Point[x := 160.0, y := 500.0], Point[x := 160.0, y := 460.0], Point[x := 60.0, y := 460.0]], paint := canvas::fillStroke(canvas::rgb(0, 180, 180), canvas::rgb(20, 20, 20), 6.0)]
   canvas::present([box, rounded, line, faint, face, eyeL, eyeR, smile, tri, arrow])
+  ' Stay alive for the resize case below. Without this the worker returns from main
+  ' the moment its frame lands and the finish helper _exits the process, so the
+  ' scripted resize on the main thread loses the race every time. Measured before the
+  ' sleep was added: the dump stayed 900x640 and only one stats line was written.
+  os::sleep(3000)
 END SUB
 MFB
 
@@ -96,20 +116,58 @@ remote="/tmp/mfb-vkcanvas-$$"
 ssh -p "$PORT" "$host" "rm -rf $remote && mkdir -p $remote"
 scp -P "$PORT" "$proj/build/vkcanvas-$LIBC.AppImage" "$host:$remote/app.AppImage" >/dev/null
 
+# Provision the driver before anything measures with it.
+icd_env=""
+if [ -n "$ICD" ]; then
+  if [ "$ICD" = auto ]; then
+    echo "--- provisioning a software Vulkan driver on box $PORT ---"
+    ssh -p "$PORT" "$host" '
+      set -e
+      dir=/tmp/mfb-vulkan-icd
+      manifest=$dir/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+      if [ ! -f "$manifest" ]; then
+        mkdir -p $dir && cd $dir
+        base=http://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64
+        # The repository carries one build of each; pick it out of the index rather
+        # than pinning a version that goes 404 on the next Alpine point release.
+        for pkg in mesa-vulkan-swrast libdisplay-info; do
+          file=$(wget -qO- "$base/" | grep -o "${pkg}-[0-9][^\"]*\.apk" | head -1)
+          wget -q "$base/$file" -O "$pkg.apk"
+          tar -xzf "$pkg.apk" 2>/dev/null || true
+        done
+        # The manifest names an absolute path that assumes the package was installed.
+        sed -i "s|/usr/lib/libvulkan_lvp.so|$dir/usr/lib/libvulkan_lvp.so|" "$manifest"
+      fi
+      test -f "$manifest"
+    '
+    ICD=/tmp/mfb-vulkan-icd/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+  fi
+  icd_env="VK_ICD_FILENAMES=$ICD LD_LIBRARY_PATH=$(dirname "$(dirname "$(dirname "$(dirname "$ICD")")")")/lib"
+  echo "    driver: $ICD"
+fi
+
 echo "--- running on box $PORT ---"
 ssh -p "$PORT" "$host" "
   set -e
   cd $remote
   ./app.AppImage --appimage-extract >/dev/null 2>&1
   bin=./squashfs-root/usr/bin/vkcanvas
-  MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS=$remote/sw.txt \
-    MFB_CANVAS_DUMP=$remote/sw.rgba timeout 90 \$bin >/dev/null 2>&1
-  MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$remote/gpu.txt \
-    MFB_CANVAS_DUMP=$remote/gpu.rgba timeout 90 \$bin >/dev/null 2>&1
+  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS=$remote/sw.txt \
+    MFB_CANVAS_DUMP=$remote/sw.rgba timeout 180 \$bin >/dev/null 2>&1
+  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$remote/gpu.txt \
+    MFB_CANVAS_DUMP=$remote/gpu.rgba timeout 180 \$bin >/dev/null 2>&1
+  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_RESIZE_W=$RESIZE_W MFB_CANVAS_RESIZE_H=$RESIZE_H \
+    MFB_CANVAS_DUMP=$remote/sw2.rgba timeout 180 \$bin >/dev/null 2>&1
+  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_RESIZE_W=$RESIZE_W \
+    MFB_CANVAS_RESIZE_H=$RESIZE_H MFB_CANVAS_STATS=$remote/gpu2.txt \
+    MFB_CANVAS_DUMP=$remote/gpu2.rgba timeout 180 \$bin >/dev/null 2>&1
 "
 scp -P "$PORT" "$host:$remote/sw.rgba" "$work/sw.rgba" >/dev/null
 scp -P "$PORT" "$host:$remote/gpu.rgba" "$work/gpu.rgba" >/dev/null
 scp -P "$PORT" "$host:$remote/gpu.txt" "$work/gpu.txt" >/dev/null
+scp -P "$PORT" "$host:$remote/sw2.rgba" "$work/sw2.rgba" >/dev/null
+scp -P "$PORT" "$host:$remote/gpu2.rgba" "$work/gpu2.rgba" >/dev/null
+scp -P "$PORT" "$host:$remote/gpu2.txt" "$work/gpu2.txt" >/dev/null
 ssh -p "$PORT" "$host" "rm -rf $remote"
 
 if [ ! -s "$work/gpu.txt" ]; then
@@ -133,11 +191,15 @@ case "$stats" in
   *) fail "MFB_CANVAS_GPU did not select the GPU renderer" ;;
 esac
 
-verdict=$(python3 - "$work/sw.rgba" "$work/gpu.rgba" <<'PY'
+compare() {
+python3 - "$1" "$2" "$3" <<'PY'
 import sys
 
 software = open(sys.argv[1], "rb").read()
 gpu = open(sys.argv[2], "rb").read()
+# The width only names the coordinate a beyond-tolerance pixel is reported at, so the
+# resized case has to pass its own rather than inherit the default surface's.
+width = int(sys.argv[3])
 if len(software) != len(gpu) or not software:
     print(f"frame sizes differ ({len(software)} vs {len(gpu)}) — a harness bug")
     raise SystemExit
@@ -158,14 +220,16 @@ for i in range(0, len(software), 4):
         worst = delta
     if first is None and delta > 2:
         pixel = i // 4
-        first = (pixel % 900, pixel // 900, a.hex(), b.hex())
+        first = (pixel % width, pixel // width, a.hex(), b.hex())
 fraction = differing / total
 if worst <= 2 and fraction <= 0.02:
     print(f"ok worst={worst} differing={fraction * 100:.4f}%")
 else:
     print(f"worst={worst} differing={fraction * 100:.4f}% first-beyond-tolerance={first}")
 PY
-)
+}
+
+verdict="$(compare "$work/sw.rgba" "$work/gpu.rgba" 900)"
 case "$verdict" in
   ok*)
     pass "the Vulkan render matches the software oracle ($verdict)"
@@ -176,6 +240,35 @@ case "$verdict" in
     echo "    distance function; a rim of edge pixels is coverage; a uniform shift is"
     echo "    the sRGB/linear chain."
     ;;
+esac
+
+# plan-98-F Phase 2: the resize handshake, end to end. `MFB_CANVAS_RESIZE_W`/`_H` make
+# the headless main thread wait for the first completed frame and then call the very
+# `_mfb_gtkapp_canvas_resize` GTK's "resize" signal calls — so what runs is the
+# production path. Waiting for a frame first is the point: resizing before one exists
+# would build the render target once at the new size and prove nothing, where resizing
+# after one forces the Vulkan backend's tear-down-and-rebuild.
+#
+# `MFB_CANVAS_DUMP` overwrites, so the file left behind is the second frame and its
+# length is the assertion that the new size actually reached the renderer.
+expected=$((RESIZE_W * RESIZE_H * 4))
+for who in sw2 gpu2; do
+  actual=$(wc -c < "$work/$who.rgba" | tr -d ' ')
+  if [ "$actual" = "$expected" ]; then
+    pass "$who repainted at ${RESIZE_W}x${RESIZE_H} after the resize ($actual bytes)"
+  else
+    fail "$who is $actual bytes, expected $expected (${RESIZE_W}x${RESIZE_H}) — the resize did not reach the renderer"
+  fi
+done
+if [ -s "$work/gpu2.txt" ] && [ "$(wc -l < "$work/gpu2.txt" | tr -d ' ')" -ge 2 ]; then
+  pass "the resize produced a second frame rather than reusing the first"
+else
+  fail "the resized run wrote fewer than two stats lines — no repaint happened"
+fi
+verdict="$(compare "$work/sw2.rgba" "$work/gpu2.rgba" "$RESIZE_W")"
+case "$verdict" in
+  ok*) pass "the resized Vulkan render matches the software oracle ($verdict)" ;;
+  *)   fail "the resized Vulkan render disagrees with the software oracle: $verdict" ;;
 esac
 
 if [ "$fails" -eq 0 ]; then

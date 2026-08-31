@@ -579,6 +579,7 @@ pub(crate) fn emit_vulkan_ready(
     let unavailable = builder.label("vk_ready_unavailable");
     let done = builder.label("vk_ready_done");
     let build = builder.label("vk_ready_build");
+    let already_built = builder.label("vk_ready_already_built");
     let family_head = builder.label("vk_family_head");
     let family_found = builder.label("vk_family_found");
 
@@ -600,6 +601,20 @@ pub(crate) fn emit_vulkan_ready(
     let off_index = builder.allocate_stack_object("vk_index", 8);
 
     // Already tried? Report what happened last time.
+    //
+    // **Both compares happen before the answer is written, and the state rides a fresh
+    // vreg.** `RESULT_VALUE_REGISTER` is `mfb_return(1)`, which on x86-64 SysV realizes
+    // to `rsi` — and so does `SCRATCH[1]` (`map_scratch_register(10)`). Writing the
+    // answer between the two compares therefore *overwrote the value being compared*,
+    // and the second compare tested the answer against itself: every call after the
+    // first returned TRUE, whatever the tri-state actually said. On AArch64 the two are
+    // `x1` and `x10`, so the sequence is correct there and the fault is invisible on
+    // the development host.
+    //
+    // Measured on box 2227, which has no Vulkan driver at all: the build failed and
+    // stored 2, the renderer correctly fell back to software — and then
+    // `__canvas_writeStats` asked the same question and was told TRUE.
+    let ready = builder.temporary_vreg();
     state_base_into(builder, off_state);
     builder.emit(abi::load_u64(
         abi::SCRATCH[0],
@@ -607,16 +622,18 @@ pub(crate) fn emit_vulkan_ready(
         off_state,
     ));
     builder.emit(abi::load_u64(
-        abi::SCRATCH[1],
+        &ready,
         abi::SCRATCH[0],
         GRAPHICS_OFFSET_VULKAN_READY,
     ));
-    builder.emit(abi::compare_immediate(abi::SCRATCH[1], "0"));
+    builder.emit(abi::compare_immediate(&ready, "0"));
     builder.emit(abi::branch_eq(&build));
-    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"));
-    builder.emit(abi::compare_immediate(abi::SCRATCH[1], "1"));
-    builder.emit(abi::branch_eq(&done));
+    builder.emit(abi::compare_immediate(&ready, "1"));
+    builder.emit(abi::branch_eq(&already_built));
     builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
+    builder.emit(abi::branch(&done));
+    builder.emit(abi::label(&already_built));
+    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"));
     builder.emit(abi::branch(&done));
 
     builder.emit(abi::label(&build));

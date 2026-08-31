@@ -482,10 +482,10 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     asm.push(abi::branch_eq("d_no_bg"));
     emit_cairo_color(&mut asm, abi::LOCAL[0], abi::SCRATCH[5]);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0])); // rectangle(cr, col*W, row*H, W, H)
-    emit_cell_dim_to_d(&mut asm, "d0", abi::LOCAL[2], ST_TERM_CELL_W);
-    emit_cell_dim_to_d(&mut asm, "d1", abi::LOCAL[1], ST_TERM_CELL_H);
-    emit_cell_to_d(&mut asm, "d2", ST_TERM_CELL_W);
-    emit_cell_to_d(&mut asm, "d3", ST_TERM_CELL_H);
+    emit_cell_dim_to_d(&mut asm, abi::FP_SCRATCH[0], abi::LOCAL[2], ST_TERM_CELL_W);
+    emit_cell_dim_to_d(&mut asm, abi::FP_SCRATCH[1], abi::LOCAL[1], ST_TERM_CELL_H);
+    emit_cell_to_d(&mut asm, abi::FP_SCRATCH[2], ST_TERM_CELL_W);
+    emit_cell_to_d(&mut asm, abi::FP_SCRATCH[3], ST_TERM_CELL_H);
     asm.call_external("cairo_rectangle");
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.call_external("cairo_fill");
@@ -641,8 +641,8 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
     ));
     asm.call_external("pango_layout_set_text");
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
-    emit_cell_dim_to_d(&mut asm, "d0", abi::LOCAL[2], ST_TERM_CELL_W); // x = col*cellW
-    emit_cell_dim_to_d(&mut asm, "d1", abi::LOCAL[1], ST_TERM_CELL_H); // y = row*cellH (top)
+    emit_cell_dim_to_d(&mut asm, abi::FP_SCRATCH[0], abi::LOCAL[2], ST_TERM_CELL_W); // x = col*cellW
+    emit_cell_dim_to_d(&mut asm, abi::FP_SCRATCH[1], abi::LOCAL[1], ST_TERM_CELL_H); // y = row*cellH (top)
     asm.call_external("cairo_move_to");
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.push(abi::load_u64(
@@ -748,8 +748,8 @@ fn emit_const_to_d(asm: &mut Asm, dst: &str, value: usize) {
 /// (used for the underline run and the cursor caret).
 fn emit_term_cell_rect(asm: &mut Asm, cr: &str, col: &str, row: &str) {
     asm.push(abi::move_register(abi::c_arg(0), cr));
-    emit_cell_dim_to_d(asm, "d0", col, ST_TERM_CELL_W); // x = col*cellW
-                                                        // Load cellH before forming row+1 in x9 (load_state clobbers x9).
+    emit_cell_dim_to_d(asm, abi::FP_SCRATCH[0], col, ST_TERM_CELL_W); // x = col*cellW
+                                                                      // Load cellH before forming row+1 in x9 (load_state clobbers x9).
     asm.load_state(abi::SCRATCH[1], ST_TERM_CELL_H);
     asm.push(abi::add_immediate(abi::SCRATCH[0], row, 1)); // y = (row+1)*cellH - 2
     asm.push(abi::multiply_registers(
@@ -762,8 +762,8 @@ fn emit_term_cell_rect(asm: &mut Asm, cr: &str, col: &str, row: &str) {
         abi::FP_SCRATCH[1],
         abi::SCRATCH[0],
     ));
-    emit_cell_to_d(asm, "d2", ST_TERM_CELL_W); // w
-    emit_const_to_d(asm, "d3", 2); // h
+    emit_cell_to_d(asm, abi::FP_SCRATCH[2], ST_TERM_CELL_W); // w
+    emit_const_to_d(asm, abi::FP_SCRATCH[3], 2); // h
     asm.call_external("cairo_rectangle");
     asm.push(abi::move_register(abi::c_arg(0), cr));
     asm.call_external("cairo_fill");

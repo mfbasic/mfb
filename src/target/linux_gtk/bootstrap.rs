@@ -3,6 +3,8 @@
 //! append/finish helpers (plan-11 split, pure relocation).
 
 use super::*;
+use crate::codegen::memory::data::push_symbol_address;
+use crate::codegen::runtime::canvas::{GRAPHICS_OFFSET_FRAMES, GRAPHICS_STATE_SYMBOL};
 
 /// Maximum number of bytes `g_unichar_to_utf8` may write for one code point (the
 /// GLib UTF-8 encoder emits up to 6 bytes). Used as the safety margin for the
@@ -35,12 +37,78 @@ pub(super) fn emit_libc_start_trampoline() -> Result<CodeFunction, String> {
     asm.finish(MAIN_SYMBOL, "Nothing")
 }
 
+/// Drive one scripted resize in a headless run, when `MFB_CANVAS_RESIZE_W`/`_H` say so.
+///
+/// A resize is a *window* event, and headless has no window — so without this the
+/// handshake could be implemented and never executed on Linux, because no reachable
+/// box has a display server. It calls the same `_mfb_gtkapp_canvas_resize` GTK would,
+/// with the same argument shape, so what runs here is the production path and not a
+/// stand-in for it.
+///
+/// It waits for a first completed frame before resizing, by polling the graphics
+/// state's frame counter. That is the whole point of the test: resizing before any
+/// frame exists would build the render target once at the new size and prove nothing,
+/// whereas resizing after one forces the tear-down-and-rebuild the Vulkan backend has
+/// for it. `MFB_CANVAS_DUMP` overwrites, so the file left behind is the *second*
+/// frame, and its length is `newWidth * newHeight * 4`.
+///
+/// This runs on the thread that would otherwise sit in `pause()` forever, which is the
+/// right one: it is the main thread, and publishing the size is the main thread's job.
+fn emit_headless_scripted_resize(asm: &mut Asm) {
+    let park = "headless_park";
+    let wait = "headless_resize_wait";
+    let ready = "headless_resize_ready";
+
+    asm.local_address(abi::c_arg(0), STR_RESIZE_W_ENV.0);
+    asm.call_external("getenv");
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(park));
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+    asm.call_external("atoi");
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_return(0)));
+
+    asm.local_address(abi::c_arg(0), STR_RESIZE_H_ENV.0);
+    asm.call_external("getenv");
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(park));
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+    asm.call_external("atoi");
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_return(0)));
+
+    // Poll until the render loop has completed a frame at the original size.
+    asm.push(abi::label(wait));
+    push_symbol_address(
+        GTK_MAIN_SYMBOL,
+        GRAPHICS_STATE_SYMBOL,
+        abi::LOCAL[2],
+        &mut asm.ins,
+        &mut asm.rel,
+    );
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[2],
+        GRAPHICS_OFFSET_FRAMES,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(ready));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "20000"));
+    asm.call_external("usleep");
+    asm.push(abi::branch(wait));
+
+    asm.push(abi::label(ready));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // the area, unused
+    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[0]));
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[1]));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // user data
+    asm.call_internal(CANVAS_RESIZE_SYMBOL);
+}
+
 /// `int _mfb_gtkapp_main(int argc, char **argv, char **envp)` — the real C main
 /// invoked by `__libc_start_main` after runtime + library init. Creates the
 /// GtkApplication, wires the `activate` signal, and runs the GTK main loop; the
 /// loop owns the process until the window closes (plan-05 §6.1). Returns 0 so
 /// `__libc_start_main` exits cleanly.
-pub(super) fn emit_main_bootstrap() -> Result<CodeFunction, String> {
+pub(super) fn emit_main_bootstrap(uses_canvas: bool) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(GTK_MAIN_SYMBOL);
     // lr@0, argc@8, argv@16, headless pthread_t@24.
     asm.push(abi::label("entry"));
@@ -88,6 +156,9 @@ pub(super) fn emit_main_bootstrap() -> Result<CodeFunction, String> {
     asm.local_address(abi::c_arg(2), WORKER_SYMBOL);
     asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
     asm.call_external("pthread_create");
+    if uses_canvas {
+        emit_headless_scripted_resize(&mut asm);
+    }
     asm.push(abi::label("headless_park"));
     asm.call_external("pause");
     asm.push(abi::branch("headless_park"));
@@ -623,6 +694,19 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
         asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // user data
         asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // destroy notify
         asm.call_external("gtk_drawing_area_set_draw_func");
+        // plan-98-F Phase 2: track the live window size. `canvas::surfaceWidth` reads
+        // the graphics state, and until now nothing on Linux ever wrote it — so the
+        // surface stayed at its default no matter how the window was dragged, and the
+        // Vulkan renderer's resize path could never be reached. Installed with the
+        // draw func and gated the same way, for the same reason.
+        //   g_signal_connect_data(canvasArea, "resize", on_resize, NULL, NULL, 0)
+        asm.load_state(abi::c_arg(0), ST_CANVAS_AREA);
+        asm.local_address(abi::c_arg(1), STR_RESIZE.0);
+        asm.local_address(abi::c_arg(2), CANVAS_RESIZE_SYMBOL);
+        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+        asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+        asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
+        asm.call_external("g_signal_connect_data");
     }
     asm.push(abi::label(&canvas_have_area));
     // gtk_window_set_child(window, canvasArea) — the canvas replaces the transcript.
@@ -1466,6 +1550,66 @@ pub(super) fn emit_canvas_commit_helper() -> Result<CodeFunction, String> {
     asm.push(abi::add_stack(32));
     asm.push(abi::return_());
     asm.finish(CANVAS_COMMIT_SYMBOL, "Boolean")
+}
+
+/// `void _mfb_gtkapp_canvas_resize(GtkDrawingArea *area, int width /*x1*/,
+/// int height /*x2*/, gpointer user_data)` — the canvas drawing area's `resize`
+/// signal handler.
+///
+/// The Linux twin of macOS's `_mfb_macapp_canvas_set_frame_size`, and the piece that
+/// was missing: `canvas::surfaceWidth`/`surfaceHeight` read the graphics state
+/// precisely so a resize is visible to the renderer without the program doing
+/// anything, but nothing on this platform ever wrote it. A GTK canvas program
+/// therefore rendered at the default size forever, and the Vulkan backend's
+/// tear-down-and-rebuild path could not be reached at all.
+///
+/// Publish, then signal. Publishing without signalling would leave the new size
+/// sitting unread until something else happened to want a frame — and a resize is
+/// usually the only thing that changed, so nothing else would.
+///
+/// Zero dimensions are ignored. GTK emits `resize` during initial allocation, before
+/// the widget has a size, and a zero-sized surface would have the renderer allocate a
+/// zero-byte image.
+pub(super) fn emit_canvas_resize_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(CANVAS_RESIZE_SYMBOL);
+    let done = format!("{CANVAS_RESIZE_SYMBOL}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(32));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    // Park the two signal arguments: `emit_publish_surface_size` needs a base register
+    // of its own and `canvas::signalRedraw` is a call, so neither can hold them.
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(1))); // width
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(2))); // height
+    asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+    asm.push(abi::branch_le(&done));
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_le(&done));
+
+    crate::codegen::runtime::canvas::emit_publish_surface_size(
+        CANVAS_RESIZE_SYMBOL,
+        abi::LOCAL[2],
+        abi::LOCAL[0],
+        abi::LOCAL[1],
+        &mut asm.ins,
+        &mut asm.rel,
+    );
+    asm.call_internal(CANVAS_SIGNAL_REDRAW_SYMBOL);
+
+    asm.push(abi::label(&done));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::load_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::add_stack(32));
+    asm.push(abi::return_());
+    asm.finish(CANVAS_RESIZE_SYMBOL, "Nothing")
 }
 
 /// plan-98-C Phase 3 (GTK main loop): the `GtkDrawingAreaDrawFunc`.

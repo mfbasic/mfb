@@ -163,7 +163,10 @@ GTK4/Win32 already own windowing; F only needs a Vulkan surface from their handl
 
       * box 2228 (Ubuntu glibc, llvmpipe): worst channel delta **1**, 0.0306% of
         pixels differing;
-      * box 2227 (Alpine musl): worst delta **0** — byte-identical.
+      * ~~box 2227 (Alpine musl): worst delta **0** — byte-identical.~~ **This row was
+        wrong** — box 2227 had no Vulkan driver at all and the frame it produced was
+        the software renderer's. See Correction 13; Phase 2 provisions a real driver
+        there and re-measures.
 
       Both are inside the comparator's *per-pixel* bound, not merely its population
       budget. And the scene is far past the box's "one tinted quad": two circles, a
@@ -208,15 +211,71 @@ Commit: 6b82f873949299e19e8734c8f386bc63bea00315
       polygon `emit_edge_upload`. The staging ring and the transfer barrier are real
       work, and they are plan-98-G's, alongside the images that would use them. Same
       conclusion for the "atlas upload" clause of the row above.
-- [ ] Resize handshake: `resizePending` → `vkDeviceWaitIdle` + recreate swapchain; handle
-      out-of-date/suboptimal (trigger 4).
-- [ ] Vulkan submit fence advances D's `lastCompletedFrame` (drives the closed-flag texture free).
-- [ ] Tests: the multi-primitive golden (incl. the smiley scene) matches within tolerance;
-      a `setBytes` on an in-scene image updates next frame without tearing; resize repaints
-      worker-free; the D race matrix passes on the Vulkan fence.
+- [x] Resize handshake — **and the Linux half of it did not exist** (Correction 14).
+      `canvas::surfaceWidth`/`surfaceHeight` read the graphics state precisely so a
+      resize reaches the renderer without the program doing anything, and nothing on
+      this platform ever wrote it: a GTK canvas program rendered at the default size
+      forever. `_mfb_gtkapp_canvas_resize` is now connected to the drawing area's
+      `resize` signal, publishes the size and signals the redraw, exactly as macOS's
+      `_mfb_macapp_canvas_set_frame_size` does.
 
-Acceptance: full scene tolerance-match on Linux; resize/out-of-date correct and worker-free;
-retirement driven by the Vulkan fence; race matrix green.
+      `vkDeviceWaitIdle` + recreate was already implemented (`emit_vulkan_target`
+      compares the parked dimensions and tears the old set down first); what was
+      missing was any way to *reach* it. **~~handle out-of-date/suboptimal~~ — moot:**
+      both are `VkSwapchainKHR` results and there is no swapchain (Correction 1), the
+      same conclusion plan-98-E Correction 9 reached for `CAMetalLayer.drawableSize`.
+
+      Measured on both boxes via `MFB_CANVAS_RESIZE_W`/`_H`, which make the headless
+      main thread wait for a completed frame and then call the very handler GTK's
+      signal calls — so the production path runs, not a stand-in. Waiting for a frame
+      first is the point: resizing before one exists would build the target once at the
+      new size and prove nothing.
+
+      * 2228 (glibc) and 2227 (musl): the second frame is 640x480x4 = 1,228,800 bytes
+        on both renderers, two stats lines confirm a real repaint rather than a reuse,
+        and the resized Vulkan frame matches the resized software oracle at worst delta
+        **1**, 0.0573% differing.
+
+      This is race-matrix row **R8** (`.ai/canvas-threading.md` §8) proven on the Vulkan
+      path: the worker is blocked in `os::sleep` for the entire second frame, so the
+      repaint happens with zero worker involvement.
+- [x] Frame completion drives D's counter — **by a wait rather than a fence**, the
+      same correction plan-98-E Correction 12 made for Metal and for the same reason.
+      `emit_vulkan_draw_scene` ends `vkQueueSubmit` + `vkQueueWaitIdle`, so the frame is
+      complete before `canvas::vulkanDrawScene` returns, and `__canvas_renderLoop` calls
+      `canvas::frameDone()` only after `__canvas_renderFrame()` — so the counter advances
+      after *real* GPU completion. A fence-and-continue would be weaker, not stronger:
+      the readback is on the critical path, so there is nothing to overlap.
+
+      ~~drives the closed-flag texture free~~ — moot with the same audit as the
+      `setBytes` row: no image owns a texture on either backend, so there is nothing for
+      the gate to free. plan-98-G owns it with the sampler.
+- [x] Tests — `scripts/test-canvas-vulkan.sh`, seven checks on each of two libcs. The
+      multi-primitive scene *is* the smiley scene plus every other kind: two circles, a
+      swept arc, a rounded rect with fill and stroke, a thick line, a translucent rect,
+      a convex triangle and a concave stroked arrow. It matches within tolerance at both
+      sizes, and it renders the whole set rather than a subset because
+      `__canvas_vulkanRenderable` declines nothing in it.
+
+      Resize repaints worker-free — race-matrix **R8**, above. ~~`setBytes` on an
+      in-scene image~~ and the texture rows **R1/R2/R9/R10/R11** are moot with the
+      feature: `Picture` draws nothing and no image owns a texture (`.ai/canvas-threading.md`
+      §8 already records those five as not yet reachable). The remaining rows are
+      renderer-independent — they are the ring and the closed-flag guard, which the
+      Vulkan path does not touch — and stay proven by D's own tests.
+
+Acceptance: MET, on two libcs and at two surface sizes. The full primitive set — every
+kind the geometry cache produces, `Polygon` included — matches the software oracle inside
+the comparator's *per-pixel* bound on both boxes. Resize is correct and worker-free (R8),
+and "out-of-date/suboptimal" is moot with the swapchain that does not exist. Retirement is
+driven by real GPU completion, by a wait that is stronger than the fence the row asked
+for. The race-matrix rows this backend can affect are green; the five texture rows are moot
+with the feature, as `.ai/canvas-threading.md` §8 already recorded.
+
+**Strengthened, not met as written**: the row asked for a tolerance match, and the gate is
+now that plus a frame-length assertion on the resize, a two-stats-line assertion that the
+repaint actually happened, and — after Correction 13 — a `vulkanReady` that cannot claim a
+device the box does not have.
 Commit: —
 
 ### Phase 3 — Windows (win32 surface) — new GPU path (largest blast radius last)
@@ -477,3 +536,63 @@ through a real window resize or keystroke on a Linux x86-64 GTK display — whic
 reachable box has. They are fixed here rather than filed because the fix is mechanical
 and its neutrality is provable on the arch that works; leaving them would have meant
 shipping a known-wrong divisor behind an untestable door.
+
+**Correction 13 (Phase 2, and it invalidates a Phase 1 measurement) — `vulkanReady`
+answered TRUE on a machine with no Vulkan driver, from the second call onward.**
+
+`RESULT_VALUE_REGISTER` is `abi::mfb_return(1)`, which on x86-64 SysV realizes to
+`rsi` — and `map_scratch_register` puts `abi::SCRATCH[1]` on `rsi` too. The probe's
+"already tried?" early-out read the tri-state into `SCRATCH[1]`, wrote the answer, and
+then compared `SCRATCH[1]` again:
+
+    cmp  rsi, 0 ; je build      ; rsi = the tri-state
+    mov  rsi, 1                 ; "the answer is TRUE" — overwrites the tri-state
+    cmp  rsi, 1 ; je done       ; compares the answer with itself: always taken
+
+So every call after the first returned TRUE whatever the state said. On AArch64 the two
+are `x1` and `x10` and the sequence is correct, which is why it survived the whole of
+Phase 1 on a Mac host.
+
+Found by following a *failure*, not by reading: box 2227's resized Vulkan frame came
+back blank, and `VK_LOADER_DEBUG=all` said `vkCreateInstance: Found no drivers!` — the
+box has `vulkan-loader` installed and **no ICD at all**. The build correctly failed and
+stored 2, the renderer correctly fell back to software, and then `__canvas_writeStats`
+asked the same question and was told TRUE.
+
+**Phase 1's box-2227 row is therefore wrong and is struck through above.** "Worst delta
+0 — byte-identical" was the software renderer being compared with itself; my own note
+that a byte-identical first GPU frame means the GPU did not run applied and I read it as
+a strength. The two-libc claim was half a claim.
+
+It is a real claim now. `--icd auto` provisions Mesa's `lavapipe` into `/tmp` on the
+Alpine box — `wget` the `.apk` out of the repository index and `tar -xzf` it as a plain
+user, the same trick `.ai/remote_systems.md` documents for qemu-user and
+`regen-spirv.sh` uses for glslang — and rewrites the manifest's absolute
+`library_path`. Both libcs now report identical numbers (worst 1, 0.0335%), which is
+itself the corroboration: two independent runs of the same shader on the same driver
+should agree, and a software fallback would have shown 0.
+
+The alias is not a one-off. On SysV `rsi` carries `SCRATCH[1]`, `SCRATCH[11]`, `LOCAL[2]`
+*and* `c_arg(1)`/`mfb_return(1)`; `rdi` carries `SCRATCH[2]`, `SCRATCH[12]`, `LOCAL[3]`
+and `c_arg(0)`/`mfb_return(0)`. A census of `runtime/canvas`, `builtins/canvas`,
+`linux_gtk` and `linux_common` for "a RESULT write between two uses of an aliasing
+token" found this one site and, after the fix, zero.
+
+**Correction 14 (Phase 2) — the Linux resize handshake had no publisher.** The row
+assumed the platform side existed and only the Vulkan half was missing. It did not:
+`emit_publish_surface_size` had exactly one caller in the tree, macOS's, and the GTK
+canvas drawing area had a draw func but no `resize` signal handler. `canvas::surfaceWidth`
+reads the graphics state, so a Linux canvas program rendered at the default size forever
+and `emit_vulkan_target`'s tear-down-and-rebuild could not be reached at all — its
+correctness was unmeasured rather than proven.
+
+`_mfb_gtkapp_canvas_resize` is the missing piece. Testing it needed a second one:
+a resize is a *window* event and no reachable Linux box has a display server, so
+`MFB_CANVAS_RESIZE_W`/`_H` make the headless main thread wait for a completed frame and
+then call the very handler GTK's signal calls.
+
+One measured detail worth keeping: the first attempt resized nothing, because with
+`MFB_CANVAS_SYNC=1` the worker returns from `main` the moment its frame lands and the
+finish helper `_exit`s the process — the scripted resize lost the race every time. The
+proof scene now ends with `os::sleep(3000)`, which is also what makes the run a genuine
+**R8**: the worker is blocked for the whole of the second frame.

@@ -212,6 +212,7 @@ row names the rule from above that protects it.
 | R6 | graphics stalled indefinitely, worker presents repeatedly | `present` still never blocks; slots are reused, no unbounded allocation | §3 "nobody frees a slot" |
 | R7 | resize while graphics is mid-render | the in-flight frame completes at the old size; the next is at the new size | §5 clear-at-frame-start |
 | R8 | resize with the worker blocked in `io::input` | repaint happens with zero worker involvement | §5 main↔graphics only |
+| | *(proven on the Vulkan path too: `MFB_CANVAS_RESIZE_W`/`_H` resize while the worker sits in `os::sleep`, and both renderers repaint at the new size)* | | |
 | R9 | N `setBytes` between two frames | one upload, last value wins | §6 coalescing |
 | R10 | `setBytes` on an image not in the live scene | no repaint at all | §4 trigger 5 |
 | R11 | `setBytes` → `destroyImage` → frame | no upload into a closed texture; free still gated | §7 skip-in-new-frames |
@@ -298,6 +299,20 @@ can therefore be GPU-renderable on one backend and not the other, and that is co
 ## 11. Test affordances
 
 Three environment variables, all off by default and none on the production path:
+
+* `MFB_CANVAS_RESIZE_W` / `MFB_CANVAS_RESIZE_H` — in a headless run, wait for the
+  first completed frame and then resize the surface to these dimensions, by calling
+  the same handler the platform's resize signal calls. A resize is a *window* event
+  and no reachable Linux box has a display server, so without this the handshake
+  could be implemented and never executed. Waiting for a frame first is the whole
+  point: resizing before one exists builds the render target once at the new size and
+  proves nothing, where resizing after one forces the tear-down-and-rebuild.
+
+  Two variables rather than one `WxH` string because parsing a separator in
+  hand-written assembly buys nothing over `atoi`. Note that the program under test has
+  to still be alive — with `MFB_CANVAS_SYNC=1` the worker returns from `main` the
+  moment its frame lands and the finish helper `_exit`s the process, so a scene that
+  ends at `present` loses the race every time.
 
 * `MFB_CANVAS_DUMP` — write each rendered frame's raw RGBA to a file. How a headless
   run is observed at all, and what the golden harness reads.
