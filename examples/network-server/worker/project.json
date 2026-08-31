@@ -1,0 +1,11 @@
+{
+  "name": "connworker",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "Connection-handling workers and shared wire helpers for the network-server example.",
+  "sources": [
+    { "root": "src", "role": "lib", "include": ["**/*.mfb"] }
+  ],
+  "targets": ["native"]
+}
