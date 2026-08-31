@@ -30,6 +30,7 @@
 //! three families.
 
 pub(crate) mod metal;
+pub(crate) mod vulkan;
 
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
@@ -211,8 +212,25 @@ pub(crate) fn emit_graphics_trampoline(
     let from = GRAPHICS_TRAMPOLINE_SYMBOL;
     let mut instructions = Vec::new();
     let mut relocations = Vec::new();
+    // **The x86-64 stack realign.** Every x86-64 thread library reaches a
+    // start-routine through a `call`, so the routine begins at `sp % 16 == 8` — the
+    // return address has been pushed and nothing has re-aligned. A frame that is a
+    // multiple of 16 therefore leaves every call this trampoline makes misaligned,
+    // and the first callee that uses an aligned SSE store faults. It does not fault
+    // here: it faults far away, inside `calloc` under `g_idle_add`, as heap
+    // corruption in a thread whose own frames are all correct.
+    //
+    // `lower_thread_trampoline` has carried this same +8 since bug-408, box-proven on
+    // both libcs (glibc 2228: the 88-byte frame runs, the 80-byte frame SIGSEGVs 5/5;
+    // musl 2227: 88 runs, 96 SIGSEGVs 5/5). The graphics thread is a second
+    // start-routine and needs it for exactly the same reason — it did not have it,
+    // which is why canvas mode segfaulted on Linux from the moment plan-98-D moved
+    // rendering onto a thread. AArch64 takes no realign: `pthread_create` enters with
+    // a 16-aligned `sp` and the return address in `lr`.
+    let realign = usize::from(platform.arch() == "x86_64") * 8;
+    let frame = 32 + realign;
     instructions.push(abi::label("entry"));
-    instructions.push(abi::subtract_stack(32));
+    instructions.push(abi::subtract_stack(frame));
     instructions.push(abi::store_u64(
         abi::link_register(),
         abi::stack_pointer(),
@@ -255,7 +273,7 @@ pub(crate) fn emit_graphics_trampoline(
     instructions.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     instructions.push(abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8));
     instructions.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    instructions.push(abi::add_stack(32));
+    instructions.push(abi::add_stack(frame));
     instructions.push(abi::return_());
 
     let _ = (platform_imports, platform);

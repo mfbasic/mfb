@@ -979,6 +979,16 @@ pub(crate) fn lower_module_for_platform(
     // ALSA symbol names; none on macOS). The backend owns the platform decision
     // and the symbol gate (bug-330).
     data_objects.extend(AudioBackend::select(platform).data_objects(&native_plan.runtime_symbols));
+    // plan-98-F: the Vulkan loader's `dlopen`/`dlsym` C strings. Gated on the member
+    // being in the plan rather than on the platform, so a canvas program that never
+    // probes Vulkan carries none of them — the same shape the audio backend uses.
+    if native_plan
+        .runtime_symbols
+        .iter()
+        .any(|symbol| symbol.contains("canvas_vulkanAvailable"))
+    {
+        data_objects.extend(crate::codegen::runtime::canvas::vulkan::data_objects());
+    }
     // The clean-room `Certificate`-typed AbiFunction members (`crypto::generate`,
     // `crypto::sign`, `crypto::verify`) share one unified `_mfb_crypto_cert_*` read-only
     // data-object set (framework paths + dlsym names + PKCS#8/SPKI templates + CNG wide

@@ -31,6 +31,7 @@ pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool 
             "canvas.setMetalMode",
             "canvas.useMetal",
             "canvas.metalAvailable",
+            "canvas.vulkanAvailable",
             "canvas.metalReady",
             "canvas.metalDrawScene",
             "canvas.startGraphics",

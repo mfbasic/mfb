@@ -456,6 +456,7 @@ impl LinuxPlan<'_> {
             | "canvas.setSyncMode"
             | "canvas.setMetalMode"
             | "canvas.metalAvailable"
+            | "canvas.vulkanAvailable"
             | "canvas.metalReady"
             | "canvas.metalDrawScene"
             | "canvas.useMetal"
@@ -479,6 +480,18 @@ impl LinuxPlan<'_> {
                 symbol: symbol.to_string(),
                 required_by: required_by.to_string(),
             })
+            .chain(
+                // plan-98-F: the Vulkan loader arrives through `dlopen`/`dlsym`, never
+                // a DT_NEEDED on libvulkan — a canvas program must still exec on a
+                // machine with no Vulkan installed, the same rule `audio` follows for
+                // libasound (plan-33-C §3.1). Declared for the whole canvas-graphics
+                // set rather than only for `vulkanAvailable`: the merged table dedups,
+                // and scoping it tighter would mean re-deriving which member reaches
+                // the loader every time the renderer grows.
+                ["dlopen", "dlsym"]
+                    .into_iter()
+                    .map(|symbol| self.libc_import(symbol, required_by)),
+            )
             .collect(),
             "thread.start"
             | "thread.isRunning"

@@ -13,6 +13,7 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::codegen::runtime::canvas::metal::emit_metal_available;
+use crate::codegen::runtime::canvas::vulkan::emit_vulkan_available;
 use crate::codegen::runtime::canvas::{
     emit_frame_done, emit_set_metal_mode, emit_set_sync_mode, emit_signal_redraw,
     emit_start_graphics, emit_surface_dimension, emit_sync_frame, emit_use_metal,
@@ -372,6 +373,35 @@ pub(crate) fn lower_metal_ready(
     })
 }
 
+/// `canvas::vulkanAvailable() AS Boolean` — can this process render with Vulkan?
+///
+/// The Vulkan twin of `canvas::metalAvailable`, and deliberately the same shape: load
+/// the loader, ask for a device, report yes or no. It is the first checkable claim of
+/// plan-98-F for the same reason the Metal probe was E's — it exercises the whole
+/// foreign-call path (dlopen, the `vkGetInstanceProcAddr` bootstrap, the hand-written
+/// C struct layouts, calling through a resolved pointer) in one call that fails
+/// cheaply.
+pub(crate) fn lower_vulkan_available(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    emit_vulkan_available(builder, ctx.platform, ctx.platform_imports)?;
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Nothing,
+        location: Operand::from("void"),
+        text: symbol,
+    })
+}
+
 fn internal(name: &'static str, body: Body) -> RegistryFunction {
     RegistryFunction {
         name,
@@ -458,6 +488,20 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::Boolean,
             errors: vec![],
             body: Body::abi_function(lower_metal_available),
+        }],
+    });
+    pkg.add_function(RegistryFunction {
+        name: "vulkanAvailable",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![],
+            return_type: ParameterType::Boolean,
+            errors: vec![],
+            body: Body::abi_function(lower_vulkan_available),
         }],
     });
     pkg.add_function(RegistryFunction {

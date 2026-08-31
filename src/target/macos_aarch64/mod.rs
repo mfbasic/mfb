@@ -50,6 +50,7 @@ impl NativeBackend for Backend {
                 "canvas.setMetalMode",
                 "canvas.useMetal",
                 "canvas.metalAvailable",
+                "canvas.vulkanAvailable",
                 "canvas.metalReady",
                 "canvas.metalDrawScene",
                 "canvas.startGraphics",
