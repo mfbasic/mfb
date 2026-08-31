@@ -122,7 +122,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             super::Implementation {
                 params: vec![super::Parameter {
                     name: "seconds",
-                    desc: "",
+                    desc: "Whole seconds. Negative values are allowed and make the whole duration negative.",
                     aliases: &[],
                     ty: super::ParameterType::Integer,
                     default: super::DefaultValue::None,
@@ -135,14 +135,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "seconds",
-                        desc: "",
+                        desc: "Whole seconds. Negative values are allowed and make the whole duration negative.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "",
+                        desc: "Nanoseconds, the finest resolution a `Duration` carries.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
@@ -156,21 +156,21 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "mins",
-                        desc: "",
+                        desc: "Whole minutes.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "seconds",
-                        desc: "",
+                        desc: "Whole seconds. Negative values are allowed and make the whole duration negative.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "",
+                        desc: "Nanoseconds, the finest resolution a `Duration` carries.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
@@ -184,28 +184,28 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "hours",
-                        desc: "",
+                        desc: "Whole hours.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "mins",
-                        desc: "",
+                        desc: "Whole minutes.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "seconds",
-                        desc: "",
+                        desc: "Whole seconds. Negative values are allowed and make the whole duration negative.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "",
+                        desc: "Nanoseconds, the finest resolution a `Duration` carries.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
@@ -219,35 +219,35 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "days",
-                        desc: "",
+                        desc: "Whole days. Added to the other parts, so `days := 1, hours := 12` is thirty-six hours.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "hours",
-                        desc: "",
+                        desc: "Whole hours.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "mins",
-                        desc: "",
+                        desc: "Whole minutes.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "seconds",
-                        desc: "",
+                        desc: "Whole seconds. Negative values are allowed and make the whole duration negative.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "",
+                        desc: "Nanoseconds, the finest resolution a `Duration` carries.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,

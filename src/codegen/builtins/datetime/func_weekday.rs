@@ -78,7 +78,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "dt",
-                desc: "",
+                desc: "The date-time to read the day of the week from.",
                 aliases: &[],
                 ty: super::ParameterType::named("DateTime"),
                 default: super::DefaultValue::None,

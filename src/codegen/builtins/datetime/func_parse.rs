@@ -19,9 +19,9 @@ const INTRO: &str = r#"Parse text into a `DateTime` using the format pattern min
 const DESC: &str = r#"`datetime::parse` reads `value` against `pattern` and returns the `DateTime` it
 describes. `pattern` uses the same token mini-language as `datetime::format`, and
 `parse` is the approximate inverse of `format`: it walks `pattern` and `value`
-together from left to right, consuming characters of `value` as each `pattern`
+together from left to right, reading characters of `value` as each `pattern`
 position is matched. A token (a run of one or more of the same formatting letter)
-consumes and decodes the corresponding field from `value`; any other `pattern`
+reads and decodes the corresponding field from `value`; any other `pattern`
 character is a literal that must appear verbatim at the current position in
 `value`. Single quotes escape literal text exactly as in `datetime::format` (`'T'`
 matches a literal `T`, `''` matches a single apostrophe).
@@ -41,7 +41,7 @@ the time `00:00:00.000000000`. The recognized tokens are:
 - `fff`..`fffffffff` — fractional second; reads run-length digits and scales them
   to nanoseconds (`fff` = milliseconds, `fffffffff` = nanoseconds)
 - `a` — AM/PM marker, case-insensitive
-- `EEE` / `EEEE` — weekday name; the letters are consumed but not validated
+- `EEE` / `EEEE` — weekday name; the letters are read but not validated
 - `Z` / `ZZ` / `ZZZ` — offset: the letter `Z` (or `z`) for UTC, else `+/-HH:MM` or
   `+/-HHMM` (the colon between offset hours and minutes is optional)
 
@@ -98,9 +98,16 @@ Text that does not match the pattern raises `ErrInvalidFormat`:
 
 ```
 IMPORT datetime
+IMPORT io
 
 SUB main()
   LET bad AS DateTime = datetime::parse("not-a-date", "yyyy-MM-dd")
+  io::print("accepted")
+  EXIT SUB
+TRAP(err)
+  io::print("rejected: " & toString(err.code))
+  EXIT SUB
+END TRAP
 END SUB
 ```"#;
 
@@ -119,14 +126,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The text to parse.",
                         aliases: &[],
                         ty: super::ParameterType::String,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "pattern",
-                        desc: "",
+                        desc: "The pattern the text must match. Text that does not match raises rather than parsing as much as it can.",
                         aliases: &[],
                         ty: super::ParameterType::String,
                         default: super::DefaultValue::None,
@@ -140,21 +147,21 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "value",
-                        desc: "",
+                        desc: "The text to parse.",
                         aliases: &[],
                         ty: super::ParameterType::String,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "pattern",
-                        desc: "",
+                        desc: "The pattern the text must match. Text that does not match raises rather than parsing as much as it can.",
                         aliases: &[],
                         ty: super::ParameterType::String,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "zone",
-                        desc: "",
+                        desc: "The zone to interpret the parsed wall-clock reading in, when the text does not carry one itself.",
                         aliases: &[],
                         ty: super::ParameterType::named("Zone"),
                         default: super::DefaultValue::None,

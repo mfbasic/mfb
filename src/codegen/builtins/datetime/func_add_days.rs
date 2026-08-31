@@ -75,14 +75,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "dt",
-                    desc: "",
+                    desc: "The date-time to shift. Not modified.",
                     aliases: &[],
                     ty: super::ParameterType::named("DateTime"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "days",
-                    desc: "",
+                    desc: "How many days to add. Negative subtracts. Calendar days, so a day that a zone transition shortens or lengthens still counts as one.",
                     aliases: &[],
                     ty: super::ParameterType::Integer,
                     default: super::DefaultValue::None,

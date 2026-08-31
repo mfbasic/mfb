@@ -61,10 +61,23 @@ An out-of-range field raises `ErrInvalidArgument`:
 
 ```
 IMPORT datetime
+IMPORT io
 
 SUB main()
   LET bad AS Time = datetime::time(24, 0)
+  io::print("accepted")
+  EXIT SUB
+TRAP(err)
+  io::print("rejected: " & err.message)
+  EXIT SUB
+END TRAP
 END SUB
+```
+
+prints:
+
+```
+rejected: datetime: hour out of range
 ```"#;
 
 #[rustfmt::skip]
@@ -91,9 +104,9 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     // the generic `registry::default_argument_padding` injects the `("Integer","0")`
     // padding (consulted before the legacy table), and the 4-arg `__datetime_time`
     // body always receives every component.
-    let int_param = |name: &'static str, default: DefaultValue| Parameter {
+    let int_param = |name: &'static str, desc: &'static str, default: DefaultValue| Parameter {
         name,
-        desc: "",
+        desc,
         aliases: &[],
         ty: ParameterType::Integer,
         default,
@@ -111,10 +124,22 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
-                int_param("hour", DefaultValue::None),
-                int_param("minute", DefaultValue::None),
-                int_param("second", fill.clone()),
-                int_param("nanos", fill),
+                int_param(
+                    "hour",
+                    "The hour on a 24-hour clock, 0 through 23. There is no 12-hour form and no am/pm.",
+                    DefaultValue::None,
+                ),
+                int_param("minute", "The minute, 0 through 59.", DefaultValue::None),
+                int_param(
+                    "second",
+                    "The second, 0 through 59. Optional, defaulting to 0.",
+                    fill.clone(),
+                ),
+                int_param(
+                    "nanos",
+                    "Nanoseconds past the second, 0 through 999999999. Optional, defaulting to 0.",
+                    fill,
+                ),
             ],
             return_type: ParameterType::named("Time"),
             errors: vec![],

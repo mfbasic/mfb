@@ -70,14 +70,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "a",
-                    desc: "",
+                    desc: "The first duration.",
                     aliases: &[],
                     ty: super::ParameterType::named("Duration"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "b",
-                    desc: "",
+                    desc: "The duration to add to it.",
                     aliases: &[],
                     ty: super::ParameterType::named("Duration"),
                     default: super::DefaultValue::None,

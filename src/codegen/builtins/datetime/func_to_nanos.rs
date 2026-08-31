@@ -22,7 +22,7 @@ either the `at.seconds * 1000000000` scaling or the trailing addition of
 `at.nanos` can exceed the signed `Integer` range, in which case the function
 raises `ErrOverflow` rather than wrapping. The range of
 representable instants is therefore narrower than for `datetime::toMillis`, since
-each second consumes a billion units rather than a thousand.
+each second takes a billion units rather than a thousand.
 `datetime::toNanos` is pure: it reads no host state and depends only on `at`.
 
 
@@ -67,7 +67,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "at",
-                desc: "",
+                desc: "The instant to convert. This is the lossless one — nanoseconds is the resolution an instant actually carries.",
                 aliases: &[],
                 ty: super::ParameterType::named("Instant"),
                 default: super::DefaultValue::None,

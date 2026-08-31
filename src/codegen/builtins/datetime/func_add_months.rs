@@ -88,14 +88,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "dt",
-                    desc: "",
+                    desc: "The date-time to shift. Not modified.",
                     aliases: &[],
                     ty: super::ParameterType::named("DateTime"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "months",
-                    desc: "",
+                    desc: "How many months to add. Negative subtracts. A day that does not exist in the target month is clamped to that month's last day — 31 January plus one month is 28 or 29 February, not 3 March.",
                     aliases: &[],
                     ty: super::ParameterType::Integer,
                     default: super::DefaultValue::None,

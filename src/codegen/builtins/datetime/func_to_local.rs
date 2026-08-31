@@ -70,7 +70,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "at",
-                desc: "",
+                desc: "The instant to read in the host's local zone.",
                 aliases: &[],
                 ty: super::ParameterType::named("Instant"),
                 default: super::DefaultValue::None,

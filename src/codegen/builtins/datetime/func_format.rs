@@ -118,14 +118,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "dt",
-                    desc: "",
+                    desc: "The date-time to render. Not modified.",
                     aliases: &[],
                     ty: super::ParameterType::named("DateTime"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "pattern",
-                    desc: "",
+                    desc: "The pattern to render it with. An unrecognised field is an error rather than being copied through literally.",
                     aliases: &[],
                     ty: super::ParameterType::String,
                     default: super::DefaultValue::None,

@@ -49,10 +49,23 @@ An impossible calendar date raises `ErrInvalidArgument`:
 
 ```
 IMPORT datetime
+IMPORT io
 
 SUB main()
   LET bad AS Date = datetime::date(2026, 2, 29)
+  io::print("accepted")
+  EXIT SUB
+TRAP(err)
+  io::print("rejected: " & err.message)
+  EXIT SUB
+END TRAP
 END SUB
+```
+
+prints:
+
+```
+rejected: datetime: day out of range for month
 ```"#;
 
 #[rustfmt::skip]
@@ -79,21 +92,21 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "year",
-                    desc: "",
+                    desc: "The calendar year, as written — 2026, not an offset from 1900.",
                     aliases: &[],
                     ty: super::ParameterType::Integer,
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "month",
-                    desc: "",
+                    desc: "The month, 1 through 12. Out of range raises rather than rolling over into the next year.",
                     aliases: &[],
                     ty: super::ParameterType::Integer,
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "day",
-                    desc: "",
+                    desc: "The day of the month, 1 through the length of that month in that year. 29 February is valid only in a leap year.",
                     aliases: &[],
                     ty: super::ParameterType::Integer,
                     default: super::DefaultValue::None,

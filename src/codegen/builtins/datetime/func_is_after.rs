@@ -84,14 +84,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "a",
-                    desc: "",
+                    desc: "The instant being tested.",
                     aliases: &[],
                     ty: super::ParameterType::named("Instant"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "b",
-                    desc: "",
+                    desc: "The instant to compare against. `TRUE` when `a` is strictly later; equal instants answer `FALSE`.",
                     aliases: &[],
                     ty: super::ParameterType::named("Instant"),
                     default: super::DefaultValue::None,

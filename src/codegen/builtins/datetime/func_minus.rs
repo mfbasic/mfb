@@ -73,14 +73,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "a",
-                    desc: "",
+                    desc: "The duration to subtract from.",
                     aliases: &[],
                     ty: super::ParameterType::named("Duration"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "b",
-                    desc: "",
+                    desc: "The duration to take away. The result is negative when `b` is the longer one.",
                     aliases: &[],
                     ty: super::ParameterType::named("Duration"),
                     default: super::DefaultValue::None,

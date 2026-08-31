@@ -81,21 +81,21 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "date",
-                    desc: "",
+                    desc: "The calendar date.",
                     aliases: &[],
                     ty: super::ParameterType::named("Date"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "time",
-                    desc: "",
+                    desc: "The wall-clock time on that date.",
                     aliases: &[],
                     ty: super::ParameterType::named("Time"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "zone",
-                    desc: "",
+                    desc: "The zone the wall-clock time is read in. This is what decides which instant the pair names; the same date and time in two zones are two different instants.",
                     aliases: &[],
                     ty: super::ParameterType::named("Zone"),
                     default: super::DefaultValue::None,

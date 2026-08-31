@@ -77,14 +77,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "dt",
-                    desc: "",
+                    desc: "The date-time whose zone to change.",
                     aliases: &[],
                     ty: super::ParameterType::named("DateTime"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "zone",
-                    desc: "",
+                    desc: "The new zone. This **reinterprets** the same wall-clock reading in a different zone, so it names a different instant — use `datetime::inZone` to keep the instant and change only how it is displayed.",
                     aliases: &[],
                     ty: super::ParameterType::named("Zone"),
                     default: super::DefaultValue::None,

@@ -104,7 +104,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             super::Implementation {
                 params: vec![super::Parameter {
                     name: "offsetSeconds",
-                    desc: "",
+                    desc: "The offset from UTC in seconds. Positive is east of UTC.",
                     aliases: &[],
                     ty: super::ParameterType::Integer,
                     default: super::DefaultValue::None,
@@ -117,14 +117,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "hours",
-                        desc: "",
+                        desc: "The whole-hour part of the offset. Negative for zones west of UTC.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "mins",
-                        desc: "",
+                        desc: "The minutes part of the offset. Give it the same sign as `hours` for a western zone.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,

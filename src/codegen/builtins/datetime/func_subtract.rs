@@ -70,14 +70,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "at",
-                    desc: "",
+                    desc: "The instant to shift back from. Not modified.",
                     aliases: &[],
                     ty: super::ParameterType::named("Instant"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "by",
-                    desc: "",
+                    desc: "How far back to shift. Equivalent to `datetime::add` with the duration negated.",
                     aliases: &[],
                     ty: super::ParameterType::named("Duration"),
                     default: super::DefaultValue::None,

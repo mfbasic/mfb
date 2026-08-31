@@ -89,14 +89,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "at",
-                    desc: "",
+                    desc: "The instant to view. The instant itself does not change; only the zone it is read in does.",
                     aliases: &[],
                     ty: super::ParameterType::named("Instant"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "zone",
-                    desc: "",
+                    desc: "The zone to read it in.",
                     aliases: &[],
                     ty: super::ParameterType::named("Zone"),
                     default: super::DefaultValue::None,

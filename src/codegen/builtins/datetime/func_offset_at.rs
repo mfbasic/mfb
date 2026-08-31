@@ -82,14 +82,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "zone",
-                    desc: "",
+                    desc: "The zone to ask about.",
                     aliases: &[],
                     ty: super::ParameterType::named("Zone"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "at",
-                    desc: "",
+                    desc: "The instant to ask about. The offset depends on it wherever daylight saving applies.",
                     aliases: &[],
                     ty: super::ParameterType::named("Instant"),
                     default: super::DefaultValue::None,

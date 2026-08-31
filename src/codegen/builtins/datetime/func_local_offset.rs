@@ -260,7 +260,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "epochSeconds",
-                desc: "",
+                desc: "The instant, in seconds since the epoch, to ask about. The offset is not constant — a zone with daylight saving gives different answers at different times of year.",
                 aliases: &[],
                 ty: super::ParameterType::Integer,
                 default: super::DefaultValue::None,

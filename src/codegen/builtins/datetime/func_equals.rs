@@ -83,14 +83,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 super::Parameter {
                     name: "a",
-                    desc: "",
+                    desc: "The first instant.",
                     aliases: &[],
                     ty: super::ParameterType::named("Instant"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
                     name: "b",
-                    desc: "",
+                    desc: "The second instant. Compared as instants, so two values in different zones naming the same moment are equal.",
                     aliases: &[],
                     ty: super::ParameterType::named("Instant"),
                     default: super::DefaultValue::None,

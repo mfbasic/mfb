@@ -109,7 +109,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             super::Implementation {
                 params: vec![super::Parameter {
                     name: "seconds",
-                    desc: "",
+                    desc: "Whole seconds since the Unix epoch, 1970-01-01T00:00:00Z.",
                     aliases: &[],
                     ty: super::ParameterType::Integer,
                     default: super::DefaultValue::None,
@@ -122,14 +122,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "seconds",
-                        desc: "",
+                        desc: "Whole seconds since the Unix epoch, 1970-01-01T00:00:00Z.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "",
+                        desc: "Nanoseconds past the second.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
@@ -143,21 +143,21 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "mins",
-                        desc: "",
+                        desc: "Whole minutes.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "seconds",
-                        desc: "",
+                        desc: "Whole seconds since the Unix epoch, 1970-01-01T00:00:00Z.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "",
+                        desc: "Nanoseconds past the second.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
@@ -171,28 +171,28 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "hours",
-                        desc: "",
+                        desc: "Whole hours.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "mins",
-                        desc: "",
+                        desc: "Whole minutes.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "seconds",
-                        desc: "",
+                        desc: "Whole seconds since the Unix epoch, 1970-01-01T00:00:00Z.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "",
+                        desc: "Nanoseconds past the second.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
@@ -206,35 +206,35 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 params: vec![
                     super::Parameter {
                         name: "days",
-                        desc: "",
+                        desc: "Whole days since the epoch.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "hours",
-                        desc: "",
+                        desc: "Whole hours.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "mins",
-                        desc: "",
+                        desc: "Whole minutes.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "seconds",
-                        desc: "",
+                        desc: "Whole seconds since the Unix epoch, 1970-01-01T00:00:00Z.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
                     },
                     super::Parameter {
                         name: "nanos",
-                        desc: "",
+                        desc: "Nanoseconds past the second.",
                         aliases: &[],
                         ty: super::ParameterType::Integer,
                         default: super::DefaultValue::None,
