@@ -58,6 +58,7 @@ GATE_LOCK_TREE="{tree}"
     Command::new("bash")
         .arg("-c")
         .arg(script)
+        .env_remove("MFB_GATE_LOCK_OWNER")
         .output()
         .expect("run bash")
 }
@@ -78,19 +79,61 @@ fn make_sibling_tree(name: &str) -> PathBuf {
     dst
 }
 
+
+/// Spawn a LIVE holder process in `tree` and wait until it reports the lock is
+/// held. Returns the child so the caller can kill it.
+///
+/// Contention must be modelled with a separate PROCESS, never a second
+/// `gate_lock_acquire` in the same shell: an in-shell second acquire is
+/// *nesting*, which is deliberately permitted (`sync-goldens.sh` spawning
+/// `test-accept.sh`), so a test built that way asserts the opposite of the
+/// filed bug and passes against an implementation that blocks only nesting.
+fn spawn_holder(tree: &Path, holder_name: &str) -> std::process::Child {
+    let helper = tree.join("scripts/gate-lock.sh");
+    let child = Command::new("bash")
+        .arg("-c")
+        .arg(format!(
+            r#"set -u
+GATE_LOCK_HOLDER={name}
+GATE_LOCK_TREE="{tree}"
+. "{helper}"
+gate_lock_acquire || exit 9
+touch "$GATE_LOCK_TREE/ready"
+sleep 30
+"#,
+            name = holder_name,
+            tree = tree.display(),
+            helper = helper.display(),
+        ))
+        .env_remove("MFB_GATE_LOCK_OWNER")
+        .spawn()
+        .expect("spawn holder");
+    let ready = tree.join("ready");
+    let mut waited = 0;
+    while !ready.exists() && waited < 5000 {
+        std::thread::sleep(std::time::Duration::from_millis(25));
+        waited += 25;
+    }
+    assert!(
+        ready.exists(),
+        "holder never acquired the lock; nothing was being contended"
+    );
+    child
+}
+
 #[test]
 fn a_second_run_in_the_same_tree_is_refused_with_98() {
     let tree = make_sibling_tree("same-a");
-    // Acquire, then attempt a nested acquire as the OTHER script. The nested
-    // attempt is the one under test.
+    let mut holder = spawn_holder(&tree, "artifact-gate.sh");
     let out = run_with_lock(
         &tree,
-        "artifact-gate.sh",
-        r#"gate_lock_acquire
-GATE_LOCK_HOLDER=test-accept.sh gate_lock_acquire && echo "ACQUIRED-TWICE"
+        "test-accept.sh",
+        r#"gate_lock_acquire && echo "ACQUIRED-TWICE"
 echo "nested-exit=$?"
 "#,
     );
+    let _ = holder.kill();
+    let _ = holder.wait();
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
@@ -112,14 +155,16 @@ fn the_same_pairing_is_refused_in_the_other_direction_too() {
     // The original guards were symmetric in their blindness; assert both
     // orders so a fix that only teaches ONE script about the other regresses.
     let tree = make_sibling_tree("same-b");
+    let mut holder = spawn_holder(&tree, "test-accept.sh");
     let out = run_with_lock(
         &tree,
-        "test-accept.sh",
-        r#"gate_lock_acquire
-GATE_LOCK_HOLDER=artifact-gate.sh gate_lock_acquire && echo "ACQUIRED-TWICE"
+        "artifact-gate.sh",
+        r#"gate_lock_acquire && echo "ACQUIRED-TWICE"
 echo "nested-exit=$?"
 "#,
     );
+    let _ = holder.kill();
+    let _ = holder.wait();
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
         !stdout.contains("ACQUIRED-TWICE") && stdout.contains("nested-exit=98"),
@@ -217,5 +262,47 @@ echo "exit=$?"
         stdout.contains("RECLAIMED"),
         "a lock whose holder pid is gone must be reclaimable, or a killed run \
          wedges the tree permanently\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_nested_acquire_from_the_same_process_tree_is_a_no_op() {
+    // `sync-goldens.sh` must hold the lock across BOTH the `test-accept.sh` it
+    // spawns and the golden copy that follows — otherwise that copy runs
+    // unlocked and an `artifact-gate` starting in the window reads half-written
+    // goldens. Without re-entrancy the spawned `test-accept.sh` refuses its own
+    // parent and `sync-goldens.sh` cannot lock at all.
+    //
+    // The nested acquire must ALSO not release: if the child's EXIT trap tore
+    // the lock down, the parent would finish its copy unprotected, which is the
+    // same hole with extra steps. So this asserts the lock still stands after
+    // the child exits.
+    let tree = make_sibling_tree("nested");
+    let out = run_with_lock(
+        &tree,
+        "sync-goldens.sh",
+        r#"gate_lock_acquire || { echo "PARENT-REFUSED"; exit 1; }
+# A child shell, as `sync-goldens.sh` spawns `test-accept.sh`.
+bash -c '
+  set -u
+  GATE_LOCK_HOLDER=test-accept.sh
+  GATE_LOCK_TREE="'"$GATE_LOCK_TREE"'"
+  . "'"$GATE_LOCK_TREE"'/scripts/gate-lock.sh"
+  gate_lock_acquire && echo "CHILD-OK" || echo "CHILD-REFUSED"
+'
+[ -d "$GATE_LOCK_DIR" ] && echo "LOCK-STILL-HELD" || echo "LOCK-GONE"
+"#,
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("CHILD-OK"),
+        "a nested acquire from the same process tree must succeed, or \
+         sync-goldens.sh cannot hold the lock across the test-accept.sh it \
+         spawns\nstdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("LOCK-STILL-HELD"),
+        "the nested acquire must NOT release on exit — the parent still needs \
+         the lock for its golden copy\nstdout:\n{stdout}"
     );
 }

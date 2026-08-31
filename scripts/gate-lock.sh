@@ -54,6 +54,7 @@ gate_lock_release() {
   if [ -n "$GATE_LOCK_HELD" ]; then
     rm -rf "$GATE_LOCK_DIR"
     GATE_LOCK_HELD=""
+    unset MFB_GATE_LOCK_OWNER
   fi
 }
 
@@ -71,10 +72,29 @@ gate_lock_acquire() {
   local holder="${GATE_LOCK_HOLDER:-gate}"
   mkdir -p "$(dirname "$GATE_LOCK_DIR")" 2>/dev/null
 
+  # RE-ENTRANCY. `sync-goldens.sh` must hold the lock across BOTH the
+  # `test-accept.sh` run it spawns AND the golden copy that follows it —
+  # otherwise the copy happens unlocked and an `artifact-gate` starting in that
+  # window reads half-written goldens, which is the corruption this lock exists
+  # to prevent. But the `test-accept.sh` it spawns calls this function too, and
+  # would refuse its own parent. So an acquire is a no-op when this process
+  # tree already holds THIS tree's lock: the owner pid is exported, children
+  # inherit it, and a child neither takes nor releases. The pid is re-checked
+  # against the live lock so a stale exported value from an earlier run in the
+  # same shell cannot wave a caller through.
+  if [ -n "${MFB_GATE_LOCK_OWNER:-}" ] && [ -d "$GATE_LOCK_DIR" ]; then
+    local live_pid
+    live_pid=$(awk '{print $2}' "$GATE_LOCK_DIR/owner" 2>/dev/null)
+    if [ "$live_pid" = "$MFB_GATE_LOCK_OWNER" ]; then
+      return 0
+    fi
+  fi
+
   if mkdir "$GATE_LOCK_DIR" 2>/dev/null; then
     printf '%s %s %s\n' "$holder" "$$" "$(date +%s 2>/dev/null || echo 0)" \
       > "$GATE_LOCK_DIR/owner"
     GATE_LOCK_HELD=1
+    export MFB_GATE_LOCK_OWNER=$$
     trap gate_lock_release EXIT INT TERM
     return 0
   fi
@@ -92,6 +112,7 @@ gate_lock_acquire() {
       printf '%s %s %s\n' "$holder" "$$" "$(date +%s 2>/dev/null || echo 0)" \
         > "$GATE_LOCK_DIR/owner"
       GATE_LOCK_HELD=1
+      export MFB_GATE_LOCK_OWNER=$$
       trap gate_lock_release EXIT INT TERM
       return 0
     fi
