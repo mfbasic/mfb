@@ -14,8 +14,8 @@ in turn, so the direction is preserved and only the magnitude changes. The
 argument is not modified — a fresh record is returned.
 
 **A zero-length vector is rejected.** It has no direction, so there is no unit
-vector to return, and dividing by its length would be a division by zero. The
-implementation computes the length first and fails with `ErrInvalidArgument` and
+vector to return, and dividing by its length would be a division by zero. It computes the length
+first and fails with `ErrInvalidArgument` and
 the message `vector::normalize of a zero-length vector` when it is zero, rather
 than returning the zero vector or a vector of `NaN` components. This is a
 deliberate contrast with `vector::clamp_length`, which accepts the zero vector and

@@ -253,7 +253,68 @@ sentences and E's `tls` was required to copy them. They now carry the same
 sentence. One divergence was found and fixed: `tcp::accept` said "The listener
 stays open **and usable** — you still close it", which is C's sentence plus two
 words. Aligned.
-- [ ] Ledger completeness check — paste the union-vs-census result here.
+- [x] Ledger completeness check. The per-letter ledgers are prose and are
+      awkward to diff mechanically, so this letter checked the stronger thing
+      directly: **every example on every page of every package, compiled and
+      run, in one sweep** (`bash /tmp/runall.sh`, one
+      `scripts/man-run-examples.sh <pkg> --run` per package). That is a
+      superset of "the ledger accounts for each example" — nothing can be
+      unaccounted for if everything was executed.
+
+| Package | Examples | Built | Ran | Failed |
+|---|---|---|---|---|
+| `app` | 2 | 2 | 2 | 0 |
+| `astrings` | 15 | 15 | 15 | 0 |
+| `audio` | 11 | 11 | 11 | 0 |
+| `bits` | 37 | 37 | 37 | 0 |
+| `canvas` | 14 | 14 | 14 | 0 |
+| `collections` | 140 | 140 | 140 | 0 |
+| `crypto` | 29 | 29 | 29 | 0 |
+| `csv` | 6 | 6 | 6 | 0 |
+| `datetime` | 112 | 112 | 112 | 0 |
+| `encoding` | 57 | 57 | 57 | 0 |
+| `errorCode` | 0 | 0 | 0 | 0 |
+| `fs` | 94 | 94 | 94 | 0 |
+| `general` | 34 | 34 | 34 | 0 |
+| `http` | 38 | 38 | 30 | 8 |
+| `io` | 22 | 22 | 22 | 0 |
+| `json` | 12 | 12 | 12 | 0 |
+| `math` | 21 | 21 | 21 | 0 |
+| `money` | 5 | 5 | 5 | 0 |
+| `net` | 11 | 11 | 11 | 0 |
+| `os` | 21 | 21 | 21 | 0 |
+| `perf` | 0 | 0 | 0 | 0 |
+| `process` | 18 | 18 | 18 | 0 |
+| `regex` | 10 | 10 | 10 | 0 |
+| `strings` | 84 | 84 | 84 | 0 |
+| `tcp` | 16 | 16 | 16 | 0 |
+| `term` | 43 | 43 | 32 | 11 |
+| `testing` | 14 | 14 | 14 | 0 |
+| `thread` | 13 | 13 | 13 | 0 |
+| `tls` | 14 | 14 | 9 | 5 |
+| `udp` | 9 | 9 | 9 | 0 |
+| `vector` | 36 | 36 | 36 | 0 |
+| **TOTAL** | **938** | **938** | **914** | **24** |
+
+**Run-not-applicable, with the reason per package** (never a silent skip):
+
+| Package | Not run | Reason, per function |
+|---|---|---|
+| `term` | 11 of 43 | `drawBox#2`, `drawGlyph#1`, `drawHLine#1`, `drawText#1`, `drawVLine#1`, `fillRect#2`, `moveTo#2`, `setBackground#2`, `sync#2`, `terminalSize#1`, `terminalSize#2` — all raise `ErrUnsupported` because the sweep has no controlling terminal. This is **documented behaviour**, not a defect: `term::terminalSize`'s page already says "If the terminal cannot say — standard output is not a terminal, or the host does not answer — … the call raises". They compile, and the other 32 run (the harness captures their ANSI output). |
+| `tls` | 5 of 14 | `listen#1`, `accept#1`, `connect#2`, `localAddress#2`, `remoteAddress#1` — server examples that need a certificate and key on disk (`tls::listen(..., "cert.pem", "key.pem")` raises `ErrTlsFailed` without them) and then block on `tls::accept` waiting for a client that a sweep does not provide. They compile; the other 9 run. |
+| `http` | 8 of 38 | **Not an environment limit — all eight are bug-476.** `http::handleRequest` accepts a request and writes no response at all, so every server-shaped example hangs its client: `handleRequest#1`, `#2`, `respondPath#1`–`#3`, `server#1`, `serverSSL#1`, `#2` all hit the 25s timeout. (In the first sweep three of them reported a bind failure instead; that was a leaked server from an earlier killed run still holding port 8080. Re-run with the port clear, they time out like the rest — same cause.) The examples are correct as written. |
+| `app`, `canvas` | 0 | Both run (2/2 and 14/14), but in app mode `io::print` goes to the application transcript rather than stdout, so "ran" here means built with `--app`, launched headless and exited 0. |
+| `errorCode`, `perf` | — | No examples to run: neither package renders a function page (`errorCode` is constants, `perf` is internal). |
+
+**`mfb man variable`** is not in the table because the harness enumerates
+registry packages and it is a narrative topic — so it was checked separately:
+all **7** of its example blocks compile, run, and print exactly the output the
+page shows (Corrections item 7).
+
+The `http` row is the one worth reading twice: a sweep that classified those
+eight as "network examples, cannot run here" would have hidden a HIGH-severity
+bug in the package's central function. They were run, they failed, and the
+failure was root-caused rather than classified.
 - [x] Cross-package consistency. Swept mechanically over the whole rendered
       surface rather than spot-checked, which is what found the one real
       divergence:
@@ -367,7 +428,95 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+1. **The scope sweep's word list was the wrong shape, and its 0 was not
+   evidence.** §1 specified the pattern as compiler vocabulary —
+   `abi_inline|Body::|monomorph|lowering|NIR|\.ncode|__pkg_|#[a-z]+_[A-Za-z]+$|\[\[`.
+   That list reported **0 hits** on a surface still carrying **42** leaked
+   lines, because the common leak is not compiler vocabulary. It is:
+
+   - **`Internally, ...` paragraphs** — 11 of them, e.g. "Internally the
+     function opens the file read-only, seeks to the end and back to determine
+     the length, builds the result `String`, reads the bytes in a loop, and
+     closes the descriptor."
+   - **C-library and host names** — `errno`, `EEXIST`, `ENOENT`, `EACCES`,
+     `EINTR`, `isatty`, `localtime_r`, `tm_gmtoff`, `clock_gettime`, `timespec`,
+     "file descriptor", "the descriptor", "system call".
+   - **Runtime nouns that read like English** — `arena`,
+     `per-execution-context`, "scratch buffer", "entry table", "hash bucket
+     index", "data region", "in-place fast path".
+   - **"lowered inline"**, which the pattern missed because it matched only
+     `lowering`.
+
+   The pattern is corrected in `scripts/man-census.sh` and the class is now
+   caught. Two of the additions had to be tightened after they fired falsely:
+   `IR ` matches `TMPDIR environment` and `$APPDIR or`, and bare `EEXIST`
+   matches the page title `FILEEXISTS`.
+
+2. **Reading pages found what no sweep did.** Three defects surfaced only by
+   reading end to end after every sweep was green:
+
+   - `collections::find` claimed "A nested collection that is stored as a handle
+     rather than inlined compares by identity, not by contents." Both halves are
+     false: a nested collection cannot be searched for at all —
+     `collections::find` on a `List OF List OF Integer` is rejected with
+     `TYPE_REQUIRES_COMPARABLE`.
+   - `money::setRounding`/`getRounding` and `app::getMode` each described their
+     own lowering ("a mask and a single store ... the enum discriminant masked
+     to its low bit").
+   - `fs::close` was leaking descriptor vocabulary *and*, after an earlier edit
+     in this plan, said "on some platforms" twice.
+
+   A green sweep is evidence about the pattern, not about the pages.
+
+3. **The cross-package consistency check had to be mechanical, not a
+   spot-check.** §1 asked for a spot-check of shared concepts. A spot-check
+   would have passed: the divergence was that one rule — "this closes itself" —
+   was stated **eleven different ways** across the surface, including
+   "**released** automatically when it leaves scope" on `fs::File` and both
+   `audio` stream types. `released` is memory vocabulary that the banned-word
+   list does not name, so no gate would ever have flagged it. Sweeping all
+   phrasings of the concept, then converging them, is what the criterion now
+   records.
+
+4. **`carve-out 2` was added to `--memory-scope`** (recorded in full in
+   plan-108-E's Corrections item 3): an Errors-table row is derived from the
+   `errorCode` constant descriptors, whose `message` is the string the runtime
+   prints, so `ErrOutOfMemory`'s "Allocation failed." renders in a cell no page
+   author can edit and this plan is barred from changing. 20 rows.
+
+5. **The `os` cross-model review did not complete** — the reviewing model
+   returned a usage-limit error twice, ~129k tokens in. `process` and `io`
+   completed and were applied (16 findings each). `os` was verified here
+   independently (12 memory hits fixed, 21/21 examples run, `--fill`
+   19/19/19/19 and 9/9). Recorded rather than counted as done.
+
+6. **The example harness had five defects, every one of which made a broken
+   example look fine.** Three are recorded in plan-108-D's Corrections
+   (working directory, documented-failure exits, phantom page counts) and the
+   per-example timeout in plan-108-E's. Two more surfaced here:
+
+   - **`run_bounded`'s killer subshell held the command-substitution pipe**, so
+     the substitution could not return until the killer's `sleep` expired and
+     every example took the full timeout however fast it finished (`json`: 300s
+     → 13s).
+   - **A background job gets `/dev/null` on stdin** unless redirected
+     explicitly, so the `STDIN_FILE` plumbing was silently inert and
+     `io::input#1` read EOF while looking like a broken example.
+
+   And one environmental trap worth writing down: **a leaked server process
+   from a killed earlier run held port 8080 for hours**, which made three
+   unrelated `http` examples fail to bind. `kill -9` on the harness parent does
+   not reach a grandchild. Check `lsof -nP -iTCP:<port> -sTCP:LISTEN` before
+   believing a bind failure.
+
+7. **`mfb man variable`'s own examples were never checked by anything.** The
+   harness enumerates registry *packages*, and `variable` is a narrative topic
+   — so the one page every other page links to had unverified examples. All
+   **7** of its blocks were extracted, compiled and run here; every one runs and
+   every printed result matches the output the page shows. (Extracting them
+   needs one rule the package path does not: this page puts expected output
+   directly under the code at the same indent, so a block must be truncated at
+   its last top-level `END`, not at the next unindented line.)
 
 ## Summary
 
