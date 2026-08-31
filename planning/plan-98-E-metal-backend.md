@@ -33,10 +33,10 @@ References:
 | Must be true | Command | Status |
 |---|---|---|
 | ~~Deferred texture free~~ **inherited from plan-98-D Phase 4** — it was moot there (no texture exists until this letter creates one), so E owns it: stamp `lastUsedFrame` when a frame draws a texture and free on `closed AND lastUsedFrame < lastCompletedFrame`. The gate itself already works — `GRAPHICS_OFFSET_FRAMES` + the scene ring use it. | plan-98-D Correction 13 | INHERITED SCOPE, not a precondition |
-| plan-98-D complete (graphics thread + ring + deferred texture free) | `ls planning/completed/plan-98-D-*` → hit | NOT MET |
-| D's frame-completion signal is renderer-swappable | plan-98-D Phase 4 acceptance met | NOT MET |
-| C's tolerance comparator exists | plan-98-C Phase 2 acceptance met | NOT MET |
-| Working tree builds | `cargo build` → pass | UNVERIFIED (run before starting) |
+| plan-98-D complete (graphics thread + ring) | `ls planning/completed/plan-98-D-*` → hit | MET (archived; phases landed as `9ab5f6525`, `f09e1d8f8`, `9fa52efdb`, `e647a79a5`). The deferred texture free is not part of it — see the row above. |
+| D's frame-completion signal is renderer-swappable | `rg -n GRAPHICS_OFFSET_FRAMES src/codegen/runtime/canvas/mod.rs` → hit | MET. It is a plain counter advanced by `canvas::frameDone`, which the render loop calls after each frame; a GPU backend advances the same counter from its fence/completion handler and every consumer (the scene ring's drain gate, `MFB_CANVAS_SYNC`) is unchanged. |
+| C's tolerance comparator exists | `rg -n compare_within_tolerance tests/common/canvas_image.rs` → 2 hits | MET (`Tolerance::GPU_DEFAULT` = 2 steps / 2% of pixels, unit-tested in `rt_canvas_golden`). |
+| Working tree builds | `cargo build` → pass | MET (re-run: `Finished `dev` profile`) |
 
 > Per A's invariant 8: no "full suite green at HEAD" row and no byte-identity
 > obligation.
@@ -74,24 +74,43 @@ References:
   renderer-swappable frame-completion signal.
 - **metal-cpp is header-only** (design note) — no SDK/link dependency; integrates under the
   no-shared-libs constraint.
-- UNVERIFIED until Phase 1 (post-D): the exact vertex-buffer layout D hands the renderer, the
-  frame-completion hook shape (`lastCompletedFrame`), and how the atlas (white pixel + images) is uploaded.
-  These are read from D's real code, not assumed.
+- **RESOLVED in Phase 1 by reading the code** (was UNVERIFIED; see Correction 1):
+
+  * **There is no vertex buffer.** The geometry cache holds a **22-float SDF parameter
+    header** per item — kind, distance-function parameters, both colours, bounds — plus,
+    for a polygon, a precomputed edge array (`x0, y0, dx, dy, invLenSq` per edge).
+    plan-98-C Correction 3 rejected triangle geometry deliberately: a triangle list
+    carries no distance field, and analytic-SDF AA is what makes the software path a
+    reproducible oracle. The header is nonetheless *exactly* a per-instance parameter
+    block, which is what C designed it to be.
+  * **There is no renderer-swap seam.** `__canvas_renderLoop` calls
+    `__canvas_renderScene` directly, and that is MFBASIC source. E has to *create* the
+    seam, not read it.
+  * **The frame-completion hook is a plain counter**, `GRAPHICS_OFFSET_FRAMES`,
+    advanced by `canvas::frameDone()` after each frame. A Metal completion handler
+    advances the same word and every consumer is unchanged.
+  * **There is no atlas and no texture upload.** `Picture` draws nothing
+    (`__CANVAS_GEO_NONE`) and `canvas::createImage` keeps its pixels in the resource's
+    CPU shadow. Both are plan-98-G's.
 
 ### Measured populations
 
 | What | Count | Command |
 |---|---|---|
 | Render pipelines | 1 (textured tinted quad + SDF branch) | this plan's §3 — the "one pipeline, many shapes" decision, mirroring C's single software path |
-| Shaders to author | UNMEASURED (1–2) | resolve in Phase 1 — see shader Open Decision |
-| macOS-specific render entry points behind D's boundary | UNVERIFIED | read D's renderer-swap seam (Phase 1) |
+| Shaders to author | 2 (one vertex, one fragment; one pipeline) | Phase 1, against the real geometry record |
+| macOS-specific render entry points behind D's boundary | 0 — the seam does not exist yet and E creates it | `rg -n "__canvas_renderScene" src/codegen/builtins/canvas/` → called directly by the render loop |
 
 ### Verified properties
 
 - **The thread/ring/retirement boundary is renderer-agnostic** — VERIFIED by D's design
   (software fence is swappable). E confirms by reading D's seam in Phase 1 before coding.
-- UNVERIFIED: that a `CAMetalLayer` on the A view resizes cleanly via `drawableSize` from the
-  main thread while the graphics thread renders. Phase task proves it.
+- **The thread/ring/resize boundary is genuinely renderer-agnostic** — VERIFIED, not
+  by design but by construction: D's resize publishes a width and height into the
+  graphics state and the renderer reads them at frame start, so a Metal path sets
+  `drawableSize` from the same two words. The frame counter is likewise a plain word.
+- UNVERIFIED: that a `CAMetalLayer` on the A view resizes cleanly via `drawableSize`
+  from the main thread while the graphics thread renders. Phase task proves it.
 
 ## 3. Design Overview
 
@@ -128,9 +147,14 @@ simpler here and avoids a translation layer; Vulkan is Linux/Windows only.
 
 ### Phase 1 — Read D's renderer seam; pipeline + one-quad tolerance match
 
-- [ ] Read D's renderer-swap seam and vertex/fence contract; record the real layout
-      (resolves the `UNVERIFIED` rows above) in Corrections.
-- [ ] Decide and implement the shader path (Open Decision); build-time compile to MSL.
+- [x] Read D's renderer seam and its geometry/fence contract; the real layout is
+      recorded in Correction 1 and the `UNVERIFIED` rows above are resolved. The
+      headline: **there is no vertex buffer and no seam** — the geometry is SDF
+      parameters and `__canvas_renderScene` is called directly, so E creates the seam.
+- [~] Shader path decided (Correction 2): two hand-written MSL shaders, one pipeline,
+      compiled **at runtime** via `newLibraryWithSource:` rather than at build time —
+      a build-time `xcrun metal` step would make compiling a user's program depend on
+      an installed Xcode toolchain. Implementation pending with the pipeline below.
 - [ ] Create `CAMetalLayer`, device, queue, single pipeline; render one textured tinted quad;
       assert it matches the C software golden within tolerance headless (where macOS headless
       Metal is available; else on a window-server CI lane).
@@ -193,6 +217,41 @@ Commit: —
   the software exact-match goldens as the always-headless gate. (§Phase 1)
 
 ## Corrections
+
+**Correction 1 (Phase 1) — D hands the renderer SDF parameters, not vertices, and
+there is no seam to swap.** E's Current State assumed a vertex buffer and a
+renderer-swap boundary to read. Neither exists:
+
+* The per-item geometry is a **22-float SDF parameter header** (kind, distance
+  parameters, fill and stroke colour, bounds) plus a per-polygon edge array. That is
+  not an oversight — plan-98-C Correction 3 rejected triangle geometry because a
+  triangle list carries no distance field, and the analytic-SDF AA is precisely what
+  makes the software renderer a *reproducible* oracle. C shaped the header to be a
+  per-instance parameter block for exactly this letter.
+* `__canvas_renderScene` is called directly by the render loop and is MFBASIC source.
+  **E's first real task is therefore to create the seam**, not to read it: the loop
+  must dispatch to a software or Metal renderer.
+
+Two consequences the design did not name:
+
+* **The polygon tail is variable-length**, so it cannot ride in a fixed-stride
+  instance buffer. A Metal path needs the edge arrays in a separate buffer indexed by
+  a per-instance offset — which the header already carries (slot 1 is the record's
+  total length, slot 20 the edge count).
+* **Phase 2's atlas and dynamic-texture upload have nothing to upload.** `Picture`
+  generates the `__CANVAS_GEO_NONE` kind and `createImage` keeps its pixels in the
+  resource's CPU shadow; images first *draw* in plan-98-G. Those rows are moot here
+  for the same reason plan-98-D's dirty-upload rows were, and for the same evidence.
+
+**Correction 2 (Phase 1) — shader Open Decision resolved: hand-written MSL, compiled
+at runtime.** The decision was "hand-write vs a glslang→SPIRV-Cross build step", with
+hand-writing recommended if it stays at 1–2 shaders. It does: one pipeline, one vertex
+shader and one fragment shader. The remaining question the decision did not ask is
+*when* the MSL becomes a library, and the answer is **at runtime**, via
+`[device newLibraryWithSource:options:error:]` with the source embedded as a string
+constant. That keeps the no-dependency constraint clean — a build-time `xcrun metal`
+step would make the compiler depend on an installed Xcode toolchain to build a *user's*
+program — at the cost of one compile at first present.
 
 **2026-08-30 — pre-execution revision (no code written yet).** See plan-98-A's
 Corrections for the full account. Applied here: A's invariant 8 (this is new work, so
