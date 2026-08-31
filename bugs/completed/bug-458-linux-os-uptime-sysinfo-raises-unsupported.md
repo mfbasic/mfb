@@ -7,10 +7,28 @@ Severity: **HIGH** (raised from MEDIUM: the observed `ErrUnsupported` is the
 silently and return a wrong answer.)
 Class: Correctness (unstaged ABI argument; implemented call fails or corrupts at runtime)
 
-Status: **Root-caused and fixed on branch `worktree-winpass` (peer session
-mfb-39) — NOT on `main`.** Keep this open until that fix lands; `origin/main`
-at `980c79f2e` still has the defect.
-Regression Test: — (`tests/acceptance` fixture `rt-behavior/os/func_os_system_status_valid` covers it and is red on Linux CI; see the coverage hole below for why nothing else caught it)
+Status: **FIXED and landed on `main`.** Cherry-picked to main as `e08b1ef46`,
+then carried in again by the `worktree-winpass` merge at `75d5d5c53` (identical
+content, no conflict). The predicted cause in this document was right in kind but
+not in candidate order: it was #3 (does a valid pointer reach the call), not the
+glibc-vs-musl split checked first — `lower_uptime`'s Linux arm never staged
+ARG[0], so `sysinfo(struct sysinfo *info)` ran with whatever the caller left
+there. One instruction: `add_immediate(c_arg(0), stack_pointer(), 0)`, the same
+form the macOS arm already uses for `sysctl`.
+
+Regression Test: `tests/acceptance` fixture
+`rt-behavior/os/func_os_system_status_valid`, which now passes on Linux — main's
+own acceptance run went from 4 mismatches to 2 (the survivors are the two
+unrelated ICMP fixtures). Verified before landing by executing the fixture on
+real boxes with a baseline-vs-fixed compiler: Ubuntu x86-64 glibc and Alpine
+x86-64 musl both went `Error: 7-705-0007` / exit 255 → `uptime_nonnegative=TRUE`
+/ exit 0. Both libc worlds failed identically, so the glibc/musl hypothesis is
+eliminated rather than halved.
+
+Still open, split out from this bug: `tests/byte-identity/os` exercises no
+`uptime`/`isAdmin`/`version`, which is why nothing caught the missing
+`add_imm rdi, rsp, N` before `bl sysinfo` at the `.ncode` level. Worth its own
+ticket.
 
 `os::uptime()` is implemented, gated in, and import-wired on Linux, but on the
 GitHub Actions Linux runner it raises `ErrUnsupported` (`7-705-0007`) at
