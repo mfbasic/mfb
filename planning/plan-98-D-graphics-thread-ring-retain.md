@@ -219,7 +219,7 @@ ring is a bug in the handoff to root-cause, not a design falsification.
 Acceptance: MET. `.ai/canvas-threading.md` exists, covers all five orderings the
 design names (R1–R11) plus R12 found while writing, and gives a normative sequence for
 each of §3 ring, §5 resize, §6 upload and §7 free. No threading code was written first.
-Commit: —
+Commit: `9ab5f6525`
 
 ### Phase 2 — Graphics thread + software render loop (no ring yet)
 
@@ -256,7 +256,7 @@ through the thread. Damage repaints without the worker via the platform blit pat
 (Correction 4), and the `setBytes` clauses are moot (no sampler until G).
 `cargo test` across every canvas/app-mode target: 53 passed;
 `MFB_MACAPP_GUI=1 test-macapp.sh`: 18 ok.
-Commit: —
+Commit: `f09e1d8f8`
 
 ### Phase 3 — Triple-buffer scene ring + resize handshake
 
@@ -291,7 +291,7 @@ graphics mutex only to set a flag and the renderer holds it only for index arith
 skipping is correct; the resize repaints at the new size with the program blocked in
 `io::pollInput`; the exact-match golden still passes. `MFB_MACAPP_GUI=1
 test-macapp.sh`: 19 ok. Every canvas/app-mode target: 53 passed.
-Commit: —
+Commit: `9fa52efdb` (+ `1a397a6cb` for the perf/leak work Correction 12 records)
 
 ### Phase 4 — Deferred texture free (closed-flag + frame-drain) (largest blast radius last)
 
@@ -331,7 +331,7 @@ test-proven; the texture rows have no texture to test, which is a structural fac
 judgement about effort. The pixel oracle survives the ring: the exact-match golden
 still passes. `MFB_MACAPP_GUI=1 test-macapp.sh`: 19 ok; every canvas/app-mode target:
 53 passed.
-Commit: —
+Commit: `e647a79a5`
 
 ## Validation Plan
 

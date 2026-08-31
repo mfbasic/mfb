@@ -32,6 +32,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
+| ~~Deferred texture free~~ **inherited from plan-98-D Phase 4** — it was moot there (no texture exists until this letter creates one), so E owns it: stamp `lastUsedFrame` when a frame draws a texture and free on `closed AND lastUsedFrame < lastCompletedFrame`. The gate itself already works — `GRAPHICS_OFFSET_FRAMES` + the scene ring use it. | plan-98-D Correction 13 | INHERITED SCOPE, not a precondition |
 | plan-98-D complete (graphics thread + ring + deferred texture free) | `ls planning/completed/plan-98-D-*` → hit | NOT MET |
 | D's frame-completion signal is renderer-swappable | plan-98-D Phase 4 acceptance met | NOT MET |
 | C's tolerance comparator exists | plan-98-C Phase 2 acceptance met | NOT MET |
