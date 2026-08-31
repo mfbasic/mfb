@@ -362,13 +362,47 @@ widening. Phase 4 is the breaking change and depends on all three.
 
 ### Phase 1 — Defect A: failing test + root cause (no behavior change)
 
-- [ ] Add `tests/rt-behavior/packages/source-package-dependency-rt/` — the minimal reproduction above, asserting it prints `42`. Confirm it fails today.
+- [x] Add `tests/rt-behavior/packages/source-package-dependency-rt/` — the minimal reproduction above, asserting it prints `42`. Confirm it fails today.
 - [ ] Add the paired `.mfp` fixture so the two forms are compared by the suite, not by hand.
-- [ ] Decide between hypotheses 1–3 with a measurement; record which, and the evidence, here.
+- [x] Decide between hypotheses 1–3 with a measurement; record which, and the evidence, here.
 - [ ] Complete the Defect A blast-radius audit, especially the lockfile/audit question.
 
+**Hypothesis 1 confirmed: the path is MISSING, not broken.** Source-package
+dependencies have never been compiled, which is why the total absence of tree
+coverage is not a coincidence — this is a feature gap wearing a bug's clothes,
+exactly as the Summary suspected.
+
+Evidence, read at `2e464a411`:
+
+- `src/manifest/package.rs:234 installed_package_files` only ever builds
+  `project_dir/packages/<name>.mfp`. For a source dependency that file does not
+  exist, so it returns
+  `Err("package `X` must be installed as '…' before binary representation merging")`.
+- All three consumers swallow that `Err` and yield empty:
+  `external_package_function_types` (`:353`), `imported_type_defs` (`:434`) and
+  `imported_resource_closers` (`:291`) are each
+  `let Ok(packages) = … else { return <empty> }`. With no imported signatures,
+  every call into the package types as `Unknown`.
+- `src/resolver/packages.rs:176 validate_source_package_manifest` only VALIDATES
+  the source manifest (`name`, `kind`). It never loads exports — contrast the
+  `.mfp` branch's `install_package_type_names` (`:71`), which does.
+- `src/ir/shape.rs:748,807` and `src/monomorph/helpers.rs:425` each rebuild
+  `project_dir/packages/<pkg>.mfp` by hand and `continue` when it is absent.
+
+Hypothesis 3 (ordering) is ruled out by the same reading: there is no
+dependency-compilation step to order. Hypothesis 2 (registered under the wrong
+key) is ruled out because nothing is registered at all.
+
+Reproduced at `2e464a411` on macos-aarch64, release `mfb`, exactly as documented:
+
+```
+$ mfb build tests/rt-behavior/packages/source-package-dependency-rt
+main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: ...
+               Call to `toString` has argument type(s) (Unknown), expected ...
+```
+
 Acceptance: the new fixture fails for the documented reason; the root cause is named with evidence.
-Commit: —
+Commit: 5eb5f4dc3 (RED fixtures)
 
 ### Phase 2 — Defect A: the fix
 
@@ -381,16 +415,56 @@ Commit: —
 
 ### Phase 3 — Defect B1: make the qualified form resolve (strict widening)
 
-- [ ] Run `canonical_import_name` on a `MemberAccess` target before the `enums` lookup, in both sites (`src/ir/verify/values.rs:637`, `src/ir/lower.rs:2710`).
-- [ ] Do the equivalent for a union variant in a `CASE` pattern.
-- [ ] Add `tests/syntax/net/qualified-enum-name-accepted/` and a union-variant twin.
-- [ ] Assert the NIR escape is closed: a qualified name that genuinely cannot resolve gets a located, coded diagnostic naming the enum, not `NIR local reference … does not resolve`.
+- [~] Run `canonical_import_name` on a `MemberAccess` target before the `enums` lookup, in both sites (`src/ir/verify/values.rs:637`, `src/ir/lower.rs:2710`).
+- [x] Do the equivalent for a union variant in a `CASE` pattern.
+- [x] Add `tests/syntax/net/qualified-enum-name-accepted/` and a union-variant twin.
+- [x] Assert the NIR escape is closed: a qualified name that genuinely cannot resolve gets a located, coded diagnostic naming the enum, not `NIR local reference … does not resolve`.
+
+**Deviation from the prescribed fix, and why.** The plan above places the fix in
+`ir::lower`/`ir::verify`, on the theory that those two raw-name `enums` lookups
+are the defect. They are a *symptom*. The actual seam is one stage earlier and
+already existed: `qualified_builtin_type` normalizes a package-qualified builtin
+type to the declared id at PARSE time (plan-03-http.md §A.1/§B.2), and it was
+inlined in `parse_type_base_name` — so it applied in a type ANNOTATION and
+nowhere else. That is precisely why `LET s AS net::PingStatus` resolved while
+`CASE net::PingStatus.Ok` did not.
+
+Fixing it at the parser means the name never reaches `ir::lower` misspelled, so
+both `enums` lookups resolve untouched. Two expression positions were wired to
+the shared helper:
+
+- `src/ast/expr.rs` — a qualified identifier, the head of `net::PingStatus.Ok`.
+- `src/ast/stmt.rs` `try_parse_union_case_type` — `CASE json::JsonBool(b)`.
+  (`parse_qualified_name` deliberately does not normalize: it also serves
+  qualified FUNCTION and CONSTANT references, which must stay as written.)
+
+Two properties the inlined copy lacked were added with it:
+
+- **Binding awareness.** The rule's qualifier is the import binding, so
+  `IMPORT net AS n` must make `n::PingStatus.Ok` name the same member.
+  A token PRE-SCAN collects `binding -> package` before the body is parsed —
+  a pre-scan rather than a fold over the parsed imports because the grammar
+  permits an `IMPORT` after the first item. This gap pre-dated the bug and is
+  now pinned by the fixture.
+- **A fast path.** Both registry probes intern a `Symbol` from the name before
+  they can answer, and the helper now runs on every identifier expression in
+  every program, so an unqualified name short-circuits.
+
+Fixtures are `rt-behavior/`, not `syntax/`: these programs must BUILD AND RUN,
+and a `syntax/` golden that pins a build failure is a dead fixture.
+
+NIR escape closed, measured:
+
+```
+net::PingStatus.Nope -> TYPE_UNKNOWN_ENUM_MEMBER   ENUM `PingStatus` has no member `Nope`.
+net::NoSuchEnum.Ok   -> SYMBOL_UNKNOWN_IDENTIFIER  Built-in package `net` does not export `net.NoSuchEnum`.
+```
 
 Every program that compiles today still compiles. This must land before Phase 4:
 a corpus cannot be migrated to a spelling the compiler rejects.
 
 Acceptance: `CASE net::PingStatus.Ok` and `CASE json::JsonBool` build and run; no source program can reach the NIR message.
-Commit: —
+Commit: 8ff7c5643
 
 ### Phase 4 — Defect B2: require the prefix (breaking; needs its own plan)
 
