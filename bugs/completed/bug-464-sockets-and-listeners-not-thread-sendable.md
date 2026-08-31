@@ -331,9 +331,9 @@ Commit: 842ef04f1 (`tcp::Listener`, landed separately per the Open Decision), 0b
 
 ### Phase 3 — regenerate, validate every target, sync docs
 
-- [ ] Regenerate `.ncodesum` via `regen-ncodesum.sh` and gate to 0 unexplained diffs with `artifact-gate.sh all`; prove the delta is only the copy routine + new fixtures.
-- [ ] `cargo test --release --no-fail-fast` (full, not filtered) plus the acceptance harness (`test-accept.sh`) — the latter is not in `cargo test`.
-- [ ] Re-run the reproduction and the two rt fixtures on all five targets; TLS especially must be exercised on OpenSSL, Schannel and Network.framework, since the session-state risk is per-backend and a macOS-only pass proves nothing about the other two.
+- [x] Regenerate `.ncodesum` via `regen-ncodesum.sh` and gate to 0 unexplained diffs with `artifact-gate.sh all`; prove the delta is only the copy routine + new fixtures. **1799 goldens, 0 diffs**; the only pre-existing sums that moved were `tests/byte-identity/thread`'s five, and only because its worker `.mfp` was regenerated (see the golden-delta list in STATUS).
+- [x] `cargo test --release --no-fail-fast` (full, not filtered) plus the acceptance harness (`test-accept.sh`) — the latter is not in `cargo test`. **80 x `test result: ok`, 0 failed; acceptance 1319 passed**, both on the merged tree.
+- [x] Re-run the reproduction and the two rt fixtures on all five targets; TLS especially must be exercised on OpenSSL, Schannel and Network.framework, since the session-state risk is per-backend and a macOS-only pass proves nothing about the other two. **Done for all three TLS backends** — see the per-backend proof matrix in the STATUS block (macOS locally; Linux/OpenSSL on box 2223; Windows/Schannel on box 2230). Cross-target *lowering* for all five targets is additionally pinned by `tests/byte-identity/resource-xfer-slots`.
 - [x] Update `mfb man tls` / `mfb man tcp` prose: both currently state the handles are not thread-sendable (`tls/mod.rs` MODULE_DESC, `tcp/mod.rs:11`).
 - [x] Update the `websockets` section of `planning/todo.md` — its `wss://` verdict and its "make `tls::Socket` thread-sendable" recommendation both resolve.
 
@@ -483,16 +483,39 @@ now writes an executable, where it previously emitted three `2-203-0063`.
    with `live_slots: &[]` and a comment saying that means *unaudited*, per the
    doc's Non-goals.
 
-**Coverage limit, stated plainly.** Only the **macOS / Network.framework** path
-is proven at runtime. The OpenSSL and Schannel paths — including the Schannel
-`ArenaBlock` deep-copy, the single most delicate piece — have never *executed*:
-this host runs no Windows binary, and the Linux TLS server path is not exercised
-here. `tests/byte-identity/resource-xfer-slots` closes as much of that gap as is
-reachable locally, lowering the live-slot copy for all five targets and pinning
-it with five `.ncodesum` goldens, but **that proves emission, not correctness.**
-The doc's Phase 3 asked for per-backend runtime proof on all three TLS backends;
-that item is met for one of three, and a green gate here must not be read as
-Windows or Linux runtime proof.
+**Per-backend runtime proof — all three TLS backends (2026-08-31).** The doc's
+Phase 3 required this and it is met in full. Fixtures cross-built on the Mac and
+executed on the remote boxes from `.ai/remote_systems.md` (2223 Kali aarch64,
+OpenSSL 3.6.3; 2230 Win11 x86_64, Schannel):
+
+| Backend | `tcp::Listener` | `tls::Socket` | `tls::Listener` |
+| --- | --- | --- | --- |
+| macOS Network.framework | `reply=pong:ping` / `worker=1` | `moved=TRUE` | `test result: ok` (openssl s_client) |
+| Linux OpenSSL (box 2223) | `reply=pong:ping` / `worker=1` | `moved=TRUE` | `CLIENT SAW: transferred-listener-ok`, `Verify return code: 0 (ok)` |
+| Windows Schannel (box 2230) | `reply=pong:ping` / `worker=1` | `moved=TRUE` | `HANDSHAKE: Tls12`, `CLIENT SAW: transferred-listener-ok` |
+
+This matters most for **Schannel**, whose slots are the only `ArenaBlock`
+deep-copies in the descriptor and the one path that could not be reasoned about
+from the macOS result: a `tls::Socket` carries a **35136-byte** SSPI block and a
+`tls::Listener` a **288-byte** WORK block, each copied into the receiver's arena
+rather than aliased. Both now demonstrably survive the move — a Schannel socket
+completed a real HTTPS exchange on its receiving thread, and a transferred
+listener completed a TLS 1.2 handshake presenting the expected certificate
+(thumbprint `76185CB2…E8A29B`, byte-identical to the generated `server.pem`) and
+delivered its payload.
+
+The Linux runs equally close the OpenSSL half, where the `SSL_CTX*`@32 /
+`SSL*`@40 pair moves verbatim: the transferred listener's chain **verified
+against the test CA** (`Verify return code: 0 (ok)`), which a listener carrying a
+zeroed server context cannot do.
+
+**What remains harness-level, not coverage-level.** These remote runs were driven
+by hand; `scripts/` still has no Windows runner and the acceptance harness still
+cannot execute a PE, so nothing in CI re-runs the Schannel proof. The standing
+automated guard for the non-macOS backends is
+`tests/byte-identity/resource-xfer-slots`, which lowers the live-slot copy for
+all five targets and pins it with five `.ncodesum` goldens — enough to catch a
+silent change to the emitted copy, not enough to re-prove it at runtime.
 
 ## Summary
 
