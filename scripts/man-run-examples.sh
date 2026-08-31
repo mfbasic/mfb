@@ -50,7 +50,18 @@ functions() {
 
 # The scratch project is rebuilt per block; SCRATCH is ours alone and is only
 # ever a path we just created (never a caller-supplied directory).
+#
+# PROJECT overrides it with an already-prepared project, for packages whose
+# examples need dependencies a bare `mfb init` cannot supply — `thread`'s
+# examples all call into a companion worker package, because a thread entry
+# point MUST be an exported ISOLATED FUNC reached through an import. Only
+# src/main.mfb is replaced; the project's manifest and packages/ are left alone.
 prepare_project() {
+	if [ -n "${PROJECT:-}" ]; then
+		SCRATCH=$PROJECT
+		[ -d "$SCRATCH/src" ] || return 1
+		return 0
+	fi
 	rm -rf "$SCRATCH"
 	"$MFB" init "$SCRATCH" >/dev/null 2>&1 || return 1
 }

@@ -35,6 +35,79 @@ use crate::types::ParameterType;
 
 mod lowering;
 
+// One file per member, holding that member's descriptor AND its man-page prose —
+// the same shape every other builtin package uses. The shared signature helpers
+// (`th`, `req`, `opt`, `overload`, `function`, and the `*_params` builders) stay
+// here because several members spell the same parameter shape.
+mod func_accept;
+mod func_cancel;
+mod func_close_std_in;
+mod func_is_cancelled;
+mod func_is_running;
+mod func_open_std_in;
+mod func_poll;
+mod func_receive;
+mod func_send;
+mod func_start;
+mod func_transfer;
+mod func_wait_for;
+
+const MODULE_INTRO: &str =
+    "Run an isolated function on its own thread, and talk to it while it runs";
+
+const MODULE_DESC: &str = r#"The `thread` package starts a function running on its own thread, sends messages
+back and forth while it runs, hands open resources across, and collects the
+result when it finishes.
+
+A thread runs an `ISOLATED FUNC` — a function declared so that it shares nothing
+with whoever started it. It gets its own copy of its package's top-level state,
+so two threads running the same function never see each other's variables. The
+entry point takes the worker's own handle as its first argument and one value of
+your choosing as its second:
+
+```
+EXPORT ISOLATED FUNC parseFile(worker AS ThreadWorker OF String TO Integer, path AS String) AS Integer
+```
+
+`thread::start` launches it and gives you a `Thread` handle; the function itself
+receives the matching `ThreadWorker` handle. Both name the same running thread
+from its two ends, and most calls here take either one — the parent side passes
+its `Thread`, the worker side passes its `ThreadWorker`.
+
+Everything that crosses the boundary is copied, so no value is ever reachable
+from two threads at once. Values allowed to cross are called thread-sendable:
+numbers, `String`, records, unions and immutable containers are, as long as
+everything inside them is. Functions and lambdas are not.
+
+There are two separate channels, and one thread may use both at once. The
+**message channel** carries data — `thread::send`, `thread::receive` and
+`thread::poll`, typed by the `Msg` in `Thread OF Msg TO Out`. The **resource
+channel** carries open handles — `thread::transfer` and `thread::accept`, typed
+by the `Res` in `Thread OF Msg RES Res TO Out`. A resource may not travel on the
+message channel; declare it on the resource channel instead. Only some resource
+types may cross at all: `fs::File`, `tcp::Socket` and `udp::Socket` may, while
+listeners and `tls::Socket` may not.
+
+Both channels are queues with a size limit, set by `thread::start`'s
+`inboundLimit` and `outboundLimit` and defaulting to 64 messages each. When a
+queue is full the sender waits, so a fast producer cannot outrun a slow
+consumer.
+
+`thread::waitFor` waits for the thread to finish and gives you its return value
+— or, if the function failed, fails the same way in your own code, carrying the
+same error. It is also the end of the handle: `waitFor` closes it, and using
+that handle again raises `ErrResourceClosed`.
+
+`thread::cancel` asks a thread to stop. It is a request, not a kill: the worker
+notices by calling `thread::isCancelled` and decides what to do about it. A
+thread that never asks runs to completion.
+
+`thread::openStdIn` and `thread::closeStdIn` let more than one thread read
+standard input. Every subscriber gets its own view of the stream, so a line read
+by one thread is never taken away from another.
+
+`thread` is a built-in package: `IMPORT thread` needs no manifest dependency."#;
+
 /// The parent thread handle's opaque type name.
 pub(crate) const THREAD_TYPE: &str = crate::types::THREAD_TYPE;
 /// The worker thread handle's opaque type name.
@@ -78,15 +151,36 @@ pub(crate) fn is_thread_runtime_call(name: &str) -> bool {
 // `Var` bound to `Nothing`) only bites where a member genuinely captures a slot. A slot
 // a member ECHOES uses `Var(..)`; a `Nothing`-valued echoed slot is handled by an
 // explicit `Nothing`-literal overload (the signature-level split, e.g. `start`).
-fn th(worker: bool, msg: ParameterType, res: ParameterType, out: ParameterType) -> ParameterType {
+pub(super) fn th(
+    worker: bool,
+    msg: ParameterType,
+    res: ParameterType,
+    out: ParameterType,
+) -> ParameterType {
     ParameterType::thread_handle(worker, msg, res, out)
 }
 
-// A required parameter.
-fn req(name: &'static str, aliases: &'static [&'static str], ty: ParameterType) -> Parameter {
+// A handle that echoes NO slot — a wildcard in every position (accepts any
+// msg/res/out including `Nothing`).
+pub(super) fn any(worker: bool) -> ParameterType {
+    th(
+        worker,
+        ParameterType::Unknown,
+        ParameterType::Unknown,
+        ParameterType::Unknown,
+    )
+}
+
+// A required parameter. `desc` is the man page's Parameters-table prose.
+pub(super) fn req(
+    name: &'static str,
+    aliases: &'static [&'static str],
+    ty: ParameterType,
+    desc: &'static str,
+) -> Parameter {
     Parameter {
         name,
-        desc: "",
+        desc,
         aliases,
         ty,
         default: DefaultValue::None,
@@ -94,10 +188,15 @@ fn req(name: &'static str, aliases: &'static [&'static str], ty: ParameterType) 
 }
 
 // An optional trailing parameter (widens arity; not default-padded).
-fn opt(name: &'static str, aliases: &'static [&'static str], ty: ParameterType) -> Parameter {
+pub(super) fn opt(
+    name: &'static str,
+    aliases: &'static [&'static str],
+    ty: ParameterType,
+    desc: &'static str,
+) -> Parameter {
     Parameter {
         name,
-        desc: "",
+        desc,
         aliases,
         ty,
         default: DefaultValue::Optional,
@@ -107,7 +206,11 @@ fn opt(name: &'static str, aliases: &'static [&'static str], ty: ParameterType) 
 // A single overload: params + return type + the member's per-member `abi_function`
 // body. Every overload of a member shares one body (`lowering::lower_<name>`), which
 // branches its worker/parent + resource-plane split off `AbiCtx::call`.
-fn overload(params: Vec<Parameter>, return_type: ParameterType, body: Body) -> Implementation {
+pub(super) fn overload(
+    params: Vec<Parameter>,
+    return_type: ParameterType,
+    body: Body,
+) -> Implementation {
     Implementation {
         params,
         return_type,
@@ -116,245 +219,27 @@ fn overload(params: Vec<Parameter>, return_type: ParameterType, body: Body) -> I
     }
 }
 
-fn function(
+// `prose` is (intro, desc, example) — the three man-page fields.
+pub(super) fn function(
     name: &'static str,
     expected_arguments: Option<&'static str>,
+    prose: (&'static str, &'static str, &'static str),
     implementations: Vec<Implementation>,
 ) -> RegistryFunction {
+    let (intro, desc, example) = prose;
     RegistryFunction {
         name,
-        intro: "",
-        desc: "",
-        example: "",
+        intro,
+        desc,
+        example,
         expected_arguments,
         internal_only: false,
         implementations,
     }
 }
 
-/// Register the `thread` package on the clean-room registry.
-pub(crate) fn register(r: &mut Registry) {
-    let mut pkg = RegistryPackage::new("thread", "", "");
-
-    // The two opaque handle type NAMES. Recorded as source-declared (opaque) types so
-    // the generic `registry::is_builtin_type`/`qualified_builtin_type` recognize them
-    // (bare and, via the parametric extension, `Thread OF … TO …`) without an
-    // injectable source and without the RES resource-table machinery — a `Thread` is
-    // cleaned by `builder_thread_cleanup` + the shared `thread.drop` op, not a close op.
-    pkg.add_source_types(&[THREAD_TYPE, THREAD_WORKER_TYPE]);
-
-    let u = || ParameterType::Unknown;
-    let msg = || ParameterType::var("Msg");
-    let out = || ParameterType::var("Out");
-    let res = || ParameterType::var("Res");
-    let nothing = || ParameterType::Nothing;
-    // A handle that echoes NO slot — a wildcard in every position (accepts any
-    // msg/res/out including `Nothing`).
-    let any = |worker: bool| th(worker, u(), u(), u());
-
-    // start: the worker's msg/res/out are echoed onto the returned parent handle, and
-    // any of msg/res can be `Nothing` (a resource-only or data-less worker). Since a
-    // `Var` cannot bind `Nothing` under strict validation, each `Nothing` case is a
-    // distinct overload — the msg × res `{Var, Nothing}` matrix (out is always the
-    // worker's return, a real value). The all-`Var` overload is FIRST so lenient
-    // return-inference binds every slot (a `Nothing` slot binds under lenient and
-    // elides in `name()`); the `Nothing`-literal overloads exist for strict validation.
-    let start_overload = |worker_msg: ParameterType, worker_res: ParameterType| {
-        overload(
-            vec![
-                req(
-                    "f",
-                    &["entry"],
-                    ParameterType::func_isolated(
-                        vec![
-                            th(true, worker_msg.clone(), worker_res.clone(), out()),
-                            ParameterType::var("In"),
-                        ],
-                        out(),
-                    ),
-                ),
-                req("data", &[], ParameterType::var("In")),
-                opt("inboundLimit", &[], ParameterType::Integer),
-                opt("outboundLimit", &[], ParameterType::Integer),
-            ],
-            th(false, worker_msg, worker_res, out()),
-            Body::abi_function(lowering::lower_start),
-        )
-    };
-    pkg.add_function(function(
-        "start",
-        Some("ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out, In, Integer, Integer"),
-        vec![
-            start_overload(msg(), res()),
-            start_overload(msg(), nothing()),
-            start_overload(nothing(), res()),
-            start_overload(nothing(), nothing()),
-        ],
-    ));
-
-    // Parent-only queries — echo no slot.
-    pkg.add_function(function(
-        "isRunning",
-        Some("Thread OF Msg TO Out"),
-        vec![overload(
-            vec![req("t", &["thread"], any(false))],
-            ParameterType::Boolean,
-            Body::abi_function(lowering::lower_is_running),
-        )],
-    ));
-    // waitFor echoes the output. A single `Var`-output overload: a wholly-`Unknown`
-    // (not-yet-inferred) handle leaves `Out` unbound so the return is `None`
-    // (retryable) rather than a spurious concrete — a `Nothing`-return overload would
-    // wildcard-match an `Unknown` handle and poison inference to `Nothing`.
-    pkg.add_function(function(
-        "waitFor",
-        Some("Thread OF Msg TO Out"),
-        vec![overload(
-            vec![req("t", &["thread"], th(false, u(), u(), out()))],
-            out(),
-            Body::abi_function(lowering::lower_wait_for),
-        )],
-    ));
-    pkg.add_function(function(
-        "cancel",
-        Some("Thread OF Msg TO Out"),
-        vec![overload(
-            vec![req("t", &["thread"], any(false))],
-            ParameterType::Nothing,
-            Body::abi_function_aliased(lowering::lower_cancel, &["drop"]),
-        )],
-    ));
-    pkg.add_function(function(
-        "poll",
-        Some("Thread OF Msg TO Out, Integer"),
-        vec![overload(
-            vec![
-                req("t", &["thread"], any(false)),
-                req("ms", &[], ParameterType::Integer),
-            ],
-            ParameterType::Boolean,
-            Body::abi_function(lowering::lower_poll),
-        )],
-    ));
-
-    // Worker-only query.
-    pkg.add_function(function(
-        "isCancelled",
-        Some("ThreadWorker OF Msg TO Out"),
-        vec![overload(
-            vec![req("t", &["thread"], any(true))],
-            ParameterType::Boolean,
-            Body::abi_function(lowering::lower_is_cancelled),
-        )],
-    ));
-
-    // send constrains arg1 to the handle's message type (two kind-split overloads).
-    pkg.add_function(function(
-        "send",
-        Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer"),
-        vec![
-            overload(
-                send_params(false, msg()),
-                ParameterType::Nothing,
-                Body::abi_function_aliased(lowering::lower_send, &["emit"]),
-            ),
-            overload(
-                send_params(true, msg()),
-                ParameterType::Nothing,
-                Body::abi_function_aliased(lowering::lower_send, &["emit"]),
-            ),
-        ],
-    ));
-    // receive echoes the message (two kind-split overloads). Like waitFor, no
-    // `Nothing`-return overload — that would wildcard-match an `Unknown` handle.
-    pkg.add_function(function(
-        "receive",
-        Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer"),
-        vec![
-            overload(
-                receive_params(false, msg()),
-                msg(),
-                Body::abi_function_aliased(lowering::lower_receive, &["read"]),
-            ),
-            overload(
-                receive_params(true, msg()),
-                msg(),
-                Body::abi_function_aliased(lowering::lower_receive, &["read"]),
-            ),
-        ],
-    ));
-    // Either-kind resource-plane members → two kind-split, resource-ONLY overloads.
-    // The handle's msg/out are wildcards (a resource plane rides any data plane); only
-    // `res` is captured, so a data-only handle (`res: Nothing`) is rejected by strict.
-    pkg.add_function(function(
-        "transfer",
-        Some("Thread OF Msg RES Res TO Out or ThreadWorker OF Msg RES Res TO Out, Res, Integer"),
-        vec![
-            overload(
-                transfer_params(false),
-                ParameterType::Nothing,
-                Body::abi_function_aliased(
-                    lowering::lower_transfer,
-                    &["transferResource", "emitResource"],
-                ),
-            ),
-            overload(
-                transfer_params(true),
-                ParameterType::Nothing,
-                Body::abi_function_aliased(
-                    lowering::lower_transfer,
-                    &["transferResource", "emitResource"],
-                ),
-            ),
-        ],
-    ));
-    pkg.add_function(function(
-        "accept",
-        Some("Thread OF Msg RES Res TO Out or ThreadWorker OF Msg RES Res TO Out, Integer"),
-        vec![
-            overload(
-                accept_params(false),
-                res(),
-                Body::abi_function_aliased(
-                    lowering::lower_accept,
-                    &["acceptResource", "readResource"],
-                ),
-            ),
-            overload(
-                accept_params(true),
-                res(),
-                Body::abi_function_aliased(
-                    lowering::lower_accept,
-                    &["acceptResource", "readResource"],
-                ),
-            ),
-        ],
-    ));
-
-    // stdin broadcast: zero args (calling thread) OR one parent handle (that worker).
-    pkg.add_function(function(
-        "openStdIn",
-        Some("() or Thread OF Msg TO Out"),
-        vec![overload(
-            vec![opt("t", &["thread"], any(false))],
-            ParameterType::Nothing,
-            Body::abi_function(lowering::lower_open_std_in),
-        )],
-    ));
-    pkg.add_function(function(
-        "closeStdIn",
-        Some("() or Thread OF Msg TO Out"),
-        vec![overload(
-            vec![opt("t", &["thread"], any(false))],
-            ParameterType::Nothing,
-            Body::abi_function(lowering::lower_close_std_in),
-        )],
-    ));
-
-    r.add_package(pkg);
-}
-
-fn send_params(worker: bool, msg: ParameterType) -> Vec<Parameter> {
+/// The message-plane parameter shape shared by `send`'s two kind-split overloads.
+pub(super) fn send_params(worker: bool, msg: ParameterType) -> Vec<Parameter> {
     vec![
         req(
             "t",
@@ -365,24 +250,43 @@ fn send_params(worker: bool, msg: ParameterType) -> Vec<Parameter> {
                 ParameterType::Unknown,
                 ParameterType::Unknown,
             ),
+            "The thread to send to — your `Thread` handle from the parent side, or the worker's own `ThreadWorker` handle from inside the thread.",
         ),
-        req("data", &["value"], msg),
-        opt("timeoutMs", &[], ParameterType::Integer),
+        req(
+            "data",
+            &["value"],
+            msg,
+            "The value to send. It must match the handle's message type and be thread-sendable; it is copied, so the two sides never share it.",
+        ),
+        opt(
+            "timeoutMs",
+            &[],
+            ParameterType::Integer,
+            "How long to wait, in milliseconds, if the queue is already full.",
+        ),
     ]
 }
 
-fn receive_params(worker: bool, msg: ParameterType) -> Vec<Parameter> {
+/// The message-plane parameter shape shared by `receive`'s two kind-split overloads.
+pub(super) fn receive_params(worker: bool, msg: ParameterType) -> Vec<Parameter> {
     vec![
         req(
             "t",
             &["thread"],
             th(worker, msg, ParameterType::Unknown, ParameterType::Unknown),
+            "The thread to read from — your `Thread` handle from the parent side, or the worker's own `ThreadWorker` handle from inside the thread.",
         ),
-        opt("timeoutMs", &[], ParameterType::Integer),
+        opt(
+            "timeoutMs",
+            &[],
+            ParameterType::Integer,
+            "How long to wait, in milliseconds, for a message to arrive.",
+        ),
     ]
 }
 
-fn transfer_params(worker: bool) -> Vec<Parameter> {
+/// The resource-plane parameter shape shared by `transfer`'s two overloads.
+pub(super) fn transfer_params(worker: bool) -> Vec<Parameter> {
     vec![
         req(
             "t",
@@ -393,13 +297,25 @@ fn transfer_params(worker: bool) -> Vec<Parameter> {
                 ParameterType::var("Res"),
                 ParameterType::Unknown,
             ),
+            "The thread to hand the resource to — your `Thread` handle from the parent side, or the worker's own `ThreadWorker` handle from inside the thread.",
         ),
-        req("res", &["resource"], ParameterType::var("Res")),
-        opt("timeoutMs", &[], ParameterType::Integer),
+        req(
+            "res",
+            &["resource"],
+            ParameterType::var("Res"),
+            "The open handle to hand over. It must match the thread's resource type and be one of the types allowed to cross. This call takes the handle: on success you cannot use it again.",
+        ),
+        opt(
+            "timeoutMs",
+            &[],
+            ParameterType::Integer,
+            "How long to wait, in milliseconds, if the resource queue is already full.",
+        ),
     ]
 }
 
-fn accept_params(worker: bool) -> Vec<Parameter> {
+/// The resource-plane parameter shape shared by `accept`'s two overloads.
+pub(super) fn accept_params(worker: bool) -> Vec<Parameter> {
     vec![
         req(
             "t",
@@ -410,9 +326,42 @@ fn accept_params(worker: bool) -> Vec<Parameter> {
                 ParameterType::var("Res"),
                 ParameterType::Unknown,
             ),
+            "The thread to take the resource from — your `Thread` handle from the parent side, or the worker's own `ThreadWorker` handle from inside the thread.",
         ),
-        opt("timeoutMs", &[], ParameterType::Integer),
+        opt(
+            "timeoutMs",
+            &[],
+            ParameterType::Integer,
+            "How long to wait, in milliseconds, for a resource to arrive.",
+        ),
     ]
+}
+
+/// Register the `thread` package on the clean-room registry.
+pub(crate) fn register(r: &mut Registry) {
+    let mut pkg = RegistryPackage::new("thread", MODULE_INTRO, MODULE_DESC);
+
+    // The two opaque handle type NAMES. Recorded as source-declared (opaque) types so
+    // the generic `registry::is_builtin_type`/`qualified_builtin_type` recognize them
+    // (bare and, via the parametric extension, `Thread OF … TO …`) without an
+    // injectable source and without the RES resource-table machinery — a `Thread` is
+    // cleaned by `builder_thread_cleanup` + the shared `thread.drop` op, not a close op.
+    pkg.add_source_types(&[THREAD_TYPE, THREAD_WORKER_TYPE]);
+
+    func_start::register(&mut pkg);
+    func_is_running::register(&mut pkg);
+    func_wait_for::register(&mut pkg);
+    func_cancel::register(&mut pkg);
+    func_poll::register(&mut pkg);
+    func_is_cancelled::register(&mut pkg);
+    func_send::register(&mut pkg);
+    func_receive::register(&mut pkg);
+    func_transfer::register(&mut pkg);
+    func_accept::register(&mut pkg);
+    func_open_std_in::register(&mut pkg);
+    func_close_std_in::register(&mut pkg);
+
+    r.add_package(pkg);
 }
 
 #[cfg(test)]
