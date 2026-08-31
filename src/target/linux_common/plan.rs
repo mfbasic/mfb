@@ -454,6 +454,9 @@ impl LinuxPlan<'_> {
             | "canvas.frameDone"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
+            | "canvas.setMetalMode"
+            | "canvas.metalAvailable"
+            | "canvas.useMetal"
             | "canvas.surfaceWidth"
             | "canvas.surfaceHeight" => [
                 "pthread_create",

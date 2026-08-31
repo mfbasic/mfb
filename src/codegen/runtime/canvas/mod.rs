@@ -29,6 +29,8 @@
 //! zeroed), so the mutex and condition code below is written once and works on all
 //! three families.
 
+pub(crate) mod metal;
+
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
@@ -116,12 +118,20 @@ pub(crate) const GRAPHICS_OFFSET_SYNC: usize = 216;
 /// exactly what it saw before this existed.
 pub(crate) const GRAPHICS_OFFSET_WIDTH: usize = 224;
 pub(crate) const GRAPHICS_OFFSET_HEIGHT: usize = 232;
+/// Non-zero when the Metal renderer is selected (plan-98-E).
+///
+/// **Opt-in, not the default.** The software path is the *oracle* the GPU backends
+/// are measured against (plan-98-A invariant 7), and its goldens are exact-match; a
+/// GPU frame only matches within a tolerance. Making Metal the default would turn
+/// every exact-match golden into a tolerance test and destroy the reference they are
+/// compared to. `MFB_CANVAS_METAL=1` selects it; plan-98-E's own tests set it.
+pub(crate) const GRAPHICS_OFFSET_METAL: usize = 296;
 /// Scratch for the `pthread_attr_t` the spawn configures. 64 bytes covers macOS
 /// (64) and musl/glibc (56). It lives here rather than on the spawner's stack
 /// because there is exactly one spawn and the block is already process-global.
-pub(crate) const GRAPHICS_OFFSET_ATTR: usize = 240;
+pub(crate) const GRAPHICS_OFFSET_ATTR: usize = 304;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 304;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 368;
 
 /// The trampoline `pthread_create` starts: establishes the MFB context, then loops.
 pub(crate) const GRAPHICS_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_canvas_graphics_entry";
@@ -995,4 +1005,43 @@ pub(crate) fn emit_publish_surface_size(
     state_base(symbol, base, instructions, relocations);
     instructions.push(abi::store_u64(width, base, GRAPHICS_OFFSET_WIDTH));
     instructions.push(abi::store_u64(height, base, GRAPHICS_OFFSET_HEIGHT));
+}
+
+/// `canvas::setMetalMode(on)` — record whether the Metal renderer is selected.
+///
+/// Read from MFBASIC at first present, next to `setSyncMode`, for the same reason:
+/// the environment is portably readable there.
+pub(crate) fn emit_set_metal_mode(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    value: &Operand,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::store_u64(value, &scratch.base, GRAPHICS_OFFSET_METAL));
+}
+
+/// `canvas::useMetal()` — is the Metal renderer selected?
+///
+/// Always FALSE on a non-macOS target: the flag exists everywhere so the renderer
+/// seam has one shape, but only macOS has a Metal path behind it.
+pub(crate) fn emit_use_metal(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    if platform.family() != PlatformFamily::MacOS {
+        instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
+        return;
+    }
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_METAL,
+    ));
+    instructions.push(abi::move_register(RESULT_VALUE_REGISTER, &scratch.scratch));
 }

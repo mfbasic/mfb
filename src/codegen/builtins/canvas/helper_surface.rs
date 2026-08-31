@@ -37,6 +37,11 @@ END FUNC"#;
 /// It **appends** one line per rendered frame rather than overwriting. The
 /// interesting quantity is the *delta* between frames — "this present generated
 /// nothing" — and a file holding only the final total cannot show it.
+///
+/// It also carries the renderer selection (plan-98-E). `canvas::metalAvailable` and
+/// `canvas::useMetal` are internal-only, so a program cannot call them and a test
+/// cannot read them any other way; putting them here makes the seam's discriminant
+/// observable without adding public surface for a test to poke.
 #[rustfmt::skip]
 const PRESENT_SURFACE: &str =
 r#"FUNC __canvas_presentSurface(buffer AS List OF Byte, width AS Integer, height AS Integer) AS Nothing
@@ -53,7 +58,7 @@ END FUNC
 FUNC __canvas_writeStats() AS Nothing
   LET path AS String = os::getEnvOr("MFB_CANVAS_STATS", "")
   IF len(path) > 0 THEN
-    LET line AS String = "generations=" & toString(__CANVAS_GEO_GENERATIONS) & " entries=" & toString(len(__CANVAS_GEO_HASHES)) & " floats=" & toString(len(__CANVAS_GEO_DATA)) & "\n"
+    LET line AS String = "generations=" & toString(__CANVAS_GEO_GENERATIONS) & " entries=" & toString(len(__CANVAS_GEO_HASHES)) & " floats=" & toString(len(__CANVAS_GEO_DATA)) & " metal=" & toString(canvas::metalAvailable()) & " metalSelected=" & toString(canvas::useMetal()) & "\n"
     fs::appendText(path, line) TRAP(err)
       RETURN
     END TRAP

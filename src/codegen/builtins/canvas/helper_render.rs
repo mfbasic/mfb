@@ -86,12 +86,26 @@ r#"MUT __CANVAS_GFX_READY AS Boolean = FALSE
 FUNC __canvas_ensureGraphics() AS Nothing
   IF NOT __CANVAS_GFX_READY THEN
     canvas::setSyncMode(len(os::getEnvOr("MFB_CANVAS_SYNC", "")) > 0)
+    canvas::setMetalMode(len(os::getEnvOr("MFB_CANVAS_METAL", "")) > 0)
     canvas::startGraphics()
     __CANVAS_GFX_READY = TRUE
   END IF
 END FUNC"#;
 
-/// The graphics thread's whole life: wait, render, repeat.
+/// The graphics thread's whole life: wait, render, repeat — and the renderer seam.
+///
+/// `__canvas_renderFrame` is the one place that will choose a renderer (plan-98-E).
+/// It is deliberately a runtime branch rather than a build-time one, because the
+/// choice is a runtime fact: whether a Metal device exists, and whether the program
+/// asked for it (`canvas::metalAvailable` and `canvas::useMetal` answer those).
+///
+/// It has **one arm today, and no Metal branch**, because there is no Metal renderer
+/// yet. A branch that fell back to the software path would make `MFB_CANVAS_METAL=1`
+/// report success while rendering in software — the exact shape of lie that makes a
+/// backend look finished. The branch lands in the same change as the renderer.
+///
+/// The software path stays the default regardless: it is the oracle the GPU path is
+/// measured against, so it cannot become the thing being measured.
 ///
 /// It never returns. The wait is a real condition wait, so a static scene costs
 /// nothing — no timer, no poll, no spin (`.ai/canvas-threading.md` §4: time is
@@ -103,9 +117,13 @@ END FUNC"#;
 const RENDER_LOOP: &str =
 r#"FUNC __canvas_renderLoop() AS Nothing
   WHILE canvas::waitForRedraw()
-    __canvas_renderScene()
+    __canvas_renderFrame()
     canvas::frameDone()
   END WHILE
+END FUNC
+
+FUNC __canvas_renderFrame() AS Nothing
+  __canvas_renderScene()
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

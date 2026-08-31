@@ -1,3 +1,4 @@
+use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::{self, NativePlan, PlatformImport};
 use crate::target::shared::runtime::{self, RuntimeHelperSpec};
@@ -673,6 +674,9 @@ impl plan::NativePlanPlatform for Platform {
             | "canvas.frameDone"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
+            | "canvas.setMetalMode"
+            | "canvas.metalAvailable"
+            | "canvas.useMetal"
             | "canvas.surfaceWidth"
             | "canvas.surfaceHeight" => [
                 "_pthread_create",
@@ -694,6 +698,21 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: symbol.to_string(),
                 required_by: required_by.clone(),
             })
+            .chain(
+                // plan-98-E: `MTLCreateSystemDefaultDevice` is a C entry point in
+                // Metal.framework, not a libSystem symbol, so it cannot ride the
+                // list above. Declared for the whole canvas-graphics set rather than
+                // only for `metalAvailable`: the merged import table dedups, and
+                // scoping it tighter would mean re-deriving which member reaches it
+                // every time the renderer grows.
+                [MTL_CREATE_DEVICE]
+                    .into_iter()
+                    .map(|symbol| PlatformImport {
+                        library: LIB_METAL.to_string(),
+                        symbol: symbol.to_string(),
+                        required_by: required_by.clone(),
+                    }),
+            )
             .collect(),
             "thread.start"
             | "thread.isRunning"

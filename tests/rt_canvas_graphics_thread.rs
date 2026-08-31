@@ -20,6 +20,11 @@ use std::process::Command;
 /// the deterministic one for per-present claims, the default one for the claim that
 /// a program does not *need* to wait.
 fn run(name: &str, source: &str, sync: bool) -> (String, Vec<String>) {
+    run_with(name, source, sync, false)
+}
+
+/// As `run`, plus the `MFB_CANVAS_METAL` selector (plan-98-E).
+fn run_with(name: &str, source: &str, sync: bool, metal: bool) -> (String, Vec<String>) {
     let project = common::temp_project(name, source);
     let build = Command::new(common::mfb_exe())
         .arg("build")
@@ -42,6 +47,9 @@ fn run(name: &str, source: &str, sync: bool) -> (String, Vec<String>) {
         .env("MFB_CANVAS_STATS", &stats);
     if sync {
         command.env("MFB_CANVAS_SYNC", "1");
+    }
+    if metal {
+        command.env("MFB_CANVAS_METAL", "1");
     }
     let run = command
         .output()
@@ -213,5 +221,53 @@ fn sync_mode_gives_one_frame_per_changed_present() {
         frames.len(),
         3,
         "sync mode must give each changed present its own frame: {frames:?}",
+    );
+}
+
+/// The renderer seam reports a real Metal device, and selecting it is opt-in.
+///
+/// This is plan-98-E's first checkable claim, and it is deliberately about the
+/// *plumbing* rather than about pixels: `metal=TRUE` means `Metal.framework`'s
+/// install name resolved, its import-table row bound, and
+/// `MTLCreateSystemDefaultDevice` returned a device. Every later piece of the Metal
+/// backend rests on those three, and a failure in any of them is far cheaper to read
+/// here than as a blank window several hundred lines later.
+///
+/// `metalSelected` must be FALSE by default. The software renderer is the oracle the
+/// GPU path is measured against (plan-98-A invariant 7) and its goldens are
+/// exact-match; if selecting Metal were the default, every one of those goldens would
+/// silently become a tolerance test against a reference that no longer exists.
+#[test]
+fn the_renderer_seam_finds_a_metal_device_and_leaves_it_unselected() {
+    let source = program(&format!(
+        "{ONE_BOX}  canvas::present([box])\n  io::print(\"done\")\n"
+    ));
+    let field = |lines: &[String], name: &str| -> String {
+        lines
+            .first()
+            .and_then(|l| {
+                l.split_whitespace()
+                    .find_map(|f| f.strip_prefix(name).map(str::to_string))
+            })
+            .unwrap_or_else(|| panic!("no {name} field in {lines:?}"))
+    };
+
+    let (_, default_run) = run_with("canvas_metal_default", &source, true, false);
+    assert_eq!(
+        field(&default_run, "metal="),
+        "TRUE",
+        "MTLCreateSystemDefaultDevice must bind and return a device on this host",
+    );
+    assert_eq!(
+        field(&default_run, "metalSelected="),
+        "FALSE",
+        "the software renderer must stay the default — it is the exact-match oracle",
+    );
+
+    let (_, selected) = run_with("canvas_metal_selected", &source, true, true);
+    assert_eq!(
+        field(&selected, "metalSelected="),
+        "TRUE",
+        "MFB_CANVAS_METAL must select the Metal renderer",
     );
 }
