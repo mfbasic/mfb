@@ -178,8 +178,13 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_PHYSICAL: usize = 448;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_DEVICE: usize = 456;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_QUEUE: usize = 464;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY: usize = 472;
+/// The pipeline the renderer records against, built once with its layout and render
+/// pass. Viewport and scissor are dynamic state, so a resize reuses all three.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT: usize = 480;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_RENDER_PASS: usize = 488;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_PIPELINE: usize = 496;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 480;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 504;
 
 /// The trampoline `pthread_create` starts: establishes the MFB context, then loops.
 pub(crate) const GRAPHICS_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_canvas_graphics_entry";
