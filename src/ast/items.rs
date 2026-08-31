@@ -537,17 +537,44 @@ impl<'a> FileParser<'a> {
             return false;
         }
         index += 1;
+        let Some(TokenKind::Identifier(target_package)) =
+            self.tokens.get(index).map(|token| &token.kind)
+        else {
+            return false;
+        };
+        index += 1;
         if !matches!(
             self.tokens.get(index).map(|token| &token.kind),
-            Some(TokenKind::Identifier(_))
+            Some(TokenKind::DoubleColon)
         ) {
             return false;
         }
-        index += 1;
-        matches!(
-            self.tokens.get(index).map(|token| &token.kind),
-            Some(TokenKind::DoubleColon)
-        )
+        // bug-480: `FUNC name AS pkg::X` is ambiguous. It is a func ALIAS when
+        // `pkg::X` names a function, and an ordinary PARAMETERLESS function whose
+        // RETURN TYPE is qualified when it names a type — the two spellings are
+        // identical up to this point, and committing to the alias reading turned
+        // `FUNC bad AS term::TermColor` into an alias declaration, leaving its body
+        // as top-level garbage (two MFB_PARSE_UNEXPECTED_STATEMENT errors and no
+        // function at all).
+        //
+        // The spec settles which reading wins: a function alias exists ONLY as a
+        // transparent re-export of a native `LINK` function, and the resolver
+        // requires the target to resolve to a LINK signature
+        // (13_modules-and-packages.md §"function alias", 17_native-libraries.md).
+        // A built-in TYPE is therefore never a valid alias target, so recognizing
+        // one here decides the parse with no lookahead into the body.
+        //
+        // Latent until now only because nothing in the tree had written a
+        // qualified return type on a parameterless FUNC; the parenthesized form
+        // (`FUNC name() AS pkg::X`) never matched this pattern and always parsed.
+        let Some(TokenKind::Identifier(target_member)) =
+            self.tokens.get(index + 1).map(|token| &token.kind)
+        else {
+            return true;
+        };
+        let qualified = format!("{target_package}.{target_member}");
+        !crate::codegen::builtins::is_qualified_builtin_resource(&qualified)
+            && crate::codegen::builtins::qualified_builtin_type(&qualified).is_none()
     }
 
     pub(super) fn parse_top_level_resource(&mut self) -> Option<ResourceDecl> {
