@@ -59,11 +59,15 @@ pub(super) const METAL_INIT_SYMBOL: &str = "_mfb_macapp_metal_init";
 
 /// The MSL for the single pipeline.
 ///
-/// A per-item quad: the vertex shader expands four vertices over the item's quad and
-/// converts to NDC with the surface size, so there is no vertex buffer to bind and
-/// nothing to keep in sync with a CPU-side layout. The Y flip is in the NDC
-/// conversion, which is where the software path's Y-down convention has to be
-/// reconciled with Metal's Y-up clip space.
+/// One pipeline, many shapes: the vertex stage expands four vertices over the item's
+/// **bounds** and the fragment stage evaluates that item's signed distance field.
+/// This is the same structure the software rasteriser uses — one loop, one distance
+/// function switched on `kind` — which is what makes the oracle predict this
+/// backend's output rather than merely resemble it.
+///
+/// `[[position]]` in a fragment is the framebuffer pixel *centre* with a top-left
+/// origin, which is exactly the software path's `px = x + 0.5, py = y + 0.5`. So the
+/// fragment stage needs no surface size and no Y flip; only the vertex stage does.
 ///
 /// ## Why the parameter block is integers
 ///
@@ -77,52 +81,120 @@ pub(super) const METAL_INIT_SYMBOL: &str = "_mfb_macapp_metal_init";
 /// Fixed point is not a compromise for what this carries. Pixel-space geometry needs
 /// a range of a few thousand and a resolution far below one pixel; 16.16 gives
 /// ±32768 px at 1/65536 px, which is finer than `float`'s own resolution above 512
-/// px. plan-98-E Phase 2's SDF parameters are the same kind of quantity in the same
-/// space, so they narrow the same way.
+/// px. The colours are exempt — the header already stores them as whole 0–255 values
+/// — and so is `invLenSq`, which is why the polygon edge buffer carries endpoints and
+/// the shader recomputes the edge vector (see `edgeDistance`).
 ///
-/// The colours are exempt: the header already stores them as whole 0–255 values
-/// (`__canvas_paintHeader` writes `toFloat(toInt(...))`), so they cross as plain
-/// integers with nothing to round.
+/// ## Every member is an `int4`
 ///
-/// The fragment shader emits a flat premultiplied linear colour. plan-98-E Phase 2
-/// replaces that expression with the SDF evaluation the geometry header already
-/// carries the parameters for (Correction 1) — the *binding* and the quad stay, only
-/// the fragment body grows, which is why the item block is a buffer rather than a
-/// handful of constants.
-///
-/// `srgbToLinear` is the IEC 61966-2-1 transfer function the software path applies
-/// through its 256-entry table. Evaluating it here rather than passing linear values
-/// keeps the block in the units the geometry header stores, and agrees with the
-/// table to far inside the comparator's 2/255 tolerance.
+/// So the CPU-side offsets and MSL's own packing cannot disagree. A mixed struct
+/// would put the burden of predicting MSL's alignment rules on the emitter, and a
+/// wrong prediction there is not a compile error — it is a scene that draws with its
+/// fields shifted.
 pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "#include <metal_stdlib>\n",
     "using namespace metal;\n",
+    "constant float FIXED = 65536.0;\n",
+    "constant float PI = 3.141592653589793;\n",
     "struct MfbItem {\n",
-    "  int4 quad;\n",    // minX, minY, maxX, maxY, 16.16 fixed point
-    "  int4 fill;\n",    // r, g, b, a in 0..255 sRGB
-    "  int2 surface;\n", // surface width, height in whole pixels
+    "  int4 quad;\n",    // bounds minX, minY, maxX, maxY (16.16 px)
+    "  int4 shape;\n",   // p0..p3 (16.16 px)
+    "  int4 fill;\n",    // RGBA 0..255
+    "  int4 stroke;\n",  // RGBA 0..255
+    "  int4 misc;\n",    // kind, radius (16.16), strokeHalf (16.16), edgeCount
+    "  int4 arc;\n",     // startAngle, endAngle (16.16 rad), unused, unused
+    "  int2 surface;\n", // width, height (px)
     "};\n",
-    "struct VOut { float4 pos [[position]]; float4 color; };\n",
+    "struct VOut { float4 pos [[position]]; };\n",
+    "static float fx(int v) { return float(v) / FIXED; }\n",
+    "vertex VOut mfbVertex(uint vid [[vertex_id]],\n",
+    "                      constant MfbItem &item [[buffer(0)]]) {\n",
+    "  float2 corner = float2(fx((vid & 1) == 0 ? item.quad.x : item.quad.z),\n",
+    "                         fx((vid & 2) == 0 ? item.quad.y : item.quad.w));\n",
+    "  VOut o;\n",
+    "  o.pos = float4(corner.x / float(item.surface.x) * 2.0 - 1.0,\n",
+    "                 1.0 - corner.y / float(item.surface.y) * 2.0, 0.0, 1.0);\n",
+    "  return o;\n",
+    "}\n",
+    "static float rectDistance(float2 p, float2 c, float2 h) {\n",
+    "  float2 d = abs(p - c) - h;\n",
+    "  return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);\n",
+    "}\n",
+    "static float segmentDistance(float2 p, float2 a, float2 b) {\n",
+    "  float2 v = b - a, w = p - a;\n",
+    "  float len2 = dot(v, v);\n",
+    "  float t = len2 > 0.0 ? clamp(dot(w, v) / len2, 0.0, 1.0) : 0.0;\n",
+    "  return length(w - v * t);\n",
+    "}\n",
+    "static bool arcInSweep(float2 d, float2 s, float2 e, bool reflex) {\n",
+    "  bool afterStart = s.x * d.y - s.y * d.x >= 0.0;\n",
+    "  bool beforeEnd  = e.x * d.y - e.y * d.x <= 0.0;\n",
+    "  return reflex ? (afterStart || beforeEnd) : (afterStart && beforeEnd);\n",
+    "}\n",
+    "static float edgeDistance(constant int *edges, int count, float2 p) {\n",
+    "  float best = 1.0e6;\n",
+    "  bool inside = false;\n",
+    "  for (int e = 0; e < count; ++e) {\n",
+    "    int i = e * 4;\n",
+    "    float2 a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
+    "    float2 b = float2(fx(edges[i + 2]), fx(edges[i + 3]));\n",
+    "    best = min(best, segmentDistance(p, a, b));\n",
+    "    if ((a.y > p.y) != (b.y > p.y)) {\n",
+    "      float u = (p.y - a.y) / (b.y - a.y);\n",
+    "      if (p.x < a.x + u * (b.x - a.x)) inside = !inside;\n",
+    "    }\n",
+    "  }\n",
+    "  return inside ? -best : best;\n",
+    "}\n",
+    "static float geoDistance(constant MfbItem &item, constant int *edges, float2 p) {\n",
+    "  float radius = fx(item.misc.y);\n",
+    "  float2 c = float2(fx(item.shape.x), fx(item.shape.y));\n",
+    "  if (item.misc.x == 0) {\n",
+    "    return rectDistance(p, c, float2(fx(item.shape.z), fx(item.shape.w))) - radius;\n",
+    "  }\n",
+    "  if (item.misc.x == 1) { return length(p - c) - fx(item.shape.z) - radius; }\n",
+    "  if (item.misc.x == 2) {\n",
+    "    return segmentDistance(p, c, float2(fx(item.shape.z), fx(item.shape.w))) - radius;\n",
+    "  }\n",
+    "  if (item.misc.x == 3) {\n",
+    "    float2 d = p - c;\n",
+    "    float a0 = fx(item.arc.x), a1 = fx(item.arc.y);\n",
+    "    float2 s = float2(cos(a0), sin(a0));\n",
+    "    float2 e = float2(cos(a1), sin(a1));\n",
+    "    if (!arcInSweep(d, s, e, (a1 - a0) > PI)) { return 1.0e6; }\n",
+    "    return abs(length(d) - fx(item.shape.z)) - radius;\n",
+    "  }\n",
+    "  return edgeDistance(edges, item.misc.w, p);\n",
+    "}\n",
     "static float srgbToLinear(float c) {\n",
     "  c = c / 255.0;\n",
     "  return c <= 0.04045 ? (c / 12.92) : pow((c + 0.055) / 1.055, 2.4);\n",
     "}\n",
-    "vertex VOut mfbVertex(uint vid [[vertex_id]],\n",
-    "                      constant MfbItem &item [[buffer(0)]]) {\n",
-    "  float2 corner = float2(float((vid & 1) == 0 ? item.quad.x : item.quad.z),\n",
-    "                         float((vid & 2) == 0 ? item.quad.y : item.quad.w))\n",
-    "                  / 65536.0;\n",
-    "  VOut o;\n",
-    "  o.pos = float4(corner.x / float(item.surface.x) * 2.0 - 1.0,\n",
-    "                 1.0 - corner.y / float(item.surface.y) * 2.0, 0.0, 1.0);\n",
-    "  float a = float(item.fill.w) / 255.0;\n",
-    "  o.color = float4(srgbToLinear(float(item.fill.x)) * a,\n",
-    "                   srgbToLinear(float(item.fill.y)) * a,\n",
-    "                   srgbToLinear(float(item.fill.z)) * a, a);\n",
-    "  return o;\n",
+    "static float4 premultiplied(int4 rgba, float distance) {\n",
+    // The oracle quantizes coverage to a whole 0..255 and then takes an integer
+    // `(colourAlpha * coverage) / 255`. Matching that here rather than blending in
+    // float is not pedantry: near full coverage the sRGB encode is so steep that ONE
+    // step of coverage moves a dark channel by up to 13 output steps, so a float
+    // coverage that merely rounds differently produces a visible disagreement on
+    // every antialiased edge. Quantizing the same way leaves only the pixels within
+    // a rounding boundary of each other.
+    "  int coverage = int(clamp(0.5 - distance, 0.0, 1.0) * 255.0 + 0.5);\n",
+    "  float a = float((rgba.w * coverage) / 255) / 255.0;\n",
+    "  return float4(srgbToLinear(float(rgba.x)) * a,\n",
+    "                srgbToLinear(float(rgba.y)) * a,\n",
+    "                srgbToLinear(float(rgba.z)) * a, a);\n",
     "}\n",
-    "fragment float4 mfbFragment(VOut in [[stage_in]]) {\n",
-    "  return in.color;\n",
+    "fragment float4 mfbFragment(VOut in [[stage_in]],\n",
+    "                            constant MfbItem &item [[buffer(0)]],\n",
+    "                            constant int *edges [[buffer(1)]]) {\n",
+    "  float d = geoDistance(item, edges, in.pos.xy);\n",
+    "  float4 colour = premultiplied(item.fill, d);\n",
+    "  float halfWidth = fx(item.misc.z);\n",
+    "  if (halfWidth > 0.0) {\n",
+    "    float4 s = premultiplied(item.stroke, abs(d) - halfWidth);\n",
+    "    colour = s + colour * (1.0 - s.w);\n",
+    "  }\n",
+    "  return colour;\n",
     "}\n",
 );
 
@@ -227,10 +299,16 @@ pub(super) const SEL_GET_BYTES: (&str, &str) = (
     "getBytes:bytesPerRow:fromRegion:mipmapLevel:",
 );
 
-pub(super) const CLASS_MTL_TEXTURE_DESCRIPTOR: &str = "_OBJC_CLASS_$_MTLTextureDescriptor";
-pub(super) const CLASS_MTL_RENDER_PASS_DESCRIPTOR: &str = "_OBJC_CLASS_$_MTLRenderPassDescriptor";
+pub(super) const SEL_SET_FRAGMENT_BYTES: (&str, &str) = (
+    "_mfb_macapp_sel_setFragmentBytes",
+    "setFragmentBytes:length:atIndex:",
+);
 
-pub(super) const CLASS_MTL_PIPELINE_DESCRIPTOR: &str = "_OBJC_CLASS_$_MTLRenderPipelineDescriptor";
+pub(crate) const CLASS_MTL_TEXTURE_DESCRIPTOR: &str = "_OBJC_CLASS_$_MTLTextureDescriptor";
+pub(crate) const CLASS_MTL_RENDER_PASS_DESCRIPTOR: &str = "_OBJC_CLASS_$_MTLRenderPassDescriptor";
+
+pub(crate) const CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR: &str =
+    "_OBJC_CLASS_$_MTLRenderPipelineDescriptor";
 
 /// `MTLPixelFormatBGRA8Unorm_sRGB`. The GPU applies the sRGB encode on write, which
 /// is the same transform the software path's `__CANVAS_SRGB` table applies on the
@@ -332,7 +410,11 @@ pub(super) fn emit_metal_init() -> CodeFunction {
     asm.push(abi::move_register(abi::LOCAL[3], abi::c_arg(0))); // library
 
     // descriptor = [[MTLRenderPipelineDescriptor alloc] init]
-    asm.external_data(abi::LOCAL[4], CLASS_MTL_PIPELINE_DESCRIPTOR, LIB_METAL);
+    asm.external_data(
+        abi::LOCAL[4],
+        CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR,
+        LIB_METAL,
+    );
     asm.load_selector(SEL_ALLOC.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
@@ -499,23 +581,46 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 /// 16.16 fixed point: the scale the shader divides the quad by.
 const FIXED_POINT_SCALE: &str = "65536";
 
-/// The per-item parameter block: `int4 quad; int4 fill; int2 surface;`.
+/// The per-item parameter block. Six `int4`s and an `int2`, 112 bytes.
 ///
-/// 48 rather than 40 bytes: MSL rounds a struct up to its own alignment, and the
-/// `int4` members make that 16. Passing 40 to `setVertexBytes:length:` would be a
-/// short read of a struct the shader indexes to offset 39.
-const ITEM_BLOCK_SIZE: usize = 48;
+/// Every member is an `int4` so the emitter's offsets and MSL's own packing cannot
+/// disagree. A mixed struct would put the burden of predicting MSL's alignment rules
+/// on this file, and a wrong prediction is not a compile error — it is a scene that
+/// draws with its fields shifted. The trailing `int2` is safe because it is last.
+const ITEM_BLOCK_SIZE: usize = 112;
 const ITEM_OFFSET_QUAD: usize = 0;
-const ITEM_OFFSET_FILL: usize = 16;
-const ITEM_OFFSET_SURFACE: usize = 32;
+const ITEM_OFFSET_SHAPE: usize = 16;
+const ITEM_OFFSET_FILL: usize = 32;
+const ITEM_OFFSET_STROKE: usize = 48;
+const ITEM_OFFSET_MISC: usize = 64;
+const ITEM_OFFSET_ARC: usize = 80;
+const ITEM_OFFSET_SURFACE: usize = 96;
 
 /// Geometry-header slots this renderer reads (`__canvas_headerFor`'s fixed layout).
-const HEADER_CENTRE_X: usize = 2;
-const HEADER_CENTRE_Y: usize = 3;
-const HEADER_EXTENT_X: usize = 4;
-const HEADER_EXTENT_Y: usize = 5;
+const HEADER_KIND: usize = 0;
+const HEADER_SHAPE: usize = 2;
 const HEADER_RADIUS: usize = 6;
+const HEADER_STROKE_HALF: usize = 7;
 const HEADER_FILL_R: usize = 8;
+const HEADER_STROKE_R: usize = 12;
+const HEADER_BOUNDS: usize = 16;
+/// Slot 20 is the polygon's edge count *and* the arc's start angle — the header
+/// reuses it per kind, and so does the item block. Writing both unconditionally is
+/// cheaper than branching and can never be wrong: the shader reads only the one its
+/// `kind` selects.
+const HEADER_AUX0: usize = 20;
+const HEADER_AUX1: usize = 21;
+/// The fixed header length, in slots — where a polygon's edge tail begins.
+const HEADER_SLOTS: usize = 22;
+/// Doubles per cached edge: `x0, y0, dx, dy, invLenSq`.
+const EDGE_SLOTS: usize = 5;
+/// The most edges one polygon may carry on the GPU path.
+///
+/// `setFragmentBytes:length:atIndex:` is capped at 4 KB, and each edge crosses as
+/// four 16.16 ints. `__canvas_metalRenderable` declines a polygon past this rather
+/// than truncating it, because a truncated polygon renders as a *different shape*
+/// and would read as a geometry bug.
+const MAX_EDGES: usize = 256;
 
 // The frame. `OFF_REGION` holds the 48-byte `MTLRegion` that
 // `getBytes:bytesPerRow:fromRegion:mipmapLevel:` takes by value in C. AAPCS64 rule
@@ -525,7 +630,7 @@ const HEADER_FILL_R: usize = 8;
 // stack area. Getting that wrong is not a subtle mismatch: the callee dereferences
 // whatever is in that register, and a zero there faults inside
 // `-[IOGPUMetalTexture getBytes:…]` with none of our frames in the trace.
-const DRAW_FRAME: usize = 256;
+const DRAW_FRAME: usize = 320 + MAX_EDGES * 16;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -534,7 +639,12 @@ const OFF_WIDTH: usize = 144;
 const OFF_HEIGHT: usize = 152;
 const OFF_POOL: usize = 160;
 const OFF_ITEM: usize = 192;
-const OFF_TEXTURE: usize = 240;
+const OFF_TEXTURE: usize = 304;
+/// The edge count, parked because `load_selector` calls through `sel_registerName`
+/// and every scratch register is caller-saved across it.
+const OFF_EDGE_COUNT: usize = 312;
+/// The polygon edge buffer: `MAX_EDGES` edges of four 16.16 ints.
+const OFF_EDGES: usize = 320;
 
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
 /// render one frame on the GPU and read it back into `pixels`.
@@ -811,20 +921,60 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         abi::SCRATCH[0],
     ));
 
+    emit_edge_buffer(&mut asm);
+    asm.push(abi::store_u64(
+        abi::SCRATCH[2],
+        abi::stack_pointer(),
+        OFF_EDGE_COUNT,
+    ));
     emit_item_block(&mut asm);
 
-    asm.load_selector(SEL_SET_VERTEX_BYTES.0);
+    // The block goes to both stages: the vertex shader needs the quad and the surface
+    // size, the fragment shader needs everything else.
+    for setter in [SEL_SET_VERTEX_BYTES.0, SEL_SET_FRAGMENT_BYTES.0] {
+        asm.load_selector(setter);
+        asm.push(abi::add_immediate(
+            abi::c_arg(2),
+            abi::stack_pointer(),
+            OFF_ITEM,
+        ));
+        asm.push(abi::move_immediate(
+            abi::c_arg(3),
+            "Integer",
+            &ITEM_BLOCK_SIZE.to_string(),
+        ));
+        asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+    }
+
+    let empty_edges = format!("{METAL_DRAW_SYMBOL}_empty_edges");
+    // The edge buffer, always bound even when empty: `setFragmentBytes:length:` will
+    // not take a zero length, and an unbound buffer the shader declares is a
+    // validation failure at draw time rather than a nil the shader can test.
+    asm.load_selector(SEL_SET_FRAGMENT_BYTES.0);
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_EDGE_COUNT,
+    ));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "16"));
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
+    asm.push(abi::move_register(abi::c_arg(3), abi::SCRATCH[1]));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&empty_edges));
+    asm.push(abi::move_register(abi::c_arg(3), abi::SCRATCH[0]));
+    asm.push(abi::label(&empty_edges));
     asm.push(abi::add_immediate(
         abi::c_arg(2),
         abi::stack_pointer(),
-        OFF_ITEM,
+        OFF_EDGES,
     ));
-    asm.push(abi::move_immediate(
-        abi::c_arg(3),
-        "Integer",
-        &ITEM_BLOCK_SIZE.to_string(),
-    ));
-    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "1"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
@@ -988,14 +1138,16 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     }
 }
 
-/// Fill the 48-byte parameter block at `sp + OFF_ITEM` from the geometry header
-/// whose address is in `SCRATCH[0]`.
+/// Fill the parameter block at `sp + OFF_ITEM` from the geometry header whose
+/// address is in `SCRATCH[0]`, and the edge buffer at `sp + OFF_EDGES` from its tail.
 ///
-/// The quad is the shape's own extent, not the header's bounds. The bounds are
-/// padded by the stroke half-width plus a pixel so the software rasteriser has room
-/// to antialias, and a flat-filled quad drawn over *those* would be a pixel too big
-/// on every side. The extent is `centre ± (halfExtent + cornerRadius)`, which is the
-/// rectangle the header describes exactly.
+/// The quad is the header's **bounds**, not the shape's own extent: the bounds carry
+/// the `strokeHalf + 1` pad the software rasteriser gives itself so its coverage ramp
+/// has pixels to run over, and the SDF fragment stage needs exactly the same margin.
+/// (Phase 1 used the exact extent because a flat fill has no ramp to make room for.)
+///
+/// Positions narrow to 16.16 fixed point, colours cross as the whole 0–255 values the
+/// header already stores. Nothing here rounds a colour, so a fill is exact.
 fn emit_item_block(asm: &mut Asm) {
     let header = abi::SCRATCH[0];
     let scale = abi::FP_SCRATCH[0];
@@ -1006,79 +1158,101 @@ fn emit_item_block(asm: &mut Asm) {
     ));
     asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[1]));
 
-    // half extents, folding the corner radius the header split out of them
-    asm.push(abi::load_double(
-        abi::FP_SCRATCH[5],
-        header,
-        HEADER_RADIUS * 8,
-    ));
-    for (extent_slot, half) in [
-        (HEADER_EXTENT_X, abi::FP_SCRATCH[3]),
-        (HEADER_EXTENT_Y, abi::FP_SCRATCH[4]),
+    // The 16.16 fields: bounds, shape parameters, corner/stroke radii, arc angles.
+    for (item_offset, slots) in [
+        (
+            ITEM_OFFSET_QUAD,
+            [
+                HEADER_BOUNDS,
+                HEADER_BOUNDS + 1,
+                HEADER_BOUNDS + 2,
+                HEADER_BOUNDS + 3,
+            ],
+        ),
+        (
+            ITEM_OFFSET_SHAPE,
+            [
+                HEADER_SHAPE,
+                HEADER_SHAPE + 1,
+                HEADER_SHAPE + 2,
+                HEADER_SHAPE + 3,
+            ],
+        ),
+        (
+            ITEM_OFFSET_ARC,
+            [HEADER_AUX0, HEADER_AUX1, HEADER_AUX1, HEADER_AUX1],
+        ),
     ] {
-        asm.push(abi::load_double(half, header, extent_slot * 8));
-        asm.push(abi::float_add_d(half, half, abi::FP_SCRATCH[5]));
-    }
-
-    // quad = (cx - halfX, cy - halfY, cx + halfX, cy + halfY), 16.16 fixed point
-    for (index, (centre_slot, half, add)) in [
-        (HEADER_CENTRE_X, abi::FP_SCRATCH[3], false),
-        (HEADER_CENTRE_Y, abi::FP_SCRATCH[4], false),
-        (HEADER_CENTRE_X, abi::FP_SCRATCH[3], true),
-        (HEADER_CENTRE_Y, abi::FP_SCRATCH[4], true),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        asm.push(abi::load_double(
-            abi::FP_SCRATCH[1],
-            header,
-            centre_slot * 8,
-        ));
-        if add {
-            asm.push(abi::float_add_d(
+        for (index, slot) in slots.into_iter().enumerate() {
+            asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+            asm.push(abi::float_multiply_d(
                 abi::FP_SCRATCH[1],
                 abi::FP_SCRATCH[1],
-                half,
+                scale,
             ));
-        } else {
-            asm.push(abi::float_subtract_d(
+            asm.push(abi::float_round_to_signed_x(
+                abi::SCRATCH[1],
                 abi::FP_SCRATCH[1],
-                abi::FP_SCRATCH[1],
-                half,
+            ));
+            asm.push(abi::store_u32(
+                abi::SCRATCH[1],
+                abi::stack_pointer(),
+                OFF_ITEM + item_offset + index * 4,
             ));
         }
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[1],
-            abi::FP_SCRATCH[1],
-        ));
-        asm.push(abi::store_u32(
-            abi::SCRATCH[1],
-            abi::stack_pointer(),
-            OFF_ITEM + ITEM_OFFSET_QUAD + index * 4,
-        ));
     }
 
-    // fill RGBA — already whole 0..255 values in the header, so no rounding to do
-    for channel in 0..4 {
-        asm.push(abi::load_double(
-            abi::FP_SCRATCH[1],
-            header,
-            (HEADER_FILL_R + channel) * 8,
-        ));
-        asm.push(abi::float_convert_to_signed_x(
-            abi::SCRATCH[1],
-            abi::FP_SCRATCH[1],
-        ));
+    // The whole-number fields: both colours, then kind and the edge count.
+    for (item_offset, first) in [
+        (ITEM_OFFSET_FILL, HEADER_FILL_R),
+        (ITEM_OFFSET_STROKE, HEADER_STROKE_R),
+    ] {
+        for channel in 0..4 {
+            asm.push(abi::load_double(
+                abi::FP_SCRATCH[1],
+                header,
+                (first + channel) * 8,
+            ));
+            asm.push(abi::float_convert_to_signed_x(
+                abi::SCRATCH[1],
+                abi::FP_SCRATCH[1],
+            ));
+            asm.push(abi::store_u32(
+                abi::SCRATCH[1],
+                abi::stack_pointer(),
+                OFF_ITEM + item_offset + channel * 4,
+            ));
+        }
+    }
+
+    // misc = { kind, radius (16.16), strokeHalf (16.16), edgeCount }
+    for (index, slot, fixed) in [
+        (0usize, HEADER_KIND, false),
+        (1, HEADER_RADIUS, true),
+        (2, HEADER_STROKE_HALF, true),
+        (3, HEADER_AUX0, false),
+    ] {
+        asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+        if fixed {
+            asm.push(abi::float_multiply_d(
+                abi::FP_SCRATCH[1],
+                abi::FP_SCRATCH[1],
+                scale,
+            ));
+            asm.push(abi::float_round_to_signed_x(
+                abi::SCRATCH[1],
+                abi::FP_SCRATCH[1],
+            ));
+        } else {
+            asm.push(abi::float_convert_to_signed_x(
+                abi::SCRATCH[1],
+                abi::FP_SCRATCH[1],
+            ));
+        }
         asm.push(abi::store_u32(
             abi::SCRATCH[1],
             abi::stack_pointer(),
-            OFF_ITEM + ITEM_OFFSET_FILL + channel * 4,
+            OFF_ITEM + ITEM_OFFSET_MISC + index * 4,
         ));
     }
 
@@ -1090,6 +1264,101 @@ fn emit_item_block(asm: &mut Asm) {
             OFF_ITEM + ITEM_OFFSET_SURFACE + index * 4,
         ));
     }
+}
+
+/// Convert a polygon's cached edge tail into the shader's edge buffer at
+/// `sp + OFF_EDGES`, and leave the edge count in `SCRATCH[2]`.
+///
+/// `SCRATCH[0]` holds the geometry header. The cache stores each edge as
+/// `x0, y0, dx, dy, invLenSq`; the buffer carries the two **endpoints** instead, and
+/// the shader recomputes the edge vector. That is not lost work: the cache keeps
+/// `invLenSq` to keep a reciprocal off the software path's per-pixel loop, the GPU
+/// has the divide for free, and `invLenSq` is the one header quantity 16.16 fixed
+/// point represents badly — a 100-px edge gives 1e-4, which is 6 in 16.16.
+///
+/// A non-polygon leaves the count at zero and reads nothing: slot 20 is the arc's
+/// start angle for an arc, so walking a tail that is not there would read the *next*
+/// item's header as edge coordinates.
+fn emit_edge_buffer(asm: &mut Asm) {
+    let head = format!("{METAL_DRAW_SYMBOL}_edge_head");
+    let done = format!("{METAL_DRAW_SYMBOL}_edge_done");
+    let convert = format!("{METAL_DRAW_SYMBOL}_edge_convert");
+    let header = abi::SCRATCH[0];
+    let count = abi::SCRATCH[2];
+    let index = abi::SCRATCH[3];
+    let source = abi::SCRATCH[4];
+    let scale = abi::FP_SCRATCH[0];
+
+    asm.push(abi::move_immediate(count, "Integer", "0"));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_KIND * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[5],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[5], "4")); // __CANVAS_GEO_POLYGON
+    asm.push(abi::branch_ne(&done));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_AUX0 * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
+    asm.push(abi::compare_immediate(count, &MAX_EDGES.to_string()));
+    asm.push(abi::branch_le(&convert));
+    // Declined upstream by `__canvas_metalRenderable`; clamping here would render a
+    // *different polygon*, so refuse to draw any of it instead.
+    asm.push(abi::move_immediate(count, "Integer", "0"));
+    asm.push(abi::branch(&done));
+
+    asm.push(abi::label(&convert));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[5],
+        "Integer",
+        FIXED_POINT_SCALE,
+    ));
+    asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
+    asm.push(abi::add_immediate(source, header, HEADER_SLOTS * 8));
+    asm.push(abi::add_immediate(
+        abi::SCRATCH[6],
+        abi::stack_pointer(),
+        OFF_EDGES,
+    ));
+    asm.push(abi::move_immediate(index, "Integer", "0"));
+
+    asm.push(abi::label(&head));
+    asm.push(abi::compare_registers(index, count));
+    asm.push(abi::branch_ge(&done));
+    // out[0..1] = (x0, y0); out[2..3] = (x0 + dx, y0 + dy)
+    for (slot, delta) in [(0usize, None), (1, None), (0, Some(2usize)), (1, Some(3))] {
+        asm.push(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
+        if let Some(delta) = delta {
+            asm.push(abi::load_double(abi::FP_SCRATCH[2], source, delta * 8));
+            asm.push(abi::float_add_d(
+                abi::FP_SCRATCH[1],
+                abi::FP_SCRATCH[1],
+                abi::FP_SCRATCH[2],
+            ));
+        }
+        asm.push(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            scale,
+        ));
+        asm.push(abi::float_round_to_signed_x(
+            abi::SCRATCH[5],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
+        asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 4));
+    }
+    asm.push(abi::add_immediate(source, source, EDGE_SLOTS * 8));
+    asm.push(abi::add_immediate(index, index, 1));
+    asm.push(abi::branch(&head));
+    asm.push(abi::label(&done));
 }
 
 /// The C strings this module's sends need, for the reconcile data-object list.
@@ -1129,6 +1398,7 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
         SEL_COMMIT,
         SEL_WAIT_UNTIL_COMPLETED,
         SEL_GET_BYTES,
+        SEL_SET_FRAGMENT_BYTES,
     ]
 }
 

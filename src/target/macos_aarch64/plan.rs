@@ -1,4 +1,8 @@
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
+use crate::target::macos_aarch64::app::{
+    CLASS_MTL_RENDER_PASS_DESCRIPTOR, CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR,
+    CLASS_MTL_TEXTURE_DESCRIPTOR,
+};
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::{self, NativePlan, PlatformImport};
 use crate::target::shared::runtime::{self, RuntimeHelperSpec};
@@ -118,13 +122,6 @@ impl plan::NativePlanPlatform for Platform {
             ("Foundation", "_OBJC_CLASS_$_NSMutableDictionary"),
             ("Foundation", "_OBJC_CLASS_$_NSNumber"),
             ("Foundation", "_OBJC_CLASS_$_NSAttributedString"),
-            // plan-98-E Phase 1: the Metal render pipeline. Declared in app-mode
-            // imports rather than per-call because the descriptor class is read as
-            // external data from `_mfb_macapp_metal_init`, which app-mode emits
-            // alongside the blit helpers whenever the program draws.
-            ("Metal", "_OBJC_CLASS_$_MTLRenderPipelineDescriptor"),
-            ("Metal", "_OBJC_CLASS_$_MTLTextureDescriptor"),
-            ("Metal", "_OBJC_CLASS_$_MTLRenderPassDescriptor"),
             // plan-98-C Phase 3: the canvas frame blit wraps the rendered RGBA8
             // block in a `CGImage` and hands it to the layer. CoreGraphics rather
             // than AppKit because the surface is a `CALayer` and its `contents` is
@@ -708,19 +705,34 @@ impl plan::NativePlanPlatform for Platform {
                 required_by: required_by.clone(),
             })
             .chain(
-                // plan-98-E: `MTLCreateSystemDefaultDevice` is a C entry point in
-                // Metal.framework, not a libSystem symbol, so it cannot ride the
-                // list above. Declared for the whole canvas-graphics set rather than
-                // only for `metalAvailable`: the merged import table dedups, and
-                // scoping it tighter would mean re-deriving which member reaches it
-                // every time the renderer grows.
-                [MTL_CREATE_DEVICE]
-                    .into_iter()
-                    .map(|symbol| PlatformImport {
-                        library: LIB_METAL.to_string(),
-                        symbol: symbol.to_string(),
-                        required_by: required_by.clone(),
-                    }),
+                // plan-98-E: the Metal symbols. `MTLCreateSystemDefaultDevice` is
+                // a C entry point in Metal.framework, not a libSystem symbol, and
+                // the three `_OBJC_CLASS_$_MTL*` are read as external data by the
+                // pipeline setup and the frame renderer.
+                //
+                // They belong on this per-call arm rather than in `app_mode_imports`,
+                // and that is not a tidiness point: `app_mode_imports` is
+                // unconditional, so declaring them there made **every** macOS
+                // app-mode binary link Metal.framework — including a console-in-a-
+                // window program that never draws. Six app-mode goldens moved, which
+                // is how it was caught.
+                //
+                // Declared for the whole canvas-graphics set rather than per member:
+                // the merged table dedups, and scoping it tighter would mean
+                // re-deriving which member reaches which class every time the
+                // renderer grows.
+                [
+                    MTL_CREATE_DEVICE,
+                    CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR,
+                    CLASS_MTL_TEXTURE_DESCRIPTOR,
+                    CLASS_MTL_RENDER_PASS_DESCRIPTOR,
+                ]
+                .into_iter()
+                .map(|symbol| PlatformImport {
+                    library: LIB_METAL.to_string(),
+                    symbol: symbol.to_string(),
+                    required_by: required_by.clone(),
+                }),
             )
             .collect(),
             "thread.start"

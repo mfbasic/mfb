@@ -15,6 +15,12 @@
 mod app_io;
 mod bootstrap;
 mod metal;
+// plan-98-E: the plan declares these as canvas-gated imports, so they have to
+// leave this module.
+pub(crate) use metal::{
+    CLASS_MTL_RENDER_PASS_DESCRIPTOR, CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR,
+    CLASS_MTL_TEXTURE_DESCRIPTOR,
+};
 mod term_view;
 
 pub(crate) use app_io::*;

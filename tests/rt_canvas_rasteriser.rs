@@ -158,6 +158,59 @@ fn rectangle_fills_its_exact_span() {
     assert_eq!(pixel(&frame, 800, 600).3, 255, "background alpha");
 }
 
+/// An arc swept to `endAngle = PI` reaches its end, rather than stopping short.
+///
+/// The sweep test turns the two angles into direction vectors with the rasteriser's
+/// own deterministic `sin`/`cos` (`math::` is unusable here — libm is not correctly
+/// rounded, so an arc endpoint would move between platforms). Those started as a
+/// Taylor series about zero over `-PI..PI`, whose error is concentrated at the far
+/// end of that interval: at `x = 3.14159` it gave `sin = 6.93e-3` against a true
+/// `2.65e-6`, rotating the end direction ~1.4 degrees and making
+/// `__canvas_arcInSweep` exclude the last sliver of the arc.
+///
+/// The check is the end cap, because that is where the error lands: an arc centred
+/// at `(450, 335)` with radius 90, swept `0..PI`, must paint the pixels around
+/// `(360, 335)` — its `endAngle` endpoint. The bug left them background.
+///
+/// Found by the Metal backend drawing 14 pixels here that the software path did not
+/// (plan-98-E Phase 2), which is the GPU comparison doing exactly what an oracle
+/// cross-check is for.
+#[test]
+fn an_arc_swept_to_pi_reaches_its_end_cap() {
+    let (frame, _) = render(
+        "canvas_arc_end_cap",
+        &scene(
+            "  LET smile AS DrawItem = Arc[x := 450.0, y := 335.0, radius := 90.0, \
+             startAngle := 0.0, endAngle := 3.14159, \
+             paint := canvas::stroke(canvas::rgb(0, 160, 0), 14.0)]\n  \
+             canvas::present([smile])\n",
+        ),
+    );
+
+    // The stroke is 14 wide, so the end cap spans x = 353..366 on the centre row.
+    for x in [354usize, 360, 366] {
+        assert_eq!(
+            pixel(&frame, x, 335),
+            (0, 160, 0, 255),
+            "the arc must reach its endAngle: ({x}, 335) is inside the end cap"
+        );
+    }
+    // The start cap, at the other end, was never affected — it is at angle 0, where
+    // the Taylor series was accurate. It is asserted anyway so a fix that moved the
+    // *whole* arc would not pass.
+    assert_eq!(
+        pixel(&frame, 540, 335),
+        (0, 160, 0, 255),
+        "the arc's startAngle end cap"
+    );
+    // Above the centre row is outside a 0..PI sweep under Y-down.
+    assert_eq!(
+        pixel(&frame, 360, 320),
+        (0, 0, 0, 255),
+        "a 0..PI sweep runs below its centre, not above it"
+    );
+}
+
 /// A filled circle is round, and its edge is antialiased with computable coverage.
 ///
 /// The hand-check: at row `y = 143` the pixel centre is `(243.5, 143.5)`, so

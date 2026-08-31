@@ -189,19 +189,42 @@ tests)
 
 ### Phase 2 — Full scene render + resize via drawableSize
 
-- [ ] Render the full primitive set (Rect/Line/Polygon/Circle/Arc/RoundedRect/Image) from
-      the `live` vertex buffer; atlas upload (white pixel + images).
-- [ ] Dynamic-texture upload for `canvas::setBytes` (D's dirty flag): upload a dirty
-      texture at frame start. To upload while a prior frame may still be sampling it, use a
-      **per-texture ring** (one `MTLTexture` per frame-in-flight) or a blit/barrier — the
-      GPU realisation of D's software staging. Coalesce multiple `setBytes` to one upload.
-- [ ] Resize via `CAMetalLayer.drawableSize` from main, picked up on the graphics thread.
-- [ ] Tests: the multi-primitive C golden scene (incl. the smiley Circle/Arc scene) matches
-      within tolerance on Metal; a `setBytes` on an in-scene image shows updated pixels next
-      frame with no tearing; resize repaints at the new size with zero worker involvement.
+- [x] The full primitive set renders from the geometry cache: the fragment shader
+      evaluates the same signed distance fields the software rasteriser does
+      (`rectDistance`, `segmentDistance`, the circle, the arc's cross-product sweep
+      test, the polygon edge walk), so Rect/RoundedRect/Line/Circle/Arc/Polygon are
+      all drawn rather than declined. `__canvas_metalRenderable` now declines only a
+      polygon with more edges than the 4 KB `setFragmentBytes:` payload holds.
+- [x] ~~atlas upload (white pixel + images)~~ — moot: **nothing draws an image on
+      either backend.** Audited at this commit, not assumed:
+      `rg -n "CASE Picture" -A 2 src/codegen/builtins/canvas/helper_geometry.rs` shows
+      `Picture` returning `__canvas_emptyHeader()` from the header builder and `[]`
+      from the tail builder, and `rg -n "upload|atlas" src/codegen/builtins/canvas/
+      src/codegen/runtime/canvas/` finds only prose. Images first draw in plan-98-G,
+      which owns the atlas.
+- [x] ~~Dynamic-texture upload for `canvas::setBytes`~~ — moot, same audit and one
+      more: `rg -n IMAGE_DIRTY src/` returns four hits, all **writes**
+      (`func_set_bytes.rs:116`, `func_create_image.rs:163`, plus the constant and its
+      import). Nothing reads the flag, because there is no texture to upload to. The
+      per-texture ring this row describes is real work — it is plan-98-G's, alongside
+      the images that would use it.
+- [x] Resize — the shared handshake, exercised on both renderers. Correction 9: there
+      is no `CAMetalLayer` and so no `drawableSize`; the renderer draws into an
+      offscreen texture and blits (Correction 5). Main still publishes the new size
+      into the graphics state and the renderer still reads it at frame start
+      (`.ai/canvas-threading.md` §5) — Metal reallocates its texture where the
+      software path reallocates its pixel buffer. `scripts/test-macapp.sh` Case 3g now
+      runs twice, once per renderer.
+- [x] Tests: `rt_canvas_metal.rs::the_full_primitive_set_matches_the_software_oracle`
+      renders the smiley (Circle + Arc) plus a stroked RoundedRect, a thick Line and a
+      translucent Polygon on both backends and diffs them —
+      **worst channel delta 1, no pixel beyond two steps**. The `setBytes` row is moot
+      with the upload rows above. Resize is Case 3g, now per renderer.
 
-Acceptance: the full software golden scene matches within tolerance on Metal; `setBytes`
-content updates appear next frame without tearing; resize is correct and worker-free.
+Acceptance: MET. The full primitive scene matches within tolerance on Metal — in fact
+inside the *per-pixel* bound, not merely the population budget. Resize is correct and
+worker-free on both renderers (Case 3g, GUI-gated). The `setBytes` clause is moot with
+its feature.
 Commit: —
 
 ### Phase 3 — Completion-handler → frame-completion counter (largest blast radius last)
@@ -391,3 +414,61 @@ the *receiver* register — so a send that stages its receiver before the select
 lookup runs as `objc_msgSend(SEL, SEL)`.
 `metal.rs::every_msg_send_stages_its_receiver_after_the_selector_lookup` walks both
 emitted functions and rejects it.
+
+**Correction 9 (Phase 2) — there is no `drawableSize`, and the resize path is the one
+D already built.** The phase named `CAMetalLayer.drawableSize` as the resize
+mechanism. With the renderer drawing offscreen and blitting (Correction 5) there is no
+drawable to size, and none is needed: main publishes the new width and height into the
+graphics state and the renderer reads them at frame start, which is
+`.ai/canvas-threading.md` §5 unchanged. Metal reallocates its `MTLTexture` where the
+software path reallocates its pixel buffer.
+
+The acceptance is *strengthened* rather than reinterpreted: `test-macapp.sh` Case 3g —
+which measures a fixed-size square as a fraction of the window, so a stretched old
+frame cannot pass — now runs once per renderer instead of once.
+
+**Correction 10 (Phase 2) — the tolerance was not the thing to change.** The full
+primitive scene first came out at worst channel delta 5 over 572 pixels, against
+`Tolerance::GPU_DEFAULT`'s per-pixel bound of 2. The tempting reading was that the
+bound was a placeholder to re-measure, and its own comment even says E would.
+
+It was not the bound. Measured over the oracle's own 256-entry sRGB table, **one step
+of its integer coverage moves a dark channel by up to 13 output steps** near full
+coverage (`alpha=254 → 255` moves red from 13 to 0 for black over white) — because the
+sRGB encode is steepest at the bottom. Blending in float against an oracle that
+quantizes coverage to a whole `0..255` therefore *cannot* agree to two steps on an
+antialiased edge, whatever the driver does.
+
+The fix was one line of shader — quantize coverage the same way the oracle does,
+`int(clamp(0.5 - d, 0, 1) * 255 + 0.5)`, and take the same integer
+`(colourAlpha * coverage) / 255`. Worst delta went from 5 to **1**, inside the
+original bound. `Tolerance::GPU_DEFAULT` is unchanged.
+
+**Correction 11 (Phase 2) — the oracle's `sin`/`cos` were wrong at the ends, and the
+GPU is what found it.** Not a plan divergence but a defect this phase uncovered and
+fixed, recorded here because it moved a committed reference image.
+
+`__canvas_sin`/`__canvas_cos` evaluated a Taylor series about zero over `-PI..PI`, and
+`helper_shapes.rs` claimed its truncation error was "below 1e-8" on that interval.
+That is the error near *zero*. Measured at the other end, `x = 3.14159`:
+
+    taylor sin  6.93e-3   true  2.65e-6
+    taylor cos -0.976     true -1.0
+
+So an `Arc` swept to `endAngle = PI` had its end direction off by ~1.4°, and
+`__canvas_arcInSweep`'s cross-product test excluded the last sliver — the stroke
+stopped ~0.6 px short of where it was asked to. Invisible until the Metal backend,
+using the hardware `sin`/`cos`, drew 14 pixels of the smiley's end cap that the
+software path did not.
+
+Fixed by folding to `-PI/2..PI/2` (`sin(PI - x) = sin(x)`, `cos(PI - x) = -cos(x)`)
+and adding one term each: worst error over the whole circle drops from `2.4e-2` to
+`4.6e-7`, under `1e-4` px at radius 150, and the series stays pure IEEE-754 arithmetic
+so it is still bit-identical across platforms.
+
+`tests/golden/canvas/smiley.png` moved by exactly those 14 pixels and was regenerated.
+That is a re-baseline under AGENTS.md's four-question rule, and the fourth answer —
+proof the old reference was wrong — is the measurement above: it recorded a smile
+ending short of its requested `endAngle`.
+`rt_canvas_rasteriser.rs::an_arc_swept_to_pi_reaches_its_end_cap` pins it and was
+RED-checked against the unfolded series.

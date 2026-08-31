@@ -57,12 +57,16 @@ END FUNC"#;
 /// Generating it costs nothing extra when the Metal path declines, because
 /// `__canvas_geometryFor` is the cache and the software walk that follows hits it.
 ///
-/// `__canvas_metalRenderable` is the honesty gate. Phase 1's fragment shader emits a
-/// flat colour over the item's own extent, which is *exactly* right for a
-/// square-cornered, unstroked rectangle and wrong for everything else — a circle
-/// would come out as its bounding box. So the renderer draws a scene only when every
-/// item is one it reproduces, and hands the rest back to the oracle. Each condition
-/// disappears as Phase 2's SDF shader subsumes it.
+/// `__canvas_metalRenderable` is the honesty gate: the renderer draws a scene only
+/// when every item is one it reproduces, and hands the rest back to the oracle rather
+/// than drawing it wrongly.
+///
+/// Phase 2's SDF fragment shader evaluates the same distance functions the software
+/// rasteriser does, so every kind now passes — including `__CANVAS_GEO_NONE`, which
+/// both backends draw as nothing. **One condition remains**: a polygon's edges cross
+/// as a `setFragmentBytes:` payload, which Metal caps at 4 KB, so a polygon past
+/// `__CANVAS_METAL_MAX_EDGES` is declined. Clamping it instead would render a
+/// *different polygon* and read as a geometry bug.
 ///
 /// It reads the geometry header by slot rather than through a helper because that is
 /// what the header is for: a fixed 22-float layout both backends index directly
@@ -86,16 +90,14 @@ r#"FUNC __canvas_sceneOffsets() AS List OF Integer
   RETURN offsets
 END FUNC
 
+LET __CANVAS_METAL_MAX_EDGES AS Integer = 256
+
 FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   FOR EACH offset IN offsets
-    IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0)) <> __CANVAS_KIND_RECT THEN
-      RETURN FALSE
-    END IF
-    IF collections::getOr(__CANVAS_GEO_DATA, offset + 6, 0.0) <> 0.0 THEN
-      RETURN FALSE
-    END IF
-    IF collections::getOr(__CANVAS_GEO_DATA, offset + 7, 0.0) > 0.0 THEN
-      RETURN FALSE
+    IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0)) = __CANVAS_GEO_POLYGON THEN
+      IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0)) > __CANVAS_METAL_MAX_EDGES THEN
+        RETURN FALSE
+      END IF
     END IF
   NEXT
   RETURN TRUE
@@ -168,12 +170,11 @@ END FUNC"#;
 /// the *scene* is one the GPU renderer draws correctly (`__canvas_renderMetal`
 /// returns FALSE otherwise, and the software path runs instead).
 ///
-/// That third condition is what keeps `MFB_CANVAS_METAL=1` honest. plan-98-E Phase 1
-/// renders flat-filled quads; the SDF fragment shader that gives circles, arcs,
-/// strokes and rounded corners their shape is Phase 2. A backend that drew a circle
-/// as its bounding box would still *report* success, which is exactly the lie
-/// Correction 3 rejected — so the renderer declines a scene it cannot draw rather
-/// than drawing it wrongly, and the set it declines shrinks as the shader grows.
+/// That third condition is what keeps `MFB_CANVAS_METAL=1` honest: a backend that
+/// drew a circle as its bounding box would still *report* success, which is exactly
+/// the lie Correction 3 rejected. Since Phase 2 the shader reproduces every
+/// primitive, so the only scene still declined is one carrying a polygon with more
+/// edges than a `setFragmentBytes:` payload holds.
 ///
 /// The software path stays the default regardless: it is the oracle the GPU path is
 /// measured against, so it cannot become the thing being measured.
