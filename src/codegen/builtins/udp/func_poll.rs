@@ -20,8 +20,8 @@ deadline is a `FALSE`, not an error.
 
 Given a `List OF RES Socket` it answers with the first socket that has one,
 scanning in list order. The returned socket is an **alias** of the one in the
-list: the list still closes each member exactly once at scope exit, so the result
-must not be closed or transferred. An empty list raises `ErrInvalidArgument`, and
+list: the list still closes each socket exactly once when it goes out of scope, so
+do not close the returned socket or hand it to another thread. An empty list raises `ErrInvalidArgument`, and
 a deadline that expires with none ready raises `ErrTimeout` — unlike the scalar
 form there is no value that could mean "nothing".
 

@@ -14,12 +14,11 @@ keyPath, backlog)`, so the listener behaves in every respect like one opened by
 `tls` itself. Note the argument order differs: `serverSSL` leads with `port` to
 match `http::server`, while `tls::listen` leads with `host`.
 
-`host` defaults to `"0.0.0.0"` and `backlog` defaults to `128`; both defaults are
-injected at IR lowering, so the three- and four-argument forms are exactly the
-five-argument form with those literals supplied. The `128` default is supplied by
+`host` defaults to `"0.0.0.0"` and `backlog` defaults to `128`, so the three- and
+four-argument forms mean exactly the five-argument form with those values. The `128` default is supplied by
 `http` — calling `tls::listen` directly defaults `backlog` to `0` instead.
 
-The socket is created with `SO_REUSEADDR` set, bound, and placed in the listening
+The port is bound with address reuse enabled, and placed in the listening
 state. On Linux, address resolution uses `AF_INET` passive hints, so **only IPv4
 is bound** — an IPv6 host such as `"::"` does not resolve and fails rather than
 binding. An empty `host` (`""`) is passed to the resolver as a passive (NULL)

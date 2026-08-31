@@ -13,12 +13,11 @@ use crate::codegen::registry::AbiCtx;
 const INTRO: &str = r#"Close a TCP socket or listener and release its OS handle."#;
 
 const DESC: &str = r#"`tcp::close` releases the operating-system socket behind a handle and marks it
-closed, so any later `tcp::` call on the same value raises rather than touching a
-stale descriptor.
+closed, so any later `tcp::` call using that handle raises.
 
 `tcp::close` is the only `tcp` call that **closes** its argument. Every other
-function leaves the handle open; `close` takes the handle into the
-call, after which it cannot be referenced again.
+function leaves the handle open; after `tcp::close(sock)`, do not use `sock`
+again.
 
 Closing a `Socket` tears down the connection, so a peer reading from it observes
 the end of the stream. Closing a `Listener` stops new connections from being
@@ -36,19 +35,16 @@ nothing.
 deliberately differs** — there, closing twice succeeds. The two are otherwise
 drop-in mirrors, so the split is worth knowing: code moved between the transports
 must not assume either answer. Neither package will change under the other
-without a decision, because each has callers relying on what it does today
-(bug-465). In practice the difference is invisible to the recommended idiom —
-close once, or let the end of the scope do it — since the automatic close after
-an explicit one does nothing on both.
+without a decision, because each has callers relying on what it does today. In
+practice the difference is invisible to the recommended idiom — close once, or
+let the end of the scope do it — since the automatic close after an explicit one
+does nothing on both.
 
-The handle's closed word
-is checked first, and a non-zero value refuses the call. That word also carries
-the *moved* bit that `thread::transfer` sets, so a handle transferred to another
-thread is refused too — but with `ErrResourceMoved`, which names the real reason,
-rather than `ErrResourceClosed`. The closed flag is set before the host close's
-result is examined, so a host failure surfaces `ErrCloseFailed` exactly once and a
-second close is refused rather than closing a descriptor number that may by then
-name an unrelated file."#;
+A socket handed to another thread is refused too, but with `ErrResourceMoved`,
+which says what actually happened. And if the host itself fails to close, you get
+`ErrCloseFailed` exactly once: the handle is marked closed either way, so a
+second attempt is refused rather than acting on a socket that may by then belong
+to something else."#;
 
 const EX: &str = r#"Release a listening port as soon as it is no longer needed:
 

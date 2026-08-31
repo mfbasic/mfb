@@ -10,12 +10,11 @@ the `tcp::Listener` **directly** — the `http` package adds no wrapper resource
 its own. The call is a pass-through to `tcp::listen(host, port, backlog)`, so
 the listener behaves in every respect like one opened by `tcp` itself.
 
-`host` defaults to `"0.0.0.0"` and `backlog` defaults to `128`; both defaults are
-injected at IR lowering, so the one- and two-argument forms are exactly the
-three-argument form with those literals supplied.
+`host` defaults to `"0.0.0.0"` and `backlog` defaults to `128`, so the one- and
+two-argument forms mean exactly the three-argument form with those values.
 
-The socket is created with `SO_REUSEADDR` set, bound, and placed in the listening
-state. Address resolution uses `AF_INET` hints, so **only IPv4 is bound** — an
+The port is bound with address reuse enabled, so a restart does not have to wait
+out the previous listener. **Only IPv4 is bound** — an
 IPv6 host such as `"::"` does not resolve and fails rather than binding. An empty
 `host` (`""`) is passed to the resolver as a passive (NULL) node and binds every
 IPv4 interface, which is equivalent to the `"0.0.0.0"` default.

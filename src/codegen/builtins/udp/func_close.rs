@@ -12,12 +12,11 @@ use crate::codegen::registry::AbiCtx;
 const INTRO: &str = r#"Close a UDP socket and release its OS handle."#;
 
 const DESC: &str = r#"`udp::close` releases the operating-system socket behind a handle and marks it
-closed, so any later `udp::` call on the same value raises rather than touching a
-stale descriptor. It also releases the bound port for reuse.
+closed, so any later `udp::` call using that socket raises. It also releases the
+bound port for reuse.
 
 `udp::close` is the only `udp` call that **closes** its argument. Every other
-function leaves the socket open; `close` takes the socket into the
-call, after which it cannot be referenced again.
+function leaves the socket open; after `udp::close(sock)`, do not use `sock` again.
 
 Because UDP is connectionless, closing tells no peer anything — there is no
 shutdown handshake and no way for a sender to learn the socket is gone. Datagrams
@@ -28,9 +27,9 @@ its binding leaves scope, so `udp::close` is needed only to release earlier.
 Closing and then letting the binding drop is safe — the drop sees the closed flag
 and does nothing.
 
-An already-closed handle is an error rather than a no-op, and a handle that
-`thread::transfer` moved is refused with `ErrResourceMoved`, which names the real
-reason, rather than `ErrResourceClosed`."#;
+An already-closed handle is an error rather than a no-op, and a socket handed to
+another thread is refused with `ErrResourceMoved` — which says what actually
+happened — rather than `ErrResourceClosed`."#;
 
 const EX: &str = r#"Release a bound port as soon as the exchange is done:
 

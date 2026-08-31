@@ -86,8 +86,17 @@ FUNC main AS Integer
       io::print("unreachable")
   END MATCH
   RETURN 0
+TRAP(err)
+  io::print("could not ping at all: " & err.message)
+  RETURN 0
+END TRAP
 END FUNC
 ```
+
+The `TRAP` is not optional decoration. A `PingStatus` of `Timeout` or
+`Unreachable` is an *answer*; being unable to send the probe at all — no raw
+socket permission, a sandbox, no route — is an **error**, and it is the common
+case on a locked-down host.
 
 Ping a resolved `Address`, and treat a refusal by the OS as the error it is:
 

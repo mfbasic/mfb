@@ -29,12 +29,12 @@ data.
 An empty `bytes` list — or an empty `String` — is a no-op: nothing is sent and
 the call succeeds without touching the socket. `tls::write` behaves identically.
 
-**A write to a peer that has already gone away is not reported reliably** — see
-bug-467. The first such write is accepted by the local OS, and a later one
-currently terminates the process with `SIGPIPE` instead of raising, so a `TRAP`
-around the write does not protect a server from a client that disconnects. Until
-that is fixed, treat a disconnect as detectable on the *read* side, where
-`tcp::read` raises `ErrConnectionClosed` promptly and correctly.
+**A write to a peer that has already gone away is not reported reliably.** The
+first such write is accepted by the local OS, and a later one currently
+terminates the process rather than raising, so a `TRAP` around the write does not
+protect a server from a client that disconnects. Detect a disconnect on the
+*read* side instead, where `tcp::read` raises `ErrConnectionClosed` promptly and
+correctly.
 
 Note also that TCP gives no delivery receipt even when everything works: a
 successful write means the bytes were accepted by the local OS for sending, not
