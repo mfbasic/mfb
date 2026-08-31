@@ -118,6 +118,13 @@ impl plan::NativePlanPlatform for Platform {
             ("Foundation", "_OBJC_CLASS_$_NSMutableDictionary"),
             ("Foundation", "_OBJC_CLASS_$_NSNumber"),
             ("Foundation", "_OBJC_CLASS_$_NSAttributedString"),
+            // plan-98-E Phase 1: the Metal render pipeline. Declared in app-mode
+            // imports rather than per-call because the descriptor class is read as
+            // external data from `_mfb_macapp_metal_init`, which app-mode emits
+            // alongside the blit helpers whenever the program draws.
+            ("Metal", "_OBJC_CLASS_$_MTLRenderPipelineDescriptor"),
+            ("Metal", "_OBJC_CLASS_$_MTLTextureDescriptor"),
+            ("Metal", "_OBJC_CLASS_$_MTLRenderPassDescriptor"),
             // plan-98-C Phase 3: the canvas frame blit wraps the rendered RGBA8
             // block in a `CGImage` and hands it to the layer. CoreGraphics rather
             // than AppKit because the surface is a `CALayer` and its `contents` is
@@ -676,6 +683,8 @@ impl plan::NativePlanPlatform for Platform {
             | "canvas.setSyncMode"
             | "canvas.setMetalMode"
             | "canvas.metalAvailable"
+            | "canvas.metalReady"
+            | "canvas.metalDrawScene"
             | "canvas.useMetal"
             | "canvas.surfaceWidth"
             | "canvas.surfaceHeight" => [

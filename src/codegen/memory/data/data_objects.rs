@@ -222,6 +222,8 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "canvas.setMetalMode",
             "canvas.useMetal",
             "canvas.metalAvailable",
+            "canvas.metalReady",
+            "canvas.metalDrawScene",
             "canvas.startGraphics",
             "canvas.signalRedraw",
             "canvas.waitForRedraw",

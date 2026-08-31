@@ -332,6 +332,46 @@ pub(crate) fn lower_metal_available(
     })
 }
 
+/// `canvas::metalReady() AS Boolean` — is the Metal renderer built and usable?
+///
+/// Builds the device, command queue and render pipeline on the first call and
+/// reports whether they exist; every later call reports the remembered answer. It is
+/// the second half of the renderer branch's condition (`canvas::useMetal` is the
+/// first): asked for *and* actually available.
+///
+/// A target with no Metal implementation has no seam, and reports `FALSE` — which is
+/// the honest answer and keeps `__canvas_renderFrame` one shape everywhere rather
+/// than a per-target `IF`.
+pub(crate) fn lower_metal_ready(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    match ctx
+        .platform
+        .emit_metal_init(&symbol, &mut builder.instructions, &mut builder.relocations)
+    {
+        Some(result) => {
+            result?;
+            builder.emit(abi::move_register(RESULT_VALUE_REGISTER, abi::c_return(0)));
+        }
+        None => builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0")),
+    }
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Nothing,
+        location: Operand::from("void"),
+        text: symbol,
+    })
+}
+
 fn internal(name: &'static str, body: Body) -> RegistryFunction {
     RegistryFunction {
         name,
@@ -418,6 +458,20 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::Boolean,
             errors: vec![],
             body: Body::abi_function(lower_metal_available),
+        }],
+    });
+    pkg.add_function(RegistryFunction {
+        name: "metalReady",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![],
+            return_type: ParameterType::Boolean,
+            errors: vec![],
+            body: Body::abi_function(lower_metal_ready),
         }],
     });
     pkg.add_function(RegistryFunction {

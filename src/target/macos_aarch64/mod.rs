@@ -50,6 +50,8 @@ impl NativeBackend for Backend {
                 "canvas.setMetalMode",
                 "canvas.useMetal",
                 "canvas.metalAvailable",
+                "canvas.metalReady",
+                "canvas.metalDrawScene",
                 "canvas.startGraphics",
                 "canvas.signalRedraw",
                 "canvas.waitForRedraw",

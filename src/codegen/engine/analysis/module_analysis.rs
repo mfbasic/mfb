@@ -31,6 +31,8 @@ pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool 
             "canvas.setMetalMode",
             "canvas.useMetal",
             "canvas.metalAvailable",
+            "canvas.metalReady",
+            "canvas.metalDrawScene",
             "canvas.startGraphics",
             "canvas.signalRedraw",
             "canvas.waitForRedraw",

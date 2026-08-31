@@ -238,7 +238,45 @@ stopped) before the worker's entry unwinds.
 * **No time-based repaint.** §4.
 * **No cross-thread arena free.** §3.
 
-## 10. Test affordances
+## 10. The renderer branch, and what the Metal backend inherits
+
+`__canvas_renderLoop` calls `__canvas_renderFrame`, which is the **only** place a
+renderer is chosen. The choice is a runtime branch, not a build-time one, because
+every input to it is a runtime fact:
+
+```
+IF canvas::useMetal() AND canvas::metalReady() THEN
+  IF __canvas_renderMetal() THEN RETURN
+END IF
+__canvas_renderScene()
+```
+
+* `canvas::useMetal` — did the program ask? (`MFB_CANVAS_METAL=1`, read once at
+  spawn.) **Software is the default and must stay so**: it is the oracle the GPU
+  backends are measured against, so it cannot become the thing being measured.
+* `canvas::metalReady` — did a pipeline build? It runs `_mfb_macapp_metal_init` on
+  first call and remembers the answer in `GRAPHICS_OFFSET_MTL_READY` as a tri-state
+  (untried / built / failed), so a host with no Metal device pays the device probe and
+  the MSL compile once, not per frame.
+* `__canvas_renderMetal` returning FALSE — is this *scene* one the GPU shader
+  reproduces? It declines rather than draws wrongly. A backend that rendered a circle
+  as its bounding box would still report success, and that is the failure mode this
+  third condition exists to prevent.
+
+Three consequences for anything added here later:
+
+* **The Metal objects live in the graphics-state block**, not in the app module's own
+  storage, for the reason in §2: the graphics thread creates them and is the only
+  thread that may touch them, and the arena is per-thread. `GRAPHICS_OFFSET_MTL_*`.
+* **The frame is rendered offscreen and read back**, then leaves through the same
+  `canvas::blitSurface` the software path uses. That is what makes the two backends
+  comparable — the tolerance comparator diffs an RGBA8 buffer, and a frame that only
+  ever existed in a drawable is not one.
+* **The graphics thread has no autorelease pool**, so the frame renderer pushes and
+  pops its own. This is not a leak-avoidance nicety: an unpooled autorelease on this
+  thread aborts it in libmalloc at thread exit, with none of your frames in the trace.
+
+## 11. Test affordances
 
 Three environment variables, all off by default and none on the production path:
 
@@ -251,6 +289,13 @@ Three environment variables, all off by default and none on the production path:
   by design (§3), so frame counts are otherwise a scheduling detail — the same
   three-present program was observed producing one, two and three frames. Any
   frame-level assertion needs this.
+
+A fourth selects the renderer rather than observing it:
+
+* `MFB_CANVAS_METAL` — ask for the Metal backend (§10). The stats line reports all
+  three of the branch's discriminants (`metal=`, `metalSelected=`, `metalReady=`),
+  which is how a test tells "the GPU agreed with the oracle" from "there was no GPU
+  and both runs were the oracle".
 
 ## See also
 

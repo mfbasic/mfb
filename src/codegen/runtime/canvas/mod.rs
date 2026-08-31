@@ -130,8 +130,39 @@ pub(crate) const GRAPHICS_OFFSET_METAL: usize = 296;
 /// (64) and musl/glibc (56). It lives here rather than on the spawner's stack
 /// because there is exactly one spawn and the block is already process-global.
 pub(crate) const GRAPHICS_OFFSET_ATTR: usize = 304;
+/// The Metal device, command queue and render pipeline state (plan-98-E Phase 1),
+/// and the `MTLBuffer`-backed offscreen texture the renderer draws into.
+///
+/// They live in the graphics-state block rather than in the macOS app module's own
+/// storage for the reason §2 of `.ai/canvas-threading.md` gives for everything else
+/// here: the graphics thread creates them, uses them, and is the only thread that
+/// may, and the arena is per-thread — so a process-global word is the only place
+/// they can be kept where the thread that made them will find them again.
+///
+/// `GRAPHICS_OFFSET_MTL_READY` is the "tried already" flag, distinct from
+/// `PIPELINE` being non-zero: a machine with no Metal device must not re-run the
+/// device probe and the shader compile on every frame just because they failed.
+pub(crate) const GRAPHICS_OFFSET_MTL_READY: usize = 368;
+pub(crate) const GRAPHICS_OFFSET_MTL_DEVICE: usize = 376;
+pub(crate) const GRAPHICS_OFFSET_MTL_QUEUE: usize = 384;
+pub(crate) const GRAPHICS_OFFSET_MTL_PIPELINE: usize = 392;
+/// The offscreen render target, and the dimensions it was created for.
+///
+/// The renderer draws into a texture rather than straight to a drawable so that the
+/// finished frame goes back through the *same* `canvas::blitSurface` the software
+/// path uses. That is what makes the two comparable at all — the tolerance
+/// comparator reads an RGBA8 buffer, and a frame that only ever existed inside a
+/// `CAMetalLayer` is not one. plan-98-E Phase 2 adds the direct-to-drawable present
+/// alongside it.
+///
+/// A resize creates a new texture and releases the old one, which is why the
+/// dimensions are kept here rather than re-read from the texture: comparing two
+/// words is cheaper than two message sends, every frame.
+pub(crate) const GRAPHICS_OFFSET_MTL_TEXTURE: usize = 400;
+pub(crate) const GRAPHICS_OFFSET_MTL_TEX_WIDTH: usize = 408;
+pub(crate) const GRAPHICS_OFFSET_MTL_TEX_HEIGHT: usize = 416;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 368;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 424;
 
 /// The trampoline `pthread_create` starts: establishes the MFB context, then loops.
 pub(crate) const GRAPHICS_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_canvas_graphics_entry";

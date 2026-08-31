@@ -151,10 +151,12 @@ simpler here and avoids a translation layer; Vulkan is Linux/Windows only.
       recorded in Correction 1 and the `UNVERIFIED` rows above are resolved. The
       headline: **there is no vertex buffer and no seam** — the geometry is SDF
       parameters and `__canvas_renderScene` is called directly, so E creates the seam.
-- [~] Shader path decided (Correction 2): two hand-written MSL shaders, one pipeline,
-      compiled **at runtime** via `newLibraryWithSource:` rather than at build time —
-      a build-time `xcrun metal` step would make compiling a user's program depend on
-      an installed Xcode toolchain. Implementation pending with the pipeline below.
+- [x] Shader path decided (Correction 2) **and implemented**: two hand-written MSL
+      shaders, one pipeline, compiled **at runtime** via `newLibraryWithSource:`
+      rather than at build time — a build-time `xcrun metal` step would make
+      compiling a user's program depend on an installed Xcode toolchain. The source
+      is `METAL_SHADER_SOURCE` in `src/target/macos_aarch64/app/metal.rs`; a run
+      reporting `metalReady=TRUE` is the compile succeeding.
 - [x] **The renderer seam itself** — added as Correction 1 found it missing.
       `__canvas_renderFrame` is the single dispatch point, with `canvas::useMetal`
       (opt-in, `MFB_CANVAS_METAL`) and `canvas::metalAvailable` as its discriminants.
@@ -167,12 +169,21 @@ simpler here and avoids a translation layer; Vulkan is Linux/Windows only.
       `metal=TRUE`. Done before the pipeline on purpose — a device that cannot be
       created is a dylib/import/binding fault, and a one-call probe reports it far
       more cheaply than a blank window does (Correction 4).
-- [ ] Create `CAMetalLayer`, device, queue, single pipeline; render one textured tinted quad;
-      assert it matches the C software golden within tolerance headless (where macOS headless
-      Metal is available; else on a window-server CI lane).
+- [x] Device, queue and single pipeline created (`_mfb_macapp_metal_init`), and the
+      frame renderer (`_mfb_macapp_metal_draw`) records, submits and reads back one
+      quad per scene item. Measured headless on this host: the six-rectangle blend
+      scene renders **byte-identical** to the software oracle (worst channel delta 0
+      over all 576,000 pixels), which is inside `Tolerance::GPU_DEFAULT` by a wide
+      margin. `tests/rt_canvas_metal.rs` pins it, and RED-checks confirmed both
+      assertions fail when the renderer is broken.
+      The `CAMetalLayer` moved to Phase 2 with the on-screen present — see
+      Correction 5; Phase 1 renders to an offscreen texture, which is what makes the
+      comparison against the software oracle possible at all and needs no window
+      server.
 
-Acceptance: one quad renders via Metal and matches the software reference within the C
-tolerance; the software backend still passes exact-match.
+Acceptance: MET. One quad per item renders via Metal and matches the software
+reference (measured: exactly, gate: within tolerance); the software backend is
+untouched and still passes exact-match (`cargo test canvas` 62 passed / 0 failed).
 Commit: —
 
 ### Phase 2 — Full scene render + resize via drawableSize
@@ -290,6 +301,13 @@ constant. That keeps the no-dependency constraint clean — a build-time `xcrun 
 step would make the compiler depend on an installed Xcode toolchain to build a *user's*
 program — at the cost of one compile at first present.
 
+Measured on this host, which makes the point concretely: `xcrun -f metal` resolves
+(Xcode is installed) but `xcrun metal -c` fails with *"cannot execute tool 'metal'
+due to missing Metal Toolchain; use: xcodebuild -downloadComponent MetalToolchain"*.
+A build-time shader step would therefore not have worked on the very machine this
+plan was developed on, and would have made every canvas program's build depend on a
+separately-downloaded Xcode component.
+
 **2026-08-30 — pre-execution revision (no code written yet).** See plan-98-A's
 Corrections for the full account. Applied here: A's invariant 8 (this is new work, so
 no codegen byte-identity gate and no full-suite run until the end of the plan); the
@@ -307,3 +325,68 @@ E is a renderer swap, not new architecture: Metal behind D's unchanged thread/ri
 boundary, gated by tolerance-match to the software oracle. Risk is the sRGB/blend chain and the
 completion-handler retirement hook. Its GPU specifics are resolved against D's real code in
 Phase 1, not guessed here.
+
+**Correction 5 (Phase 1) — the `CAMetalLayer` belongs with the on-screen present, in
+Phase 2; Phase 1 renders offscreen.** The phase task listed the layer alongside the
+device, queue and pipeline, and asked for the result to be checked "headless (where
+macOS headless Metal is available; else on a window-server CI lane)". Those two are in
+tension: a `CAMetalLayer` needs a window server, and the comparison the acceptance
+criterion asks for needs an RGBA8 buffer to diff — which a drawable is not.
+
+Rendering to an offscreen `MTLTexture` and reading it back with
+`getBytes:bytesPerRow:fromRegion:mipmapLevel:` resolves both. The frame then leaves
+through the *same* `canvas::blitSurface` the software path uses, so `MFB_CANVAS_DUMP`
+produces a comparable buffer, the whole test runs headless with no CI lane caveat, and
+the on-screen path stays a strictly additive Phase 2 step (bind a layer, present the
+drawable) rather than a prerequisite. The pipeline is built for
+`MTLPixelFormatBGRA8Unorm_sRGB` — a `CAMetalLayer`-supported format — precisely so
+that step needs no second pipeline.
+
+**Correction 6 (Phase 1) — Phase 1's renderer declines scenes it cannot draw, and the
+seam has three conditions, not two.** Phase 1's fragment shader emits a flat colour
+over the item's extent. That is exact for a square-cornered, unstroked `Rectangle` and
+wrong for every other kind — a `Circle` would render as its bounding box. Shipping
+that behind `MFB_CANVAS_METAL=1` would be the same lie Correction 4 rejected, in the
+other direction: the selector reporting success while the picture is wrong.
+
+So `__canvas_renderMetal` returns FALSE for a scene containing anything else, and
+`__canvas_renderFrame` falls through to the software oracle. The predicate
+(`__canvas_metalRenderable`) shrinks as Phase 2's SDF shader subsumes each condition;
+`rt_canvas_metal.rs::an_unsupported_scene_falls_back_to_the_software_renderer` is what
+keeps it honest, asserting byte equality with the software render.
+
+**Correction 7 (Phase 1) — the shader's parameter block is 16.16 fixed point, not
+`float`.** The geometry header is `Float` (IEEE double) and MSL has no double, so the
+values must narrow. They narrow on the CPU into fixed point because the AArch64
+assembler this backend emits through has **no double→single convert and no 32-bit
+floating-point store**: producing an `f32` buffer would mean adding two instructions
+to the shared ISA layer (`src/arch/ops.rs`, the AArch64 encoder, and their x86-64 and
+riscv64 counterparts) purely to feed a macOS GPU buffer.
+
+That is not a loss of fidelity for what the block carries. 16.16 covers ±32768 px at
+1/65536 px, which is finer than `float`'s own resolution above 512 px, over a
+coordinate space that is a few thousand pixels wide. Phase 2's SDF parameters are the
+same kind of quantity in the same space and narrow the same way. The colours are
+exempt — `__canvas_paintHeader` already stores them as whole 0–255 values, so they
+cross as plain integers.
+
+**Correction 8 (Phase 1) — two ABI/enum traps, recorded because neither failed
+loudly.** Both were found by rendering, not by any gate:
+
+* `MTLRegion` is 48 bytes, and AAPCS64 rule **B.4** replaces a composite argument
+  larger than 16 bytes with a *pointer to a caller-allocated copy* before register
+  assignment. Laying it out as an outgoing stack argument — the rule for large
+  composites on some other ABIs — put a zero in the register the callee dereferences,
+  faulting inside `-[IOGPUMetalTexture getBytes:…]` with none of our frames in the
+  trace.
+* `MTLPrimitiveTypeTriangleStrip` is **4**; 3 is the triangle *list*. A list with four
+  vertices is not an error — it draws one triangle and ignores the fourth vertex,
+  which renders exactly half of every quad along its diagonal. It reads as a geometry
+  bug, and the fix is an enum constant.
+
+A third, in the same family, is pinned by a unit test rather than a comment:
+`Asm::load_selector` resolves through `sel_registerName`, whose return value lands in
+the *receiver* register — so a send that stages its receiver before the selector
+lookup runs as `objc_msgSend(SEL, SEL)`.
+`metal.rs::every_msg_send_stages_its_receiver_after_the_selector_lookup` walks both
+emitted functions and rejects it.

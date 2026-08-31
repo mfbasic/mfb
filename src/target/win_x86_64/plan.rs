@@ -458,6 +458,8 @@ impl NativePlanPlatform for Platform {
             | "canvas.setSyncMode"
             | "canvas.setMetalMode"
             | "canvas.metalAvailable"
+            | "canvas.metalReady"
+            | "canvas.metalDrawScene"
             | "canvas.useMetal"
             | "canvas.surfaceWidth"
             | "canvas.surfaceHeight" => vec![
