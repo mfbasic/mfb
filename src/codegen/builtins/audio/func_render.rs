@@ -41,13 +41,13 @@ FUNC __audio_render(note AS AudioNote) AS List OF Byte
   RETURN pcm
 END FUNC"#;
 
-const INTRO: &str = r#"Synthesize one `AudioNote` to mono `s16le` PCM at 48 kHz."#;
+const INTRO: &str = r#"Synthesize one `audio::AudioNote` to mono `s16le` PCM at 48 kHz."#;
 const DESC: &str = r#"`audio::render` is a pure MFBASIC tone synthesizer, not a device call: it never
-opens hardware and touches no audio stream. It turns one `AudioNote` into raw
+opens hardware and touches no audio stream. It turns one `audio::AudioNote` into raw
 single-channel `s16le` PCM at a fixed 48 kHz sample rate and returns it as a
 `List OF Byte` — the same mono frame layout `audio::write` accepts, so the result can be handed straight to an open `AudioOutput`. The returned list is
 `note.noteFrames * 2` bytes long (empty when `note.noteFrames <= 0`). Each frame is
-a sine oscillator shaped by the note's `AudioEnvelope` (linear attack, decay to
+a sine oscillator shaped by the note's `audio::AudioEnvelope` (linear attack, decay to
 `sustainLevel`, held sustain, linear release), scaled by `gainOverall`, converted to
 an `Integer`, then clamped to the s16 range and encoded little-endian. `render` is
 deterministic and platform-independent."#;
@@ -57,8 +57,8 @@ const EX: &str = r#"Render one second of A4 (440 Hz) and play it on the default 
 IMPORT audio
 
 SUB main()
-  LET env = AudioEnvelope[2400, 4800, 31200, 9600, 12000]
-  LET note = AudioNote[440.0, 48000, env, 0.8]
+  LET env = audio::AudioEnvelope[2400, 4800, 31200, 9600, 12000]
+  LET note = audio::AudioNote[440.0, 48000, env, 0.8]
   LET tone = audio::render(note)
 
   RES out AS audio::AudioOutput = audio::openOutput(48000, 1, 512)
@@ -78,7 +78,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![param(
                 "note",
-                "The note to synthesize: `frequencyHz`, `noteFrames`, an `AudioEnvelope`, and `gainOverall`. Construct it with `AudioNote[...]`.",
+                "The note to synthesize: `frequencyHz`, `noteFrames`, an `audio::AudioEnvelope`, and `gainOverall`. Construct it with `audio::AudioNote[...]`.",
                 &[],
                 ParameterType::named(AUDIO_NOTE_TYPE),
             )],

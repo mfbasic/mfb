@@ -11,7 +11,7 @@ leap years only when they are also divisible by 400. So `2000` and `2024` are
 leap years, while `1900` and `2023` are not.
 
 
-The rule is purely arithmetic on the year number: no time zone, `Instant`, or
+The rule is purely arithmetic on the year number: no time zone, `datetime::Instant`, or
 current clock value is consulted. The proleptic Gregorian calendar extends the
 same rule indefinitely into the past and future, so years before the calendar's
 historical adoption and negative (BCE-style) year numbers are evaluated by the

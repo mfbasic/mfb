@@ -147,7 +147,7 @@ pub(crate) fn register(r: &mut Registry) {
             // fixed (X448=5).
             EnumVariant {
                 name: "X448",
-                description: "X448 (Curve448 ECDH, RFC 7748) key-agreement key pair (56-byte keys) — not a signing key; use it with `crypto::exchange`. `KeyConvert.Ed448ToX448` derives one from an Ed448 pair; the `Ed448_*` suites of `crypto::encrypt`/`crypto::decrypt` do that conversion internally.",
+                description: "X448 (Curve448 ECDH, RFC 7748) key-agreement key pair (56-byte keys) — not a signing key; use it with `crypto::exchange`. `crypto::KeyConvert.Ed448ToX448` derives one from an Ed448 pair; the `Ed448_*` suites of `crypto::encrypt`/`crypto::decrypt` do that conversion internally.",
                 advisory: None,
             },
             // Ed448 (plan-109-D): appended after X448 (Ed448=6).
@@ -197,7 +197,7 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "SHA-1 (FIPS 180-4, 160-bit digest). Not collision-resistant: every source use reports the `CRYPTO_SHA1_INSECURE` warning; select it only for legacy interoperability, never for new designs.",
                 advisory: Some(EnumAdvisory {
                     rule: "CRYPTO_SHA1_INSECURE",
-                    detail: "`Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.",
+                    detail: "`crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.",
                 }),
             },
             EnumVariant {

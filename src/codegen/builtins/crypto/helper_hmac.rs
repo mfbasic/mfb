@@ -15,7 +15,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 #[rustfmt::skip]
 const BODY: &str =
 r#"' Hash-generic HMAC over a `List OF Byte` message. Block size B and digest from the
-' `Hash` selector (RFC 2104). ipad=0x36=54, opad=0x5c=92.
+' `crypto::Hash` selector (RFC 2104). ipad=0x36=54, opad=0x5c=92.
 FUNC __crypto_hmac(algo AS Hash, key AS List OF Byte, data AS List OF Byte) AS List OF Byte
   LET b AS Integer = __crypto_shaBlockSize(algo)
   MUT k AS List OF Byte = key

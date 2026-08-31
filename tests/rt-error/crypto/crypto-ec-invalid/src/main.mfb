@@ -9,6 +9,6 @@ SUB main()
   LET msg AS List OF Byte = encoding::utf8Encode("hi")
   LET sig AS List OF Byte = encoding::hexDecode("3006020101020102")
   io::print("before")
-  LET ok AS Boolean = crypto::verify(Certificate.P256, badPub, msg, sig)
+  LET ok AS Boolean = crypto::verify(crypto::Certificate.P256, badPub, msg, sig)
   io::print("after=" & toString(ok))
 END SUB

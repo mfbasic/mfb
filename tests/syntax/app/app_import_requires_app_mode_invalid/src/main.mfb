@@ -3,5 +3,5 @@ IMPORT app
 ' plan-62-A §3.3: `IMPORT app` in a plain (non-`--app`) console build is a
 ' compile-time error — the `app` package requires app mode.
 SUB main()
-  app::setMode(Mode.None)
+  app::setMode(app::Mode.None)
 END SUB

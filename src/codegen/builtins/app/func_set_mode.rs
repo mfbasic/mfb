@@ -62,20 +62,20 @@ pub(crate) fn lower_set_mode(
 
 const INTRO: &str = r#"Change the presentation mode of this `--app` program"#;
 const DESC: &str = r#"`app::setMode` sets the program's presentation mode. `mode` is one of the two
-`Mode` enum members: `Mode.Console` (the terminal-in-a-window surface) or
-`Mode.None` (windowless). The call returns nothing.
+`app::Mode` enum members: `app::Mode.Console` (the terminal-in-a-window surface) or
+`app::Mode.None` (windowless). The call returns nothing.
 
-Switching mode reconciles the window surface to match: entering `Mode.None` tears
-the window down and routes `io::print` to standard output; entering `Mode.Console`
+Switching mode reconciles the window surface to match: entering `app::Mode.None` tears
+the window down and routes `io::print` to standard output; entering `app::Mode.Console`
 brings the transcript window up. A subsequent `app::getMode` reflects the new mode.
 
 Referencing `app::setMode` anywhere in a program also changes that program's
-**initial** mode to `Mode.None` — a program that manages its own surface starts
+**initial** mode to `app::Mode.None` — a program that manages its own surface starts
 windowless and brings a window up deliberately, rather than flashing the default
 terminal window first.
 
-The `Mode` enum is referenced bare, like every other builtin type: write
-`Mode.None`, not `app::Mode.None`."#;
+The `app::Mode` enum is referenced bare, like every other builtin type: write
+`app::Mode.None`, not `app::Mode.None`."#;
 const EX: &str = r#"Start windowless (the mere reference to `setMode` makes `None` the initial mode),
 then bring the console surface up:
 
@@ -85,7 +85,7 @@ IMPORT io
 
 SUB main
   io::print("no window yet")
-  app::setMode(Mode.Console)
+  app::setMode(app::Mode.Console)
 END SUB
 ```"#;
 
@@ -100,7 +100,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "mode",
-                desc: "The presentation mode to switch to: `Mode.Console` or `Mode.None`. Any \
+                desc: "The presentation mode to switch to: `app::Mode.Console` or `app::Mode.None`. Any \
                        other type is rejected at compile time.",
                 aliases: &[],
                 ty: ParameterType::named("Mode"),

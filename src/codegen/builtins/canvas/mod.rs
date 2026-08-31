@@ -74,15 +74,15 @@ pub(crate) const IMAGE_TYPE_ID: &str = "canvas.Image";
 /// The close op the resource's scope-drop and `destroyImage` both route to.
 const DESTROY_IMAGE: &str = "canvas.destroyImage";
 
-const MODULE_INTRO: &str = r#"2D drawing for `Mode.Canvas` — a retained scene of `DrawItem`s"#;
-const MODULE_DESC: &str = r#"The `canvas` package draws 2D graphics on the surface `app::setMode(Mode.Canvas)`
+const MODULE_INTRO: &str = r#"2D drawing for `app::Mode.Canvas` — a retained scene of `canvas::DrawItem`s"#;
+const MODULE_DESC: &str = r#"The `canvas` package draws 2D graphics on the surface `app::setMode(app::Mode.Canvas)`
 presents. Like `app`, it is importable **only** in `--app` builds, and every call
-that touches the surface requires `Mode.Canvas` — outside it they raise the
+that touches the surface requires `app::Mode.Canvas` — outside it they raise the
 trappable `ErrWrongMode`. The two colour constructors `canvas::rgb` and
 `canvas::rgba` are the exception: they touch no surface, they only build a
-`Color`, so a program can compute its palette before it ever presents anything.
+`canvas::Color`, so a program can compute its palette before it ever presents anything.
 
-`canvas` is **retained**, not immediate. A program builds a `List OF DrawItem` and
+`canvas` is **retained**, not immediate. A program builds a `List OF canvas::DrawItem` and
 installs it with `canvas::present`; the runtime keeps rendering that scene on
 vsync, resize and damage until the next `present`. `present` is therefore not a
 per-frame call — a static picture is presented once and costs nothing thereafter,
@@ -91,7 +91,7 @@ every frame, which is why the runtime caches each item's geometry on a content
 hash: re-presenting an item that did not change is free.
 
 `present` **copies the whole scene** — item fields, polygon point lists, text
-strings, the `Paint` values. After it returns, the published scene is entirely
+strings, the `canvas::Paint` values. After it returns, the published scene is entirely
 its own, so you are free to change or discard whatever you built the list
 from.
 
@@ -99,7 +99,7 @@ Coordinates are pixels with a top-left origin and Y increasing downward. Angles
 are radians, measured clockwise from +X (which, under Y-down, is the direction
 that makes a `0`..`PI` arc sweep *below* its centre).
 
-Every drawn item carries a `Paint`, a flat value record rather than ambient
+Every drawn item carries a `canvas::Paint`, a flat value record rather than ambient
 state — there is no "current colour" to set. Build one with `canvas::fill`,
 `canvas::stroke` or `canvas::fillStroke`, and refine it with `WITH`:
 
@@ -107,13 +107,13 @@ state — there is no "current colour" to set. Build one with `canvas::fill`,
 LET glow AS Paint = WITH canvas::fill(red) { blend := BlendMode.Add }
 ```
 
-`Paint` is designed so that **each field's zero value is that field's no-op** —
+`canvas::Paint` is designed so that **each field's zero value is that field's no-op** —
 transparent fill and stroke, zero stroke width, `Normal` blend, the identity
-transform (which is the *all-zero* `Transform`, by definition) and a zero-area,
+transform (which is the *all-zero* `canvas::Transform`, by definition) and a zero-area,
 meaning absent, clip. That is what lets `canvas::fill(red)` mean simply "a red
 shape": every field the caller did not name is already inert.
 
-An item that draws an image or text names it through an `ImageRef` / `FontRef` —
+An item that draws an image or text names it through a `canvas::ImageRef` / `canvas::FontRef` —
 a plain value holding the id the backend knows the resource by. The scene holds
 that id and nothing more, which is what lets a published scene outlive the image
 it names. `canvas::imageRef` takes that id from an `Image`.
@@ -125,7 +125,7 @@ it names. `canvas::imageRef` takes that id from an `Image`.
 RES logo AS canvas::Image = canvas::createImage(w, h, pixels)
 ```
 
-The value types — `Color`, `DrawItem`, `Paint` and the rest — are referenced bare.
+The value types — `canvas::Color`, `canvas::DrawItem`, `canvas::Paint` and the rest — are referenced bare.
 An image closes itself when its binding goes out of scope, or earlier with
 `canvas::destroyImage`; destroying one that a presented scene still draws is
 safe, because the scene holds only its id."#;
@@ -155,7 +155,7 @@ pub(crate) fn register(r: &mut Registry) {
         export: true,
         description: "An 8-bit-per-channel RGBA colour. Build one with `canvas::rgb` \
                       or `canvas::rgba`; the all-zero value is fully transparent, \
-                      which is what makes it the no-op default for a `Paint` \
+                      which is what makes it the no-op default for a `canvas::Paint` \
                       channel.",
         props: vec![
             RecordProp {
@@ -221,8 +221,8 @@ pub(crate) fn register(r: &mut Registry) {
         name: "Bounds",
         export: true,
         description: "An axis-aligned rectangle in canvas pixels. A zero-area \
-                      `Bounds` (either extent `0.0`) means \"no rectangle\", which \
-                      is how an unset `Paint.clip` reads as unclipped.",
+                      `canvas::Bounds` (either extent `0.0`) means \"no rectangle\", which \
+                      is how an unset `canvas::Paint.clip` reads as unclipped.",
         props: vec![
             RecordProp {
                 name: "x",
@@ -290,7 +290,7 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "Normal",
                 description: "Source-over compositing — the ordinary case, and the \
-                              zero value, so an unset `Paint.blend` is this.",
+                              zero value, so an unset `canvas::Paint.blend` is this.",
                 advisory: None,
             },
             EnumVariant {
@@ -318,7 +318,7 @@ pub(crate) fn register(r: &mut Registry) {
                       `x' = a*x + c*y + tx`, `y' = b*x + d*y + ty`. **The all-zero \
                       value means the identity**, not the degenerate matrix that \
                       collapses every point to the origin — which is what lets an \
-                      unset `Paint.transform` leave an item untransformed.",
+                      unset `canvas::Paint.transform` leave an item untransformed.",
         props: vec![
             RecordProp {
                 name: "a",
@@ -371,7 +371,7 @@ pub(crate) fn register(r: &mut Registry) {
         description: "A plain value naming an `Image` — the id the backend knows it \
                       by. Obtain one with `canvas::imageRef`. The zero handle names \
                       no image and draws nothing, which is what an unset \
-                      `Picture.image` is.",
+                      `canvas::Picture.image` is.",
         props: vec![RecordProp {
             name: "id",
             ty: ParameterType::Integer,
@@ -398,19 +398,19 @@ pub(crate) fn register(r: &mut Registry) {
         description: "How an item is filled, stroked, blended, transformed and \
                       clipped. A flat value threaded through each item — there is no \
                       ambient drawing state. Every field's zero value is that \
-                      field's no-op, so a partially named `Paint` does the obvious \
-                      thing: `Paint[fill := c]` is a plain filled shape.",
+                      field's no-op, so a partially named `canvas::Paint` does the obvious \
+                      thing: `canvas::Paint[fill := c]` is a plain filled shape.",
         props: vec![
             RecordProp {
                 name: "fill",
                 ty: ParameterType::named("Color"),
-                description: "The interior colour. Transparent (the zero `Color`) \
+                description: "The interior colour. Transparent (the zero `canvas::Color`) \
                               leaves the item unfilled.",
             },
             RecordProp {
                 name: "stroke",
                 ty: ParameterType::named("Color"),
-                description: "The outline colour. Transparent (the zero `Color`) \
+                description: "The outline colour. Transparent (the zero `canvas::Color`) \
                               leaves the item unstroked.",
             },
             RecordProp {
@@ -435,7 +435,7 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "clip",
                 ty: ParameterType::named("Bounds"),
                 description: "Restricts drawing to this rectangle. A zero-area \
-                              `Bounds` — the zero value — means no clipping.",
+                              `canvas::Bounds` — the zero value — means no clipping.",
             },
         ],
     });
@@ -619,7 +619,7 @@ pub(crate) fn register(r: &mut Registry) {
         name: "Picture",
         export: true,
         description: "An image drawn into a rectangle, scaled to fit it. Named \
-                      `Picture` rather than `Image` because `Image` is the resource \
+                      `canvas::Picture` rather than `Image` because `Image` is the resource \
                       type this variant *names* — the two would collide.",
         props: {
             let mut props = rect_props("The destination rectangle");
@@ -708,7 +708,7 @@ pub(crate) fn register(r: &mut Registry) {
         export: true,
         description: "An opaque handle to an image the drawing backend holds, closed \
                       automatically when its binding goes out of scope. A scene names one \
-                      through an `ImageRef`, never directly, so destroying an image a \
+                      through a `canvas::ImageRef`, never directly, so destroying an image a \
                       scene still draws is safe.",
         close_function: DESTROY_IMAGE,
         // An image belongs to the drawing surface's thread; it does not cross a

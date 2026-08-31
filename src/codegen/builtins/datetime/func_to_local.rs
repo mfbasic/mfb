@@ -4,7 +4,7 @@
 //! and the member's MFBASIC source body (`Body::mfb`).
 
 const INTRO: &str =
-    r#"Project an absolute `Instant` into the host's local zone to produce a civil `DateTime`."#;
+    r#"Project an absolute `datetime::Instant` into the host's local zone to produce a civil `datetime::DateTime`."#;
 const DESC: &str = r#"`datetime::toLocal` projects the absolute instant `at` into the host's local
 time zone, yielding the calendar date and wall-clock time that an observer
 reading the local clock sees at that moment. It is exactly shorthand for
@@ -18,9 +18,9 @@ second-of-day into hour, minute, and second.
 
 
 
-The returned `DateTime` carries four things: the civil date, the civil time, the
+The returned `datetime::DateTime` carries four things: the civil date, the civil time, the
 local zone, and the resolved offset. Because the resolved offset is pinned onto
-the result, the `DateTime` round-trips back to the original instant via
+the result, the `datetime::DateTime` round-trips back to the original instant via
 `datetime::resolve` with no further zone lookup. The instant's sub-second
 `nanos` field is preserved verbatim into the time's `nanos` field; only the
 `seconds` field participates in the offset and date/time computation, so an
@@ -29,7 +29,7 @@ instant before the Unix epoch (negative `seconds`) projects correctly.
 
 Unlike `datetime::toUtc`, `datetime::toLocal` is not pure: it reads the host's
 time-zone configuration to resolve the offset, so the same instant can produce a
-different civil `DateTime` on a host configured for a different zone or under a
+different civil `datetime::DateTime` on a host configured for a different zone or under a
 different DST rule."#;
 const EX: &str = r#"Project the current instant into the host's local zone:
 
@@ -37,7 +37,7 @@ const EX: &str = r#"Project the current instant into the host's local zone:
 IMPORT datetime
 
 SUB main()
-  LET dt AS DateTime = datetime::toLocal(datetime::now())
+  LET dt AS datetime::DateTime = datetime::toLocal(datetime::now())
 END SUB
 ```
 
@@ -47,9 +47,9 @@ Round-trip an instant through the local zone and back:
 IMPORT datetime
 
 SUB main()
-  LET at AS Instant = datetime::now()
-  LET dt AS DateTime = datetime::toLocal(at)
-  LET back AS Instant = datetime::resolve(dt)
+  LET at AS datetime::Instant = datetime::now()
+  LET dt AS datetime::DateTime = datetime::toLocal(at)
+  LET back AS datetime::Instant = datetime::resolve(dt)
 END SUB
 ```"#;
 

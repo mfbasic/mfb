@@ -3,12 +3,12 @@
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Build a `Route` binding a validated path pattern to a request handler."#;
+const INTRO: &str = r#"Build a `http::Route` binding a validated path pattern to a request handler."#;
 
-const DESC: &str = r#"`route` pairs a path `pattern` with a `handler` and returns an `http::Route` — a
+const DESC: &str = r#"`route` pairs a path `pattern` with a `handler` and returns a `http::Route` — a
 two-field record holding exactly that `pattern` and `handler`.
 
-It is a convenience over the record literal `Route[pattern, handler]`, and the
+It is a convenience over the record literal `http::Route[pattern, handler]`, and the
 only difference is validation: `route` checks the pattern's shape at construction
 and fails with `ErrInvalidArgument` on a malformed one, whereas the literal form
 accepts anything. Nothing else is normalized or rewritten — the pattern is stored
@@ -45,7 +45,7 @@ end in `?` — while the matcher still treats it as a required literal, because
 matching requires both a leading `:` and a trailing `?`. Avoid literal segments
 ending in `?`.
 
-**Ordering.** Routes live in an ordered `List OF Route` and `http::handleRequest`
+**Ordering.** Routes live in an ordered `List OF http::Route` and `http::handleRequest`
 tries them in list order, first match wins. `route` imposes no specificity
 ranking, so to let a literal beat an overlapping pattern, append it first.
 
@@ -121,7 +121,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
-                super::req("pattern", "Path pattern, segments separated by `/`. A leading `/` and one trailing `/` are insignificant. Segments may be literals, `:name`, a trailing `:name?`, or a final `*`. Stored verbatim on the returned `Route`.", &[], ParameterType::String),
+                super::req("pattern", "Path pattern, segments separated by `/`. A leading `/` and one trailing `/` are insignificant. Segments may be literals, `:name`, a trailing `:name?`, or a final `*`. Stored verbatim on the returned `http::Route`.", &[], ParameterType::String),
                 // The handler is the STRUCTURED function type `FUNC(Request) AS
                 // Response` (parsed, not a `Named` blob): the matcher compares it
                 // element-wise, so a wrong-shaped handler (`FUNC(Integer) AS Integer`)

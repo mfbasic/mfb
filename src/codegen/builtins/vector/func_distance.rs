@@ -27,7 +27,7 @@ The `Fixed` overloads use the deterministic Q32.32 square root. The `Integer`
 overloads square and sum in exact checked integer arithmetic and then apply the
 package's rounding integer square root, which returns the nearest integer to the
 true root with halves rounded away from zero — so an `Integer` distance is a
-rounded distance, not a truncated one, and `distance(Integer2[0,0], Integer2[3,4])`
+rounded distance, not a truncated one, and `distance(vector::Integer2[0,0], vector::Integer2[3,4])`
 is exactly `5`.
 
 Unlike `vector::normalize` or `vector::angle`, `distance` has no degenerate input

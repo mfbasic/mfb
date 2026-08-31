@@ -3,7 +3,7 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Collapse a civil `DateTime` back to the absolute `Instant` it names."#;
+const INTRO: &str = r#"Collapse a civil `datetime::DateTime` back to the absolute `datetime::Instant` it names."#;
 const DESC: &str = r#"`datetime::resolve` is the inverse of `datetime::inZone`: where `inZone` projects
 an absolute instant onto the wall-clock fields an observer in a zone reads,
 `resolve` collapses those wall-clock fields — together with the UTC offset already
@@ -15,37 +15,37 @@ the proleptic Gregorian calendar, multiplies by `86400` to get seconds, and adds
 the time-of-day contribution (`dt.time.hour * 3600 + dt.time.minute * 60 +
 dt.time.second`). That sum is the local second count: the seconds-since-epoch the
 wall-clock fields would name if they were UTC. It then subtracts `dt.offset` — the
-resolved UTC offset in seconds carried on the `DateTime` — to shift the local
+resolved UTC offset in seconds carried on the `datetime::DateTime` — to shift the local
 count back onto the UTC timeline, and pairs the result with `dt.time.nanos`.
 
 
 Because the offset is read directly from `dt` rather than re-derived from the
 zone, `resolve` is unambiguous even across daylight-saving transitions: it
-reproduces exactly the instant a `DateTime` was built from. For any instant `at`
+reproduces exactly the instant a `datetime::DateTime` was built from. For any instant `at`
 and zone `z`, `datetime::resolve(datetime::inZone(at, z))` returns `at` unchanged.
 The `seconds` field participates in the date/time arithmetic; the `nanos` field is
 copied through verbatim. `resolve` is pure and reads no host state."#;
-const EX: &str = r#"Round-trip an instant through a civil `DateTime` and back:
+const EX: &str = r#"Round-trip an instant through a civil `datetime::DateTime` and back:
 
 ```
 IMPORT datetime
 
 SUB main()
-  LET at AS Instant = datetime::now()
-  LET dt AS DateTime = datetime::inZone(at, datetime::utc())
-  LET back AS Instant = datetime::resolve(dt)
+  LET at AS datetime::Instant = datetime::now()
+  LET dt AS datetime::DateTime = datetime::inZone(at, datetime::utc())
+  LET back AS datetime::Instant = datetime::resolve(dt)
 END SUB
 ```
 
-Resolve a civil `DateTime` built in a fixed +05:30 zone:
+Resolve a civil `datetime::DateTime` built in a fixed +05:30 zone:
 
 ```
 IMPORT datetime
 
 SUB main()
-  LET z AS Zone = datetime::fixedOffset(5, 30)
-  LET dt AS DateTime = datetime::inZone(datetime::now(), z)
-  LET at AS Instant = datetime::resolve(dt)
+  LET z AS datetime::Zone = datetime::fixedOffset(5, 30)
+  LET dt AS datetime::DateTime = datetime::inZone(datetime::now(), z)
+  LET at AS datetime::Instant = datetime::resolve(dt)
 END SUB
 ```"#;
 

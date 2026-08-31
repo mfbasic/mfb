@@ -35,7 +35,7 @@ text — stringify it with `encoding::hexEncode` or `encoding::base64Encode`.
 
 Use `shake256` where a protocol specifies it (Ed448 hashes with SHAKE256, and
 KEM/KDF designs use it to derive arbitrary-length keys). For a fixed-size digest
-prefer `crypto::hash` with a `Hash.SHA3_*` or `Hash.SHA2_*` selector, and for a
+prefer `crypto::hash` with a `crypto::Hash.SHA3_*` or `crypto::Hash.SHA2_*` selector, and for a
 keyed MAC or password stretching use `crypto::hmac`/`crypto::pbkdf2`.
 
 **Implementation.** SHAKE256 is the Keccak sponge (FIPS 202 §4–§6) at rate 1088

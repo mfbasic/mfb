@@ -26,7 +26,7 @@ const DESC: &str = r#"`process::receive` reads one line from a child's output st
 `String`, **including** the trailing newline. It reads until it sees a `'\n'`,
 never over-reading past the line boundary, so successive calls return successive
 lines. Without a `from` argument it reads the child's standard output; pass a
-`Stream` value to choose standard output or standard error explicitly.
+`process::Stream` value to choose standard output or standard error explicitly.
 
 
 
@@ -64,7 +64,7 @@ IMPORT io
 
 FUNC main AS Integer
   RES sh = process::shell("echo oops 1>&2")
-  io::print(process::receive(sh, Stream.StdErr))
+  io::print(process::receive(sh, process::Stream.StdErr))
   RETURN 0
 END FUNC
 ```"#;

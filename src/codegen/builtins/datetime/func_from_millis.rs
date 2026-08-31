@@ -3,8 +3,8 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Build the `Instant` at a given epoch-millisecond count."#;
-const DESC: &str = r#"`datetime::fromMillis` builds an `Instant` on the UTC timeline (Unix epoch,
+const INTRO: &str = r#"Build the `datetime::Instant` at a given epoch-millisecond count."#;
+const DESC: &str = r#"`datetime::fromMillis` builds a `datetime::Instant` on the UTC timeline (Unix epoch,
 leap-second-free) from a single count of whole milliseconds measured from
 `1970-01-01T00:00:00Z`. A `millis` of `0` yields the epoch itself, positive
 values select instants after the epoch, and negative values select instants
@@ -27,20 +27,20 @@ microsecond and nanosecond digits are zero.
 The arithmetic cannot overflow: dividing by `1000` only reduces the magnitude of
 the `seconds` field, and the scaled remainder never exceeds `999000000`, so the
 result is always representable. `datetime::fromMillis` is pure: it reads no host
-state and the same `millis` always yields the same `Instant`.
+state and the same `millis` always yields the same `datetime::Instant`.
 
 `datetime::fromMillis` is the inverse of `datetime::toMillis` to
 whole-millisecond precision. Because the input has no sub-millisecond component,
-round-tripping an arbitrary `Instant` through `datetime::toMillis` and back loses
+round-tripping an arbitrary `datetime::Instant` through `datetime::toMillis` and back loses
 its microsecond and nanosecond digits; for full nanosecond precision use
 `datetime::toNanos` together with `datetime::instant`."#;
-const EX: &str = r#"Build an `Instant` from an epoch-millisecond timestamp:
+const EX: &str = r#"Build a `datetime::Instant` from an epoch-millisecond timestamp:
 
 ```
 IMPORT datetime
 
 SUB main()
-  LET at AS Instant = datetime::fromMillis(1_700_000_000_000)
+  LET at AS datetime::Instant = datetime::fromMillis(1_700_000_000_000)
 END SUB
 ```
 
@@ -50,7 +50,7 @@ Select the instant one millisecond before the epoch:
 IMPORT datetime
 
 SUB main()
-  LET before AS Instant = datetime::fromMillis(-1)
+  LET before AS datetime::Instant = datetime::fromMillis(-1)
 END SUB
 ```
 
@@ -60,9 +60,9 @@ Round-trip an instant through its millisecond count:
 IMPORT datetime
 
 SUB main()
-  LET at AS Instant = datetime::now()
+  LET at AS datetime::Instant = datetime::now()
   LET ms AS Integer = datetime::toMillis(at)
-  LET back AS Instant = datetime::fromMillis(ms)
+  LET back AS datetime::Instant = datetime::fromMillis(ms)
 END SUB
 ```"#;
 

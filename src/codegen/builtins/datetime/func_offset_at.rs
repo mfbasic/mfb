@@ -3,21 +3,21 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"A `Zone`'s signed UTC offset in seconds at a given `Instant`."#;
+const INTRO: &str = r#"A `datetime::Zone`'s signed UTC offset in seconds at a given `datetime::Instant`."#;
 const DESC: &str = r#"`datetime::offsetAt` returns the signed offset from UTC, in seconds, that
 `zone` applies to the absolute instant `at`. A positive result places the
 zone's civil fields ahead of UTC (east of the prime meridian), a negative
 result places them behind UTC (west), and zero means the zone coincides with
 UTC at that instant. This is the exact quantity `datetime::inZone` adds to an
-`Instant`'s seconds-since-epoch to produce the civil fields of a `DateTime`, so
+`datetime::Instant`'s seconds-since-epoch to produce the civil fields of a `datetime::DateTime`, so
 `offsetAt` exposes that adjustment on its own.
 
 
 How the offset is determined depends on the zone's kind. For a UTC zone
-(`ZoneKind::Utc`) and a fixed-offset zone (`ZoneKind::FixedOffset`, built with
+(`datetime::ZoneKind::Utc`) and a fixed-offset zone (`datetime::ZoneKind::FixedOffset`, built with
 `datetime::fixedOffset`) the function returns the zone's stored constant offset
 directly and does not consult `at` — the UTC zone stores zero, and a fixed zone
-stores its single configured offset. For a local zone (`ZoneKind::Local`, built
+stores its single configured offset. For a local zone (`datetime::ZoneKind::Local`, built
 with `datetime::local`, internally zone kind `2`) the offset is resolved
 against the host's configured time zone for the specific instant `at`: it reads
 the host zone table and is therefore DST-correct, returning the standard-time
@@ -46,7 +46,7 @@ A fixed zone reports its constant offset regardless of the instant:
 IMPORT datetime
 
 SUB main()
-  LET z AS Zone = datetime::fixedOffset(5, 30)
+  LET z AS datetime::Zone = datetime::fixedOffset(5, 30)
   LET off AS Integer = datetime::offsetAt(z, datetime::now())
 END SUB
 ```

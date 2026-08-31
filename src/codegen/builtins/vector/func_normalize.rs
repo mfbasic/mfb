@@ -29,7 +29,7 @@ lossy**. They test the squared length for zero, take the rounding integer square
 root of it, widen that integer length to `Float`, divide each component there, and
 round each quotient back with `math::round`, half away from zero. Because a true
 unit vector's components lie between `-1` and `1`, every rounded `Integer`
-component collapses to `-1`, `0`, or `1`. `vector::normalize(Integer2[3, 4])`, for
+component collapses to `-1`, `0`, or `1`. `vector::normalize(vector::Integer2[3, 4])`, for
 example, returns `(1, 1)` — the exact quotients `0.6` and `0.8` both round to `1`
 — which is not a unit vector at all. The `Integer` overloads are best read as
 "snap to the nearest lattice direction", and code that needs a real unit vector

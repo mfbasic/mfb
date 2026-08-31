@@ -12,7 +12,7 @@ IMPORT io
 ' Decrypt a (too-short) box and report the raised error code; returns len on the
 ' impossible success path so a missing failure is visible as a wrong value.
 FUNC shortBoxCode(priv AS List OF Byte, box AS List OF Byte) AS Integer
-  LET back AS List OF Byte = crypto::decrypt(AsymmetricCipher.Ed25519_AES256GCM, priv, box)
+  LET back AS List OF Byte = crypto::decrypt(crypto::AsymmetricCipher.Ed25519_AES256GCM, priv, box)
   RETURN len(back)
   TRAP(err)
     RETURN err.code
@@ -20,12 +20,12 @@ FUNC shortBoxCode(priv AS List OF Byte, box AS List OF Byte) AS Integer
 END FUNC
 
 SUB main()
-  LET kp AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+  LET kp AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
 
   ' Minimum valid box: empty plaintext -> ephPub(32) || ct(0) || tag(16) = 48 bytes.
   LET empty AS List OF Byte = []
-  LET box48 AS List OF Byte = crypto::encrypt(AsymmetricCipher.Ed25519_AES256GCM, kp.publicKey, empty)
-  LET rt AS List OF Byte = crypto::decrypt(AsymmetricCipher.Ed25519_AES256GCM, kp.privateKey, box48)
+  LET box48 AS List OF Byte = crypto::encrypt(crypto::AsymmetricCipher.Ed25519_AES256GCM, kp.publicKey, empty)
+  LET rt AS List OF Byte = crypto::decrypt(crypto::AsymmetricCipher.Ed25519_AES256GCM, kp.privateKey, box48)
   io::print("box48-len=" & toString(len(box48)))
   io::print("roundtrip-empty-ok=" & toString(len(rt) = 0))
 

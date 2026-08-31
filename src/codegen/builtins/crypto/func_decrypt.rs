@@ -27,8 +27,8 @@ private key can decrypt.
 `Ed448_*` suites DHKEM(X448, HKDF-SHA512) + HKDF-SHA512 (`Nenc` = 56), each with
 AES-256-GCM (`*_AES256GCM`) or ChaCha20Poly1305 (`*_CHACHA20POLY1305`).
 `recipientPrivateKey` is the recipient's **signing** private key for the suite's
-curve — the 32-byte Ed25519 seed from `crypto::generate(Certificate.Ed25519)`, or
-the 57-byte Ed448 seed from `crypto::generate(Certificate.Ed448)` — converted to
+curve — the 32-byte Ed25519 seed from `crypto::generate(crypto::Certificate.Ed25519)`, or
+the 57-byte Ed448 seed from `crypto::generate(crypto::Certificate.Ed448)` — converted to
 its X25519/X448 scalar internally; another length raises `ErrInvalidArgument`.
 `box` is RFC 9180's `enc (Nenc bytes) ‖ ct` where `ct` is the AEAD
 `ciphertext ‖ tag (16 bytes)`.

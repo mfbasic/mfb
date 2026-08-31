@@ -15,7 +15,7 @@ a well-framed reply completes before the peer's EOF is observed.
 
 `done` is a pure predicate over `stream.state`: it neither reads the socket nor
 mutates STATE. Call it at the top of the drive loop; once it is `TRUE`, call
-`http::finish` to obtain the `Response`."#;
+`http::finish` to obtain the `http::Response`."#;
 
 const EX: &str = r#"```
 IMPORT net

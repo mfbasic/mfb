@@ -42,7 +42,7 @@ as a boolean and never raises `ErrTimeout`).
 
 
 Without a `from` argument `poll` inspects the child's standard output; pass a
-`Stream` value to choose standard output or standard error."#;
+`process::Stream` value to choose standard output or standard error."#;
 const EX: &str = r#"Read a line only if one is ready within 100 ms:
 
 ```
@@ -66,8 +66,8 @@ IMPORT io
 
 FUNC main AS Integer
   RES sh = process::shell("echo oops 1>&2")
-  IF process::poll(sh, 500, Stream.StdErr) THEN
-    io::print(process::receive(sh, Stream.StdErr))
+  IF process::poll(sh, 500, process::Stream.StdErr) THEN
+    io::print(process::receive(sh, process::Stream.StdErr))
   END IF
   RETURN 0
 END FUNC

@@ -12,12 +12,12 @@ use crate::types::ParameterType;
 
 use super::gen_image::emit_closed_guard;
 
-const INTRO: &str = r#"Take a plain `ImageRef` handle naming an `Image`."#;
+const INTRO: &str = r#"Take a plain `canvas::ImageRef` handle naming an `Image`."#;
 
-const DESC: &str = r#"`imageRef` produces the value a `Picture` item carries: the id the backend knows
+const DESC: &str = r#"`imageRef` produces the value a `canvas::Picture` item carries: the id the backend knows
 the image by, and nothing else.
 
-This exists because **a scene must not hold a resource.** A `DrawItem` is a record,
+This exists because **a scene must not hold a resource.** A `canvas::DrawItem` is a record,
 and a record field cannot hold a `RES` value; more importantly, a published scene
 outlives the call that installed it and is read by the renderer at arbitrary times,
 so a scene holding resources would have to keep them open — which would make

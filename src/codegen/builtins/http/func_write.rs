@@ -7,7 +7,7 @@ const INTRO: &str =
     r#"Perform one blocking HTTP/1.1 request that carries a body and return the response."#;
 
 const DESC: &str = r#"`write` performs exactly one blocking HTTP/1.1 request that carries a **body**
-and returns the reply as an `http::Response` value. It opens a fresh connection
+and returns the reply as a `http::Response` value. It opens a fresh connection
 to `url.host` on `url.port` — plaintext through the `tcp` package for an `http://`
 URL, TLS through the `tls` package for an `https://` URL — writes the request
 line, headers, and body, reads the response to end of stream, closes the
@@ -35,7 +35,7 @@ cannot smuggle extra headers or a second request line.
 The request target is `url.path` (an empty path is normalized to `/`) followed by
 `?` and `url.query` when a query is present; the URL fragment is never sent.
 
-The returned `Response` exposes `status` (Integer), `reason` (String, `""` when
+The returned `http::Response` exposes `status` (Integer), `reason` (String, `""` when
 omitted), `httpVersion` (String, e.g. `"1.1"`), `headers` (a `Map OF String TO
 String`), `body` (a `List OF Byte`), and `ok` (Boolean, `TRUE` only when `status`
 is in `200..299`). Header field names in `headers` are lowercased and duplicates

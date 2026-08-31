@@ -10,10 +10,10 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Parse a complete JSON document from text into a `Json` value"#;
+const INTRO: &str = r#"Parse a complete JSON document from text into a `json::Json` value"#;
 
 const DESC: &str = r#"`json::parse` reads exactly one complete JSON document from `value` and returns
-it as a `Json` union value. Leading and trailing JSON whitespace is skipped, and
+it as a `json::Json` union value. Leading and trailing JSON whitespace is skipped, and
 anything other than whitespace after the first complete document is rejected — so
 a string holding two documents, or a document followed by stray text, fails
 rather than parsing the first and ignoring the rest.
@@ -22,15 +22,15 @@ Whitespace means exactly the four characters JSON allows: space, tab, carriage
 return, and line feed. No other character is skippable, anywhere.
 
 The input is scanned as a grapheme sequence, so the text is interpreted as
-Unicode rather than bytes. Each JSON form maps to one variant of the `Json`
+Unicode rather than bytes. Each JSON form maps to one variant of the `json::Json`
 union:
 
-- `null` becomes `JsonNull[NOTHING]`.
-- `true` and `false` become `JsonBool`.
-- A number becomes `JsonNum`, holding a `Float`.
-- A string becomes `JsonStr`.
-- An array becomes `JsonArr`, holding a `List OF Json`; `[]` yields an empty list.
-- An object becomes `JsonObj`, holding a `Map OF String TO Json`; `{}` yields an
+- `null` becomes `json::JsonNull[NOTHING]`.
+- `true` and `false` become `json::JsonBool`.
+- A number becomes `json::JsonNum`, holding a `Float`.
+- A string becomes `json::JsonStr`.
+- An array becomes `json::JsonArr`, holding a `List OF json::Json`; `[]` yields an empty list.
+- An object becomes `json::JsonObj`, holding a `Map OF String TO json::Json`; `{}` yields an
   empty map. Duplicate keys collapse last-wins, because each pair is written into
   the map as it is read.
 
@@ -99,7 +99,7 @@ IMPORT io
 FUNC parseOrNull(text AS String) AS json::Json
   RETURN json::parse(text)
   TRAP(e)
-    RETURN JsonNull[NOTHING]
+    RETURN json::JsonNull[NOTHING]
   END TRAP
 END FUNC
 

@@ -22,20 +22,20 @@ use crate::types::ParameterType;
 use super::gen_shared::*;
 const INTRO: &str = r#"Report which signal bucket a terminated child died on."#;
 const DESC: &str = r#"`process::didSignal` reports how a terminated child died, as one of the four
-`Signal` buckets. It reads the raw wait status cached when the child was reaped —
+`process::Signal` buckets. It reads the raw wait status cached when the child was reaped —
 by `process::waitFor` or by a `process::isRunning` that observed the exit — so it
-returns `Signal.None` for a child that exited normally *or* that has not yet been
+returns `process::Signal.None` for a child that exited normally *or* that has not yet been
 observed to terminate. Await or poll the child first if you need the death cause.
 
 
 
 On Unix it decodes the terminating signal (`WTERMSIG`): `SIGKILL` maps to
-`Signal.Kill`; the fault signals `SIGILL`, `SIGABRT`, `SIGFPE`, `SIGBUS`, and
-`SIGSEGV` map to `Signal.Error`; and every other terminating signal maps to
-`Signal.Terminate`. On Windows exit codes carry no signal disposition, so
+`process::Signal.Kill`; the fault signals `SIGILL`, `SIGABRT`, `SIGFPE`, `SIGBUS`, and
+`SIGSEGV` map to `process::Signal.Error`; and every other terminating signal maps to
+`process::Signal.Terminate`. On Windows exit codes carry no signal disposition, so
 `didSignal` recovers only the fault case — an NTSTATUS "error"-severity exit code
-(e.g. `0xC0000005` `STATUS_ACCESS_VIOLATION`) maps to `Signal.Error`, and every
-other outcome maps to `Signal.None`; this is a documented Windows limitation. The
+(e.g. `0xC0000005` `STATUS_ACCESS_VIOLATION`) maps to `process::Signal.Error`, and every
+other outcome maps to `process::Signal.None`; this is a documented Windows limitation. The
 full platform mapping is tabulated on the `mfb man process` overview page.
 
 
@@ -49,9 +49,9 @@ IMPORT io
 
 FUNC main AS Integer
   RES child = process::spawn(["sleep", "30"])
-  process::signal(child, Signal.Kill)
+  process::signal(child, process::Signal.Kill)
   LET code = process::waitFor(child)
-  IF process::didSignal(child) = Signal.Kill THEN
+  IF process::didSignal(child) = process::Signal.Kill THEN
     io::print("killed")
   END IF
   RETURN 0

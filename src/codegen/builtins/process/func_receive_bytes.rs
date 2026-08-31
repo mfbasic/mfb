@@ -31,7 +31,7 @@ eventually produce. It does no line framing, decoding, or newline translation, s
 it is the right call for binary output; use `process::receive` for text lines.
 
 
-Without a `from` argument it reads the child's standard output; pass a `Stream`
+Without a `from` argument it reads the child's standard output; pass a `process::Stream`
 value to choose standard output or standard error. The call blocks until at least
 one byte is available or the stream ends. A pipe read returns any buffered bytes
 before signalling end of stream, so late output is drained; only a read that finds

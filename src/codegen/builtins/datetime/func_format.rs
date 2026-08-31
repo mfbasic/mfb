@@ -3,7 +3,7 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Render a `DateTime` as text with the pattern mini-language."#;
+const INTRO: &str = r#"Render a `datetime::DateTime` as text with the pattern mini-language."#;
 const DESC: &str = r#"`datetime::format` renders the fields of `dt` as text by walking `pattern` from
 left to right and emitting, for each position, either a literal character or the
 value selected by a formatting token. The result is a freshly built `String`;
@@ -49,13 +49,13 @@ Inside single quotes every character, including formatting letters, is copied
 literally until the closing quote; an opening quote with no matching close runs
 to the end of `pattern`. `datetime::format` is pure: it reads no host state and
 has no side effects."#;
-const EX: &str = r#"Render a `DateTime` with a full date, time, and offset:
+const EX: &str = r#"Render a `datetime::DateTime` with a full date, time, and offset:
 
 ```
 IMPORT datetime
 
 SUB main()
-  LET dt AS DateTime = datetime::toUtc(datetime::now())
+  LET dt AS datetime::DateTime = datetime::toUtc(datetime::now())
   LET text AS String = datetime::format(dt, "EEEE yyyy-MM-dd HH:mm:ss Z")
 END SUB
 ```
@@ -66,7 +66,7 @@ Use single quotes to include literal letters in the output:
 IMPORT datetime
 
 SUB main()
-  LET dt AS DateTime = datetime::toUtc(datetime::now())
+  LET dt AS datetime::DateTime = datetime::toUtc(datetime::now())
   LET text AS String = datetime::format(dt, "yyyy-MM-dd'T'HH:mm:ss")
 END SUB
 ```"#;

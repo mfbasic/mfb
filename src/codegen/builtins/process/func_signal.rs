@@ -21,10 +21,10 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 const INTRO: &str = r#"Deliver a cross-platform signal bucket to a child process."#;
-const DESC: &str = r#"`process::signal` delivers one of the four `Signal` buckets to the child behind a
+const DESC: &str = r#"`process::signal` delivers one of the four `process::Signal` buckets to the child behind a
 `Process` handle. The bucket abstracts over platform signal numbers so the same
-call works on Unix and Windows. `Signal.None` is a no-op. On Unix, `Signal.Kill`
-sends `SIGKILL`, `Signal.Terminate` sends `SIGTERM`, and `Signal.Error` sends
+call works on Unix and Windows. `process::Signal.None` is a no-op. On Unix, `process::Signal.Kill`
+sends `SIGKILL`, `process::Signal.Terminate` sends `SIGTERM`, and `process::Signal.Error` sends
 `SIGABRT`.
 
 
@@ -47,7 +47,7 @@ IMPORT io
 
 FUNC main AS Integer
   RES child = process::spawn(["sleep", "30"])
-  process::signal(child, Signal.Terminate)
+  process::signal(child, process::Signal.Terminate)
   ' A signalled child has no exit status of its own, so waitFor gives -1.
   IF process::waitFor(child) = -1 THEN
     io::print("stopped by a signal")
@@ -100,7 +100,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "sig",
-                    desc: "The bucket to deliver: `Signal.None` (no-op), `Signal.Kill`, `Signal.Terminate`, or `Signal.Error`. Also accepts the alternate named-argument spelling `signal`.",
+                    desc: "The bucket to deliver: `process::Signal.None` (no-op), `process::Signal.Kill`, `process::Signal.Terminate`, or `process::Signal.Error`. Also accepts the alternate named-argument spelling `signal`.",
                     aliases: &["signal"],
                     ty: ParameterType::named(super::SIGNAL_TYPE),
                     default: DefaultValue::None,

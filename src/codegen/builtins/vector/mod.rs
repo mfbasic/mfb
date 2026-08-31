@@ -77,8 +77,8 @@ mod helper_to_string_integer4;
 const INTRO: &str =
     r#"Fixed-width math vectors (Float/Fixed/Integer, 2-4D) and geometry over them"#;
 const DESC: &str = r#"The `vector` package provides nine fixed-width math-vector value records —
-`Float2`/`Float3`/`Float4`, `Fixed2`/`Fixed3`/`Fixed4`, and
-`Integer2`/`Integer3`/`Integer4` — together with overloaded geometry, utility, and
+`vector::Float2`/`vector::Float3`/`vector::Float4`, `vector::Fixed2`/`vector::Fixed3`/`vector::Fixed4`, and
+`vector::Integer2`/`vector::Integer3`/`vector::Integer4` — together with overloaded geometry, utility, and
 2D functions over them (`length`, `normalize`, `distance`, `dot`, `cross`,
 `reflect`, `project`, `reject`, `angle`, `lerp`/`lerp_unclamped`/`slerp`,
 `clamp_length`, `scale`, `min`/`max`, `abs`, `perpendicular`, `rotate_2d`) and a set

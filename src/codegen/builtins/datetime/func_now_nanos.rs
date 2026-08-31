@@ -81,20 +81,20 @@ const INTRO: &str = r#"The current wall-clock reading as nanoseconds since the U
 const DESC: &str = r#"`datetime::nowNanos` is the raw form of `datetime::now`. It reads the host's
 wall clock and returns a single `Integer` giving nanoseconds elapsed since
 `1970-01-01T00:00:00Z` on the UTC timeline (the Unix epoch, without leap
-seconds) — one count, rather than the `seconds`/`nanos` pair an `Instant`
+seconds) — one count, rather than the `seconds`/`nanos` pair a `datetime::Instant`
 carries.
 
 
 Most programs should call `datetime::now`, which splits this same reading into a
-structured `Instant` whose `seconds` and `nanos` fields can be projected through
+structured `datetime::Instant` whose `seconds` and `nanos` fields can be projected through
 a zone with `datetime::toUtc`, `datetime::toLocal`, or `datetime::inZone`. Reach
 for `nowNanos` directly only when a raw integer count of nanoseconds is what is
 wanted — to stamp a log line, derive a millisecond count, or difference two
-readings without building `Instant` values.
+readings without building `datetime::Instant` values.
 
 `nowNanos` reports nanoseconds since the epoch and is bounded by the range of an
 `Integer`: a 64-bit signed nanosecond count overflows in the year 2262. This is
-a limit on the intrinsic, not on the `Instant` type, whose `seconds` field spans
+a limit on the intrinsic, not on the `datetime::Instant` type, whose `seconds` field spans
 the full `Integer` range. On any correctly configured host the reading is
 non-negative.
 

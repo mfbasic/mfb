@@ -149,25 +149,25 @@ horizontal run of a box-drawing glyph across a row, `term::drawVLine` stamps a
 vertical run down a column, and `term::drawBox` draws a whole rectangle (four
 edges plus matching corners) between two opposite points — all using the colours
 and attributes in effect and all presented on the next `term::sync`. The glyph
-weight is chosen with the `LineStyle` enum (`Light`, `Heavy`, `LightDash`,
+weight is chosen with the `term::LineStyle` enum (`Light`, `Heavy`, `LightDash`,
 `HeavyDash`, `LightDot`, `HeavyDot`, `Double`); each variant has a horizontal form
 for `drawHLine` and a vertical form for `drawVLine`, and `drawBox` pairs the edge
 glyphs with the matching corner glyphs (dash/dot styles reuse the Light or Heavy
 corners). `term::fillRect` fills a rectangular region with a block or shade glyph
-chosen by the `FillStyle` enum (`Filled`, `Light`, `Medium`, `Dark`, `Checker`,
+chosen by the `term::FillStyle` enum (`Filled`, `Light`, `Medium`, `Dark`, `Checker`,
 `CheckerAlt`) — the region-filling counterpart to `clear`. `term::drawText` stamps
 a string at an absolute position (without moving the cursor), and
 `term::drawGlyph` stamps a single scalar by code point.
 
-The package defines two built-in record types and two enums. `TermColor` has three
+The package defines two built-in record types and two enums. `term::TermColor` has three
 `Byte` fields `r`, `g`, and `b` holding the red, green, and blue channels of a
 color, and is returned by `term::getForeground` and `term::getBackground`.
-`TermSize` has two `Integer` fields `columns` (the width of the surface in
+`term::TermSize` has two `Integer` fields `columns` (the width of the surface in
 character cells) and `rows` (its height), and is returned by `term::terminalSize`;
 the surface size can change between calls (for example when the terminal window is
 resized), so a program that depends on it should query it again rather than caching
-the result. `LineStyle` selects the box-drawing weight for `term::drawHLine`,
-`term::drawVLine`, and `term::drawBox`; `FillStyle` selects the block or shade
+the result. `term::LineStyle` selects the box-drawing weight for `term::drawHLine`,
+`term::drawVLine`, and `term::drawBox`; `term::FillStyle` selects the block or shade
 glyph for `term::fillRect`."#;
 
 /// Register the `term` package on the clean-room registry.

@@ -14,14 +14,14 @@ use crate::codegen::registry::AbiCtx;
 
 const INTRO: &str = r#"Send one ICMP echo request and report how the host answered."#;
 
-const DESC: &str = r#"`net::ping` sends a single ICMP echo request to a host and returns a `PingResult`
+const DESC: &str = r#"`net::ping` sends a single ICMP echo request to a host and returns a `net::PingResult`
 describing the outcome. The destination is named either by a host string — a name
-such as `"example.com"` or a textual IP address — or by an `Address` record, whose
+such as `"example.com"` or a textual IP address — or by a `net::Address` record, whose
 `host` field supplies the destination and whose `port` field is **ignored**: ICMP
 is not a transport protocol and has no port. The `address` on the returned result
 likewise always carries port `0`.
 
-A reachable host answers with `PingStatus.Ok`, and only then do `rttMs`, `ttl`,
+A reachable host answers with `net::PingStatus.Ok`, and only then do `rttMs`, `ttl`,
 and `size` carry measured values: the round-trip time in milliseconds as a
 `Float`, the TTL observed on the reply, and the number of payload bytes echoed
 back. Every other status zeroes all three, because there is nothing to report.
@@ -31,12 +31,12 @@ tens of microseconds and would otherwise always read as `0`.
 Four outcomes are statuses, not errors, because they are answers about the
 network rather than failures of the call:
 
-- `PingStatus.Ok` — an echo reply came back.
-- `PingStatus.Timeout` — nothing came back before `timeoutMs` elapsed. The
+- `net::PingStatus.Ok` — an echo reply came back.
+- `net::PingStatus.Timeout` — nothing came back before `timeoutMs` elapsed. The
   `address` field still reports the destination that was aimed at.
-- `PingStatus.Unreachable` — a router reported the destination unreachable, and
+- `net::PingStatus.Unreachable` — a router reported the destination unreachable, and
   `address` names the router that said so.
-- `PingStatus.TtlExceeded` — the request outlived its `ttl` in transit and a
+- `net::PingStatus.TtlExceeded` — the request outlived its `ttl` in transit and a
   router reported it, so `address` names the hop where it expired. Lowering `ttl`
   deliberately is how a traceroute is built.
 
@@ -78,9 +78,9 @@ IMPORT io
 FUNC main AS Integer
   LET result = net::ping("127.0.0.1", 1000)
   MATCH result.status
-    CASE PingStatus.Ok
+    CASE net::PingStatus.Ok
       io::print("up in " & toString(result.rttMs) & " ms")
-    CASE PingStatus.Timeout
+    CASE net::PingStatus.Timeout
       io::print("no answer")
     CASE ELSE
       io::print("unreachable")
@@ -93,12 +93,12 @@ END TRAP
 END FUNC
 ```
 
-The `TRAP` is not optional decoration. A `PingStatus` of `Timeout` or
+The `TRAP` is not optional decoration. A `net::PingStatus` of `Timeout` or
 `Unreachable` is an *answer*; being unable to send the probe at all — no raw
 socket permission, a sandbox, no route — is an **error**, and it is the common
 case on a locked-down host.
 
-Ping a resolved `Address`, and treat a refusal by the OS as the error it is:
+Ping a resolved `net::Address`, and treat a refusal by the OS as the error it is:
 
 ```
 IMPORT collections
@@ -124,7 +124,7 @@ IMPORT io
 
 FUNC main AS Integer
   LET hop = net::ping("example.com", 2000, 1)
-  IF hop.status = PingStatus.TtlExceeded THEN
+  IF hop.status = net::PingStatus.TtlExceeded THEN
     io::print("first hop is " & hop.address.host)
   END IF
   RETURN 0
@@ -152,7 +152,7 @@ pub(crate) fn lower_ping(
 }
 
 const TIMEOUT_DESC: &str = "Optional. How long to wait for a reply, in milliseconds. Omit to wait indefinitely (in which case `Timeout` can never be reported); `0` checks once and reports `Timeout` unless a reply is already waiting; a positive value bounds the wait; a negative value raises `ErrInvalidArgument`.";
-const TTL_DESC: &str = "Optional, defaulting to `64`. The outgoing hop limit, `1` to `255`. A request that expires in transit comes back as `PingStatus.TtlExceeded` naming the hop that dropped it. Outside that range raises `ErrInvalidArgument`.";
+const TTL_DESC: &str = "Optional, defaulting to `64`. The outgoing hop limit, `1` to `255`. A request that expires in transit comes back as `net::PingStatus.TtlExceeded` naming the hop that dropped it. Outside that range raises `ErrInvalidArgument`.";
 const SIZE_DESC: &str = "Optional, defaulting to `56`. The number of payload bytes to send, `0` to `8184`. `0` sends a bare echo header. The maximum is the smallest limit across the supported platforms, so it is portable. Outside that range raises `ErrInvalidArgument`.";
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

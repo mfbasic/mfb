@@ -32,7 +32,7 @@ non-zero vector is scaled by the ratio `0 / len`, collapsing it to the zero
 vector.
 
 `max` is a scalar of the vector's own **element** type, not a `Float` for all
-overloads: a `Fixed3` is capped by a `Fixed`, and an `Integer4` by an `Integer`.
+overloads: a `vector::Fixed3` is capped by a `Fixed`, and a `vector::Integer4` by an `Integer`.
 This differs from `vector::lerp` and `vector::rotate_2d`, whose scalar parameter
 is a `Float` for every element type. The compile-time check requires `max` to
 match the element type exactly.
@@ -47,7 +47,7 @@ differ from `max` by a whole unit.
 `vector::clamp_length` is generic over the nine built-in vector record types. The
 first argument selects the overload by its exact record type, and the second must
 be a scalar of exactly that vector type's element type — an `Integer` `max` for a
-`Float3` is a compile-time error, with no implicit numeric promotion. The return
+`vector::Float3` is a compile-time error, with no implicit numeric promotion. The return
 type is always the first argument's own type."#;
 
 const EX: &str = r#"Cap a length-5 vector at 2.5, halving it:

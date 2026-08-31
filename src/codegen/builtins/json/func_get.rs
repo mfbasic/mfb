@@ -10,31 +10,31 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Read a nested `Json` value by following a path of object keys"#;
+const INTRO: &str = r#"Read a nested `json::Json` value by following a path of object keys"#;
 
 const DESC: &str = r#"`json::get` walks `path` through nested JSON objects and returns the value found
 at the end. Starting from `value`, each element of `path` is treated as an object
-key: the current value must be a `JsonObj`, and the member stored under that key
+key: the current value must be a `json::JsonObj`, and the member stored under that key
 becomes the current value before the next element is applied. Traversal is left
 to right, one key at a time.
 
-Only object members are traversable. `JsonArr` has no keyed members, so array
+Only object members are traversable. `json::JsonArr` has no keyed members, so array
 elements cannot be reached with `json::get` at all — there is no numeric-index
 form, and an index written as a string does not select an array element. Reaching
-a `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, or `JsonArr` while path elements
-remain fails, as does naming a key that is absent from the current `JsonObj`.
+a `json::JsonNull`, `json::JsonBool`, `json::JsonNum`, `json::JsonStr`, or `json::JsonArr` while path elements
+remain fails, as does naming a key that is absent from the current `json::JsonObj`.
 Both failures raise `ErrNotFound`.
 
 An empty `path` performs no traversal and returns `value` unchanged, whatever
 variant it is — including a non-object, since nothing needs to be traversed.
 
 Both the failure cases are genuine failures, not sentinels: `json::get` never
-returns a `JsonNull` to signal "missing", so it cannot be confused with a JSON
+returns a `json::JsonNull` to signal "missing", so it cannot be confused with a JSON
 `null` that was really present in the document. When a missing key should produce
 a fallback instead of failing, use `json::getOr`.
 
-The first argument accepts the `Json` union or any one of its six member types
-directly, so a `JsonObj` value can be passed without wrapping it. The second
+The first argument accepts the `json::Json` union or any one of its six member types
+directly, so a `json::JsonObj` value can be passed without wrapping it. The second
 argument may also be passed by the name `key`."#;
 
 const EX: &str = r#"Read a nested member by key path:

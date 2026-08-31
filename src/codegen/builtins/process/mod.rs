@@ -116,26 +116,26 @@ Streaming I/O connects to the child's three standard streams over pipes.
 `process::send` writes a `String` (appending a newline) to the child's standard
 input; `process::sendBytes` writes raw bytes with no newline. `process::receive`
 reads one newline-terminated line as a `String`; `process::receiveBytes` reads one
-available chunk of raw bytes. Both readers take an optional `Stream` argument
+available chunk of raw bytes. Both readers take an optional `process::Stream` argument
 selecting standard output (the default) or standard error, and `process::poll`
 reports whether the selected stream is readable within a timeout. A read that
 reaches end of stream with nothing buffered raises `ErrResourceClosed`, so a
 consumer loops until that error is raised.
 
 
-The `Signal` enum is a four-bucket cross-platform vocabulary used both to
+The `process::Signal` enum is a four-bucket cross-platform vocabulary used both to
 *deliver* a signal with `process::signal` and to *observe* how a terminated
 child died with `process::didSignal`:
 
-| `Signal` | Sent on Unix | Sent on Windows | Read back when the child died from |
+| `process::Signal` | Sent on Unix | Sent on Windows | Read back when the child died from |
 |---|---|---|---|
-| `Signal.None` | nothing (a no-op) | nothing (a no-op) | a normal exit, or still running |
-| `Signal.Kill` | `SIGKILL` | `TerminateProcess` | `SIGKILL` |
-| `Signal.Terminate` | `SIGTERM` | `TerminateProcess` | `SIGTERM`, `SIGINT`, `SIGHUP`, `SIGQUIT` |
-| `Signal.Error` | `SIGABRT` | `TerminateProcess` | `SIGABRT`, `SIGSEGV`, `SIGFPE`, `SIGILL`, `SIGBUS` |
+| `process::Signal.None` | nothing (a no-op) | nothing (a no-op) | a normal exit, or still running |
+| `process::Signal.Kill` | `SIGKILL` | `TerminateProcess` | `SIGKILL` |
+| `process::Signal.Terminate` | `SIGTERM` | `TerminateProcess` | `SIGTERM`, `SIGINT`, `SIGHUP`, `SIGQUIT` |
+| `process::Signal.Error` | `SIGABRT` | `TerminateProcess` | `SIGABRT`, `SIGSEGV`, `SIGFPE`, `SIGILL`, `SIGBUS` |
 
 Windows has no signals, so every delivered signal is the same forced
-termination there and `didSignal` reports `Signal.None` for every child. On
+termination there and `didSignal` reports `process::Signal.None` for every child. On
 Unix the buckets are lossy in the read direction: several signals map to one
 bucket, so `didSignal` tells you the *kind* of death, not which signal caused
 it.

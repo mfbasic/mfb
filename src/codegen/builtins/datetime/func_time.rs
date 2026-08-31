@@ -3,11 +3,11 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Validate and build a time-of-day `Time` from hour, minute, second, and sub-second components."#;
-const DESC: &str = r#"`datetime::time` builds a `Time` of day from its `hour`, `minute`, `second`, and
-sub-second (`nanos`) components. A `Time` names a position within a single
-24-hour day and carries no calendar date and no zone; pair it with a `Date`
-through `datetime::civil` to build a zoned `DateTime`.
+const INTRO: &str = r#"Validate and build a time-of-day `datetime::Time` from hour, minute, second, and sub-second components."#;
+const DESC: &str = r#"`datetime::time` builds a `datetime::Time` of day from its `hour`, `minute`, `second`, and
+sub-second (`nanos`) components. A `datetime::Time` names a position within a single
+24-hour day and carries no calendar date and no zone; pair it with a `datetime::Date`
+through `datetime::civil` to build a zoned `datetime::DateTime`.
 
 The constructor validates each component against its civil range before
 returning, and there is no normalization or wrap-around: an out-of-range
@@ -23,7 +23,7 @@ minute and a three-argument call names the top of a second. Unlike
 single signature with trailing defaults, so the defaults apply and you may omit
 `second`, or both `second` and `nanos`.
 
-`time` is pure: the same arguments always yield the same `Time`, and it has no
+`time` is pure: the same arguments always yield the same `datetime::Time`, and it has no
 side effects."#;
 const EX: &str = r#"Construct a time at the top of a minute (`second` and `nanos` default to `0`):
 
@@ -31,7 +31,7 @@ const EX: &str = r#"Construct a time at the top of a minute (`second` and `nanos
 IMPORT datetime
 
 SUB main()
-  LET t AS Time = datetime::time(9, 30)
+  LET t AS datetime::Time = datetime::time(9, 30)
 END SUB
 ```
 
@@ -41,19 +41,19 @@ Construct a time with whole seconds:
 IMPORT datetime
 
 SUB main()
-  LET t AS Time = datetime::time(23, 59, 59)
+  LET t AS datetime::Time = datetime::time(23, 59, 59)
 END SUB
 ```
 
-Combine a date and time into a zoned `DateTime`:
+Combine a date and time into a zoned `datetime::DateTime`:
 
 ```
 IMPORT datetime
 
 SUB main()
-  LET d AS Date = datetime::date(2026, 6, 26)
-  LET t AS Time = datetime::time(9, 30)
-  LET dt AS DateTime = datetime::civil(d, t, datetime::utc())
+  LET d AS datetime::Date = datetime::date(2026, 6, 26)
+  LET t AS datetime::Time = datetime::time(9, 30)
+  LET dt AS datetime::DateTime = datetime::civil(d, t, datetime::utc())
 END SUB
 ```
 
@@ -64,7 +64,7 @@ IMPORT datetime
 IMPORT io
 
 SUB main()
-  LET bad AS Time = datetime::time(24, 0)
+  LET bad AS datetime::Time = datetime::time(24, 0)
   io::print("accepted")
   EXIT SUB
 TRAP(err)

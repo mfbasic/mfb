@@ -9,9 +9,9 @@ IMPORT io
 FUNC boldAt(a AS AttributedString, i AS Integer) AS String
   FOR EACH at IN astrings::getAttributes(a, i)
     MATCH at
-      CASE AttrFlag(f)
+      CASE astrings::AttrFlag(f)
         MATCH f.kind
-          CASE AttrTypeFlag.Bold
+          CASE astrings::AttrTypeFlag.Bold
             RETURN "bold"
           CASE ELSE
         END MATCH
@@ -24,7 +24,7 @@ END FUNC
 FUNC sizeAt(a AS AttributedString, i AS Integer) AS String
   FOR EACH at IN astrings::getAttributes(a, i)
     MATCH at
-      CASE AttrNumber(n)
+      CASE astrings::AttrNumber(n)
         RETURN toString(n.value)
       CASE ELSE
     END MATCH

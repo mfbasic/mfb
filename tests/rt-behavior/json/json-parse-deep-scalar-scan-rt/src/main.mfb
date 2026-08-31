@@ -16,17 +16,17 @@ IMPORT strings
 FUNC main AS Integer
   ' Drives __json_skipWhitespace far past the depth that used to crash.
   LET pad AS String = strings::repeat(" ", 1000000)
-  LET v AS Json = json::parse(pad & "1")
+  LET v AS json::Json = json::parse(pad & "1")
   io::print("whitespace ok")
 
   ' Drives __json_collectNumber and __json_consumeDigits per character.
   LET frac AS String = "0." & strings::repeat("1", 4000)
-  LET n AS Json = json::parse(frac)
+  LET n AS json::Json = json::parse(frac)
   io::print("long number ok")
 
   ' Ordinary input must still parse identically -- the scanners were rewritten,
   ' not just bounded.
-  LET obj AS Json = json::parse("{\"a\": [1, 2.5, true, null], \"b\": \"x\"}")
+  LET obj AS json::Json = json::parse("{\"a\": [1, 2.5, true, null], \"b\": \"x\"}")
   io::print("roundtrip=" & json::stringify(obj))
   RETURN 0
   TRAP(e)

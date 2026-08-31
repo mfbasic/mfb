@@ -34,7 +34,7 @@ pub(crate) fn lower_devices(
 
 const INTRO: &str = r#"Enumerate the audio devices the operating system reports."#;
 const DESC: &str = r#"`audio::devices` takes no arguments and returns every audio device the host
-reports, each as an `AudioDevice` record carrying an opaque `id`, a human-readable
+reports, each as an `audio::AudioDevice` record carrying an opaque `id`, a human-readable
 `name`, the `canInput`/`canOutput` capability flags, and the
 `isDefaultInput`/`isDefaultOutput` flags marking the system defaults. The `id` is a
 Core Audio device UID on macOS and an ALSA PCM hint name on Linux; it is opaque —

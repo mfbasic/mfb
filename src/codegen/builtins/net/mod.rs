@@ -111,20 +111,20 @@ pub(crate) const URL_TO_STRING: &str = "__net_urlToString";
 
 const MODULE_INTRO: &str = r#"DNS lookup, ICMP echo, URL parsing, and the shared network address"#;
 const MODULE_DESC: &str = r#"The `net` package names hosts. `net::lookup` resolves a host name to a list of
-`Address` values, and `net::ping` sends one ICMP echo request and reports how the
+`net::Address` values, and `net::ping` sends one ICMP echo request and reports how the
 host answered. Nothing in this package opens a connection.
 
-`Address` is the shared endpoint record every transport speaks: an address from
+`net::Address` is the shared endpoint record every transport speaks: an address from
 `net::lookup`, from a received datagram's `from` field, or from a socket's local
 or remote address query can be handed straight to any of them. **A program that
-names an `Address` must `IMPORT net` as well as its transport** — imports are not
+names a `net::Address` must `IMPORT net` as well as its transport** — imports are not
 transitive and a package cannot re-export another's types.
 
 The transports live in their own packages: `tcp` for byte streams, `udp` for
 datagrams, `tls` for encrypted streams, and `http` for requests and responses.
 
 The package also parses and renders URLs: `net::toUrl` decomposes an absolute URL
-into a `Url` value record, `toString` renders it back, and `net::percentDecode` /
+into a `net::Url` value record, `toString` renders it back, and `net::percentDecode` /
 `net::parseQuery` decode request-target components.
 
 `net` has no handles to open or close — every call takes and returns ordinary values."#;

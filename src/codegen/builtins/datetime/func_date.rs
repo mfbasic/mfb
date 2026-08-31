@@ -3,8 +3,8 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Validate and build a calendar `Date` from year, month, and day components."#;
-const DESC: &str = r#"`datetime::date` builds a calendar `Date` on the proleptic-Gregorian calendar
+const INTRO: &str = r#"Validate and build a calendar `datetime::Date` from year, month, and day components."#;
+const DESC: &str = r#"`datetime::date` builds a calendar `datetime::Date` on the proleptic-Gregorian calendar
 from its `year`, `month`, and `day` components. The calendar is *proleptic*: the
 Gregorian rules are extended uniformly to every year, including those before the
 calendar's historical adoption. `year` is an unrestricted `Integer` and may be
@@ -20,28 +20,28 @@ rejected in common years such as 2026. There is no normalization or wrap-around:
 an out-of-range component is an error, not silently carried into the next unit.
 
 
-`date` is pure: the same arguments always yield the same `Date`, and it has no
-side effects. A `Date` carries only calendar fields and no zone or time-of-day;
-pair it with `datetime::time` and `datetime::civil` to build a zoned `DateTime`."#;
+`date` is pure: the same arguments always yield the same `datetime::Date`, and it has no
+side effects. A `datetime::Date` carries only calendar fields and no zone or time-of-day;
+pair it with `datetime::time` and `datetime::civil` to build a zoned `datetime::DateTime`."#;
 const EX: &str = r#"Construct a valid date:
 
 ```
 IMPORT datetime
 
 SUB main()
-  LET d AS Date = datetime::date(2026, 6, 26)
+  LET d AS datetime::Date = datetime::date(2026, 6, 26)
 END SUB
 ```
 
-Combine a date and time into a zoned `DateTime`:
+Combine a date and time into a zoned `datetime::DateTime`:
 
 ```
 IMPORT datetime
 
 SUB main()
-  LET d AS Date = datetime::date(2026, 6, 26)
-  LET t AS Time = datetime::time(9, 30)
-  LET dt AS DateTime = datetime::civil(d, t, datetime::utc())
+  LET d AS datetime::Date = datetime::date(2026, 6, 26)
+  LET t AS datetime::Time = datetime::time(9, 30)
+  LET dt AS datetime::DateTime = datetime::civil(d, t, datetime::utc())
 END SUB
 ```
 
@@ -52,7 +52,7 @@ IMPORT datetime
 IMPORT io
 
 SUB main()
-  LET bad AS Date = datetime::date(2026, 2, 29)
+  LET bad AS datetime::Date = datetime::date(2026, 2, 29)
   io::print("accepted")
   EXIT SUB
 TRAP(err)

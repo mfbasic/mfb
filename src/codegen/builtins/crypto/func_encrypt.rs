@@ -39,9 +39,9 @@ use `DHKEM(X448, HKDF-SHA512)` (KEM id `0x0021`, `Nenc` = 56) with `HKDF-SHA512`
 (KDF id `0x0003`). The `*_AES256GCM` suites seal with `AES-256-GCM` (AEAD id
 `0x0002`) and the `*_CHACHA20POLY1305` suites with `ChaCha20Poly1305` (AEAD id
 `0x0003`). `recipientPublicKey` is the recipient's **signing** public key for the
-suite's curve — the 32-byte Ed25519 key from `crypto::generate(Certificate.Ed25519)`
+suite's curve — the 32-byte Ed25519 key from `crypto::generate(crypto::Certificate.Ed25519)`
 for an `Ed25519_*` suite, the 57-byte Ed448 key from
-`crypto::generate(Certificate.Ed448)` for an `Ed448_*` suite. It is converted to
+`crypto::generate(crypto::Certificate.Ed448)` for an `Ed448_*` suite. It is converted to
 the KEM curve internally (the `crypto::convert` `Ed25519ToX25519` / `Ed448ToX448`
 map), so a single signing identity serves both signing and encryption. A key of
 any other length for the selected suite raises `ErrInvalidArgument`.

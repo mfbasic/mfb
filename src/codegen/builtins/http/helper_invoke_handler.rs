@@ -9,7 +9,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 #[rustfmt::skip]
 const BODY: &str =
 r#"' Invoke a route's handler on the request, converting any handler failure into
-' a 500 (§F.5.1). The handler is a first-class `FUNC(Request) AS Response`;
+' a 500 (§F.5.1). The handler is a first-class `FUNC(http::Request) AS http::Response`;
 ' MFBASIC invokes a stored function value only through a builtin that calls it,
 ' so the singleton `collections::transform` applies it exactly once.
 FUNC __http_invokeHandler(r AS Route, req AS Request) AS Response

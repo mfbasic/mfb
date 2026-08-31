@@ -13,7 +13,7 @@ field order. The result is assembled into a fresh record; neither argument is
 modified.
 
 The comparison is made **per component and independently**, so the returned
-vector is generally not equal to either input: `min(Float2[2.0, 3.0], Float2[4.0, 1.0])`
+vector is generally not equal to either input: `min(vector::Float2[2.0, 3.0], vector::Float2[4.0, 1.0])`
 is `(2.0, 1.0)`, which is neither operand. This is the corner-wise lower bound of
 the two vectors, not a selection of the shorter one — `vector::min` does not
 compare magnitudes and is not related to `vector::length`. Paired with

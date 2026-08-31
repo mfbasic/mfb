@@ -141,7 +141,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "AttrFlag",
         export: true,
-        description: "A flag attribute: one member of `AttrTypeFlag`, carrying no value.",
+        description: "A flag attribute: one member of `astrings::AttrTypeFlag`, carrying no value.",
         props: vec![RecordProp {
             name: "kind",
             ty: ParameterType::named("AttrTypeFlag"),
@@ -151,7 +151,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "AttrText",
         export: true,
-        description: "A String-valued attribute: an `AttrTypeText` member and its String value.",
+        description: "A String-valued attribute: an `astrings::AttrTypeText` member and its String value.",
         props: vec![
             RecordProp {
                 name: "kind",
@@ -168,7 +168,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "AttrNumber",
         export: true,
-        description: "An Integer-valued attribute: an `AttrTypeNumber` member and its value.",
+        description: "An Integer-valued attribute: an `astrings::AttrTypeNumber` member and its value.",
         props: vec![
             RecordProp {
                 name: "kind",

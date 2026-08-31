@@ -47,25 +47,25 @@ mod helper_trim_float_text_at;
 mod helper_unicode_control_escape;
 mod helper_valid_number;
 
-const INTRO: &str = r#"Parse, build, serialize, and read JSON values as a `Json` tree"#;
+const INTRO: &str = r#"Parse, build, serialize, and read JSON values as a `json::Json` tree"#;
 
-const DESC: &str = r#"The `json` package converts between JSON text and a `Json` value tree and reads
+const DESC: &str = r#"The `json` package converts between JSON text and a `json::Json` value tree and reads
 members out of that tree. `json::parse` turns a UTF-8 `String` holding one
-complete JSON document into a `Json` value, `json::stringify` renders a `Json`
+complete JSON document into a `json::Json` value, `json::stringify` renders a `json::Json`
 value back into compact JSON text, and `json::get` and `json::getOr` walk a path
 of object keys to a nested member. `json` is a built-in package written in
 MFBASIC source over the `collections`, `strings`, and `encoding` packages, so
 `IMPORT json` needs no manifest dependency.
 
-The package defines the `Json` union and its six member types. `Json` is a
-`UNION` over `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, and
-`JsonObj`, each a record wrapping one field: `JsonNull` holds `Nothing`,
-`JsonBool` holds a `Boolean`, `JsonNum` holds a `Float`, `JsonStr` holds a
-`String`, `JsonArr` holds a `List OF Json`, and `JsonObj` holds a
-`Map OF String TO Json`. Every JSON form maps to exactly one variant, and
-`json::stringify` accepts either the `Json` union or any one of its member types
+The package defines the `json::Json` union and its six member types. `json::Json` is a
+`UNION` over `json::JsonNull`, `json::JsonBool`, `json::JsonNum`, `json::JsonStr`, `json::JsonArr`, and
+`json::JsonObj`, each a record wrapping one field: `json::JsonNull` holds `Nothing`,
+`json::JsonBool` holds a `Boolean`, `json::JsonNum` holds a `Float`, `json::JsonStr` holds a
+`String`, `json::JsonArr` holds a `List OF json::Json`, and `json::JsonObj` holds a
+`Map OF String TO json::Json`. Every JSON form maps to exactly one variant, and
+`json::stringify` accepts either the `json::Json` union or any one of its member types
 directly. Because numbers are carried as `Float`, very large or very precise
-values may lose precision in a parse/stringify round trip, and a `JsonNum`
+values may lose precision in a parse/stringify round trip, and a `json::JsonNum`
 holding a non-finite `Float` (NaN or infinity) has no JSON form.
 
 Serialization is compact: `json::stringify` emits no insignificant whitespace,
@@ -76,8 +76,8 @@ content.
 
 The path readers operate only on object members. `json::get` and `json::getOr`
 follow a `List OF String` of object keys left to right from `value`, requiring a
-`JsonObj` at each step; an empty path returns `value` unchanged. They do not copy
-`value`: the located `Json` value is returned directly. `json::get` fails when a
+`json::JsonObj` at each step; an empty path returns `value` unchanged. They do not copy
+`value`: the located `json::Json` value is returned directly. `json::get` fails when a
 key is missing or the current value is not an object, whereas `json::getOr`
 returns its default value in those cases instead of failing."#;
 
@@ -94,7 +94,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![RecordProp {
             name: "value",
             ty: ParameterType::Nothing,
-            description: "The JSON `null` value. The `Json` union variant carrying no data.",
+            description: "The JSON `null` value. The `json::Json` union variant carrying no data.",
         }],
     });
 

@@ -70,7 +70,7 @@ package's single fixed-digest hashing surface (the variable-length SHAKE256 XOF 
 `crypto::shake256`).
 
 **`SHA1` is a legacy algorithm.** SHA-1 is not collision-resistant (practical
-collisions have been public since 2017), so every source occurrence of `Hash.SHA1`
+collisions have been public since 2017), so every source occurrence of `crypto::Hash.SHA1`
 reports the non-fatal `CRYPTO_SHA1_INSECURE` warning (`2-203-0136`) — the program
 still builds and runs, and the digest is the standard FIPS 180-4 value. Select it
 only to interoperate with a system that requires SHA-1; use `SHA2_256` or stronger
@@ -103,8 +103,8 @@ authentication.
 over the `bits` package — no platform cryptographic library is called — so the
 output is **byte-identical on macOS, Linux, and Windows** (and across
 aarch64/x86-64). No loop bound, branch, or index depends on the message contents;
-only the public message length does. The core is hash-generic over the `Hash`
-enum, so a future `Hash` variant is supported without new code."#;
+only the public message length does. The core is hash-generic over the `crypto::Hash`
+enum, so a future `crypto::Hash` variant is supported without new code."#;
 const EX: &str = r#"Hash a byte list and print it as hex:
 
 ```
@@ -115,7 +115,7 @@ IMPORT io
 
 SUB main()
   LET raw AS List OF Byte = strings::toBytes("hello")
-  LET digest AS List OF Byte = crypto::hash(Hash.SHA2_256, raw)
+  LET digest AS List OF Byte = crypto::hash(crypto::Hash.SHA2_256, raw)
   io::print(encoding::hexEncode(digest))
 END SUB
 ```
@@ -128,7 +128,7 @@ IMPORT encoding
 IMPORT io
 
 SUB main()
-  io::print(encoding::hexEncode(crypto::hash(Hash.SHA2_512, "hello")))
+  io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA2_512, "hello")))
 END SUB
 ```"#;
 

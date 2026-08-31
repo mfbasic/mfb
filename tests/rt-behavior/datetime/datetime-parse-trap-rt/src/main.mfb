@@ -13,7 +13,7 @@ REM An owned String local declared BEFORE the failing parse: it stays live in
 REM the handler (read below) and must be freed once, on the handler's exit.
 FUNC parsePreLocal AS Integer
   LET keep AS String = "preTrapLocal"
-  LET dt AS DateTime = datetime::parse("nope", "yyyy-MM-dd")
+  LET dt AS datetime::DateTime = datetime::parse("nope", "yyyy-MM-dd")
   RETURN dt.date.year
   TRAP(err)
     io::print("pre keep=" & keep)
@@ -26,7 +26,7 @@ REM An owned String local declared AFTER the failing parse: its initializer
 REM never runs, so the handler's scope-drop must skip its (zeroed) slot rather
 REM than free an uninitialized pointer.
 FUNC parsePostLocal AS Integer
-  LET dt AS DateTime = datetime::parse("nope", "yyyy-MM-dd")
+  LET dt AS datetime::DateTime = datetime::parse("nope", "yyyy-MM-dd")
   LET after AS String = "neverInitialized"
   io::print(after)
   RETURN dt.date.year
@@ -42,7 +42,7 @@ FUNC parseInnerBlock AS Integer
   LET top AS String = "topLevel"
   IF TRUE THEN
     LET inner AS String = "innerBlock"
-    LET dt AS DateTime = datetime::parse("nope", "yyyy-MM-dd")
+    LET dt AS datetime::DateTime = datetime::parse("nope", "yyyy-MM-dd")
     io::print(inner & toString(dt.date.year))
   END IF
   RETURN 0

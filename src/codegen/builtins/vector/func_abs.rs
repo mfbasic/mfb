@@ -34,7 +34,7 @@ no implicit conversion or numeric promotion is applied to a vector argument, and
 a non-vector argument or any arity other than one is rejected by the syntax
 check. The return type is always the argument's own type."#;
 
-const EX: &str = r#"Absolute value of a `Float2`:
+const EX: &str = r#"Absolute value of a `vector::Float2`:
 
 ```
 IMPORT vector
@@ -45,7 +45,7 @@ SUB main()
 END SUB
 ```
 
-Absolute value of an `Integer3`:
+Absolute value of a `vector::Integer3`:
 
 ```
 IMPORT vector

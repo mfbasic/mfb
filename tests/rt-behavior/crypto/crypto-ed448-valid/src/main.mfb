@@ -36,7 +36,7 @@ FUNC code(err AS Error) AS String
 END FUNC
 
 FUNC trySign(priv AS List OF Byte, msg AS List OF Byte) AS String
-  LET s AS List OF Byte = crypto::sign(Certificate.Ed448, priv, msg)
+  LET s AS List OF Byte = crypto::sign(crypto::Certificate.Ed448, priv, msg)
   RETURN encoding::hexEncode(s)
   TRAP(err)
     RETURN code(err)
@@ -44,7 +44,7 @@ FUNC trySign(priv AS List OF Byte, msg AS List OF Byte) AS String
 END FUNC
 
 FUNC tryExchange(priv AS List OF Byte, pub AS List OF Byte) AS String
-  LET s AS List OF Byte = crypto::exchange(Certificate.Ed448, priv, pub)
+  LET s AS List OF Byte = crypto::exchange(crypto::Certificate.Ed448, priv, pub)
   RETURN encoding::hexEncode(s)
   TRAP(err)
     RETURN code(err)
@@ -52,7 +52,7 @@ FUNC tryExchange(priv AS List OF Byte, pub AS List OF Byte) AS String
 END FUNC
 
 FUNC v(pub AS List OF Byte, msg AS List OF Byte, sig AS List OF Byte) AS String
-  RETURN toString(crypto::verify(Certificate.Ed448, pub, msg, sig))
+  RETURN toString(crypto::verify(crypto::Certificate.Ed448, pub, msg, sig))
 END FUNC
 
 SUB main()
@@ -63,9 +63,9 @@ SUB main()
   LET one AS List OF Byte = encoding::hexDecode("03")
   LET pub1 AS List OF Byte = encoding::hexDecode("5fd7449b59b461fd2ce787ec616ad46a1da1342485a70e1f8a0ea75d80e96778edf124769b46c7061bd6783df1e50f6cd1fa1abeafe8256180")
   LET pub2 AS List OF Byte = encoding::hexDecode("43ba28f430cdff456ae531545f7ecd0ac834a55d9358c0372bfa0c6c6798c0866aea01eb00742802b8438ea4cb82169c235160627b4c3a9480")
-  LET sigBlank AS List OF Byte = crypto::sign(Certificate.Ed448, seed1, empty)
-  LET sig1 AS List OF Byte = crypto::sign(Certificate.Ed448, seed2, one)
-  LET sigMb AS List OF Byte = crypto::sign(Certificate.Ed448, seed1, a3)
+  LET sigBlank AS List OF Byte = crypto::sign(crypto::Certificate.Ed448, seed1, empty)
+  LET sig1 AS List OF Byte = crypto::sign(crypto::Certificate.Ed448, seed2, one)
+  LET sigMb AS List OF Byte = crypto::sign(crypto::Certificate.Ed448, seed1, a3)
   io::print("ed448-pub-1=" & encoding::hexEncode(pub1))
   io::print("ed448-pub-2=" & encoding::hexEncode(pub2))
   io::print("ed448-sig-blank=" & encoding::hexEncode(sigBlank))
@@ -74,12 +74,12 @@ SUB main()
   io::print("ed448-verify-blank=" & v(pub1, empty, sigBlank))
   io::print("ed448-verify-1oct=" & v(pub2, one, sig1))
   io::print("ed448-verify-multiblock=" & v(pub1, a3, sigMb))
-  io::print("ed448-deterministic=" & toString(crypto::constantTimeEqual(sigBlank, crypto::sign(Certificate.Ed448, seed1, empty))))
-  LET g AS crypto::KeyPair = crypto::generate(Certificate.Ed448)
+  io::print("ed448-deterministic=" & toString(crypto::constantTimeEqual(sigBlank, crypto::sign(crypto::Certificate.Ed448, seed1, empty))))
+  LET g AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed448)
   io::print("ed448-gen-len=" & toString(len(g.privateKey)) & "/" & toString(len(g.publicKey)))
-  LET gEmpty AS List OF Byte = crypto::sign(Certificate.Ed448, g.privateKey, empty)
-  LET gShort AS List OF Byte = crypto::sign(Certificate.Ed448, g.privateKey, one)
-  LET gLong AS List OF Byte = crypto::sign(Certificate.Ed448, g.privateKey, a3)
+  LET gEmpty AS List OF Byte = crypto::sign(crypto::Certificate.Ed448, g.privateKey, empty)
+  LET gShort AS List OF Byte = crypto::sign(crypto::Certificate.Ed448, g.privateKey, one)
+  LET gLong AS List OF Byte = crypto::sign(crypto::Certificate.Ed448, g.privateKey, a3)
   io::print("ed448-gen-roundtrip-empty=" & v(g.publicKey, empty, gEmpty))
   io::print("ed448-gen-roundtrip-short=" & v(g.publicKey, one, gShort))
   io::print("ed448-gen-roundtrip-long=" & v(g.publicKey, a3, gLong))
@@ -114,7 +114,7 @@ SUB main()
   io::print("ed448-not-on-curve=" & v(offCurve, empty, sigBlank))
   io::print("ed448-sign-badlen=" & trySign(fill(32, 1), empty))
   io::print("ed448-exchange-reject=" & tryExchange(g.privateKey, g.publicKey))
-  LET x AS crypto::KeyPair = crypto::convert(KeyConvert.Ed448ToX448, g)
+  LET x AS crypto::KeyPair = crypto::convert(crypto::KeyConvert.Ed448ToX448, g)
   LET base AS List OF Byte = collections::set(fill(56, 0), 0, toByte(5))
-  io::print("ed448-convert-invariant=" & toString(crypto::constantTimeEqual(crypto::exchange(Certificate.X448, x.privateKey, base), x.publicKey)))
+  io::print("ed448-convert-invariant=" & toString(crypto::constantTimeEqual(crypto::exchange(crypto::Certificate.X448, x.privateKey, base), x.publicKey)))
 END SUB

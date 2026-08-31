@@ -15,7 +15,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 #[rustfmt::skip]
 const BODY: &str =
 r#"' Hash-generic HKDF-Extract + Expand (RFC 5869). Default salt and the 255*L output
-' ceiling come from the digest length L of the selected `Hash`.
+' ceiling come from the digest length L of the selected `crypto::Hash`.
 FUNC __crypto_hkdf(algo AS Hash, ikm AS List OF Byte, salt AS List OF Byte, info AS List OF Byte, length AS Integer) AS List OF Byte
   LET outLen AS Integer = __crypto_shaOutputLen(algo)
   IF length < 1 OR length > (255 * outLen) THEN

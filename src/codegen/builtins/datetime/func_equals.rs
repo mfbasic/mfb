@@ -17,7 +17,7 @@ fields used as a tiebreaker. Two instants are equal only when both their
 `seconds` and their `nanos` fields are equal, so equality is exact to the
 nanosecond and there is no tolerance window. Because both arguments are points
 on the same Unix-epoch, leap-second-free UTC timeline, the test is absolute and
-independent of any time zone; resolve a `DateTime` to an `Instant` with
+independent of any time zone; resolve a `datetime::DateTime` to a `datetime::Instant` with
 `datetime::resolve` before comparing.
 
 `equals` is pure: the same two instants always yield the same `Boolean`, it has
@@ -33,8 +33,8 @@ IMPORT datetime
 IMPORT io
 
 SUB main()
-  LET a AS Instant = datetime::instant(1_000)
-  LET b AS Instant = datetime::instant(1_000)
+  LET a AS datetime::Instant = datetime::instant(1_000)
+  LET b AS datetime::Instant = datetime::instant(1_000)
   io::print(toString(datetime::equals(a, b)))
 END SUB
 ```
@@ -46,8 +46,8 @@ IMPORT datetime
 IMPORT io
 
 SUB main()
-  LET a AS Instant = datetime::instant(1_000)
-  LET b AS Instant = datetime::instant(2_000)
+  LET a AS datetime::Instant = datetime::instant(1_000)
+  LET b AS datetime::Instant = datetime::instant(2_000)
   io::print(toString(datetime::equals(a, b)))
 END SUB
 ```
@@ -59,8 +59,8 @@ IMPORT datetime
 IMPORT io
 
 SUB main()
-  LET a AS Instant = datetime::now()
-  LET b AS Instant = datetime::instant(0)
+  LET a AS datetime::Instant = datetime::now()
+  LET b AS datetime::Instant = datetime::instant(0)
   IF datetime::equals(a, b) THEN io::print("same instant")
 END SUB
 ```"#;

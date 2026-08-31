@@ -14,7 +14,7 @@ zero — and has exactly the same magnitude, because the two components are mere
 swapped and one is negated.
 
 This function is **2D only**. There are just three overloads, one per element
-type, and there is no `Float3` or `Float4` form: in three or more dimensions a
+type, and there is no `vector::Float3` or `vector::Float4` form: in three or more dimensions a
 single vector does not determine a unique perpendicular, so the operation is not
 well defined. Passing a 3D or 4D vector is a compile-time error, not a runtime
 one. For the higher-dimensional analogue use `vector::cross`, which takes the
@@ -39,7 +39,7 @@ twice returns `-v`. Two applications are therefore a cheap exact negation, and
 `(v.y, -v.x)`, which the package does not provide directly.
 
 `vector::perpendicular` accepts only the three **2D** vector record types —
-`Float2`, `Fixed2`, and `Integer2`. The overload is selected at compile time from
+`vector::Float2`, `vector::Fixed2`, and `vector::Integer2`. The overload is selected at compile time from
 the exact record type of the single argument; a 3D or 4D vector, a non-vector
 argument, or any arity other than one is rejected by the syntax check with the
 message that a 2D vector was expected. The return type is always the argument's

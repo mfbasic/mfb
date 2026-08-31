@@ -45,7 +45,7 @@ and `Connection` are always supplied by the server, and any handler-set value
 for those two names is dropped.
 
 The `http` package uses `status` internally for its own generated responses —
-`404 Not Found` for an unmatched route, `400 Bad Request` and
+`404 Not Found` for an unmatched route, `400 Bad http::Request` and
 `413 Payload Too Large` for framing failures, and `500 Internal Server Error`
 when a handler traps.
 

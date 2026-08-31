@@ -7,8 +7,8 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Parse an absolute http or https URL into its components."#;
 
 const DESC: &str = r#"`net::toUrl` parses an absolute URL of the shape
-`scheme://[user[:pass]@]host[:port]path[?query][#fragment]` into a `Url` value
-record. Unlike `Socket` and its siblings, `Url` is an ordinary copyable record,
+`scheme://[user[:pass]@]host[:port]path[?query][#fragment]` into a `net::Url` value
+record. Unlike `Socket` and its siblings, `net::Url` is an ordinary copyable record,
 not a resource handle.
 
 Parsing splits at the first `://`. The scheme before it is lowercased and must be
@@ -43,7 +43,7 @@ What remains is split at the first `#` into a fragment and at the first `?` into
 query, each stored without its leading punctuation. An absent path becomes `"/"`.
 No percent-decoding and no other normalization is performed anywhere in `toUrl` —
 use `net::percentDecode` for a path component and `net::parseQuery` for the query
-string. A universal `toString` on a `Url` renders it back to an href, omitting a
+string. A universal `toString` on a `net::Url` renders it back to an href, omitting a
 port equal to the scheme default and re-bracketing a host containing a colon."#;
 
 const EX: &str = r#"Parse a full URL and read its parts:

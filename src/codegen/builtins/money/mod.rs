@@ -37,7 +37,7 @@ decimal places. Its arithmetic (`M / k`, `M * Float`, `M * Fixed`, and the
 this package reads and writes. `money` is a built-in package: `IMPORT money` needs
 no manifest dependency.
 
-The mode is one of the `Rounding` enum members: `Commercial` rounds half away from
+The mode is one of the `money::Rounding` enum members: `Commercial` rounds half away from
 zero (the default) and `Banker` rounds half to even (banker's rounding), which
 removes the small upward bias of always rounding ties away. The mode is
 per-thread: a worker thread inherits the spawning thread's mode

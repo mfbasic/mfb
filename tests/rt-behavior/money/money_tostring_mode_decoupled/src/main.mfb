@@ -9,7 +9,7 @@ FUNC main() AS Integer
   ' toString(v, 2) rounds 0.125 -> 0.13 (half-away) regardless of mode.
   io::print(toString(v))                         ' Commercial: 0.13
   io::print(toString(money::round(v, 2)))        ' arithmetic: 0.13 (Commercial)
-  money::setRounding(Rounding.Banker)
+  money::setRounding(money::Rounding.Banker)
   io::print(toString(v))                         ' Banker: STILL 0.13 (presentation)
   io::print(toString(money::round(v, 2)))        ' arithmetic: 0.12 (Banker differs)
   RETURN 0

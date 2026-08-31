@@ -10,7 +10,7 @@ const INTRO: &str =
 const DESC: &str = r#"`startRead` opens a connection, writes a body-less request, and returns
 immediately with a bound `http::Stream` — a resource union over the plaintext
 (`tcp::Socket`) and TLS (`tls::Socket`) transports — carrying a fresh
-`PendingState`. It does **not** wait for the reply. The caller then drives the
+`http::PendingState`. It does **not** wait for the reply. The caller then drives the
 exchange without blocking its thread: test `http::ready`, call `http::pump` to
 read whatever bytes are available, repeat until `http::done`, and parse with
 `http::finish`.
@@ -23,7 +23,7 @@ uppercased, and the same control-byte rejection applies to every header name,
 value, and the URL-derived request target and `Host`. The whole request is
 written before `startRead` returns; `state.sentAll` is `TRUE`.
 
-The returned handle is a `RES http::Stream STATE PendingState`: a resource
+The returned handle is a `RES http::Stream STATE http::PendingState`: a resource
 whose STATE accumulates the response across pumps. It stays bound and open — the
 socket is closed exactly once when the handle goes out of scope — so a program reads
 `state` through the handle while driving it. `http::read`/`http::write` are thin
@@ -41,7 +41,7 @@ IMPORT http
 IMPORT io
 
 SUB main()
-  RES s AS http::Stream STATE PendingState = http::startRead(net::toUrl("http://example.com/"))
+  RES s AS http::Stream STATE http::PendingState = http::startRead(net::toUrl("http://example.com/"))
   WHILE http::done(s) = FALSE
     IF http::ready(s) THEN
       http::pump(s)

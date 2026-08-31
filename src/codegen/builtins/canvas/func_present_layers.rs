@@ -6,7 +6,7 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Install a list of `DrawLayer`s as the canvas's current content."#;
+const INTRO: &str = r#"Install a list of `canvas::DrawLayer`s as the canvas's current content."#;
 
 const DESC: &str = r#"`presentLayers` installs a scene as an ordered stack of layers rather than a flat
 list of items. Layers composite in order — later layers paint over earlier ones —
@@ -28,7 +28,7 @@ A scene is either flat or layered, never both — installing one shape replaces 
 other. Use `canvas::present` when there is nothing to separate; a single-layer
 `presentLayers` is the same picture, and the flat form says so more directly.
 
-Requires `Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
+Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
 
 const EX: &str = r#"A static backdrop under a moving marker, so redrawing the marker leaves the
 backdrop's geometry untouched:
@@ -38,15 +38,15 @@ IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
-  LET sky AS Color = canvas::rgb(20, 30, 60)
-  LET dot AS Color = canvas::rgb(255, 200, 0)
+  app::setMode(app::Mode.Canvas)
+  LET sky AS canvas::Color = canvas::rgb(20, 30, 60)
+  LET dot AS canvas::Color = canvas::rgb(255, 200, 0)
 
-  LET backdrop AS DrawItem = Rectangle[x := 0.0, y := 0.0, w := 400.0, h := 300.0, paint := canvas::fill(sky)]
-  LET marker AS DrawItem = Circle[x := 100.0, y := 150.0, radius := 12.0, paint := canvas::fill(dot)]
+  LET backdrop AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 400.0, h := 300.0, paint := canvas::fill(sky)]
+  LET marker AS canvas::DrawItem = canvas::Circle[x := 100.0, y := 150.0, radius := 12.0, paint := canvas::fill(dot)]
 
-  LET back AS DrawLayer = DrawLayer[items := [backdrop]]
-  LET front AS DrawLayer = DrawLayer[items := [marker]]
+  LET back AS canvas::DrawLayer = canvas::DrawLayer[items := [backdrop]]
+  LET front AS canvas::DrawLayer = canvas::DrawLayer[items := [marker]]
   canvas::presentLayers([back, front])
 END SUB
 ```"#;

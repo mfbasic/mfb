@@ -8,9 +8,9 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Construct a font-family `Attribute`."#;
+const INTRO: &str = r#"Construct a font-family `astrings::Attribute`."#;
 
-const DESC: &str = r#"`font` returns an `Attribute` wrapping the `AttrText` with `kind` `AttrTypeText.Font` and `value`
+const DESC: &str = r#"`font` returns an `astrings::Attribute` wrapping the `astrings::AttrText` with `kind` `astrings::AttrTypeText.Font` and `value`
 `name`. Pass it to `astrings::addAttribute` to set the font family over a scalar range. Font is a
 String-valued attribute: overlapping font spans resolve by higher-start-wins at read time."#;
 

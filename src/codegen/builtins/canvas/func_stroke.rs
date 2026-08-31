@@ -5,10 +5,10 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Build a `Paint` that outlines an item and leaves its interior empty."#;
+const INTRO: &str = r#"Build a `canvas::Paint` that outlines an item and leaves its interior empty."#;
 
 const DESC: &str = r#"`stroke` is the outline-only case — an unfilled shape, and the only sensible
-`Paint` for the two items that have no interior at all, `Line` and `Arc`. Every
+`canvas::Paint` for the two items that have no interior at all, `canvas::Line` and `canvas::Arc`. Every
 other field is left at its no-op value: a transparent fill, `Normal` blend, the
 identity transform, and no clip.
 
@@ -18,8 +18,8 @@ Use `canvas::fill` for the fill-only case and `canvas::fillStroke` for both. To
 set blend, transform or clip, update the result with `WITH`.
 
 These constructors exist because MFBASIC named construction requires **every**
-field — `Paint[stroke := c]` is a constructor-arity error, not a partial record —
-so without them every item would have to spell out all six `Paint` fields."#;
+field — `canvas::Paint[stroke := c]` is a constructor-arity error, not a partial record —
+so without them every item would have to spell out all six `canvas::Paint` fields."#;
 
 const EX: &str = r#"A smile — the lower half of a circle, stroked. Angles are radians clockwise from
 +X, and Y increases downward, so `0.0`..`PI` sweeps *below* the centre:
@@ -29,9 +29,9 @@ IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
-  LET green AS Color = canvas::rgb(0, 160, 0)
-  LET smile AS DrawItem = Arc[x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := canvas::stroke(green, 14.0)]
+  app::setMode(app::Mode.Canvas)
+  LET green AS canvas::Color = canvas::rgb(0, 160, 0)
+  LET smile AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := canvas::stroke(green, 14.0)]
   canvas::present([smile])
 END SUB
 ```"#;
