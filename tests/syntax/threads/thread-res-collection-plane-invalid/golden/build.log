@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/threads/thread-res-collection-plane-invalid
+  15 | IMPORT io
+  16 | 
+  17 | FUNC viaList(t AS Thread OF List OF RES fs::File TO Integer) AS Integer
+     | ^
+tests/syntax/threads/thread-res-collection-plane-invalid/src/main.mfb:17 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+               Thread message type requires a thread-sendable type, got `List OF RES fs.File`.
+  19 | END FUNC
+  20 | 
+  21 | FUNC viaMap(t AS Thread OF Map OF String TO RES fs::File TO Integer) AS Integer
+     | ^
+tests/syntax/threads/thread-res-collection-plane-invalid/src/main.mfb:21 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+               Thread message type requires a thread-sendable type, got `Map OF String TO RES fs.File`.
+  23 | END FUNC
+  24 | 
+  25 | FUNC viaWorker(t AS ThreadWorker OF List OF RES fs::File TO Integer) AS Integer
+     | ^
+tests/syntax/threads/thread-res-collection-plane-invalid/src/main.mfb:25 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+               Thread message type requires a thread-sendable type, got `List OF RES fs.File`.
+[exit 1]

@@ -1053,8 +1053,23 @@ fn resource_element_len(after_res: &str) -> Option<usize> {
     }
 }
 
-/// Length consumed by a single type prefix at the start of `input`, descending
-/// through `List`/`Result`/`Map`/`MapEntry`/`Thread`/`ThreadWorker` nesting.
+/// Length consumed by a single type prefix at the start of `input`.
+///
+/// **This must recognise every constructor [`ParameterType::parse`] can decompose,
+/// and its arms are deliberately kept in `parse`'s order.** It is the only thing
+/// standing between a *measured* position — a thread message plane, a `Map` key, a
+/// generic argument — and a silent collapse to an opaque [`Named`](ParameterType::Named):
+/// a constructor missing here does not merely measure short, it makes the enclosing
+/// type fail to split at all, and the whole spelling survives as one nominal through
+/// the entire front end (bug-463). Nothing downstream reports that; the type simply
+/// stops being a type.
+///
+/// The asymmetry that hides such a gap: a *trailing* position is not measured at all
+/// (`split_thread_types` takes "everything after the last ` TO `"), so the same
+/// spelling can work on a thread's output plane and fail on its message plane. Nor
+/// can a `parse`↔`name` round trip see it, since `Named(s).name()` echoes `s` back
+/// verbatim — the guard is `type_prefix_len_measures_every_parse_constructor`, which
+/// asserts a complete type measures to its own length.
 fn type_prefix_len(input: &str) -> Option<usize> {
     let input = input.trim_start();
     if input.starts_with('(') {
@@ -1072,6 +1087,25 @@ fn type_prefix_len(input: &str) -> Option<usize> {
             }
         }
         return None;
+    }
+
+    // The `RES ` ownership marker (§15.6). `parse` wraps a `Res` around whatever
+    // follows it at EVERY position, so the measurement has to consume it at every
+    // position too — a `List`/`Map`/`Set` element, a `Map` key, a generic argument.
+    // Delegating to `resource_element_len` is what picks up the optional trailing
+    // ` STATE T` clause, and is the same measurement the thread resource plane
+    // already used; that plane working while `List OF RES …` on the message plane
+    // did not was the whole of bug-463.
+    if let Some(after_res) = input.strip_prefix("RES ") {
+        return resource_element_len(after_res).map(|len| "RES ".len() + len);
+    }
+
+    // `[ISOLATED ]FUNC(<params>) AS <return>`. The base-name scan below stops dead
+    // at the `(`, so without this arm a function type measures as just `FUNC`.
+    for prefix in ["ISOLATED FUNC(", "FUNC("] {
+        if let Some(rest) = input.strip_prefix(prefix) {
+            return func_body_len(rest).map(|len| prefix.len() + len);
+        }
     }
 
     let base_end = input
@@ -1092,7 +1126,11 @@ fn type_prefix_len(input: &str) -> Option<usize> {
         return Some(base_end);
     };
 
-    if matches!(base, "List" | "Result") {
+    // `Set` shares this arm with `List`/`Result` because `parse` gives all three a
+    // single element child. It was missing here, so `Thread OF Set OF Integer TO
+    // Integer` — a VALID, thread-sendable program — was rejected outright
+    // (`SYMBOL_UNKNOWN_TYPE`) rather than merely mis-diagnosed (bug-463).
+    if matches!(base, "List" | "Set" | "Result") {
         return type_prefix_len(after_of).map(|len| base_end + 4 + len);
     }
 
@@ -1109,7 +1147,55 @@ fn type_prefix_len(input: &str) -> Option<usize> {
         return thread_body_len(after_of).map(|len| base_end + 4 + len);
     }
 
-    Some(base_end)
+    // A user generic (`Pair OF Integer, String`) — every builtin head is claimed
+    // above, so a bare head with an ` OF ` body is one by definition, exactly as in
+    // `ParameterType::split_user_generic`. Its arguments are the comma-separated
+    // list `split_top_level_commas` splits, and the list ends at the first separator
+    // that is not `", "` — which is what lets the enclosing `Thread OF Pair OF
+    // Integer, String TO Integer` find its own ` TO `.
+    let mut total = base_end + " OF ".len();
+    let mut rest = after_of;
+    loop {
+        let arg_len = type_prefix_len(rest)?;
+        total += arg_len;
+        rest = rest.get(arg_len..)?;
+        let Some(next) = rest.strip_prefix(", ") else {
+            return Some(total);
+        };
+        total += ", ".len();
+        rest = next;
+    }
+}
+
+/// Length consumed by a function type's body — everything after the `FUNC(` prefix
+/// of a `[ISOLATED ]FUNC(<params>) AS <return>` spelling, up to and including its
+/// return type.
+///
+/// Mirrors `codegen::builtins::split_func_params_and_return` on the paren scan (the
+/// close paren is the one at depth 0, so a parameter that is itself a function type
+/// is kept whole) but differs on the return type deliberately: that helper takes
+/// "everything after `) AS `", because `parse` is handed a string that is nothing
+/// but the type. A *measurement* has to stop where the type stops, so the return is
+/// measured, letting `FUNC(Integer) AS String TO Integer` on a thread message plane
+/// yield the message `FUNC(Integer) AS String` and leave ` TO Integer` to the thread.
+fn func_body_len(rest: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut close = None;
+    for (index, ch) in rest.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' if depth == 0 => {
+                close = Some(index);
+                break;
+            }
+            ')' => depth -= 1,
+            _ => {}
+        }
+    }
+    let close = close?;
+    let returns = rest.get(close..)?.strip_prefix(") AS ")?;
+    let return_len = type_prefix_len(returns)?;
+    Some(close + ") AS ".len() + return_len)
 }
 
 /// Length consumed by a thread type body (`[msg] [RES res] TO out`) starting at
