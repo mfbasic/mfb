@@ -86,9 +86,10 @@ files (`.mfb`). A minimal executable manifest:
 
 See the [`examples/`](examples/) directory for complete programs — including
 `hello_world`, `life` (a full-screen Conway's Game of Life built on the `term::`
-TUI package), `hangman`, `hello_input`, `audio`, `tls-server` (a minimal HTTPS
-server using a shipped self-signed certificate), and `browser` (a full-screen
-terminal web viewer on `term::` whose `http::` fetch runs on a worker thread).
+TUI package), `hangman`, `hello_input`, `audio`, `network-server` and
+`network-client` (a broadcast server and its client, each speaking plain TCP,
+UDP, and TLS), and `browser` (a full-screen terminal web viewer on `term::`
+whose `http::` fetch runs on a worker thread).
 
 ## The `mfb` toolchain
 
