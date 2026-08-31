@@ -28,7 +28,7 @@ Internally the element is wrapped as a one-element list and spliced into `value`
 at `index`, which is the same splice that backs `append` (index `= len`) and
 `prepend` (index `0`).
 
-`insert` is value-semantic. The list named by `value` is unchanged; the modified
+`insert` does not change `value`. The list it names is unchanged; the modified
 list is the returned value, and a program observes the update only through what
 it does with that return value. There is no in-place fast path for `insert` at an
 arbitrary index — the compiler's in-place assignment recognizers cover
@@ -38,7 +38,7 @@ arbitrary index — the compiler's in-place assignment recognizers cover
 `insert` is **fallible**: the range check is a real trappable domain error, so an
 inline `TRAP` on an `insert` call compiles and catches the out-of-range failure
 rather than being reported as a dead handler. The bounds test runs before any
-allocation for the result, so a rejected index allocates nothing."#;
+anything for the result, so a rejected index builds nothing."#;
 
 const EX: &str = r#"Insert in the middle:
 

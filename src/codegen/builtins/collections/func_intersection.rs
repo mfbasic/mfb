@@ -18,8 +18,7 @@ Surviving elements keep the insertion order they had in `a`. The intersection of
 disjoint sets is the empty set, and the intersection of a set with itself is a
 set equal to it.
 
-`intersection` raises no user-trappable error of its own. Allocation failure is
-not a trappable domain error, and the `add` it is built on is classified
+`intersection` raises no user-trappable error of its own. Running out of memory is not a trappable domain error, and the `add` it is built on is classified
 infallible.
 
 `intersection` is a generic implemented in MFBASIC source; a call is rewritten to

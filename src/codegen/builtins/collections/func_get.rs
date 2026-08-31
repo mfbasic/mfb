@@ -21,7 +21,7 @@ const DESC_GET: &str = r#"`collections::get` reads one element out of a collecti
 is neither copied nor mutated: the lowering stores only a handle to it, walks
 its lookup table, and materializes just the selected payload.
 
-The value returned is **owned** by the caller. Scalars are returned by value and
+The value returned is yours to keep and independent of the collection. Scalars come back directly and
 a `String` payload is materialized fresh, while a composite payload stored
 inline in the collection's data region is copied into a standalone arena block
 before it is handed back, so binding, storing, and freeing the result cannot

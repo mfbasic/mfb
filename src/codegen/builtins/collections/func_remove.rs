@@ -18,10 +18,10 @@ is in `value`, the result is a set with the same elements and the same length.
 When `item` is present, the result has exactly one fewer element and the
 remaining elements keep their relative insertion order.
 
-`remove` is value-semantic. The set named by `value` is unchanged; the modified
+`remove` does not change `value`. The set it names is unchanged; the modified
 set is the returned value, and a program observes the update only through what it
 does with that return value. When the compiler can prove the target is a
-uniquely-owned local being reassigned — the `set = collections::remove(set, x)`
+same local being reassigned — the `set = collections::remove(set, x)`
 shape — it may update the live buffer in place; this is an optimization only, and
 the observable semantics are identical either way.
 

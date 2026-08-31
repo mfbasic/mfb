@@ -564,7 +564,7 @@ Positional correspondence is preserved: the pair at index `i` of the result
 always holds the items that were at index `i` in both inputs, so the result reads
 in the same order as the inputs.
 
-`Pair OF A, B` is a compiler-owned prelude record template with the two fields
+`Pair OF A, B` is a prelude record template with the two fields
 `first` and `second`. It is always in scope and needs no import, so a program can
 name the result type `List OF Pair OF A, B` and read `p.first` / `p.second`
 directly.

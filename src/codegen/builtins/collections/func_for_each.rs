@@ -41,7 +41,7 @@ because a failing `action` propagates: when the callback returns a non-`Ok`
 result, the loop stops immediately at that element, later elements are never
 visited, and the callback's own error is passed straight through — unchanged, so
 whatever code and message the callback raised is what the caller sees. Because
-`forEach` owns no accumulator, no cleanup runs on that path.
+`forEach` holds no accumulator, no cleanup runs on that path.
 
 An inline `TRAP` on a `forEach` call captures that propagated callback error at
 the call site rather than letting it auto-propagate.

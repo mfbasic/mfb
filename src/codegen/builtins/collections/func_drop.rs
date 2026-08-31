@@ -29,7 +29,7 @@ accepted and no index is ever rejected:
   length, so the result is the empty list.
 - Otherwise the result holds `len(value) - count` elements.
 
-The result is a freshly allocated list; element payloads are copied into it, so
+The result is a new list; the elements are copied into it, so
 the returned list does not share storage with `value`. `value` is not modified.
 `collections::take` is the complementary operation, returning the elements
 `drop` discards.

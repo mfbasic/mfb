@@ -47,7 +47,7 @@ narrower stored value; record elements compare field by field. A nested
 collection that is stored as a handle rather than inlined compares by identity,
 not by contents.
 
-`value` is neither modified nor consumed, and no new collection is allocated."#;
+`value` is neither modified nor closed, and no new collection is built."#;
 
 const EX_FIND: &str = r#"Find an element, with and without a starting index:
 

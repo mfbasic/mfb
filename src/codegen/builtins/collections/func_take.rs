@@ -28,7 +28,7 @@ accepted and no index is ever rejected:
   length, so the whole list is returned.
 - Otherwise the result holds exactly `count` elements.
 
-The result is a freshly allocated list; element payloads are copied into it, so
+The result is a new list; the elements are copied into it, so
 the returned list does not share storage with `value`. `value` is not modified.
 `collections::drop` is the complementary operation, returning what `take` leaves
 behind.

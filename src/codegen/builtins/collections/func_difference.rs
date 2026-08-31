@@ -19,8 +19,7 @@ Surviving elements keep the insertion order they had in `a`. The difference of a
 set and the empty set is a copy of that set; the difference of a set with itself
 is the empty set.
 
-`difference` raises no user-trappable error of its own. Allocation failure is not
-a trappable domain error, and the `add` it is built on is classified infallible.
+`difference` raises no user-trappable error of its own. Running out of memory is not a trappable domain error, and the `add` it is built on is classified infallible.
 
 `difference` is a generic implemented in MFBASIC source; a call is rewritten to
 the internal `__collections_difference` generic and instantiated for the element

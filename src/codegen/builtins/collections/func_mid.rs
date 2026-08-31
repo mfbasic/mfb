@@ -31,8 +31,8 @@ Empty results are legal at the boundaries, since `start` may equal the length of
 `value` and `count` may be `0`: on a four-element list, `mid(value, 4, 0)`
 returns an empty list.
 
-The result is a freshly allocated, independently owned list of the same type as
-`value`; `value` itself is neither modified nor consumed, and element payloads
+The result is a new, independent list of the same type as
+`value`; `value` itself is neither modified nor closed, and element payloads
 are copied into the new list's own data region rather than shared.
 
 `mid` copies the selected run using a fast contiguous path when the source

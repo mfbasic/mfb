@@ -27,7 +27,7 @@ Only the **List** overload of `replace` lives in `collections`. The `String`
 overload — replacing a substring within a `String` — is a different function that
 lives in `strings::`. A `String` first argument does not resolve here.
 
-`replace` is value-semantic. The list named by `value` is unchanged; the modified
+`replace` does not change `value`. The list it names is unchanged; the modified
 list is the returned value, and a program observes the update only through what
 it does with that return value. There is no in-place fast path for `replace` —
 the compiler's in-place assignment recognizers cover `append`, bulk `append`,
@@ -38,7 +38,7 @@ error. It has no index to range-check, and a `new` that never matches is a
 success producing an unchanged copy, not a failure — so it is classified as
 infallible alongside `append` and `prepend`, and an inline `TRAP` written on a
 `replace` call has a dead handler (the front end reports
-`TYPE_INLINE_TRAP_DEAD_HANDLER`). Allocation exhaustion is not a trappable domain
+`TYPE_INLINE_TRAP_DEAD_HANDLER`). Running out of memory is not a trappable domain
 error in this language."#;
 
 const EX_REPLACE: &str = r#"Replace every matching element:

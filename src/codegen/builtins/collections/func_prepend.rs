@@ -23,9 +23,9 @@ Internally the element is wrapped as a one-element list and spliced into `value`
 at index `0`, so the operation is the index-`0` case of the same splice that
 backs `append` and `insert`.
 
-`prepend` is value-semantic. The list named by `value` is unchanged; the modified
+`prepend` does not change `value`. The list it names is unchanged; the modified
 list is the returned value. When the compiler can prove the target is a uniquely
-owned local being reassigned — the `list = collections::prepend(list, x)` shape,
+same local being reassigned — the `list = collections::prepend(list, x)` shape,
 on a non-`by_ref` local that is not the live iterable of an enclosing `FOR EACH` —
 it lowers the call to an in-place shift-and-insert with geometric spare capacity
 instead of a full copy. This is an optimization only; the observable semantics
@@ -37,7 +37,7 @@ in-place path, unlike `append`.
 error. It has no index to range-check and no lookup to miss, so it is classified
 as infallible alongside `append` and `replace`, and an inline `TRAP` written on a
 `prepend` call has a dead handler (the front end reports
-`TYPE_INLINE_TRAP_DEAD_HANDLER`). Allocation exhaustion is not a trappable domain
+`TYPE_INLINE_TRAP_DEAD_HANDLER`). Running out of memory is not a trappable domain
 error in this language.
 
 Prepending to an empty list yields a one-element list."#;

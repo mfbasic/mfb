@@ -24,10 +24,10 @@ into `value` at index `count(value)` — the one-past-the-end position, which th
 splice accepts as the append position. Existing elements keep their relative
 order, and the appended content is placed after all of them in its own order.
 
-`append` is value-semantic. The list named by `value` is unchanged; the modified
+`append` does not change `value`. The list it names is unchanged; the modified
 list is the returned value, and a program observes the update only through what
 it does with that return value. When the compiler can prove the target is a
-uniquely owned local being reassigned — the `list = collections::append(list, x)`
+same local being reassigned — the `list = collections::append(list, x)`
 shape, on a non-`by_ref` local that is not the live iterable of an enclosing
 `FOR EACH` — it lowers the call to an in-place grow with geometric spare
 capacity, making a repeated append amortized O(1) rather than a full copy. This
@@ -37,7 +37,7 @@ is an optimization only: the observable semantics are identical either way.
 error. It has no index to range-check and no lookup to miss, so it is classified
 as infallible alongside `prepend` and `replace`, and an inline `TRAP` written on
 an `append` call has a dead handler (the front end reports
-`TYPE_INLINE_TRAP_DEAD_HANDLER`). Allocation exhaustion is not a trappable domain
+`TYPE_INLINE_TRAP_DEAD_HANDLER`). Running out of memory is not a trappable domain
 error in this language.
 
 Appending an empty list returns a copy of `value` with the same elements in the

@@ -27,7 +27,7 @@ The accumulator is initialized to zero of the element type and the elements are
 added in list order, so an empty `value` yields `0`, `0.0`, or `0.0F`
 respectively without any addition being performed.
 
-`value` is neither modified nor consumed. `sum` takes no callback and has no
+`value` is neither modified nor closed. `sum` takes no callback and has no
 optional argument; it is a single-argument member.
 
 For the `Integer` and `Fixed` overloads each step is a **checked** 64-bit

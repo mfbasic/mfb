@@ -18,8 +18,7 @@ insertion order follows the elements of `a` first, then the elements of `b` that
 were not already in `a`. The union of a set with the empty set is a copy of that
 set, and the union of two equal sets is a set equal to either one.
 
-`union` raises no user-trappable error of its own. It allocates while building
-the result, but allocation failure is not a trappable domain error, and the
+`union` raises no user-trappable error of its own. While building the result it needs memory, but running out of memory is not a trappable domain error, and the
 `add` it is built on is classified infallible for exactly that reason.
 
 `union` is a generic implemented in MFBASIC source; a call is rewritten to the

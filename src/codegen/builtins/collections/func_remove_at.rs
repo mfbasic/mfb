@@ -21,7 +21,7 @@ is not a valid position — there is nothing there to remove — and raises
 `ErrIndexOutOfRange`, as does any negative `index`. Removing from an empty list
 therefore always raises, since no index satisfies the range.
 
-`removeAt` is value-semantic. The list named by `value` is unchanged; the
+`removeAt` does not change `value`. The list it names is unchanged; the
 shortened list is the returned value, and a program observes the update only
 through what it does with that return value. There is no in-place fast path for
 `removeAt` — the compiler's in-place assignment recognizers cover `append`, bulk
@@ -30,7 +30,7 @@ through what it does with that return value. There is no in-place fast path for
 `removeAt` is **fallible**: the range check is a real trappable domain error, so
 an inline `TRAP` on a `removeAt` call compiles and catches the out-of-range
 failure rather than being reported as a dead handler. The bounds test runs before
-the result block is allocated, so a rejected index allocates nothing.
+the result is built, so a rejected index builds nothing.
 
 `removeAt` operates on lists only. To drop a key from a `Map OF K TO V`, use
 `collections::removeKey`, which takes a key rather than an index and does not

@@ -20,8 +20,7 @@ argument. Element insertion order follows the surviving elements of `a` first,
 then the surviving elements of `b`. The symmetric difference of two equal sets is
 the empty set, and of a set with the empty set is a copy of that set.
 
-`symmetricDifference` raises no user-trappable error of its own. Allocation
-failure is not a trappable domain error, and the `add` it is built on is
+`symmetricDifference` raises no user-trappable error of its own. Running out of memory is not a trappable domain error, and the `add` it is built on is
 classified infallible.
 
 `symmetricDifference` is a generic implemented in MFBASIC source; a call is

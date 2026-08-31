@@ -359,7 +359,7 @@ with `ErrInvalidArgument`; there is no clamping and no default, so the argument
 is always required.
 
 Each block is built by the internal slice helper, which is lowered natively as a
-bulk range copy, so element payloads are copied into freshly allocated lists and
+bulk copy, so the elements are copied into new lists and
 no block shares storage with `value`. `value` is not modified.
 
 `T` is inferred from `value` and carries no ordering or comparability

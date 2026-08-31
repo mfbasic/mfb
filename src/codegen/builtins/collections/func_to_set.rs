@@ -19,8 +19,7 @@ holds `2`, `1`, `3` in that order. Converting a list that is already free of
 duplicates yields a set with the same elements; converting the empty list yields
 the empty set.
 
-`toSet` raises no user-trappable error of its own. It allocates while building the
-result, but allocation failure is not a trappable domain error, and the `add` it
+`toSet` raises no user-trappable error of its own. While building the result it needs memory, but running out of memory is not a trappable domain error, and the `add` it
 is built on is classified infallible for exactly that reason.
 
 `toSet` is a generic implemented in MFBASIC source; a call is rewritten to the

@@ -28,10 +28,10 @@ missing position is an error:
   overwritten; when it is absent a new entry is inserted. The map overload has no
   failure path at all — it raises no domain error for any key.
 
-`set` is value-semantic in both overloads. The collection named by `value` is
+`set` does not change its argument in either overload. The collection named by `value` is
 unchanged; the updated collection is the returned value, and a program observes
 the update only through what it does with that return value. When the compiler
-can prove the target is a uniquely owned local being reassigned — the
+can prove the target is a same local being reassigned — the
 `c = collections::set(c, k, v)` shape, on a non-`by_ref` local that is not the
 live iterable of an enclosing `FOR EACH` — it lowers the call to an in-place
 update instead of rebuilding the collection. This is an optimization only; the
@@ -47,7 +47,7 @@ absent key inserts rather than raising.
 `set` is classified **fallible** overall because of the list overload's range
 check, so an inline `TRAP` on a `set` call compiles and catches that failure
 rather than being reported as a dead handler. On the list path the bounds test
-runs before any replacement value is materialized, so a rejected index allocates
+runs before any replacement value is materialized, so a rejected index builds
 nothing."#;
 
 const EX: &str = r#"Replace an existing list element:

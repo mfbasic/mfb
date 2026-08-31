@@ -10,9 +10,9 @@ use crate::types::ParameterType;
 const INTO_VALUES: &str = "Return a map's values as a list.";
 const DESC_VALUES: &str = r#"`collections::values` builds a new `List OF V` holding the value of every entry
 in `value`. It walks the map's lookup-entry table front to back, copying each
-entry's value payload into a freshly allocated list block. The source map is not
+entry's value payload into a new list. The source map is not
 mutated and its own storage is not aliased by the result — the returned list is
-an independent, owned collection.
+an independent collection.
 
 The result has exactly one item per map entry, so its length equals
 `len(value)`. An empty map yields an empty list. Unlike the key projection, the
@@ -30,8 +30,8 @@ unchanged map, so treat insertion order as the current implementation's behavior
 rather than a guarantee to rely on across versions.
 
 `collections::values` raises no trappable domain error, so an inline `TRAP` on a
-`values` call has a dead handler. Building the result list does allocate, and an
-allocation failure is not a trappable domain error in this language."#;
+`values` call has a dead handler. Building the result list needs memory, and
+running out of memory is not something a `TRAP` can catch."#;
 
 const EX: &str = r#"Get the values of a map:
 

@@ -374,7 +374,7 @@ runtime with `ErrInvalidArgument`. Note the parameter is named `stride`, not
 `step`.
 
 Each window is built by the internal slice helper, which is lowered natively as
-a bulk range copy, so element payloads are copied into freshly allocated lists
+a bulk copy, so the elements are copied into new lists
 and no window shares storage with `value`. Overlapping windows therefore hold
 independent copies of the elements they share. `value` is not modified.
 

@@ -19,12 +19,11 @@ precisely the difference between the two: an inline `TRAP` on a
 The collection is neither copied nor mutated; only the selected payload is
 materialized.
 
-Both the found path and the default path return an **owned** value. When the
-element type is `String`, the supplied `default` is copied into a fresh owned
-string on the fallback path rather than being returned as a borrow, so the
-result can be bound and freed identically no matter which path ran. A composite
-payload read out of the collection is likewise copied into a standalone block
-before it is returned.
+Both paths return a value that is yours to keep and independent of the
+collection. When the element type is `String`, the supplied `default` is copied
+on the fallback path, so the result behaves the same however it was produced. A
+composite value read out of the collection is likewise copied before it is
+returned.
 
 `default` is an ordinary argument expression, so it is evaluated before the
 lookup runs, whether or not it ends up being used.

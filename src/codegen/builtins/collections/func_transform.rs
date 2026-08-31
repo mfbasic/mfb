@@ -32,8 +32,7 @@ ordinary callables and can be passed directly where their type fits.
 `SUB` — does not resolve, because there would be nothing to collect. Use
 `collections::forEach` to run a callback purely for its side effects.
 
-`value` is neither modified nor consumed; the result is a freshly allocated
-list. The output is pre-sized to the source list's working set, since
+`value` is neither modified nor closed; the result is a new list. The output is pre-sized to the source list's working set, since
 `transform` emits exactly one entry per source element, and each mapped value is
 then appended in place.
 
@@ -43,7 +42,7 @@ An empty `value` calls `f` zero times and yields an empty `List OF U`.
 because a failing `f` propagates: when the callback returns a non-`Ok` result,
 the loop stops immediately at that element, later elements are never visited, no
 result list is produced, and the callback's own error is passed through
-unchanged. The partially built output is freed on that path before the error
+unchanged. The partially built output is discarded on that path before the error
 leaves.
 
 An inline `TRAP` on a `transform` call captures that propagated callback error
