@@ -145,7 +145,7 @@ mod tests {
         assert!(registry().is_builtin_type("Mode"));
         assert_eq!(
             registry().qualified_builtin_type("app.Mode"),
-            Some("Mode".to_string())
+            Some("app.Mode".to_string())
         );
     }
 

@@ -36,10 +36,10 @@ IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   LET px AS List OF Byte = [toByte(0), toByte(255), toByte(0), toByte(255)]
   RES img AS canvas::Image = canvas::createImage(1, 1, px)
-  LET tile AS DrawItem = Picture[x := 0.0, y := 0.0, w := 32.0, h := 32.0, image := canvas::imageRef(img), paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 32.0, h := 32.0, image := canvas::imageRef(img), paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([tile])
 END SUB
 ```"#;

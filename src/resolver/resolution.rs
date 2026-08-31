@@ -1606,7 +1606,7 @@ mod tests {
         }
         assert!(
             !resolve_source_fails(
-                "IMPORT crypto\nSUB main()\n  LET k = crypto::generate(Certificate.P256)\nEND SUB\n"
+                "IMPORT crypto\nSUB main()\n  LET k = crypto::generate(crypto::Certificate.P256)\nEND SUB\n"
             ),
             "crypto::generate(Certificate) must resolve as the unified generator"
         );

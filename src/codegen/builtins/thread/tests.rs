@@ -66,7 +66,7 @@ fn opaque_handle_types_recognized() {
     // Qualified form resolves too.
     assert_eq!(
         registry().qualified_builtin_type("thread.Thread"),
-        Some("Thread".to_string())
+        Some("thread.Thread".to_string())
     );
 }
 

@@ -33,7 +33,7 @@ IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   LET px AS List OF Byte = [toByte(255), toByte(255), toByte(255), toByte(255)]
   RES img AS canvas::Image = canvas::createImage(1, 1, px)
   canvas::destroyImage(img)

@@ -33,7 +33,7 @@ SUB main()
   MUT b AS AttributedString = astrings::addAttribute(a, 0, 4, astrings::bold())
   FOR EACH attr IN astrings::getAttributes(b, 2)
     MATCH attr
-      CASE AttrFlag(f)
+      CASE astrings::AttrFlag(f)
         io::print("flag")
       CASE ELSE
     END MATCH

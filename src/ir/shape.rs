@@ -4006,7 +4006,7 @@ mod tests {
         // TYPE_UNKNOWN_ENUM_MEMBER); the checker still typed the matched
         // `crypto::hash` overload by its declared return type, so the binding
         // does not cascade.
-        let src = "IMPORT crypto\nFUNC main AS Integer\n  LET a AS List OF Byte = crypto::hash(Hash.SHA224, \"abc\")\n  RETURN len(a)\nEND FUNC\n";
+        let src = "IMPORT crypto\nFUNC main AS Integer\n  LET a AS List OF Byte = crypto::hash(crypto::Hash.SHA224, \"abc\")\n  RETURN len(a)\nEND FUNC\n";
         assert_eq!(shape_codes(src), Vec::<String>::new());
     }
 

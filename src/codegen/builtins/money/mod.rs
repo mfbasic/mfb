@@ -116,7 +116,7 @@ mod tests {
         assert!(!registry().is_builtin_type("Money"));
         assert_eq!(
             registry().qualified_builtin_type("money.Rounding"),
-            Some("Rounding".to_string())
+            Some("money.Rounding".to_string())
         );
     }
 

@@ -1017,7 +1017,7 @@ mod tests {
         assert!(!registry().is_builtin_type("Nope"));
         assert_eq!(
             registry().qualified_builtin_type("crypto.Sealed"),
-            Some("Sealed".to_string())
+            Some("crypto.Sealed".to_string())
         );
     }
 

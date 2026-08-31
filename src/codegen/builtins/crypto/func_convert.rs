@@ -72,8 +72,8 @@ const EX: &str = r#"```
 IMPORT crypto
 
 SUB main()
-  LET ed AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
-  LET x AS crypto::KeyPair = crypto::convert(KeyConvert.Ed25519ToX25519, ed)
+  LET ed AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
+  LET x AS crypto::KeyPair = crypto::convert(crypto::KeyConvert.Ed25519ToX25519, ed)
 END SUB
 ```"#;
 

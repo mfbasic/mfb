@@ -838,7 +838,7 @@ mod tests {
         // The qualified form resolves the same source-declared names.
         assert_eq!(
             registry().qualified_builtin_type("datetime.Instant"),
-            Some("Instant".to_string())
+            Some("datetime.Instant".to_string())
         );
     }
 

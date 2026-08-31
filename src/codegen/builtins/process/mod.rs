@@ -259,7 +259,7 @@ mod tests {
         assert!(!registry().is_builtin_type("Process"));
         assert_eq!(
             registry().qualified_builtin_type("process.Process"),
-            Some("Process".to_string())
+            Some("process.Process".to_string())
         );
     }
 

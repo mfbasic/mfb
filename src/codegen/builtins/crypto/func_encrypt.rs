@@ -110,9 +110,9 @@ const EX: &str = r#"```
 IMPORT crypto
 
 SUB main()
-  LET recip AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
-  LET box AS List OF Byte = crypto::encrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.publicKey, "attack at dawn")
-  LET clear AS List OF Byte = crypto::decrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.privateKey, box)
+  LET recip AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
+  LET box AS List OF Byte = crypto::encrypt(crypto::AsymmetricCipher.Ed25519_AES256GCM, recip.publicKey, "attack at dawn")
+  LET clear AS List OF Byte = crypto::decrypt(crypto::AsymmetricCipher.Ed25519_AES256GCM, recip.privateKey, box)
 END SUB
 ```"#;
 
