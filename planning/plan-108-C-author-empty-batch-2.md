@@ -216,24 +216,24 @@ corrected.
 
 ### Phase 1 — general (author), astrings and vector (verify)
 
-- [ ] `general`: author 18 pages + overview; every example compiled and
+- [x] `general`: author 18 pages + overview; every example compiled and
       run. This is the only empty package in the letter. Its members are
       unqualified globals (`len`, `toString`, `typeName`, the `is*`
       predicates), so the pages must be written as bare names with no
       `general::` spelling — the package is deliberately absent from the
       `mfb man` index for that reason (A's Phase 1).
-- [ ] `general`: author its **21 missing parameter descriptions** (0/21).
-- [ ] `astrings`: verify 15 pages + overview + types page; examples run.
-- [ ] `vector`: verify 19 pages + overview + types page; examples run, and
+- [x] `general`: author its **21 missing parameter descriptions** (0/21). — 21/21.
+- [x] `astrings`: verify 15 pages + overview + types page; examples run. — 15/15 running, types page 17/17.
+- [x] `vector`: verify 19 pages + overview + types page; examples run, and
       author its **38 missing parameter descriptions** (0/38) — the single
       largest parameter gap in the letter.
-- [ ] Memory-scope for the three — drive to 0.
-- [ ] Cross-model review per package + apply; ledgers here.
-- [ ] Verify: rendering reads clean; census 100% each.
+- [x] Memory-scope for the three — drive to 0. — **0**. Both hits were the ones A predicted: `astrings::fromString`'s "deep copy" (A's rewrite-table row) and `vector::abs`'s "copy by value".
+- [x] Cross-model review per package + apply; ledgers here. — **30 findings across the three, 30 confirmed, 0 rejected** (general 6, vector 10, astrings 6, plus 8 more found by sweeping their classes). Ledger below.
+- [x] Verify: rendering reads clean; census 100% each. — general 18/18, astrings 15/15, vector 19/19; 82/82 parameters; 0 memory-scope and 0 internals hits.
 
 Acceptance: three packages fully authored/verified and reviewed;
-memory-scope 0; every parameter described.
-Commit: —
+memory-scope 0; every parameter described. — **MET**.
+Commit: e358e4043, b1d575271, a97e6d8aa, db4124111
 
 ### Phase 2 — the network family: net, tcp, udp, http
 
@@ -242,26 +242,27 @@ Done as one unit (§3). Memory-vocabulary baseline **measured at kickoff:
 predicted, for the reason A's Corrections give. `net` and `http` are
 already filled, so both are verified rather than authored.
 
-- [ ] Verify net (**5** pages, not 23) + http (19) pages + overviews +
+- [x] Verify net (**5** pages, not 23) + http (19) pages + overviews +
       types pages; per-function run-vs-compile verification recorded (no
       external-endpoint dependence).
-- [ ] Verify tcp (11) + udp (8) pages + overviews + types pages: every
+- [x] Verify tcp (11) + udp (8) pages + overviews + types pages: every
       existing claim checked against behavior, every example compiled and
       run (loopback only — a listener and a client in the same program; no
       external endpoint).
-- [ ] Settle the family's handle wording and **record the agreed sentences
+- [x] Settle the family's handle wording and **record the agreed sentences
       verbatim here** — E's Prerequisites depend on this block existing.
       Rewrite tcp/udp's 10 `Borrowed, not consumed` parameter descriptions
       and tcp's "close moves the value into the call" (`man --all` `:36828`)
       per A's rewrite table; use the same sentences in net/http.
-- [ ] Cross-model review per package + apply; ledgers.
-- [ ] Verify: rendering + census as Phase 1; `--memory-scope` = 0 for all
+- [x] Cross-model review per package + apply; ledgers. — **66 raw findings; 6 net + ~10 across tcp/udp/http confirmed, and 30-odd REJECTED as one sandbox artifact** (see the ledger).
+- [x] Verify: rendering + census as Phase 1; `--memory-scope` = 0 for all
       four; `mfb man tcp accept` and `mfb man udp receive` read side by
       side for identical handle wording.
 
 Acceptance: four packages authored/verified and reviewed, ledgered;
-memory-scope 0; the agreed handle sentences recorded in this file.
-Commit: —
+memory-scope 0; the agreed handle sentences recorded in this file. —
+**MET**; the sentences are the table above.
+Commit: fd8e0473d, c5012ff2f, 4a429d828
 
 ### Phase 3 — stragglers
 
@@ -272,7 +273,7 @@ stragglers spread across filled packages" this section was written for do
 not exist. B authored `testing` and A authored `thread`, so once Phase 1
 here lands `general`, the tree-wide desc+example count is complete.
 
-- [ ] ~~Fill the ~10 straggler pages inside their filled packages~~ —
+- [x] ~~Fill the ~10 straggler pages inside their filled packages~~ —
       **moot: the census finds none.** `./scripts/man-census.sh` reports
       "pages with neither Description nor Examples: 42" tree-wide at A's
       kickoff, and those 42 are exactly general 18 + testing 12 + thread
@@ -297,8 +298,91 @@ here lands `general`, the tree-wide desc+example count is complete.
 
 Acceptance: census-wide authoring complete — every function page carries
 desc+example (denominator per A's Phase 1 census, which covers tcp/udp;
-the first draft's 466 did not).
-Commit: —
+the first draft's 466 did not). — **MET**: 489/489/489 tree-wide.
+Commit: e358e4043
+
+## The settled network-family handle wording
+
+Phase 2's deliverable, recorded verbatim so `tls` (E) copies rather than
+reinvents. These are the sentences now used identically across net, tcp, udp
+and http:
+
+| Situation | Sentence |
+|---|---|
+| parameter — the handle survives the call | "The handle stays open — you still close it." |
+| parameter — the call takes the handle | "Closed by this call; the handle cannot be used again." |
+| prose — automatic close | "closes itself when its binding goes out of scope" |
+| prose — an element of a polled list | "an **alias** of the one in the list: the list still closes each socket exactly once when it goes out of scope" |
+| prose — updated in place, not taken | "`pump` updates the stream in place and leaves it open — you still close it." |
+| prose — after an explicit close | "after `tcp::close(sock)`, do not use `sock` again." |
+| prose — handed to a thread | "a socket handed to another thread is refused with `ErrResourceMoved`" |
+
+The fifth row is A's Phase 2 "case 3" — the one the two-sentence rewrite table
+could not express — and `http`'s `done`/`finish`/`ready`/`pump` are where it
+lives. The seventh replaces "a handle that `thread::transfer` moved".
+
+E's `tls` must use rows 1, 2, 3 and 6 verbatim.
+
+## Cross-model review ledger
+
+Reviewer: `codex exec -C <worktree> -s workspace-write - < prompt.txt`, banner
+**OpenAI Codex v0.150.0, model `gpt-5.6-terra`**, one run per package.
+
+**Phase 1 — general 6, vector 10, astrings 6; all confirmed, none rejected.**
+
+| Package | Category | Finding | Disposition |
+|---|---|---|---|
+| general | INACCURACY | `isEven`'s claim that `MOD 2 = 0` "does not always" handle negatives | CONFIRMED — **re-verified**: `-4 MOD 2 = 0` is `TRUE` and `-3 MOD 2 = 0` is `FALSE`, matching `isEven` exactly. The difference is readability, nothing else |
+| general | INACCURACY | `toInt` offered `isNumeric` as the test-instead-of-trap guard | CONFIRMED — `isNumeric("1.5")` is `TRUE` but `toInt("1.5")` raises `77050003`. Same shape as B's `find`/`contains` defect: a guard recommended on one page that the guarded call does not honour |
+| general | MISSING ×2 | `toInt`'s base range (2–36, verified: base 1 and 37 both raise); `toScalar`'s exactly-one-scalar rule (`""` and `"ab"` both raise `77050002`) | CONFIRMED |
+| general | INACCURACY ×2 | `toFixed`'s example labelled "out-of-range" while supplying malformed text; `typeName`'s intro saying "runtime type" when the page's own next paragraph says types are settled at compile time | CONFIRMED |
+| vector | INACCURACY | `lerp`'s "the speed along it is constant" | CONFIRMED — true for `Float`, false for `Integer`: `lerp(Integer2[0,0], Integer2[3,0], t)` gives `(2, 0)` at **both** `t = 0.5` and `t = 0.75` |
+| vector | LEAKAGE ×9 | "the hardware maximum instruction", "the hardware `Float` square root … corrects that seed", "a dedicated helper", "separate implementations in the companion source — `__vector_cross_float2`", "the implementation computes `dot(b, b)`", the overview's "written in MFBASIC over the intrinsic `math` package" | CONFIRMED — plus five more pages found by sweeping the class |
+| astrings | MISSING ×4 | every ranged member validates through one check and **no page said what an invalid range does**. Verified: out of bounds → `77050001`, negative or inverted → `77050002`, `getAttributes` index → `77050001`. The sharpest consequence, now stated: the range is INCLUSIVE, so empty text has **no valid range at all** — even `0, 0` is out of bounds | CONFIRMED |
+| astrings | LEAKAGE ×2 | the overview's "value-semantic: it copies deeply, drops with its owning scope", and — **my own rewrite from earlier in this letter** — "it goes away with the scope that holds it" | CONFIRMED |
+
+**Phase 2 — net 6 confirmed; tcp/udp/http ~10 confirmed and 30-odd REJECTED.**
+
+The rejection is a single artifact worth recording, because it would otherwise
+recur in every later letter: **the Codex sandbox cannot bind sockets.** Thirty-odd
+findings across tcp/udp/http said an example "compiles but does not run", each
+citing `7-707-0003 Network operation failed before a connection was established`
+while creating a listener, and several chained further conclusions off it
+("…so this other example is also broken").
+
+Disproving command:
+
+```
+./scripts/man-run-examples.sh tcp --run   → examples: 16  built: 16  ran: 16  failed: 0
+./scripts/man-run-examples.sh net --run   → examples: 11  built: 11  ran: 11  failed: 0
+./scripts/man-run-examples.sh udp --run   → examples:  9  built:  9  ran:  9  failed: 0
+```
+
+The reviewer prompt now states this explicitly and forbids chaining off it. **D
+and E must keep that paragraph** — `process`, `audio`, `io`, `term` and `tls`
+would each produce the same noise otherwise.
+
+Confirmed in the same runs:
+
+| Package | Category | Finding | Disposition |
+|---|---|---|---|
+| net | INACCURACY | `toUrl` claimed an empty explicit port raises | CONFIRMED — **re-verified**: `http://example.com:` yields port 80; `:abc` and `:99999` raise `77050003`. The page now scopes the rules to a non-empty port |
+| net | INACCURACY | `percentDecode`'s second example had a `main` containing only a comment — it compiled, ran, and printed nothing | CONFIRMED |
+| net | INACCURACY | `ping`'s first example had no error handling on a call the page says can fail outright | CONFIRMED — a `Timeout` status is an answer; being unable to probe at all is an error, and the common one on a locked-down host |
+| net | LEAKAGE ×3 | `lookup`'s "answer chain walked twice … `AF_INET` nodes" and "released on both the success and the failure exits"; `percentDecode`'s "the inline-trap analysis cannot see" | CONFIRMED |
+| tcp/udp | LEAKAGE ×5 | "stale descriptor", "takes the handle into the call", "the handle's closed word … carries the *moved* bit", "a handle that `thread::transfer` moved", `udp::poll`'s "closed exactly once at scope exit … must not be transferred" | CONFIRMED |
+| http | LEAKAGE ×2 | `server`/`serverSSL`'s "injected at IR lowering" and "created with `SO_REUSEADDR` set … `AF_INET` hints" | CONFIRMED |
+
+**The finding that changed the plan's instruments.** The tcp review reported a
+bug NUMBER rendered into a man page. Checking whether that was isolated found
+**69 internals-vocabulary lines tree-wide** — bug-184, audit-2, bug-465,
+bug-259, plan-14, bug-63, bug-467, bug-260, five `[[path:symbol]]` old_man
+citation markers, mangled `__collections_*`/`__vector_*` symbols, and 30 uses of
+"lowering"/"monomorphization". `.ai/man-content.md` §3 forbids all of it and F
+must certify it at 0, but **nothing measured it** — every letter had been
+closing against `--memory-scope` alone. `scripts/man-census.sh --scope` is that
+missing instrument, added in the same commit. This letter's seven packages close
+at 0 on it.
 
 ## Validation Plan
 
