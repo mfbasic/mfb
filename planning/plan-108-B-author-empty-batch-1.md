@@ -58,7 +58,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-108-A complete | A's boxes ticked; census + standard committed | NOT MET until A lands |
+| plan-108-A complete | A's boxes ticked; census + standard committed | **MET** 2026-08-30 — every box in A's four phases resolved, every acceptance criterion verified, every `Commit:` line filled (`e30c538de`, `870b10e79`, `f816298ea`, `55b7565d8`). `scripts/man-census.sh`, `scripts/man-run-examples.sh`, `.ai/man-content.md` and `mfb man variable` all exist. |
 
 ## 1. Goal
 
@@ -135,31 +135,61 @@ in the same commit only if a pinned summary is itself corrected.
 
 ## Phases
 
-### Phase 1 — strings
+> **Re-scoped 2026-08-30 at kickoff — see Corrections.** Two of this
+> letter's three packages are no longer empty. Measured with
+> `./scripts/man-census.sh strings term testing`:
+>
+> ```
+> strings           39     39     39       39       64/64     11      -
+> term              24     24     24       24       34/34     11  13/18
+> testing           12     12      0        0       23/23     11      -
+> ```
+>
+> So Phase 1 and Phase 2 are **verification** passes, not authoring, and
+> only Phase 3 authors. The four-step workflow is unchanged; only the
+> starting point of the first step differs, which is exactly the cheaper
+> branch A's §3 already describes. Two populations the original phases did
+> not name are added: term's **5 undescribed types-page entries**, and the
+> **46 memory-vocabulary hits** (strings 28, term 18) this letter must
+> drive to 0.
 
-- [ ] Author 39 pages + overview + types page (accuracy + scope passes);
-      every example compiled and run.
+### Phase 1 — strings (verify)
+
+- [ ] Verify 39 pages + overview (accuracy + scope passes); every example
+      compiled and run. **No types page** — strings exports no types, so
+      `mfb man strings types` renders nothing and the census reads `-`.
+- [ ] Drive the 28 memory-vocabulary hits to 0. They are one systematic
+      phrase — "the result is a new **owned** String" — plus `allocate`
+      variants. Keep the fact (the argument is not changed, you get a new
+      value back); drop the vocabulary.
 - [ ] Cross-model review (Codex) + apply; ledger recorded here.
-- [ ] Verify: `mfb man strings --all` + `types` read clean; census 100%
-      for strings.
+- [ ] Verify: `mfb man strings --all` reads clean; census 100% for
+      strings; `--memory-scope strings` at 0.
 
-Acceptance: strings fully authored and reviewed.
+Acceptance: strings fully verified and reviewed, 0 memory-scope hits.
 Commit: —
 
-### Phase 2 — term
+### Phase 2 — term (verify)
 
-- [ ] Author 25 pages + overview + types page; per-function run vs
-      compile-only verification noted in the ledger.
+- [ ] Verify 24 pages + overview + types page; per-function run vs
+      compile-only verification noted in the ledger (term needs a tty, so
+      expect most of these to be compile-only).
+- [ ] Author the **5 missing types-page entries** — `TermColor.r/g/b` and
+      `TermSize.columns/rows` render with empty Description cells (13/18).
+- [ ] Drive term's 18 memory-vocabulary hits to 0.
 - [ ] Cross-model review + apply; ledger.
-- [ ] Verify: rendering + census as Phase 1.
+- [ ] Verify: rendering + census as Phase 1, types page at 18/18.
 
-Acceptance: term fully authored and reviewed.
+Acceptance: term fully verified and reviewed, types page complete, 0
+memory-scope hits.
 Commit: —
 
-### Phase 3 — testing
+### Phase 3 — testing (author)
 
 - [ ] Author 12 pages + overview; describe `expect` semantics in developer
       terms (what a failed expectation reports; never the desugar story).
+      This is the only package in the letter still empty: 12 pages with 0
+      desc and 0 example.
 - [ ] Cross-model review + apply; ledger.
 - [ ] Verify: rendering + census as Phase 1.
 
@@ -182,7 +212,37 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+**2026-08-30 (kickoff) — strings and term are already filled; this letter
+authors one package, not three.** A's Phase 1 census (and this letter's own
+kickoff re-run, `./scripts/man-census.sh strings term testing`) measures:
+
+| Package | This letter said | Kickoff measures |
+|---|---|---|
+| strings | 39 pages, 0 desc | 39 pages, **39** desc + 39 example, 64/64 params |
+| term | 25 pages, 0 desc | **24** pages, **24** desc + 24 example, 34/34 params |
+| testing | 12 pages, 0 desc | 12 pages, **0** desc — still empty |
+
+The letter's §2 quoted A's 2026-08-24 census (HEAD `254506f9b`); six of the
+nine packages it called all-empty have been filled since. So the "76 pages
+to author" figure is wrong: **12 pages are authored here, and 63 are
+verified.** Per A's §3 the workflow is identical either way — verification
+just starts from existing prose rather than a blank field.
+
+The title "Author the empty packages, batch 1" is left as-is: renaming the
+file would break every cross-letter reference, and this Correction is where
+a reader finds out what the letter actually does.
+
+Two populations the letter never named, both now phase tasks:
+
+- **term's types page is 13/18.** Five record fields render with an empty
+  Description — `TermColor.r`, `.g`, `.b` and `TermSize.columns`, `.rows`.
+  A page with a bare field list fails this plan's Goal the same way a bare
+  function page does.
+- **46 memory-vocabulary hits** (strings 28, term 18, testing 0) against a
+  §2 baseline that predicted "strings 1, term 0, testing 0". That baseline
+  used the old undercounting regex — A's Corrections explain why. In
+  `strings` the hits are almost one phrase repeated: "the result is a new
+  **owned** String", plus `allocate` variants.
 
 ## Summary
 

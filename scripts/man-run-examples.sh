@@ -7,11 +7,15 @@
 # while the page was written; A's census measured ZERO prior example
 # verification across the whole surface. This is the instrument for that.
 #
-#   man-run-examples.sh <pkg> [--run] [fn...]
+#   man-run-examples.sh <pkg> [--run|--test] [fn...]
 #
 # Without --run each block is only compiled (use for tty / device / live-endpoint
 # members). With --run a successful build is executed and its stdout shown, so
 # the author can compare it against what the page claims.
+#
+# --test runs `mfb test` instead of build-then-execute. Use it for examples whose
+# point is a TESTING block: an ordinary `mfb build` DROPS those blocks before
+# codegen, so a clean build proves nothing about them.
 #
 # Blocks are lifted from RENDERED output, so what is checked is exactly what a
 # developer reading the page would type. A block starts at an `IMPORT` line and
@@ -28,10 +32,17 @@ export LC_ALL=${LC_ALL:-en_US.UTF-8}
 pkg=${1:?usage: man-run-examples.sh <pkg> [--run] [fn...]}
 shift
 run=0
-if [ "${1:-}" = "--run" ]; then
+test_mode=0
+case "${1:-}" in
+--run)
 	run=1
 	shift
-fi
+	;;
+--test)
+	test_mode=1
+	shift
+	;;
+esac
 
 if [ ! -x "$MFB" ]; then
 	echo "man-run-examples.sh: no mfb binary at $MFB" >&2
@@ -107,6 +118,23 @@ for fn in $(functions "$@"); do
 
 		prepare_project || { echo "SETUP-FAIL $pkg::$fn #$i"; continue; }
 		printf '%s\n' "$src" > "$SCRATCH/src/main.mfb"
+
+		if [ "$test_mode" = 1 ]; then
+			# `mfb test` exits non-zero iff a case failed, which is exactly the
+			# signal we want: the example's own assertions are the check.
+			if result=$("$MFB" test "$SCRATCH" 2>&1); then
+				built=$((built + 1))
+				ran=$((ran + 1))
+				echo "=== $pkg::$fn example $i — mfb test passed ==="
+				printf '%s\n' "$result" | tail -20
+			else
+				failed=$((failed + 1))
+				failed_list="$failed_list $pkg::$fn#$i(test)"
+				echo "=== $pkg::$fn example $i — mfb test FAILED ==="
+				printf '%s\n' "$result" | tail -20
+			fi
+			continue
+		fi
 
 		if out=$("$MFB" build "$SCRATCH" 2>&1); then
 			built=$((built + 1))

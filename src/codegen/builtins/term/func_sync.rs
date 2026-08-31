@@ -36,10 +36,10 @@ frame that was not finished would leave the screen wrong until something else
 happened to mark the cells dirty again.
 
 **A terminal resize is handled here.** On entry `term::sync` re-reads the
-terminal size; if it changed, it allocates a new grid, copies the top-left overlap
-so existing content survives, clamps the cursor into the new bounds, and forces a
-full repaint of the next frame. If the re-read or the allocation fails, the old
-grid is kept and the frame is presented into it unchanged.
+terminal size; if it changed, it resizes the surface, keeps the content that
+still fits in the top-left, clamps the cursor into the new bounds, and repaints
+the next frame in full. If the size cannot be re-read or the surface cannot be
+resized, the old surface is kept and the frame is presented into it unchanged.
 
 After the changed cells, the present emits a trailing sequence that resets
 attributes, moves the terminal cursor to the shadow cursor's position, and shows

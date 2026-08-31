@@ -32,8 +32,17 @@ needle can match. A negative `start`, or one past the scalar length, raises
 
 `find` always returns a valid index on success and never reports absence with a
 sentinel such as `-1`. When `needle` does not occur at or after `start` it raises
-`ErrNotFound`. When absence is an ordinary, expected outcome, guard the call with
-`strings::contains` and call `find` only once a match is known to exist.
+`ErrNotFound`. When absence is an ordinary, expected outcome, guard the
+two-argument form with `strings::contains` and call `find` only once a match is
+known to exist.
+
+**That guard does not carry over to the three-argument form.**
+`strings::contains` searches the whole string, so it can answer `TRUE` for a
+match that lies *before* `start`, and `find` will still raise. In
+`strings::contains("abcabc", "a")` the answer is `TRUE` while
+`strings::find("abcabc", "a", 5)` raises `ErrNotFound`. When you pass `start`,
+either handle the failure with a `TRAP` or search the suffix beginning at
+`start` instead.
 
 `find` does not mutate either operand. The bare `find` name is also defined for
 lists; see `mfb man collections find` for the `List` form.

@@ -180,39 +180,46 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: TERM_COLOR_TYPE,
         export: true,
-        description: "",
+        description: "An RGB colour, as returned by `term::getForeground` and \
+                      `term::getBackground`. You read one of these; you never build \
+                      one — pass the three channels directly to \
+                      `term::setForeground`/`term::setBackground`.",
         props: vec![
             RecordProp {
                 name: "r",
                 ty: ParameterType::Byte,
-                description: "",
+                description: "The red channel, 0 through 255.",
             },
             RecordProp {
                 name: "g",
                 ty: ParameterType::Byte,
-                description: "",
+                description: "The green channel, 0 through 255.",
             },
             RecordProp {
                 name: "b",
                 ty: ParameterType::Byte,
-                description: "",
+                description: "The blue channel, 0 through 255.",
             },
         ],
     });
     pkg.add_record(RegistryRecord {
         name: TERM_SIZE_TYPE,
         export: true,
-        description: "",
+        description: "The size of the drawing surface in whole character cells, as \
+                      returned by `term::terminalSize`. Ask again after a resize \
+                      rather than caching the first answer.",
         props: vec![
             RecordProp {
                 name: "columns",
                 ty: ParameterType::Integer,
-                description: "",
+                description: "The width in character cells, never pixels. Valid \
+                              columns are 0 through columns-1.",
             },
             RecordProp {
                 name: "rows",
                 ty: ParameterType::Integer,
-                description: "",
+                description: "The height in character cells, never pixels. Valid \
+                              rows are 0 through rows-1.",
             },
         ],
     });

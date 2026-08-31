@@ -11,8 +11,8 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Report the current size of the terminal surface as a `TermSize`"#;
 
-const DESC: &str = r#"`term::terminalSize` returns the size of the drawing surface as a freshly
-allocated `TermSize` record with two `Integer` fields: `columns`, the width in
+const DESC: &str = r#"`term::terminalSize` returns the size of the drawing surface as a
+`TermSize` record with two `Integer` fields: `columns`, the width in
 character cells, and `rows`, the height. Both are counts of whole cells, never
 pixels. Valid cursor positions are rows `0` through `rows-1` and columns `0`
 through `columns-1`. It takes no arguments.
@@ -32,17 +32,18 @@ does not answer — or if it reports zero rows or zero columns, the call raises
 Because the query is live, the answer can change between calls when the user
 resizes the window. A program that lays out, centres, or bounds-checks against
 these dimensions should ask again rather than cache the first answer. The
-drawing grid itself is reflowed to a new size by `term::sync`, which re-reads the
-terminal on entry and, when the size changed, allocates a new grid preserving the
-top-left overlap and forces a full repaint — so immediately after a resize and
-before the next `term::sync`, this call can report the new size while the grid is
-still the old one.
+drawing surface itself is resized by `term::sync`, which re-reads the terminal
+on entry and, when the size changed, resizes the surface keeping the top-left
+overlap and repaints in full — so immediately after a resize and before the next
+`term::sync`, this call can report the new size while the surface is still the
+old one.
 
-Apart from the allocation, the call has no side effects: it draws nothing, moves
-no cursor, and changes no `term::` state.
+The call has no side effects: it draws nothing, moves no cursor, and changes no
+`term::` state. It can still fail when memory is exhausted, since it builds a
+record to return.
 
 In app mode (`mfb build --app`) the size comes from the application's terminal
-view rather than an ioctl, and the same `ErrUnsupported` is raised when TUI mode
+view rather than from the console, and the same `ErrUnsupported` is raised when TUI mode
 is off or no view is attached."#;
 
 const EX: &str = r#"Report the surface dimensions:

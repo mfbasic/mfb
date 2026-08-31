@@ -28,12 +28,11 @@ When TUI mode is on, the teardown runs in this order.
    is left so the user's previous shell contents reappear, and the terminal's
    colour and attribute state is reset so ordinary output that follows is drawn
    normally.
-4. **The active flag is cleared and the shadow-grid block is freed** back to the
-   arena.
+4. **TUI mode is switched off** and the drawing surface goes away.
 
 After `term::off` returns, `term::isOn` reports `FALSE` and every `term::` call
 except `term::on` and `term::isOn` is a no-op again. A later `term::on` starts
-over with a freshly allocated surface and the default state; nothing drawn before
+over with a fresh surface and the default state; nothing drawn before
 `term::off` survives it.
 
 Because the alternate screen and the terminal's line discipline are both process

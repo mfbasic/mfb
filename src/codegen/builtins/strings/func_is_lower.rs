@@ -19,7 +19,7 @@ letters (`Lo`, which covers uncased scripts such as Han and Arabic) are **not**
 reported as lowercase, and neither are digits, punctuation, or symbols.
 `isLower` is a category test, not a "has-no-uppercase-mapping" test.
 
-Classification reads the Unicode general-category table embedded in the compiler,
+Classification follows the Unicode general categories,
 so it covers the whole code-point space rather than just ASCII, and is
 deterministic and locale-independent. The function is total: it returns a
 `Boolean` for every `Scalar` and never fails.

@@ -36,7 +36,7 @@ Violating that raises `ErrIndexOutOfRange`, which makes an over-long request a
 detectable mistake rather than a truncated result. A `start + count` sum that
 overflows 64 bits raises the same error.
 
-`value` is not mutated; the result is a new owned `String`. The bare `mid` name
+`value` is not mutated; the result is a new `String`. The bare `mid` name
 is also defined for lists; see `mfb man collections mid`.
 
 `value` may also be an `astrings::AttributedString`: it returns an

@@ -28,7 +28,7 @@ string. A negative `count` is rejected with `ErrInvalidArgument`.
 This clamping is the difference from `strings::mid`, which raises
 `ErrIndexOutOfRange` when the requested window runs past the end.
 
-`value` is not mutated; the result is a new owned `String`.
+`value` is not mutated; the result is a new `String`.
 
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's

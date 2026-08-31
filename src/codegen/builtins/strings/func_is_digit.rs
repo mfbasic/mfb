@@ -21,7 +21,7 @@ example Roman numerals) or `No` (other number, for example superscripts and
 fractions). A scalar that "looks numeric" is not necessarily a digit by this
 definition.
 
-Classification reads the Unicode general-category table embedded in the compiler,
+Classification follows the Unicode general categories,
 and is deterministic and locale-independent. The function is total: it returns a
 `Boolean` for every `Scalar` and never fails.
 

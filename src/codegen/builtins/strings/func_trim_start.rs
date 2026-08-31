@@ -24,7 +24,7 @@ Removal stops at the first scalar that is not whitespace, so interior and
 trailing content, including embedded spaces and line breaks, is preserved byte
 for byte. A `value` that is entirely whitespace yields the empty string, and the
 empty string yields the empty string. `value` is not mutated; the result is a
-newly allocated `String`, even when nothing was trimmed.
+new `String`, even when nothing was trimmed.
 
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's

@@ -22,8 +22,8 @@ adding several bytes.
 
 When the scalar length of `value` already equals or exceeds `width`, no padding
 is added and the result equals `value`. `padRight` never truncates to fit within
-`width`. Note that a new `String` is always allocated, even in that case; the
-original is never aliased.
+`width`. You still get a new `String` back in that case, and `value` itself is
+never changed.
 
 `padChar` is optional and defaults to a single space. When supplied, it must be
 exactly one well-formed Unicode scalar value — neither empty nor more than one

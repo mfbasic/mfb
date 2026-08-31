@@ -17,8 +17,8 @@ occurrence of `delimiter`, and returns the pieces between the matches as a
 `List OF String`. The delimiters themselves are removed from the output.
 
 Matching is an exact byte comparison with no normalization and no case folding.
-After a match is consumed, scanning resumes at the byte immediately following the
-matched delimiter, so matches never overlap. Because both operands are
+After a match, scanning resumes at the byte immediately following the matched
+delimiter, so matches never overlap. Because both operands are
 well-formed UTF-8, a delimiter is only found where its complete byte sequence
 appears, so a split can never land mid-scalar.
 
@@ -35,7 +35,7 @@ found, and is therefore never empty. Everything else follows from that rule:
 
 `delimiter` must not be empty; an empty delimiter is rejected with
 `ErrInvalidArgument` before any scanning occurs. `value` is not mutated; the
-returned list and its elements are fresh owned values.
+returned list and its elements are their own values.
 
 `delimiter` is also accepted under the name `separator`. Joining the result with
 the same non-empty delimiter reproduces `value` exactly — `split` and

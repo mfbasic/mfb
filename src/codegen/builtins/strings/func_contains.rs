@@ -28,8 +28,10 @@ operand is modified and the call never fails.
 `contains` answers only *whether* the needle is present. Use `strings::find` to
 get the position of the first occurrence — and note that `find` raises
 `ErrNotFound` on absence, so guarding it with `contains` is the idiomatic way to
-treat absence as an ordinary outcome. Use `strings::count` for the number of
-occurrences.
+treat absence as an ordinary outcome. That guard is only sound for the
+two-argument `find`: `contains` searches the whole string, so it can report a
+match that lies before a `find(value, needle, start)`'s `start`, which then
+raises anyway. Use `strings::count` for the number of occurrences.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and

@@ -20,7 +20,7 @@ flag formed from a pair of regional indicators, or an emoji built from a base
 symbol joined to modifiers by zero-width joiners. `graphemes` groups all the
 scalars of such a cluster into a single element, so `"👨‍👩‍👧‍👦x"` yields two
 elements, not eight. Cluster boundaries follow the Unicode extended
-grapheme-cluster rules embedded in the runtime.
+grapheme-cluster rules.
 
 This is a third way of counting a string, distinct from both of the others:
 `len(value)` counts Unicode scalar values and `strings::byteLen(value)` counts
@@ -29,7 +29,7 @@ UTF-8 bytes. For text with combining marks, emoji, or flags all three can differ
 The clusters appear in the same left-to-right order as in `value`, and
 concatenating them reproduces `value` exactly — no scalar is dropped or
 reordered. The empty string yields the empty list. `value` is not mutated; the
-returned list and its elements are fresh owned values.
+returned list and its elements are their own values.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and

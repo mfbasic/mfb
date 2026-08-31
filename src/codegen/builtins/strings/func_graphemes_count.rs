@@ -31,9 +31,9 @@ Multilingual Plane, all three can differ: `"e"` plus `U+0301` plus `"fg"` has
 three clusters but four scalars.
 
 The empty string yields `0`. `value` is not mutated and the call never fails.
-Because the count is derived by segmenting the whole string, it is a linear scan,
-not a stored field — prefer calling `strings::graphemes` once when you need both
-the clusters and their count.
+Counting means walking the whole string, so unlike `strings::byteLen` the cost
+grows with its length — when you need both the clusters and their count, call
+`strings::graphemes` once and take `len` of the result.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and

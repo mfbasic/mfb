@@ -27,11 +27,9 @@ and `169`. The empty string yields the empty list.
 
 `toBytes` is the inverse of `toString(List OF Byte)` and the foundation the
 `encoding` package's Unicode codecs are built on; `encoding::utf8EncodeBytes`
-produces the same octets for the same string. When `value` is a compile-time
-constant, the list is folded at build time from the literal's bytes rather than
-built at run time — the observable result is identical.
+produces the same octets for the same string.
 
-`value` is not mutated. The returned `List OF Byte` is a fresh owned value, so
+`value` is not mutated. The returned `List OF Byte` is its own value, so
 mutating it does not affect the string it came from.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible

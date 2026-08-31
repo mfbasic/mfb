@@ -12,7 +12,7 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Read the current background colour as a `TermColor`"#;
 
 const DESC: &str = r#"`term::getBackground` returns the colour drawn behind subsequently written text,
-as a freshly allocated `TermColor` record with three `Byte` fields `r`, `g`, and
+as a `TermColor` record with three `Byte` fields `r`, `g`, and
 `b` holding the red, green, and blue channels. It takes no arguments.
 
 The value is the module's current background attribute, unpacked from the 24-bit
@@ -33,8 +33,8 @@ cannot distinguish "off" from "on and set to black" by this call alone — use
 `term::isOn` for that.
 
 The call reads state only: it changes no `term::` state, moves no cursor, and
-draws nothing. It can still fail, because the returned record has to be
-allocated."#;
+draws nothing. It can still fail, because building the returned record can
+fail when memory is exhausted."#;
 
 const EX: &str = r#"Set a background colour and read it back:
 

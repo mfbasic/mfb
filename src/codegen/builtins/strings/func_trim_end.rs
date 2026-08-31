@@ -23,8 +23,8 @@ trimming never splits a scalar.
 Removal stops at the last scalar that is not whitespace, so leading and interior
 content, including embedded spaces and line breaks, is preserved byte for byte. A
 `value` that is entirely whitespace yields the empty string, and the empty string
-yields the empty string. `value` is not mutated; the result is a newly allocated
-`String`, even when nothing was trimmed.
+yields the empty string. `value` is not mutated; the result is a new `String`,
+even when nothing was trimmed.
 
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's

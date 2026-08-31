@@ -28,7 +28,7 @@ mode is off: it returns the **inert default**, `FALSE`. A program cannot
 distinguish "off" from "on with bold disabled" by this call alone — use
 `term::isOn` for that.
 
-The call reads state only. It allocates nothing, changes no `term::` state, draws
+The call reads state only. It changes no `term::` state, draws
 nothing, and cannot fail."#;
 
 const EX: &str = r#"Set bold and read it back:
