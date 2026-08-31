@@ -201,22 +201,30 @@ Acceptance: each primitive rasterises to expected pixels deterministically on th
 machine; AA and sRGB encode are reproducible (same bytes on re-run); and a re-`present`
 that changes one item of many regenerates exactly one cache entry, the rest hitting.
 No GPU, no blit yet.
-Commit: —
+Commit: `b33cbfea3`
 
 ### Phase 2 — Golden-image harness + tolerance comparator
 
-- [ ] Add a headless golden test that renders a fixed multi-primitive scene to the RGBA
-      buffer and byte-compares to a stored reference; store references under
-      `tests/golden/canvas/` (raw + PNG).
-- [ ] Implement the **tolerance comparator** (per-channel epsilon / SSIM) as a separate
-      entry point, documented as the GPU-backend comparator for E/F. Software goldens use
-      the exact-match path; the tolerance path is unused until E but is written and
-      unit-tested here so invariant 5 is real, not aspirational.
-- [ ] Tests: exact-match golden for the fixed scene; a deliberately-perturbed buffer fails
-      exact-match but passes tolerance within threshold and fails beyond it.
+- [x] Added `tests/rt_canvas_golden.rs`: renders the plan-98-api.md smiley headless
+      and compares it exactly to `tests/golden/canvas/smiley.png`. Stored as **PNG
+      only, compared as decoded pixels** (Correction 9 — the encoder-variance concern
+      the plan raised is about file bytes, which nothing here compares). RED-checked:
+      making `__canvas_coverage` truncate instead of round reds it with
+      "613 of 576000 pixels differ (max channel delta 13); first at (433, 170)".
+- [x] `tests/common/canvas_image.rs` provides `compare_exact` and
+      `compare_within_tolerance`. The tolerance metric is a per-channel epsilon **and**
+      a differing-pixel budget, both required (Correction 10 — either alone is the
+      wrong shape; SSIM was rejected). `Tolerance::GPU_DEFAULT` is 2 steps / 2% of
+      pixels, documented as E/F's starting point to be re-measured against real driver
+      output.
+- [x] Tests: the exact-match golden above, plus four comparator tests — identical
+      frames pass both; a one-step perturbation on one pixel fails exact-match and
+      passes tolerance; a 40-step delta fails the epsilon; a one-step shift over 10% of
+      the frame fails the pixel budget while every individual difference is inside the
+      epsilon.
 
-Acceptance: the fixed-scene software golden passes exact-match; the tolerance comparator
-accepts/rejects at documented thresholds — both test-proven and headless.
+Acceptance: MET. `cargo test --test rt_canvas_golden` — 5 passed, headless. The
+golden's ability to catch a rendering change was RED-checked, not assumed.
 Commit: —
 
 ### Phase 3 — Per-platform CPU-buffer blit (largest blast radius last)
@@ -355,6 +363,36 @@ renderer read only the flat one, so `presentLayers` published correctly and then
 an empty frame. The internal-only `canvas::installedLayers` is the layered twin of
 `canvas::installedItems`, and `__canvas_renderScene` walks both shapes in draw order
 with one index into the published hash list.
+
+**Correction 9 (Phase 2) — references are PNG only, not "raw + PNG".** The plan
+wanted a raw `.bin` as the exact-match oracle "because PNG codecs can vary", plus a
+PNG for human inspection. Encoders do vary — in the *file bytes* they emit for given
+pixels — but nothing in the harness compares file bytes: `Frame::load_png` decodes
+and `compare_exact` compares the decoded pixel array. A PNG decodes to exactly one
+pixel array, so this is precisely as exact as a raw blob, at 21 KB instead of 2.3 MB
+for one 900x640 frame, and viewable without a converter. Storing both would have been
+the same data twice.
+
+**Correction 10 (Phase 2) — the tolerance metric is epsilon AND a pixel budget; SSIM
+rejected.** The plan offered "per-channel epsilon / SSIM". Neither alone is the right
+shape: an epsilon alone accepts a frame where *every* pixel is slightly wrong, which
+is a systematic error (a wrong gamma, a half-pixel offset) rather than the sampling
+noise the tolerance exists to permit; a differing-pixel budget alone accepts a few
+catastrophically wrong pixels. `compare_within_tolerance` requires both. SSIM is not
+implemented: it is a perceptual-similarity measure, and the question a GPU backend
+must answer is "did this diverge from the oracle numerically", for which a structural
+similarity score is both harder to threshold defensibly and blind to a uniform shift.
+The plan listed it as a "secondary sanity check", and a check nothing gates on is
+surface without a consumer.
+
+**Correction 11 (Phase 2) — `canvas::getSize()` with no argument did not exist.** The
+smiley in `plan-98-api.md` — which this phase's golden fixture is — opens with
+`LET canvasSize AS Size = canvas::getSize()`, and the doc says "getSize() with no arg
+returns the surface size". Only the `getSize(image)` overload was implemented, so the
+documented example failed to compile with `TYPE_UNKNOWN_VALUE`. Added the no-arg
+overload as a second `Implementation` delegating to `__canvas_surfaceSize`, so the
+renderer and the program cannot disagree about how big the surface is and plan-98-D's
+resize has one definition to replace.
 
 **Correction 8 (Phase 1) — `MFB_CANVAS_STATS` added as a test affordance.** The
 cache's whole claim is that re-presenting an unchanged item generates nothing, and

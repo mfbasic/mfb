@@ -127,6 +127,37 @@ How it surfaced: changing `DEFAULT_REPO_URL` to mfb-repo.fly.dev changed which `
 
 Note also that a `repository/`-only change CAN turn the main acceptance suite red — run it too, don't trust "repository suite 164 pass" alone. When waiting on a run, poll the output FILE in the foreground (every `pgrep`-based waiter self-matches). Never run cargo during a run.
 
+## Canvas reference images: exact for software, tolerance for GPU
+
+`tests/golden/canvas/*.png` are **not** instances of the `tests/byte-identity/`
+codegen drift gate above, and `artifact-gate.sh` does not touch them. They are
+rendered *pictures*, gated by `tests/rt_canvas_golden.rs`, and the rule is the
+opposite of the drift-sentinel rule: a mismatch is a **bug hunt**, not a
+regeneration.
+
+That asymmetry is the point. Byte-identity goldens track incidental codegen churn,
+so a diff from a correct change means "regenerate". A canvas reference tracks
+*rendered output* from a rasteriser with no floating driver, no transcendental and
+exact-coverage AA — so a diff means the rendering changed, which is a behavioural
+claim and falls under AGENTS.md's four-question rule. The reference is regenerated
+with `MFB_UPDATE_CANVAS_GOLDEN=1` only after the *reference* has been proven wrong,
+and the commit says what proved it.
+
+Two comparators, in `tests/common/canvas_image.rs`:
+
+* `compare_exact` — the gate for the software rasteriser.
+* `compare_within_tolerance` — for plan-98-E/F's GPU backends, where an exact match
+  is the wrong test. It bounds the error in two directions at once, which one limit
+  alone cannot: a per-channel epsilon (no pixel off by more than N) *and* a
+  differing-pixel budget (no more than X% differ at all). An epsilon alone accepts a
+  systematically wrong frame — a wrong gamma, a half-pixel offset — as noise; a
+  pixel budget alone accepts a few catastrophically wrong pixels.
+
+References are stored as PNG and compared as *decoded pixels*, never as file bytes.
+PNG encoders vary in the bytes they emit for given pixels, but a PNG decodes to
+exactly one pixel array — so this is precisely as exact as a raw blob, at ~1% of
+the size (21 KB vs 2.3 MB for one 900x640 frame) and directly viewable.
+
 ## Perf goldens break execution acceptance
 
 Running `scripts/test-accept.sh <exe> <dir>` for a FULL execution pass is **inherently noisy** at baseline and cannot reach 0 mismatches — do not treat a clean full test-accept as the acceptance gate.

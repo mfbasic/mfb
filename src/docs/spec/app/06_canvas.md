@@ -93,6 +93,40 @@ direction that makes a `0`..`PI` arc sweep *below* its centre.
 The convention is stated because an arc is the one primitive where getting it
 wrong is silent: a smile renders as a frown rather than failing.
 
+## Rendering conventions
+
+These are the observable contract a backend must meet, not implementation notes.
+The software rasteriser fixes them; the GPU backends match them within a
+documented tolerance rather than exactly, because rasterisation rules and blend
+precision differ legitimately between drivers.
+
+**Compositing happens in linear light.** A colour's channels are sRGB-encoded
+bytes, so they are decoded to linear before blending and re-encoded on store. The
+transfer function is the standard one — `c / 12.92` below `0.04045`, else
+`((c + 0.055) / 1.055) ^ 2.4` — evaluated over a 256-entry table so the result
+cannot depend on a platform's `pow`. Blending is `dst + (src - dst) * alpha / 255`
+on the linear values, rounded to nearest.
+
+Half-opaque white over red is therefore `(255, 188, 188)`, not `(255, 128, 128)`.
+The second is what blending the encoded bytes directly would give, and it is the
+single most common way a compositor is wrong while still looking plausible.
+
+**Antialiasing is exact coverage.** A pixel's coverage is
+`clamp(0.5 - d, 0, 1)` on the shape's signed distance `d`, sampled at the pixel
+centre — the fraction of the pixel inside a locally straight edge. Coverage folds
+into the source alpha rather than being applied separately, because the two mean
+the same thing to the compositing equation.
+
+The coverage form is specified rather than left to the backend because it is what
+makes the software path's output *reproducible*: it uses only `+ - * /` and
+`sqrt`, all exactly specified by IEEE-754, so the same scene renders to the same
+bytes on every target. A `smoothstep`/`fwidth` formulation — the usual shader
+idiom — depends on a derivative estimate and would not.
+
+**The surface is opaque.** It is a window's whole content, with nothing behind it,
+so alpha is written back as `255` and an unpainted pixel is black rather than
+transparent.
+
 ## Images are named, not embedded
 
 An `Image` is an ordinary owned resource, released when it leaves scope or by

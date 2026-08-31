@@ -1,4 +1,10 @@
-//! `canvas::getSize` — an image's pixel dimensions.
+//! `canvas::getSize` — an image's pixel dimensions, or the surface's.
+//!
+//! Two overloads on one name, distinguished by arity. They answer the same
+//! question — "how big is the thing I am drawing on or with?" — and a program
+//! laying a `Picture` out proportionally needs both in the same expression, so
+//! splitting them across two names would put an arbitrary distinction in the
+//! caller's way.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
@@ -12,10 +18,14 @@ use crate::types::ParameterType;
 
 use super::gen_image::{emit_closed_guard, IMAGE_HEIGHT, IMAGE_WIDTH};
 
-const INTRO: &str = r#"The pixel dimensions of an image."#;
+const INTRO: &str = r#"The pixel dimensions of an image, or of the canvas surface."#;
 
-const DESC: &str = r#"`getSize` returns the `width` and `height` an image was created with, so a program
-can lay a `Picture` out proportionally without tracking the numbers itself.
+const DESC: &str = r#"`getSize(image)` returns the `width` and `height` an image was created with, so a
+program can lay a `Picture` out proportionally without tracking the numbers itself.
+
+`getSize()` with no argument returns the **canvas surface** size instead — the
+drawing area a scene is presented into, in the same pixel coordinates every
+`DrawItem` uses. That is what a program centres on.
 
 It reads the runtime's own record — no backend round trip — so it costs a load.
 
@@ -99,6 +109,17 @@ pub(crate) fn lower_get_size(
     })
 }
 
+/// `canvas::getSize() AS Size` — the canvas surface's dimensions.
+///
+/// Delegates to `__canvas_surfaceSize` rather than repeating the numbers, so the
+/// renderer and the program cannot disagree about how big the surface is — and so
+/// plan-98-D's live resize has one definition to replace instead of two.
+#[rustfmt::skip]
+const SURFACE_BODY: &str =
+r#"FUNC __canvas_getSurfaceSize() AS Size
+  RETURN __canvas_surfaceSize()
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "getSize",
@@ -107,17 +128,25 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: None,
         internal_only: false,
-        implementations: vec![Implementation {
-            params: vec![Parameter {
-                name: "image",
-                desc: "The image to measure.",
-                aliases: &[],
-                ty: ParameterType::named(super::IMAGE_TYPE_ID),
-                default: DefaultValue::None,
-            }],
-            return_type: ParameterType::named("Size"),
-            errors: vec!["ErrResourceClosed", "ErrOutOfMemory"],
-            body: Body::abi_function(lower_get_size),
-        }],
+        implementations: vec![
+            Implementation {
+                params: vec![Parameter {
+                    name: "image",
+                    desc: "The image to measure.",
+                    aliases: &[],
+                    ty: ParameterType::named(super::IMAGE_TYPE_ID),
+                    default: DefaultValue::None,
+                }],
+                return_type: ParameterType::named("Size"),
+                errors: vec!["ErrResourceClosed", "ErrOutOfMemory"],
+                body: Body::abi_function(lower_get_size),
+            },
+            Implementation {
+                params: vec![],
+                return_type: ParameterType::named("Size"),
+                errors: vec![],
+                body: Body::mfb(SURFACE_BODY, "__canvas_getSurfaceSize"),
+            },
+        ],
     });
 }

@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub mod canvas_image;
+
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
