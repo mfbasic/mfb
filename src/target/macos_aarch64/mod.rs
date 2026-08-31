@@ -41,6 +41,7 @@ impl NativeBackend for Backend {
                 "canvas.presentLayers",
                 "canvas.publishScene",
                 "canvas.publishLayers",
+                "canvas.blitSurface",
                 "canvas.installedItems",
                 "canvas.installedLayers",
                 "canvas.publishHashes",

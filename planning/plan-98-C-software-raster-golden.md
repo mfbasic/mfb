@@ -225,7 +225,7 @@ Commit: `b33cbfea3`
 
 Acceptance: MET. `cargo test --test rt_canvas_golden` — 5 passed, headless. The
 golden's ability to catch a rendering change was RED-checked, not assumed.
-Commit: —
+Commit: `33e54904a`
 
 ### Phase 3 — Per-platform CPU-buffer blit (largest blast radius last)
 

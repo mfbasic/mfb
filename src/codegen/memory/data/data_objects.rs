@@ -213,6 +213,7 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "canvas.presentLayers",
             "canvas.publishScene",
             "canvas.publishLayers",
+            "canvas.blitSurface",
             "canvas.installedItems",
             "canvas.installedLayers",
             "canvas.publishHashes",

@@ -1,21 +1,21 @@
-//! Per-item drawing: the bounding-box loops, and one `MATCH` arm per `DrawItem`.
+//! The per-pixel distance functions the one rasterisation loop switches on.
 //!
-//! Rectangle, RoundedRect, Circle and Line all go through `__canvas_fillSpan`, which
-//! walks a clipped bounding box and asks a per-kind distance function for each
-//! pixel's coverage. They differ only in that function, in the box they claim, and in
-//! the radius subtracted from the distance — which is what turns a rectangle into a
-//! rounded one and a segment into a stroked line, rather than three more code paths.
+//! Every primitive is a signed distance field. Rectangle, RoundedRect, Circle, Line,
+//! Arc and Polygon differ only in the function evaluated per pixel and in the radius
+//! subtracted from it — which is what turns a rectangle into a rounded one and a
+//! segment into a stroked line, rather than being six code paths.
 //!
-//! The arc has its own loop. It is the one shape needing an angular test as well as a
-//! radial one, and squeezing that into the shared signature costs more clarity than
-//! the sharing buys.
+//! That is not a shortcut, it is the design the GPU backends will use ("one pipeline,
+//! many shapes"), so the software oracle predicting their output means predicting it
+//! through the same structure rather than a parallel one.
 //!
-//! **Fill then stroke, in that order**, matching every 2D API a user is likely to
-//! have met: an outline drawn under its own fill would be half-hidden by it.
+//! The pixel *writes* live in `helper_items.rs`, not here, and deliberately — see the
+//! comment on `__canvas_drawGeometry` for why a helper that takes and returns the
+//! surface is 290x slower than writing it in place.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
-/// The kind tag `__canvas_fillSpan` switches its distance function on.
+/// The kind tag the distance dispatch switches on.
 ///
 /// Small integers rather than an enum because these are internal: a `canvas` enum
 /// would appear in `mfb man canvas types` as a type no program can use.
@@ -42,153 +42,96 @@ FUNC __canvas_minI(a AS Integer, b AS Integer) AS Integer
   RETURN b
 END FUNC"#;
 
-/// Walk the clipped bounding box, evaluating one distance function per pixel.
+/// The signed distance to one geometry record's shape, negative inside.
 ///
 /// `p0..p3` carry the shape's parameters positionally — centre and half-extent for a
-/// rectangle, centre and radius for a circle, two endpoints for a segment. A record
-/// per shape kind would allocate on the per-scene path for no gain.
+/// rectangle, centre and radius for a circle, two endpoints for a segment. `radius`
+/// is subtracted from the raw distance, which is the single term that makes a rounded
+/// rectangle and a stroked line fall out of the rectangle and segment distances.
 ///
-/// `radius` is subtracted from the raw distance. That single term is what makes a
-/// rounded rectangle and a stroked line fall out of the rectangle and segment
-/// distances rather than needing their own rasterisers.
+/// The arc's sweep vectors are passed in rather than derived here because they are
+/// per-*shape* constants: computing `sin`/`cos` per pixel would be both slower and,
+/// more importantly, the only place a transcendental could reach the per-pixel path.
 ///
-/// The box is clamped to the surface **before** the loop rather than tested per
-/// pixel, so a shape hanging off the edge costs nothing for the invisible part.
+/// An out-of-sweep arc pixel gets a large positive distance rather than a branch
+/// around the blend, so the arc's two radial ends antialias through exactly the same
+/// coverage path as its curved sides. Branching would have left them hard.
 #[rustfmt::skip]
-const FILL_SPAN: &str =
-r#"FUNC __canvas_fillSpan(surface AS List OF Byte, width AS Integer, height AS Integer, minX AS Integer, minY AS Integer, maxX AS Integer, maxY AS Integer, kind AS Integer, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, radius AS Float, color AS Color) AS List OF Byte
-  MUT out AS List OF Byte = surface
-  IF toInt(color.alpha) <= 0 THEN
-    RETURN out
-  END IF
-  LET firstX AS Integer = __canvas_maxI(minX, 0)
-  LET lastX AS Integer = __canvas_minI(maxX, width - 1)
-  LET lastY AS Integer = __canvas_minI(maxY, height - 1)
-  MUT y AS Integer = __canvas_maxI(minY, 0)
-  WHILE y <= lastY
-    LET rowBase AS Integer = y * width * 4
-    LET py AS Float = toFloat(y) + 0.5
-    MUT x AS Integer = firstX
-    WHILE x <= lastX
-      LET px AS Float = toFloat(x) + 0.5
-      LET distance AS Float = __canvas_shapeDistance(kind, px, py, p0, p1, p2, p3) - radius
-      LET coverage AS Integer = __canvas_coverage(distance)
-      IF coverage > 0 THEN
-        out = __canvas_blendPixel(out, rowBase + x * 4, color.red, color.green, color.blue, color.alpha, coverage)
-      END IF
-      x = x + 1
-    END WHILE
-    y = y + 1
-  END WHILE
-  RETURN out
-END FUNC"#;
-
-/// The distance function for each shared shape kind.
-#[rustfmt::skip]
-const SHAPE_DISTANCE: &str =
-r#"FUNC __canvas_shapeDistance(kind AS Integer, px AS Float, py AS Float, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float) AS Float
+const GEO_DISTANCE: &str =
+r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer, px AS Float, py AS Float, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, radius AS Float, sx AS Float, sy AS Float, ex AS Float, ey AS Float, reflex AS Boolean) AS Float
   IF kind = __CANVAS_KIND_RECT THEN
-    RETURN __canvas_rectDistance(px, py, p0, p1, p2, p3)
+    RETURN __canvas_rectDistance(px, py, p0, p1, p2, p3) - radius
   END IF
   IF kind = __CANVAS_KIND_CIRCLE THEN
-    LET dx AS Float = px - p0
-    LET dy AS Float = py - p1
-    RETURN math::sqrt(dx * dx + dy * dy) - p2
+    LET cdx AS Float = px - p0
+    LET cdy AS Float = py - p1
+    RETURN math::sqrt(cdx * cdx + cdy * cdy) - p2 - radius
   END IF
-  RETURN __canvas_segmentDistance(px, py, p0, p1, p2, p3)
+  IF kind = __CANVAS_KIND_SEGMENT THEN
+    RETURN __canvas_segmentDistance(px, py, p0, p1, p2, p3) - radius
+  END IF
+  IF kind = __CANVAS_GEO_ARC THEN
+    LET adx AS Float = px - p0
+    LET ady AS Float = py - p1
+    IF __canvas_arcInSweep(adx, ady, sx, sy, ex, ey, reflex) THEN
+      RETURN __canvas_absF(math::sqrt(adx * adx + ady * ady) - p2) - radius
+    END IF
+    RETURN 1000000.0
+  END IF
+  RETURN __canvas_edgeDistance(tail, edges, px, py)
 END FUNC"#;
 
-/// The arc's own loop: a stroked ring clipped to a swept sector.
+/// Signed distance to a closed polygon, from the cached edge array.
 ///
-/// The sector test pushes an out-of-sweep pixel's distance far positive rather than
-/// branching around the blend, so the arc's two radial ends antialias through exactly
-/// the same coverage path as its curved sides. Branching would have left them hard.
+/// Nearest edge for the magnitude, a crossing count for the sign. Each edge was
+/// stored as `x0, y0, dx, dy, invLenSq` at generation time, so the inner loop is
+/// multiplies and adds — no per-pixel subtraction of endpoints and no per-pixel
+/// reciprocal. That is what the geometry cache buys.
 ///
-/// The start and end directions are computed **once per arc** with the deterministic
-/// `__canvas_sin`/`__canvas_cos`, never per pixel.
+/// Making the polygon an SDF like every other shape is what lets it share the fill,
+/// the stroke and the antialiasing rather than needing a scanline rasteriser with its
+/// own coverage rules — and a scanline filler and an SDF filler would disagree about
+/// edge pixels, which is exactly the kind of disagreement an oracle cannot have.
+///
+/// The cost is `O(edges)` per pixel instead of `O(1)`, which is the right trade for a
+/// primitive whose scenes have a handful of vertices.
 #[rustfmt::skip]
-const FILL_ARC: &str =
-r#"FUNC __canvas_fillArc(surface AS List OF Byte, width AS Integer, height AS Integer, cx AS Float, cy AS Float, radius AS Float, startAngle AS Float, endAngle AS Float, halfWidth AS Float, color AS Color) AS List OF Byte
-  MUT out AS List OF Byte = surface
-  IF toInt(color.alpha) <= 0 THEN
-    RETURN out
-  END IF
-  LET sweep AS Float = endAngle - startAngle
-  LET reflex AS Boolean = sweep > 3.141592653589793
-  LET sx AS Float = __canvas_cos(startAngle)
-  LET sy AS Float = __canvas_sin(startAngle)
-  LET ex AS Float = __canvas_cos(endAngle)
-  LET ey AS Float = __canvas_sin(endAngle)
-  LET reach AS Float = radius + halfWidth + 1.0
-  LET firstX AS Integer = __canvas_maxI(toInt(cx - reach), 0)
-  LET lastX AS Integer = __canvas_minI(toInt(cx + reach), width - 1)
-  LET lastY AS Integer = __canvas_minI(toInt(cy + reach), height - 1)
-  MUT y AS Integer = __canvas_maxI(toInt(cy - reach), 0)
-  WHILE y <= lastY
-    LET rowBase AS Integer = y * width * 4
-    LET py AS Float = toFloat(y) + 0.5
-    MUT x AS Integer = firstX
-    WHILE x <= lastX
-      LET px AS Float = toFloat(x) + 0.5
-      LET dx AS Float = px - cx
-      LET dy AS Float = py - cy
-      MUT distance AS Float = 1000000.0
-      IF __canvas_arcInSweep(dx, dy, sx, sy, ex, ey, reflex) THEN
-        distance = __canvas_absF(math::sqrt(dx * dx + dy * dy) - radius) - halfWidth
+const EDGE_DISTANCE: &str =
+r#"FUNC __canvas_edgeDistance(tail AS Integer, edges AS Integer, px AS Float, py AS Float) AS Float
+  MUT best AS Float = 1000000.0
+  MUT inside AS Boolean = FALSE
+  MUT e AS Integer = 0
+  WHILE e < edges
+    LET base AS Integer = tail + e * 5
+    LET ax AS Float = collections::getOr(__CANVAS_GEO_DATA, base, 0.0)
+    LET ay AS Float = collections::getOr(__CANVAS_GEO_DATA, base + 1, 0.0)
+    LET dx AS Float = collections::getOr(__CANVAS_GEO_DATA, base + 2, 0.0)
+    LET dy AS Float = collections::getOr(__CANVAS_GEO_DATA, base + 3, 0.0)
+    LET invLenSq AS Float = collections::getOr(__CANVAS_GEO_DATA, base + 4, 0.0)
+    LET wx AS Float = px - ax
+    LET wy AS Float = py - ay
+    LET t AS Float = __canvas_minF(__canvas_maxF((wx * dx + wy * dy) * invLenSq, 0.0), 1.0)
+    LET qx AS Float = wx - t * dx
+    LET qy AS Float = wy - t * dy
+    best = __canvas_minF(best, math::sqrt(qx * qx + qy * qy))
+    LET by AS Float = ay + dy
+    IF (ay > py) <> (by > py) THEN
+      LET u AS Float = (py - ay) / dy
+      IF px < ax + u * dx THEN
+        inside = NOT inside
       END IF
-      LET coverage AS Integer = __canvas_coverage(distance)
-      IF coverage > 0 THEN
-        out = __canvas_blendPixel(out, rowBase + x * 4, color.red, color.green, color.blue, color.alpha, coverage)
-      END IF
-      x = x + 1
-    END WHILE
-    y = y + 1
+    END IF
+    e = e + 1
   END WHILE
-  RETURN out
-END FUNC"#;
-
-/// The outline band of the same shape: `|distance| - halfWidth`.
-///
-/// An outline is not a separate shape, it is the *absolute* distance offset by half
-/// the stroke width — which is why every shape gets a correctly antialiased outline
-/// from the distance function it already has, with no per-shape outline geometry.
-#[rustfmt::skip]
-const STROKE_SPAN: &str =
-r#"FUNC __canvas_strokeSpan(surface AS List OF Byte, width AS Integer, height AS Integer, minX AS Integer, minY AS Integer, maxX AS Integer, maxY AS Integer, kind AS Integer, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, radius AS Float, halfWidth AS Float, color AS Color) AS List OF Byte
-  MUT out AS List OF Byte = surface
-  IF toInt(color.alpha) <= 0 THEN
-    RETURN out
+  IF inside THEN
+    RETURN 0.0 - best
   END IF
-  LET firstX AS Integer = __canvas_maxI(minX, 0)
-  LET lastX AS Integer = __canvas_minI(maxX, width - 1)
-  LET lastY AS Integer = __canvas_minI(maxY, height - 1)
-  MUT y AS Integer = __canvas_maxI(minY, 0)
-  WHILE y <= lastY
-    LET rowBase AS Integer = y * width * 4
-    LET py AS Float = toFloat(y) + 0.5
-    MUT x AS Integer = firstX
-    WHILE x <= lastX
-      LET px AS Float = toFloat(x) + 0.5
-      LET raw AS Float = __canvas_shapeDistance(kind, px, py, p0, p1, p2, p3) - radius
-      LET coverage AS Integer = __canvas_coverage(__canvas_absF(raw) - halfWidth)
-      IF coverage > 0 THEN
-        out = __canvas_blendPixel(out, rowBase + x * 4, color.red, color.green, color.blue, color.alpha, coverage)
-      END IF
-      x = x + 1
-    END WHILE
-    y = y + 1
-  END WHILE
-  RETURN out
+  RETURN best
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_kinds", KINDS));
-    pkg.add_helper(RegistryHelper::always("canvas_strokeSpan", STROKE_SPAN));
     pkg.add_helper(RegistryHelper::always("canvas_intUtil", INT_UTIL));
-    pkg.add_helper(RegistryHelper::always(
-        "canvas_shapeDistance",
-        SHAPE_DISTANCE,
-    ));
-    pkg.add_helper(RegistryHelper::always("canvas_fillSpan", FILL_SPAN));
-    pkg.add_helper(RegistryHelper::always("canvas_fillArc", FILL_ARC));
+    pkg.add_helper(RegistryHelper::always("canvas_edgeDistance", EDGE_DISTANCE));
+    pkg.add_helper(RegistryHelper::always("canvas_geoDistance", GEO_DISTANCE));
 }

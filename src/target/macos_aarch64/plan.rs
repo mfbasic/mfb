@@ -117,6 +117,17 @@ impl plan::NativePlanPlatform for Platform {
             ("Foundation", "_OBJC_CLASS_$_NSMutableDictionary"),
             ("Foundation", "_OBJC_CLASS_$_NSNumber"),
             ("Foundation", "_OBJC_CLASS_$_NSAttributedString"),
+            // plan-98-C Phase 3: the canvas frame blit wraps the rendered RGBA8
+            // block in a `CGImage` and hands it to the layer. CoreGraphics rather
+            // than AppKit because the surface is a `CALayer` and its `contents` is
+            // a `CGImageRef` — going through `NSImage` would add a conversion whose
+            // only purpose is to be undone.
+            ("CoreGraphics", "_CGColorSpaceCreateDeviceRGB"),
+            ("CoreGraphics", "_CGColorSpaceRelease"),
+            ("CoreGraphics", "_CGBitmapContextCreate"),
+            ("CoreGraphics", "_CGBitmapContextCreateImage"),
+            ("CoreGraphics", "_CGContextRelease"),
+            ("CoreGraphics", "_CGImageRelease"),
             ("libSystem", "_pthread_create"),
             ("libSystem", "_pthread_attr_init"),
             ("libSystem", "_pthread_attr_setstacksize"),

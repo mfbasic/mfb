@@ -682,6 +682,15 @@ fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool) {
         asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
         asm.call_external("_class_addMethod", LIB_OBJC);
+        // class_addMethod(cls, @selector(mfbBlit:), imp, "v@:@") — plan-98-C
+        // Phase 3: the main-thread frame blit the worker marshals to. Installed on
+        // the same condition as `mfbReconcile:`, because only a program that can
+        // enter canvas mode can ever present a frame.
+        asm.load_selector(SEL_MFB_BLIT.0);
+        asm.local_address("x2", CANVAS_BLIT_APPLY_SYMBOL);
+        asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
     }
     // objc_registerClassPair(cls)
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[4]));
@@ -780,6 +789,208 @@ pub(super) fn emit_reconcile_marshal_helper() -> CodeFunction {
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
     reconcile_code_function(RECONCILE_MARSHAL_SYMBOL, asm)
+}
+
+/// plan-98-C Phase 3 (worker side): `_mfb_macapp_canvas_blit`.
+///
+/// `x0` = the frame's first pixel, `x1` = width, `x2` = height. Wraps the RGBA8
+/// block in a `CGImage` and marshals it to the main thread as `mfbBlit:`.
+///
+/// **Why a bitmap context rather than `CGImageCreate`.** The direct constructor
+/// takes eleven arguments, three of which land on the stack with Apple's packed
+/// AArch64 stack-argument rules (an 8-byte pointer, a 1-byte `bool`, then a 4-byte
+/// enum) — a layout that is easy to get subtly wrong and whose failure mode is a
+/// wrong image rather than a crash. `CGBitmapContextCreate` takes seven, all in
+/// registers, and `CGBitmapContextCreateImage` takes one.
+///
+/// **Why the image outlives the caller's buffer.** `CGBitmapContextCreateImage` is
+/// documented to return a *snapshot* — it copies the pixels — so the context can be
+/// released immediately and the caller's block is free to become the next frame the
+/// moment this returns. That is what makes it safe to pass the collection's payload
+/// pointer directly instead of copying it first.
+///
+/// **Why `waitUntilDone:YES`.** The image is released here, right after the perform.
+/// With `NO` the main thread might not have consumed it yet, and releasing it would
+/// hand `setContents:` a dead image. Waiting also keeps frames in order, which a
+/// renderer wants regardless.
+///
+/// The bitmap info is `kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big`
+/// (`1 | 0x4000`), which is what makes CoreGraphics read the block as R, G, B, A in
+/// memory order. The surface is opaque (alpha is always 255), so premultiplied and
+/// straight alpha are the same bytes and the choice is free.
+pub(super) fn emit_canvas_blit_helper() -> CodeFunction {
+    let mut asm = Asm::new(CANVAS_BLIT_SYMBOL);
+    let frame = 96;
+    let skip = format!("{CANVAS_BLIT_SYMBOL}_skip");
+    let no_context = format!("{CANVAS_BLIT_SYMBOL}_no_context");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 32));
+    asm.push(abi::store_u64(abi::LOCAL[4], abi::stack_pointer(), 40));
+    asm.push(abi::store_u64(abi::LOCAL[5], abi::stack_pointer(), 48));
+    // Park the three arguments before any call clobbers them.
+    asm.push(abi::move_register(abi::LOCAL[3], abi::mfb_arg(0))); // pixels
+    asm.push(abi::move_register(abi::LOCAL[4], abi::mfb_arg(1))); // width
+    asm.push(abi::move_register(abi::LOCAL[5], abi::mfb_arg(2))); // height
+
+    // Check for a delegate FIRST, so a headless run allocates no CoreGraphics
+    // objects at all rather than building an image it then has to release.
+    asm.external_data(abi::LOCAL[0], CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // app
+    asm.load_selector(SEL_DELEGATE.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&skip));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // delegate
+
+    // space = CGColorSpaceCreateDeviceRGB()
+    asm.call_external("_CGColorSpaceCreateDeviceRGB", LIB_COREGRAPHICS);
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // colour space
+
+    // ctx = CGBitmapContextCreate(pixels, w, h, 8, w*4, space, 0x4001)
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
+    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[4]));
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[5]));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "8"));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "4"));
+    asm.push(abi::multiply_registers(
+        abi::c_arg(4),
+        abi::LOCAL[4],
+        abi::SCRATCH[0],
+    ));
+    asm.push(abi::move_register(abi::c_arg(5), abi::LOCAL[1]));
+    asm.push(abi::move_immediate(abi::c_arg(6), "Integer", "16385"));
+    asm.call_external("_CGBitmapContextCreate", LIB_COREGRAPHICS);
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // context
+    asm.push(abi::compare_immediate(abi::LOCAL[2], "0"));
+    asm.push(abi::branch_eq(&no_context));
+
+    // image = CGBitmapContextCreateImage(ctx) — a snapshot copy of the pixels.
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.call_external("_CGBitmapContextCreateImage", LIB_COREGRAPHICS);
+    asm.push(abi::move_register(abi::LOCAL[3], abi::c_arg(0))); // image (pixels are done with)
+                                                                // CGContextRelease(ctx)
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.call_external("_CGContextRelease", LIB_COREGRAPHICS);
+    asm.push(abi::label(&no_context));
+    // CGColorSpaceRelease(space)
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_CGColorSpaceRelease", LIB_COREGRAPHICS);
+    asm.push(abi::compare_immediate(abi::LOCAL[3], "0"));
+    asm.push(abi::branch_eq(&skip));
+
+    // number = [NSNumber numberWithLongLong:image]
+    asm.external_data(abi::LOCAL[1], CLASS_NS_NUMBER, LIB_FOUNDATION);
+    asm.load_selector(SEL_NUMBER_WITH_LONG_LONG.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[3]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // number
+
+    // [delegate performSelectorOnMainThread:@selector(mfbBlit:)
+    //                            withObject:number waitUntilDone:YES]
+    asm.load_selector(SEL_MFB_BLIT.0);
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(1))); // mfbBlit: sel
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
+    asm.push(abi::move_register(abi::c_arg(3), abi::LOCAL[1]));
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "1"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // CGImageRelease(image) — safe now the main thread has consumed it, because the
+    // perform waited. The layer retains whatever it kept.
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
+    asm.call_external("_CGImageRelease", LIB_COREGRAPHICS);
+
+    asm.push(abi::label(&skip));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::load_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::load_u64(abi::LOCAL[3], abi::stack_pointer(), 32));
+    asm.push(abi::load_u64(abi::LOCAL[4], abi::stack_pointer(), 40));
+    asm.push(abi::load_u64(abi::LOCAL[5], abi::stack_pointer(), 48));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    reconcile_code_function(CANVAS_BLIT_SYMBOL, asm)
+}
+
+/// plan-98-C Phase 3 (main thread): the `mfbBlit:` IMP. `x2` = the boxed
+/// `CGImageRef`.
+///
+/// Sets the image as the canvas layer's `contents`. A missing canvas view or layer
+/// is not an error — the program may have left canvas mode between the render and
+/// the perform, and dropping the frame is the right answer.
+pub(super) fn emit_canvas_blit_apply_helper() -> CodeFunction {
+    let mut asm = Asm::new(CANVAS_BLIT_APPLY_SYMBOL);
+    let frame = 48;
+    let done = format!("{CANVAS_BLIT_APPLY_SYMBOL}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(2))); // boxed image
+
+    // image = [number longLongValue]
+    asm.load_selector(SEL_LONG_LONG_VALUE.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // CGImageRef
+
+    // view = objc_getAssociatedObject([NSApplication sharedApplication], CANVAS_VIEW_ASSOC_KEY)
+    asm.external_data(abi::LOCAL[0], CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0)));
+    asm.local_address("x1", CANVAS_VIEW_ASSOC_KEY);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&done));
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // canvas view
+
+    // layer = [view layer]
+    asm.load_selector(SEL_LAYER.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&done));
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // layer
+
+    // [layer setContents:(id)image]
+    asm.load_selector(SEL_SET_CONTENTS.0);
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    asm.push(abi::label(&done));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::load_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    reconcile_code_function(CANVAS_BLIT_APPLY_SYMBOL, asm)
 }
 
 /// plan-62-C Phase 2 (main thread): `_mfb_macapp_reconcile_build`. Builds a fresh

@@ -22,6 +22,7 @@ pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool 
             "canvas.presentLayers",
             "canvas.publishScene",
             "canvas.publishLayers",
+            "canvas.blitSurface",
             "canvas.installedItems",
             "canvas.installedLayers",
             "canvas.publishHashes",

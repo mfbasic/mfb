@@ -64,44 +64,6 @@ r#"FUNC __canvas_blendChannel(dst AS Byte, src AS Byte, alpha AS Integer) AS Byt
   RETURN __canvas_linearToSrgb(mixed)
 END FUNC"#;
 
-/// Composite one source colour over the pixel at byte `index`, returning the
-/// surface.
-///
-/// Fully transparent and fully opaque are short-circuited before any conversion. An
-/// opaque fill is the overwhelmingly common case in a 2D scene, and taking it through
-/// the sRGB round trip would be slower for no gain.
-///
-/// `coverage` is the antialiasing weight in `0..255`, folded into the source alpha
-/// rather than applied separately: coverage and alpha mean the same thing to the
-/// compositing equation, so combining them keeps exactly one blend on the path.
-///
-/// The surface stays opaque — alpha is written back as `255` — because it is a
-/// window's whole content and has nothing behind it to show through.
-#[rustfmt::skip]
-const BLEND_PIXEL: &str =
-r#"FUNC __canvas_blendPixel(surface AS List OF Byte, index AS Integer, r AS Byte, g AS Byte, b AS Byte, a AS Byte, coverage AS Integer) AS List OF Byte
-  LET alpha AS Integer = (toInt(a) * coverage) / 255
-  IF alpha <= 0 THEN
-    RETURN surface
-  END IF
-  MUT out AS List OF Byte = surface
-  IF alpha >= 255 THEN
-    out = collections::set(out, index, r)
-    out = collections::set(out, index + 1, g)
-    out = collections::set(out, index + 2, b)
-    out = collections::set(out, index + 3, toByte(255))
-    RETURN out
-  END IF
-  LET dr AS Byte = collections::getOr(out, index, toByte(0))
-  LET dg AS Byte = collections::getOr(out, index + 1, toByte(0))
-  LET db AS Byte = collections::getOr(out, index + 2, toByte(0))
-  out = collections::set(out, index, __canvas_blendChannel(dr, r, alpha))
-  out = collections::set(out, index + 1, __canvas_blendChannel(dg, g, alpha))
-  out = collections::set(out, index + 2, __canvas_blendChannel(db, b, alpha))
-  out = collections::set(out, index + 3, toByte(255))
-  RETURN out
-END FUNC"#;
-
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_srgbTable", SRGB_TABLE));
     pkg.add_helper(RegistryHelper::always(
@@ -109,7 +71,6 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         LINEAR_TO_SRGB,
     ));
     pkg.add_helper(RegistryHelper::always("canvas_blendChannel", BLEND_CHANNEL));
-    pkg.add_helper(RegistryHelper::always("canvas_blendPixel", BLEND_PIXEL));
 }
 
 #[cfg(test)]

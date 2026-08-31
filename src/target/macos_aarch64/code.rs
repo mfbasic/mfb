@@ -260,6 +260,18 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Some(Ok(()))
     }
 
+    fn emit_canvas_blit(
+        &self,
+        symbol: &str,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // plan-98-C Phase 3: wrap the frame in a CGImage and set it as the canvas
+        // layer's contents, on the main thread.
+        app::emit_canvas_blit_seam(symbol, instructions, relocations);
+        Some(Ok(()))
+    }
+
     fn emit_program_exit(
         &self,
         from: &str,

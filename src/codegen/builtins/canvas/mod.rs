@@ -34,6 +34,7 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
+mod func_blit_surface;
 mod func_create_image;
 mod func_destroy_image;
 mod func_fill;
@@ -723,6 +724,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_fill_stroke::register(&mut pkg);
     func_present::register(&mut pkg);
     func_publish_scene::register(&mut pkg);
+    func_blit_surface::register(&mut pkg);
     func_installed_items::register(&mut pkg);
     func_installed_layers::register(&mut pkg);
     func_scene_hashes::register(&mut pkg);

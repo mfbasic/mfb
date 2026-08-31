@@ -42,6 +42,7 @@ END FUNC"#;
 const PRESENT_SURFACE: &str =
 r#"FUNC __canvas_presentSurface(buffer AS List OF Byte, width AS Integer, height AS Integer) AS Nothing
   __canvas_writeStats()
+  canvas::blitSurface(buffer, width, height)
   LET path AS String = os::getEnvOr("MFB_CANVAS_DUMP", "")
   IF len(path) > 0 THEN
     fs::writeBytes(path, buffer) TRAP(err)

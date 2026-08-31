@@ -356,6 +356,27 @@ const RECONCILE_SYMBOL: &str = "_mfb_macapp_reconcile";
 /// when there is no app delegate (headless — no run loop to drain the perform, so
 /// `waitUntilDone:YES` would deadlock).
 const RECONCILE_MARSHAL_SYMBOL: &str = "_mfb_macapp_reconcile_marshal";
+/// plan-98-C Phase 3: the canvas frame blit.
+///
+/// `mfbBlit:` carries a `CGImageRef` boxed in an `NSNumber`, because
+/// `performSelectorOnMainThread:withObject:` takes an object and a `CGImageRef` is
+/// not one. Boxing the pointer rather than wrapping it in an `NSValue` keeps the
+/// unboxing to a single `longLongValue` send.
+const SEL_MFB_BLIT: (&str, &str) = ("_mfb_macapp_sel_mfbBlit", "mfbBlit:");
+const SEL_NUMBER_WITH_LONG_LONG: (&str, &str) =
+    ("_mfb_macapp_sel_numberWithLongLong", "numberWithLongLong:");
+const SEL_LONG_LONG_VALUE: (&str, &str) = ("_mfb_macapp_sel_longLongValue", "longLongValue");
+const SEL_SET_CONTENTS: (&str, &str) = ("_mfb_macapp_sel_setContents", "setContents:");
+/// Worker-side helper `canvas::blitSurface` calls: wraps the frame in a `CGImage`
+/// and marshals `mfbBlit:` onto the main thread (`waitUntilDone:YES`), then releases
+/// its reference. A no-op when there is no app delegate — headless, where there is
+/// no run loop to drain the perform and `waitUntilDone:YES` would deadlock, and
+/// where the frame has nowhere to go anyway.
+const CANVAS_BLIT_SYMBOL: &str = "_mfb_macapp_canvas_blit";
+/// IMP for the delegate's `mfbBlit:` — runs on the main thread and sets the boxed
+/// `CGImage` as the canvas layer's contents.
+const CANVAS_BLIT_APPLY_SYMBOL: &str = "_mfb_macapp_canvas_blit_apply";
+const LIB_COREGRAPHICS: &str = "CoreGraphics";
 /// Main-thread helper the reconcile IMP calls to build a fresh transcript window
 /// on the first `None`→`Console` switch (a `None`-start program has no startup
 /// window). Returns the new window in `x0` and stashes the window + transcript
@@ -752,9 +773,36 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         // `class_addMethod` inside the canvas builder, so they are emitted with it.
         functions.push(emit_canvas_accepts_first_responder());
         functions.push(emit_canvas_key_down_helper());
+        // plan-98-C Phase 3: the frame blit's worker-side marshal and its
+        // main-thread apply. Same emission condition as the canvas surface builder
+        // above, and for the same reason — whether a program ever enters canvas mode
+        // is a runtime question.
+        functions.push(emit_canvas_blit_helper());
+        functions.push(emit_canvas_blit_apply_helper());
         functions.push(emit_reconcile_helper());
     }
     Ok(functions)
+}
+
+/// plan-98-C Phase 3: the worker-side `canvas::blitSurface` seam.
+///
+/// The caller has already staged the frame pointer, width and height in the MFB
+/// argument registers, which is exactly the calling convention
+/// [`emit_canvas_blit_helper`] expects — so this is a plain call, with none of the
+/// argument reloading the mode reconcile needs.
+pub(crate) fn emit_canvas_blit_seam(
+    from_symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::branch_link(CANVAS_BLIT_SYMBOL));
+    relocations.push(CodeRelocation {
+        from: from_symbol.to_string(),
+        to: CANVAS_BLIT_SYMBOL.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    });
 }
 
 /// plan-62-C Phase 2: the worker-side `app::setMode` reconcile seam. `setMode` has
@@ -985,6 +1033,11 @@ pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
         SEL_LAYER,
         // plan-98-A Phase 4: the synthesized canvas view's class name.
         STR_CANVASVIEW_CLASS,
+        // plan-98-C Phase 3: the frame blit's marshal and its main-thread apply.
+        SEL_MFB_BLIT,
+        SEL_NUMBER_WITH_LONG_LONG,
+        SEL_LONG_LONG_VALUE,
+        SEL_SET_CONTENTS,
     ]
     .iter()
     .map(|(symbol, text)| CodeDataObject {

@@ -56,6 +56,7 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "canvas.presentLayers",
     "canvas.publishScene",
     "canvas.publishLayers",
+    "canvas.blitSurface",
     "canvas.installedItems",
     "canvas.installedLayers",
     "canvas.publishHashes",

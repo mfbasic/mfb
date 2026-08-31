@@ -5,6 +5,17 @@
 //! shape's kind, its distance-function parameters, its two colours and its bounds,
 //! followed by a per-kind tail (a polygon's precomputed edge array).
 //!
+//! Slots 20 and 21 are the per-kind auxiliary pair: an arc's start and end angle, or
+//! a polygon's edge count. They mean different things because only one kind reads
+//! each — a shape never needs both — and giving each its own slot would widen every
+//! record to carry fields no primitive uses at once.
+//!
+//! `Line` and `Arc` have no interior. Their generators put the **stroke** colour in
+//! the fill slots and set the stroke half-width negative
+//! (`__canvas_strokeAsFill`), so the single rasterisation loop draws them in one pass
+//! with no special case: the band the distance function already describes *is* the
+//! shape.
+//!
 //! This flat float buffer is deliberately the shape a GPU backend uploads. plan-98-E
 //! and F consume exactly this: the header is an SDF quad's per-instance parameter
 //! block, and the tail is the only per-item vertex data any primitive needs. Keeping
@@ -155,6 +166,16 @@ FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
   RETURN out
 END FUNC
 
+FUNC __canvas_strokeAsFill(h AS List OF Float) AS List OF Float
+  MUT out AS List OF Float = h
+  out = collections::set(out, 8, collections::getOr(h, 12, 0.0))
+  out = collections::set(out, 9, collections::getOr(h, 13, 0.0))
+  out = collections::set(out, 10, collections::getOr(h, 14, 0.0))
+  out = collections::set(out, 11, collections::getOr(h, 15, 0.0))
+  out = collections::set(out, 7, 0.0 - 1.0)
+  RETURN out
+END FUNC
+
 FUNC __canvas_boundsHeader(h AS List OF Float, minX AS Float, minY AS Float, maxX AS Float, maxY AS Float) AS List OF Float
   MUT out AS List OF Float = h
   out = collections::set(out, 16, minX)
@@ -215,6 +236,7 @@ FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, 
   out = collections::set(out, 5, y2)
   out = collections::set(out, 6, half)
   out = __canvas_paintHeader(out, paint)
+  out = __canvas_strokeAsFill(out)
   LET pad AS Float = half + 1.0
   RETURN __canvas_boundsHeader(out, __canvas_minF(x1, x2) - pad, __canvas_minF(y1, y2) - pad, __canvas_maxF(x1, x2) + pad, __canvas_maxF(y1, y2) + pad)
 END FUNC
@@ -235,6 +257,7 @@ FUNC __canvas_arcHeader(a AS Arc) AS List OF Float
   out = collections::set(out, 4, a.radius)
   out = collections::set(out, 6, half)
   out = __canvas_paintHeader(out, a.paint)
+  out = __canvas_strokeAsFill(out)
   out = collections::set(out, 20, a.startAngle)
   out = collections::set(out, 21, a.endAngle)
   LET reach AS Float = a.radius + half + 1.0
