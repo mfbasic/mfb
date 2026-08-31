@@ -15,8 +15,7 @@ inverted, so bit *i* of the result is `1` exactly when bit *i* of `a` is `0`, an
 
 The operand and the result are raw two's-complement 64-bit `Integer` bit
 patterns; `bnot` does not interpret sign. The operation is total — it is defined
-for every input and never raises — has no side effects, and costs a single
-native instruction, so there is no function call at run time.
+for every input and never raises — and has no side effects.
 
 The name is `bnot` rather than `not` because `NOT` is a reserved logical
 (Boolean) keyword and cannot be a package member identifier."#;

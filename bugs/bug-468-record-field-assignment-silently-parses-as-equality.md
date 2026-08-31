@@ -1,4 +1,4 @@
-# bug-467: assigning to a record field silently parses as an equality comparison, discarding the write with no diagnostic
+# bug-468: assigning to a record field silently parses as an equality comparison, discarding the write with no diagnostic
 
 Last updated: 2026-08-30
 Effort: medium (1h–2h)

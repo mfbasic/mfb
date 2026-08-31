@@ -33,10 +33,9 @@ that `count` is in the range `0` to `63` inclusive and raises
 `ErrInvalidArgument` for any value outside it, before performing the shift.
 Larger shift amounts are not implicitly clamped or reduced modulo the width —
 that is the difference from the rotates `bits::rl64` and `bits::rr64`, which
-accept any `count` and let the hardware reduce it.
+accept every `count` and reduce it modulo their width.
 
-The operation has no side effects and costs a single native instruction, so
-there is no function call at run time. The result is identical on every
+The operation has no side effects, and the result is identical on every
 platform."#;
 const EX: &str = r#"Arithmetic shift of a negative value preserves its sign (signed divide by 16):
 

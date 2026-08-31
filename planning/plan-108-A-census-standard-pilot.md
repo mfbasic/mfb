@@ -629,7 +629,7 @@ is no **allocator** to call", which the page's own ban forbids. Rewritten to
 "there is nothing to reserve, nothing to release".)
 Commit: (hash recorded in the following commit)
 
-**A bug was found while writing this page — filed as bug-467 (HIGH).** The
+**A bug was found while writing this page — filed as bug-468 (HIGH).** The
 section demonstrating that records are `WITH`-only needed a probe showing the
 non-`WITH` form failing. It does not fail: `p.x = 77` on a `MUT` record
 binding **compiles clean and silently does nothing**. The parser recognises

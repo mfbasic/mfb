@@ -18,8 +18,7 @@ Hamming weight or population count.
 inspected regardless of whether `value` is negative. When `value` is `0` no bits
 are set and the result is `0`; when every bit is set (the bit pattern `-1`) the
 result is `64`. The operation is total — it is defined for every `Integer` and
-never raises — and has no side effects. It costs a handful of native
-instructions rather than a function call, and gives the same answer on every
+never raises — and has no side effects. It gives the same answer on every
 platform."#;
 const EX: &str = r#"Count the set bits of a small value:
 

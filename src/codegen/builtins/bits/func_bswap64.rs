@@ -21,8 +21,7 @@ every one of the 64 bits participates in the swap, so no bits are cleared.
 `value` is treated as a raw two's-complement 64-bit `Integer` bit pattern;
 `bswap64` does not interpret sign. The operation is total — it is defined for
 every `Integer` and never raises; only the variable-shift ops (`sl`/`sr`/`sra`)
-can raise a `bits::` error — has no side effects, and costs a single native
-instruction, so there is no function call at run time."#;
+can raise a `bits::` error — and has no side effects."#;
 const EX: &str = r#"Swap the eight bytes of a 64-bit value:
 
 ```

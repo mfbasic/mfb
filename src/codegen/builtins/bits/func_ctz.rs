@@ -29,7 +29,7 @@ Because the result is the index of the lowest set bit, `ctz` is the primitive
 behind alignment and power-of-two work. For a positive power of two,
 `bits::ctz(value)` is exactly its base-2 exponent, so it inverts
 `bits::sl(1, n)`. A value is `2^k`-aligned exactly when
-`bits::ctz(value) >= k`, which is a cheaper test than a modulo. And `ctz`
+`bits::ctz(value) >= k`, which is how to test alignment without a modulo. And `ctz`
 composes with the lowest-set-bit idiom `value AND -value`, which clears every
 bit but the lowest one: iterating "extract lowest bit, `ctz` it, clear it" walks
 a bitmask's set indices in ascending order, one iteration per set bit rather than
@@ -46,11 +46,10 @@ anywhere in the word see `bits::popCount`. Note the identity
 `bits::ctz(value) = bits::popCount(bits::band(value, -value) - 1)`, which holds
 for every `value` including `0`.
 
-`ctz` gives the same answer on every platform, and costs no function call. How
-much it costs varies more than the other `bits` functions do, though: on arm64
-and x86-64 it is a couple of instructions, while on RISC-V it is a few dozen,
-because that processor has neither of the two operations `ctz` is built from. If
-you are on a hot RISC-V path and all you need is a yes/no alignment test, prefer
+`ctz` gives the same answer on every platform, but it is the one function here
+whose cost varies noticeably between them: it is cheap on arm64 and x86-64 and
+markedly more expensive on RISC-V, which lacks the operations it is built from.
+On a hot RISC-V path where all you need is a yes/no alignment test, prefer
 `bits::band(value, -value)` and a comparison over calling `ctz`."#;
 const EX: &str = r#"Count the trailing zeros of `40` (`0b101000`) — its lowest set bit is at index 3:
 

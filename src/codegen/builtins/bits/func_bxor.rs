@@ -15,8 +15,7 @@ between the two operands, and `0` when the two bits are equal.
 
 Both operands and the result are raw two's-complement 64-bit `Integer` bit
 patterns; `bxor` does not interpret sign. The operation is total — it is defined
-for every pair of inputs and never raises — has no side effects, and costs a
-single native instruction, so there is no function call at run time.
+for every pair of inputs and never raises — and has no side effects.
 
 XORing a value with itself yields `0`, and XORing with `0` returns the value
 unchanged, so `bxor` is its own inverse: `bits::bxor(bits::bxor(x, k), k)`

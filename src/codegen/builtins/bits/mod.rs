@@ -55,8 +55,8 @@ The functions do not interpret sign except where a signature says so — `sra`, 
 arithmetic right shift. Every function takes and returns `Integer`, never Float,
 String, or a collection.
 
-Each function costs a native instruction or two, like `math::abs` — there is no
-function call at run time, and the answer is the same on every platform.
+These are primitive operations, like `math::abs`: they have no side effects and
+give the same answer on every platform.
 
 Shifts (`sl`, `sr`, `sra`) validate their `count` argument. Rotates come in four
 named width variants — `rl32`/`rr32` rotate the low 32 bits (for word-oriented

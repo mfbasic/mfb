@@ -24,8 +24,7 @@ that `count` is in the range `0` to `63` inclusive and raises
 `ErrInvalidArgument` for any value outside it, before performing the shift.
 Larger shift amounts are not
 implicitly clamped or reduced modulo the width. The operation has no side
-effects and costs a single native instruction, so there is no function call at
-run time."#;
+effects."#;
 const EX: &str = r#"Shift a value right by four bits (unsigned divide by 16):
 
 ```

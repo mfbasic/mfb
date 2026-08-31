@@ -15,8 +15,7 @@ operand (or both), and `0` only when bit *i* is `0` in both operands.
 
 Both operands and the result are raw two's-complement 64-bit `Integer` bit
 patterns; `bor` does not interpret sign. The operation is total — it is defined
-for every pair of inputs and never raises — has no side effects, and costs a
-single native instruction, so there is no function call at run time.
+for every pair of inputs and never raises — and has no side effects.
 
 The name is `bor` rather than `or` because `OR` is a reserved logical (Boolean)
 keyword and cannot be a package member identifier."#;

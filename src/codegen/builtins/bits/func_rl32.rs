@@ -25,8 +25,7 @@ Both `value` and the result are raw two's-complement 64-bit `Integer` bit
 patterns; `rl32` does not interpret sign. `count` is reduced modulo 32, so every
 count is defined and `rl32` never raises — rotating by 32 returns the value
 unchanged, and rotating by 33 is the same as rotating by 1. The operation has no
-side effects and costs a single native instruction, so there is no function call
-at run time."#;
+side effects."#;
 const EX: &str = r#"Rotate the low 32 bits left by four positions:
 
 ```

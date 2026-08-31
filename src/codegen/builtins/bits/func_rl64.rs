@@ -22,8 +22,7 @@ equivalent to a right rotate. Unlike the `bits` shifts (`sl`/`sr`/`sra`), the
 rotates do not validate `count` and never raise an error.
 
 Both `value` and the result are raw two's-complement 64-bit `Integer` bit
-patterns; `rl64` does not interpret sign. The operation has no side effects and
-costs a single native instruction, so there is no function call at run time."#;
+patterns; `rl64` does not interpret sign. The operation has no side effects."#;
 const EX: &str = r#"Rotate all 64 bits left by four positions:
 
 ```
