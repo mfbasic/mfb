@@ -117,9 +117,9 @@ received datagram's `from` field can be sent to directly. **A program that uses
 those addresses must `IMPORT net` as well as `udp`**: imports are not transitive
 and a package cannot re-export another's types.
 
-The `Socket` handle is an opaque, owned resource closed automatically by lexical
-drop; `udp::close` releases it earlier. For connection-oriented byte streams use
-`tcp`."#;
+The `Socket` handle is an opaque handle that closes itself when its binding goes
+out of scope; `udp::close` closes it earlier. For connection-oriented byte
+streams use `tcp`."#;
 
 /// Build a native `udp.*` member's body plus any code-form `os_aliases`
 /// (`sendText`, `pollList`), distinguished inside the body off `AbiCtx::call`.

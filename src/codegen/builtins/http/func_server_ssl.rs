@@ -47,13 +47,13 @@ A single server certificate is presented: there is no SNI multi-certificate
 selection, and the listener does not request or verify a client certificate (no
 mutual TLS).
 
-The server TLS context is owned by the listener and *borrowed* by each accepted
-socket, so closing an accepted connection never frees the shared context; it is
+The listener holds the server's TLS settings and every accepted socket shares
+them, so closing one connection leaves the listener and its settings intact; it is
 released exactly once when the listener itself closes.
 
 The returned listener is a resource: bind it with `RES`, and it is closed by
-lexical drop at scope exit (or earlier with `tls::close`). Drive it with a
-user-owned `DO`/`LOOP` over `http::handleRequest`, which is overloaded on the
+itself at scope exit (or earlier with `tls::close`). Drive it with a
+your own `DO`/`LOOP` over `http::handleRequest`, which is overloaded on the
 listener type — the loop body and route list are unchanged between `http://` and
 `https://`. Each call accepts one connection, performs the server-side TLS
 handshake, parses the request, matches its path against an ordered

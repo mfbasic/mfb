@@ -13,17 +13,17 @@ const INTRO: &str = r#"Close a UDP socket and release its OS handle."#;
 
 const DESC: &str = r#"`udp::close` releases the operating-system socket behind a handle and marks it
 closed, so any later `udp::` call on the same value raises rather than touching a
-stale descriptor. It also frees the bound port for reuse.
+stale descriptor. It also releases the bound port for reuse.
 
-`udp::close` is the only `udp` call that **consumes** its argument. Every other
-function borrows the socket and leaves it open; `close` moves the value into the
+`udp::close` is the only `udp` call that **closes** its argument. Every other
+function leaves the socket open; `close` takes the socket into the
 call, after which it cannot be referenced again.
 
 Because UDP is connectionless, closing tells no peer anything — there is no
 shutdown handshake and no way for a sender to learn the socket is gone. Datagrams
 addressed to a closed port are simply discarded by the OS.
 
-Closing is otherwise automatic: every `udp` socket is closed by lexical drop when
+Closing is otherwise automatic: every `udp` socket is closed when
 its binding leaves scope, so `udp::close` is needed only to release earlier.
 Closing and then letting the binding drop is safe — the drop sees the closed flag
 and does nothing.
@@ -80,7 +80,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "sock",
-                desc: "The socket to close. Consumed by the call and unusable afterwards.",
+                desc: "The socket to close. Closed by this call; the handle cannot be used again.",
                 aliases: &[],
                 ty: super::socket(),
                 default: crate::codegen::registry::DefaultValue::None,

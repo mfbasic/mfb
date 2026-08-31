@@ -16,16 +16,16 @@ const DESC: &str = r#"`tcp::close` releases the operating-system socket behind a
 closed, so any later `tcp::` call on the same value raises rather than touching a
 stale descriptor.
 
-`tcp::close` is the only `tcp` call that **consumes** its argument. Every other
-function borrows the handle and leaves it open; `close` moves the value into the
+`tcp::close` is the only `tcp` call that **closes** its argument. Every other
+function leaves the handle open; `close` takes the handle into the
 call, after which it cannot be referenced again.
 
 Closing a `Socket` tears down the connection, so a peer reading from it observes
 the end of the stream. Closing a `Listener` stops new connections from being
 accepted but does not affect sockets already returned by `tcp::accept`: each of
-those is an independent resource with its own lifetime.
+those is an independent resource, closed on its own.
 
-Closing is otherwise automatic. Every `tcp` handle is closed by lexical drop when
+Closing is otherwise automatic. Every `tcp` handle is closed when
 its binding leaves scope, so `tcp::close` is needed only to release earlier — to
 free a listening port for reuse, to let a peer see the end of the stream promptly,
 or to bound how many descriptors a long-running program holds open. Closing and
@@ -45,6 +45,7 @@ const EX: &str = r#"Release a listening port as soon as it is no longer needed:
 
 ```
 IMPORT tcp
+IMPORT net
 IMPORT encoding
 IMPORT io
 
@@ -55,7 +56,7 @@ FUNC main AS Integer
   RES conn = tcp::accept(server)
   tcp::close(server)
   tcp::write(client, "hi")
-  io::print(encoding::toUtf8Text(tcp::read(conn, 16)))
+  io::print(encoding::utf8Decode(tcp::read(conn, 16)))
   RETURN 0
 END FUNC
 ```"#;
@@ -64,7 +65,7 @@ fn overload(ty: ParameterType) -> Implementation {
     Implementation {
         params: vec![Parameter {
             name: "resource",
-            desc: "The socket or listener to close. Consumed by the call and unusable afterwards. Also accepts the alternate named-argument spellings `sock` and `listener`.",
+            desc: "The socket or listener to close. Closed by this call; the handle cannot be used again. Also accepts the alternate named-argument spellings `sock` and `listener`.",
             aliases: &["sock", "listener"],
             ty,
             default: crate::codegen::registry::DefaultValue::None,

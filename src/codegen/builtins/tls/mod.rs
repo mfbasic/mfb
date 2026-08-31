@@ -123,7 +123,7 @@ version.
 is deliberate: a read stops wherever the network happened to divide the data,
 which need not be a character boundary, so decoding at that point can split a
 multi-byte character in half. Assemble the whole message first and decode it
-with `encoding::toUtf8Text`. Sending is not subject to that hazard, which is why
+with `encoding::utf8Decode`. Sending is not subject to that hazard, which is why
 `write` does take a `String`.
 
 Each read performs one underlying TLS read and returns as soon as any plaintext

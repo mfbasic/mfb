@@ -28,6 +28,7 @@ const EX: &str = r#"Do not let a silent peer stall a read forever:
 
 ```
 IMPORT tcp
+IMPORT net
 IMPORT io
 
 FUNC main AS Integer
@@ -72,7 +73,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 super::req(
                     "sock",
-                    "An open connected socket. Borrowed, not consumed.",
+                    "An open connected socket. The handle stays open — you still close it.",
                     &[],
                     super::socket(),
                 ),

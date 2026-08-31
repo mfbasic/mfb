@@ -57,7 +57,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: Some("Stream STATE PendingState"),
         internal_only: false,
         implementations: vec![Implementation {
-            params: vec![super::req("stream", "The completed stream from `http::startRead` (after `http::done` is `TRUE`). Passed by reference; `finish` neither consumes nor closes it.", &[], ParameterType::named("Stream"))],
+            params: vec![super::req("stream", "The completed stream from `http::startRead` (after `http::done` is `TRUE`). The stream stays open — `finish` reads it and leaves it to you to close.", &[], ParameterType::named("Stream"))],
             return_type: ParameterType::named(super::RESPONSE_TYPE),
             errors: vec![],
             body: Body::mfb(BODY, "__http_finish"),

@@ -6,18 +6,18 @@ use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryP
 use crate::types::ParameterType;
 
 const INTRO: &str =
-    r#"Serve the whole contents of an open `File` as a `200` response, consuming the handle"#;
+    r#"Serve the whole contents of an open `File` as a `200` response, closing the handle"#;
 
 const DESC: &str = r#"`http::respondFile` reads every remaining byte of `file` into memory and returns
 a new `http::Response` with `status` `200`, `reason` `"OK"`, `httpVersion`
 `"1.1"`, a `headers` map holding the single entry `content-type`, `body` set to
 the bytes read, and `ok` `TRUE`.
 
-Unlike every other `http::` call, `respondFile` **consumes** its `File`: the
-handle is moved into the call and is unusable afterward. Ownership passing to the callee is
-what makes the handle safe — the `File` is closed by lexical drop when
-`respondFile` returns, and that also happens on the failure path, so a read error
-cannot leak the descriptor. The caller must not close or reuse the handle.
+Unlike every other `http::` call, `respondFile` **closes** its `File`: the call
+takes the handle, and it cannot be used again afterwards. That is what makes it
+safe — the `File` is closed when `respondFile` returns, and on the failure path
+too, so a read error cannot leave the file open. Do not close or reuse the
+handle yourself.
 
 The whole file is buffered into the response body before anything is sent. This
 is fine for the modest static assets a development or embedded server serves, but
@@ -97,7 +97,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
-                super::req("file", "An open `File` resource opened for reading, such as one from `fs::openFile`. Consumed by the call — the handle is moved, closed on return, and unusable afterward. Read starts at the handle's current position.", &[], ParameterType::named(super::FILE_TYPE)),
+                super::req("file", "An open `File` resource opened for reading, such as one from `fs::openFile`. Closed by this call; the handle cannot be used again. Read starts at the handle's current position.", &[], ParameterType::named(super::FILE_TYPE)),
                 super::fill("contentType", "The media type to advertise, stored under the header key `content-type`. Optional; omitted or `\"\"` means `application/octet-stream`. Stored verbatim, not validated.", ParameterType::String, ""),
             ],
             return_type: ParameterType::named(super::RESPONSE_TYPE),

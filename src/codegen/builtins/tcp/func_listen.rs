@@ -28,15 +28,16 @@ The address is bound with address reuse enabled, so a listener can rebind a port
 whose previous connections are still winding down in the OS rather than failing
 for the couple of minutes that would otherwise take.
 
-The returned `Listener` is an owned handle closed by lexical drop, or earlier
+The returned `Listener` is a handle closed when its binding goes out of scope, or earlier
 with `tcp::close`. Closing it stops new connections from being accepted but does
 not affect sockets already returned by `tcp::accept`: each of those is an
-independent resource with its own lifetime."#;
+independent resource, closed on its own."#;
 
 const EX: &str = r#"Bind an OS-chosen port and report it:
 
 ```
 IMPORT tcp
+IMPORT net
 IMPORT io
 
 FUNC main AS Integer

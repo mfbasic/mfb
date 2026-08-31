@@ -11,7 +11,7 @@ use crate::codegen::registry::AbiCtx;
 
 const INTRO: &str = r#"Wait until a datagram is queued — on one socket, or one of a list."#;
 
-const DESC: &str = r#"`udp::poll` reports whether a datagram is waiting, without consuming it. The
+const DESC: &str = r#"`udp::poll` reports whether a datagram is waiting, without reading it. The
 following `udp::receive` returns that same datagram intact.
 
 Given a single `Socket` it answers a `Boolean`: `TRUE` if a datagram is queued,
@@ -19,8 +19,8 @@ Given a single `Socket` it answers a `Boolean`: `TRUE` if a datagram is queued,
 deadline is a `FALSE`, not an error.
 
 Given a `List OF RES Socket` it answers with the first socket that has one,
-scanning in list order. The returned socket is **borrowed**: the list keeps
-ownership and still closes each member exactly once at scope exit, so the result
+scanning in list order. The returned socket is an **alias** of the one in the
+list: the list still closes each member exactly once at scope exit, so the result
 must not be closed or transferred. An empty list raises `ErrInvalidArgument`, and
 a deadline that expires with none ready raises `ErrTimeout` — unlike the scalar
 form there is no value that could mean "nothing".
@@ -102,7 +102,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     super::req(
                         "sock",
-                        "An open bound socket to test. Borrowed, not consumed.",
+                        "An open bound socket to test. The handle stays open — you still close it.",
                         &[],
                         super::socket(),
                     ),
@@ -116,7 +116,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     super::req(
                         "socks",
-                        "The sockets to wait on, scanned in list order. The list retains ownership; an empty list raises `ErrInvalidArgument`.",
+                        "The sockets to wait on, scanned in list order. The list still closes each socket; an empty list raises `ErrInvalidArgument`.",
                         &[],
                         ParameterType::list_of(ParameterType::Res(Box::new(super::socket()))),
                     ),

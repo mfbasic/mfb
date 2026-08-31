@@ -88,7 +88,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 super::req(
                     "sock",
-                    "An open bound socket to receive on. Borrowed, not consumed.",
+                    "An open bound socket to receive on. The handle stays open — you still close it.",
                     &[],
                     super::socket(),
                 ),

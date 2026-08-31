@@ -76,7 +76,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: Some("Stream STATE PendingState"),
         internal_only: false,
         implementations: vec![Implementation {
-            params: vec![super::req("stream", "The bound stream from `http::startRead`. Passed by reference; `pump` mutates its STATE (`raw`/`closed`/`err`) and neither consumes nor closes it.", &[], ParameterType::named("Stream"))],
+            params: vec![super::req("stream", "The bound stream from `http::startRead`. `pump` updates the stream in place and leaves it open — you still close it.", &[], ParameterType::named("Stream"))],
             return_type: ParameterType::Nothing,
             errors: vec![],
             body: Body::mfb(BODY, "__http_pump"),

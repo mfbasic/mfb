@@ -24,7 +24,7 @@ reports which one it assigned. That is the right way for a client to bind — it
 needs *a* port to receive replies on but does not care which, and picking one in
 advance races every other process that wants it.
 
-The returned `Socket` is an owned handle closed by lexical drop, or earlier with
+The returned `Socket` is a handle closed when its binding goes out of scope, or earlier with
 `udp::close`."#;
 
 const EX: &str = r#"Bind an OS-chosen port and report it:

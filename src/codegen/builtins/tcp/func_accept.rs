@@ -13,7 +13,7 @@ const INTRO: &str = r#"Accept the next pending connection on a TCP listener."#;
 const DESC: &str = r#"`tcp::accept` removes the next pending connection from a `Listener`'s queue and
 returns a connected `Socket` for talking to that client. Each call accepts a
 single connection, so a server loops over `accept` to serve clients as they
-arrive. The listener is *borrowed*, not consumed: it stays open and usable.
+arrive. The listener stays open and usable — you still close it.
 
 `timeoutMs` follows the language timeout convention (see `mfb spec language
 builtin-functions` → "Timeout convention"). **Omitted, the call blocks**
@@ -39,6 +39,7 @@ const EX: &str = r#"Accept a single client and read its request:
 
 ```
 IMPORT tcp
+IMPORT net
 IMPORT encoding
 IMPORT io
 
@@ -48,7 +49,7 @@ FUNC main AS Integer
   RES client = tcp::connect("127.0.0.1", bound.port)
   RES conn = tcp::accept(server)
   tcp::write(client, "hello")
-  io::print(encoding::toUtf8Text(tcp::read(conn, 16)))
+  io::print(encoding::utf8Decode(tcp::read(conn, 16)))
   RETURN 0
 END FUNC
 ```
@@ -98,7 +99,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 super::req(
                     "listener",
-                    "An open listener from `tcp::listen`. Borrowed, not consumed, and available for further `accept` calls.",
+                    "An open listener from `tcp::listen`. The handle stays open — you still close it, and it is available for further `accept` calls.",
                     &[],
                     super::listener(),
                 ),

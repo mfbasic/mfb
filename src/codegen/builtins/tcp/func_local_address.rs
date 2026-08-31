@@ -19,19 +19,20 @@ free port and then reading back which one it chose is the only race-free way to
 bind: picking a port number in advance and hoping it is free loses to any other
 process that wants it.
 
-The handle is borrowed, not consumed. The result is an ordinary `net::Address`
-value with no tie to the handle's lifetime, so it stays valid after the handle is
+The handle stays open — you still close it. The result is an ordinary `net::Address`
+value independent of the handle, so it stays valid after the handle is
 closed.
 
 **A file that uses the returned address must `IMPORT net` as well as `tcp`.**
 Imports are not transitive and packages cannot re-export types, so `Address` is
 nameable only where `net` is imported. Without it the returned value has no
-nameable type and the next call that consumes it fails to resolve."#;
+nameable type and the next call that uses it fails to resolve."#;
 
 const EX: &str = r#"Learn the port the OS chose:
 
 ```
 IMPORT tcp
+IMPORT net
 IMPORT io
 
 FUNC main AS Integer
@@ -82,11 +83,11 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![
             overload(
                 super::socket(),
-                "An open connected socket whose local end to report. Borrowed, not consumed.",
+                "An open connected socket whose local end to report. The handle stays open — you still close it.",
             ),
             overload(
                 super::listener(),
-                "An open listener whose bound address to report — the way to learn the port after binding `0`. Borrowed, not consumed.",
+                "An open listener whose bound address to report — the way to learn the port after binding `0`. The handle stays open — you still close it.",
             ),
         ],
     });

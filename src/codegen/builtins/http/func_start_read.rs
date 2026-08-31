@@ -23,7 +23,7 @@ uppercased, and the same control-byte rejection applies to every header name,
 value, and the URL-derived request target and `Host`. The whole request is
 written before `startRead` returns; `state.sentAll` is `TRUE`.
 
-The returned handle is a `RES http::Stream STATE PendingState`: an owned resource
+The returned handle is a `RES http::Stream STATE PendingState`: a resource
 whose STATE accumulates the response across pumps. It stays bound and open — the
 socket is closed exactly once when the handle leaves scope — so a program reads
 `state` through the handle while driving it. `http::read`/`http::write` are thin

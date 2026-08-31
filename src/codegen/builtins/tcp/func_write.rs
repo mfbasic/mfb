@@ -39,6 +39,7 @@ const EX: &str = r#"Write text and bytes over the same socket:
 
 ```
 IMPORT tcp
+IMPORT net
 
 FUNC main AS Integer
   RES server = tcp::listen("127.0.0.1", 0)
@@ -46,12 +47,12 @@ FUNC main AS Integer
   RES client = tcp::connect("127.0.0.1", bound.port)
   RES conn = tcp::accept(server)
   tcp::write(client, "GET / HTTP/1.0" & chr(13) & chr(10))
-  tcp::write(client, [72b, 105b])
+  tcp::write(client, [toByte(72), toByte(105)])
   RETURN 0
 END FUNC
 ```"#;
 
-const SOCK_DESC: &str = "An open connected socket. Borrowed, not consumed.";
+const SOCK_DESC: &str = "An open connected socket. The handle stays open — you still close it.";
 
 /// `abi_function` body for `tcp::write`. The `String` overload arrives under the
 /// `tcp.writeText` code form, which is the same emitter in its text mode.

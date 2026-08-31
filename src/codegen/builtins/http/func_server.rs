@@ -31,8 +31,8 @@ before the call, so a large 64-bit backlog cannot be reinterpreted as negative.
 The value is advisory in any case; the host may clamp it further.
 
 The returned listener is a resource: bind it with `RES`, and it is closed by
-lexical drop at scope exit (or earlier with `tcp::close`). Drive it with a
-user-owned `DO`/`LOOP` over `http::handleRequest`, which accepts one connection
+itself at scope exit (or earlier with `tcp::close`). Drive it with a
+your own `DO`/`LOOP` over `http::handleRequest`, which accepts one connection
 per call, parses the request, matches its path against an ordered
 `List OF http::Route`, invokes the matched handler, writes the response, and
 closes the connection. The server is single-threaded and blocking: one request is
@@ -64,6 +64,7 @@ Bind loopback only, with an explicit backlog:
 
 ```
 IMPORT http
+IMPORT net
 IMPORT tcp
 IMPORT io
 

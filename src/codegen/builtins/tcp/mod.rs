@@ -6,7 +6,7 @@
 //! datagrams (plan-110-C); `tls` takes the encrypted stream (plan-110-D).
 //!
 //! Two resources: `Socket` (a connected stream) and `Listener` (a bound server
-//! endpoint). Both are opaque, owned handles released by lexical drop, and both
+//! endpoint). Both are opaque handles released when their bindings go out of scope, and both
 //! share the public `tcp.close` close op — the same shape `net` used, because the
 //! runtime record is unchanged. `Socket` is thread-sendable; `Listener` is not,
 //! since it accepts on its owning thread.
@@ -130,10 +130,10 @@ returned by `tcp::localAddress` has no nameable type and the *next* call using i
 fails to resolve. Only the address-valued members are affected: `tcp::connect`,
 `tcp::listen`, `tcp::read`, and `tcp::write` need nothing but `IMPORT tcp`.
 
-`Socket` and `Listener` are opaque, owned handles closed automatically by lexical
-drop when their binding leaves scope. `tcp::close` releases one earlier — to free
-a listening port for reuse, to let a peer observe the end of the stream promptly,
-or to bound how many descriptors a long-running program holds open.
+`Socket` and `Listener` are opaque handles that close themselves when their
+binding goes out of scope. `tcp::close` closes one earlier — to release a
+listening port for reuse, to let a peer observe the end of the stream promptly,
+or to bound how many connections a long-running program holds open at once.
 
 `tcp::read` returns bytes and never text: a stream read stops wherever the
 network divided it, which need not be a character boundary, so decoding belongs

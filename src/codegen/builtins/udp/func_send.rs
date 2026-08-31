@@ -60,7 +60,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-const SOCK_DESC: &str = "An open bound socket to send from. Borrowed, not consumed.";
+const SOCK_DESC: &str = "An open bound socket to send from. The handle stays open — you still close it.";
 const TO_DESC: &str = "The destination address, typically from `net::lookup` or from a received datagram's `from` field.";
 
 /// `abi_function` body for `udp::send`. The `String` overload arrives under the
