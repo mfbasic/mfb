@@ -31,6 +31,51 @@ call — the success value binds to the `Thread` handle and the handler runs on
 failure — for every channel shape (`Thread OF Msg TO Out`,
 `Thread OF RES Res TO Out`, `Thread OF Msg RES Res TO Out`).
 
+## Lead: the error names a DIFFERENT type than the bind (2026-08-31, coordinator)
+
+Re-reproduced pre-dispatch on a second channel shape, which the doc's single
+example (`Thread OF String TO Integer`) does not cover. A ready-made repro
+project is staged at `/tmp/mfb59-r479` (an executable importing a package with
+an `EXPORT ISOLATED FUNC`; `examples/network-server/worker` supplies one):
+
+```
+error: native inlined field size not available for type
+       'ThreadWorker OF RES tcp.Socket TO Integer'
+       while lowering bind $trap_res0 AS Result OF Thread OF RES tcp.Socket TO Integer
+```
+
+So the defect spans channel shapes — it is not specific to `Thread OF Msg TO Out`.
+
+**The part worth looking at before writing any fix:** the two types in that
+message are **not the same type**. The bind is `Result OF **Thread** OF …`; the
+size lookup that fails is for `**ThreadWorker** OF …`. `src/codegen/registry/mod.rs:2145`
+states the two never interchange — *"kind (parent `Thread` vs worker
+`ThreadWorker`) must match"*. `thread::start`'s own signature is
+`ISOLATED FUNC(ThreadWorker OF Msg RES Res TO Out, In) AS Out` (`registry/mod.rs:3951`),
+so a `ThreadWorker` spelling is in scope at this call — plausibly the entry
+function's *parameter* type is what reaches the marshaller, rather than the
+`Thread` the `Result` actually carries.
+
+That distinction decides the fix, and it is exactly the bait this document's
+References already warn about by pointing at bug-464 ("Read its Root Cause
+before assuming a size constant is all this needs"):
+
+* If the marshaller is correctly asked about the `Result`'s payload and simply
+  lacks an arm, adding the `Thread` arm is right.
+* **If it is being asked about `ThreadWorker` when the payload is `Thread`, then
+  adding a `ThreadWorker` size arm makes the error disappear while marshalling
+  the wrong type** — a silent miscompile at a thread boundary, which is strictly
+  worse than today's hard failure.
+
+Establish which before adding anything. The two candidate raise sites are
+`src/codegen/memory/marshal/record.rs:238` and
+`src/codegen/collection/layout/builder_collection_layout.rs:694` — determine
+which one fires here (they share the message text) rather than assuming.
+
+Cover all three channel shapes in the fixture set, per this document's
+"single correct behavior": `Thread OF Msg TO Out`, `Thread OF RES Res TO Out`
+(reproduced above), and `Thread OF Msg RES Res TO Out`.
+
 References:
 
 - `mfb man errors` → "Local handling with an inline TRAP" — the idiom this breaks.
