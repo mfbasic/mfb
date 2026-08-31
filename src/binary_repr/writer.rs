@@ -251,12 +251,19 @@ pub(super) fn lower_project_with_external_functions(
             .filter(|base| {
                 !matches!(base.as_str(), "fs.File" | "tcp.Socket" | "tcp.Listener")
                     && crate::codegen::resource::is_builtin_resource_type(
-                        &crate::types::ParameterType::declared(base),
+                        // `named`, not `declared`: this is already a normalised
+                        // base identity, so it is a constructor call and not a
+                        // second trip through the grammar (plan-111 class 1b).
+                        &crate::types::ParameterType::named(base),
                     )
             })
             .collect();
         for name in &others {
-            resources.add_standard_other(&mut types, &mut strings, name);
+            resources.add_standard_other(
+                &mut types,
+                &mut strings,
+                &crate::types::ParameterType::named(name),
+            );
         }
     }
     // Native LINK resources (plan-link-update.md §10): each becomes an opaque
@@ -1045,13 +1052,15 @@ pub(super) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
 /// `close_may_fail` is registry-driven for the same reason the table is no
 /// longer three hardcoded types: `process::Process` is the one built-in whose
 /// close op cannot fail.
-pub(super) fn standard_resource_flags(qualified_type_id: &str) -> u32 {
-    let type_ = crate::types::ParameterType::declared(qualified_type_id);
+/// Takes the TYPE, not its spelling (plan-111 class 1b): every caller already
+/// holds the `ParameterType` it hands `TypeTable::type_id`, so re-deriving one
+/// from a string here would be a `declared` site for no gain.
+pub(super) fn standard_resource_flags(type_: &crate::types::ParameterType) -> u32 {
     let mut flags = RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD;
-    if crate::codegen::resource::is_builtin_sendable_resource_type(&type_) {
+    if crate::codegen::resource::is_builtin_sendable_resource_type(type_) {
         flags |= RESOURCE_FLAG_SENDABLE;
     }
-    if crate::codegen::resource::builtin_resource_close_may_fail(&type_) {
+    if crate::codegen::resource::builtin_resource_close_may_fail(type_) {
         flags |= RESOURCE_FLAG_CLOSE_MAY_FAIL;
     }
     flags

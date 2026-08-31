@@ -117,8 +117,11 @@ fn worker_mfp() -> PathBuf {
 fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
     fs::create_dir_all(root.join("src")).expect("create src dir");
     fs::create_dir_all(root.join("packages")).expect("create packages dir");
-    fs::copy(worker_mfp(), root.join("packages/xfer_tls_listener_worker.mfp"))
-        .expect("copy worker .mfp");
+    fs::copy(
+        worker_mfp(),
+        root.join("packages/xfer_tls_listener_worker.mfp"),
+    )
+    .expect("copy worker .mfp");
     fs::write(
         root.join("project.json"),
         "{\"name\":\"tlsxfer\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\

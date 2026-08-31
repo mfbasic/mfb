@@ -106,9 +106,11 @@ fn resolve_resource_close_name_maps_builtins_and_functions() {
     let named = resolve_resource_close_name(&package, 0, "fs.File").unwrap();
     assert!(named.is_some());
     // An out-of-range id resolves to None.
-    assert!(resolve_resource_close_name(&package, u32::MAX - 5, "fs.File")
-        .unwrap()
-        .is_none());
+    assert!(
+        resolve_resource_close_name(&package, u32::MAX - 5, "fs.File")
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]

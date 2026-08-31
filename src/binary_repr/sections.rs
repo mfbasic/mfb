@@ -710,26 +710,22 @@ impl ResourceTable {
     }
 
     pub(super) fn add_standard_file(&mut self, types: &mut TypeTable, strings: &mut StringPool) {
-        let type_id = types.type_id(
-            strings,
-            &ParameterType::named(crate::codegen::builtins::fs::FILE_TYPE_ID),
-        );
+        let type_ = ParameterType::named(crate::codegen::builtins::fs::FILE_TYPE_ID);
+        let type_id = types.type_id(strings, &type_);
         self.entries.push(ResourceEntry {
             type_id,
             close_function_id: BUILTIN_FS_CLOSE_FUNCTION_ID,
-            flags: standard_resource_flags(crate::codegen::builtins::fs::FILE_TYPE_ID),
+            flags: standard_resource_flags(&type_),
         });
     }
 
     pub(super) fn add_standard_socket(&mut self, types: &mut TypeTable, strings: &mut StringPool) {
-        let type_id = types.type_id(
-            strings,
-            &ParameterType::named(crate::codegen::builtins::tcp::SOCKET_TYPE_ID),
-        );
+        let type_ = ParameterType::named(crate::codegen::builtins::tcp::SOCKET_TYPE_ID);
+        let type_id = types.type_id(strings, &type_);
         self.entries.push(ResourceEntry {
             type_id,
             close_function_id: BUILTIN_STREAM_CLOSE_FUNCTION_ID,
-            flags: standard_resource_flags(crate::codegen::builtins::tcp::SOCKET_TYPE_ID),
+            flags: standard_resource_flags(&type_),
         });
     }
 
@@ -738,14 +734,12 @@ impl ResourceTable {
         types: &mut TypeTable,
         strings: &mut StringPool,
     ) {
-        let type_id = types.type_id(
-            strings,
-            &ParameterType::named(crate::codegen::builtins::tcp::LISTENER_TYPE_ID),
-        );
+        let type_ = ParameterType::named(crate::codegen::builtins::tcp::LISTENER_TYPE_ID);
+        let type_id = types.type_id(strings, &type_);
         self.entries.push(ResourceEntry {
             type_id,
             close_function_id: BUILTIN_STREAM_CLOSE_FUNCTION_ID,
-            flags: standard_resource_flags(crate::codegen::builtins::tcp::LISTENER_TYPE_ID),
+            flags: standard_resource_flags(&type_),
         });
     }
 
@@ -761,13 +755,13 @@ impl ResourceTable {
         &mut self,
         types: &mut TypeTable,
         strings: &mut StringPool,
-        type_name: &str,
+        type_: &ParameterType,
     ) {
-        let type_id = types.type_id(strings, &ParameterType::named(type_name));
+        let type_id = types.type_id(strings, type_);
         self.entries.push(ResourceEntry {
             type_id,
             close_function_id: BUILTIN_RESOURCE_CLOSE_BY_TYPE,
-            flags: standard_resource_flags(type_name),
+            flags: standard_resource_flags(type_),
         });
     }
 
