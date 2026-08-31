@@ -5,8 +5,52 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness (memory safety)
 
-Status: Open
+Status: FIXED (1d2862e4c)
 Regression Test: `tests/rt-behavior/threads/thread-start-invalid-limit-trapped/` (new)
+
+## STATUS: FIXED (1d2862e4c)
+
+Repair **2** (null-safe drop), not the doc's preferred repair 1 — and the guard
+is emitted in codegen, not in the runtime helper. Deviation and why:
+
+Repair 1 ("do not register the binding for cleanup until `thread::start` has
+actually produced a handle") is not implementable as written. `active_cleanups`
+is a **compile-time** stack, and the registration in
+`builder_control.rs` runs while lowering the `bind` regardless of which runtime
+path is taken. The function-level `TRAP` handler is emitted later, at a point
+where the binding is still on that stack, so it emits the drop no matter what
+the initializer did at run time. Whether a binding is *live* is a run-time fact;
+only a run-time guard can decide it.
+
+That is exactly what the resource path already concluded: **bug-246** hit the
+identical hazard for `RES x = <fallible>` and fixed it with a null-slot guard in
+`emit_resource_cleanup_call` plus a bind-site + prologue zero-init of the slot.
+The doc's "worth checking" note is answered: a raising `fs::open` is safe, and
+its mechanism is the model — just not the one the doc guessed. This change
+applies that same mechanism to the one `ActiveCleanup` kind that never got it.
+All five kinds (`Thread`, `Resource`, `ResourceUnion`, `OwnedList`,
+`OwnedValue`) are now null-guarded.
+
+One finding beyond the report: `owns_resource_slot` in `builder_control.rs`
+explicitly **excluded** thread types (`!Self::is_thread_type(&type_)`), so a
+`Thread` slot was zeroed neither at bind nor in the prologue. The drop was
+reading **stack garbage**, not `0` — measured under `lldb`, the fault is in
+`pthread_mutex_lock` with `x0 = 0x2c`. So the fix has two halves and needs both.
+
+Changed:
+
+- `src/codegen/engine/control/builder_control.rs` — a `Thread` bind zeroes its
+  slot before the (fallible) initializer runs and registers the slot for
+  prologue zero-init, mirroring the cleanup-registration condition exactly.
+- `src/codegen/resource/cleanup/builder_resource_cleanup.rs` —
+  `emit_thread_cleanup_call` skips the drop when the slot reads `0`.
+
+Golden delta: the 5 `tests/byte-identity/thread` `.ncodesum` sentinels (plus,
+after merging main, the 5 `resource-xfer-slots` ones bug-464 added). Inspected
+on the macOS `.ncode` dump: +41 `label` / +41 `cmp_imm` / +41 `b.eq` (the
+guards) and +3 `mov_imm` (the bind-site zero stores), with `bl`, `mov`,
+`add_imm`, `b`, `add`, `adrp`, `add_pageoff` and `sub_imm` counts unchanged — no
+call added, removed or duplicated.
 
 `thread::start` validates its `inboundLimit`/`outboundLimit` arguments and raises
 `ErrInvalidArgument` when either is below 1. That part is correct. But the
@@ -105,7 +149,8 @@ receive raised: code 77050008 — Operation did not complete before its deadline
 | | |
 |---|---|
 | Expected | `trapped 77050002` then `[exit 0]` |
-| Actual | `trapped 77050002` then `[exit 139]` (SIGSEGV during scope cleanup) |
+| Actual (before the fix) | `trapped 77050002` then `[exit 139]` (SIGSEGV during scope cleanup) |
+| After the fix | `trapped 77050002` then `[exit 0]` — macos-aarch64 and linux-x86_64, 3 runs each |
 
 ## Impact
 
@@ -142,13 +187,26 @@ Worth checking while fixing: does the same shape occur for a raising resource
 open (`RES f AS fs::File = fs::open(<bad path>)`) inside a function with a
 `TRAP`? If that is safe, its mechanism is the model for repair 1.
 
-## Open Questions
+## Open Questions — answered
 
-- Does this reproduce for the other `thread::start` failure modes (a non-sendable
-  `data`, an entry point that fails immediately), or only for the argument
-  validation that raises before any thread exists?
-- Does it reproduce on Linux/Windows, or is the crash macOS-specific? Only
-  macos-aarch64 was probed.
+- **Other `thread::start` failure modes?** Every raise inside `thread.start`
+  happens *before* the handle reaches the caller: the two `ErrInvalidArgument`
+  limit checks (`runtime_helpers.rs:962,969`) and the three `ErrOutOfMemory`
+  allocation failures (`:645` control block, `:687` worker arena, `:379`), plus
+  `ErrInterrupted` at `:476`. All take the identical path and are all covered by
+  the same fix. An entry point that fails *after* the thread starts is not
+  affected — the handle exists and the drop is correct.
+- **Linux/Windows or macOS-only?** Not macOS-specific. Measured on box 2228
+  (Debian 6.12.94 x86_64, `linux-x86_64` glibc build of the report's verbatim
+  reproduction), three consecutive runs each:
+  - at the fix's base commit: `Segmentation fault (core dumped)` / `[exit 139]`
+  - with the fix: `trapped 77050002` / `[exit 0]`
+
+  The repair is arch-neutral codegen, so it lands identically on every target;
+  the fixture cross-builds cleanly for `macos-aarch64`, `linux-x86_64`,
+  `linux-aarch64`, `linux-riscv64` and `windows-x86_64`. Windows was not *run*
+  (no test box runs binaries — see `.ai/remote_systems.md`), but its `.ncodesum`
+  carries the same guard.
 
 ## References
 
