@@ -55,16 +55,22 @@ END FUNC
         "expected non-tty active terminalSize to report unsupported, got {direct:?}"
     );
 
-    // Under a pty with a known window size, the active path reports it.
-    let pty = run_under_pty(&executable).replace("\r\n", "\n");
-    assert!(
-        pty.contains("OFF-ERR:77050007"),
-        "expected off-path unsupported error under pty, got {pty:?}"
-    );
-    assert!(
-        pty.contains("SIZE:100x40"),
-        "expected live window size under pty, got {pty:?}"
-    );
+    // Under a pty with a known window size, the active path reports it. Only the
+    // Unix harness can supply a terminal on the other end of the child's streams
+    // (see `run_under_pty`), so the tty half is Unix-only; the piped half above
+    // runs everywhere.
+    #[cfg(unix)]
+    {
+        let pty = run_under_pty(&executable).replace("\r\n", "\n");
+        assert!(
+            pty.contains("OFF-ERR:77050007"),
+            "expected off-path unsupported error under pty, got {pty:?}"
+        );
+        assert!(
+            pty.contains("SIZE:100x40"),
+            "expected live window size under pty, got {pty:?}"
+        );
+    }
 }
 
 #[test]
@@ -211,10 +217,17 @@ END FUNC
     );
     let executable = build_project(&project);
 
-    for out in [
+    // The pty run is Unix-only (see `run_under_pty`); the piped run covers every
+    // platform.
+    #[cfg(unix)]
+    let runs = vec![
         run_with_stdin(&executable, b""),
         run_under_pty(&executable).replace("\r\n", "\n"),
-    ] {
+    ];
+    #[cfg(not(unix))]
+    let runs = vec![run_with_stdin(&executable, b"")];
+
+    for out in runs {
         assert!(
             out.contains("OFF:FALSE"),
             "didResize should be FALSE while off: {out:?}"
