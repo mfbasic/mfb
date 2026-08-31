@@ -540,20 +540,52 @@ pub fn run_under_pty(executable: &Path) -> String {
     let output = Command::new("python3")
         .arg("-c")
         .arg(
-            r#"import fcntl, os, pty, struct, subprocess, sys, termios
+            r#"import fcntl, os, pty, select, struct, subprocess, sys, termios, time
 master, slave = pty.openpty()
 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 100, 0, 0))
+# Hold a spare slave handle in the parent for the whole drain. Without it the
+# only slave references are the child's, so the pty is torn down the instant the
+# child exits -- and on macOS/BSD a master read after the last slave closes
+# returns EIO *and discards whatever the tty still had queued*. This child writes
+# three short lines and exits immediately, so on a loaded machine it routinely
+# beat the parent's first read and the helper returned zero bytes ("expected tty
+# output, got []"). Keeping a slave open means the tty survives the child, so the
+# queued bytes stay readable and the loop below ends on child exit rather than on
+# an EOF that races it.
+keep = os.dup(slave)
 proc = subprocess.Popen([sys.argv[1]], stdin=slave, stdout=slave, stderr=slave, close_fds=True)
 os.close(slave)
 chunks = []
+deadline = time.time() + 30.0
 while True:
-    try:
-        data = os.read(master, 4096)
-    except OSError:
+    ready, _, _ = select.select([master], [], [], 0.2)
+    if ready:
+        try:
+            data = os.read(master, 4096)
+        except OSError:
+            data = b""
+        if data:
+            chunks.append(data)
+            continue
+    if proc.poll() is not None:
+        # The child is gone and cannot write again; sweep the tty buffer dry.
+        while True:
+            ready, _, _ = select.select([master], [], [], 0.0)
+            if not ready:
+                break
+            try:
+                data = os.read(master, 4096)
+            except OSError:
+                data = b""
+            if not data:
+                break
+            chunks.append(data)
         break
-    if not data:
-        break
-    chunks.append(data)
+    if time.time() > deadline:
+        proc.kill()
+        sys.stderr.write("timed out waiting for the pty child to exit\n")
+        sys.exit(124)
+os.close(keep)
 os.close(master)
 sys.stdout.buffer.write(b"".join(chunks))
 sys.exit(proc.wait())"#,
@@ -609,8 +641,10 @@ prompt = sys.argv[2].encode()
 reply = bytes.fromhex(sys.argv[3])
 wait_echo_off = sys.argv[4] == "1"
 master, slave = pty.openpty()
-# Keep a spare handle to the slave so we can read its termios after the child
-# closes its own copies; closed before the drain loop so `master` still sees EOF.
+# Keep a spare handle to the slave: it lets us read the child's termios after it
+# closes its own copies, and it keeps the pty alive across the child's exit so
+# the drain below cannot lose queued output (see that loop). Held until the very
+# end -- the drain therefore ends on child exit, not on an EOF it would race.
 echo_probe = os.dup(slave)
 proc = subprocess.Popen([sys.argv[1]], stdin=slave, stdout=slave, stderr=slave, close_fds=True)
 os.close(slave)
@@ -645,21 +679,43 @@ if wait_echo_off:
             sys.stderr.write("timed out waiting for child to disable echo\n")
             sys.exit(124)
         time.sleep(0.001)
-os.close(echo_probe)
 os.write(master, reply)
+# `echo_probe` stays open through this drain (it is the spare slave handle), for
+# the same reason `run_under_pty` holds one: once the child's are the only slave
+# references left, its exit tears the pty down and a macOS/BSD master read then
+# returns EIO *and drops whatever was still queued*. Every caller here asserts on
+# output the child prints immediately before exiting, so that tail is exactly
+# what would be lost. Ending the loop on child exit instead of on EOF removes the
+# race; the sweep afterwards takes whatever the tty still holds.
+deadline = time.time() + 30.0
 while True:
-    ready, _, _ = select.select([master], [], [], 5.0)
-    if not ready:
+    ready, _, _ = select.select([master], [], [], 0.2)
+    if ready:
+        try:
+            data = os.read(master, 4096)
+        except OSError:
+            data = b""
+        if data:
+            chunks.append(data)
+            continue
+    if proc.poll() is not None:
+        while True:
+            ready, _, _ = select.select([master], [], [], 0.0)
+            if not ready:
+                break
+            try:
+                data = os.read(master, 4096)
+            except OSError:
+                data = b""
+            if not data:
+                break
+            chunks.append(data)
+        break
+    if time.time() > deadline:
         proc.kill()
         sys.stderr.write("timed out waiting for process exit\n")
         sys.exit(124)
-    try:
-        data = os.read(master, 4096)
-    except OSError:
-        break
-    if not data:
-        break
-    chunks.append(data)
+os.close(echo_probe)
 os.close(master)
 sys.stdout.buffer.write(b"".join(chunks))
 sys.exit(proc.wait())"#,
