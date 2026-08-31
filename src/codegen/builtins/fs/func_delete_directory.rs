@@ -45,8 +45,8 @@ left in place.
 absolute or relative to the current working directory, and may contain Unicode
 characters when the host filesystem accepts those names. It must be non-empty and must not contain an embedded NUL byte.
 
-When the host refuses the removal, the failure `errno` is mapped to the matching
-error below and the filesystem is left unchanged. `errno` values are per-OS; the
+When the host refuses the removal, it raises the matching error below and the
+filesystem is left unchanged. The
 same symbolic error is produced on each platform."#;
 const EX: &str = r#"Remove an empty directory:
 

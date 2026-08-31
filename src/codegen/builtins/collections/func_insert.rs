@@ -24,9 +24,8 @@ greater than the length, raises `ErrIndexOutOfRange`.
 Only the single-element form exists. `item` must have exactly the element type
 `T`; passing another `List OF T` resolves no overload, and the call rejects a
 list-typed item explicitly with "insert expects a single item, not a list".
-Internally the element is wrapped as a one-element list and spliced into `value`
-at `index`, which is the same splice that backs `append` (index `= len`) and
-`prepend` (index `0`).
+`insert` at `index = len(value)` is `append`, and at `index = 0` is `prepend`;
+use those names when that is what you mean.
 
 `insert` does not change `value`. The list it names is unchanged; the modified
 list is the returned value, and a program observes the update only through what

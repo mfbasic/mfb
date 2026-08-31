@@ -44,7 +44,12 @@ RUN_TIMEOUT=${RUN_TIMEOUT:-60}
 # Killing the subshell is likewise not enough: `sleep` is its own process and
 # keeps the pipe, so kill the process GROUP.
 run_bounded() {
-	"$@" &
+	# A background job in a non-interactive shell gets /dev/null on stdin unless
+	# it is redirected explicitly, so hand it this function's own stdin — which
+	# is where STDIN_FILE arrives. Without this, every example that reads input
+	# sees EOF and the STDIN_FILE plumbing above is silently inert.
+	exec 3<&0
+	"$@" <&3 &
 	run_pid=$!
 	{ sleep "$RUN_TIMEOUT"; kill -9 "$run_pid" 2>/dev/null; } >/dev/null 2>&1 &
 	killer_pid=$!

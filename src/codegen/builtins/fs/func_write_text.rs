@@ -42,7 +42,7 @@ The text payload is written directly from the `String`'s packed byte data. A
 held, with no re-encoding, decoding, or newline translation. The write is
 retried until every byte has been written or the host reports an output failure,
 so a short host write that transfers only part of the buffer is resumed rather
-than treated as complete, and an interrupted (`EINTR`) write is retried from the
+than treated as complete, and an interruption never loses or duplicates bytes; the
 same cursor before any byte has moved. An empty `String` produces an empty
 (truncated) file.
 

@@ -50,8 +50,8 @@ characters when the host filesystem accepts those names. It must be non-empty an
 `fs::createDirectory` never overwrites or reuses an existing entry: if anything
 already exists at `path`, including an existing directory, the call fails with
 `ErrAlreadyExists` rather than succeeding quietly. When the host refuses the
-operation, the failure `errno` is mapped to the matching error below and the
-filesystem is left unchanged. `errno` values are per-OS; the same symbolic error is
+operation, it raises the matching error below and the filesystem is left
+unchanged. The same error is
 produced on each platform."#;
 const EX: &str = r#"Create a single output directory whose parent already exists:
 

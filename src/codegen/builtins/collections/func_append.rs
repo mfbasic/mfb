@@ -18,11 +18,8 @@ of that argument: an argument whose type is exactly the element type appends one
 element, and an argument whose type is exactly the same list type concatenates.
 Any other type is a compile-time error, because no other combination resolves.
 
-Internally both forms are the same operation: the appended content is wrapped as
-a list when it is a single element, and the result is built by splicing that list
-into `value` at index `count(value)` — the one-past-the-end position, which the
-splice accepts as the append position. Existing elements keep their relative
-order, and the appended content is placed after all of them in its own order.
+Both forms behave the same way: existing elements keep their relative order, and
+the appended content is placed after all of them, in its own order.
 
 `append` does not change `value`. The list it names is unchanged; the modified
 list is the returned value, and a program observes the update only through what

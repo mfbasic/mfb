@@ -29,14 +29,14 @@ pub(crate) fn lower_fs_close(
 }
 
 const INTRO: &str = r#"Close an open `File` resource and release its operating-system handle"#;
-const DESC: &str = r#"`fs::close` releases the operating-system file descriptor behind an open `File`,
-then returns nothing. Before releasing the descriptor it drains any output held in
+const DESC: &str = r#"`fs::close` closes an open `File` and releases the operating-system resources behind it,
+then returns nothing. Before it closes, it drains any output held in
 the handle's per-handle buffer (see `fs::setBuffered`) so buffered on-disk data is
 never stranded; the drain is a no-op on an unbuffered handle, which is the default.
 
 The `File` is marked closed regardless of the outcome of the underlying `close`. On
-some platforms a failing `close` (for example `EINTR` or `EIO`) has still released
-the descriptor, so leaving the handle usable would let a later call drain and close
+some platforms a failing `close` (on some platforms) has still released
+the file, so leaving the handle usable would let a later call drain and close
 the same descriptor number — which by then may name an unrelated open file. Setting
 the closed flag first means any later `fs::` call that takes the same `File` is
 refused rather than touching a stale or reused descriptor, and a re-close raises an
@@ -45,7 +45,7 @@ error instead of repeating the release.
 Closing is otherwise automatic. Every `File` returned by `fs::open`, `fs::openFile`,
 `fs::openFileNoFollow`, `fs::openWithin`, or `fs::createTempFile` is closed by
 lexical drop when the `RES` binding that holds it leaves scope, and that drop drains
-the buffer the same way. Call `fs::close` only when the descriptor must be released
+the buffer the same way. Call `fs::close` only when the file must be closed
 earlier than scope exit — for example to reopen the same path, to let another process
 observe writes, or to bound how many descriptors a long-running program holds open at
 once. Closing a `File` and then letting it drop is safe: the drop sees the closed

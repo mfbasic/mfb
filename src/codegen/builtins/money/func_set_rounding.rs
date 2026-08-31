@@ -16,11 +16,11 @@ half **away from zero**, the default) or `Rounding.Banker` (round half to
 call returns nothing.
 
 The call is lowered inline to a mask and a single store into the
-per-execution-context rounding-mode field in the arena state region. The stored
+rounding mode for this thread. The stored
 value is the enum discriminant masked to its low bit, so exactly `0` or `1` is ever
 written and a later `money::getRounding` reads back the same member.
 
-The mode is per-execution-context state. A worker thread inherits the spawning
+The mode is per-thread. A worker thread inherits the spawning
 thread's mode at spawn and then changes independently, so setting the mode on one
 thread never disturbs another. There is no scoped or automatic restore: the mode
 stays as you set it until it is set again, so a routine that changes the mode for

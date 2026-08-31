@@ -58,7 +58,7 @@ empty and must not contain an embedded NUL byte, because the host `open` call
 requires a NUL-terminated path.
 
 The returned `File` is closed when the binding that holds it goes out of scope, or explicitly with `fs::close`. The function reads or writes no
-file contents itself; it only opens the descriptor and wraps it in the `File`
+file contents itself; it only opens the file and gives you the `File`
 resource. If the `File` record cannot be built after the file is opened, the file is closed before the error is reported, so a failed open
 never leaks a host fd."#;
 const EX: &str = r#"Open a file for reading and close it explicitly:

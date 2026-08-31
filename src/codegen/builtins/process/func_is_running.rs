@@ -31,7 +31,7 @@ When the check observes that the child has just exited, it decodes and **caches*
 the exit code and raw wait status in the handle, so a later `process::waitFor`
 returns without blocking and `process::didSignal` can report how the child died.
 Once the exit has been cached, further `isRunning` calls answer `FALSE` from the
-cache without another system call.
+cache without asking the operating system again.
 
 The handle stays open. Calling `isRunning` on a handle that has
 already been dropped or detached raises `ErrResourceClosed`."#;

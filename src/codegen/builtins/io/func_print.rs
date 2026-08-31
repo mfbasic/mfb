@@ -35,8 +35,8 @@ Exactly one argument, either a `String` or an `AttributedString` (see
 converted first — for example with `toString`.
 
 The underlying write loops until every byte has been transferred: a short write
-advances the cursor and re-issues, and an `EINTR` interruption retries with the
-cursor unchanged. A zero-byte or failing write is a failure and raises
+advances the cursor and re-issues, and an interruption is resumed rather than losing
+bytes. A zero-byte or failing write is a failure and raises
 `ErrOutput`.
 
 With standard-output buffering enabled by `io::setBuffered(TRUE)` the text is

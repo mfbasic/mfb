@@ -51,8 +51,7 @@ The source of the path is platform specific:
 
 The function takes no arguments and has no filesystem side effects: it neither
 creates the directory nor verifies that it exists, it only reports the
-configured path. Internally it reads into a fixed 4096-byte buffer before
-copying the result into an arena-backed `String`."#;
+configured path."#;
 const EX: &str = r#"Read and print the host temporary directory:
 
 ```

@@ -50,8 +50,8 @@ const EX: &str = r#"Play a bass line and a lead together on the same stream:
 IMPORT audio
 
 SUB main()
-  LET bass = "T100 O2 L4 I triangle { C G }4"
-  LET lead = "T100 O4 L8 I sine C E G < C > [ C E G ] { C. D16 }2"
+  LET bass = "T180 O2 L8 I triangle C G"
+  LET lead = "T180 O4 L16 I sine C E G [ C E G ]"
 
   RES out AS audio::AudioOutput = audio::openOutput(48000, 1, 512)
   audio::play(out, [bass, lead])

@@ -91,7 +91,7 @@ call succeeds having done nothing. It is likewise a no-op when buffering is on
 but nothing is pending.
 
 The drain loops until the buffer is empty: a short write advances the cursor and
-re-issues, and an `EINTR` interruption retries. If a write genuinely fails, the
+re-issues, and an interruption is resumed. If a write genuinely fails, the
 still-unflushed bytes are slid back to the base of the buffer and kept, so a later
 `io::flush` resumes from exactly where this one stopped — and this call raises
 `ErrOutput`.

@@ -21,7 +21,7 @@ handle yourself.
 
 The whole file is buffered into the response body before anything is sent. This
 is fine for the modest static assets a development or embedded server serves, but
-it is not a streaming API: a large file is held entirely in the arena, and while
+it is not a streaming API: a large file is held entirely in memory, and while
 it is being read the single-threaded server is not handling other connections.
 
 The read starts at the file's *current* position, not at byte zero, because

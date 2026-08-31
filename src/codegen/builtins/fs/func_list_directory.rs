@@ -46,13 +46,10 @@ bytes (an ordinary lexicographic ordering for ASCII names), so the result is
 deterministic and stable across runs and across hosts. An empty directory, or a
 directory that contains only `"."` and `".."`, yields an empty `List`.
 
-Internally the directory is scanned in two passes: the first pass opens, reads,
-and closes it to count the entries and their name bytes so the result `List` can
-be sized, and the second pass opens, reads, and closes it again to fill the list
-before sorting. If a concurrent writer grows the directory between the two
-scans, the extra entries are truncated to the sized capacity rather than
-overflowing the arena block, and the header is trimmed to what the second pass
-actually wrote. The final path component is followed when it is a symlink, so
+The directory is read twice — once to size the result and once to fill it — so a
+directory that another program is writing to at the same moment can change
+between the two reads. If it grows, the extra entries are dropped rather than
+overrunning the result, which is sized by the first read. The final path component is followed when it is a symlink, so
 listing through a symlink that points at a directory lists the target
 directory's entries.
 

@@ -19,9 +19,7 @@ compile-time error. A list-typed item is rejected explicitly as well.
 To place a whole list in front of another, use `collections::append` with the
 operands reversed — `collections::append(front, back)`.
 
-Internally the element is wrapped as a one-element list and spliced into `value`
-at index `0`, so the operation is the index-`0` case of the same splice that
-backs `append` and `insert`.
+`prepend` is `insert` at index `0`.
 
 `prepend` does not change `value`. The list it names is unchanged; the modified
 list is the returned value. When the compiler can prove the target is a uniquely

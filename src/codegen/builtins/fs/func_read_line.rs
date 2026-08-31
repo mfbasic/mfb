@@ -64,10 +64,10 @@ identical to an unbuffered read. A whole-file read (`fs::readAll`,
 reconciles the buffer first, so mixing them with `fs::readLine` sees the exact
 logical position.
 
-Thread cancellation is cooperative. The current runtime does not asynchronously
-interrupt arbitrary host file reads; workers that need prompt cancellation around
-blocking file descriptors should check `thread::isCancelled` between
-cancellation-point operations."#;
+Thread cancellation is cooperative: a read already waiting on the host is not
+interrupted. A worker that must stop promptly should check
+`thread::isCancelled` between reads rather than expect a blocked one to be cut
+short."#;
 const EX: &str = r#"Read the first line of a file:
 
 ```

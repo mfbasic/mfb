@@ -46,7 +46,7 @@ contain Unicode characters when the host accepts such names, and the byte-orient
 spelling of the name is preserved in the result. The string must not be empty and
 must not contain an embedded NUL byte, because the host call requires a
 NUL-terminated path; either condition raises `ErrInvalidArgument` before any host
-call is made. The result is copied into an arena-backed `String` with the host
+call is made. The result is returned as a `String` in the host
 resolution buffer sized to hold up to `PATH_MAX` bytes plus the terminating NUL
 (`4097`).
 

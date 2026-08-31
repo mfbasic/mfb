@@ -63,6 +63,7 @@ A shorter request is a prefix of a longer one:
 ```
 IMPORT crypto
 IMPORT encoding
+IMPORT collections
 IMPORT io
 
 SUB main()

@@ -44,7 +44,7 @@ current end of the file. The byte payload is written directly from the byte
 list's packed data region. The write is retried until every byte has been written
 or the host reports an output failure, so a short host write that transfers only
 part of the buffer is resumed rather than treated as complete, and an interrupted
-(`EINTR`) write is retried from the same cursor before any byte has moved. An
+interruption never loses or duplicates bytes. An
 empty byte list leaves the file's length unchanged, creating it as an empty file
 if it did not exist. Bytes are written exactly as held in the list, with no
 encoding, decoding, or newline translation, so the function is suitable for

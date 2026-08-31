@@ -36,10 +36,9 @@ result. Bytes are returned exactly as stored on disk, with no encoding, decoding
 or newline translation, so the function is suitable for binary data as well as
 text.
 
-Internally the function opens the file read-only, wraps the descriptor in a fresh
-`File` handle, and delegates to the same whole-file reader as `fs::readAllBytes`;
-the file is always closed before the function returns, on both the success and the
-read-failure paths. The returned list's length equals the byte length of the file
+The file is always closed before the function returns, whether the read
+succeeded or failed. `fs::readAllBytes` does the same thing for a file you have
+already opened. The returned list's length equals the byte length of the file
 at the moment it is read, so an empty file yields an empty `List OF Byte`.
 
 The final path component is followed when it is a symlink, so reading through a
@@ -48,7 +47,7 @@ the host filesystem; it may be absolute or relative to the current working
 directory, and may contain Unicode characters when the host filesystem accepts
 those names. The string must not be empty and must not contain an embedded NUL
 byte, because the host `open` call requires a NUL-terminated path. Apart from
-opening and closing the file descriptor, the call has no side effects."#;
+opening and closing the file, the call has no side effects."#;
 const EX: &str = r#"Read a binary file into a byte list:
 
 ```

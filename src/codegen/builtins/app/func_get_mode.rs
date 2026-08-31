@@ -54,7 +54,7 @@ never-taken branch: the decision is a static, whole-program one, not a runtime
 flow analysis).
 
 The mode is not a call into a runtime helper you can see — it is lowered to a
-single load of the per-execution-context presentation-mode word held in the arena
+single read of the mode this thread is currently in
 state region, reserved only in an `--app` build.
 
 The `Mode` enum is referenced bare, like every other builtin type: write

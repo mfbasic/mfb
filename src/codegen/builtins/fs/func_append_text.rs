@@ -46,8 +46,8 @@ written exactly as held, with no re-encoding, decoding, or newline translation,
 and no trailing newline is added. The write is retried until every byte has been
 written or the host reports an output failure, so a short host write that
 transfers only part of the buffer is resumed rather than treated as complete, and
-an interrupted (`EINTR`) write is retried from the same cursor before any byte has
-moved. An empty `String` leaves the file's length unchanged, creating it as an
+an interruption never loses or duplicates
+bytes. An empty `String` leaves the file's length unchanged, creating it as an
 empty file if it did not exist.
 
 When the file is created it gets permissions `0600` — readable and writable only by the user running the program, before the process umask is applied — not the world-readable `0666`. An
