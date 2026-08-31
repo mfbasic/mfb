@@ -43,7 +43,27 @@ pub(crate) struct HirProject {
 pub(crate) struct HirFile {
     pub(crate) path: String,
     /// Imports carry no type strings, so the AST node is reused verbatim.
+    ///
+    /// This is the file's **resolution scope**, not necessarily its own
+    /// declaration list — see [`own_imports`](Self::own_imports).
     pub(crate) imports: Vec<crate::ast::Import>,
+    /// The packages this file's own source `IMPORT`ed, in source order.
+    ///
+    /// Held separately from [`imports`](Self::imports) because monomorphization
+    /// widens that list: `monomorph::lower` emits every generated instantiation
+    /// into the FIRST file and unions every other file's imports into it, so
+    /// those bodies' package-qualified calls still resolve. After that pass
+    /// `main.mfb`'s `imports` reads `{tcp, udp, net, strings, collections}` for a
+    /// program that wrote only `IMPORT tcp` and `IMPORT udp` — `net`, `strings`
+    /// and `collections` arrive from the injected `udp` companion source.
+    ///
+    /// The widening is correct for resolution and lowering, and invisible to
+    /// name resolution (which ran on the original AST, and still rejects a
+    /// `net::…` call in a file that did not import `net`). It is wrong for any
+    /// rule asking what the *author* imported — `ir::shape`'s foreign-record
+    /// field rule (bug-466), whose whole point is that an unrelated `IMPORT udp`
+    /// must not change the verdict. Monomorph copies this field verbatim.
+    pub(crate) own_imports: Vec<String>,
     pub(crate) items: Vec<HirItem>,
     pub(crate) internal: bool,
 }
@@ -513,6 +533,13 @@ pub(crate) fn elaborate(project: &crate::ast::AstProject) -> HirProject {
 pub(crate) fn elaborate_file(file: &crate::ast::AstFile) -> HirFile {
     HirFile {
         path: file.path.clone(),
+        // Snapshotted here, at the one point the file's own list is still the
+        // only list there is: elaboration runs before monomorphization widens it.
+        own_imports: file
+            .imports
+            .iter()
+            .map(|import| import.package_name().to_string())
+            .collect(),
         imports: file.imports.clone(),
         items: file.items.iter().map(elaborate_item).collect(),
         internal: file.internal,

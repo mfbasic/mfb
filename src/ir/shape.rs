@@ -152,6 +152,31 @@ struct Walker<'a> {
     /// `.state` on such a local typed `Unknown` there (bug-376's displaced
     /// error, pinned by its fixture).
     state_dropped: HashSet<String>,
+    /// Every builtin package RECORD, keyed by its type, mapped to the package
+    /// that declares it — the authority for the field-access import rule
+    /// (bug-466). Built from the REGISTRY rather than from the project's type
+    /// table, because that table holds whatever the injected companion sources
+    /// happened to declare: `udp`'s `Datagram` names a `net.Address`, so an
+    /// unrelated `IMPORT udp` used to drag `Address`'s declaration in and make
+    /// an otherwise-identical `tcp` program compile. Keying on the registry and
+    /// the file's own imports is the only spelling that gives one verdict.
+    ///
+    /// A name the project itself declares — or an imported `.mfp` exports, or
+    /// two builtin packages both declare — is excluded: there the nominal does
+    /// not unambiguously mean the builtin's record, so there is no import to
+    /// name and the rule stays silent.
+    builtin_record_owner: HashMap<ParameterType, &'static str>,
+    /// Whether the file being walked is compiler-injected builtin package
+    /// source. Such a file declares the very types the rule above guards and is
+    /// authored against the registry's own import graph, so the rule does not
+    /// apply to it — and a diagnostic reported at `<builtin-net>` would name a
+    /// path the user cannot open.
+    current_file_internal: bool,
+    /// The packages the file being walked declared itself — `HirFile::own_imports`,
+    /// NOT `self.context.current_imports`. Monomorphization widens a file's
+    /// `imports` with the project-wide union, so the resolution scope is not the
+    /// author's list; the foreign-record field rule needs the author's.
+    current_own_imports: HashSet<String>,
     diagnostics: Vec<PendingDiagnostic>,
     /// Every `LET`/`MUT`/`RES` binding's computed type in walk order — the
     /// seam-fidelity probe the unit tests compare against lowering's stamped
@@ -618,6 +643,45 @@ impl<'a> Walker<'a> {
                 .iter()
                 .any(|import| import.package_name() == "astrings")
         });
+        // bug-466: the builtin records whose FIELDS need their own package's
+        // `IMPORT`. A nominal the project itself declares (in a file the
+        // compiler did not inject) or an imported `.mfp` exports means that
+        // type, not the builtin's, so it is excluded — as is a name two builtin
+        // packages both declare, which no single import would name.
+        let shadowed: HashSet<ParameterType> = hir
+            .files
+            .iter()
+            .filter(|file| !file.internal)
+            .flat_map(|file| &file.items)
+            .filter_map(|item| match item {
+                HirItem::Type(type_decl) => Some(ParameterType::declared(&type_decl.name)),
+                _ => None,
+            })
+            .chain(
+                imported_types
+                    .iter()
+                    .map(|imported| ParameterType::declared(&imported.name)),
+            )
+            .collect();
+        let mut builtin_record_owner: HashMap<ParameterType, &'static str> = HashMap::new();
+        let mut ambiguous: HashSet<ParameterType> = HashSet::new();
+        for package in crate::codegen::registry::registry().packages() {
+            for record in package.records() {
+                let type_ = ParameterType::declared(record.name);
+                if shadowed.contains(&type_) {
+                    continue;
+                }
+                if builtin_record_owner
+                    .insert(type_.clone(), package.import_name())
+                    .is_some()
+                {
+                    ambiguous.insert(type_);
+                }
+            }
+        }
+        for type_ in &ambiguous {
+            builtin_record_owner.remove(type_);
+        }
         Walker {
             project_dir,
             context: facts.context(),
@@ -634,6 +698,9 @@ impl<'a> Walker<'a> {
             call_typed_unknown: false,
             call_verdicts: HashMap::new(),
             state_dropped: HashSet::new(),
+            builtin_record_owner,
+            current_file_internal: false,
+            current_own_imports: HashSet::new(),
             diagnostics: Vec::new(),
             #[cfg(test)]
             bound_types: Vec::new(),
@@ -904,6 +971,8 @@ impl<'a> Walker<'a> {
         self.context.current_imports = file.import_bindings();
         self.context.current_file = file.path.clone();
         self.file = file.path.clone();
+        self.current_file_internal = file.internal;
+        self.current_own_imports = file.own_imports.iter().cloned().collect();
         for item in &file.items {
             match item {
                 HirItem::Binding(binding) => {
@@ -1635,6 +1704,64 @@ impl<'a> Walker<'a> {
         }
     }
 
+    /// TYPE_UNKNOWN_VALUE, the foreign-record field form (bug-466). Reading a
+    /// field off a record a BUILTIN package declares requires that package's own
+    /// `IMPORT` in this file. Imports are not transitive and a package cannot
+    /// re-export another's types, so `tcp::localAddress`'s `net::Address` result
+    /// has no field table in a file that imported only `tcp` — the read has no
+    /// type, and the value it produces is `Unknown`.
+    ///
+    /// **Why here and not in `ir::verify`, and why not by asking whether the
+    /// read typed.** The `Unknown` was already caught wherever it was BOUND
+    /// (`LET p AS Integer = b.port`) or fed to an operator, but not where it was
+    /// a call argument: a declared `Integer` parameter accepted it, and an
+    /// overloaded builtin unified it against a candidate rather than failing
+    /// resolution. It then survived to native lowering, which asserted its own
+    /// invariant with no source location to attach — `native plan has no storage
+    /// class for type 'Unknown'`, or, one call away from the mistake, `native
+    /// code field access target 'Address' is not a record or variant while
+    /// lowering eval call io.print`. Gating the FIELD ACCESS ITSELF makes the
+    /// verdict independent of where the `Unknown` happens to land, so a position
+    /// nobody thought to check cannot reopen the hole.
+    ///
+    /// And it keys on the file's own imports rather than on whether the read
+    /// resolved, because whether it resolved was never a property of this file:
+    /// the type table is populated by whichever companion sources got injected,
+    /// and `udp`'s `Datagram` names a `net.Address`, so adding an unreferenced
+    /// `IMPORT udp` used to drag `Address`'s declaration in and make the
+    /// identical `tcp` program compile. Same program, different verdict, decided
+    /// by an unrelated import. This asks the registry instead, so both spellings
+    /// are refused.
+    ///
+    /// `.state` is excluded: it is not a record field, and its own rules
+    /// (`ir::verify`'s TYPE_STATE_INVALID, and the `state_dropped` cascade
+    /// below) already report it more precisely.
+    fn check_foreign_record_field(
+        &mut self,
+        target: &HirExpression,
+        member: &str,
+        locals: &HashMap<String, ParameterType>,
+    ) {
+        if self.current_file_internal || member == "state" {
+            return;
+        }
+        let target_type = strip_res(&self.type_of(target, locals)).without_state();
+        let Some(owner) = self.builtin_record_owner.get(&target_type) else {
+            return;
+        };
+        if self.current_own_imports.contains(*owner) {
+            return;
+        }
+        let type_name = target_type.name();
+        self.emit(
+            "TYPE_UNKNOWN_VALUE",
+            format!(
+                "Field `{member}` belongs to `{owner}::{type_name}`, whose fields are not visible in this file. Imports are not transitive and a package cannot re-export another's types, so add `IMPORT {owner}`."
+            ),
+            self.current_line,
+        );
+    }
+
     /// An inline-TRAP handler block: the error binding is an `Error` local
     /// visible only inside it (`lower_inline_trap`).
     fn walk_handler(
@@ -1862,7 +1989,10 @@ impl<'a> Walker<'a> {
                     self.walk_expression(value, locals);
                 }
             }
-            HirExpression::MemberAccess { target, .. } => self.walk_expression(target, locals),
+            HirExpression::MemberAccess { target, member } => {
+                self.walk_expression(target, locals);
+                self.check_foreign_record_field(target, member, locals);
+            }
             HirExpression::Trapped {
                 expression,
                 binding,
