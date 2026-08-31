@@ -56,7 +56,11 @@ use crate::target::shared::nir::NirModule;
 /// rows across every seam at once.
 pub(crate) fn optimize_nir(mut module: NirModule, level: OptLevel) -> NirModule {
     let _ = level;
-    local_rewrites::apply(&mut module);
+    // Each row is wrapped in a `-vv` trace span named for its catalog row (see
+    // the identical treatment in `opt2::optimize_mir`); the wrapper is inert
+    // without `-vv` and changes nothing about what runs.
+    use crate::trace::timed;
+    timed("local rewrites", || local_rewrites::apply(&mut module));
     // After the local rewrites: branch simplification (Level 2) folds the
     // constant conditions folding just minted; then the loop rows (Level 3)
     // on the still-structured loops — LICM shrinks bodies, unswitching
@@ -66,29 +70,31 @@ pub(crate) fn optimize_nir(mut module: NirModule, level: OptLevel) -> NirModule 
     // truncation (Level 2), so a name whose only readers were unreachable
     // (or in a dropped arm) is provably unused for tree-DCE (Level 2), which
     // sweeps it along with the bindings the rewrites stranded.
-    branches::simplify(&mut module);
+    timed("branch simplification", || branches::simplify(&mut module));
     // The three global rows (Level 2) run on the whole module before the loop
     // rows: constifying a never-written global turns its reads into literals,
     // which the invariance and folding checks below can then see through.
-    globals::simplify(&mut module);
+    timed("globals", || globals::simplify(&mut module));
     // Codepoint `len()` caching (Level 3) runs before the loop rows: a cached
     // count is a plain local, which the invariance test can then hoist.
-    lencache::cache(&mut module);
-    licm::hoist(&mut module);
-    unswitch::unswitch(&mut module);
-    fuse::fuse(&mut module);
-    fission::split(&mut module);
-    peel::peel(&mut module);
-    rotate::rotate(&mut module);
+    timed("len cache", || lencache::cache(&mut module));
+    timed("LICM (NIR)", || licm::hoist(&mut module));
+    timed("loop unswitching", || unswitch::unswitch(&mut module));
+    timed("loop fusion", || fuse::fuse(&mut module));
+    timed("loop fission", || fission::split(&mut module));
+    timed("loop peeling", || peel::peel(&mut module));
+    timed("loop rotation", || rotate::rotate(&mut module));
     // Recovery-region simplification (Level 3) runs after the rewrites above:
     // a body they simplified into pure value flow is one whose TRAP handler
     // is provably unreachable.
     // Aggregate copy propagation (Level 3): a `LET b = a` on a record,
     // String or collection is a whole-block copy; forwarding it strands the
     // binding, which DCE below sweeps.
-    aggcopy::propagate(&mut module);
-    recovery::simplify(&mut module);
-    uce::eliminate(&mut module);
-    dce::eliminate(&mut module);
+    timed("aggregate copy propagation", || {
+        aggcopy::propagate(&mut module)
+    });
+    timed("recovery regions", || recovery::simplify(&mut module));
+    timed("UCE (NIR)", || uce::eliminate(&mut module));
+    timed("DCE (NIR)", || dce::eliminate(&mut module));
     module
 }
