@@ -233,6 +233,7 @@ plus the record census above.
 - `http` — **unaffected in practice**; `http::Request`/`Response` are declared by `http` itself, and `http::startRead` takes a `net::Url` which forces `IMPORT net` at the call site anyway.
 - **User packages returning another package's record** — **verified: DOES NOT reproduce.** Built the three-project model `rt_foreign_type_reexport.rs` uses (`pa466` exports `TYPE A`; `pc466` imports it and exports `makesA() AS A`; `app466` imports only `pc466`) and read `v.n` off the result with no `IMPORT pa466`: it builds and runs clean. A `.mfp` carries the foreign type's full definition through the re-export path bug-390 added, so the app has `A`'s field table without importing its owner. The hole is specific to BUILTIN packages, whose companion source is injected only when some file imports them — there is no `.mfp` to carry `net::Address`'s fields into a `tcp`-only file. The gate is therefore scoped to builtin-package records; the user-package behavior is left exactly as it is.
 - `src/target/shared/plan/lower.rs:180` and `builder_value_semantics.rs:560` — **hardened by this bug**: after the front-end gate closes, these become unreachable from source and should say so.
+- **`tests/rt-behavior/tls/tls-timeout-convention-rt` — a fixture the bug had already killed, found by the acceptance sweep.** Its committed golden recorded `error: native plan has no storage class for type 'Unknown'` / `[exit 1]`, so the plan-73-D assertions it exists to prove (`tls::connect(h,p,-1)` → `ErrInvalidArgument`; `tls::connect(h,p,0)` → `ErrTimeout`) had not run since `9b62dcf23` (plan-110-E Phase 2), which migrated it from `net::` to `tcp::` and dropped `IMPORT net` while the body still read `bound.port`. Its `.run` marker shows it was always meant to execute; the rebaselined golden is what made the death silent. Its committed `.ir` golden held the mechanism in plain sight — `"member": "port"` typed `Unknown`, propagating into `tls.connect`'s result type. Repaired by restoring the import (commit `b1b667993`); it now builds, runs and prints `neg invalid` / `connect0 timeout`.
 
 ## Fix Design
 
@@ -310,8 +311,16 @@ Commit: `79b8ec348`
 - [x] Re-run all four reproductions.
 - [x] Correct `mfb man tcp localAddress` and `mfb man tcp`: passing the whole record does resolve (verified — `tcp::connect(bound)` compiles with no `IMPORT net`); it is field access that fails.
 
-Acceptance: PHASE3_ACCEPTANCE
-Commit: PHASE3_COMMIT
+Acceptance: met. `cargo test --release --no-fail-fast` on the merged tree: **79 targets `test result: ok`, 0 FAILED, exit=0** — including `artifact_gate_all` (790 fixtures, **0 DIFF**, 0 MISSING; a front-end-only gate drifting no `.ncodesum` is what the plan predicted) and `no_type_strings`. `test-accept.sh`: **acceptance tests passed (1315 test(s) ran)**. All four reproductions re-run against the final binary.
+Commit: `8dd6ab334`
+
+### Phase 4 — the two defects the fix surfaced (not in the original plan)
+
+- [x] **The plan-111 type-vocabulary ratchet.** Phase 2 added three `ParameterType::declared` sites in `ir/`, tripping `tests/no_type_strings.rs` (`declared_sites/ir` 50 > budget 47). Removed all three rather than raising the budget: the two shadowed-name sites are gone entirely (the set is now read off the `types` table `Walker::new` already builds from exactly those two populations, so the keys are the same objects a lookup uses, not merely equal to them), and the registry site uses `ParameterType::named` — a `&'static str` record name is a constructor call, not a grammar entry, and the gate scores it that way by design. Commit: `c212c0b51`
+- [x] **A fixture this bug had already killed.** `tests/rt-behavior/tls/tls-timeout-convention-rt` — see Blast Radius. Repaired by restoring `IMPORT net`; it builds, runs and passes both plan-73-D assertions again. Commit: `b1b667993`
+- [x] **The tier gap that hid it.** A golden `build.log` outside `tests/syntax/` must not pin a compiler diagnostic: the other tiers all have to COMPILE, so such a golden is a dead fixture whatever the harness reports. Added to `tests/architecture_guards.rs` (a static check over committed goldens: 0.16s in `cargo test`, not a 20-minute harness cycle). RED-then-GREEN verified against the pre-fix golden. Measured green tree-wide: 6 `^error:` hits, all under `tests/syntax/`; 0 located-diagnostic hits outside it. Commit: `f0eb232a3`
+
+Acceptance: met. All three verified individually and in the full post-merge suite.
 
 ## Validation Plan
 
@@ -325,6 +334,44 @@ Commit: PHASE3_COMMIT
 - **Should `IMPORT udp` keep making `net::Address`'s fields visible to a `tcp` program?** **Resolved: no** (the recommended option). The field-access rule keys on the file's own imports, so both spellings are refused identically.
   Note what was *not* done: the project-wide type table still holds `Address` whenever some file imports `net`, and `HirFile::imports` is still widened by monomorph. Both are load-bearing (lowering needs the widened list; the type table is how injected companions see each other) and neither is observable now that the rule asks the author's list instead. Scoping record-definition visibility per file would be a much larger change to `TypeIndex` with no remaining user-visible payoff.
 - **Diagnostic code for the improved message.** **Resolved: reuse `TYPE_UNKNOWN_VALUE`** (2-203-0043), as recommended — it is what the working cases already emit, and Reproduction 3 now shows the two forms side by side under one code.
+
+## STATUS: FIXED (`f0eb232a3`)
+
+Landed on `main` via `worktree-B-466`. Commits, in order:
+
+| Commit | What |
+|---|---|
+| `175997a63` | Phase 1 — 4 syntax fixtures + 5 shape-pass unit tests, RED-verified |
+| `04bd17682` | Phase 2 — the gate (`ir::shape::check_foreign_record_field`) + `HirFile::own_imports` |
+| `8dd6ab334` | Phase 3 — `mfb man tcp` / `tcp localAddress` prose correction |
+| `c212c0b51` | Phase 4 — keep the plan-111 `declared_sites` ratchet at budget |
+| `b1b667993` | Phase 4 — revive `tls-timeout-convention-rt` |
+| `f0eb232a3` | Phase 4 — the golden-tier guard |
+
+**Deviations from the plan as written, both deliberate:**
+
+1. **The Fix Design changed.** This document specified a post-inference sweep for
+   surviving `Unknown`s. That cannot meet the document's own Goal: under `IMPORT
+   udp` the offending read *does* type, so a sweep finds nothing and Reproduction
+   4 still compiles. The gate is on the field **access**, keyed on the author's
+   imports. Rationale in Fix Design.
+2. **`HirFile::own_imports` is new plumbing the plan did not anticipate**, because
+   the plan's Root Cause was incomplete — see the Correction under Root Cause.
+   Without it the gate would read the post-monomorph import union and Reproduction
+   4 would silently stay broken.
+
+**Not done, deliberately:** the project-wide `TypeIndex` still holds `Address`
+whenever any file imports `net`, and monomorph still widens the first file's
+`imports`. Both are load-bearing and neither is observable now that the rule asks
+the author's list. See Open Decisions.
+
+**Verification (macos-aarch64, `target/release/mfb`):** all four reproductions
+behave as designed; `cargo test --release --no-fail-fast` → 79 targets ok / 0
+failed; `artifact-gate.sh all` (via `artifact_gate_all`) → 790 fixtures, 0 diffs;
+`test-accept.sh` → 1315 ran, passed; `man-census.sh --memory-scope tcp` and
+`--scope tcp` → 0 hits; `man-run-examples.sh tcp --run` → 16/16 built and ran.
+Untested elsewhere: this is a front-end diagnostic, so the other platforms in the
+matrix are covered by the unchanged `.ncodesum` set rather than by execution.
 
 ## Summary
 
