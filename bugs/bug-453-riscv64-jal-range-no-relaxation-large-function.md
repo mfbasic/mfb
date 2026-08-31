@@ -109,10 +109,43 @@ This needs **no scratch register, no ABI reasoning, and no TLS hazard**, which i
 what makes it preferable to `auipc`+`jalr` here even though the latter is what a
 linker would emit.
 
-Structure it like the AArch64 twin regardless: a pass over `NativeCodePlan`
-before `encode`, run to a fixpoint (inserting hops shifts later displacements and
-can push a previously in-range `jal` out), and a strict no-op when everything
-already fits, so every existing fixture stays byte-identical.
+**Refinement — an ADJACENT trampoline does not work here, and this is the single
+biggest departure from bug-445.** AArch64's pass splices the veneer right next to
+the branch, and that works because the veneer's `b` has *wider reach* (imm26,
+±128 MiB) than the branch it replaces. riscv64 has no such instruction, so a
+trampoline placed beside the far `jal` sits at essentially the same distance from
+the target and is equally out of range. The hops must be placed **between** the
+source and the target, at ≤1 MiB intervals — which makes this a different
+algorithm, not a port with different constants.
+
+An inserted hop is an island in the instruction stream, so it must be jumped
+over rather than fallen into:
+
+```text
+    jal zero, far          ==>   jal zero, Lhop      ; ≤1 MiB to the island
+    ...                                ...
+                                 jal zero, Lover     ; skip the island
+                               Lhop:
+                                 jal zero, far       ; ≤1 MiB onward
+                               Lover:
+                                 ...
+```
+
+The implementation therefore needs a placement step the AArch64 pass has no
+equivalent of: walk the offset table for an instruction boundary about 1 MiB
+along the path to the target, and splice the three-instruction island there.
+Prefer a boundary that is already a branch target or a function-level seam if one
+is near, so the extra `jal zero, Lover` lands somewhere cold.
+
+Structure the outer loop like the AArch64 twin regardless: a pass over
+`NativeCodePlan` before `encode`, run to a fixpoint (inserting hops shifts later
+displacements and can push a previously in-range `jal` out), and a strict no-op
+when everything already fits, so every existing fixture stays byte-identical.
+Termination needs an argument the AArch64 pass gets for free — there, a rewritten
+branch targets a trampoline two instructions away and can never be rewritten
+again. Here each rewrite shortens the *remaining* distance by ~1 MiB, so bound
+the hop count per branch by `ceil(distance / 1 MiB)` and assert it, or a
+pathological placement could oscillate.
 
 **Both sites still need it** — see the section above: the standalone `jal` to the
 trap stub *and* the `jal` inside every `rv.br` long form. The second is the one
