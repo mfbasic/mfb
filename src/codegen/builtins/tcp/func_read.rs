@@ -33,7 +33,7 @@ closes.
 **There is no `readText`.** A stream read stops wherever the network happened to
 divide the data, which need not be a character boundary, so a decode at that
 point can split a multi-byte character in half. Assemble the whole message first,
-then decode it with `encoding::toUtf8Text`. `tcp::write` does accept a `String`
+then decode it with `encoding::utf8Decode`. `tcp::write` does accept a `String`
 directly, because sending is not subject to the same hazard."#;
 
 const EX: &str = r#"Read one chunk and decode it once it is whole:
@@ -50,7 +50,7 @@ FUNC main AS Integer
   RES conn = tcp::accept(server)
   tcp::write(client, "hello")
   LET bytes = tcp::read(conn, 64)
-  io::print(encoding::toUtf8Text(bytes))
+  io::print(encoding::utf8Decode(bytes))
   RETURN 0
 END FUNC
 ```

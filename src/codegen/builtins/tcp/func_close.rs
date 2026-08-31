@@ -64,7 +64,7 @@ FUNC main AS Integer
   RES conn = tcp::accept(server)
   tcp::close(server)
   tcp::write(client, "hi")
-  io::print(encoding::toUtf8Text(tcp::read(conn, 16)))
+  io::print(encoding::utf8Decode(tcp::read(conn, 16)))
   RETURN 0
 END FUNC
 ```"#;

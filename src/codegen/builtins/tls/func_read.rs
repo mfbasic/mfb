@@ -27,7 +27,7 @@ the same on the other.
 **There is no `readText`.** A stream read stops wherever the network happened to
 divide the data, which need not be a character boundary, so a decode at that
 point can split a multi-byte character in half. Assemble the whole message first,
-then decode it with `encoding::toUtf8Text`. `tls::write` does accept a `String`
+then decode it with `encoding::utf8Decode`. `tls::write` does accept a `String`
 directly, because sending is not subject to the same hazard."#;
 const EX: &str = r#"Read up to 4096 bytes from a connected TLS socket:
 
