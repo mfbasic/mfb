@@ -19,9 +19,17 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-  # Compile once. Publishes the mfb binary so the acceptance and artifact jobs
-  # can run without recompiling. A build failure here blocks every downstream
-  # job (via `needs: build`), so broken code never fans out to four runners.
+  # Compile once, RELEASE. Publishes the mfb binary so the acceptance and
+  # artifact jobs can run without recompiling. A build failure here blocks every
+  # downstream job (via `needs: build`), so broken code never fans out to four
+  # runners.
+  #
+  # Release, not debug, so every job exercises the binary users actually get.
+  # It also removes a duplicated compile: `tests/common::mfb_exe()` resolves the
+  # compiler under `target/release/` and runs `cargo build --release` itself
+  # (never trusting mere existence — a stale binary would silently test old
+  # codegen), so the test matrix was already building a release compiler on top
+  # of its debug one.
   build:
     runs-on: ubuntu-latest
     steps:
@@ -39,21 +47,28 @@ jobs:
         run: sh scripts/check-generated.sh
       - uses: dtolnay/rust-toolchain@1.96.0
       - name: Compile mfb
-        run: cargo build --bin mfb
+        run: cargo build --release --bin mfb
       # v4 artifacts are zipped and DROP the executable bit; the consumers chmod
       # +x after download.
       - uses: actions/upload-artifact@v4
         with:
           name: mfb-bin
-          path: target/debug/mfb
+          path: target/release/mfb
 
   # --- parallel test jobs (all gated on `build`) ---
 
   # Uninstrumented unit/integration suite across every supported host family.
   # The native GitHub runners cover x86-64/glibc, AArch64/glibc, Win64, and
   # macOS/AArch64. The x86-64/musl row uses Rust's musl target on the native
-  # Linux runner. Each matrix row recompiles under the test profile (separate
-  # from build's binary).
+  # Linux runner. Each matrix row recompiles its test binaries (separate from
+  # build's binary) — in release, matching the rest of the pipeline.
+  #
+  # NOTE: `--release` clears `debug_assertions`, so the ~40 `debug_assert!` /
+  # `#[cfg(debug_assertions)]` guards in `src/` (frame/stack-access checks in
+  # `validation.rs` and `linear_scan.rs`, IR and registry invariants) no longer
+  # execute anywhere in CI. They were already inert for every test that drives
+  # the compiler through `mfb_exe()`, which has always been release; this
+  # extends that to the in-process unit tests too.
   test:
     needs: build
     name: Test (${{ matrix.name }})
@@ -96,12 +111,12 @@ jobs:
           sudo apt-get install --yes musl-tools
       - name: Cargo test (native)
         if: matrix.rust_target == 'native'
-        run: cargo test --workspace
+        run: cargo test --release --workspace
       - name: Cargo test (x86-64 musl)
         if: matrix.rust_target == 'x86_64-unknown-linux-musl'
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
-        run: cargo test --workspace --target x86_64-unknown-linux-musl
+        run: cargo test --release --workspace --target x86_64-unknown-linux-musl
   # Acceptance: reuses the compiled binary (no recompile). test-accept.sh uses
   # bash arrays + process substitution, so it must run under bash (not sh).
   acceptance:
@@ -109,34 +124,36 @@ jobs:
     runs-on: ubuntu-latest
     # Backstop against a wedged fixture: test-accept.sh already caps each fixture's
     # build and execution (run_with_watchdog, MFB_ACCEPT_RUN_TIMEOUT below), so a
-    # healthy run finishes under this. Without it, a hang would burn GitHub's
+    # healthy run finishes well under this. Without it, a hang would burn GitHub's
     # 6-hour job default.
     #
-    # 40 minutes was only ever enough because the runnable fixtures were failing
-    # instantly: this job ran the musl binary on a glibc runner, so every one died
-    # in the dynamic loader at exit 127 without executing. Now that they actually
-    # run under the debug (≈5x slower than release) compiler, a full sweep needs
-    # substantially longer — the 40-minute cap cancelled the job at fixture 651 of
-    # 1271. Measured from that run: ~51% in 40 min, and the back half (compile-only
-    # `syntax/*`) is faster than the front.
+    # History: 40 minutes was once enough only because the runnable fixtures were
+    # failing instantly (the musl binary ran on a glibc runner and died in the
+    # dynamic loader at exit 127 without executing). Under the debug compiler a
+    # real sweep blew past it — cancelled at fixture 651 of 1271, ~51% in 40 min.
+    # This job now drives the RELEASE compiler, which measured ~5x faster on
+    # `tests/acceptance` (63.7s vs 338.6s on an M-series Mac), so the sweep is
+    # expected back in the ~20-30 minute range. The cap stays generous on purpose:
+    # it is a hang backstop, not a performance assertion, and a tight bound here
+    # only buys flaky cancellations on a slow shared runner.
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: mfb-bin
-          path: target/debug
-      - run: chmod +x target/debug/mfb
+          path: target/release
+      - run: chmod +x target/release/mfb
       - name: Acceptance tests
-        # This job drives the DEBUG compiler (the `build` job's artifact), which is
-        # ~5x slower than release: `tests/acceptance` measures 63.7s under release
-        # and 338.6s under debug on an M-series Mac, so the harness's 300s default
-        # per-fixture watchdog fails a healthy fixture here (exit 99, "timeout").
-        # Raise the bound for this job only; it still turns a genuine hang into one
-        # named failure well inside the 40-minute job cap above.
+        # The harness's per-fixture watchdog defaults to 300s, which the debug
+        # compiler overran on the biggest fixtures (exit 99, "timeout") — hence the
+        # old 1200s override. Release is ~5x faster, so 300s would very likely do;
+        # 600s is kept as headroom because CI runners are slower than the machine
+        # those timings came from, and the only thing this bound has to do is turn
+        # a genuine hang into one named failure inside the job cap above.
         env:
-          MFB_ACCEPT_RUN_TIMEOUT: "1200"
-        run: bash scripts/test-accept.sh target/debug/mfb target/accept-actual
+          MFB_ACCEPT_RUN_TIMEOUT: "600"
+        run: bash scripts/test-accept.sh target/release/mfb target/accept-actual
 
   # Golden/artifact byte-identity gate: execution-free codegen-dump diff. Reuses
   # the compiled binary; `all` sweeps every fixture under tests/. Also bash-only.
@@ -148,13 +165,20 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: mfb-bin
-          path: target/debug
-      - run: chmod +x target/debug/mfb
+          path: target/release
+      - run: chmod +x target/release/mfb
       - name: Golden/artifact tests
-        run: bash scripts/artifact-gate.sh target/debug/mfb all
+        run: bash scripts/artifact-gate.sh target/release/mfb all
 
-  # Coverage recompiles instrumented (a third profile), so it builds its own
-  # targets rather than reusing the binary.
+  # Coverage recompiles instrumented, so it builds its own targets rather than
+  # reusing the binary.
+  #
+  # This job deliberately stays on cargo-llvm-cov's default (dev) profile while
+  # the rest of the pipeline is release. Coverage is a line-mapping measurement:
+  # optimization inlines and merges lines, so an optimized instrumented build
+  # reports different — and less meaningful — per-file numbers for the same
+  # source. Switching it would move the 98% per-file gate and the global floor
+  # for reasons that have nothing to do with what the tests actually cover.
   coverage:
     needs: build
     runs-on: ubuntu-latest
@@ -182,8 +206,8 @@ jobs:
 
   # Runs only after every test job above has passed. build-examples.sh builds
   # each example for all registered targets and bundles them into
-  # target/examples.zip. It builds its own release compiler (the test jobs'
-  # binary is debug), so this job needs the Rust toolchain. bash-only.
+  # target/examples.zip. It compiles the compiler from source rather than taking
+  # the `build` job's artifact, so this job needs the Rust toolchain. bash-only.
   examples:
     needs: [test, acceptance, artifact, coverage]
     runs-on: ubuntu-latest
