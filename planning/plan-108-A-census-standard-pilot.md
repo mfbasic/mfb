@@ -646,15 +646,36 @@ broken form.
 
 ### Phase 3 — pilot: `bits` (verify-filled) + `thread` (author-empty)
 
-- [ ] `bits`: accuracy pass + scope pass over its 17 pages + overview +
-      types page; every example compiled and run.
-- [ ] `thread`: author all 13 pages (+ overview check, types page) from
+- [x] `bits`: accuracy pass + scope pass over its 17 pages + overview +
+      types page; every example compiled and run. — commit `c7bced7fe`.
+      `bits` renders no types page (it exports no types), so that half is
+      moot: `mfb man bits types` produces nothing and the census TYPES
+      column reads `-`. **All 37 examples build and run**
+      (`./scripts/man-run-examples.sh bits --run`), and every printed value
+      matches its page. The accuracy pass found nothing wrong; the scope
+      pass found a great deal (see the ledger below).
+- [x] `thread`: author all 13 pages (+ overview check, types page) from
       code + old_man source material, every claim behavior-verified, every
       example compiled and run (thread examples spawn and join).
+      — commit `169b89432`. **12 pages, not 13** (Corrections), and the
+      package exports no types, so there is no types page. Restructured
+      into one `func_*.rs` per member, matching every other builtin package
+      (user direction, 2026-08-30) rather than a single 600-line `mod.rs`.
+      All 13 parent-side examples build and run; the four worker-side
+      snippets are compiled as a package (a thread entry point cannot be a
+      `main`).
 - [ ] Cross-model review (Codex, one `codex exec` run per package) + apply
       findings; record the findings ledger (confirmed/rejected + evidence)
       here.
-- [ ] Memory-scope pass on both. Measured 2026-08-30
+- [x] Memory-scope pass on both. **Both at 0**
+      (`./scripts/man-census.sh --memory-scope bits` and `… thread`).
+      `bits` entered at 2 and `thread` at 0, as predicted. The rewrite table
+      needed **six** new rows after contact with real pages — but those came
+      from the Phase 2 parameter-description audit, not from these two
+      packages (see Corrections). What the pilot itself added was the
+      `ctz` fix below and the confirmation that the census script must read
+      rendered output only.
+      Original measurement 2026-08-30
       (`mfb man <pkg> --all | grep -nEi 'borrow|ownership|owns|pointer|deep
       copy|by reference|heap|refcount'`): `bits` = 2 rendered lines (one
       `ctz` sentence, "a pointer or size is 2^k-aligned…" — a real leak,
@@ -665,9 +686,21 @@ broken form.
       greps hit `owns` three times, all in Rust comments, none rendered —
       `--memory-scope` MUST read rendered output only (memory
       `rename-census-by-grep-underreports`, inverted).
-- [ ] Verify: re-render both packages (`mfb man bits --all`, `mfb man
+- [x] Verify: re-render both packages (`mfb man bits --all`, `mfb man
       thread --all`, `types`); census re-run shows both at 100% fill and 0
-      memory-scope hits.
+      memory-scope hits. — `./scripts/man-census.sh bits thread`:
+
+      ```
+      bits              17     17     17       17       27/27     11      -
+      thread            12     12     12       12       22/22     11      -
+      ```
+
+      Neither package exports a type, so neither renders a types page (the
+      `-`). Both at 0 memory-scope hits, and both at 0 for the wider
+      internals sweep
+      (`allocator|emitter|backend|clobber|SWAR|rax|rdx|bug-N|runtime helper|
+      Binary Representation|RBIT|RORV|lzcnt|NEON|arena|condvar|pthread|
+      trampoline|os_alias`).
 
 Acceptance: both pilot packages 100% filled/verified/reviewed with 0
 memory-scope hits; workflow §3 amended with anything the pilot taught
@@ -691,10 +724,29 @@ Commit: —
 
 ## Open Decisions
 
-- **Codex model pinning**: `codex exec` uses whatever model
-  `~/.codex/config.toml` configures unless `-m` is passed. Decide during
-  the pilot whether to pin one with `-m` for review consistency across
-  letters; record the choice and the reported model here either way.
+- **Codex model pinning** — **DECIDED 2026-08-30 (Phase 3): do NOT pin.**
+  The pilot ran `codex exec -C <worktree> -s workspace-write -` with the
+  prompt on stdin, and the run banner reports what it used:
+
+  ```
+  OpenAI Codex v0.150.0
+  model: gpt-5.6-terra
+  provider: openai
+  sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+  reasoning effort: medium
+  ```
+
+  (The plan's References say `codex-cli 0.149.1`; it is **0.150.0** now —
+  `codex --version`.) Not pinning is deliberate: the value of this step is
+  *independence from Claude*, which any Codex default satisfies, and a
+  pinned model name goes stale exactly the way `0.149.1` just did. Every
+  letter instead records the banner its own run printed, which is a fact
+  rather than a hope. Pin with `-m` only if two letters' reviews turn out
+  to disagree in KIND rather than in detail.
+
+  One mechanical note for B–E: pass the prompt on **stdin** (`… -s
+  workspace-write - < prompt.txt`), not as an argv string. The prompt
+  contains backticks and quotes that a shell argument mangles.
 - **`mfb spec` boundary**: this plan leaves the spec's ownership/move
   vocabulary alone (Rejected alternatives). If the ban is meant to reach
   `mfb spec` too, that is a separate plan with a different risk profile
