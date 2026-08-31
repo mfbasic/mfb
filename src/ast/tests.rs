@@ -2701,3 +2701,96 @@ fn parse_tcase_without_end_tcase_is_rejected() {
     )
     .is_err());
 }
+
+// ---- bug-468: `record.field = value` in statement position ----
+// MFBASIC spells assignment and equality both `=` and records are `WITH`-only
+// (§4), so before the parser guard these statements fell through to
+// `parse_expression` and the `=` bound as the equality operator: the write
+// became a Boolean comparison that was computed and discarded, with no
+// diagnostic at all whenever the two sides were comparable.
+
+#[test]
+fn parse_rejects_a_record_field_assignment_statement() {
+    assert!(try_parse("SUB main()\n  p.x = 77\nEND SUB\n").is_err());
+}
+
+#[test]
+fn parse_rejects_a_nested_record_field_assignment_statement() {
+    assert!(try_parse("SUB main()\n  o.inner.x = 77\nEND SUB\n").is_err());
+}
+
+#[test]
+fn parse_rejects_a_record_field_assignment_in_an_inline_if_branch() {
+    // The inline-IF branch is statement position too, reached through
+    // `parse_simple_statement(true)`.
+    assert!(try_parse("SUB main()\n  IF c THEN p.x = 77\nEND SUB\n").is_err());
+}
+
+#[test]
+fn parse_keeps_the_state_member_assignment_forms() {
+    // `resource.state = value` and `resource.state.field = value` are the one
+    // member-target assignment in the language (§15) and must be untouched by
+    // the record-field guard. The nested form desugars to a single-field
+    // `WITH` over the current state.
+    let file = try_parse("SUB main()\n  f.state = c\n  f.state.pos = 10\nEND SUB\n")
+        .expect("state assignment forms still parse");
+    let Item::Function(function) = &file.items[0] else {
+        panic!("expected function item");
+    };
+    let Statement::StateAssign {
+        resource, value, ..
+    } = &function.body[0]
+    else {
+        panic!("expected a STATE assignment for `f.state = c`");
+    };
+    assert_eq!(resource, "f");
+    assert!(matches!(value, Expression::Identifier(name) if name == "c"));
+    let Statement::StateAssign {
+        resource, value, ..
+    } = &function.body[1]
+    else {
+        panic!("expected a STATE assignment for `f.state.pos = 10`");
+    };
+    assert_eq!(resource, "f");
+    let Expression::WithUpdate { updates, .. } = value else {
+        panic!("expected the nested form to desugar to a WITH update");
+    };
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0].field, "pos");
+}
+
+#[test]
+fn parse_keeps_a_member_comparison_in_expression_position() {
+    // `IF p.x = 77 THEN` is a genuine equality comparison — the guard fires only
+    // in statement position, so this must still parse as a `=` binary.
+    let file = try_parse("SUB main()\n  IF p.x = 77 THEN\n    q = 1\n  END IF\nEND SUB\n")
+        .expect("member comparison in a condition still parses");
+    let Item::Function(function) = &file.items[0] else {
+        panic!("expected function item");
+    };
+    let Statement::If { condition, .. } = &function.body[0] else {
+        panic!("expected an IF statement");
+    };
+    let Expression::Binary { left, operator, .. } = condition else {
+        panic!("expected a binary condition");
+    };
+    assert_eq!(operator, "=");
+    assert!(matches!(**left, Expression::MemberAccess { .. }));
+}
+
+#[test]
+fn parse_keeps_a_plain_identifier_assignment() {
+    // The single-identifier assignment shape is unaffected by the guard.
+    let file = try_parse("SUB main()\n  p = 77\nEND SUB\n").expect("plain assignment still parses");
+    let Item::Function(function) = &file.items[0] else {
+        panic!("expected function item");
+    };
+    assert!(matches!(&function.body[0], Statement::Assign { name, .. } if name == "p"));
+}
+
+#[test]
+fn parse_leaves_a_malformed_member_path_to_its_own_diagnostic() {
+    // `a.b. = c` runs out of identifiers mid-chain, so the record-field guard
+    // declines it and the ordinary syntax diagnostic reports the statement.
+    assert!(try_parse("SUB main()\n  a.b. = c\nEND SUB\n").is_err());
+}
