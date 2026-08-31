@@ -225,7 +225,7 @@ Acceptance: MET. The full primitive scene matches within tolerance on Metal — 
 inside the *per-pixel* bound, not merely the population budget. Resize is correct and
 worker-free on both renderers (Case 3g, GUI-gated). The `setBytes` clause is moot with
 its feature.
-Commit: —
+Commit: `fd2bf37fe`
 
 ### Phase 3 — Completion-handler → frame-completion counter (largest blast radius last)
 
@@ -259,7 +259,7 @@ Acceptance: MET. The frame counter is gated on real Metal completion (by a full 
 recorded in Correction 12); D's frame-counter and ring behaviours are green on the
 Metal path; the closed-flag texture free is moot until an image has a texture, with
 the audit that proves it.
-Commit: —
+Commit: `7d3d4b4e4`
 
 ## Validation Plan
 
