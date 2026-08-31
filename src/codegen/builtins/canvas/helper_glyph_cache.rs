@@ -305,10 +305,36 @@ r#"SUB __canvas_glyphEvict()
     pinned = collections::append(pinned, FALSE)
     p = p + 1
   END WHILE
+  ' The offsets to walk: the geometry cache's own, plus any the frame in progress is
+  ' holding that the cache has already evicted. That second set is not an edge case -- a
+  ' scene larger than `__CANVAS_GEO_CAPACITY` produces it on every frame, and the glyphs
+  ' it names are about to be drawn.
+  MUT live AS List OF Integer = []
+  FOR EACH offset IN __CANVAS_GEO_OFFSETS
+    live = collections::append(live, offset)
+  NEXT
+  LET cached AS Integer = len(live)
+  FOR EACH offset IN __CANVAS_GEO_LIVE
+    MUT seen AS Boolean = FALSE
+    MUT c AS Integer = 0
+    WHILE c < cached
+      IF collections::getOr(live, c, 0 - 1) = offset THEN
+        seen = TRUE
+      END IF
+      c = c + 1
+    END WHILE
+    IF NOT seen THEN
+      ' Deduped, because the remap below rewrites each run exactly once. Twice would
+      ' apply the map to its own output and produce an index that names some other
+      ' glyph -- a wrong picture rather than a missing one.
+      live = collections::append(live, offset)
+    END IF
+  NEXT
+
   MUT slot AS Integer = 0
-  LET slots AS Integer = len(__CANVAS_GEO_OFFSETS)
+  LET slots AS Integer = len(live)
   WHILE slot < slots
-    LET offset AS Integer = collections::getOr(__CANVAS_GEO_OFFSETS, slot, 0)
+    LET offset AS Integer = collections::getOr(live, slot, 0)
     IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0)) = __CANVAS_GEO_TEXT THEN
       LET glyphs AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
       MUT g AS Integer = 0
@@ -393,7 +419,7 @@ r#"SUB __canvas_glyphEvict()
   MUT data AS List OF Float = __CANVAS_GEO_DATA
   slot = 0
   WHILE slot < slots
-    LET offset AS Integer = collections::getOr(__CANVAS_GEO_OFFSETS, slot, 0)
+    LET offset AS Integer = collections::getOr(live, slot, 0)
     IF toInt(collections::getOr(data, offset, 0.0)) = __CANVAS_GEO_TEXT THEN
       LET glyphs AS Integer = toInt(collections::getOr(data, offset + 20, 0.0))
       MUT g AS Integer = 0

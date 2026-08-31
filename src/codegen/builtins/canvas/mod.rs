@@ -66,6 +66,7 @@ mod gen_image;
 mod gen_present;
 mod helper_clamp_byte;
 mod helper_color;
+mod helper_damage;
 mod helper_draw;
 mod helper_font;
 mod helper_geometry;
@@ -798,6 +799,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_draw::register(&mut pkg);
     helper_font::register(&mut pkg);
     helper_glyph::register(&mut pkg);
+    helper_damage::register(&mut pkg);
     helper_glyph_cache::register(&mut pkg);
     helper_inflate::register(&mut pkg);
     helper_png::register(&mut pkg);

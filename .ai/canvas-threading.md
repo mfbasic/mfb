@@ -326,6 +326,18 @@ Three environment variables, all off by default and none on the production path:
   1 MiB), so a test can force eviction with a scene small enough to also check pixel by
   pixel. Resolved once and cached, so the ordinary path is a compare against a global
   rather than a `getenv` per glyph.
+* `MFB_CANVAS_DAMAGE` — repaint only what changed: keep the previous frame's pixels,
+  clear the union of the changed items' bounds, and redraw only the items that meet it.
+  Off by default. It changes no pixels — that is what `tests/rt_canvas_damage.rs`
+  asserts, byte for byte — but it does change *when* the renderer runs at all, and a
+  frame counter that silently stops advancing is the kind of thing a stale test reads as
+  a pass.
+
+  Two notes for anyone testing it. An unchanged scene never reaches the renderer in the
+  first place: `canvas::publishScene` refuses it and `present` does not signal a redraw
+  (§2's invariant), so the *empty* damage union only fires on a platform wake — a resize
+  or an OS damage repaint. And the GPU backends always render full-frame: they draw into
+  their own texture and read it back, so there is no kept surface for them to preserve.
 * `MFB_CANVAS_SYNC` — make `present` wait for the frame it asked for. Frames coalesce
   by design (§3), so frame counts are otherwise a scheduling detail — the same
   three-present program was observed producing one, two and three frames. Any

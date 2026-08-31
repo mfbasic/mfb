@@ -704,43 +704,50 @@ fn text_on_the_gpu_matches_the_software_oracle() {
     }
 }
 
-/// Three hundred text items, each at its own size, presented twice.
+/// Two scenes of three hundred text items each, presented A, B, A.
 ///
 /// Every size is a distinct glyph-cache key (`__canvas_sizeQ` quantises to 1/16 px and
-/// the step here is 0.2), and every position is a distinct geometry-cache key, so the
-/// scene is 300 entries in both caches. That matters: the geometry cache holds 256, so
-/// past item 256 the earliest items are evicted from it — and a glyph is pinned exactly
-/// while a live geometry entry references it, so that eviction is what lets the glyph
-/// cache free anything at all. A scene smaller than the geometry cache pins its whole
-/// working set by construction and can never demonstrate an LRU drop.
+/// the step here is 0.2) and the two scenes' size ranges are disjoint, so the program
+/// asks for six hundred distinct glyphs while never needing more than three hundred at
+/// once. That is what makes eviction *possible*: a glyph is pinned while any live
+/// geometry entry references it, and while the frame being rendered holds its offset —
+/// so the only glyphs that can ever be dropped are ones no scene on screen still names.
+/// Scene B is what makes scene A's glyphs droppable, and the second A is what proves
+/// they come back identical.
 ///
-/// The fixture glyph is a square with four edges, so 300 rasterisations are cheap while
-/// the bitmaps — 6x6 up to 24x24 — add up to far more than the budget the test forces.
+/// The fixture glyph is a square with four edges, so six hundred rasterisations are
+/// cheap while the bitmaps — 6x6 up to 36x36 — add up to far more than the forced budget.
 const EVICTION: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT collections
 
-SUB main()
-  app::setMode(Mode.Canvas)
-  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
-    EXIT SUB
-  END TRAP
+FUNC scene(face AS canvas::Font, base AS Float) AS List OF DrawItem
   LET white AS Paint = canvas::fill(canvas::rgb(255, 255, 255))
   MUT items AS List OF DrawItem = []
   MUT i AS Integer = 0
   WHILE i < 300
-    LET size AS Float = 20.0 + toFloat(i) * 0.2
+    LET size AS Float = base + toFloat(i) * 0.2
     LET x AS Float = 4.0 + toFloat(i MOD 20) * 45.0
     LET y AS Float = 36.0 + toFloat(i / 20) * 40.0
     LET glyph AS DrawItem = Text[x := x, y := y, text := "A", font := canvas::fontRef(face), size := size, paint := white]
     items = collections::append(items, glyph)
     i = i + 1
   END WHILE
-  ' Twice. The second frame re-renders a scene whose earliest items were evicted from
-  ' both caches while the first frame was still being drawn, so it is the frame that
-  ' exercises re-rasterising after eviction rather than merely surviving it.
-  canvas::present(items)
-  canvas::present(items)
+  RETURN items
+END FUNC
+
+SUB main()
+  app::setMode(Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    EXIT SUB
+  END TRAP
+  LET a AS List OF DrawItem = scene(face, 20.0)
+  LET b AS List OF DrawItem = scene(face, 80.0)
+  canvas::present(a)
+  canvas::present(b)
+  ' The frame that gets dumped, and the one that is compared: scene A again, after
+  ' scene B has had the chance to push its glyphs out of the cache.
+  canvas::present(a)
 END SUB
 "#;
 
@@ -771,8 +778,15 @@ fn eviction_frees_unpinned_glyphs_and_changes_no_pixel() {
     // Entries really left the cache. Without this the test would still pass if
     // `__canvas_glyphEvict` compacted the cache while keeping every entry — which is
     // exactly what it does when everything is pinned, and is not eviction.
+    //
+    // The roomy run ends holding all six hundred glyphs; the pressured one cannot, and
+    // the ones it dropped are scene B's, which nothing on screen still names.
     let kept = stat(&pressed, "glyphs");
     let all = stat(&relaxed, "glyphs");
+    assert_eq!(
+        all, 600,
+        "the roomy run should still hold both scenes' glyphs",
+    );
     assert!(
         kept < all,
         "eviction dropped nothing: {kept} entries under pressure, {all} without",

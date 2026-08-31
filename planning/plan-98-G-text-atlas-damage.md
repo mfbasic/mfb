@@ -349,20 +349,45 @@ Commit: 6fb4e7df3 (`canvas::loadImage`; the rest of Phase 1 landed across the co
 Acceptance: atlas eviction is LRU and never evicts a live glyph; output is golden-stable across
 eviction cycles — asserted as **exact pixel equality** between a pressured and an unpressured
 render of the same scene, not merely "no crash".
-Commit: 77efa718e (the cache, the eviction pass and its test; the GPU-text row is still open)
+Commit: 77efa718e (the cache, the eviction pass and its test), f7d9b81b1 (GPU text on both backends)
 
 ### Phase 3 — Optional damage-rect present (largest blast radius last)
 
-- [ ] Consume D's positional-diff damage: present only the damage union via
-      `VK_KHR_incremental_present` (Vulkan) / Metal dirty rects where the capability exists;
-      full-frame otherwise.
-- [ ] Tests: golden equality with damage-rect present on vs off (identical visible output); a
-      single changed label repaints only its damage region (observable via a present-region
-      counter); capability-absent path falls back to full-frame.
+- [x] Compute the damage union and consume it. **Not** via `VK_KHR_incremental_present` or
+      Metal dirty rects — both are properties of presenting a swapchain drawable, and this
+      renderer presents none: it draws offscreen, reads back, and hands the pixels to the
+      platform's own surface (Correction 24). Damage is consumed one layer down, where this
+      design actually spends its time.
 
-Acceptance: damage-rect present produces visibly identical output to full-frame (exact on
-the software path, within tolerance on GPU) while presenting only the changed region where
-supported; degrades to full-frame cleanly. Run only the new damage/text tests plus the
+      `helper_damage.rs` diffs the published hashes against the last rendered frame's and
+      unions the bounds of what changed — **both** where a moved item was and where it is.
+      Two consumers: an empty union renders nothing at all, and a partial union clears only
+      its rectangle in the kept surface and redraws only the items that meet it. D never
+      built the positional diff (it said it would "only if it has a consumer"), so this is
+      that work, not a consumer for it.
+- [x] Also produced here, because Phase 3 exposed it: `__CANVAS_GEO_LIVE`. A frame resolves
+      every item's offset before drawing any of them, and the geometry cache holds fewer
+      entries than a large scene has items — so an offset outlives its cache entry, and
+      glyph eviction was free to renumber the indices inside it. Six of a 300-item scene's
+      glyphs vanished the moment the software path stopped re-resolving per item
+      (Correction 25).
+- [x] Tests: `tests/rt_canvas_damage.rs` — damage on vs off is **byte-identical** for both an
+      unchanged and a moved scene; a moved circle's damage rectangle covers both its
+      positions and is smaller than the window (asserted as bounds, so the antialiasing
+      margin is free but a give-up-and-repaint-everything rectangle fails); three identical
+      presents render one frame. The empty union's own case is verified on the Linux box —
+      `scripts/test-canvas-vulkan.sh` now resizes to the size the surface already has and
+      asserts `frames=1 skipped=1` **and** that the surviving frame still matches the oracle
+      (`worst=0 differing=0.0000%`), on glibc (2228) and musl (2227). It has to be there:
+      that wake cannot be produced from a program at all, because `publishScene` refuses an
+      unchanged scene before it signals a redraw, and macOS has no scripted-resize
+      affordance (Correction 26).
+
+Acceptance: damage produces **byte-identical** output to full-frame on the software path —
+strengthened from "visibly identical", because there is no reason for a partial redraw to
+differ by a single pixel and a tolerance would hide exactly the stale-rectangle bug this is
+guarding against. A GPU backend renders full-frame whatever the damage is, which is the
+"capability-absent" arm and is reported as such. Run only the new damage/text tests plus the
 existing canvas goldens.
 Commit: —
 
@@ -749,6 +774,56 @@ exactly that way: a wrong buffer offset reads zero coverage, which is transparen
 invisible. The script now counts lit pixels in the label's own scanline in **both** frames
 and fails if either is empty, before it believes the diff. It reports 900 lit in each,
 which is also how the row above can quote a number rather than a verdict.
+
+**Correction 24 (Phase 3) — the two mechanisms the phase named do not exist in this
+design.** `VK_KHR_incremental_present` and Metal dirty rects both describe presenting a
+*swapchain drawable*. This renderer presents no drawable: it draws into an offscreen
+image, reads the pixels back, and hands them to the platform's own surface — a
+`CGImage` set as a layer's contents on macOS, a cairo surface on GTK (plan-98-F
+Correction 1, which chose offscreen rendering precisely so no reachable Linux box would
+need a display server). There is no swapchain to present incrementally, on either
+backend, and there was not one when the phase was written.
+
+So the phase's *goal* is met one layer down, where the time actually goes. The renderer
+rebuilds a 900x640 surface and redraws every item on every wake; damage lets it keep the
+previous pixels, clear one rectangle, and redraw only what meets it. That is the same
+idea — "do work proportional to what changed" — expressed in the terms this design has.
+
+The row is corrected rather than waived, because the distinction matters to the next
+reader: someone who later adds a swapchain path will want to know that the extension
+was considered and was inapplicable, not forgotten.
+
+**Correction 25 (Phase 3) — an offset outlives its cache entry, and that had already
+broken text.** Phase 3 moved the software path from "resolve and draw each item in turn"
+to "resolve every offset, then draw", so the whole frame's offsets are live at once. That
+is not an optimisation, it is what the damage diff requires: an item's damaged rectangle
+*is* its geometry's bounds, so there is nothing to diff until the geometry exists.
+
+It also made a latent bug bite. The geometry cache holds `__CANVAS_GEO_CAPACITY` (256)
+entries and a scene can have more items than that, so resolving item 300 evicts item 1
+while the frame is still holding item 1's offset. The offset stays *readable* —
+`__CANVAS_GEO_DATA` is never compacted — but the glyph cache indices inside it do not
+stay *valid*, because eviction renumbers. Six of a 300-item scene's glyphs drew nothing.
+
+`__CANVAS_GEO_LIVE` is the fix: `__canvas_sceneOffsets` publishes each offset as it
+resolves it, and `__canvas_glyphEvict` pins and renumbers from that list as well as from
+the cache's own. Note that this bug predated Phase 3 by a different route — the GPU
+probe already resolved all offsets before drawing — and it was invisible only because the
+software path re-resolved each item and quietly rebuilt what had been lost.
+
+**Correction 26 (Phase 3) — the empty-damage case cannot be reached from a program, and
+that is not a reason to leave it untested.** `canvas::publishScene` already returns FALSE
+for a scene identical to the installed one, and `__canvas_present` then does not even
+signal a redraw (plan-98-A invariant 2). So three identical presents produce one frame
+with damage on *or* off, and the damage union's empty case never fires from that path.
+
+It fires on the wakes a program does not control: a resize, an OS damage repaint. Those
+exist on Linux, where `MFB_CANVAS_RESIZE_W`/`_H` drives the production resize helper, and
+not on macOS, which has no scripted-resize affordance. So the case is verified there —
+resize to the size the surface already has, and assert both that nothing repainted
+(`frames=1 skipped=1`) and that the surviving frame still matches the oracle exactly. The
+second half is the one that matters: "repainted nothing" is also what a renderer that
+dropped the frame on the floor would report.
 
 ## Summary
 

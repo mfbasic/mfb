@@ -76,7 +76,16 @@ MUT __CANVAS_GEO_LASTUSED AS List OF Integer = []
 MUT __CANVAS_GEO_DATA AS List OF Float = []
 MUT __CANVAS_GEO_REV AS Integer = 0
 MUT __CANVAS_GEO_GENERATIONS AS Integer = 0
-LET __CANVAS_GEO_CAPACITY AS Integer = 256"#;
+LET __CANVAS_GEO_CAPACITY AS Integer = 256
+
+' The geometry offsets the frame being rendered is holding.
+'
+' A frame resolves every item's offset before it draws any of them, and the cache holds
+' fewer entries than a large scene has items -- so an offset can outlive its cache entry
+' by most of a frame. The offsets stay READABLE (`__CANVAS_GEO_DATA` is never compacted),
+' but the glyph indices inside them do not stay VALID, because glyph eviction renumbers.
+' This list is how eviction knows which of them are still live.
+MUT __CANVAS_GEO_LIVE AS List OF Integer = []"#;
 
 /// A bounded, order-independent hash over the geometry header.
 ///

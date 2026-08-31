@@ -185,6 +185,15 @@ ssh -p "$PORT" "$host" "
   $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_RESIZE_W=$RESIZE_W \
     MFB_CANVAS_RESIZE_H=$RESIZE_H MFB_CANVAS_STATS=$remote/gpu2.txt \
     MFB_CANVAS_DUMP=$remote/gpu2.rgba timeout 180 \$bin >/dev/null 2>&1
+  # plan-98-G Phase 3: a resize to the size the surface already has. It wakes the
+  # renderer through the production resize path with nothing about the scene changed,
+  # which is the one wake a program cannot produce by presenting: publishScene refuses
+  # an unchanged scene before it ever signals a redraw. This box is where that case can
+  # be reached at all -- macOS has no scripted-resize affordance. (No backticks in this
+  # comment: it is inside a double-quoted ssh command, where the shell would run it.)
+  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_DAMAGE=1 \
+    MFB_CANVAS_RESIZE_W=900 MFB_CANVAS_RESIZE_H=640 MFB_CANVAS_STATS=$remote/dmg.txt \
+    MFB_CANVAS_DUMP=$remote/dmg.rgba timeout 180 \$bin >/dev/null 2>&1
 "
 scp -P "$PORT" "$host:$remote/sw.rgba" "$work/sw.rgba" >/dev/null
 scp -P "$PORT" "$host:$remote/gpu.rgba" "$work/gpu.rgba" >/dev/null
@@ -192,6 +201,8 @@ scp -P "$PORT" "$host:$remote/gpu.txt" "$work/gpu.txt" >/dev/null
 scp -P "$PORT" "$host:$remote/sw2.rgba" "$work/sw2.rgba" >/dev/null
 scp -P "$PORT" "$host:$remote/gpu2.rgba" "$work/gpu2.rgba" >/dev/null
 scp -P "$PORT" "$host:$remote/gpu2.txt" "$work/gpu2.txt" >/dev/null
+scp -P "$PORT" "$host:$remote/dmg.rgba" "$work/dmg.rgba" >/dev/null
+scp -P "$PORT" "$host:$remote/dmg.txt" "$work/dmg.txt" >/dev/null
 ssh -p "$PORT" "$host" "rm -rf $remote"
 
 if [ ! -s "$work/gpu.txt" ]; then
@@ -321,6 +332,31 @@ case "$verdict" in
   ok*) pass "the resized Vulkan render matches the software oracle ($verdict)" ;;
   *)   fail "the resized Vulkan render disagrees with the software oracle: $verdict" ;;
 esac
+
+# plan-98-G Phase 3: the damage union's empty case. The scene did not change and the
+# surface did not change size, so the wake the resize produced owes no pixels — and the
+# renderer returns before rasterising anything. Nothing else in the tree can reach this:
+# a program's own repeated `present` is refused by `publishScene` long before the
+# renderer sees it, so an unchanged wake has to come from the platform.
+if [ ! -s "$work/dmg.txt" ]; then
+  fail "the damage run wrote no stats line"
+else
+  skipped="$(tail -1 "$work/dmg.txt" | tr ' ' '\n' | grep '^skipped=' | cut -d= -f2)"
+  frames="$(tail -1 "$work/dmg.txt" | tr ' ' '\n' | grep '^frames=' | cut -d= -f2)"
+  if [ "${skipped:-0}" -ge 1 ]; then
+    pass "a same-size resize repainted nothing (frames=$frames skipped=$skipped)"
+  else
+    fail "a same-size resize re-rendered the whole scene (frames=$frames skipped=${skipped:-0})"
+  fi
+  # And it still produced a correct frame — the skip must not cost the surface its
+  # contents. Compared against the software oracle from the first run, which drew the
+  # same scene at the same size.
+  verdict="$(compare "$work/sw.rgba" "$work/dmg.rgba" 900)"
+  case "$verdict" in
+    ok*) pass "the frame surviving a skipped repaint still matches the oracle ($verdict)" ;;
+    *)   fail "the frame after a skipped repaint disagrees with the oracle: $verdict" ;;
+  esac
+fi
 
 if [ "$fails" -eq 0 ]; then
   echo "canvas Vulkan runtime tests passed"

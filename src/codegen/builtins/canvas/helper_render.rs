@@ -26,27 +26,45 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// key like any other: it costs a confirmation compare, never a wrong reuse.
 #[rustfmt::skip]
 const RENDER_SCENE: &str =
-r#"FUNC __canvas_renderScene() AS Nothing
-  LET size AS Size = __canvas_surfaceSize()
-  MUT buffer AS List OF Byte = canvas::newSurface(size.width, size.height)
-  LET hashes AS List OF Integer = canvas::installedHashes()
-  MUT index AS Integer = 0
-  FOR EACH item IN canvas::installedItems()
-    buffer = __canvas_drawOne(buffer, size.width, size.height, item, collections::getOr(hashes, index, 0))
-    index = index + 1
+r#"FUNC __canvas_renderScene(offsets AS List OF Integer, damage AS List OF Integer, width AS Integer, height AS Integer) AS Nothing
+  LET full AS Boolean = __canvas_damageIsFull(damage, width, height)
+  MUT buffer AS List OF Byte = []
+  IF full THEN
+    buffer = canvas::newSurface(width, height)
+  ELSE
+    ' The previous frame's pixels, with only the damaged rectangle cleared back to the
+    ' surface's own opaque black. Everything outside it is already correct -- that is
+    ' the entire claim a partial redraw makes, and the reason the damage rectangle has
+    ' to include where a moved item *was* as well as where it is.
+    buffer = __CANVAS_KEPT
+    LET x0 AS Integer = collections::getOr(damage, 0, 0)
+    LET y0 AS Integer = collections::getOr(damage, 1, 0)
+    LET x1 AS Integer = collections::getOr(damage, 2, 0)
+    LET y1 AS Integer = collections::getOr(damage, 3, 0)
+    MUT y AS Integer = y0
+    WHILE y < y1
+      LET row AS Integer = y * width * 4
+      MUT x AS Integer = x0
+      WHILE x < x1
+        LET at AS Integer = row + x * 4
+        buffer = collections::set(buffer, at, toByte(0))
+        buffer = collections::set(buffer, at + 1, toByte(0))
+        buffer = collections::set(buffer, at + 2, toByte(0))
+        buffer = collections::set(buffer, at + 3, toByte(255))
+        x = x + 1
+      END WHILE
+      y = y + 1
+    END WHILE
+  END IF
+  FOR EACH offset IN offsets
+    IF full OR __canvas_boundsMeet(offset, damage) THEN
+      buffer = __canvas_drawGeometry(buffer, width, height, offset)
+    END IF
   NEXT
-  FOR EACH layer IN canvas::installedLayers()
-    FOR EACH item IN layer.items
-      buffer = __canvas_drawOne(buffer, size.width, size.height, item, collections::getOr(hashes, index, 0))
-      index = index + 1
-    NEXT
-  NEXT
-  __canvas_presentSurface(buffer, size.width, size.height)
-END FUNC
-
-FUNC __canvas_drawOne(surface AS List OF Byte, width AS Integer, height AS Integer, item AS DrawItem, hash AS Integer) AS List OF Byte
-  LET offset AS Integer = __canvas_geometryFor(item, hash)
-  RETURN __canvas_drawGeometry(surface, width, height, offset)
+  __CANVAS_KEPT = buffer
+  __CANVAS_KEPT_W = width
+  __CANVAS_KEPT_H = height
+  __canvas_presentSurface(buffer, width, height)
 END FUNC"#;
 
 /// The GPU renderer (plan-98-E), and the scene walk both backends share.
@@ -105,13 +123,28 @@ r#"FUNC __canvas_sceneOffsets() AS List OF Integer
   MUT offsets AS List OF Integer = []
   LET hashes AS List OF Integer = canvas::installedHashes()
   MUT index AS Integer = 0
+  ' Published as it goes, not at the end. The geometry cache is smaller than a large
+  ' scene, so resolving item 300 can evict item 1 -- while this frame is still holding
+  ' item 1's offset and has not drawn it yet. `__canvas_glyphEvict` reads this list to
+  ' know that those glyphs are live; without it a 300-item scene lost six of them,
+  ' silently, because their cache indices were renumbered out from under the offsets
+  ' this function had already returned.
+  __CANVAS_GEO_LIVE = []
   FOR EACH item IN canvas::installedItems()
-    offsets = collections::append(offsets, __canvas_geometryFor(item, collections::getOr(hashes, index, 0)))
+    ' The result lands in a local first: `__canvas_geometryFor` can run an eviction pass
+    ' that reassigns `__CANVAS_GEO_LIVE`, and appending to a global whose operand was
+    ' resolved before the call writes into the block that pass released
+    ' (`.ai/collections.md`).
+    LET offset AS Integer = __canvas_geometryFor(item, collections::getOr(hashes, index, 0))
+    offsets = collections::append(offsets, offset)
+    __CANVAS_GEO_LIVE = collections::append(__CANVAS_GEO_LIVE, offset)
     index = index + 1
   NEXT
   FOR EACH layer IN canvas::installedLayers()
     FOR EACH item IN layer.items
-      offsets = collections::append(offsets, __canvas_geometryFor(item, collections::getOr(hashes, index, 0)))
+      LET offset AS Integer = __canvas_geometryFor(item, collections::getOr(hashes, index, 0))
+      offsets = collections::append(offsets, offset)
+      __CANVAS_GEO_LIVE = collections::append(__CANVAS_GEO_LIVE, offset)
       index = index + 1
     NEXT
   NEXT
@@ -161,15 +194,16 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   RETURN TRUE
 END FUNC
 
-FUNC __canvas_renderMetal() AS Boolean
-  LET offsets AS List OF Integer = __canvas_sceneOffsets()
+FUNC __canvas_renderMetal(offsets AS List OF Integer, width AS Integer, height AS Integer) AS Boolean
   IF NOT __canvas_metalRenderable(offsets) THEN
     RETURN FALSE
   END IF
-  LET size AS Size = __canvas_surfaceSize()
-  LET buffer AS List OF Byte = canvas::newSurface(size.width, size.height)
-  canvas::metalDrawScene(buffer, size.width, size.height, __CANVAS_GEO_DATA, offsets, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV)
-  __canvas_presentSurface(buffer, size.width, size.height)
+  LET buffer AS List OF Byte = canvas::newSurface(width, height)
+  canvas::metalDrawScene(buffer, width, height, __CANVAS_GEO_DATA, offsets, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV)
+  __CANVAS_KEPT = buffer
+  __CANVAS_KEPT_W = width
+  __CANVAS_KEPT_H = height
+  __canvas_presentSurface(buffer, width, height)
   RETURN TRUE
 END FUNC
 
@@ -213,15 +247,16 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   RETURN total <= __CANVAS_VULKAN_MAX_FRAME_EDGES
 END FUNC
 
-FUNC __canvas_renderVulkan() AS Boolean
-  LET offsets AS List OF Integer = __canvas_sceneOffsets()
+FUNC __canvas_renderVulkan(offsets AS List OF Integer, width AS Integer, height AS Integer) AS Boolean
   IF NOT __canvas_vulkanRenderable(offsets) THEN
     RETURN FALSE
   END IF
-  LET size AS Size = __canvas_surfaceSize()
-  LET buffer AS List OF Byte = canvas::newSurface(size.width, size.height)
-  canvas::vulkanDrawScene(buffer, size.width, size.height, __CANVAS_GEO_DATA, offsets, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV)
-  __canvas_presentSurface(buffer, size.width, size.height)
+  LET buffer AS List OF Byte = canvas::newSurface(width, height)
+  canvas::vulkanDrawScene(buffer, width, height, __CANVAS_GEO_DATA, offsets, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV)
+  __CANVAS_KEPT = buffer
+  __CANVAS_KEPT_W = width
+  __CANVAS_KEPT_H = height
+  __canvas_presentSurface(buffer, width, height)
   RETURN TRUE
 END FUNC"#;
 
@@ -311,17 +346,46 @@ r#"FUNC __canvas_renderLoop() AS Nothing
 END FUNC
 
 FUNC __canvas_renderFrame() AS Nothing
+  LET size AS Size = __canvas_surfaceSize()
+  ' The geometry is built once, here, and the offsets are then handed to whichever
+  ' backend draws them. It has to happen before the damage diff rather than inside the
+  ' renderer: an item's damaged rectangle is its geometry's bounds, so there is no
+  ' diff to compute until the geometry exists.
+  LET offsets AS List OF Integer = __canvas_sceneOffsets()
+  LET hashes AS List OF Integer = canvas::installedHashes()
+  LET damage AS List OF Integer = __canvas_damageFor(hashes, offsets, size.width, size.height)
+  __CANVAS_DAMAGE = damage
+  IF len(damage) = 0 THEN
+    ' Nothing changed, so nothing is presented. The loop still calls `frameDone`, so a
+    ' `present` waiting under MFB_CANVAS_SYNC is released -- a skipped frame is a frame
+    ' that finished, not one that was lost.
+    __CANVAS_SKIPPED = __CANVAS_SKIPPED + 1
+    __canvas_writeStats()
+    RETURN
+  END IF
+  __CANVAS_FRAMES = __CANVAS_FRAMES + 1
+  IF NOT __canvas_damageIsFull(damage, size.width, size.height) THEN
+    __CANVAS_PARTIAL = __CANVAS_PARTIAL + 1
+  END IF
+  __canvas_rememberScene(hashes, offsets)
+
+  ' A GPU backend renders the whole frame whatever the damage is: it draws into its own
+  ' texture and reads the result back, so there is no kept surface for it to preserve.
+  ' That is the plan's "capability-absent path falls back to full-frame", and it is the
+  ' honest reading here -- the capability the plan named (`VK_KHR_incremental_present`,
+  ' Metal dirty rects) belongs to presenting a swapchain drawable, which this renderer
+  ' does not do at all (Correction 24).
   IF canvas::useGpu() AND canvas::metalReady() THEN
-    IF __canvas_renderMetal() THEN
+    IF __canvas_renderMetal(offsets, size.width, size.height) THEN
       RETURN
     END IF
   END IF
   IF canvas::useGpu() AND canvas::vulkanReady() THEN
-    IF __canvas_renderVulkan() THEN
+    IF __canvas_renderVulkan(offsets, size.width, size.height) THEN
       RETURN
     END IF
   END IF
-  __canvas_renderScene()
+  __canvas_renderScene(offsets, damage, size.width, size.height)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
