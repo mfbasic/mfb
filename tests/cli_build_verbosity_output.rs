@@ -6,10 +6,12 @@
 //!     on stdout;
 //!   - `-q`/`--quiet`:      only the artifact line (no summary, no timings);
 //!   - `-v`/`--verbose`:    the summary + one `phase <name> …` line per front-end
-//!     stage + the artifact line.
+//!     stage + the artifact line;
+//!   - `-vv`/`-v -v`:       everything `-v` prints plus the `crate::trace`
+//!     compile-profiler report (span tree, leaderboards, counters).
 //!
 //! The invariant the plan protects: the emitted executable bytes are identical
-//! across all three levels (verbosity never reaches codegen), and the
+//! across all four levels (verbosity never reaches codegen), and the
 //! `Wrote executable to <path>` line stays verbatim on stdout in every mode.
 
 mod common;
@@ -144,6 +146,103 @@ fn verbose_build_prints_phase_lines() {
     }
 }
 
+/// `-vv` / `-v -v`: everything `-v` prints, plus the compile-profiler report —
+/// the span tree, the per-function leaderboard, and the size counters — and a
+/// `codegen: <stage> <N>ms` completion line for each streamed sub-stage.
+#[test]
+fn trace_build_prints_the_compile_profiler_report() {
+    let project = temp_project("verbosity_trace", SOURCE);
+    for flags in [&["-vv"][..], &["-v", "-v"][..]] {
+        let output = build_with(&project, flags);
+        let out = stdout(&output);
+        let err = stderr(&output);
+
+        assert!(
+            out.lines()
+                .any(|line| line.starts_with("Wrote executable to ")),
+            "{flags:?}: artifact line missing from stdout:\n{out}"
+        );
+        // `-vv` is a superset of `-v`: the phase lines are still there.
+        for phase in ["parse", "resolve", "verify", "codegen+link"] {
+            assert!(
+                err.lines().any(
+                    |line| line.starts_with(&format!("phase {phase} ")) && line.ends_with("ms")
+                ),
+                "{flags:?}: missing `phase {phase} …ms` line in:\n{err}"
+            );
+        }
+        // The three report sections.
+        for section in [
+            "--- trace: span tree ---",
+            "--- trace: slowest lower_function",
+            "--- trace: counters ---",
+        ] {
+            assert!(
+                err.contains(section),
+                "{flags:?}: missing `{section}` in:\n{err}"
+            );
+        }
+        // Every top-level phase gets a tree row, and each has at least one
+        // nested row beneath it.
+        //
+        // Deliberately not asserting a *named* deep row (`monomorphize`, say):
+        // on a project this small every sub-step finishes in well under a
+        // millisecond and the renderer folds it into the `(N rows under 1.0ms)`
+        // summary. That fold is the feature working, not a missing span, so
+        // pinning a name here would make the test a hostage to how fast the
+        // machine happens to be.
+        for phase in ["parse", "resolve", "verify", "codegen+link"] {
+            let row = err
+                .lines()
+                .position(|line| line.starts_with(phase))
+                .unwrap_or_else(|| panic!("{flags:?}: missing `{phase}` tree row in:\n{err}"));
+            let next = err.lines().nth(row + 1).unwrap_or("");
+            assert!(
+                next.starts_with("  "),
+                "{flags:?}: `{phase}` has no nested rows; next line was `{next}` in:\n{err}"
+            );
+        }
+        // The counters are written from the *deepest* instrumentation points —
+        // `NIR functions` from the shared NIR lowering, `machine instructions`
+        // from per-function codegen — so their presence is the timing-independent
+        // proof that the deep hooks ran, which the folded tree rows cannot give.
+        for counter in ["NIR functions", "machine instructions", "IR functions"] {
+            assert!(
+                err.lines().any(|line| line.starts_with(counter)),
+                "{flags:?}: missing `{counter}` counter in:\n{err}"
+            );
+        }
+        // Each streamed codegen sub-stage gets a completion time, including the
+        // last one (the stage is closed explicitly once codegen returns).
+        for stage in ["emitting native code", "linking executable"] {
+            assert!(
+                err.lines()
+                    .any(|line| line.starts_with(&format!("codegen: {stage} "))
+                        && line.ends_with("ms")),
+                "{flags:?}: missing `codegen: {stage} …ms` completion line in:\n{err}"
+            );
+        }
+    }
+}
+
+/// The profiler is `-vv`-only: `-v` keeps its exact pre-existing output, with
+/// no report and no per-stage completion times.
+#[test]
+fn verbose_build_has_no_trace_report() {
+    let project = temp_project("verbosity_no_trace", SOURCE);
+    let err = stderr(&build_with(&project, &["-v"]));
+    assert!(
+        !err.contains("--- trace:"),
+        "the compile profiler must be -vv-only:\n{err}"
+    );
+    // A bare `codegen: <stage>` line, never a `codegen: <stage> <N>ms` one.
+    assert!(
+        !err.lines()
+            .any(|line| line.starts_with("codegen: ") && line.ends_with("ms")),
+        "-v must not print per-stage completion times:\n{err}"
+    );
+}
+
 /// `-q -v` (either order) is rejected as a usage error.
 #[test]
 fn quiet_and_verbose_conflict_is_rejected() {
@@ -168,7 +267,11 @@ fn quiet_and_verbose_conflict_is_rejected() {
 }
 
 /// The invariant that matters most: verbosity never reaches codegen, so the
-/// emitted executable is byte-identical across all three levels.
+/// emitted executable is byte-identical across all four levels.
+///
+/// `-vv` is the one that could plausibly break it — the compile profiler opens
+/// spans *inside* codegen — so it is covered here rather than left to the
+/// argument that a timing sink "obviously" cannot change anything.
 #[test]
 fn artifact_bytes_identical_across_verbosity_levels() {
     let project = temp_project("verbosity_bytes", SOURCE);
@@ -182,6 +285,9 @@ fn artifact_bytes_identical_across_verbosity_levels() {
     let verbose = build_with(&project, &["-v"]);
     let verbose_bytes = fs::read(artifact_path(&verbose)).expect("read verbose artifact");
 
+    let trace = build_with(&project, &["-vv"]);
+    let trace_bytes = fs::read(artifact_path(&trace)).expect("read trace artifact");
+
     assert_eq!(
         normal_bytes, quiet_bytes,
         "quiet build produced different artifact bytes than the default build"
@@ -189,5 +295,9 @@ fn artifact_bytes_identical_across_verbosity_levels() {
     assert_eq!(
         normal_bytes, verbose_bytes,
         "verbose build produced different artifact bytes than the default build"
+    );
+    assert_eq!(
+        normal_bytes, trace_bytes,
+        "-vv (compile profiler) produced different artifact bytes than the default build"
     );
 }

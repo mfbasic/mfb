@@ -218,16 +218,33 @@ sub-stage — `lowering module`, `planning + regalloc`, `emitting native code`,
 `encoding image`, `linking executable` — so a long build is visibly progressing
 and the slow sub-stage is named rather than looking like a hang (backends that
 emit one binary per libc flavor repeat the post-lowering lines per
-flavor).[[src/target.rs:write_executable]] The two flags are
-mutually exclusive (`mfb build accepts at most one of -q / -v`). Only the
-`println!`/`eprintln!` progress is level-gated; the timing brackets always run so
-`-v` and the default take an identical path into codegen. `mfb test`, `mfb repo
+flavor).[[src/target.rs:write_executable]]
+
+Repeating the flag — `-vv`, `-v -v`, or `--verbose --verbose` — selects `Trace`,
+the compile profiler.[[src/trace.rs]] It prints everything `-v` does, adds a
+`codegen: <stage> <N>ms` completion line after each live sub-stage, and, once the
+build finishes, three reports on stderr: a **span tree** of nested named regions
+with total/self/count/share per row (front-end phases and their sub-steps, the
+codegen sub-stages, per-function lowering, register allocation and its four
+stages, and every Opt1/Opt2 pass by catalog-row name); **leaderboards** naming the
+slowest individual functions and runtime helpers, and the costliest builtins by
+total inline-lowering time; and **counters** for the input sizes (source files,
+HIR functions either side of monomorphization, IR/NIR functions, NIR statements,
+emitted machine instructions). Tree rows under 1ms are folded into one summary
+line that states how many were folded and their total. Like every other level it
+is print-only — spans are inert unless `-vv` armed them, and the emitted artifact
+bytes are unchanged.
+
+`-q` and `-v` are mutually exclusive (`mfb build accepts at most one of -q /
+-v`). Only the `println!`/`eprintln!` progress is level-gated; the timing brackets
+always run so `-v` and the default take an identical path into codegen. `mfb test`, `mfb repo
 publish`, and `mfb repo check-abi` run the build quietly (their own report is the
 output; the summary would be noise and, via `<target>`, non-portable across
-machines). `mfb test` alone takes an explicit `-v`/`--verbose` that opts back
-into the full verbose build reporting; because every one of those lines goes to
-stderr, the pass/fail tree on stdout — and the `.testrun` goldens that capture
-it — are unaffected. `mfb test` takes no `-q` (quiet is already its default).
+machines). `mfb test` alone takes an explicit `-v`/`--verbose` (and `-vv`) that
+opts back into the full verbose build reporting; because every one of those lines
+goes to stderr, the pass/fail tree on stdout — and the `.testrun` goldens that
+capture it — are unaffected. `mfb test` takes no `-q` (quiet is already its
+default).
 
 ## `fmt`, `doc`, `audit` Flags
 
