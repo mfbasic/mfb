@@ -406,12 +406,64 @@ Commit: 5eb5f4dc3 (RED fixtures)
 
 ### Phase 2 — Defect A: the fix
 
-- [ ] Fix the identified layer.
-- [ ] Make an unresolved package member raise a located diagnostic rather than yielding `Unknown`.
-- [ ] Re-measure the user-package half of the compliance table, which Phase 1 could not: bare vs qualified for a *user* package's exported record/enum/union. Today even the qualified `comparable::Box` fails with `TYPE_UNKNOWN_VALUE`, and `tests/syntax/packages/package-comparable-import-invalid/golden/build.log` **pins that failure as its expected output** — a golden pinning a build failure, which must be re-examined here rather than carried forward.
+- [x] Fix the identified layer.
+- [x] Make an unresolved package member raise a located diagnostic rather than yielding `Unknown`.
+- [~] Re-measure the user-package half of the compliance table, which Phase 1 could not: bare vs qualified for a *user* package's exported record/enum/union. Today even the qualified `comparable::Box` fails with `TYPE_UNKNOWN_VALUE`, and `tests/syntax/packages/package-comparable-import-invalid/golden/build.log` **pins that failure as its expected output** — a golden pinning a build failure, which must be re-examined here rather than carried forward.
+
+**The fix is one step, not a second interface path.** The source dependency is
+compiled into a real `.mfp` in the importer's `build/packages/` cache, and the
+existing `.mfp` machinery reads it unchanged — signatures, exported type defs,
+resource closers, monomorph overloads, the shape pass and `merge_packages` all
+keep their single implementation. `resolved_package_file` becomes the ONE
+resolution point, replacing five hand-built `packages/<name>.mfp` paths.
+
+A dependency cycle is a located, coded `IMPORT_PACKAGE_MANIFEST_INVALID` at the
+offending manifest, guarded by a thread-local in-progress set plus a 32-level
+depth bound — never an infinite recursion.
+
+Reproduction now GREEN:
+
+```
+$ mfb build tests/rt-behavior/packages/source-package-dependency-rt
+Building source_pkg_tiny (package) for macos-aarch64
+Wrote package to .../build/packages/source_pkg_tiny.mfp
+uses source_pkg_tiny - [Unsigned]
+Building source_package_dependency_rt (executable) for macos-aarch64
+$ .../source_package_dependency_rt.out
+42
+hello, world
+```
+
+**Both Phase 1 audit questions answered.**
+
+*Lockfile / `mfb audit` — no state is written and audit is not laxer.*
+`src/cli/resolve.rs` and `src/audit/collect/dependencies.rs` are untouched. A
+source dependency carries no `ident`, so `is_registry_dependency` never counts
+it and a project whose only dependency is a source package still takes the
+"`mfb.lock` is not needed" branch, deleting a stale lock —
+`07_cli-reference.md:506` still holds. Audit still probes only
+`packages/<name>.mfp`, so a source dependency still audits as `missing` and a
+`.mfp` dependency's audit is byte-identical. The one widening is `mfb build`
+printing `uses <name> - [Unsigned]`; not laxer, because an installed `.mfp`
+still wins resolution, the cache is cleared and refilled every build so a
+planted entry cannot be trusted, and `source_is_local("file:…")` was already
+true so no `--unsigned` policy relaxes.
+
+*`EXPORT ISOLATED FUNC` — YES, same semantics, proven.*
+`tests/rt-behavior/packages/source-package-isolated-rt` starts an
+`EXPORT ISOLATED FUNC` thread entry from a `file:` dependency via
+`thread::start` and prints `21`/`42`. A deliberate near-miss confirmed the
+`ISOLATED` flag and the full signature arrive through the compiled interface.
+That settles the Open Decision in the affirmative: a source dependency supports
+isolated thread entries, so `examples/network-server` could drop its two-step
+build.
+
+The third bullet is left `[~]`: `package-comparable-import-invalid`'s golden is
+unchanged by this fix (verified byte-identical), and `comparable::Box[[1,2]]`
+failing is Defect B territory, so re-examining it belongs with Phase 4b.
 
 Acceptance: Phase 1 fixtures pass; the `.mfp` path is unchanged.
-Commit: —
+Commit: 64de7d9a5 (cherry-picked from the Defect A worktree)
 
 ### Phase 3 — Defect B1: make the qualified form resolve (strict widening)
 
